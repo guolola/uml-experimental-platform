@@ -18,9 +18,9 @@ npm run dev
 
 - `render-service`: `http://127.0.0.1:4002`
 - `api`: `http://127.0.0.1:4101`
-- `web`: Vite 输出的本地地址
+- `web`: Vite 输出的本地地址 
 
-如果你明确想走标准默认端口， 也可以用：
+如果明确想走标准默认端口， 也可以用：
 
 ```powershell
 npm run dev:default
