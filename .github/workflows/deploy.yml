@@ -36,6 +36,11 @@ jobs:
       - name: Verify PlantUML jar
         run: test -f plantuml/build/libs/plantuml-1.2026.3beta8.jar
 
+      - name: Build shared packages for tests
+        run: |
+          npm run build:contracts
+          npm run build:prompts
+
       - name: Test
         run: |
           npm run test:contracts
@@ -43,10 +48,8 @@ jobs:
           npm run test:render
           npm run test:web
 
-      - name: Build
+      - name: Build applications
         run: |
-          npm run build:contracts
-          npm run build:prompts
           npm run build:api
           npm run build:render
           VITE_APP_API_BASE_URL=/api npm run build:web
