@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="icon-gradient-a" x1="5" y1="4" x2="27" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#31d0ff" />
+      <stop offset="0.48" stop-color="#8b5cf6" />
+      <stop offset="0.78" stop-color="#ff5db1" />
+      <stop offset="1" stop-color="#31d0ff" />
+    </linearGradient>
+    <radialGradient id="icon-gradient-b" cx="9" cy="7" r="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7de8ff" stop-opacity="0.9" />
+      <stop offset="0.45" stop-color="#8b5cf6" stop-opacity="0.25" />
+      <stop offset="1" stop-color="#ff5db1" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <circle cx="16" cy="16" r="15" fill="url(#icon-gradient-a)" />
+  <circle cx="16" cy="16" r="15" fill="url(#icon-gradient-b)" />
+  <path
+    d="M6.96 17.15a1.7 1.7 0 0 0-.82 1.45v2.74c0 .59.31 1.13.82 1.45l2.54 1.52a1.7 1.7 0 0 0 1.75 0L14.6 22.3v-4.65l-4.23-2.54-3.41 2.04Z"
+    fill="none"
+    stroke="#fff"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="m10.37 20.18-4.01-2.41m4.01 2.41 4.23-2.54m-4.23 2.54v4.37m4.23-6.9v4.65l3.36 2.01a1.7 1.7 0 0 0 1.75 0l2.54-1.52c.51-.32.82-.86.82-1.45V18.6c0-.59-.31-1.13-.82-1.45l-3.41-2.04-4.23 2.54Zm4.23 2.53-4.23-2.54m4.23 2.54 4.01-2.41m-4.01 2.41v4.37M11.19 9.96a1.7 1.7 0 0 0-.82 1.45v3.7l4.23 2.54 4.23-2.54v-3.7a1.7 1.7 0 0 0-.82-1.45l-2.54-1.52a1.7 1.7 0 0 0-1.75 0l-2.54 1.52Zm3.41 3.03-4.01-2.41m4.01 2.41 4.01-2.41m-4.01 7.07v-4.66"
+    fill="none"
+    stroke="#fff"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

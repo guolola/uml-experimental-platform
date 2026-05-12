@@ -66,7 +66,7 @@ mkdir -p /www/wwwroot/uml-platform
 
 ```nginx
 location /api/ {
-    proxy_pass http://127.0.0.1:4001/api/;
+    proxy_pass http://127.0.0.1:4001;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -86,21 +86,23 @@ location / {
 
 `proxy_buffering off` 用于保证 SSE 生成进度可以实时返回。
 
+注意：`proxy_pass` 后面不要追加 `/api/` 或尾部 `/`。前端会请求 `/api/...`，后端路由也以 `/api/...` 开头，Nginx 需要原样转发 URI，否则会出现 `/api/api/runs` 或 `/api//runs`。
+
 ## 发布流程
 
 推送到 `main` 分支后，GitHub Actions 会自动执行：
 
 ```bash
 npm ci
+npm run build:contracts
+npm run build:prompts
 npm run test:contracts
 npm run test:api
 npm run test:render
 npm run test:web
-npm run build:contracts
-npm run build:prompts
 npm run build:api
 npm run build:render
-VITE_APP_API_BASE_URL=/api npm run build:web
+VITE_APP_API_BASE_URL="" npm run build:web
 ```
 
 随后工作流会打包发布产物并上传到服务器，由 `scripts/deploy/baota-pm2-deploy.sh` 完成：
@@ -178,6 +180,18 @@ curl http://127.0.0.1:4001/api/health
 ```
 
 如果本机 curl 正常，重点检查宝塔 Nginx 反向代理配置。
+
+如果日志出现 `Route POST:/api/api/runs not found` 或 `Route POST:/api//runs not found`，说明 Nginx 或前端构建变量重复拼接了 `/api`。确认线上 Nginx 使用：
+
+```nginx
+proxy_pass http://127.0.0.1:4001;
+```
+
+同时确认 GitHub Actions 使用：
+
+```bash
+VITE_APP_API_BASE_URL="" npm run build:web
+```
 
 ### SVG 渲染失败
 

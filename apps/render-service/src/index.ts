@@ -1,7 +1,9 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
+import { realpathSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   renderSvgRequestSchema,
@@ -120,7 +122,26 @@ async function start() {
   await app.listen({ host: DEFAULT_HOST, port: DEFAULT_PORT });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+function resolveEntrypointPath(path: string) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+export function isMainModule(metaUrl: string, argvPath = process.argv[1]) {
+  if (!argvPath) {
+    return false;
+  }
+
+  return (
+    resolveEntrypointPath(fileURLToPath(metaUrl)) ===
+    resolveEntrypointPath(argvPath)
+  );
+}
+
+if (isMainModule(import.meta.url)) {
   start().catch((error) => {
     console.error(error);
     process.exit(1);

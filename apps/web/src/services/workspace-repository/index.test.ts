@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildApiUrl,
   createHttpWorkspaceRepository,
   createStartRunInput,
 } from "./index";
@@ -214,5 +215,28 @@ describe("createHttpWorkspaceRepository", () => {
 
     expect(report).not.toContain("@startuml");
     expect(report).not.toContain("```plantuml");
+  });
+});
+
+describe("buildApiUrl", () => {
+  it("keeps same-origin api paths stable without a configured base", () => {
+    expect(buildApiUrl("/api/runs", "")).toBe("/api/runs");
+  });
+
+  it("does not duplicate api when the configured base is /api", () => {
+    expect(buildApiUrl("/api/runs", "/api")).toBe("/api/runs");
+    expect(buildApiUrl("/api/runs", "/api/")).toBe("/api/runs");
+  });
+
+  it("appends api paths to origin-only absolute bases", () => {
+    expect(buildApiUrl("/api/runs", "https://example.com")).toBe(
+      "https://example.com/api/runs",
+    );
+  });
+
+  it("does not duplicate api for absolute bases ending in /api", () => {
+    expect(buildApiUrl("/api/runs", "https://example.com/api/")).toBe(
+      "https://example.com/api/runs",
+    );
   });
 });

@@ -33,6 +33,27 @@ import {
 
 const APP_API_BASE_URL =
   import.meta.env.VITE_APP_API_BASE_URL ?? "http://127.0.0.1:4001";
+const API_PATH_PREFIX = "/api";
+
+export function buildApiUrl(path: string, baseUrl = APP_API_BASE_URL) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+
+  if (!normalizedBaseUrl) {
+    return normalizedPath;
+  }
+
+  if (
+    normalizedBaseUrl.endsWith(API_PATH_PREFIX) &&
+    (normalizedPath === API_PATH_PREFIX ||
+      normalizedPath.startsWith(`${API_PATH_PREFIX}/`))
+  ) {
+    const pathWithoutApiPrefix = normalizedPath.slice(API_PATH_PREFIX.length);
+    return `${normalizedBaseUrl}${pathWithoutApiPrefix || "/"}`;
+  }
+
+  return `${normalizedBaseUrl}${normalizedPath}`;
+}
 
 export interface ProviderSettingsInput {
   apiBaseUrl: ProviderSettings["apiBaseUrl"];
@@ -148,7 +169,7 @@ function mapDesignSnapshotToRecords(snapshot: DesignRunSnapshot) {
 }
 
 async function readRunSnapshot(runId: string) {
-  const response = await fetch(`${APP_API_BASE_URL}/api/runs/${runId}`);
+  const response = await fetch(buildApiUrl(`/api/runs/${runId}`));
   if (!response.ok) {
     throw new Error(`读取运行快照失败：HTTP ${response.status}`);
   }
@@ -156,7 +177,7 @@ async function readRunSnapshot(runId: string) {
 }
 
 async function readDesignRunSnapshot(runId: string) {
-  const response = await fetch(`${APP_API_BASE_URL}/api/design-runs/${runId}`);
+  const response = await fetch(buildApiUrl(`/api/design-runs/${runId}`));
   if (!response.ok) {
     throw new Error(`读取设计运行快照失败：HTTP ${response.status}`);
   }
@@ -178,7 +199,7 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async startRun(input: StartRunInput) {
-      const response = await fetch(`${APP_API_BASE_URL}/api/runs`, {
+      const response = await fetch(buildApiUrl("/api/runs"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -203,7 +224,7 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async startDesignRun(input: StartDesignRunInput) {
-      const response = await fetch(`${APP_API_BASE_URL}/api/design-runs`, {
+      const response = await fetch(buildApiUrl("/api/design-runs"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -229,7 +250,7 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
 
     async subscribeToRun(runId: string, onEvent: (event: RunEvent) => void) {
       await new Promise<void>((resolve, reject) => {
-        const source = new EventSource(`${APP_API_BASE_URL}/api/runs/${runId}/events`);
+        const source = new EventSource(buildApiUrl(`/api/runs/${runId}/events`));
         let settled = false;
 
         source.onmessage = (message) => {
@@ -282,7 +303,9 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
 
     async subscribeToDesignRun(runId: string, onEvent: (event: RunEvent) => void) {
       await new Promise<void>((resolve, reject) => {
-        const source = new EventSource(`${APP_API_BASE_URL}/api/design-runs/${runId}/events`);
+        const source = new EventSource(
+          buildApiUrl(`/api/design-runs/${runId}/events`),
+        );
         let settled = false;
 
         source.onmessage = (message) => {
@@ -342,7 +365,7 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async renderPlantUml(diagramKind, plantUmlSource) {
-      const response = await fetch(`${APP_API_BASE_URL}/api/render/svg`, {
+      const response = await fetch(buildApiUrl("/api/render/svg"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -370,7 +393,7 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async testProviderSettings(providerSettings) {
-      const response = await fetch(`${APP_API_BASE_URL}/api/provider/test`, {
+      const response = await fetch(buildApiUrl("/api/provider/test"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

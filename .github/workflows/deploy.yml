@@ -52,7 +52,7 @@ jobs:
         run: |
           npm run build:api
           npm run build:render
-          VITE_APP_API_BASE_URL=/api npm run build:web
+          VITE_APP_API_BASE_URL="" npm run build:web
 
       - name: Create release archive
         run: |
