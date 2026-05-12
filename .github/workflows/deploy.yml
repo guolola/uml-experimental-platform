@@ -85,30 +85,57 @@ jobs:
           tar -czf "uml-platform-${GITHUB_SHA}.tar.gz" -C "$RELEASE_DIR" .
 
       - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "Missing GitHub secret: DEPLOY_HOST" >&2
+            exit 1
+          fi
+          if [ -z "$DEPLOY_PORT" ]; then
+            echo "Missing GitHub secret: DEPLOY_PORT, or set it to 22" >&2
+            exit 1
+          fi
+          if [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "Missing GitHub secret: DEPLOY_SSH_KEY" >&2
+            exit 1
+          fi
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ secrets.DEPLOY_PORT || '22' }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          echo "Scanning SSH host key for $DEPLOY_HOST:$DEPLOY_PORT ..."
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload release archive
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
         run: |
           set -euo pipefail
-          DEPLOY_PORT="${{ secrets.DEPLOY_PORT || '22' }}"
+          if [ -z "$DEPLOY_USER" ]; then
+            echo "Missing GitHub secret: DEPLOY_USER" >&2
+            exit 1
+          fi
           scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
             "uml-platform-${GITHUB_SHA}.tar.gz" \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
           scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
             scripts/deploy/baota-pm2-deploy.sh \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/baota-pm2-deploy.sh"
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/baota-pm2-deploy.sh"
 
       - name: Deploy on server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
         run: |
           set -euo pipefail
-          DEPLOY_PORT="${{ secrets.DEPLOY_PORT || '22' }}"
-          DEPLOY_PATH="${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}"
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
             "chmod +x /tmp/baota-pm2-deploy.sh && DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='/tmp/uml-platform-${GITHUB_SHA}.tar.gz' bash /tmp/baota-pm2-deploy.sh"
