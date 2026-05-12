@@ -1,0 +1,183 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 15px;
+
+  --background: #f7f8fa;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --sidebar: #ffffff;
+  --input-background: #ffffff;
+
+  --foreground: #1d1f23;
+  --card-foreground: #1d1f23;
+  --popover-foreground: #1d1f23;
+  --sidebar-foreground: #24272d;
+  --muted: #f1f3f6;
+  --muted-foreground: #6b7280;
+
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --sidebar-border: #eceef2;
+
+  --primary: #337dff;
+  --primary-foreground: #ffffff;
+  --ring: #337dff;
+  --sidebar-primary: #337dff;
+  --sidebar-primary-foreground: #ffffff;
+
+  --accent: #eaf4ff;
+  --accent-foreground: #1464d2;
+  --sidebar-accent: #eaf4ff;
+  --sidebar-accent-foreground: #1464d2;
+
+  --secondary: #f0f2f5;
+  --secondary-foreground: #1d1f23;
+
+  --destructive: #d1242f;
+  --destructive-foreground: #ffffff;
+  --success: #1a7f37;
+  --warning: #bf8700;
+  --info: #2f6feb;
+
+  --radius: 0.5rem;
+
+  --chart-1: #2f6feb;
+  --chart-2: #1a7f37;
+  --chart-3: #bf8700;
+  --chart-4: #8250df;
+  --chart-5: #cf222e;
+
+  --switch-background: #d6dae0;
+  --sidebar-ring: #2f6feb;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo,
+    Consolas, "Liberation Mono", monospace;
+}
+
+.dark {
+  --background: #141417;
+  --card: #18191d;
+  --popover: #202126;
+  --sidebar: #141417;
+  --input-background: #202126;
+
+  --foreground: #f2f3f5;
+  --card-foreground: #f2f3f5;
+  --popover-foreground: #f2f3f5;
+  --sidebar-foreground: #f2f3f5;
+  --muted: #2b2c31;
+  --muted-foreground: #a6a8af;
+
+  --border: #2a2b31;
+  --input: #34363d;
+  --sidebar-border: #24252a;
+
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --ring: #3b82f6;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+
+  --accent: #203247;
+  --accent-foreground: #d8eaff;
+  --sidebar-accent: #203247;
+  --sidebar-accent-foreground: #d8eaff;
+
+  --secondary: #292a30;
+  --secondary-foreground: #f2f3f5;
+
+  --destructive: #f45d5d;
+  --destructive-foreground: #ffffff;
+  --success: #34c759;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+
+  --chart-1: #3b82f6;
+  --chart-2: #34c759;
+  --chart-3: #f59e0b;
+  --chart-4: #a855f7;
+  --chart-5: #ec4899;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html, body, #root {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+  html { font-size: var(--font-size); }
+
+  h1 { font-size: 1.5rem; font-weight: 600; line-height: 1.4; }
+  h2 { font-size: 1.25rem; font-weight: 600; line-height: 1.4; }
+  h3 { font-size: 1.05rem; font-weight: 600; line-height: 1.4; }
+  h4 { font-size: 0.95rem; font-weight: 600; line-height: 1.4; }
+  label { font-size: 0.9375rem; font-weight: 500; line-height: 1.5; }
+  button { font-weight: 500; line-height: 1.5; }
+  input { font-weight: 400; line-height: 1.5; }
+  code, pre, .mono { font-family: var(--font-mono); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+  ::-webkit-scrollbar-track { background: transparent; }
+}

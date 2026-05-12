@@ -1,0 +1,111 @@
+name: Deploy to BaoTa PM2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java for PlantUML tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify PlantUML jar
+        run: test -f plantuml/build/libs/plantuml-1.2026.3beta8.jar
+
+      - name: Test
+        run: |
+          npm run test:contracts
+          npm run test:api
+          npm run test:render
+          npm run test:web
+
+      - name: Build
+        run: |
+          npm run build:contracts
+          npm run build:prompts
+          npm run build:api
+          npm run build:render
+          VITE_APP_API_BASE_URL=/api npm run build:web
+
+      - name: Create release archive
+        run: |
+          set -euo pipefail
+          RELEASE_DIR="release-${GITHUB_SHA}"
+          mkdir -p "$RELEASE_DIR"
+
+          cp package.json package-lock.json ecosystem.config.cjs "$RELEASE_DIR/"
+
+          mkdir -p "$RELEASE_DIR/apps/api" "$RELEASE_DIR/apps/render-service" "$RELEASE_DIR/apps/web"
+          cp apps/api/package.json "$RELEASE_DIR/apps/api/"
+          cp apps/render-service/package.json "$RELEASE_DIR/apps/render-service/"
+          cp apps/web/package.json "$RELEASE_DIR/apps/web/"
+          cp -R apps/api/dist "$RELEASE_DIR/apps/api/dist"
+          cp -R apps/render-service/dist "$RELEASE_DIR/apps/render-service/dist"
+          cp -R apps/web/dist "$RELEASE_DIR/apps/web/dist"
+
+          mkdir -p "$RELEASE_DIR/packages/contracts" "$RELEASE_DIR/packages/prompts"
+          cp packages/contracts/package.json "$RELEASE_DIR/packages/contracts/"
+          cp packages/prompts/package.json "$RELEASE_DIR/packages/prompts/"
+          cp -R packages/contracts/dist "$RELEASE_DIR/packages/contracts/dist"
+          cp -R packages/prompts/dist "$RELEASE_DIR/packages/prompts/dist"
+
+          mkdir -p "$RELEASE_DIR/plantuml/build/libs"
+          cp plantuml/build/libs/plantuml-1.2026.3beta8.jar "$RELEASE_DIR/plantuml/build/libs/"
+
+          mkdir -p "$RELEASE_DIR/scripts/deploy"
+          cp scripts/deploy/baota-pm2-deploy.sh "$RELEASE_DIR/scripts/deploy/"
+
+          tar -czf "uml-platform-${GITHUB_SHA}.tar.gz" -C "$RELEASE_DIR" .
+
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.DEPLOY_PORT || '22' }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload release archive
+        run: |
+          set -euo pipefail
+          DEPLOY_PORT="${{ secrets.DEPLOY_PORT || '22' }}"
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
+            "uml-platform-${GITHUB_SHA}.tar.gz" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
+            scripts/deploy/baota-pm2-deploy.sh \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/baota-pm2-deploy.sh"
+
+      - name: Deploy on server
+        run: |
+          set -euo pipefail
+          DEPLOY_PORT="${{ secrets.DEPLOY_PORT || '22' }}"
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "chmod +x /tmp/baota-pm2-deploy.sh && DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='/tmp/uml-platform-${GITHUB_SHA}.tar.gz' bash /tmp/baota-pm2-deploy.sh"

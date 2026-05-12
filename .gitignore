@@ -1,0 +1,52 @@
+# dependencies
+node_modules/
+
+# build outputs
+apps/*/dist/
+apps/*/.vite/
+packages/*/dist/
+dist/
+build/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# local/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# test/cache
+coverage/
+.cache/
+.vitest/
+vite.config.ts.timestamp-*
+vite.config.*.timestamp-*
+
+# local codex/dev artifacts
+.codex-logs/
+current-page*.png
+dev-implementation*.log
+vite-web*.log
+.codex-web-dev*.log
+
+# release artifacts
+*.tar.gz
+*.zip
+release-*/
+
+plantuml/**
+!plantuml/
+!plantuml/build/
+!plantuml/build/libs/
+!plantuml/build/libs/plantuml-1.2026.3beta8.jar

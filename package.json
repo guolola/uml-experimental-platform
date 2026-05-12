@@ -1,0 +1,39 @@
+{
+  "name": "uml-experimental-platform",
+  "private": true,
+  "version": "0.1.0",
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "concurrently": "9.1.2",
+    "cross-env": "7.0.3",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api:safe\" \"npm run dev:web:safe\"",
+    "dev:default": "concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm run dev --workspace @uml-platform/api",
+    "dev:api:safe": "cross-env API_PORT=4101 npm run dev:api",
+    "dev:render": "npm run dev --workspace @uml-platform/render-service",
+    "build:contracts": "npm run build --workspace @uml-platform/contracts",
+    "build:prompts": "npm run build --workspace @uml-platform/prompts",
+    "build:api": "npm run build --workspace @uml-platform/api",
+    "build:render": "npm run build --workspace @uml-platform/render-service",
+    "dev:web": "npm run dev --workspace @uml-platform/web",
+    "dev:web:safe": "cross-env VITE_APP_API_BASE_URL=http://127.0.0.1:4101 npm run dev:web",
+    "build:web": "npm run build --workspace @uml-platform/web",
+    "typecheck:web": "npm run typecheck --workspace @uml-platform/web",
+    "preview:web": "npm run preview --workspace @uml-platform/web",
+    "lint:web": "npm run lint --workspace @uml-platform/web",
+    "test:web": "npm run test --workspace @uml-platform/web",
+    "test:contracts": "npm run test --workspace @uml-platform/contracts",
+    "test:api": "npm run test --workspace @uml-platform/api",
+    "test:render": "npm run test --workspace @uml-platform/render-service",
+    "test:harness-eval": "npm run test --workspace @uml-platform/harness-eval",
+    "eval:harness": "npm run eval --workspace @uml-platform/harness-eval"
+  }
+}
