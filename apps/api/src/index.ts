@@ -28,10 +28,13 @@ import {
   codeFileOperationsResultSchema,
   codeQualityDiagnosticSchema,
   codeRunSnapshotSchema,
+  codeUiIrResultSchema,
+  codeVisualDiffReportSchema,
   codeUiFidelityReportResultSchema,
   codeUiMockupSchema,
   codeUiBlueprintResultSchema,
   codeUiReferenceSpecResultSchema,
+  designDiagramKindSchema,
   documentContentResultSchema,
   documentRunSnapshotSchema,
   completedRunEventSchema,
@@ -64,12 +67,14 @@ import {
   type CodeAppBlueprint,
   type CodeFilePlan,
   type CodeGenerationSpec,
+  type CodeUiIr,
   type CodeQualityDiagnostic,
   type CodeRunSnapshot,
   type CodeUiBlueprint,
   type CodeUiFidelityReport,
   type CodeUiMockup,
   type CodeUiReferenceSpec,
+  type CodeVisualDiffReport,
   type DocumentKind,
   type DocumentRunSnapshot,
   type DocumentSection,
@@ -101,6 +106,7 @@ import {
   buildGenerateCodeAgentPlanPrompt,
   buildGenerateCodeFilePlanPrompt,
   buildGenerateCodeFileOperationsPrompt,
+  buildGenerateCodeUiIrPrompt,
   buildGenerateCodeUiMockupPrompt,
   buildGenerateCodeUiBlueprintPrompt,
   buildVerifyCodeUiFidelityPrompt,
@@ -131,6 +137,19 @@ const DEFAULT_PORT = Number(process.env.API_PORT ?? 4001);
 const DEFAULT_HOST = process.env.API_HOST ?? "127.0.0.1";
 const DEFAULT_RENDER_SERVICE_BASE_URL =
   process.env.RENDER_SERVICE_BASE_URL ?? "http://127.0.0.1:4002";
+const MAX_UI_FIDELITY_REPAIR_ROUNDS = 2;
+const DEFAULT_LOCAL_CORS_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:5176",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  "http://127.0.0.1:5175",
+  "http://127.0.0.1:5176",
+];
+const RELEASE_STARTED_AT =
+  process.env.UML_RELEASE_STARTED_AT ?? new Date().toISOString();
 const DEFAULT_SSE_ALLOW_ORIGIN = "http://localhost:5173";
 const MAX_PLANTUML_REPAIR_ATTEMPTS = 2;
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
@@ -1233,6 +1252,147 @@ const GENERATE_CODE_UI_FIDELITY_RESPONSE_FORMAT: ChatCompletionResponseFormat = 
   },
 };
 
+function createCodeComponentTreeNodeResponseSchema(depth: number): Record<string, unknown> {
+  const childSchema =
+    depth > 0
+      ? createCodeComponentTreeNodeResponseSchema(depth - 1)
+      : {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            component: { type: "string" },
+            purpose: { type: "string" },
+            props: { type: "object", additionalProperties: { type: "string" } },
+            dataBinding: { type: ["string", "null"] },
+            tokenRefs: { type: "array", items: { type: "string" } },
+            children: { type: "array", maxItems: 0, items: { type: "object" } },
+          },
+          required: [
+            "component",
+            "purpose",
+            "props",
+            "dataBinding",
+            "tokenRefs",
+            "children",
+          ],
+        };
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      component: { type: "string" },
+      purpose: { type: "string" },
+      props: { type: "object", additionalProperties: { type: "string" } },
+      dataBinding: { type: ["string", "null"] },
+      tokenRefs: { type: "array", items: { type: "string" } },
+      children: { type: "array", items: childSchema },
+    },
+    required: [
+      "component",
+      "purpose",
+      "props",
+      "dataBinding",
+      "tokenRefs",
+      "children",
+    ],
+  };
+}
+
+const CODE_DESIGN_TOKENS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    colors: { type: "object", additionalProperties: { type: "string" } },
+    typography: { type: "object", additionalProperties: { type: "string" } },
+    spacing: { type: "object", additionalProperties: { type: "string" } },
+    radius: { type: "object", additionalProperties: { type: "string" } },
+    shadow: { type: "object", additionalProperties: { type: "string" } },
+    density: { type: "string", enum: ["compact", "comfortable"] },
+  },
+  required: ["colors", "typography", "spacing", "radius", "shadow", "density"],
+};
+
+const CODE_COMPONENT_REGISTRY_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    components: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          props: { type: "array", items: { type: "string" } },
+          variants: { type: "array", items: { type: "string" } },
+          usageRules: { type: "array", items: { type: "string" } },
+        },
+        required: ["name", "description", "props", "variants", "usageRules"],
+      },
+    },
+  },
+  required: ["components"],
+};
+
+const GENERATE_CODE_UI_IR_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "code_ui_ir_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        uiIr: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            designTokens: CODE_DESIGN_TOKENS_RESPONSE_SCHEMA,
+            componentRegistry: CODE_COMPONENT_REGISTRY_RESPONSE_SCHEMA,
+            pages: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  id: { type: "string" },
+                  route: { type: "string" },
+                  name: { type: "string" },
+                  layout: { type: "string" },
+                  primaryActions: { type: "array", items: { type: "string" } },
+                  componentTree: createCodeComponentTreeNodeResponseSchema(4),
+                },
+                required: [
+                  "id",
+                  "route",
+                  "name",
+                  "layout",
+                  "primaryActions",
+                  "componentTree",
+                ],
+              },
+            },
+            dataBindings: { type: "array", items: { type: "string" } },
+            interactions: { type: "array", items: { type: "string" } },
+            responsiveRules: { type: "array", items: { type: "string" } },
+          },
+          required: [
+            "designTokens",
+            "componentRegistry",
+            "pages",
+            "dataBindings",
+            "interactions",
+            "responsiveRules",
+          ],
+        },
+      },
+      required: ["uiIr"],
+    },
+  },
+};
+
 const GENERATE_CODE_FILE_PLAN_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
   json_schema: {
@@ -1304,41 +1464,19 @@ const GENERATE_CODE_FILE_OPERATIONS_RESPONSE_FORMAT: ChatCompletionResponseForma
           operations: {
             type: "array",
             items: {
-              oneOf: [
-                {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    operation: {
-                      type: "string",
-                      enum: ["create_file", "update_file"],
-                    },
-                    path: { type: "string" },
-                    content: { type: "string" },
-                    reason: { type: "string" },
-                  },
-                  required: ["operation", "path", "content", "reason"],
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                operation: {
+                  type: "string",
+                  enum: ["create_file", "update_file", "set_entry_file", "note"],
                 },
-                {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    operation: { type: "string", enum: ["set_entry_file"] },
-                    path: { type: "string" },
-                    reason: { type: "string" },
-                  },
-                  required: ["operation", "path", "reason"],
-                },
-                {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    operation: { type: "string", enum: ["note"] },
-                    message: { type: "string" },
-                  },
-                  required: ["operation", "message"],
-                },
-              ],
+                path: { type: "string" },
+                content: { type: "string" },
+                reason: { type: "string" },
+                message: { type: "string" },
+              },
+              required: ["operation", "path", "content", "reason", "message"],
             },
           },
         },
@@ -1475,6 +1613,11 @@ function createEmptyCodeSnapshot(
     uiMockup: null,
     uiReferenceSpec: null,
     uiFidelityReport: null,
+    designTokens: null,
+    componentRegistry: null,
+    uiIr: null,
+    visualDiffReport: null,
+    repairLoopSummary: null,
     filePlan: null,
     files: generationMode === "regenerate" ? {} : input.existingFiles ?? {},
     entryFile: null,
@@ -1579,6 +1722,12 @@ function getGenerateCodeUiReferenceResponseFormat(model: string) {
 function getGenerateCodeUiFidelityResponseFormat(model: string) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_CODE_UI_FIDELITY_RESPONSE_FORMAT
+    : undefined;
+}
+
+function getGenerateCodeUiIrResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_CODE_UI_IR_RESPONSE_FORMAT
     : undefined;
 }
 
@@ -1723,6 +1872,8 @@ function stageProgressValue(stage: RunStage) {
       return 42;
     case "analyze_code_ui_mockup":
       return 46;
+    case "generate_code_ui_ir":
+      return 49;
     case "plan_code_files":
       return 50;
     case "generate_code_spec":
@@ -1737,8 +1888,10 @@ function stageProgressValue(stage: RunStage) {
       return 88;
     case "verify_code_ui_fidelity":
       return 91;
+    case "verify_code_rendered_preview":
+      return 93;
     case "verify_code_preview":
-      return 92;
+      return 98;
     case "repair_code_files":
       return 96;
     case "generate_document_text":
@@ -2678,6 +2831,11 @@ function buildCodeContext(snapshot: CodeRunSnapshot) {
       : null,
     uiReferenceSpec: snapshot.uiReferenceSpec,
     uiFidelityReport: snapshot.uiFidelityReport,
+    designTokens: snapshot.designTokens,
+    componentRegistry: snapshot.componentRegistry,
+    uiIr: snapshot.uiIr,
+    visualDiffReport: snapshot.visualDiffReport,
+    repairLoopSummary: snapshot.repairLoopSummary,
     filePlan: snapshot.filePlan,
     constraints: {
       target: "React 18 + TypeScript + Sandpack front-end prototype",
@@ -3141,6 +3299,225 @@ async function analyzeCodeUiMockup(
   }
 }
 
+const PLATFORM_COMPONENT_REGISTRY_NAMES = [
+  "WorkspaceShell",
+  "SidebarNav",
+  "TopBar",
+  "MetricCard",
+  "DataTable",
+  "StatusBadge",
+  "FilterBar",
+  "ActionButton",
+  "DetailPanel",
+  "EmptyState",
+];
+
+function createFallbackCodeUiIr(
+  appBlueprint: CodeAppBlueprint,
+  uiBlueprint: CodeUiBlueprint,
+): CodeUiIr {
+  return codeUiIrResultSchema.parse({
+    uiIr: {
+      designTokens: {
+        colors: {
+          primary: uiBlueprint.theme.primaryColor,
+          background: uiBlueprint.theme.backgroundColor,
+          surface: uiBlueprint.theme.surfaceColor,
+          text: uiBlueprint.theme.textColor,
+          accent: uiBlueprint.theme.accentColor,
+          success: "#16a34a",
+          warning: "#f59e0b",
+          danger: "#dc2626",
+        },
+        typography: {
+          body: "14px/1.5 system-ui",
+          heading: "600 20px/1.25 system-ui",
+          label: "600 12px/1.2 system-ui",
+        },
+        spacing: {
+          "1": "4px",
+          "2": "8px",
+          "3": "12px",
+          "4": "16px",
+          "6": "24px",
+          "8": "32px",
+        },
+        radius: {
+          sm: "4px",
+          md: "8px",
+          lg: "12px",
+        },
+        shadow: {
+          sm: "0 1px 2px rgba(15, 23, 42, 0.08)",
+          md: "0 8px 24px rgba(15, 23, 42, 0.12)",
+        },
+        density: uiBlueprint.theme.density,
+      },
+      componentRegistry: {
+        components: PLATFORM_COMPONENT_REGISTRY_NAMES.map((name) => ({
+          name,
+          description: `${name} 用于 ${appBlueprint.domain} 原型中的标准业务界面结构`,
+          props: ["title", "items", "status", "onAction"],
+          variants: ["default", "compact", "emphasis"],
+          usageRules: ["优先复用平台组件语义，不在页面中重新发明同类 UI"],
+        })),
+      },
+      pages: appBlueprint.pages.map((page, index) => ({
+        id: page.id,
+        route: page.route,
+        name: page.name,
+        layout: "sidebar-content",
+        primaryActions: [`执行${page.name}主要操作`],
+        componentTree: {
+          component: "WorkspaceShell",
+          purpose: `承载${page.name}页面的导航和业务工作区`,
+          props: { title: appBlueprint.appName, activeRoute: page.route },
+          dataBinding: null,
+          tokenRefs: ["colors.background", "colors.surface", "spacing.4"],
+          children: [
+            {
+              component: "SidebarNav",
+              purpose: "展示业务页面导航",
+              props: { activeRoute: page.route },
+              dataBinding: "appBlueprint.pages",
+              tokenRefs: ["colors.primary", "spacing.3"],
+              children: [],
+            },
+            {
+              component: "TopBar",
+              purpose: `说明${page.name}当前任务和关键状态`,
+              props: { title: page.name, subtitle: page.purpose },
+              dataBinding: null,
+              tokenRefs: ["colors.text", "spacing.4"],
+              children: [],
+            },
+            {
+              component: index === 0 ? "MetricCard" : "DataTable",
+              purpose: page.purpose,
+              props: { title: page.name },
+              dataBinding: `${appBlueprint.domain}业务数据`,
+              tokenRefs: ["colors.surface", "radius.md", "shadow.sm"],
+              children: [
+                {
+                  component: "ActionButton",
+                  purpose: `触发${page.name}主要操作`,
+                  props: { label: `处理${page.name}` },
+                  dataBinding: null,
+                  tokenRefs: ["colors.primary", "radius.sm"],
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      })),
+      dataBindings: [`${appBlueprint.domain}业务数据 -> DataTable/MetricCard/DetailPanel`],
+      interactions: appBlueprint.pages.map((page) => `进入 ${page.name}: ${page.purpose}`),
+      responsiveRules: [
+        "desktop 使用侧边导航和右侧业务工作区",
+        "tablet 保留导航但压缩统计与表格间距",
+        "mobile 将导航折叠为顶部入口，业务区纵向排列",
+      ],
+    },
+  }).uiIr;
+}
+
+async function generateCodeUiIr(
+  record: RunRecord,
+  snapshot: CodeRunSnapshot,
+  providerSettings: ProviderSettings,
+  llmTransport: LlmTransport,
+  appBlueprint: CodeAppBlueprint,
+  uiBlueprint: CodeUiBlueprint,
+  uiMockup: CodeUiMockup | null,
+  uiReferenceSpec: CodeUiReferenceSpec | null,
+) {
+  try {
+    const result = await collectStructuredResult(
+      llmTransport,
+      providerSettings,
+      createMessages(
+        buildGenerateCodeUiIrPrompt(
+          buildCodeContext(snapshot),
+          appBlueprint,
+          uiBlueprint,
+          uiMockup,
+          uiReferenceSpec,
+        ),
+      ),
+      "generate_code_ui_ir",
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage: "generate_code_ui_ir",
+            chunk,
+          }),
+        );
+      },
+      (text) => codeUiIrResultSchema.parse(parseJson(text)),
+      getGenerateCodeUiIrResponseFormat(providerSettings.model),
+    );
+    snapshot.designTokens = result.uiIr.designTokens;
+    snapshot.componentRegistry = result.uiIr.componentRegistry;
+    snapshot.uiIr = result.uiIr;
+    addCodeDiagnostic(
+      snapshot,
+      "generate_code_ui_ir",
+      `已生成 ${result.uiIr.pages.length} 个页面的结构化 UI IR`,
+    );
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "generate_code_ui_ir",
+        artifactKind: "designTokens",
+        designTokens: result.uiIr.designTokens,
+      }),
+    );
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "generate_code_ui_ir",
+        artifactKind: "componentRegistry",
+        componentRegistry: result.uiIr.componentRegistry,
+      }),
+    );
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "generate_code_ui_ir",
+        artifactKind: "uiIr",
+        uiIr: result.uiIr,
+      }),
+    );
+    return result.uiIr;
+  } catch (error) {
+    const fallback = createFallbackCodeUiIr(appBlueprint, uiBlueprint);
+    snapshot.designTokens = fallback.designTokens;
+    snapshot.componentRegistry = fallback.componentRegistry;
+    snapshot.uiIr = fallback;
+    addCodeDiagnostic(
+      snapshot,
+      "generate_code_ui_ir",
+      `结构化 UI IR 生成失败，已使用平台组件 Registry 降级：${getErrorMessage(error)}`,
+    );
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "generate_code_ui_ir",
+        artifactKind: "uiIr",
+        uiIr: fallback,
+      }),
+    );
+    return fallback;
+  }
+}
+
 function fallbackUiFidelityReport(reason: string): CodeUiFidelityReport {
   return codeUiFidelityReportResultSchema.parse({
     uiFidelityReport: {
@@ -3271,6 +3648,7 @@ function buildCodeGenerationSpecFromBlueprints(
   appBlueprint: CodeAppBlueprint,
   uiBlueprint: CodeUiBlueprint,
   filePlan: CodeFilePlan | null,
+  uiIr: CodeUiIr | null = null,
 ): CodeGenerationSpec {
   return codeGenerationSpecSchema.parse({
     appName: appBlueprint.appName,
@@ -3319,6 +3697,7 @@ function buildCodeGenerationSpecFromBlueprints(
     appBlueprint,
     uiBlueprint,
     uiReferenceSpec: null,
+    uiIr,
     filePlan,
   });
 }
@@ -3427,6 +3806,54 @@ function recordCodeQualityDiagnostics(
   }
 }
 
+function verifyRenderedPreviewStructure(snapshot: CodeRunSnapshot): CodeVisualDiffReport {
+  const filesText = Object.values(snapshot.files).join("\n");
+  const findings: string[] = [];
+  const repairSuggestions: string[] = [];
+
+  const entryPath = snapshot.entryFile ?? "/src/App.tsx";
+  if (!snapshot.files[entryPath] || isBlankCodeFile(snapshot.files[entryPath])) {
+    findings.push("入口文件缺失或为空，预览无法稳定渲染。");
+    repairSuggestions.push("补齐 /src/App.tsx，并确保它挂载 WorkspaceShell 或主页面组件。");
+  }
+
+  if (/\bthrow new Error\b|TODO:\s*render|return\s+null\s*;/i.test(filesText)) {
+    findings.push("检测到明显的未实现或主动报错代码。");
+    repairSuggestions.push("移除未实现占位逻辑，改为可渲染的业务空态或 mock 数据展示。");
+  }
+
+  if (!/WorkspaceShell|SidebarNav|nav|navigation|侧边|导航/i.test(filesText)) {
+    findings.push("没有检测到主导航或 WorkspaceShell 结构。");
+    repairSuggestions.push("按 UI IR 增加主导航，并展示页面切换入口。");
+  }
+
+  if (!/DataTable|MetricCard|DetailPanel|table|card|列表|表格|详情|统计/i.test(filesText)) {
+    findings.push("没有检测到核心业务数据区域。");
+    repairSuggestions.push("补齐统计卡片、表格或详情面板，绑定 mock-data.ts 中的业务数据。");
+  }
+
+  if (!/ActionButton|<button|role=["']button["']|主要操作|新增|提交|保存|处理/i.test(filesText)) {
+    findings.push("没有检测到主要操作按钮。");
+    repairSuggestions.push("为主页面增加一个清晰的主要操作入口，并使用 token 样式。");
+  }
+
+  if (snapshot.uiIr && !/--color-primary|--space-3|--radius-md/.test(filesText)) {
+    findings.push("未检测到 UI IR 要求的 token CSS variables 使用。");
+    repairSuggestions.push("在 /src/styles.css 定义并在组件中使用 --color-primary、--space-3、--radius-md 等变量。");
+  }
+
+  const passed = findings.length === 0;
+  return codeVisualDiffReportSchema.parse({
+    passed,
+    checkedAt: new Date().toISOString(),
+    findings,
+    repairSuggestions,
+    summary: passed
+      ? "结构化预览验证通过：入口、导航、业务区和主要操作均已具备。"
+      : `结构化预览验证发现 ${findings.length} 个问题。`,
+  });
+}
+
 async function generateCodeFileOperationsWithRepair(
   record: RunRecord,
   providerSettings: ProviderSettings,
@@ -3439,6 +3866,7 @@ async function generateCodeFileOperationsWithRepair(
     uiBlueprint?: CodeUiBlueprint | null;
     uiMockup?: CodeUiMockup | null;
     uiReferenceSpec?: CodeUiReferenceSpec | null;
+    uiIr?: CodeUiIr | null;
     filePlan?: CodeFilePlan | null;
     qualityIssues?: string[];
   },
@@ -4073,6 +4501,18 @@ async function runCodeStagePipeline(
     uiMockup,
   );
 
+  updateStage("generate_code_ui_ir", "正在生成结构化 UI IR 和组件约束");
+  const uiIr = await generateCodeUiIr(
+    record,
+    snapshot,
+    providerSettings,
+    llmTransport,
+    appBlueprint,
+    uiBlueprint,
+    uiMockup,
+    uiReferenceSpec,
+  );
+
   codeContext = buildCodeContext(snapshot);
   updateStage("plan_code_files", "正在规划多页面文件结构");
   const filePlanResult = await collectStructuredResult(
@@ -4085,6 +4525,7 @@ async function runCodeStagePipeline(
         uiBlueprint,
         uiMockup,
         uiReferenceSpec,
+        uiIr,
         snapshot.files,
       ),
     ),
@@ -4109,8 +4550,10 @@ async function runCodeStagePipeline(
     appBlueprint,
     uiBlueprint,
     filePlan,
+    uiIr,
   );
   snapshot.spec.uiReferenceSpec = uiReferenceSpec;
+  snapshot.spec.uiIr = uiIr;
   addCodeDiagnostic(
     snapshot,
     "plan_code_files",
@@ -4176,6 +4619,7 @@ async function runCodeStagePipeline(
       uiBlueprint,
       uiMockup,
       uiReferenceSpec,
+      uiIr,
       filePlan,
     },
   );
@@ -4213,6 +4657,7 @@ async function runCodeStagePipeline(
         uiBlueprint,
         uiMockup,
         uiReferenceSpec,
+        uiIr,
         filePlan,
         qualityIssues: repairIssues,
       },
@@ -4226,14 +4671,28 @@ async function runCodeStagePipeline(
   }
 
   updateStage("verify_code_ui_fidelity", "正在检查原型是否贴合界面设计图");
-  const fidelityReport = await verifyCodeUiFidelity(
+  let fidelityReport = await verifyCodeUiFidelity(
     record,
     snapshot,
     providerSettings,
     llmTransport,
   );
-  if (!fidelityReport.passed && fidelityReport.repairSuggestions.length > 0) {
-    updateStage("repair_code_files", "正在根据设计图还原检查修复原型");
+  let repairRoundsRun = 0;
+  let repairStopReason = fidelityReport.passed
+    ? "还原度检查已通过"
+    : "还原度检查未通过且没有可执行修复建议";
+  for (
+    let repairRound = 1;
+    repairRound <= MAX_UI_FIDELITY_REPAIR_ROUNDS &&
+    !fidelityReport.passed &&
+    fidelityReport.repairSuggestions.length > 0;
+    repairRound += 1
+  ) {
+    updateStage(
+      "repair_code_files",
+      `正在根据设计图还原检查修复原型（第 ${repairRound}/${MAX_UI_FIDELITY_REPAIR_ROUNDS} 轮）`,
+    );
+    const changedBeforeRepair = snapshot.changedFileCount;
     const repairOperations = await generateCodeFileOperationsWithRepair(
       record,
       providerSettings,
@@ -4246,14 +4705,65 @@ async function runCodeStagePipeline(
         uiBlueprint,
         uiMockup,
         uiReferenceSpec,
+        uiIr,
         filePlan,
-        qualityIssues: fidelityReport.repairSuggestions,
+        qualityIssues: [
+          ...fidelityReport.repairSuggestions,
+          ...qualityDiagnostic.issues.map((issue) =>
+            `${issue.path ? `${issue.path}：` : ""}${issue.message}`,
+          ),
+        ],
       },
     );
     for (const operation of repairOperations.operations) {
       applyCodeOperation(record, snapshot, operation);
     }
+    repairRoundsRun = repairRound;
+
+    if (snapshot.changedFileCount === changedBeforeRepair) {
+      repairStopReason = "本轮还原度修复没有产生实质文件变化";
+      break;
+    }
+
+    updateStage("audit_code_quality", "正在复查还原修复后的原型质量");
+    qualityDiagnostic = auditCodePrototypeQuality(snapshot);
+    recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
+    if (!qualityDiagnostic.passed) {
+      repairStopReason = "还原修复后仍存在阻塞性质量问题";
+      break;
+    }
+
+    updateStage("verify_code_ui_fidelity", "正在复查原型是否贴合界面设计图");
+    fidelityReport = await verifyCodeUiFidelity(
+      record,
+      snapshot,
+      providerSettings,
+      llmTransport,
+    );
+    repairStopReason = fidelityReport.passed
+      ? "还原度检查已通过"
+      : "达到还原修复轮次上限";
   }
+  snapshot.repairLoopSummary = {
+    maxRounds: MAX_UI_FIDELITY_REPAIR_ROUNDS,
+    roundsRun: repairRoundsRun,
+    stopReason: repairStopReason,
+    repaired: repairRoundsRun > 0,
+  };
+
+  updateStage("verify_code_rendered_preview", "正在进行结构化预览验证");
+  const visualDiffReport = verifyRenderedPreviewStructure(snapshot);
+  snapshot.visualDiffReport = visualDiffReport;
+  addCodeDiagnostic(snapshot, "verify_code_rendered_preview", visualDiffReport.summary);
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "verify_code_rendered_preview",
+      artifactKind: "visualDiffReport",
+      visualDiffReport,
+    }),
+  );
 
   updateStage("verify_code_preview", "正在检查预览入口和必要文件");
   ensureRequiredPrototypeFiles(record, snapshot, scaffold);
@@ -4290,7 +4800,9 @@ export async function createApiServer(options?: {
   renderServiceBaseUrl?: string;
 }) {
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: createCorsOriginChecker("API_CORS_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS),
+  });
   const codePlanCache: CodePlanCache = new Map();
   app.setErrorHandler((error, request, reply) => {
     request.log.error(error);
@@ -4329,9 +4841,24 @@ export async function createApiServer(options?: {
     status: "ok",
     renderServiceBaseUrl,
   });
+  const versionPayload = () => ({
+    status: "ok",
+    releaseSha: process.env.UML_RELEASE_SHA ?? null,
+    releaseDir: process.env.UML_RELEASE_DIR ?? null,
+    runtimeCwd: resolveRuntimeCwd(),
+    startedAt: RELEASE_STARTED_AT,
+    nodeEnv: process.env.NODE_ENV ?? null,
+    renderServiceBaseUrl,
+    features: {
+      supportsDesignTableDiagram:
+        designDiagramKindSchema.safeParse("table").success,
+    },
+  });
 
   app.get("/health", async () => healthPayload());
   app.get("/api/health", async () => healthPayload());
+  app.get("/version", async () => versionPayload());
+  app.get("/api/version", async () => versionPayload());
 
   app.post("/api/runs", async (request, reply) => {
     const input = startRunRequestSchema.parse(request.body);
@@ -4863,6 +5390,42 @@ function resolveEntrypointPath(path: string) {
   } catch {
     return resolve(path);
   }
+}
+
+function resolveRuntimeCwd() {
+  try {
+    return realpathSync(process.cwd());
+  } catch {
+    return resolve(process.cwd());
+  }
+}
+
+function readCorsOrigins(envName: string, localDefaults: string[]) {
+  const configured = process.env[envName]
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (configured && configured.length > 0) {
+    return configured;
+  }
+
+  return process.env.NODE_ENV === "production" ? [] : localDefaults;
+}
+
+function createCorsOriginChecker(envName: string, localDefaults: string[]) {
+  const allowedOrigins = new Set(readCorsOrigins(envName, localDefaults));
+
+  return async (origin: string | undefined) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      return true;
+    }
+
+    console.warn(
+      `[cors] Rejected origin "${origin}". Configure ${envName} to allow it.`,
+    );
+    return false;
+  };
 }
 
 export function isMainModule(metaUrl: string, argvPath = process.argv[1]) {

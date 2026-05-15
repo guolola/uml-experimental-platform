@@ -37,6 +37,7 @@ mkdir -p "$DEPLOY_PATH/releases" "$DEPLOY_PATH/incoming"
 
 RELEASE_DIR="$DEPLOY_PATH/releases/$RELEASE_SHA"
 TMP_DIR="$DEPLOY_PATH/incoming/$RELEASE_SHA"
+RELEASE_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 rm -rf "$TMP_DIR" "$RELEASE_DIR"
 mkdir -p "$TMP_DIR"
@@ -71,8 +72,38 @@ ln -sfn "$RELEASE_DIR" "$DEPLOY_PATH/current"
 echo "Reloading PM2 processes ..."
 (
   cd "$DEPLOY_PATH/current"
-  pm2 startOrReload ecosystem.config.cjs --env production
+  export UML_RELEASE_SHA="$RELEASE_SHA"
+  export UML_RELEASE_DIR="$RELEASE_DIR"
+  export UML_RELEASE_STARTED_AT="$RELEASE_STARTED_AT"
+
+  pm2 delete uml-api >/dev/null 2>&1 || true
+  pm2 delete uml-render-service >/dev/null 2>&1 || true
+  pm2 start ecosystem.config.cjs --env production
   sleep 2
+
+  check_pm2_cwd() {
+    local process_name="$1"
+    local expected_cwd="$2"
+    local pid
+    local actual_cwd
+
+    pid="$(pm2 pid "$process_name" | tr -d '[:space:]')"
+    if [[ -z "$pid" || "$pid" == "0" ]]; then
+      echo "$process_name is not running" >&2
+      pm2 status || true
+      exit 1
+    fi
+
+    actual_cwd="$(readlink -f "/proc/$pid/cwd")"
+    if [[ "$actual_cwd" != "$expected_cwd" ]]; then
+      echo "$process_name is running from the wrong directory" >&2
+      echo "Expected cwd: $expected_cwd" >&2
+      echo "Actual cwd:   $actual_cwd" >&2
+      pm2 status || true
+      pm2 logs "$process_name" --nostream --lines 80 || true
+      exit 1
+    fi
+  }
 
   echo "Checking render-service health ..."
   if ! curl -fsS http://127.0.0.1:4002/health >/dev/null; then
@@ -85,6 +116,21 @@ echo "Reloading PM2 processes ..."
   echo "Checking API health ..."
   if ! curl -fsS http://127.0.0.1:4001/api/health >/dev/null; then
     echo "API health check failed" >&2
+    pm2 status || true
+    pm2 logs uml-api --nostream --lines 80 || true
+    exit 1
+  fi
+
+  echo "Checking PM2 process directories ..."
+  EXPECTED_RELEASE_DIR="$(readlink -f "$RELEASE_DIR")"
+  check_pm2_cwd uml-render-service "$EXPECTED_RELEASE_DIR"
+  check_pm2_cwd uml-api "$EXPECTED_RELEASE_DIR"
+
+  echo "Checking API version ..."
+  VERSION_JSON="$(curl -fsS http://127.0.0.1:4001/api/version)"
+  echo "API version: $VERSION_JSON"
+  if [[ "$VERSION_JSON" != *'"supportsDesignTableDiagram":true'* ]]; then
+    echo "API version check failed: design table diagram support is not enabled" >&2
     pm2 status || true
     pm2 logs uml-api --nostream --lines 80 || true
     exit 1

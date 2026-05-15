@@ -93,18 +93,18 @@ test("parseChatCompletionSse includes text error summary on non-OK responses", a
   );
 });
 
-test("resolveChatCompletionsUrl targets comfly v1 chat completions", () => {
+test("resolveChatCompletionsUrl targets model provider v1 chat completions", () => {
   assert.equal(
-    resolveChatCompletionsUrl("https://ai.comfly.chat"),
-    "https://ai.comfly.chat/v1/chat/completions",
+    resolveChatCompletionsUrl("https://your-model-provider.example.com"),
+    "https://your-model-provider.example.com/v1/chat/completions",
   );
   assert.equal(
-    resolveChatCompletionsUrl("https://ai.comfly.chat/"),
-    "https://ai.comfly.chat/v1/chat/completions",
+    resolveChatCompletionsUrl("https://your-model-provider.example.com/"),
+    "https://your-model-provider.example.com/v1/chat/completions",
   );
   assert.equal(
-    resolveChatCompletionsUrl("https://ai.comfly.chat/v1"),
-    "https://ai.comfly.chat/v1/chat/completions",
+    resolveChatCompletionsUrl("https://your-model-provider.example.com/v1"),
+    "https://your-model-provider.example.com/v1/chat/completions",
   );
 });
 
@@ -124,7 +124,7 @@ test("createRealLlmTransport forwards json_schema response_format when provided"
     const chunks: string[] = [];
     for await (const chunk of transport.streamChatCompletion({
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },

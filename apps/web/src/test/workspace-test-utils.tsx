@@ -88,7 +88,7 @@ export function withWorkspaceProviders(
     localStorage.setItem(
       USER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "test-api-key",
         defaultModel: "gpt-5.5",
         fontSize: "md",

@@ -21,7 +21,7 @@ describe("createStartRunInput", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "",
         defaultModel: "gpt-5.5",
         fontSize: "md",
@@ -35,11 +35,11 @@ describe("createStartRunInput", () => {
     );
   });
 
-  it("normalizes comfly base urls to the site root", () => {
+  it("normalizes model provider base urls to the site root", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
-        apiBaseUrl: "https://ai.comfly.chat/v1/chat/completions",
+        apiBaseUrl: "https://your-model-provider.example.com/v1/chat/completions",
         apiKey: "sk-demo",
         defaultModel: "gpt-5.5",
         imageModel: "nano-banana-pro",
@@ -51,7 +51,7 @@ describe("createStartRunInput", () => {
 
     expect(createStartRunInput("生成 UML", ["usecase"])).toMatchObject({
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-demo",
         model: "gpt-5.5",
       },
@@ -62,7 +62,7 @@ describe("createStartRunInput", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-demo",
         defaultModel: "gpt-5.5",
         imageModel: "nano-banana-pro",
@@ -91,7 +91,7 @@ describe("createStartRunInput", () => {
 
     expect(input.existingFiles["/src/App.tsx"]).toContain("return null");
     expect(input.imageProviderSettings).toMatchObject({
-      apiBaseUrl: "https://ai.comfly.chat",
+      apiBaseUrl: "https://your-model-provider.example.com",
       apiKey: "sk-demo",
       model: "nano-banana-pro",
     });

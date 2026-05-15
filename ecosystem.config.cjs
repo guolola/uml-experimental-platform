@@ -1,7 +1,30 @@
+const releaseEnv = {
+  ...(process.env.UML_RELEASE_SHA
+    ? { UML_RELEASE_SHA: process.env.UML_RELEASE_SHA }
+    : {}),
+  ...(process.env.UML_RELEASE_DIR
+    ? { UML_RELEASE_DIR: process.env.UML_RELEASE_DIR }
+    : {}),
+  ...(process.env.UML_RELEASE_STARTED_AT
+    ? { UML_RELEASE_STARTED_AT: process.env.UML_RELEASE_STARTED_AT }
+    : {}),
+};
+
+const corsEnv = {
+  ...(process.env.API_CORS_ORIGINS
+    ? { API_CORS_ORIGINS: process.env.API_CORS_ORIGINS }
+    : {}),
+  ...(process.env.RENDER_SERVICE_CORS_ORIGINS
+    ? { RENDER_SERVICE_CORS_ORIGINS: process.env.RENDER_SERVICE_CORS_ORIGINS }
+    : {}),
+};
+
 const renderServiceEnv = {
   NODE_ENV: "production",
   RENDER_SERVICE_HOST: "127.0.0.1",
   RENDER_SERVICE_PORT: "4002",
+  ...releaseEnv,
+  ...corsEnv,
 };
 
 const apiEnv = {
@@ -9,6 +32,8 @@ const apiEnv = {
   API_HOST: "127.0.0.1",
   API_PORT: "4001",
   RENDER_SERVICE_BASE_URL: "http://127.0.0.1:4002",
+  ...releaseEnv,
+  ...corsEnv,
 };
 
 module.exports = {

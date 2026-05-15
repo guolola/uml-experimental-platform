@@ -12,12 +12,12 @@ npm run test:api
 
 依赖：
 
-- Comfly 流式聊天接口 `POST /v1/chat/completions`
+- Model Provider 流式聊天接口 `POST /v1/chat/completions`
 - 渲染服务默认地址 `http://127.0.0.1:4002`
 
 Provider 配置约定：
 
-- 前端设置中的 `Base URL` 只填写 `https://ai.comfly.chat`
+- 前端设置中的 `Base URL` 只填写 `https://your-model-provider.example.com`
 - API 服务会固定拼接 `/v1/chat/completions`
 - `API Key` 以 `Authorization: Bearer <key>` 方式透传给模型服务
 

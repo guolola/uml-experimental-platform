@@ -40,6 +40,14 @@ flowchart LR
 - Render Service：PlantUML 本地渲染，支持 SVG 网页预览和 PNG 文档嵌入
 - 文档：docx 生成 Word 文档
 
+## 环境要求
+
+- Node.js 22 或更高版本
+- npm 10 或更高版本
+- Java/JRE 21 或可运行当前 PlantUML jar 的版本
+- 项目内置 `plantuml/build/libs/plantuml-1.2026.3beta8.jar`
+- 可访问的 OpenAI 兼容模型服务，文本和多模态图片消息均走 `/v1/chat/completions`
+
 ## 目录结构
 
 ```text
@@ -57,15 +65,15 @@ docs/
 plantuml/          # 本地 PlantUML 运行依赖
 ```
 
-## 本地开发
+## 快速开始
 
-安装依赖：
+1. 安装依赖：
 
 ```powershell
 npm install
 ```
 
-日常开发首选一键启动：
+2. 一键启动本地服务：
 
 ```powershell
 npm run dev
@@ -77,7 +85,9 @@ npm run dev
 - `api`: `http://127.0.0.1:4101`
 - `web`: Vite 输出的本地地址，默认会指向 `http://127.0.0.1:4101`
 
-也可以单独启动：
+3. 打开终端里显示的 Web 地址，在设置面板填写模型服务地址、API Key、文本模型和图片模型。
+
+也可以单独启动各服务：
 
 ```powershell
 npm run dev:render
@@ -85,11 +95,20 @@ npm run dev:api
 npm run dev:web
 ```
 
+## 端口说明
+
+| 服务 | 本地默认端口 | 说明 |
+| --- | --- | --- |
+| Web | `5173` 起，按 Vite 实际输出为准 | 前端工作台 |
+| API | `4101` | 本地安全开发端口，由 `npm run dev` 注入 |
+| API 生产 | `4001` | PM2/部署环境默认监听 `127.0.0.1` |
+| Render Service | `4002` | PlantUML SVG/PNG 渲染服务，默认监听 `127.0.0.1` |
+
 ## 模型配置
 
 前端设置面板中需要填写：
 
-- `API Base URL`：只填写站点根地址，例如 `https://ai.comfly.chat`
+- `API Base URL`：只填写模型服务根地址，例如 `https://your-model-provider.example.com`
 - `API Key`：模型服务密钥
 - 默认文本模型：用于需求、设计、代码、文档正文生成
 - 图片模型：用于代码生成前的界面设计图生成
@@ -105,6 +124,8 @@ npm run dev:web
   ]
 }
 ```
+
+API Key 当前保存在浏览器本地存储中。公开部署或多人使用时，请避免在共享浏览器中保存个人密钥；如需统一托管密钥，建议后续改为后端代理配置。
 
 ## 常用校验
 
@@ -127,5 +148,15 @@ npm run build:web
 - 前端构建产物位于 `apps/web/dist`。
 - API 服务需要配置模型服务 Base URL、Key、默认模型和渲染服务地址。
 - 渲染服务依赖 `plantuml/build/libs/plantuml-1.2026.3beta8.jar`。
+- 生产环境建议配置 CORS 白名单：
+  - `API_CORS_ORIGINS=https://your-domain.example.com`
+  - `RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com`
+- 部署后可访问 `http://127.0.0.1:4001/api/version` 检查实际运行目录、release 信息和关键 schema 能力。
 - 宝塔/PM2 部署可参考 [docs/deployment/baota-cicd.md](docs/deployment/baota-cicd.md)。
 
+## 上传前检查
+
+- 不要提交 `.env`、API Key、私钥、token、日志文件、导出的说明书或临时截图。
+- `.gitignore` 已忽略常见日志、构建产物、缓存、临时文件和完整 PlantUML 源码树。
+- README 截图位于 `docs/assets/screenshots/`，用于展示公开演示界面；上传前仍建议确认截图中没有私人账号、密钥或真实业务隐私。
+- `docs/template/` 中的说明书模板会参与文档生成功能，上传前请确认模板本身不含单位内部修订记录或敏感作者信息。

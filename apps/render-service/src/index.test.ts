@@ -89,3 +89,39 @@ test("render-service renders png", async () => {
 
   await app.close();
 });
+
+test("render-service applies the configured CORS origin allowlist", async () => {
+  const originalCorsOrigins = process.env.RENDER_SERVICE_CORS_ORIGINS;
+  process.env.RENDER_SERVICE_CORS_ORIGINS =
+    "https://app.example.com,http://localhost:5173";
+
+  const app = await createRenderServiceServer();
+
+  try {
+    const allowed = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "https://app.example.com" },
+    });
+    const blocked = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "https://evil.example.com" },
+    });
+
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(
+      allowed.headers["access-control-allow-origin"],
+      "https://app.example.com",
+    );
+    assert.equal(blocked.statusCode, 200);
+    assert.equal(blocked.headers["access-control-allow-origin"], undefined);
+  } finally {
+    await app.close();
+    if (originalCorsOrigins === undefined) {
+      delete process.env.RENDER_SERVICE_CORS_ORIGINS;
+    } else {
+      process.env.RENDER_SERVICE_CORS_ORIGINS = originalCorsOrigins;
+    }
+  }
+});

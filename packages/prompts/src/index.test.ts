@@ -5,6 +5,7 @@ import {
   buildGenerateCodeAgentPlanPrompt,
   buildGenerateCodeFilePlanPrompt,
   buildGenerateCodeFileOperationsPrompt,
+  buildGenerateCodeUiIrPrompt,
   buildGenerateCodeSpecPrompt,
   buildGenerateCodeUiBlueprintPrompt,
   buildGenerateCodeUiMockupPrompt,
@@ -133,6 +134,7 @@ test("code generation prompts use business background theme and modular files", 
     uiBlueprint,
     null,
     null,
+    null,
     {},
   );
   const uiMockupPrompt = buildGenerateCodeUiMockupPrompt(
@@ -146,6 +148,13 @@ test("code generation prompts use business background theme and modular files", 
     {},
     { appBlueprint, uiBlueprint, uiReferenceSpec: null, filePlan: null },
   );
+  const uiIrPrompt = buildGenerateCodeUiIrPrompt(
+    codeContext,
+    appBlueprint,
+    uiBlueprint,
+    null,
+    null,
+  );
 
   assert.match(specPrompt, /theme 必须描述业务领域主题/);
   assert.match(specPrompt, /不是 UML 实验平台主题/);
@@ -153,10 +162,13 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(appBlueprintPrompt, /2 到 6 个页面/);
   assert.match(uiBlueprintPrompt, /避免空壳营销页/);
   assert.match(uiMockupPrompt, /draw-ui 风格约束/);
+  assert.match(uiIrPrompt, /结构化 UI IR/);
+  assert.match(uiIrPrompt, /WorkspaceShell, SidebarNav, TopBar/);
   assert.match(uiMockupPrompt, /真实、具体、贴合业务的示例数据/);
   assert.match(filePlanPrompt, /至少 2 个 \/src\/pages/);
   assert.match(filePlanPrompt, /至少 3 个 \/src\/components/);
   assert.match(operationsPrompt, /每个操作必须使用字段 operation/);
+  assert.match(operationsPrompt, /operation, path, content, reason, message/);
   assert.match(operationsPrompt, /不能使用 type、action、op、kind/);
   assert.match(operationsPrompt, /文件计划中的所有 \/src\/pages/);
   assert.match(operationsPrompt, /\/src\/domain\/types\.ts/);

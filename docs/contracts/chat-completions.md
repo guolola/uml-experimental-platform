@@ -2,7 +2,7 @@
 
 ## 项目约定
 
-- 设置面板中的 `Base URL` 只填写站点根地址：`https://ai.comfly.chat`
+- 设置面板中的 `Base URL` 只填写站点根地址：`https://your-model-provider.example.com`
 - 客户端实际请求路径固定为：`POST /v1/chat/completions`
 - `API Key` 通过 `Authorization: Bearer <API_KEY>` 发送
 - `stream: true` 时响应为 `text/event-stream`，并以 `data: [DONE]` 结束
@@ -12,11 +12,11 @@
 ```yaml
 openapi: 3.0.1
 info:
-  title: Comfly Chat Completions
+  title: Model Provider Chat Completions
   version: 1.0.0
   description: >
-    本项目实际使用的 Comfly 流式聊天接口约定。前端配置项中的 Base URL
-    只填写站点根地址 https://ai.comfly.chat，运行时固定调用 /v1/chat/completions。
+    本项目实际使用的 Model Provider 流式聊天接口约定。前端配置项中的 Base URL
+    只填写站点根地址 https://your-model-provider.example.com，运行时固定调用 /v1/chat/completions。
 paths:
   /v1/chat/completions:
     post:

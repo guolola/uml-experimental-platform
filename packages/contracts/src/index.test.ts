@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   diagramModelsResultSchema,
   designDiagramModelsResultSchema,
+  codeUiIrResultSchema,
   renderSvgResponseSchema,
   requirementRulesResultSchema,
   runEventSchema,
@@ -84,6 +85,65 @@ test("contracts validate representative stage payloads", () => {
     },
   });
   assert.equal(uiMockupEvent.type, "artifact_ready");
+
+  const uiIr = codeUiIrResultSchema.parse({
+    uiIr: {
+      designTokens: {
+        colors: {
+          primary: "#2563eb",
+          background: "#f8fafc",
+          surface: "#ffffff",
+          text: "#0f172a",
+          accent: "#f97316",
+        },
+        typography: { body: "14px system-ui" },
+        spacing: { "1": "4px", "3": "12px", "4": "16px" },
+        radius: { sm: "4px", md: "8px" },
+        shadow: { sm: "0 1px 2px rgba(0,0,0,.08)" },
+        density: "comfortable",
+      },
+      componentRegistry: {
+        components: [
+          {
+            name: "WorkspaceShell",
+            description: "业务工作台布局",
+            props: ["title"],
+            variants: ["default"],
+            usageRules: ["承载导航和主内容"],
+          },
+        ],
+      },
+      pages: [
+        {
+          id: "home",
+          route: "/",
+          name: "首页",
+          layout: "sidebar-content",
+          primaryActions: ["新增"],
+          componentTree: {
+            component: "WorkspaceShell",
+            purpose: "承载首页",
+            props: { title: "首页" },
+            dataBinding: null,
+            tokenRefs: ["colors.primary"],
+            children: [],
+          },
+        },
+      ],
+      dataBindings: ["records -> DataTable"],
+      interactions: ["点击新增打开表单"],
+      responsiveRules: ["mobile 纵向排列"],
+    },
+  });
+  assert.equal(uiIr.uiIr.pages[0]?.componentTree.component, "WorkspaceShell");
+
+  const uiIrEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "generate_code_ui_ir",
+    artifactKind: "uiIr",
+    uiIr: uiIr.uiIr,
+  });
+  assert.equal(uiIrEvent.type, "artifact_ready");
 
   const render = renderSvgResponseSchema.parse({
     svg: "<svg></svg>",

@@ -726,6 +726,96 @@ export const codeUiFidelityReportResultSchema = z.object({
 });
 export type CodeUiFidelityReportResult = z.infer<typeof codeUiFidelityReportResultSchema>;
 
+export const codeDesignTokensSchema = z.object({
+  colors: z.record(z.string().min(1), z.string().min(1)),
+  typography: z.record(z.string().min(1), z.string().min(1)).default({}),
+  spacing: z.record(z.string().min(1), z.string().min(1)),
+  radius: z.record(z.string().min(1), z.string().min(1)),
+  shadow: z.record(z.string().min(1), z.string().min(1)).default({}),
+  density: z.enum(["compact", "comfortable"]),
+});
+export type CodeDesignTokens = z.infer<typeof codeDesignTokensSchema>;
+
+export const codeComponentRegistryItemSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  props: z.array(z.string().min(1)).default([]),
+  variants: z.array(z.string().min(1)).default([]),
+  usageRules: z.array(z.string().min(1)).default([]),
+});
+export type CodeComponentRegistryItem = z.infer<typeof codeComponentRegistryItemSchema>;
+
+export const codeComponentRegistrySchema = z.object({
+  components: z.array(codeComponentRegistryItemSchema).min(1),
+});
+export type CodeComponentRegistry = z.infer<typeof codeComponentRegistrySchema>;
+
+export type CodeComponentTreeNode = {
+  component: string;
+  purpose: string;
+  props: Record<string, string>;
+  dataBinding?: string | null;
+  tokenRefs: string[];
+  children: CodeComponentTreeNode[];
+};
+
+export const codeComponentTreeNodeSchema: z.ZodType<
+  CodeComponentTreeNode,
+  z.ZodTypeDef,
+  unknown
+> = z.lazy(() =>
+  z.object({
+    component: z.string().min(1),
+    purpose: z.string().min(1),
+    props: z.record(z.string().min(1), z.string()).default({}),
+    dataBinding: z.string().min(1).nullable().default(null),
+    tokenRefs: z.array(z.string().min(1)).default([]),
+    children: z.array(codeComponentTreeNodeSchema).default([]),
+  }),
+) as unknown as z.ZodType<CodeComponentTreeNode, z.ZodTypeDef, unknown>;
+
+export const codePageIrSchema = z.object({
+  id: z.string().min(1),
+  route: z.string().min(1),
+  name: z.string().min(1),
+  layout: z.string().min(1),
+  primaryActions: z.array(z.string().min(1)).min(1),
+  componentTree: codeComponentTreeNodeSchema,
+});
+export type CodePageIr = z.infer<typeof codePageIrSchema>;
+
+export const codeUiIrSchema = z.object({
+  designTokens: codeDesignTokensSchema,
+  componentRegistry: codeComponentRegistrySchema,
+  pages: z.array(codePageIrSchema).min(1),
+  dataBindings: z.array(z.string().min(1)).default([]),
+  interactions: z.array(z.string().min(1)).default([]),
+  responsiveRules: z.array(z.string().min(1)).default([]),
+});
+export type CodeUiIr = z.infer<typeof codeUiIrSchema>;
+
+export const codeUiIrResultSchema = z.object({
+  uiIr: codeUiIrSchema,
+});
+export type CodeUiIrResult = z.infer<typeof codeUiIrResultSchema>;
+
+export const codeVisualDiffReportSchema = z.object({
+  passed: z.boolean(),
+  checkedAt: z.string().min(1),
+  findings: z.array(z.string().min(1)).default([]),
+  repairSuggestions: z.array(z.string().min(1)).default([]),
+  summary: z.string().min(1),
+});
+export type CodeVisualDiffReport = z.infer<typeof codeVisualDiffReportSchema>;
+
+export const codeRepairLoopSummarySchema = z.object({
+  maxRounds: z.number().int().min(0),
+  roundsRun: z.number().int().min(0),
+  stopReason: z.string().min(1),
+  repaired: z.boolean(),
+});
+export type CodeRepairLoopSummary = z.infer<typeof codeRepairLoopSummarySchema>;
+
 export const codeFilePlanSchema = z.object({
   entryFile: z.string().min(1),
   files: z.array(
@@ -773,6 +863,7 @@ export const codeGenerationSpecSchema = z.object({
   appBlueprint: codeAppBlueprintSchema.nullable().default(null),
   uiBlueprint: codeUiBlueprintSchema.nullable().default(null),
   uiReferenceSpec: codeUiReferenceSpecSchema.nullable().default(null),
+  uiIr: codeUiIrSchema.nullable().default(null),
   filePlan: codeFilePlanSchema.nullable().default(null),
 });
 export type CodeGenerationSpec = z.infer<typeof codeGenerationSpecSchema>;
@@ -897,6 +988,7 @@ export const runStageSchema = z.enum([
   "plan_code_ui",
   "generate_code_ui_mockup",
   "analyze_code_ui_mockup",
+  "generate_code_ui_ir",
   "plan_code_files",
   "generate_code_spec",
   "generate_code_files",
@@ -904,6 +996,7 @@ export const runStageSchema = z.enum([
   "write_code_files",
   "audit_code_quality",
   "verify_code_ui_fidelity",
+  "verify_code_rendered_preview",
   "verify_code_preview",
   "repair_code_files",
   "generate_document_text",
@@ -969,6 +1062,11 @@ export const codeRunSnapshotSchema = z.object({
   uiMockup: codeUiMockupSchema.nullable().default(null),
   uiReferenceSpec: codeUiReferenceSpecSchema.nullable().default(null),
   uiFidelityReport: codeUiFidelityReportSchema.nullable().default(null),
+  designTokens: codeDesignTokensSchema.nullable().default(null),
+  componentRegistry: codeComponentRegistrySchema.nullable().default(null),
+  uiIr: codeUiIrSchema.nullable().default(null),
+  visualDiffReport: codeVisualDiffReportSchema.nullable().default(null),
+  repairLoopSummary: codeRepairLoopSummarySchema.nullable().default(null),
   filePlan: codeFilePlanSchema.nullable().default(null),
   qualityDiagnostics: z.array(codeQualityDiagnosticSchema).default([]),
   files: z.record(z.string().min(1), z.string()),
@@ -1041,12 +1139,20 @@ export const artifactReadyRunEventSchema = z.object({
     "uiMockup",
     "uiReferenceSpec",
     "uiFidelityReport",
+    "designTokens",
+    "componentRegistry",
+    "uiIr",
+    "visualDiffReport",
     "document",
   ]),
   diagramKind: umlDiagramKindSchema.optional(),
   uiMockup: codeUiMockupSchema.optional(),
   uiReferenceSpec: codeUiReferenceSpecSchema.optional(),
   uiFidelityReport: codeUiFidelityReportSchema.optional(),
+  designTokens: codeDesignTokensSchema.optional(),
+  componentRegistry: codeComponentRegistrySchema.optional(),
+  uiIr: codeUiIrSchema.optional(),
+  visualDiffReport: codeVisualDiffReportSchema.optional(),
 });
 
 export const codeFileChangedRunEventSchema = z.object({

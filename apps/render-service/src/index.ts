@@ -18,6 +18,16 @@ import {
 
 const DEFAULT_PORT = Number(process.env.RENDER_SERVICE_PORT ?? 4002);
 const DEFAULT_HOST = process.env.RENDER_SERVICE_HOST ?? "127.0.0.1";
+const DEFAULT_LOCAL_CORS_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:5176",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  "http://127.0.0.1:5175",
+  "http://127.0.0.1:5176",
+];
 const DEFAULT_JAR_PATH = fileURLToPath(
   new URL("../../../plantuml/build/libs/plantuml-1.2026.3beta8.jar", import.meta.url),
 );
@@ -125,7 +135,12 @@ export async function renderPngWithPlantUml(
 
 export async function createRenderServiceServer() {
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: createCorsOriginChecker(
+      "RENDER_SERVICE_CORS_ORIGINS",
+      DEFAULT_LOCAL_CORS_ORIGINS,
+    ),
+  });
 
   app.get("/health", async () => {
     let jarAvailable = true;
@@ -184,6 +199,34 @@ function resolveEntrypointPath(path: string) {
   } catch {
     return resolve(path);
   }
+}
+
+function readCorsOrigins(envName: string, localDefaults: string[]) {
+  const configured = process.env[envName]
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (configured && configured.length > 0) {
+    return configured;
+  }
+
+  return process.env.NODE_ENV === "production" ? [] : localDefaults;
+}
+
+function createCorsOriginChecker(envName: string, localDefaults: string[]) {
+  const allowedOrigins = new Set(readCorsOrigins(envName, localDefaults));
+
+  return async (origin: string | undefined) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      return true;
+    }
+
+    console.warn(
+      `[cors] Rejected origin "${origin}". Configure ${envName} to allow it.`,
+    );
+    return false;
+  };
 }
 
 export function isMainModule(metaUrl: string, argvPath = process.argv[1]) {

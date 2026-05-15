@@ -267,6 +267,91 @@ function createCodeUiBlueprintJson() {
   });
 }
 
+function createCodeUiIrJson() {
+  return JSON.stringify({
+    uiIr: {
+      designTokens: {
+        colors: {
+          primary: "#2563eb",
+          background: "#f7fafc",
+          surface: "#ffffff",
+          text: "#14213d",
+          accent: "#f97316",
+          success: "#16a34a",
+          warning: "#f59e0b",
+          danger: "#dc2626",
+        },
+        typography: {
+          body: "14px/1.5 Inter, system-ui",
+          heading: "600 22px/1.25 Inter, system-ui",
+          label: "600 12px/1.2 Inter, system-ui",
+        },
+        spacing: { "1": "4px", "2": "8px", "3": "12px", "4": "16px", "6": "24px", "8": "32px" },
+        radius: { sm: "4px", md: "8px", lg: "12px" },
+        shadow: { sm: "0 1px 2px rgba(15,23,42,.08)", md: "0 8px 24px rgba(15,23,42,.12)" },
+        density: "comfortable",
+      },
+      componentRegistry: {
+        components: [
+          "WorkspaceShell",
+          "SidebarNav",
+          "TopBar",
+          "MetricCard",
+          "DataTable",
+          "StatusBadge",
+          "FilterBar",
+          "ActionButton",
+          "DetailPanel",
+          "EmptyState",
+        ].map((name) => ({
+          name,
+          description: `${name} 约束校园活动业务原型`,
+          props: ["title", "items", "status", "onAction"],
+          variants: ["default", "compact"],
+          usageRules: ["按 UI IR 组合使用"],
+        })),
+      },
+      pages: [
+        {
+          id: "overview",
+          route: "/",
+          name: "活动总览",
+          layout: "sidebar-content",
+          primaryActions: ["发布活动"],
+          componentTree: {
+            component: "WorkspaceShell",
+            purpose: "承载活动总览",
+            props: { title: "校园活动平台" },
+            dataBinding: null,
+            tokenRefs: ["colors.background", "spacing.4"],
+            children: [
+              {
+                component: "SidebarNav",
+                purpose: "展示活动导航",
+                props: { activeRoute: "/" },
+                dataBinding: "pages",
+                tokenRefs: ["colors.primary"],
+                children: [],
+              },
+              {
+                component: "MetricCard",
+                purpose: "展示活动指标",
+                props: { title: "可报名活动" },
+                dataBinding: "activities",
+                tokenRefs: ["colors.surface", "radius.md"],
+                children: [],
+              },
+            ],
+          },
+        },
+      ],
+      dataBindings: ["activities -> MetricCard/DataTable"],
+      interactions: ["点击报名提交报名记录"],
+      responsiveRules: ["mobile 纵向排列"],
+    },
+  });
+}
+
 function extractZipEntries(buffer: Buffer) {
   const entries = new Map<string, Buffer>();
   let eocdOffset = -1;
@@ -430,7 +515,7 @@ export const registrations: Registration[] = [{ id: 'r1', studentName: '李同�
       operation: "update_file",
       path: "/src/styles.css",
       content:
-        ":root{font-family:Inter,system-ui,sans-serif;color:#14213d;background:#f7fafc}body{margin:0}.prototype-shell{min-height:100vh;padding:24px;background:#f7fafc}nav{display:flex;gap:8px;margin-bottom:20px}button{border:0;border-radius:8px;padding:8px 12px;background:#2563eb;color:white}.metric-card,article{border:1px solid #dbe4f0;border-radius:12px;background:white;padding:16px;margin:10px 0}.status-badge{color:#f97316;font-weight:700}",
+        ":root{--color-primary:#2563eb;--space-3:12px;--radius-md:8px;font-family:Inter,system-ui,sans-serif;color:#14213d;background:#f7fafc}body{margin:0}.prototype-shell{min-height:100vh;padding:24px;background:#f7fafc}nav{display:flex;gap:8px;margin-bottom:20px}button{border:0;border-radius:var(--radius-md);padding:8px var(--space-3);background:var(--color-primary);color:white}.metric-card,article{border:1px solid #dbe4f0;border-radius:12px;background:white;padding:16px;margin:10px 0}.status-badge{color:#f97316;font-weight:700}",
       reason: "生成业务主题样式",
     },
     {
@@ -606,7 +691,7 @@ test("api runs a full pipeline and streams SSE events", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -680,7 +765,7 @@ test("api runs a design sequence pipeline from the requirement usecase model", a
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       selectedDiagrams: ["sequence"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -738,7 +823,7 @@ test("api auto-adds sequence dependency for downstream design diagrams", async (
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], ACTIVITY_MODEL],
       selectedDiagrams: ["activity"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -798,7 +883,7 @@ test("api auto-adds class dependency for design table diagrams", async () => {
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], CLASS_MODEL],
       selectedDiagrams: ["table"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -863,6 +948,10 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
           });
           return;
         }
+        if (prompt.includes("请生成前端原型的结构化 UI IR")) {
+          yield createCodeUiIrJson();
+          return;
+        }
         if (prompt.includes("规划文件树")) {
           yield createCodeFilePlanJson();
           return;
@@ -875,6 +964,7 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
           return;
         }
         if (prompt.includes("资深 React 实现工程师")) {
+          assert.doesNotMatch(JSON.stringify(responseFormat), /"oneOf"/);
           operationCalls += 1;
           yield JSON.stringify({
             operations: createQualityCodeOperations(),
@@ -915,12 +1005,12 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
     rules: JSON.parse(RULES_JSON).rules,
     designModels: [DESIGN_SEQUENCE_MODEL],
     providerSettings: {
-      apiBaseUrl: "https://ai.comfly.chat",
+      apiBaseUrl: "https://your-model-provider.example.com",
       apiKey: "sk-test",
       model: "gpt-5.5",
     },
     imageProviderSettings: {
-      apiBaseUrl: "https://ai.comfly.chat",
+      apiBaseUrl: "https://your-model-provider.example.com",
       apiKey: "sk-test",
       model: "gpt-image-2",
     },
@@ -943,9 +1033,12 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.match(firstEvents.body, /"artifactKind":"uiMockup"/);
   assert.match(firstEvents.body, /"stage":"analyze_code_ui_mockup"/);
   assert.match(firstEvents.body, /"artifactKind":"uiReferenceSpec"/);
+  assert.match(firstEvents.body, /"stage":"generate_code_ui_ir"/);
+  assert.match(firstEvents.body, /"artifactKind":"uiIr"/);
   assert.match(firstEvents.body, /"stage":"plan_code_files"/);
   assert.match(firstEvents.body, /"stage":"audit_code_quality"/);
   assert.match(firstEvents.body, /"stage":"verify_code_ui_fidelity"/);
+  assert.match(firstEvents.body, /"stage":"verify_code_rendered_preview"/);
   assert.match(firstEvents.body, /"artifactKind":"uiFidelityReport"/);
   assert.match(firstEvents.body, /"type":"code_file_changed"/);
   assert.match(firstEvents.body, /"path":"\/src\/App.tsx"/);
@@ -995,8 +1088,31 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
     })
   ).json();
   assert.equal(secondSnapshot.status, "completed");
+
+  const regenerateStart = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    payload: {
+      ...payload,
+      generationMode: "regenerate",
+      existingFiles: {
+        "/src/App.tsx": "export default function App() { return <main>旧原型</main>; }",
+      },
+    },
+  });
+  assert.equal(regenerateStart.statusCode, 202);
+  const regenerateRunId = regenerateStart.json().runId;
+  const regenerateSnapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/code-runs/${regenerateRunId}`,
+    })
+  ).json();
+  assert.equal(regenerateSnapshot.status, "completed");
+  assert.equal(regenerateSnapshot.generationMode, "regenerate");
+  assert.doesNotMatch(regenerateSnapshot.files["/src/App.tsx"], /旧原型/);
   assert.equal(planCalls, 1);
-  assert.equal(operationCalls, 2);
+  assert.equal(operationCalls, 3);
 
   await app.close();
 });
@@ -1040,7 +1156,7 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1095,7 +1211,7 @@ test("api code run fails incomplete UI blueprint JSON clearly", async () => {
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1171,12 +1287,12 @@ test("api code run continues when UI mockup image generation fails", async () =>
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
       imageProviderSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "nano-banana-pro",
       },
@@ -1266,7 +1382,7 @@ test("api code runs repair invalid code operation discriminators", async () => {
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1352,7 +1468,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
         },
       ],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1436,7 +1552,7 @@ test("api document run reports missing embeddable image source when only SVG exi
         },
       ],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1548,7 +1664,7 @@ test("api repairs generate_models output when the first model JSON is malformed"
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1614,7 +1730,7 @@ test("api skips json_schema for compatible-mode models and completes", async () 
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "claude-opus-4-6-thinking",
       },
@@ -1722,7 +1838,7 @@ test("api logs the final generate_models output when parsing or schema validatio
         requirementText: "实验平台根据文本需求生成模型和 UML 图。",
         selectedDiagrams: ["usecase"],
         providerSettings: {
-          apiBaseUrl: "https://ai.comfly.chat",
+          apiBaseUrl: "https://your-model-provider.example.com",
           apiKey: "sk-test",
           model: "gpt-5.5",
         },
@@ -1784,7 +1900,7 @@ test("api repairs PlantUML after the first render failure and completes the run"
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1853,7 +1969,7 @@ test("api treats placeholder SVG as a repairable render failure", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1930,7 +2046,7 @@ test("api keeps successful diagrams and reports activity render failure in diagr
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase", "activity"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -1979,7 +2095,7 @@ test("api fails the run when PlantUML still cannot be repaired after retries", a
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -2035,7 +2151,7 @@ test("api emits failed events when a stage returns invalid JSON", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "gpt-5.5",
       },
@@ -2090,7 +2206,7 @@ test("api rejects invalid start requests with 400", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
       providerSettings: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "",
         model: "gpt-5.5",
       },
@@ -2212,7 +2328,7 @@ test("api tests provider connections and returns model capability", async () => 
       method: "POST",
       url: "/api/provider/test",
       payload: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "sk-test",
         model: "claude-opus-4-6-thinking",
       },
@@ -2255,7 +2371,7 @@ test("api reports provider test failures clearly", async () => {
       method: "POST",
       url: "/api/provider/test",
       payload: {
-        apiBaseUrl: "https://ai.comfly.chat",
+        apiBaseUrl: "https://your-model-provider.example.com",
         apiKey: "bad-key",
         model: "gpt-5.5",
       },
@@ -2299,4 +2415,88 @@ test("api exposes health under root and /api for reverse proxy checks", async ()
   assert.equal(apiHealth.json().status, "ok");
 
   await app.close();
+});
+
+test("api exposes version details under root and /api for deployment checks", async () => {
+  const app = await createApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  const rootVersion = await app.inject({
+    method: "GET",
+    url: "/version",
+  });
+  const apiVersion = await app.inject({
+    method: "GET",
+    url: "/api/version",
+  });
+
+  assert.equal(rootVersion.statusCode, 200);
+  assert.equal(apiVersion.statusCode, 200);
+
+  for (const payload of [rootVersion.json(), apiVersion.json()]) {
+    assert.equal(payload.status, "ok");
+    assert.equal(payload.renderServiceBaseUrl, "http://127.0.0.1:4002");
+    assert.equal(payload.features.supportsDesignTableDiagram, true);
+    assert.equal(typeof payload.runtimeCwd, "string");
+    assert.ok(payload.runtimeCwd.length > 0);
+    assert.equal(typeof payload.startedAt, "string");
+  }
+
+  await app.close();
+});
+
+test("api applies the configured CORS origin allowlist", async () => {
+  const originalCorsOrigins = process.env.API_CORS_ORIGINS;
+  process.env.API_CORS_ORIGINS = "https://app.example.com,http://localhost:5173";
+
+  const app = await createApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  try {
+    const allowed = await app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { origin: "https://app.example.com" },
+    });
+    const blocked = await app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { origin: "https://evil.example.com" },
+    });
+
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(
+      allowed.headers["access-control-allow-origin"],
+      "https://app.example.com",
+    );
+    assert.equal(blocked.statusCode, 200);
+    assert.equal(blocked.headers["access-control-allow-origin"], undefined);
+  } finally {
+    await app.close();
+    if (originalCorsOrigins === undefined) {
+      delete process.env.API_CORS_ORIGINS;
+    } else {
+      process.env.API_CORS_ORIGINS = originalCorsOrigins;
+    }
+  }
 });

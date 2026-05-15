@@ -10,6 +10,7 @@ import type {
   CodeGenerationSpec,
   CodeUiBlueprint,
   CodeUiMockup,
+  CodeUiIr,
   CodeUiReferenceSpec,
 } from "@uml-platform/contracts";
 
@@ -451,12 +452,137 @@ export function buildAnalyzeCodeUiMockupPrompt(
   ].join("\n");
 }
 
+export function buildGenerateCodeDesignTokensPrompt(
+  codeContext: unknown,
+  appBlueprint: CodeAppBlueprint,
+  uiBlueprint: CodeUiBlueprint,
+  uiReferenceSpec: CodeUiReferenceSpec | null,
+) {
+  return [
+    "请为前端业务原型生成结构化设计 Token。",
+    "返回 JSON 对象，格式必须是 {\"designTokens\":{...}}。",
+    "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码块。",
+    "",
+    "designTokens 字段结构：",
+    "- colors: token 名到颜色值的映射，必须包含 primary, background, surface, text, accent, success, warning, danger。",
+    "- typography: token 名到字体/字号/字重描述的映射，必须包含 body, heading, label。",
+    "- spacing: token 名到 CSS 尺寸的映射，必须包含 1, 2, 3, 4, 6, 8。",
+    "- radius: token 名到 CSS 圆角的映射，必须包含 sm, md, lg。",
+    "- shadow: token 名到阴影值的映射，至少包含 sm, md。",
+    "- density: compact 或 comfortable。",
+    "Token 必须服务于业务领域，不要复制 UML 实验平台默认工作台视觉。",
+    "",
+    "精简代码上下文：",
+    stringifyForPrompt(codeContext, 8000),
+    "",
+    "应用蓝图：",
+    stringifyForPrompt(appBlueprint, 4000),
+    "",
+    "界面方案：",
+    stringifyForPrompt(uiBlueprint, 4000),
+    "",
+    "界面设计图视觉解析（仅作补充）：",
+    stringifyForPrompt(uiReferenceSpec, 4000),
+  ].join("\n");
+}
+
+export function buildGenerateCodeComponentRegistryPrompt(
+  codeContext: unknown,
+  appBlueprint: CodeAppBlueprint,
+  uiBlueprint: CodeUiBlueprint,
+) {
+  return [
+    "请为前端业务原型生成可控组件 Registry。",
+    "返回 JSON 对象，格式必须是 {\"componentRegistry\":{\"components\":[...]}}。",
+    "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码块。",
+    "",
+    "第一版组件必须覆盖并优先使用以下组件名：",
+    "WorkspaceShell, SidebarNav, TopBar, MetricCard, DataTable, StatusBadge, FilterBar, ActionButton, DetailPanel, EmptyState。",
+    "",
+    "每个组件字段：",
+    "- name: 组件名。",
+    "- description: 组件职责。",
+    "- props[]: 允许的 props 名称。",
+    "- variants[]: 允许的变体。",
+    "- usageRules[]: 使用规则，说明何时用、避免什么误用。",
+    "Registry 的作用是约束代码生成，禁止后续代码阶段重新发明不必要的一次性 UI 组件。",
+    "",
+    "精简代码上下文：",
+    stringifyForPrompt(codeContext, 8000),
+    "",
+    "应用蓝图：",
+    stringifyForPrompt(appBlueprint, 4000),
+    "",
+    "界面方案：",
+    stringifyForPrompt(uiBlueprint, 4000),
+  ].join("\n");
+}
+
+export function buildGenerateCodeUiIrPrompt(
+  codeContext: unknown,
+  appBlueprint: CodeAppBlueprint,
+  uiBlueprint: CodeUiBlueprint,
+  uiMockup: CodeUiMockup | null,
+  uiReferenceSpec: CodeUiReferenceSpec | null,
+) {
+  return [
+    "请生成前端原型的结构化 UI IR，用于直接约束 React 代码生成。",
+    "返回 JSON 对象，格式必须是 {\"uiIr\":{...}}。",
+    "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码块。",
+    CODE_GENERATION_SEMANTICS,
+    "",
+    "uiIr 字段结构：",
+    "- designTokens: colors, typography, spacing, radius, shadow, density。",
+    "- componentRegistry: components[]，必须覆盖 WorkspaceShell, SidebarNav, TopBar, MetricCard, DataTable, StatusBadge, FilterBar, ActionButton, DetailPanel, EmptyState。",
+    "- pages[]: id, route, name, layout, primaryActions[], componentTree。",
+    "- componentTree: component, purpose, props, dataBinding, tokenRefs[], children[]。",
+    "- dataBindings[]: 描述组件如何绑定 mock data/entity fields。",
+    "- interactions[]: tab, filter, dialog, selection, form submit 等交互。",
+    "- responsiveRules[]: desktop/tablet/mobile 下的布局规则。",
+    "",
+    "严格约束：",
+    "- pages 必须覆盖应用蓝图中的所有页面 route。",
+    "- componentTree 只能使用 componentRegistry 中声明的组件名。",
+    "- tokenRefs 必须引用 designTokens 中存在的 token 名，例如 colors.primary、spacing.4、radius.md。",
+    "- UI IR 是代码生成主约束，界面设计图视觉解析只作为补充，不得覆盖页面树结构。",
+    "- 不要生成营销落地页结构；管理/业务系统应优先体现导航、数据区、筛选、状态和主要操作。",
+    "",
+    "精简代码上下文：",
+    stringifyForPrompt(codeContext, 10000),
+    "",
+    "应用蓝图：",
+    stringifyForPrompt(appBlueprint, 5000),
+    "",
+    "界面方案：",
+    stringifyForPrompt(uiBlueprint, 5000),
+    "",
+    "界面设计图摘要：",
+    stringifyForPrompt(
+      uiMockup
+        ? {
+            status: uiMockup.status,
+            model: uiMockup.model,
+            summary: uiMockup.summary,
+            imageUrl: uiMockup.imageUrl,
+            hasImageData: Boolean(uiMockup.imageDataUrl),
+            errorMessage: uiMockup.errorMessage,
+          }
+        : null,
+      4000,
+    ),
+    "",
+    "界面设计图视觉解析（仅作补充）：",
+    stringifyForPrompt(uiReferenceSpec, 5000),
+  ].join("\n");
+}
+
 export function buildGenerateCodeFilePlanPrompt(
   codeContext: unknown,
   appBlueprint: CodeAppBlueprint,
   uiBlueprint: CodeUiBlueprint,
   uiMockup: CodeUiMockup | null,
   uiReferenceSpec: CodeUiReferenceSpec | null,
+  uiIr: CodeUiIr | null,
   existingFiles: Record<string, string>,
 ) {
   return [
@@ -474,6 +600,7 @@ export function buildGenerateCodeFilePlanPrompt(
     "- 可以按需求新增 /src/features/* 或 /src/lib/*，但所有 import 必须可解析。",
     "- 禁止把主要 UI 全塞进 /src/App.tsx 或单个 /src/components/WorkspaceShell.tsx。",
     "- 不要生成 /index.html 或 /src/main.tsx，服务端已经提供稳定骨架。",
+    "- 如果存在 UI IR，文件计划必须覆盖 UI IR 中的页面、组件和样式 token 文件需求。",
     "",
     "精简代码上下文：",
     JSON.stringify(codeContext, null, 2),
@@ -502,6 +629,9 @@ export function buildGenerateCodeFilePlanPrompt(
     "",
     "界面设计图视觉解析：",
     JSON.stringify(uiReferenceSpec, null, 2),
+    "",
+    "结构化 UI IR（主约束）：",
+    JSON.stringify(uiIr, null, 2),
     "",
     "当前文件：",
     JSON.stringify(Object.keys(existingFiles), null, 2),
@@ -576,6 +706,7 @@ export function buildGenerateCodeFileOperationsPrompt(
     uiBlueprint?: CodeUiBlueprint | null;
     uiMockup?: CodeUiMockup | null;
     uiReferenceSpec?: CodeUiReferenceSpec | null;
+    uiIr?: CodeUiIr | null;
     filePlan?: CodeFilePlan | null;
     qualityIssues?: string[];
   },
@@ -588,15 +719,18 @@ export function buildGenerateCodeFileOperationsPrompt(
     "",
     "operation 支持：",
     "- 每个操作必须使用字段 operation，不能使用 type、action、op、kind。",
-    "- create_file: operation=\"create_file\", path, content, reason。",
-    "- update_file: operation=\"update_file\", path, content, reason。",
-    "- set_entry_file: operation=\"set_entry_file\", path, reason。",
-    "- note: operation=\"note\", message。",
+    "- 为兼容结构化输出，每个 operation 对象都必须包含 operation, path, content, reason, message 五个字段；不适用字段填空字符串。",
+    "- create_file: operation=\"create_file\", path, content, reason；message 填空字符串。",
+    "- update_file: operation=\"update_file\", path, content, reason；message 填空字符串。",
+    "- set_entry_file: operation=\"set_entry_file\", path, reason；content 和 message 填空字符串。",
+    "- note: operation=\"note\", message；path、content、reason 填空字符串。",
     "",
     "文件要求：",
     "- 必须生成或更新 /src/App.tsx、/src/components/WorkspaceShell.tsx、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
     "- 必须生成或更新文件计划中的所有 /src/pages/* 和 /src/components/* 文件。",
     "- 如果存在界面设计图视觉解析，必须优先贴合其中的布局、颜色、组件形态、信息密度和业务区域；不要只生成默认后台工作台。",
+    "- 如果存在 UI IR，必须优先按 uiIr.pages[].componentTree 生成页面结构，只能使用 componentRegistry 中的组件语义，不要在代码阶段重新设计整体布局。",
+    "- 如果存在 designTokens，/src/styles.css 必须定义并使用 CSS variables，例如 --color-primary、--space-3、--radius-md。",
     "- 至少 2 个页面文件、至少 3 个组件文件；默认做 3 到 5 个页面。",
     "- 可以按需求新增 /src/components/*、/src/pages/*、/src/features/*、/src/lib/*，但必须保证所有 import 都能解析。",
     "- 不要生成 /index.html 或 /src/main.tsx，服务端已经提供稳定骨架。",
@@ -634,6 +768,9 @@ export function buildGenerateCodeFileOperationsPrompt(
     "界面设计图视觉解析：",
     JSON.stringify(generationContext?.uiReferenceSpec ?? null, null, 2),
     "",
+    "结构化 UI IR（主约束）：",
+    JSON.stringify(generationContext?.uiIr ?? null, null, 2),
+    "",
     "文件计划：",
     JSON.stringify(generationContext?.filePlan ?? null, null, 2),
     "",
@@ -659,6 +796,7 @@ export function buildRepairCodeFileOperationsPrompt(
     uiBlueprint?: CodeUiBlueprint | null;
     uiMockup?: CodeUiMockup | null;
     uiReferenceSpec?: CodeUiReferenceSpec | null;
+    uiIr?: CodeUiIr | null;
     filePlan?: CodeFilePlan | null;
     qualityIssues?: string[];
   },
@@ -670,15 +808,16 @@ export function buildRepairCodeFileOperationsPrompt(
     "",
     "严格协议：",
     "- operations 是非空数组。",
-    "- 每个操作必须包含 operation 字段。",
+    "- 每个操作必须包含 operation, path, content, reason, message 五个字段；不适用字段填空字符串。",
     "- operation 只能是 create_file、update_file、set_entry_file、note。",
-    "- create_file/update_file 必须包含 path、content、reason。",
-    "- set_entry_file 必须包含 path、reason。",
-    "- note 必须包含 message。",
+    "- create_file/update_file 的 path、content、reason 必须非空，message 填空字符串。",
+    "- set_entry_file 的 path、reason 必须非空，content 和 message 填空字符串。",
+    "- note 的 message 必须非空，path、content、reason 填空字符串。",
     "- 禁止使用 type/action/op/kind 代替 operation。",
     "- 必须使用模块化路径：/src/App.tsx、/src/components/*、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
     "- 必须覆盖文件计划中的页面和组件文件，避免单文件大组件。",
     "- UI 内容和主题必须契合需求背景，并优先贴合界面设计图视觉解析，不要套 UML 实验平台风格。",
+    "- 如果存在 UI IR，必须优先修复到 uiIr.pages[].componentTree、designTokens 和 componentRegistry 所表达的结构。",
     "",
     "生成计划：",
     JSON.stringify(agentPlan, null, 2),
@@ -707,6 +846,9 @@ export function buildRepairCodeFileOperationsPrompt(
     "",
     "界面设计图视觉解析：",
     JSON.stringify(generationContext?.uiReferenceSpec ?? null, null, 2),
+    "",
+    "结构化 UI IR（主约束）：",
+    JSON.stringify(generationContext?.uiIr ?? null, null, 2),
     "",
     "文件计划：",
     JSON.stringify(generationContext?.filePlan ?? null, null, 2),
