@@ -7,6 +7,9 @@ import {
   RefreshCw,
   Loader2,
   Download,
+  Maximize2,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../shared/ui/tabs";
@@ -90,6 +93,10 @@ function DiagramDetailView({
     ? designDiagramErrors[designType] ?? null
     : diagramErrors[requirementType] ?? null;
   const [svgUrl, setSvgUrl] = useState("");
+  const [svgScale, setSvgScale] = useState(1);
+  const updateSvgScale = (next: number) => {
+    setSvgScale(Math.min(3, Math.max(0.25, Math.round(next * 100) / 100)));
+  };
   useEffect(() => {
     if (!svgMarkup || typeof URL.createObjectURL !== "function") {
       setSvgUrl("");
@@ -201,6 +208,36 @@ function DiagramDetailView({
                 actions={
                   svgMarkup ? (
                     <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => updateSvgScale(svgScale - 0.25)}
+                        aria-label="缩小 SVG"
+                      >
+                        <ZoomOut className="size-3.5" />
+                      </Button>
+                      <Badge variant="secondary" className="h-7 min-w-14 font-mono">
+                        {Math.round(svgScale * 100)}%
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => updateSvgScale(svgScale + 0.25)}
+                        aria-label="放大 SVG"
+                      >
+                        <ZoomIn className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => updateSvgScale(1)}
+                        aria-label="适应宽度"
+                      >
+                        <Maximize2 className="size-3.5" />
+                      </Button>
                       {svgUrl && (
                         <Button variant="outline" size="sm" className="h-7" asChild>
                           <a href={svgUrl} target="_blank" rel="noreferrer">
@@ -240,13 +277,23 @@ function DiagramDetailView({
                   ) : undefined
                 }
               >
-                <div className="min-h-[320px] overflow-auto rounded-xl border border-border bg-zinc-100 p-4">
+                <div
+                  className="min-h-[320px] overflow-auto rounded-xl border border-border bg-zinc-100 p-4"
+                  onWheel={(event) => {
+                    if (!event.ctrlKey || !svgMarkup) {
+                      return;
+                    }
+                    event.preventDefault();
+                    updateSvgScale(svgScale + (event.deltaY < 0 ? 0.1 : -0.1));
+                  }}
+                >
                   {svgMarkup ? (
-                    <div className="flex min-h-[288px] items-center justify-center">
+                    <div className="flex min-h-[288px] min-w-full items-center justify-center">
                       <InlineSvg
                         svg={svgMarkup}
+                        scale={svgScale}
                         highlightLabel={highlighted?.label}
-                        className="max-w-full [&>svg]:max-w-full [&>svg]:drop-shadow-sm"
+                        className="w-full [&>svg]:drop-shadow-sm"
                       />
                     </div>
                   ) : diagramError ? (

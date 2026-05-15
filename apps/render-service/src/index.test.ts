@@ -70,3 +70,22 @@ for (const entry of CASES) {
     await app.close();
   });
 }
+
+test("render-service renders png", async () => {
+  const app = await createRenderServiceServer();
+  const response = await app.inject({
+    method: "POST",
+    url: "/render/png",
+    payload: CASES[0].payload,
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  const signature = Buffer.from(body.pngBase64, "base64")
+    .subarray(0, 8)
+    .toString("hex");
+  assert.equal(signature, "89504e470d0a1a0a");
+  assert.equal(body.renderMeta.engine, "plantuml");
+
+  await app.close();
+});

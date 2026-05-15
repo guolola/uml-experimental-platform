@@ -10,6 +10,7 @@ import {
   DesignDiagramView,
   DiagramView,
 } from "../features/diagrams/components/diagram-detail-page";
+import { CodeGenerationPage } from "../features/code/components/code-generation-page";
 import { DesignModelPage } from "../features/design/components/design-model-page";
 import { HistoryDrawer } from "../features/history/components/history-drawer";
 import { TextRequirementView } from "../features/requirements/components/text-requirement-page";
@@ -108,7 +109,12 @@ export function Shell() {
       body = <DesignDiagramView type={selection.diagram} />;
       break;
     case "workspace-placeholder":
-      body = <Workspace title={selection.label} />;
+      body =
+        selection.workspaceId === "code" ? (
+          <CodeGenerationPage />
+        ) : (
+          <Workspace title={selection.label} />
+        );
       break;
   }
 

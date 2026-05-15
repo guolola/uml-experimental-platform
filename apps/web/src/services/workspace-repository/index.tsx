@@ -6,9 +6,14 @@ import {
 } from "react";
 import type {
   DesignDiagramModelSpec,
+  CodeRunSnapshot,
+  DocumentKind,
+  DocumentRunSnapshot,
+  DesignPlantUmlArtifact,
   DesignRunSnapshot,
   DesignSvgArtifact,
   DiagramModelSpec,
+  PlantUmlArtifact,
   ProviderSettings,
   RenderSvgResponse,
   RunEvent,
@@ -29,6 +34,7 @@ import {
   loadRunHistory,
   saveRunHistoryItem,
   type RunHistoryItem,
+  type RunHistorySnapshot,
 } from "../../features/history";
 
 const APP_API_BASE_URL =
@@ -75,11 +81,39 @@ export interface StartDesignRunInput {
   providerSettings: ProviderSettingsInput;
 }
 
+export interface StartCodeRunInput {
+  requirementText: string;
+  rules: RequirementRule[];
+  designModels: DesignDiagramModelSpec[];
+  existingFiles: Record<string, string>;
+  generationMode: "continue" | "regenerate";
+  providerSettings: ProviderSettingsInput;
+  imageProviderSettings?: ProviderSettingsInput & {
+    model: "gpt-image-2" | "gemini-3.1-flash-image-preview-2k" | "nano-banana-pro";
+  };
+}
+
+export interface StartDocumentRunInput {
+  documentKind: DocumentKind;
+  requirementText: string;
+  rules: RequirementRule[];
+  requirementModels: DiagramModelSpec[];
+  requirementPlantUml: PlantUmlArtifact[];
+  requirementSvgArtifacts: SvgArtifact[];
+  designModels: DesignDiagramModelSpec[];
+  designPlantUml: DesignPlantUmlArtifact[];
+  designSvgArtifacts: DesignSvgArtifact[];
+  providerSettings: ProviderSettingsInput;
+  useAiText: boolean;
+}
+
 export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceRecord>;
   updateRequirementText(text: string): Promise<void>;
   startRun(input: StartRunInput): Promise<{ runId: string }>;
   startDesignRun?(input: StartDesignRunInput): Promise<{ runId: string }>;
+  startCodeRun?(input: StartCodeRunInput): Promise<{ runId: string }>;
+  startDocumentRun?(input: StartDocumentRunInput): Promise<{ runId: string }>;
   subscribeToRun(
     runId: string,
     onEvent: (event: RunEvent) => void,
@@ -88,8 +122,19 @@ export interface WorkspaceRepository {
     runId: string,
     onEvent: (event: RunEvent) => void,
   ): Promise<void>;
+  subscribeToCodeRun?(
+    runId: string,
+    onEvent: (event: RunEvent) => void,
+  ): Promise<void>;
+  subscribeToDocumentRun?(
+    runId: string,
+    onEvent: (event: RunEvent) => void,
+  ): Promise<void>;
   getRunSnapshot(runId: string): Promise<RunSnapshot>;
   getDesignRunSnapshot?(runId: string): Promise<DesignRunSnapshot>;
+  getCodeRunSnapshot?(runId: string): Promise<CodeRunSnapshot>;
+  getDocumentRunSnapshot?(runId: string): Promise<DocumentRunSnapshot>;
+  downloadDocumentRun?(runId: string): Promise<{ blob: Blob; fileName: string }>;
   renderPlantUml(
     diagramKind: DiagramType,
     plantUmlSource: string,
@@ -102,7 +147,7 @@ export interface WorkspaceRepository {
     capability: ModelCapability;
   }>;
   saveRunHistory(
-    snapshot: RunSnapshot,
+    snapshot: RunHistorySnapshot,
     meta: { providerModel: string; durationMs?: number },
   ): Promise<RunHistoryItem>;
   listRunHistory(): Promise<RunHistoryItem[]>;
@@ -114,7 +159,7 @@ export interface WorkspaceRepository {
 function createEmptyWorkspace(): WorkspaceRecord {
   return {
     id: "workspace-default",
-    name: "UML 实验平台",
+    name: "软件工程实验平台",
     requirementText: "",
     selectedDiagramTypes: [],
     rules: [],
@@ -129,6 +174,13 @@ function createEmptyWorkspace(): WorkspaceRecord {
     designPlantUml: {},
     designSvgArtifacts: {},
     designDiagramErrors: {},
+    codeSpec: null,
+    codeFiles: {},
+    codeEntryFile: null,
+    codeDependencies: {},
+    codeUiMockup: null,
+    codeAgentPlan: [],
+    codeDiagnostics: [],
     rulesVersion: 0,
     rulesBasedOnTextVersion: null,
     diagramVersions: {},
@@ -184,6 +236,91 @@ async function readDesignRunSnapshot(runId: string) {
   return (await response.json()) as DesignRunSnapshot;
 }
 
+async function readCodeRunSnapshot(runId: string) {
+  const response = await fetch(buildApiUrl(`/api/code-runs/${runId}`));
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("代码生成任务已丢失，可能是本地 API 服务重启，请重新生成");
+    }
+    throw new Error(`读取代码运行快照失败：HTTP ${response.status}`);
+  }
+  return (await response.json()) as CodeRunSnapshot;
+}
+
+async function readDocumentRunSnapshot(runId: string) {
+  const response = await fetch(buildApiUrl(`/api/document-runs/${runId}`));
+  if (!response.ok) {
+    throw new Error(`读取说明书运行快照失败：HTTP ${response.status}`);
+  }
+  return (await response.json()) as DocumentRunSnapshot;
+}
+
+async function downloadDocumentRunFile(runId: string) {
+  const response = await fetch(buildApiUrl(`/api/document-runs/${runId}/download`));
+  if (!response.ok) {
+    throw new Error(`下载说明书失败：HTTP ${response.status}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+  const fileName = match
+    ? decodeURIComponent(match[1])
+    : "说明书.docx";
+  return {
+    blob: await response.blob(),
+    fileName,
+  };
+}
+
+async function waitForCodeRunSnapshot(
+  runId: string,
+  onEvent: (event: RunEvent) => void,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 120_000) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const snapshot = await readCodeRunSnapshot(runId);
+    if (snapshot.status === "completed") {
+      onEvent({ type: "completed", snapshot });
+      return;
+    }
+    if (snapshot.status === "failed") {
+      throw new Error(snapshot.errorMessage ?? "代码生成失败");
+    }
+    onEvent({
+      type: "stage_progress",
+      stage: snapshot.currentStage ?? "write_code_files",
+      progress: snapshot.currentStage ? 70 : 10,
+      message: "SSE 已断开，正在通过快照轮询等待代码生成任务",
+    });
+  }
+  throw new Error("代码 SSE 订阅失败，轮询等待超时");
+}
+
+async function waitForDocumentRunSnapshot(
+  runId: string,
+  onEvent: (event: RunEvent) => void,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 120_000) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const snapshot = await readDocumentRunSnapshot(runId);
+    if (snapshot.status === "completed") {
+      onEvent({ type: "completed", snapshot });
+      return;
+    }
+    if (snapshot.status === "failed") {
+      throw new Error(snapshot.errorMessage ?? "说明书生成失败");
+    }
+    onEvent({
+      type: "stage_progress",
+      stage: snapshot.currentStage ?? "generate_document_text",
+      progress: snapshot.currentStage === "render_document_file" ? 90 : 55,
+      message: "SSE 已断开，正在通过快照轮询等待说明书生成任务",
+    });
+  }
+  throw new Error("说明书 SSE 订阅失败，轮询等待超时");
+}
+
 export function createHttpWorkspaceRepository(): WorkspaceRepository {
   let localRequirementText = "";
 
@@ -234,6 +371,56 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
 
       if (!response.ok) {
         let message = `启动设计生成失败：HTTP ${response.status}`;
+        try {
+          const payload = (await response.json()) as { message?: string };
+          if (payload.message) {
+            message = payload.message;
+          }
+        } catch {
+          // Ignore non-JSON error payloads and fall back to status text.
+        }
+        throw new Error(message);
+      }
+
+      return (await response.json()) as { runId: string };
+    },
+
+    async startCodeRun(input: StartCodeRunInput) {
+      const response = await fetch(buildApiUrl("/api/code-runs"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+
+      if (!response.ok) {
+        let message = `启动代码生成失败：HTTP ${response.status}`;
+        try {
+          const payload = (await response.json()) as { message?: string };
+          if (payload.message) {
+            message = payload.message;
+          }
+        } catch {
+          // Ignore non-JSON error payloads and fall back to status text.
+        }
+        throw new Error(message);
+      }
+
+      return (await response.json()) as { runId: string };
+    },
+
+    async startDocumentRun(input: StartDocumentRunInput) {
+      const response = await fetch(buildApiUrl("/api/document-runs"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+
+      if (!response.ok) {
+        let message = `启动说明书生成失败：HTTP ${response.status}`;
         try {
           const payload = (await response.json()) as { message?: string };
           if (payload.message) {
@@ -356,12 +543,120 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
       });
     },
 
+    async subscribeToCodeRun(runId: string, onEvent: (event: RunEvent) => void) {
+      await new Promise<void>((resolve, reject) => {
+        const source = new EventSource(buildApiUrl(`/api/code-runs/${runId}/events`));
+        let settled = false;
+
+        source.onmessage = (message) => {
+          try {
+            const event = JSON.parse(message.data) as RunEvent;
+            onEvent(event);
+            if (event.type === "completed") {
+              settled = true;
+              source.close();
+              resolve();
+            }
+            if (event.type === "failed") {
+              settled = true;
+              source.close();
+              reject(new Error(event.message));
+            }
+          } catch (error) {
+            settled = true;
+            source.close();
+            reject(error);
+          }
+        };
+
+        source.onerror = () => {
+          if (settled) {
+            source.close();
+            return;
+          }
+          source.close();
+          void waitForCodeRunSnapshot(runId, onEvent)
+            .then(() => {
+              settled = true;
+              resolve();
+            })
+            .catch((error) => {
+              settled = true;
+              reject(error instanceof Error ? error : new Error("代码 SSE 订阅失败"));
+            });
+        };
+      });
+    },
+
+    async subscribeToDocumentRun(runId: string, onEvent: (event: RunEvent) => void) {
+      await new Promise<void>((resolve, reject) => {
+        const source = new EventSource(
+          buildApiUrl(`/api/document-runs/${runId}/events`),
+        );
+        let settled = false;
+
+        source.onmessage = (message) => {
+          try {
+            const event = JSON.parse(message.data) as RunEvent;
+            onEvent(event);
+            if (event.type === "completed") {
+              settled = true;
+              source.close();
+              resolve();
+            }
+            if (event.type === "failed") {
+              settled = true;
+              source.close();
+              reject(new Error(event.message));
+            }
+          } catch (error) {
+            settled = true;
+            source.close();
+            reject(error);
+          }
+        };
+
+        source.onerror = () => {
+          if (settled) {
+            source.close();
+            return;
+          }
+          source.close();
+          void waitForDocumentRunSnapshot(runId, onEvent)
+            .then(() => {
+              settled = true;
+              resolve();
+            })
+            .catch((error) => {
+              settled = true;
+              reject(
+                error instanceof Error
+                  ? error
+                  : new Error("说明书 SSE 订阅失败"),
+              );
+            });
+        };
+      });
+    },
+
     async getRunSnapshot(runId: string) {
       return readRunSnapshot(runId);
     },
 
     async getDesignRunSnapshot(runId: string) {
       return readDesignRunSnapshot(runId);
+    },
+
+    async getCodeRunSnapshot(runId: string) {
+      return readCodeRunSnapshot(runId);
+    },
+
+    async getDocumentRunSnapshot(runId: string) {
+      return readDocumentRunSnapshot(runId);
+    },
+
+    async downloadDocumentRun(runId: string) {
+      return downloadDocumentRunFile(runId);
     },
 
     async renderPlantUml(diagramKind, plantUmlSource) {
@@ -482,9 +777,18 @@ export function createMockWorkspaceRepository(
       ...defaultWorkspace.designDiagramErrors,
       ...seed.designDiagramErrors,
     },
+    codeFiles: { ...defaultWorkspace.codeFiles, ...seed.codeFiles },
+    codeDependencies: {
+      ...defaultWorkspace.codeDependencies,
+      ...seed.codeDependencies,
+    },
+    codeUiMockup: seed.codeUiMockup ?? null,
   };
   const snapshots = new Map<string, RunSnapshot>();
   const designSnapshots = new Map<string, DesignRunSnapshot>();
+  const codeSnapshots = new Map<string, CodeRunSnapshot>();
+  const documentSnapshots = new Map<string, DocumentRunSnapshot>();
+  const documentBuffers = new Map<string, Blob>();
 
   return {
     async loadWorkspace() {
@@ -503,6 +807,11 @@ export function createMockWorkspaceRepository(
         designPlantUml: { ...workspace.designPlantUml },
         designSvgArtifacts: { ...workspace.designSvgArtifacts },
         designDiagramErrors: { ...workspace.designDiagramErrors },
+        codeSpec: workspace.codeSpec,
+        codeFiles: { ...workspace.codeFiles },
+        codeEntryFile: workspace.codeEntryFile,
+        codeDependencies: { ...workspace.codeDependencies },
+        codeUiMockup: workspace.codeUiMockup,
         diagramVersions: { ...workspace.diagramVersions },
       };
     },
@@ -560,6 +869,80 @@ export function createMockWorkspaceRepository(
       return { runId };
     },
 
+    async startCodeRun(input: StartCodeRunInput) {
+      const runId = `code-run-${Math.random().toString(36).slice(2, 10)}`;
+      const mergedFiles =
+        input.generationMode === "regenerate"
+          ? {
+              "/src/App.tsx":
+                workspace.codeFiles["/src/App.tsx"] ??
+                "export default function App() { return <main>重新生成的原型</main>; }",
+            }
+          : {
+              ...workspace.codeFiles,
+              ...input.existingFiles,
+            };
+      const snapshot: CodeRunSnapshot = {
+        runId,
+        requirementText: input.requirementText,
+        rules: input.rules,
+        designModels: input.designModels,
+        spec: workspace.codeSpec,
+        appBlueprint: workspace.codeSpec?.appBlueprint ?? null,
+        uiBlueprint: workspace.codeSpec?.uiBlueprint ?? null,
+        uiMockup: null,
+        filePlan: workspace.codeSpec?.filePlan ?? null,
+        qualityDiagnostics: [],
+        files: mergedFiles,
+        entryFile: workspace.codeEntryFile,
+        dependencies: workspace.codeDependencies,
+        agentPlan: ["写入骨架", "生成核心界面", "检查预览入口"],
+        generationMode: input.generationMode,
+        changedFileCount: 0,
+        diagnostics: [],
+        codeContextHash: "mock",
+        currentStage: "write_code_files",
+        status: "completed",
+        errorMessage: null,
+      };
+      codeSnapshots.set(runId, snapshot);
+      return { runId };
+    },
+
+    async startDocumentRun(input: StartDocumentRunInput) {
+      const runId = `document-run-${Math.random().toString(36).slice(2, 10)}`;
+      const fileName =
+        input.documentKind === "requirementsSpec"
+          ? "需求规格说明书.docx"
+          : "软件设计说明书.docx";
+      const snapshot: DocumentRunSnapshot = {
+        runId,
+        documentKind: input.documentKind,
+        requirementText: input.requirementText,
+        sections: [
+          { level: 1, title: "1 引言", body: ["Mock 说明书正文。"] },
+          { level: 2, title: "1.1 编写目的", body: ["用于验证说明书生成流程。"] },
+          { level: 3, title: "1.1.1 范围", body: ["当前为 Mock 快照。"] },
+        ],
+        fileName,
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        byteLength: 12,
+        missingArtifacts: [],
+        currentStage: "render_document_file",
+        status: "completed",
+        errorMessage: null,
+      };
+      documentSnapshots.set(runId, snapshot);
+      documentBuffers.set(
+        runId,
+        new Blob(["mock document"], {
+          type: snapshot.mimeType ?? "application/octet-stream",
+        }),
+      );
+      return { runId };
+    },
+
     async subscribeToRun(runId, onEvent) {
       const snapshot = snapshots.get(runId);
       if (!snapshot) {
@@ -572,6 +955,51 @@ export function createMockWorkspaceRepository(
           stage: "extract_rules",
         });
       }
+      onEvent({ type: "completed", snapshot });
+    },
+
+    async subscribeToCodeRun(runId, onEvent) {
+      const snapshot = codeSnapshots.get(runId);
+      if (!snapshot) {
+        throw new Error("Mock code run not found");
+      }
+      onEvent({ type: "queued" });
+      onEvent({
+        type: "stage_started",
+        stage: "plan_code",
+      });
+      onEvent({
+        type: "stage_started",
+        stage: "write_code_files",
+      });
+      onEvent({
+        type: "code_file_changed",
+        path: "/src/App.tsx",
+        content: snapshot.files["/src/App.tsx"] ?? "export default function App() { return null; }",
+        reason: "Mock 生成器写入入口组件",
+      });
+      onEvent({ type: "completed", snapshot });
+    },
+
+    async subscribeToDocumentRun(runId, onEvent) {
+      const snapshot = documentSnapshots.get(runId);
+      if (!snapshot) {
+        throw new Error("Mock document run not found");
+      }
+      onEvent({ type: "queued" });
+      onEvent({ type: "stage_started", stage: "generate_document_text" });
+      onEvent({
+        type: "stage_progress",
+        stage: "generate_document_text",
+        progress: 55,
+        message: "正在生成说明书正文",
+      });
+      onEvent({ type: "stage_started", stage: "render_document_file" });
+      onEvent({
+        type: "artifact_ready",
+        stage: "render_document_file",
+        artifactKind: "document",
+      });
       onEvent({ type: "completed", snapshot });
     },
 
@@ -624,6 +1052,44 @@ export function createMockWorkspaceRepository(
         designDiagramErrors: snapshot.diagramErrors,
       };
       return snapshot;
+    },
+
+    async getCodeRunSnapshot(runId) {
+      const snapshot = codeSnapshots.get(runId);
+      if (!snapshot) {
+        throw new Error("Mock code run not found");
+      }
+      workspace = {
+        ...workspace,
+        codeSpec: snapshot.spec,
+        codeFiles: { ...snapshot.files },
+        codeEntryFile: snapshot.entryFile,
+        codeDependencies: { ...snapshot.dependencies },
+        codeUiMockup: snapshot.uiMockup,
+        codeAgentPlan: [...snapshot.agentPlan],
+        codeDiagnostics: [...snapshot.diagnostics],
+      };
+      return snapshot;
+    },
+
+    async getDocumentRunSnapshot(runId) {
+      const snapshot = documentSnapshots.get(runId);
+      if (!snapshot) {
+        throw new Error("Mock document run not found");
+      }
+      return snapshot;
+    },
+
+    async downloadDocumentRun(runId) {
+      const snapshot = documentSnapshots.get(runId);
+      const blob = documentBuffers.get(runId);
+      if (!snapshot || !blob) {
+        throw new Error("Mock document file not found");
+      }
+      return {
+        blob,
+        fileName: snapshot.fileName ?? "说明书.docx",
+      };
     },
 
     async renderPlantUml(diagramKind, plantUmlSource) {
@@ -752,5 +1218,56 @@ export function createStartDesignRunInput(
     requirementModels,
     selectedDiagrams,
     providerSettings: base.providerSettings,
+  };
+}
+
+export function createStartCodeRunInput(
+  requirementText: string,
+  rules: RequirementRule[],
+  designModels: DesignDiagramModelSpec[],
+  existingFiles: Record<string, string> = {},
+  generationMode: "continue" | "regenerate" = "continue",
+): StartCodeRunInput {
+  const base = createStartRunInput(requirementText, []);
+  const settings = loadUserSettings();
+  return {
+    requirementText,
+    rules,
+    designModels,
+    existingFiles: generationMode === "regenerate" ? {} : existingFiles,
+    generationMode,
+    providerSettings: base.providerSettings,
+    imageProviderSettings: {
+      apiBaseUrl: base.providerSettings.apiBaseUrl,
+      apiKey: base.providerSettings.apiKey,
+      model: settings.imageModel,
+    },
+  };
+}
+
+export function createStartDocumentRunInput(
+  documentKind: DocumentKind,
+  requirementText: string,
+  rules: RequirementRule[],
+  requirementModels: DiagramModelSpec[],
+  requirementPlantUml: PlantUmlArtifact[],
+  requirementSvgArtifacts: SvgArtifact[],
+  designModels: DesignDiagramModelSpec[],
+  designPlantUml: DesignPlantUmlArtifact[],
+  designSvgArtifacts: DesignSvgArtifact[],
+): StartDocumentRunInput {
+  const base = createStartRunInput(requirementText, []);
+  return {
+    documentKind,
+    requirementText,
+    rules,
+    requirementModels,
+    requirementPlantUml,
+    requirementSvgArtifacts,
+    designModels,
+    designPlantUml,
+    designSvgArtifacts,
+    providerSettings: base.providerSettings,
+    useAiText: true,
   };
 }

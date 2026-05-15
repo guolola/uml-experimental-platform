@@ -6,8 +6,12 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  renderPngRequestSchema,
+  renderPngResponseSchema,
   renderSvgRequestSchema,
   renderSvgResponseSchema,
+  type RenderPngRequest,
+  type RenderPngResponse,
   type RenderSvgRequest,
   type RenderSvgResponse,
 } from "@uml-platform/contracts";
@@ -18,38 +22,38 @@ const DEFAULT_JAR_PATH = fileURLToPath(
   new URL("../../../plantuml/build/libs/plantuml-1.2026.3beta8.jar", import.meta.url),
 );
 
-export async function renderSvgWithPlantUml(
+async function renderWithPlantUml(
   input: RenderSvgRequest,
+  outputFormat: "svg" | "png",
   jarPath = DEFAULT_JAR_PATH,
-): Promise<RenderSvgResponse> {
+): Promise<{ output: Buffer; stderr: string; durationMs: number }> {
   renderSvgRequestSchema.parse(input);
   const startedAt = Date.now();
 
-  const result = await new Promise<{ svg: string; stderr: string; code: number | null }>(
+  const result = await new Promise<{ output: Buffer; stderr: string; code: number | null }>(
     (resolve, reject) => {
       const child = spawn(
         "java",
-        ["-jar", jarPath, "-tsvg", "-charset", "UTF-8", "-pipe"],
+        ["-jar", jarPath, outputFormat === "svg" ? "-tsvg" : "-tpng", "-charset", "UTF-8", "-pipe"],
         {
           stdio: ["pipe", "pipe", "pipe"],
         },
       );
 
-      let stdout = "";
+      const chunks: Buffer[] = [];
       let stderr = "";
 
-      child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
 
-      child.stdout.on("data", (chunk: string) => {
-        stdout += chunk;
+      child.stdout.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
       });
       child.stderr.on("data", (chunk: string) => {
         stderr += chunk;
       });
       child.on("error", reject);
       child.on("close", (code) => {
-        resolve({ svg: stdout, stderr, code });
+        resolve({ output: Buffer.concat(chunks), stderr, code });
       });
 
       child.stdin.write(input.plantUmlSource);
@@ -63,7 +67,21 @@ export async function renderSvgWithPlantUml(
     );
   }
 
-  const svg = result.svg.trim();
+  return {
+    output: result.output,
+    stderr: result.stderr,
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+export async function renderSvgWithPlantUml(
+  input: RenderSvgRequest,
+  jarPath = DEFAULT_JAR_PATH,
+): Promise<RenderSvgResponse> {
+  renderSvgRequestSchema.parse(input);
+  const result = await renderWithPlantUml(input, "svg", jarPath);
+  const svg = result.output.toString("utf8").trim();
+
   if (!svg.includes("<svg")) {
     throw new Error(
       `PlantUML did not return SVG content: ${result.stderr || "empty output"}`,
@@ -76,7 +94,31 @@ export async function renderSvgWithPlantUml(
       engine: "plantuml",
       generatedAt: new Date().toISOString(),
       sourceLength: input.plantUmlSource.length,
-      durationMs: Date.now() - startedAt,
+      durationMs: result.durationMs,
+    },
+  });
+}
+
+export async function renderPngWithPlantUml(
+  input: RenderPngRequest,
+  jarPath = DEFAULT_JAR_PATH,
+): Promise<RenderPngResponse> {
+  renderPngRequestSchema.parse(input);
+  const result = await renderWithPlantUml(input, "png", jarPath);
+  const pngSignature = result.output.subarray(0, 8).toString("hex");
+  if (pngSignature !== "89504e470d0a1a0a") {
+    throw new Error(
+      `PlantUML did not return PNG content: ${result.stderr || "empty output"}`,
+    );
+  }
+
+  return renderPngResponseSchema.parse({
+    pngBase64: result.output.toString("base64"),
+    renderMeta: {
+      engine: "plantuml",
+      generatedAt: new Date().toISOString(),
+      sourceLength: input.plantUmlSource.length,
+      durationMs: result.durationMs,
     },
   });
 }
@@ -104,6 +146,20 @@ export async function createRenderServiceServer() {
     try {
       const input = renderSvgRequestSchema.parse(request.body);
       const result = await renderSvgWithPlantUml(input);
+      return result;
+    } catch (error) {
+      request.log.error(error);
+      reply.code(400);
+      return {
+        message: error instanceof Error ? error.message : "Unknown render error",
+      };
+    }
+  });
+
+  app.post("/render/png", async (request, reply) => {
+    try {
+      const input = renderPngRequestSchema.parse(request.body);
+      const result = await renderPngWithPlantUml(input);
       return result;
     } catch (error) {
       request.log.error(error);

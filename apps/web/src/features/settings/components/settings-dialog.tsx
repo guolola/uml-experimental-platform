@@ -184,6 +184,30 @@ export function SettingsDialog() {
             </div>
 
             <div className="flex flex-col gap-1.5">
+              <Label htmlFor="image-model">图片模型</Label>
+              <Select
+                value={settings.imageModel}
+                onValueChange={(value) =>
+                  update("imageModel", value as UserSettings["imageModel"])
+                }
+              >
+                <SelectTrigger id="image-model" className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gpt-image-2">gpt-image-2</SelectItem>
+                  <SelectItem value="gemini-3.1-flash-image-preview-2k">
+                    gemini-3.1-flash-image-preview-2k
+                  </SelectItem>
+                  <SelectItem value="nano-banana-pro">nano-banana-pro</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-[11px] text-muted-foreground">
+                代码生成会先用图片模型生成界面设计图，再按图生成前端原型。
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="api-base">API Base URL</Label>
               <Input
                 id="api-base"

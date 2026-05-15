@@ -1,5 +1,8 @@
 import type {
   DesignDiagramModelSpec,
+  CodeGenerationSpec,
+  CodeRunSnapshot,
+  CodeUiMockup,
   DesignRunSnapshot,
   DesignSvgArtifact,
   DiagramError,
@@ -15,6 +18,7 @@ import type { RequirementRule } from "../requirement-rule/model";
 
 export type WorkspaceRunSnapshot = RunSnapshot;
 export type WorkspaceDesignRunSnapshot = DesignRunSnapshot;
+export type WorkspaceCodeRunSnapshot = CodeRunSnapshot;
 export type RunStatus = "idle" | ContractRunStatus;
 
 export interface WorkspaceRecord {
@@ -34,6 +38,13 @@ export interface WorkspaceRecord {
   designPlantUml: Partial<Record<DesignDiagramType, string>>;
   designSvgArtifacts: Partial<Record<DesignDiagramType, DesignSvgArtifact>>;
   designDiagramErrors: Partial<Record<DesignDiagramType, DiagramError>>;
+  codeSpec: CodeGenerationSpec | null;
+  codeFiles: Record<string, string>;
+  codeEntryFile: string | null;
+  codeDependencies: Record<string, string>;
+  codeUiMockup: CodeUiMockup | null;
+  codeAgentPlan: string[];
+  codeDiagnostics: CodeRunSnapshot["diagnostics"];
   rulesVersion: number;
   rulesBasedOnTextVersion: number | null;
   diagramVersions: Partial<Record<DiagramType, number>>;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Wand2,
   Loader2,
@@ -20,7 +20,6 @@ import {
 } from "../../../entities/diagram/model";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { ModelPicker } from "../../../shared/ui/model-picker";
-import { getModelDisplayName } from "../../../shared/lib/model-catalog";
 import {
   loadUserSettings,
   patchUserSettings,
@@ -36,16 +35,12 @@ export function TextRequirementView() {
     setSelectedDiagrams,
     generating,
     runStatus,
-    runProgress,
-    runMessage,
     errorMessage,
     generateRules,
     generateDiagrams,
     isRulesStale,
     staleDiagrams,
     generatedDiagrams,
-    currentRunDiagnostics,
-    diagramErrors,
   } = useWorkspaceSession();
   const [query, setQuery] = useState("");
   const [defaultModel, setDefaultModel] = useState(
@@ -54,8 +49,6 @@ export function TextRequirementView() {
   const [showStaleBanner, setShowStaleBanner] = useState(
     () => loadUserSettings().showStaleBanner,
   );
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const streamEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const syncSettings = () => {
@@ -95,21 +88,6 @@ export function TextRequirementView() {
     if (!normalizedQuery) return rules;
     return rules.filter((rule) => rule.text.toLowerCase().includes(normalizedQuery));
   }, [rules, query]);
-
-  const modelDisplay = useMemo(
-    () => getModelDisplayName(defaultModel),
-    [defaultModel],
-  );
-
-  useEffect(() => {
-    if (showDiagnostics) {
-      streamEndRef.current?.scrollIntoView?.({ block: "end" });
-    }
-  }, [
-    showDiagnostics,
-    currentRunDiagnostics.streamText,
-    currentRunDiagnostics.chunkCount,
-  ]);
 
   return (
     <div className="flex h-full flex-col overflow-auto">
@@ -353,99 +331,6 @@ export function TextRequirementView() {
         </Section>
       )}
 
-      {generating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-          <div className="flex w-[min(420px,90vw)] flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-lg">
-            <div className="flex items-center gap-3">
-              <Loader2 className="size-6 animate-spin text-primary" />
-              <div className="flex flex-1 flex-col">
-                <span className="text-sm">正在调用 {defaultModel}</span>
-                <span className="text-[11px] text-muted-foreground">
-                  {modelDisplay.vendorLabel} · {modelDisplay.shortLabel}
-                </span>
-              <span className="text-xs text-muted-foreground">
-                  {runMessage ?? "模型正在思考…"}
-                </span>
-              </div>
-              <span className="font-mono text-xs text-muted-foreground">
-                {Math.round(runProgress)}%
-              </span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
-                style={{ width: `${runProgress}%` }}
-              />
-            </div>
-            <button
-              type="button"
-              className="self-start text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setShowDiagnostics((value) => !value)}
-            >
-              {showDiagnostics ? "收起详情" : "查看详情"}
-            </button>
-            {showDiagnostics && (
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs">
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-muted-foreground">Run ID：</span>
-                    <span className="font-mono">
-                      {currentRunDiagnostics.runId ?? "pending"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">模型：</span>
-                    <span>{currentRunDiagnostics.providerModel ?? defaultModel}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">阶段：</span>
-                    <span className="font-mono">
-                      {currentRunDiagnostics.activeStage ?? "pending"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Chunks：</span>
-                    <span className="font-mono">
-                      {currentRunDiagnostics.chunkCount}
-                    </span>
-                  </div>
-                </div>
-                {Object.keys(diagramErrors).length > 0 && (
-                  <div className="mt-2 rounded border border-destructive/30 bg-destructive/5 p-2 text-destructive">
-                    {Object.entries(diagramErrors)
-                      .map(([diagram, error]) => `${DIAGRAM_META[diagram as DiagramType].label}: ${error?.message}`)
-                      .join("；")}
-                  </div>
-                )}
-                <div className="mt-3 max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100 shadow-inner">
-                  {currentRunDiagnostics.streamText ? (
-                    <pre className="whitespace-pre-wrap break-words">
-                      {currentRunDiagnostics.streamText}
-                      <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-primary align-[-2px]" />
-                    </pre>
-                  ) : (
-                    <div className="text-zinc-400">等待模型输出...</div>
-                  )}
-                  <div ref={streamEndRef} />
-                </div>
-                {currentRunDiagnostics.events.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {currentRunDiagnostics.events.slice(-6).map((event) => (
-                      <span
-                        key={event.id}
-                        className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                        title={event.detail ?? event.label}
-                      >
-                        {event.label}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

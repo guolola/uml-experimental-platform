@@ -1,19 +1,33 @@
+import { useMemo, useState } from "react";
 import {
+  Activity,
+  AlertCircle,
   Boxes,
+  CheckCircle2,
   Download,
   FileCode2,
   FileText,
   History,
+  Loader2,
   Moon,
   Palette,
   Settings,
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { RunSnapshot } from "@uml-platform/contracts";
+import type { RunSnapshot, RunStage } from "@uml-platform/contracts";
 import { Button } from "../../../shared/ui/button";
+import { Badge } from "../../../shared/ui/badge";
 import { SettingsDialog } from "../../settings/components/settings-dialog";
 import { useTheme } from "../../../app/providers/theme-provider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../../../shared/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,8 +48,124 @@ type TopBarProps = {
   onNavigate: (route: ShellRoutePath) => void;
 };
 
+const RUN_STATUS_LABEL = {
+  idle: "暂无任务",
+  queued: "排队中",
+  running: "生成中",
+  completed: "已完成",
+  failed: "失败",
+} as const;
+
+type RunKind = "requirements" | "design" | "code" | "document";
+
+const STAGE_LABELS: Record<RunStage, string> = {
+  extract_rules: "抽取需求规则",
+  generate_models: "生成需求模型",
+  generate_design_sequence: "生成设计顺序图",
+  generate_design_models: "生成设计模型",
+  analyze_code_product: "分析业务背景",
+  plan_code_ui: "规划界面方案",
+  generate_code_ui_mockup: "生成界面设计图",
+  analyze_code_ui_mockup: "解析界面设计图",
+  plan_code_files: "规划文件结构",
+  generate_code_spec: "生成代码规格",
+  generate_code_files: "生成代码文件",
+  plan_code: "制定实现步骤",
+  write_code_files: "写入原型文件",
+  audit_code_quality: "检查原型质量",
+  verify_code_ui_fidelity: "检查设计图还原度",
+  verify_code_preview: "检查预览入口",
+  repair_code_files: "修复代码输出",
+  generate_document_text: "生成说明书正文",
+  render_document_file: "写入说明书文件",
+  generate_plantuml: "生成图源码",
+  render_svg: "渲染图像",
+};
+
+const STAGES_BY_KIND: Record<RunKind, RunStage[]> = {
+  requirements: [
+    "extract_rules",
+    "generate_models",
+    "generate_plantuml",
+    "render_svg",
+  ],
+  design: [
+    "generate_design_sequence",
+    "generate_design_models",
+    "generate_plantuml",
+    "render_svg",
+  ],
+  code: [
+    "analyze_code_product",
+    "plan_code_ui",
+    "generate_code_ui_mockup",
+    "analyze_code_ui_mockup",
+    "plan_code_files",
+    "plan_code",
+    "write_code_files",
+    "audit_code_quality",
+    "verify_code_ui_fidelity",
+    "verify_code_preview",
+    "repair_code_files",
+  ],
+  document: ["generate_document_text", "render_document_file"],
+};
+
+function formatStageLabel(stage: RunStage | null) {
+  if (!stage) return "等待任务";
+  return STAGE_LABELS[stage] ?? "处理生成任务";
+}
+
+function sanitizeTaskText(text: string | null | undefined) {
+  if (!text) return "";
+  const replacements = [
+    ["extract_rules", "抽取需求规则"],
+    ["generate_models", "生成需求模型"],
+    ["generate_design_sequence", "生成设计顺序图"],
+    ["generate_design_models", "生成设计模型"],
+    ["analyze_code_product", "分析业务背景"],
+    ["plan_code_ui", "规划界面方案"],
+    ["generate_code_ui_mockup", "生成界面设计图"],
+    ["analyze_code_ui_mockup", "解析界面设计图"],
+    ["plan_code_files", "规划文件结构"],
+    ["generate_code_spec", "生成代码规格"],
+    ["generate_code_files", "生成代码文件"],
+    ["plan_code", "制定实现步骤"],
+    ["write_code_files", "写入原型文件"],
+    ["audit_code_quality", "检查原型质量"],
+    ["verify_code_ui_fidelity", "检查设计图还原度"],
+    ["verify_code_preview", "检查预览入口"],
+    ["repair_code_files", "修复代码输出"],
+    ["generate_document_text", "生成说明书正文"],
+    ["render_document_file", "写入说明书文件"],
+    ["generate_plantuml", "生成图源码"],
+    ["render_svg", "渲染图像"],
+    ["PlantUML", "图源码"],
+    ["SVG", "图像"],
+    ["stage_started", "阶段开始"],
+    ["stage_progress", "阶段进度"],
+    ["llm_chunk", "收到模型输出"],
+    ["uiMockup", "界面设计图"],
+    ["uiReferenceSpec", "界面设计图解析"],
+    ["uiFidelityReport", "设计图还原检查"],
+  ];
+  return replacements.reduce(
+    (current, [source, target]) => current.split(source).join(target),
+    text,
+  );
+}
+
+function getTaskStages(kind: RunKind | null, activeStage: RunStage | null) {
+  const base = kind ? [...STAGES_BY_KIND[kind]] : [];
+  if (activeStage && !base.includes(activeStage)) {
+    base.push(activeStage);
+  }
+  return base;
+}
+
 export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const { theme, toggle } = useTheme();
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const {
     requirementText,
     rules,
@@ -44,10 +174,33 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
     diagramErrors,
     selectedDiagrams,
     runStatus,
+    runProgress,
+    runMessage,
     errorMessage,
+    currentRunDiagnostics,
+    generateRequirementsSpec,
+    generateSoftwareDesignSpec,
   } =
     useWorkspaceSession();
   const { openHistoryDrawer } = useWorkspaceShell();
+  const taskIsActive = runStatus === "queued" || runStatus === "running";
+  const recentEvents = useMemo(
+    () => currentRunDiagnostics.events.slice(-6).reverse(),
+    [currentRunDiagnostics.events],
+  );
+  const taskStages = useMemo(
+    () =>
+      getTaskStages(
+        currentRunDiagnostics.runKind,
+        currentRunDiagnostics.activeStage,
+      ),
+    [currentRunDiagnostics.activeStage, currentRunDiagnostics.runKind],
+  );
+  const activeStageIndex = currentRunDiagnostics.activeStage
+    ? taskStages.indexOf(currentRunDiagnostics.activeStage)
+    : -1;
+  const uiMockup = currentRunDiagnostics.uiMockup;
+  const uiMockupImage = uiMockup?.imageUrl ?? uiMockup?.imageDataUrl ?? null;
 
   const currentSnapshot = (): RunSnapshot => ({
     runId: "workspace-current",
@@ -85,6 +238,14 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
     toast.success("已导出 uml-run-snapshot.json");
   };
 
+  const exportRequirementsSpec = () => {
+    void generateRequirementsSpec();
+  };
+
+  const exportSoftwareDesignSpec = () => {
+    void generateSoftwareDesignSpec();
+  };
+
   const navItems = [
     {
       label: "首页",
@@ -111,7 +272,7 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
           <Boxes className="size-4 text-white" />
         </span>
         <span className="whitespace-nowrap text-[22px] font-semibold tracking-normal">
-          UML 实验平台
+          软件工程实验平台
         </span>
       </div>
 
@@ -130,6 +291,269 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
+      <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
+        <DialogTrigger asChild>
+          <Button
+            variant="ghost"
+            className="h-12 shrink-0 rounded-full bg-secondary px-3 text-secondary-foreground shadow-none hover:bg-muted"
+            title="生成任务"
+            aria-label="生成任务"
+          >
+            {taskIsActive ? (
+              <Loader2 className="size-5 animate-spin text-primary" />
+            ) : runStatus === "failed" ? (
+              <AlertCircle className="size-5 text-destructive" />
+            ) : runStatus === "completed" ? (
+              <CheckCircle2 className="size-5 text-success" />
+            ) : (
+              <Activity className="size-5" />
+            )}
+            <span className="hidden max-w-36 truncate text-sm font-semibold xl:inline">
+              {taskIsActive
+                ? `${RUN_STATUS_LABEL[runStatus]} ${runProgress}%`
+                : RUN_STATUS_LABEL[runStatus]}
+            </span>
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="right-0 left-auto top-0 h-screen max-w-[420px] translate-x-0 translate-y-0 content-start gap-0 rounded-none border-y-0 border-r-0 p-0 sm:max-w-[420px]">
+          <DialogHeader className="border-b border-border px-5 py-4">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {taskIsActive ? (
+                <Loader2 className="size-4 animate-spin text-primary" />
+              ) : runStatus === "failed" ? (
+                <AlertCircle className="size-4 text-destructive" />
+              ) : (
+                <Activity className="size-4 text-primary" />
+              )}
+              生成任务
+            </DialogTitle>
+            <DialogDescription>
+              查看当前后台生成的阶段、进度和执行详情。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-auto px-5 py-4">
+            <div className="grid gap-3 rounded-lg border border-border bg-card p-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">状态</span>
+                <Badge variant={runStatus === "failed" ? "destructive" : "secondary"}>
+                  {RUN_STATUS_LABEL[runStatus]}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">进度</span>
+                <span className="font-mono">{runProgress}%</span>
+              </div>
+              <div className="grid gap-1">
+                <span className="text-muted-foreground">消息</span>
+                <span>
+                  {sanitizeTaskText(runMessage ?? errorMessage) || "暂无进行中的任务"}
+                </span>
+              </div>
+              {currentRunDiagnostics.providerModel && (
+                <div className="grid gap-1">
+                  <span className="text-muted-foreground">模型</span>
+                  <span className="font-mono text-xs">
+                    {currentRunDiagnostics.providerModel}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {errorMessage && (
+              <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                {errorMessage}
+              </div>
+            )}
+
+            {uiMockup && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <Palette className="size-3.5" />
+                  界面设计图
+                </div>
+                <div
+                  className={
+                    uiMockup.status === "failed"
+                      ? "rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning"
+                      : "rounded-lg border border-border bg-card p-3"
+                  }
+                >
+                  {uiMockup.status === "completed" && uiMockupImage ? (
+                    <a
+                      href={uiMockupImage}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block overflow-hidden rounded-md border border-border bg-background"
+                      title="查看界面设计图大图"
+                    >
+                      <img
+                        src={uiMockupImage}
+                        alt="界面设计图"
+                        className="max-h-56 w-full object-contain"
+                      />
+                    </a>
+                  ) : (
+                    <div className="text-sm">
+                      {uiMockup.errorMessage ?? "设计图暂未生成"}
+                    </div>
+                  )}
+                  <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                    <span>图片模型：{uiMockup.model}</span>
+                    <span>{uiMockup.summary}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentRunDiagnostics.uiFidelityReport && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <CheckCircle2 className="size-3.5" />
+                  设计图还原检查
+                </div>
+                <div className="rounded-lg border border-border bg-card p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">
+                      {currentRunDiagnostics.uiFidelityReport.summary}
+                    </span>
+                    <Badge
+                      variant={
+                        currentRunDiagnostics.uiFidelityReport.passed
+                          ? "secondary"
+                          : "destructive"
+                      }
+                    >
+                      {currentRunDiagnostics.uiFidelityReport.passed
+                        ? "基本贴合"
+                        : "需要修复"}
+                    </Badge>
+                  </div>
+                  {currentRunDiagnostics.uiFidelityReport.matched.length > 0 && (
+                    <div className="mt-3 text-xs text-muted-foreground">
+                      已匹配：
+                      {currentRunDiagnostics.uiFidelityReport.matched
+                        .slice(0, 3)
+                        .map(sanitizeTaskText)
+                        .join("；")}
+                    </div>
+                  )}
+                  {currentRunDiagnostics.uiFidelityReport.missing.length > 0 && (
+                    <div className="mt-2 text-xs text-destructive">
+                      待改进：
+                      {currentRunDiagnostics.uiFidelityReport.missing
+                        .slice(0, 3)
+                        .map(sanitizeTaskText)
+                        .join("；")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <Activity className="size-3.5" />
+                阶段清单
+              </div>
+              {taskStages.length > 0 ? (
+                <div className="space-y-2">
+                  {taskStages.map((stage, index) => {
+                    const completed =
+                      runStatus === "completed" ||
+                      (activeStageIndex >= 0 && index < activeStageIndex);
+                    const current =
+                      currentRunDiagnostics.activeStage === stage &&
+                      (taskIsActive || runStatus === "failed");
+                    const failed = current && runStatus === "failed";
+                    const detail = completed
+                      ? "已完成"
+                      : failed
+                        ? "执行失败"
+                        : current
+                          ? sanitizeTaskText(
+                              runMessage ??
+                                currentRunDiagnostics.stageMessages[stage],
+                            ) || "正在执行"
+                          : "等待执行";
+
+                    return (
+                      <div
+                        key={stage}
+                        className="grid grid-cols-[20px_minmax(0,1fr)] gap-3 rounded-md border border-border bg-background p-3 text-sm"
+                      >
+                        <span className="mt-0.5 inline-flex size-5 items-center justify-center">
+                          {completed ? (
+                            <CheckCircle2 className="size-4 text-success" />
+                          ) : failed ? (
+                            <AlertCircle className="size-4 text-destructive" />
+                          ) : current ? (
+                            <Loader2 className="size-4 animate-spin text-primary" />
+                          ) : (
+                            <span className="size-3 rounded-full border border-muted-foreground/40" />
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">
+                            {formatStageLabel(stage)}
+                          </span>
+                          <span
+                            className={
+                              completed
+                                ? "block truncate text-xs text-success"
+                                : failed
+                                  ? "block truncate text-xs text-destructive"
+                                  : current
+                                    ? "block truncate text-xs text-primary"
+                                    : "block truncate text-xs text-muted-foreground"
+                            }
+                          >
+                            {detail}
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  暂无任务阶段。
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <Activity className="size-3.5" />
+                执行详情
+              </div>
+              <div className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100 shadow-inner">
+                {currentRunDiagnostics.streamText ? (
+                  <pre className="whitespace-pre-wrap break-words">
+                    {sanitizeTaskText(currentRunDiagnostics.streamText)}
+                    <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-primary align-[-2px]" />
+                  </pre>
+                ) : (
+                  <div className="text-zinc-400">等待模型输出...</div>
+                )}
+              </div>
+              {recentEvents.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {recentEvents.map((event) => (
+                    <span
+                      key={event.id}
+                      className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                      title={sanitizeTaskText(event.detail) || event.label}
+                    >
+                      {sanitizeTaskText(event.label)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -155,6 +579,19 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
             <FileCode2 className="size-4" /> 当前快照
             <span className="ml-auto font-mono text-[10px] text-muted-foreground">
               .json
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={exportRequirementsSpec}>
+            <FileText className="size-4" /> 需求规格说明书
+            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+              .docx
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={exportSoftwareDesignSpec}>
+            <FileText className="size-4" /> 软件设计说明书
+            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+              .docx
             </span>
           </DropdownMenuItem>
         </DropdownMenuContent>

@@ -15,6 +15,8 @@ import type {
   PlantUmlArtifact,
   SequenceDiagramSpec,
   SequenceMessage,
+  TableDiagramSpec,
+  TableRelationship,
   UseCaseDiagramSpec,
   UseCaseRelationship,
 } from "@uml-platform/contracts";
@@ -227,18 +229,22 @@ function escapeActivityLabel(value: string) {
   return value.replace(/;/g, "；");
 }
 
+function escapeQuotedActivityLabel(value: string) {
+  return escapeActivityLabel(value).replace(/"/g, "'");
+}
+
 function renderActivity(model: ActivityDiagramSpec) {
   const lines = ["@startuml"];
   const nodesById = new Map<string, ActivityNode>(
     model.nodes.map((node) => [node.id, node]),
   );
-  const controlFlows: ActivityDiagramSpec["relationships"] = model.relationships.filter(
-    (relation) => relation.type === "control_flow",
+  const activityFlows: ActivityDiagramSpec["relationships"] = model.relationships.filter(
+    (relation) => relation.type === "control_flow" || relation.type === "object_flow",
   );
   const outgoing = new Map<string, ActivityDiagramSpec["relationships"]>();
   const incoming = new Map<string, ActivityDiagramSpec["relationships"]>();
 
-  for (const relation of controlFlows) {
+  for (const relation of activityFlows) {
     const nextOutgoing = outgoing.get(relation.sourceId) ?? [];
     nextOutgoing.push(relation);
     outgoing.set(relation.sourceId, nextOutgoing);
@@ -251,6 +257,7 @@ function renderActivity(model: ActivityDiagramSpec) {
   const renderedNodes = new Set<string>();
   let currentLane: string | null = null;
   let sawStop = false;
+  let stopCount = 0;
 
   function pushLane(laneId?: string) {
     const lane = findSwimlaneName(model, laneId);
@@ -283,36 +290,68 @@ function renderActivity(model: ActivityDiagramSpec) {
   }
 
   function findCommonTerminal(branchStartIds: string[]) {
-    const terminals = branchStartIds
-      .map((branchStartId) => {
-        let currentId: string | undefined = branchStartId;
-        const seen = new Set<string>();
-        while (currentId && !seen.has(currentId)) {
-          seen.add(currentId);
-          const node = nodesById.get(currentId);
-          if (!node) {
-            return null;
-          }
-          if (node.type === "merge" || node.type === "join" || node.type === "end") {
-            return currentId;
-          }
-          const nextOutgoing: ActivityRelationship[] = outgoing.get(currentId) ?? [];
-          if (node.type === "decision" || node.type === "fork" || nextOutgoing.length !== 1) {
-            return null;
-          }
-          currentId = nextOutgoing[0]?.targetId;
-        }
-        return null;
-      })
-      .filter((terminalId): terminalId is string => Boolean(terminalId));
+    return findCommonContinuation(branchStartIds, (node) =>
+      node.type === "merge" || node.type === "join" || node.type === "end",
+      true,
+    );
+  }
 
-    if (terminals.length !== branchStartIds.length || terminals.length === 0) {
+  function collectLinearPath(
+    startId: string,
+    stopAt: (node: ActivityNode) => boolean = () => false,
+  ) {
+    const path: string[] = [];
+    let currentId: string | undefined = startId;
+    const seen = new Set<string>();
+
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const node = nodesById.get(currentId);
+      if (!node) {
+        break;
+      }
+
+      path.push(currentId);
+      if (node.type === "end" || stopAt(node)) {
+        break;
+      }
+
+      const nextOutgoing: ActivityRelationship[] = outgoing.get(currentId) ?? [];
+      if (node.type === "decision" || node.type === "fork" || nextOutgoing.length !== 1) {
+        break;
+      }
+      currentId = nextOutgoing[0]?.targetId;
+    }
+
+    return path;
+  }
+
+  function findCommonContinuation(
+    branchStartIds: string[],
+    isCandidate: (node: ActivityNode) => boolean = () => true,
+    stopAtCandidate = false,
+  ) {
+    const paths = branchStartIds.map((branchStartId) =>
+      collectLinearPath(
+        branchStartId,
+        stopAtCandidate ? isCandidate : () => false,
+      ),
+    );
+    if (paths.length === 0 || paths.some((path) => path.length === 0)) {
       return null;
     }
 
-    return terminals.every((terminalId) => terminalId === terminals[0])
-      ? terminals[0]
-      : null;
+    const otherPathSets = paths.slice(1).map((path) => new Set(path));
+    return (
+      paths[0].find((nodeId) => {
+        const node = nodesById.get(nodeId);
+        return (
+          node &&
+          isCandidate(node) &&
+          otherPathSets.every((path) => path.has(nodeId))
+        );
+      }) ?? null
+    );
   }
 
   function followSingleOutgoing(nodeId?: string) {
@@ -323,9 +362,65 @@ function renderActivity(model: ActivityDiagramSpec) {
     return nextOutgoing.length === 1 ? nextOutgoing[0]?.targetId : undefined;
   }
 
-  function renderSequence(currentId?: string, stopBefore = new Set<string>()) {
+  function branchLabel(relation: ActivityRelationship, fallback: string) {
+    return (
+      relation.guard ??
+      relation.condition ??
+      relation.trigger ??
+      relation.description ??
+      fallback
+    );
+  }
+
+  function escapeConditionLabel(value: string) {
+    return escapeActivityLabel(value)
+      .replace(/\(/g, "（")
+      .replace(/\)/g, "）");
+  }
+
+  function renderBranches(
+    question: string,
+    branches: ActivityRelationship[],
+    stopBefore: Set<string>,
+    pathSeen: Set<string>,
+  ) {
+    const commonContinuation = findCommonContinuation(
+      branches.map((branch) => branch.targetId),
+    );
+    const branchStopBefore = new Set(stopBefore);
+    if (commonContinuation) {
+      branchStopBefore.add(commonContinuation);
+    }
+
+    branches.forEach((branch, index) => {
+      const label = escapeConditionLabel(
+        branchLabel(branch, index === 0 ? "是" : index === branches.length - 1 ? "否" : `分支${index + 1}`),
+      );
+      if (index === 0) {
+        lines.push(`if (${escapeConditionLabel(question)}) then (${label})`);
+      } else if (index === branches.length - 1) {
+        lines.push(`else (${label})`);
+      } else {
+        lines.push(`elseif (${escapeConditionLabel(question)}) then (${label})`);
+      }
+      renderSequence(branch.targetId, branchStopBefore, new Set(pathSeen));
+    });
+    lines.push("endif");
+
+    return commonContinuation;
+  }
+
+  function renderSequence(
+    currentId?: string,
+    stopBefore = new Set<string>(),
+    pathSeen = new Set<string>(),
+  ) {
     let nodeId = currentId;
     while (nodeId && !stopBefore.has(nodeId)) {
+      if (pathSeen.has(nodeId)) {
+        return undefined;
+      }
+      pathSeen.add(nodeId);
       const node = nodesById.get(nodeId);
       if (!node) {
         return undefined;
@@ -335,6 +430,9 @@ function renderActivity(model: ActivityDiagramSpec) {
         case "start":
           if (!renderedNodes.has(node.id)) {
             lines.push("start");
+            if (entryNodes.length > 1 && node.name) {
+              lines.push(`:${escapeActivityLabel(node.name)};`);
+            }
             renderedNodes.add(node.id);
           }
           nodeId = followSingleOutgoing(node.id);
@@ -342,12 +440,29 @@ function renderActivity(model: ActivityDiagramSpec) {
         case "end":
           lines.push("stop");
           sawStop = true;
+          stopCount += 1;
           renderedNodes.add(node.id);
           return undefined;
         case "activity":
           pushLane(node.actorOrLane);
           lines.push(`:${escapeActivityLabel(node.name)};`);
           renderedNodes.add(node.id);
+          {
+            const branches = outgoing.get(node.id) ?? [];
+            if (branches.length > 1) {
+              const commonContinuation = renderBranches(
+                `${node.name}后续路径`,
+                branches,
+                stopBefore,
+                pathSeen,
+              );
+              if (!commonContinuation) {
+                return undefined;
+              }
+              nodeId = commonContinuation;
+              continue;
+            }
+          }
           nodeId = followSingleOutgoing(node.id);
           continue;
         case "merge":
@@ -363,35 +478,18 @@ function renderActivity(model: ActivityDiagramSpec) {
             continue;
           }
 
-          const branchStops = findCommonTerminal(
-            branches.map((branch) => branch.targetId),
-          );
-          const [primaryBranch, secondaryBranch] = branches;
           const question = node.question ?? node.name ?? "条件判断";
-          const primaryLabel =
-            primaryBranch.guard ?? primaryBranch.condition ?? "是";
-          const secondaryLabel =
-            secondaryBranch.guard ??
-            secondaryBranch.condition ??
-            "否";
-
-          lines.push(`if (${question}) then (${primaryLabel})`);
-          renderSequence(
-            primaryBranch.targetId,
-            branchStops ? new Set([branchStops]) : new Set(),
+          const commonContinuation = renderBranches(
+            question,
+            branches,
+            stopBefore,
+            pathSeen,
           );
-          lines.push(`else (${secondaryLabel})`);
-          renderSequence(
-            secondaryBranch.targetId,
-            branchStops ? new Set([branchStops]) : new Set(),
-          );
-          lines.push("endif");
-
-          if (!branchStops) {
+          if (!commonContinuation) {
             return undefined;
           }
 
-          nodeId = branchStops;
+          nodeId = commonContinuation;
           continue;
         }
         case "fork": {
@@ -426,17 +524,81 @@ function renderActivity(model: ActivityDiagramSpec) {
     return nodeId;
   }
 
-  const startNode =
-    model.nodes.find((node) => node.type === "start") ??
-    model.nodes.find((node) => (incoming.get(node.id) ?? []).length === 0) ??
-    model.nodes[0];
+  const explicitStartNodes = model.nodes.filter((node) => node.type === "start");
+  const sourceNodes = model.nodes.filter(
+    (node) =>
+      node.type !== "end" &&
+      (incoming.get(node.id) ?? []).length === 0 &&
+      !explicitStartNodes.some((startNode) => startNode.id === node.id),
+  );
+  const entryNodes =
+    explicitStartNodes.length > 0
+      ? [...explicitStartNodes, ...sourceNodes]
+      : sourceNodes.length > 0
+        ? sourceNodes
+        : model.nodes[0]
+          ? [model.nodes[0]]
+          : [];
 
-  const initialLane = firstRenderableLane(startNode?.id);
-  if (initialLane) {
-    pushLane(initialLane);
+  for (const entryNode of entryNodes) {
+    if (renderedNodes.has(entryNode.id) && entryNode.type !== "start") {
+      continue;
+    }
+    currentLane = null;
+    const initialLane = firstRenderableLane(entryNode.id);
+    if (initialLane) {
+      pushLane(initialLane);
+    }
+    const stopsBeforeEntry = stopCount;
+    renderSequence(entryNode.id);
+    if (stopsBeforeEntry === stopCount) {
+      lines.push("stop");
+      sawStop = true;
+      stopCount += 1;
+    }
   }
 
-  renderSequence(startNode?.id);
+  const missingNodes = model.nodes.filter(
+    (node) => node.type !== "start" && !renderedNodes.has(node.id),
+  );
+  if (missingNodes.length > 0) {
+    currentLane = null;
+    lines.push(`partition "未结构化关系补充" {`);
+    for (const node of missingNodes) {
+      if (node.type === "activity") {
+        pushLane(node.actorOrLane);
+        lines.push(`:${escapeActivityLabel(node.name)};`);
+      } else if (node.type === "decision") {
+        lines.push(`:${escapeActivityLabel(node.question ?? node.name ?? node.id)};`);
+      } else if (node.type === "merge" || node.type === "join") {
+        lines.push(`:${escapeActivityLabel(node.name ?? node.id)};`);
+      } else if (node.type === "end") {
+        lines.push(`:${escapeActivityLabel(node.name)};`);
+      }
+      renderedNodes.add(node.id);
+    }
+
+    const missingRelationshipNotes = activityFlows
+      .filter(
+        (relation) =>
+          missingNodes.some((node) => node.id === relation.sourceId) ||
+          missingNodes.some((node) => node.id === relation.targetId),
+      )
+      .map((relation) => {
+        const source = nodesById.get(relation.sourceId);
+        const target = nodesById.get(relation.targetId);
+        const label = branchLabel(relation, relation.type);
+        return `${source?.name ?? source?.id ?? relation.sourceId} -> ${target?.name ?? target?.id ?? relation.targetId}: ${label}`;
+      });
+    if (missingRelationshipNotes.length > 0) {
+      lines.push("note right");
+      for (const note of missingRelationshipNotes) {
+        lines.push(escapeQuotedActivityLabel(note));
+      }
+      lines.push("end note");
+    }
+    lines.push("}");
+  }
 
   if (!sawStop) {
     lines.push("stop");
@@ -608,6 +770,77 @@ function renderSequence(model: SequenceDiagramSpec) {
   return `${lines.join("\n")}\n@enduml`;
 }
 
+function tableRelationshipLabel(relation: TableRelationship) {
+  if (relation.label) {
+    return relation.label;
+  }
+  switch (relation.type) {
+    case "one-to-one":
+      return "1对1";
+    case "one-to-many":
+      return "1对多";
+    case "many-to-many":
+      return "多对多";
+  }
+}
+
+function tableRelationshipArrow(relation: TableRelationship) {
+  switch (relation.type) {
+    case "one-to-one":
+      return "||--||";
+    case "one-to-many":
+      return "||--o{";
+    case "many-to-many":
+      return "}o--o{";
+  }
+}
+
+function renderTable(model: TableDiagramSpec) {
+  const lines = [
+    "@startuml",
+    "!define table(x) entity x << (T,#FFAAAA) >>",
+    "hide circle",
+    "skinparam linetype ortho",
+  ];
+
+  for (const table of model.tables) {
+    const primaryColumns = table.columns.filter((column) => column.isPrimaryKey);
+    const otherColumns = table.columns.filter((column) => !column.isPrimaryKey);
+    lines.push("");
+    lines.push(`table(${safeAlias(table.id)}) {`);
+    for (const column of primaryColumns) {
+      const markers = [
+        column.isPrimaryKey ? "<<PK>>" : "",
+        column.isForeignKey ? "<<FK>>" : "",
+      ].filter(Boolean);
+      lines.push(`  * ${column.name} : ${column.dataType} ${markers.join(" ")}`.trimEnd());
+    }
+    if (primaryColumns.length > 0 && otherColumns.length > 0) {
+      lines.push("  --");
+    }
+    for (const column of otherColumns) {
+      const markers = [
+        column.isPrimaryKey ? "<<PK>>" : "",
+        column.isForeignKey ? "<<FK>>" : "",
+      ].filter(Boolean);
+      const nullable = column.nullable === false ? " <<NOT NULL>>" : "";
+      lines.push(
+        `  ${column.name} : ${column.dataType} ${markers.join(" ")}${nullable}`.trimEnd(),
+      );
+    }
+    lines.push("}");
+  }
+
+  for (const relation of model.relationships) {
+    lines.push(
+      `${safeAlias(relation.sourceTableId)} ${tableRelationshipArrow(relation)} ${safeAlias(relation.targetTableId)} : ${quoteLabel(tableRelationshipLabel(relation))}`,
+    );
+  }
+
+  appendNotes(lines, model.notes);
+  return `${lines.join("\n")}\n@enduml`;
+}
+
 export function generatePlantUmlArtifacts(
   models: DiagramModelSpec[],
 ): PlantUmlArtifact[] {
@@ -644,6 +877,8 @@ export function generateDesignPlantUmlArtifacts(
           diagramKind: model.diagramKind,
           source: renderDeployment(model),
         };
+      case "table":
+        return { diagramKind: model.diagramKind, source: renderTable(model) };
     }
   });
 }

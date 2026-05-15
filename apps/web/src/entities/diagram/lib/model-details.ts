@@ -10,6 +10,8 @@ import type {
   DiagramModelSpec,
   SequenceDiagramSpec,
   SequenceMessage,
+  TableDiagramSpec,
+  TableRelationship,
   UseCaseDiagramSpec,
   UseCaseRelationship,
 } from "@uml-platform/contracts";
@@ -36,7 +38,9 @@ export type SemanticElementKind =
   | "artifact"
   | "participant"
   | "message"
-  | "fragment";
+  | "fragment"
+  | "table"
+  | "table-column";
 
 export interface DetailField {
   label: string;
@@ -99,6 +103,8 @@ export const SEMANTIC_KIND_META: Record<
   participant: { label: "参与对象", shortLabel: "对象" },
   message: { label: "调用消息", shortLabel: "消息" },
   fragment: { label: "组合片段", shortLabel: "片段" },
+  table: { label: "表", shortLabel: "表" },
+  "table-column": { label: "字段", shortLabel: "字段" },
 };
 
 function pushField(fields: DetailField[], label: string, value?: string | null) {
@@ -144,6 +150,15 @@ function deploymentRelationshipLabel(relation: DeploymentRelationship) {
     communication: "通信",
     dependency: "依赖",
     hosting: "承载",
+  };
+  return meta[relation.type];
+}
+
+function tableRelationshipLabel(relation: TableRelationship) {
+  const meta: Record<TableRelationship["type"], string> = {
+    "one-to-one": "一对一",
+    "one-to-many": "一对多",
+    "many-to-many": "多对多",
   };
   return meta[relation.type];
 }
@@ -633,6 +648,88 @@ function buildSequenceDetailModel(model: SequenceDiagramSpec): DiagramDetailMode
   };
 }
 
+function buildTableDetailModel(model: TableDiagramSpec): DiagramDetailModel {
+  const tableItems: DiagramDetailItem[] = model.tables.map((table) => ({
+    kind: "table",
+    id: table.id,
+    label: table.name,
+    description: table.description,
+    fields: [
+      {
+        label: "字段",
+        value: table.columns
+          .map((column) => {
+            const markers = [
+              column.isPrimaryKey ? "PK" : "",
+              column.isForeignKey ? "FK" : "",
+            ].filter(Boolean);
+            return `${column.name}: ${column.dataType}${markers.length > 0 ? ` (${markers.join("/")})` : ""}`;
+          })
+          .join("；"),
+      },
+    ],
+  }));
+
+  const columnItems: DiagramDetailItem[] = model.tables.flatMap((table) =>
+    table.columns.map((column) => {
+      const fields: DetailField[] = [
+        { label: "所属表", value: table.name },
+        { label: "类型", value: column.dataType },
+        { label: "可空", value: column.nullable ? "是" : "否" },
+      ];
+      if (column.isPrimaryKey) {
+        fields.push({ label: "主键", value: "是" });
+      }
+      if (column.isForeignKey) {
+        fields.push({ label: "外键", value: "是" });
+      }
+      if (column.references) {
+        fields.push({
+          label: "引用",
+          value: `${column.references.tableId}.${column.references.columnId}`,
+        });
+      }
+      pushField(fields, "说明", column.description);
+      return {
+        kind: "table-column" as const,
+        id: `${table.id}.${column.id}`,
+        label: `${table.name}.${column.name}`,
+        description: column.description,
+        fields,
+      };
+    }),
+  );
+
+  const relationships: DiagramRelationshipDetail[] = model.relationships.map(
+    (relation) => {
+      const fields: DetailField[] = [];
+      pushField(fields, "标签", relation.label);
+      pushField(fields, "源字段", relation.sourceColumnId);
+      pushField(fields, "目标字段", relation.targetColumnId);
+      pushField(fields, "说明", relation.description);
+      return {
+        id: relation.id,
+        kind: "relationship",
+        label: relation.label ?? `${relation.sourceTableId} -> ${relation.targetTableId}`,
+        typeLabel: tableRelationshipLabel(relation),
+        sourceId: relation.sourceTableId,
+        targetId: relation.targetTableId,
+        fields,
+      };
+    },
+  );
+
+  const items = [...tableItems, ...columnItems];
+  return {
+    items,
+    groups: nonEmptyGroups([
+      { kind: "table", label: "表", items: tableItems },
+      { kind: "table-column", label: "字段", items: columnItems },
+    ]),
+    relationships,
+  };
+}
+
 export function buildDiagramDetailModel(
   model?: DiagramModelSpec | DesignDiagramModelSpec | null,
 ): DiagramDetailModel {
@@ -651,5 +748,7 @@ export function buildDiagramDetailModel(
       return buildActivityDetailModel(model);
     case "deployment":
       return buildDeploymentDetailModel(model);
+    case "table":
+      return buildTableDetailModel(model);
   }
 }

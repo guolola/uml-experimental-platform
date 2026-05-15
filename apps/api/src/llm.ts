@@ -1,8 +1,13 @@
-import type { ProviderSettings } from "@uml-platform/contracts";
+import type { ImageProviderSettings, ProviderSettings } from "@uml-platform/contracts";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | { type: "image_url"; image_url: { url: string } }
+      >;
 }
 
 export interface JsonObjectResponseFormat {
@@ -34,8 +39,28 @@ export interface LlmTransport {
   ): AsyncIterable<string>;
 }
 
+export interface GenerateImageInput {
+  providerSettings: ImageProviderSettings;
+  prompt: string;
+}
+
+export interface GeneratedImageResult {
+  content: string;
+}
+
+export interface ImageGenerationClient {
+  generateImage(input: GenerateImageInput): Promise<GeneratedImageResult>;
+}
+
+const IMAGE_PROMPT_CHAR_LIMIT = 24000;
+
 function resolveChatCompletionsUrl(baseUrl: string) {
   return new URL("/v1/chat/completions", baseUrl).toString();
+}
+
+function clampImagePrompt(prompt: string) {
+  if (prompt.length <= IMAGE_PROMPT_CHAR_LIMIT) return prompt;
+  return `${prompt.slice(0, IMAGE_PROMPT_CHAR_LIMIT - 32)}\n...（内容已截断）`;
 }
 
 function summarizeErrorText(text: string) {
@@ -152,6 +177,48 @@ export function createRealLlmTransport(): LlmTransport {
       for await (const text of parseChatCompletionSse(response)) {
         yield text;
       }
+    },
+  };
+}
+
+export function createRealImageGenerationClient(): ImageGenerationClient {
+  return {
+    async generateImage({ providerSettings, prompt }: GenerateImageInput) {
+      const safePrompt = clampImagePrompt(prompt);
+      const response = await fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${providerSettings.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: providerSettings.model,
+          messages: [{ role: "user", content: safePrompt }],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const detail = await readErrorDetail(response);
+        throw new Error(
+          detail
+            ? `Image request failed with HTTP ${response.status}: ${detail}`
+            : `Image request failed with HTTP ${response.status}`,
+        );
+      }
+
+      const payload = await response.json() as {
+        choices?: Array<{ message?: { content?: unknown } }>;
+      };
+      const content = payload.choices?.[0]?.message?.content;
+      if (typeof content === "string" && content.trim()) {
+        return { content };
+      }
+      if (content !== undefined && content !== null) {
+        return { content: JSON.stringify(content) };
+      }
+      throw new Error("Image response did not include message content");
     },
   };
 }

@@ -1,4 +1,10 @@
-import { useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import {
   ChevronRight,
   FileText,
@@ -73,24 +79,37 @@ const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
   participant: <User className="size-3.5 text-muted-foreground" />,
   message: <MessageSquare className="size-3.5 text-muted-foreground" />,
   fragment: <GitBranch className="size-3.5 text-muted-foreground" />,
+  table: <Database className="size-3.5 text-muted-foreground" />,
+  "table-column": <TypeIcon className="size-3.5 text-muted-foreground" />,
 };
 
 function TreeItem({
   node,
   depth,
   selectedKey,
-  defaultOpen = false,
+  openKeys,
+  setOpenKeys,
 }: {
   node: Node;
   depth: number;
   selectedKey: string;
-  defaultOpen?: boolean;
+  openKeys: Set<string>;
+  setOpenKeys: Dispatch<SetStateAction<Set<string>>>;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const hasChildren = !!node.children?.length;
+  const open = openKeys.has(node.key);
   const selected = selectedKey === node.key;
   const selectable = node.selectable ?? true;
-  const toggleOpen = () => setOpen((value) => !value);
+  const toggleOpen = () =>
+    setOpenKeys((current) => {
+      const next = new Set(current);
+      if (next.has(node.key)) {
+        next.delete(node.key);
+      } else {
+        next.add(node.key);
+      }
+      return next;
+    });
   const handleSelect = () => {
     if (selectable) {
       node.onSelect?.();
@@ -152,6 +171,8 @@ function TreeItem({
               node={child}
               depth={depth + 1}
               selectedKey={selectedKey}
+              openKeys={openKeys}
+              setOpenKeys={setOpenKeys}
             />
           ))}
         </div>
@@ -255,6 +276,7 @@ function buildDesignDiagramNode(
 }
 
 export function SidebarMenu() {
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
     generatedDiagrams,
     models,
@@ -278,6 +300,25 @@ export function SidebarMenu() {
   const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter((diagram) =>
     generatedDesignDiagrams.includes(diagram),
   );
+
+  useEffect(() => {
+    const handleCompleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string }>).detail;
+      if (detail?.kind !== "requirements" && detail?.kind !== "design") {
+        return;
+      }
+      setOpenKeys((current) => {
+        const next = new Set(current);
+        next.add(detail.kind === "requirements" ? "requirements" : "design");
+        return next;
+      });
+    };
+
+    window.addEventListener("uml-generation-completed", handleCompleted);
+    return () => {
+      window.removeEventListener("uml-generation-completed", handleCompleted);
+    };
+  }, []);
 
   const tree: Node[] = [
     {
@@ -338,6 +379,8 @@ export function SidebarMenu() {
               node={node}
               depth={0}
               selectedKey={selectedKey}
+              openKeys={openKeys}
+              setOpenKeys={setOpenKeys}
             />
           ))}
         </div>

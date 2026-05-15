@@ -1,6 +1,6 @@
 # 宝塔 PM2 CI/CD 部署说明
 
-本文档描述如何把 UML 实验平台部署到配置了宝塔面板的服务器，并通过 GitHub Actions 自动发布。
+本文档描述如何把 软件工程实验平台部署到配置了宝塔面板的服务器，并通过 GitHub Actions 自动发布。
 
 ## 部署架构
 
@@ -8,6 +8,7 @@
 - API：`uml-api` PM2 进程，监听 `127.0.0.1:4001`。
 - PlantUML 渲染服务：`uml-render-service` PM2 进程，监听 `127.0.0.1:4002`。
 - Nginx：公网只暴露站点域名；`/api` 反向代理到 API；render-service 不暴露公网。
+- PM2：使用 bash 启动 Node 产物，等价于线上已验证的 `cd current && node ...` 启动方式。
 
 ## 服务器准备
 
@@ -112,6 +113,7 @@ VITE_APP_API_BASE_URL="" npm run build:web
 - 检查 Web dist 和 PlantUML jar
 - 更新 `/www/wwwroot/uml-platform/current` 软链接
 - 使用 PM2 重启 `uml-api` 和 `uml-render-service`
+- 自动检查 `http://127.0.0.1:4001/api/health` 和 `http://127.0.0.1:4002/health`，失败时直接让 GitHub Actions 失败并输出 PM2 日志
 - 清理旧版本，只保留最近 5 个 release
 
 ## 验证
@@ -120,8 +122,10 @@ VITE_APP_API_BASE_URL="" npm run build:web
 
 ```bash
 pm2 status
+ss -lntp | grep -E '4001|4002'
 curl http://127.0.0.1:4001/api/health
 curl http://127.0.0.1:4002/health
+curl http://服务器IP/api/health
 ```
 
 render-service 的 health 返回中应包含：
@@ -145,6 +149,7 @@ render-service 的 health 返回中应包含：
 ```bash
 cd /www/wwwroot/uml-platform/current
 pm2 status
+ss -lntp | grep -E '4001|4002'
 pm2 logs uml-api
 pm2 logs uml-render-service
 pm2 restart uml-api
@@ -180,6 +185,13 @@ curl http://127.0.0.1:4001/api/health
 ```
 
 如果本机 curl 正常，重点检查宝塔 Nginx 反向代理配置。
+
+如果 `pm2 status` 显示 online 但端口没有监听，说明 PM2 没有真正跑起 Node 服务。当前生产配置应使用 `ecosystem.config.cjs` 中的 bash 启动方式，等价于：
+
+```bash
+pm2 start bash --name uml-render-service -- -lc 'cd /www/wwwroot/uml-platform/current && RENDER_SERVICE_HOST=127.0.0.1 RENDER_SERVICE_PORT=4002 node apps/render-service/dist/index.js'
+pm2 start bash --name uml-api -- -lc 'cd /www/wwwroot/uml-platform/current && API_HOST=127.0.0.1 API_PORT=4001 RENDER_SERVICE_BASE_URL=http://127.0.0.1:4002 node apps/api/dist/index.js'
+```
 
 如果日志出现 `Route POST:/api/api/runs not found` 或 `Route POST:/api//runs not found`，说明 Nginx 或前端构建变量重复拼接了 `/api`。确认线上 Nginx 使用：
 

@@ -180,7 +180,7 @@ describe("TextRequirementView", () => {
     expect(screen.queryByText("模型结果")).not.toBeInTheDocument();
   });
 
-  it("shows streamed LLM chunks in the diagnostics typewriter output", async () => {
+  it("keeps generation in the background without opening diagnostics overlay", async () => {
     let completeRun!: () => void;
     const snapshot = createRunSnapshot({
       runId: "run-stream",
@@ -216,12 +216,11 @@ describe("TextRequirementView", () => {
       "创建一个订单系统",
     );
     await user.click(screen.getByTitle("生成需求规则"));
-    await user.click(await screen.findByText("查看详情"));
 
-    expect(await screen.findByText(/Run ID：/)).toBeInTheDocument();
-    expect(screen.getByText("extract_rules")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText(/\{"rules":\[\{"id":"r1"\}\]/)).toBeInTheDocument();
+    expect(screen.getByTitle("生成需求规则")).toBeDisabled();
+    expect(screen.queryByText("查看详情")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Run ID：/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\{"rules":\[\{"id":"r1"\}\]/)).not.toBeInTheDocument();
     expect(screen.queryByText("extract_rules 收到模型输出")).not.toBeInTheDocument();
 
     completeRun();

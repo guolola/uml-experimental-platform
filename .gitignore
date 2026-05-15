@@ -7,6 +7,7 @@ apps/*/.vite/
 packages/*/dist/
 dist/
 build/
+*.tsbuildinfo
 
 # env / secrets
 .env
@@ -30,15 +31,25 @@ Thumbs.db
 coverage/
 .cache/
 .vitest/
+playwright-report/
+test-results/
 vite.config.ts.timestamp-*
 vite.config.*.timestamp-*
 
 # local codex/dev artifacts
 .codex-logs/
 current-page*.png
+tmp-*.png
+tmp-code-page-validation*.png
 dev-implementation*.log
 vite-web*.log
 .codex-web-dev*.log
+apps/web/.codex-vite*.log
+frontend-prototype.sandpack.json
+uml-run-snapshot.json
+uml-run-report.md
+需求规格说明书*.docx
+软件设计说明书*.docx
 
 # release artifacts
 *.tar.gz

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildApiUrl,
   createHttpWorkspaceRepository,
+  createStartCodeRunInput,
   createStartRunInput,
 } from "./index";
 import {
@@ -41,6 +42,7 @@ describe("createStartRunInput", () => {
         apiBaseUrl: "https://ai.comfly.chat/v1/chat/completions",
         apiKey: "sk-demo",
         defaultModel: "gpt-5.5",
+        imageModel: "nano-banana-pro",
         fontSize: "md",
         autoGenerate: false,
         showStaleBanner: true,
@@ -53,6 +55,45 @@ describe("createStartRunInput", () => {
         apiKey: "sk-demo",
         model: "gpt-5.5",
       },
+    });
+  });
+
+  it("includes existing code files when starting a code agent run", () => {
+    localStorage.setItem(
+      "uml-lab-settings",
+      JSON.stringify({
+        apiBaseUrl: "https://ai.comfly.chat",
+        apiKey: "sk-demo",
+        defaultModel: "gpt-5.5",
+        imageModel: "nano-banana-pro",
+        fontSize: "md",
+        autoGenerate: false,
+        showStaleBanner: true,
+      }),
+    );
+
+    const input = createStartCodeRunInput(
+      "生成前端原型",
+      [],
+      [
+        {
+          diagramKind: "sequence",
+          title: "顺序图",
+          summary: "流程",
+          notes: [],
+          participants: [],
+          messages: [],
+          fragments: [],
+        },
+      ],
+      { "/src/App.tsx": "export default function App() { return null; }" },
+    );
+
+    expect(input.existingFiles["/src/App.tsx"]).toContain("return null");
+    expect(input.imageProviderSettings).toMatchObject({
+      apiBaseUrl: "https://ai.comfly.chat",
+      apiKey: "sk-demo",
+      model: "nano-banana-pro",
     });
   });
 });
@@ -140,6 +181,104 @@ describe("createHttpWorkspaceRepository", () => {
     await expect(
       repository.subscribeToRun("run-2", () => {}),
     ).rejects.toThrow("LLM request failed with HTTP 401");
+  });
+
+  it("streams code file changes from the code agent subscription", async () => {
+    class MockEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      close() {}
+
+      constructor(url: string) {
+        void url;
+        queueMicrotask(() => {
+          this.onmessage?.({
+            data: JSON.stringify({
+              type: "code_file_changed",
+              path: "/src/App.tsx",
+              content: "export default function App() { return <main />; }",
+              reason: "写入入口",
+            }),
+          } as MessageEvent<string>);
+          this.onmessage?.({
+            data: JSON.stringify({
+              type: "completed",
+              snapshot: {
+                runId: "code-run-1",
+                requirementText: "生成代码",
+                rules: [],
+                designModels: [],
+                spec: null,
+                files: {
+                  "/src/App.tsx": "export default function App() { return <main />; }",
+                },
+                entryFile: "/src/App.tsx",
+                dependencies: {},
+                agentPlan: ["写入口"],
+                diagnostics: [],
+                codeContextHash: "hash",
+                currentStage: "verify_code_preview",
+                status: "completed",
+                errorMessage: null,
+              },
+            }),
+          } as MessageEvent<string>);
+        });
+      }
+    }
+
+    vi.stubGlobal("EventSource", MockEventSource);
+    const repository = createHttpWorkspaceRepository();
+    const events: string[] = [];
+
+    await repository.subscribeToCodeRun!("code-run-1", (event) => {
+      if (event.type === "code_file_changed") {
+        events.push(event.path);
+      }
+    });
+
+    expect(events).toEqual(["/src/App.tsx"]);
+  });
+
+  it("reports lost code runs clearly when the local API restarted", async () => {
+    class MockEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      close() {}
+
+      constructor(url: string) {
+        void url;
+        queueMicrotask(() => {
+          this.onerror?.();
+        });
+      }
+    }
+
+    vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            message: "代码生成任务已丢失，可能是本地 API 服务重启，请重新生成",
+          }),
+          {
+            status: 404,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      ),
+    );
+
+    const repository = createHttpWorkspaceRepository();
+
+    await expect(
+      repository.subscribeToCodeRun!("missing-code-run", () => {}),
+    ).rejects.toThrow("代码生成任务已丢失，可能是本地 API 服务重启，请重新生成");
   });
 
   it("stores run history in localStorage with the configured limit", async () => {

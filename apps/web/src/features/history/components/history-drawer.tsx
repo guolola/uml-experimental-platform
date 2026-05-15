@@ -2,10 +2,15 @@ import { Download, RotateCcw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
-import { downloadTextFile } from "../../../shared/lib/download";
-import { DIAGRAM_META } from "../../../entities/diagram/model";
+import { downloadBlobFile, downloadTextFile } from "../../../shared/lib/download";
+import { useWorkspaceRepository } from "../../../services/workspace-repository";
 import { useWorkspaceSession } from "../../workspace-session/state";
-import { buildRunMarkdownReport } from "../index";
+import {
+  buildRunMarkdownReport,
+  getRunHistorySnapshotLabel,
+  getRunHistorySnapshotSummary,
+  isDocumentRunSnapshot,
+} from "../index";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -29,6 +34,7 @@ export function HistoryDrawer({
     deleteRunHistory,
     clearRunHistory,
   } = useWorkspaceSession();
+  const repository = useWorkspaceRepository();
 
   if (!open) return null;
 
@@ -36,6 +42,24 @@ export function HistoryDrawer({
     await restoreRunHistory(id);
     toast.success("已恢复历史快照");
     onClose();
+  };
+
+  const downloadDocument = async (id: string) => {
+    if (!repository.downloadDocumentRun) {
+      toast.error("当前仓储不支持重新下载说明书");
+      return;
+    }
+    try {
+      const downloaded = await repository.downloadDocumentRun(id);
+      downloadBlobFile(downloaded.fileName, downloaded.blob);
+      toast.success("已重新下载说明书");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? `重新下载失败：${error.message}`
+          : "重新下载失败",
+      );
+    }
   };
 
   return (
@@ -72,9 +96,8 @@ export function HistoryDrawer({
             <div className="flex flex-col gap-2">
               {historyItems.map((item) => {
                 const succeeded = item.snapshot.status === "completed";
-                const diagramLabels = item.snapshot.selectedDiagrams
-                  .map((diagram) => DIAGRAM_META[diagram].label)
-                  .join("、");
+                const stageLabel = getRunHistorySnapshotLabel(item.snapshot);
+                const snapshotSummary = getRunHistorySnapshotSummary(item.snapshot);
                 return (
                   <article
                     key={item.id}
@@ -92,6 +115,9 @@ export function HistoryDrawer({
                           >
                             {item.snapshot.status}
                           </Badge>
+                          <Badge variant="outline" className="shrink-0">
+                            {stageLabel}
+                          </Badge>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span>{formatDate(item.createdAt)}</span>
@@ -99,7 +125,7 @@ export function HistoryDrawer({
                           {item.durationMs !== undefined && (
                             <span>{Math.round(item.durationMs / 1000)}s</span>
                           )}
-                          <span>{diagramLabels || "仅规则"}</span>
+                          <span>{snapshotSummary}</span>
                         </div>
                         {item.snapshot.errorMessage && (
                           <div className="mt-2 text-xs text-destructive">
@@ -133,6 +159,17 @@ export function HistoryDrawer({
                         >
                           <Download className="size-4" />
                         </Button>
+                        {isDocumentRunSnapshot(item.snapshot) && succeeded && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            title="重新下载 DOCX"
+                            onClick={() => void downloadDocument(item.id)}
+                          >
+                            <Download className="size-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"

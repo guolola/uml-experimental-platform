@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -8,6 +8,7 @@ import {
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
 import { HistoryDrawer } from "../../history/components/history-drawer";
+import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../state";
 import { TopBar } from "./top-bar";
 import { WorkspaceTabsBar } from "./workspace-tabs-bar";
@@ -53,6 +54,20 @@ function TopBarWithTabsHarness({
     <>
       <TopBar currentRoute="/" onNavigate={onNavigate} />
       <WorkspaceTabsBar />
+      <HistoryDrawer open={historyDrawerOpen} onClose={closeHistoryDrawer} />
+    </>
+  );
+}
+
+function TopBarTaskHarness() {
+  const { historyDrawerOpen, closeHistoryDrawer } = useWorkspaceShell();
+  const { generateRules } = useWorkspaceSession();
+  return (
+    <>
+      <TopBar currentRoute="/" onNavigate={() => {}} />
+      <button type="button" onClick={() => void generateRules()}>
+        开始测试任务
+      </button>
       <HistoryDrawer open={historyDrawerOpen} onClose={closeHistoryDrawer} />
     </>
   );
@@ -178,5 +193,83 @@ describe("TopBar", () => {
     expect(screen.getByRole("menuitem", { name: /运行报告/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /当前快照/i })).toBeInTheDocument();
     expect(screen.queryByText(/PlantUML|puml/i)).not.toBeInTheDocument();
+  });
+
+  it("shows Chinese task stages and streamed details in the task drawer", async () => {
+    let completeRun!: () => void;
+    const snapshot = createRunSnapshot({
+      runId: "run-task-details",
+      requirementText: "生成 UML",
+      rules: [
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "系统生成 UML。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-task-details" })),
+      subscribeToRun: vi.fn(
+        async (_runId, onEvent) => {
+          onEvent({ type: "queued" });
+          onEvent({ type: "stage_started", stage: "extract_rules" });
+          onEvent({
+            type: "stage_progress",
+            stage: "extract_rules",
+            progress: 20,
+            message: "正在抽取需求规则",
+          });
+          onEvent({
+            type: "llm_chunk",
+            stage: "extract_rules",
+            chunk: "正在分析需求文本",
+          });
+          await new Promise<void>((resolve) => {
+            completeRun = () => {
+              onEvent({ type: "completed", snapshot });
+              resolve();
+            };
+          });
+        },
+      ),
+      getRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TopBarTaskHarness />, repository));
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    await user.click(await screen.findByRole("button", { name: "开始测试任务" }));
+    await user.click(screen.getByRole("button", { name: "生成任务" }));
+
+    expect(await screen.findByText("抽取需求规则")).toBeInTheDocument();
+    expect(screen.getByText("生成需求模型")).toBeInTheDocument();
+    expect(screen.getByText("生成图源码")).toBeInTheDocument();
+    expect(screen.getByText("渲染图像")).toBeInTheDocument();
+    expect(screen.getByText("执行详情")).toBeInTheDocument();
+    expect(screen.getByText("正在分析需求文本")).toBeInTheDocument();
+    expect(screen.getByText("收到模型输出")).toBeInTheDocument();
+    expect(screen.queryByText("extract_rules")).not.toBeInTheDocument();
+    expect(screen.queryByText("llm_chunk")).not.toBeInTheDocument();
+    expect(screen.queryByText("stage_started")).not.toBeInTheDocument();
+
+    completeRun();
   });
 });

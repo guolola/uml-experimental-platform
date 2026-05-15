@@ -72,6 +72,24 @@ echo "Reloading PM2 processes ..."
 (
   cd "$DEPLOY_PATH/current"
   pm2 startOrReload ecosystem.config.cjs --env production
+  sleep 2
+
+  echo "Checking render-service health ..."
+  if ! curl -fsS http://127.0.0.1:4002/health >/dev/null; then
+    echo "render-service health check failed" >&2
+    pm2 status || true
+    pm2 logs uml-render-service --nostream --lines 80 || true
+    exit 1
+  fi
+
+  echo "Checking API health ..."
+  if ! curl -fsS http://127.0.0.1:4001/api/health >/dev/null; then
+    echo "API health check failed" >&2
+    pm2 status || true
+    pm2 logs uml-api --nostream --lines 80 || true
+    exit 1
+  fi
+
   pm2 save
 )
 

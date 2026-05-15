@@ -13,10 +13,12 @@ function parseSvgLength(value: string | null) {
 export function InlineSvg({
   svg,
   highlightLabel,
+  scale = 1,
   className,
 }: {
   svg: string;
   highlightLabel?: string;
+  scale?: number;
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,7 +50,7 @@ export function InlineSvg({
     }
 
     const existingStyle = (svgEl.getAttribute("style") ?? "").trim();
-    const layoutStyle = "width:100%;height:auto;display:block;overflow:visible;";
+    const layoutStyle = `width:${Math.round(scale * 10000) / 100}%;max-width:none;height:auto;display:block;overflow:visible;`;
     svgEl.setAttribute(
       "style",
       existingStyle ? `${existingStyle}${existingStyle.endsWith(";") ? "" : ";"}${layoutStyle}` : layoutStyle,
@@ -92,7 +94,7 @@ export function InlineSvg({
         /* ignore */
       }
     }
-  }, [sanitizedSvg, highlightLabel]);
+  }, [sanitizedSvg, highlightLabel, scale]);
 
   if (!sanitizedSvg) {
     return (

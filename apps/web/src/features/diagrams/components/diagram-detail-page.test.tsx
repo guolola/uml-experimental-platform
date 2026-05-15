@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import { createWorkspaceRecord, withWorkspaceProviders } from "../../../test/workspace-test-utils";
@@ -157,5 +158,48 @@ describe("DiagramView", () => {
         value: originalRevokeObjectURL,
       });
     }
+  });
+
+  it("supports zooming generated SVG previews", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase"],
+        plantUml: {
+          usecase: "@startuml\nactor 用户\n@enduml",
+        },
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例图",
+            summary: "核心用例",
+            notes: [],
+            actors: [],
+            useCases: [],
+            systemBoundaries: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          usecase: {
+            diagramKind: "usecase",
+            svg: '<svg width="200" height="120"><text>ok</text></svg>',
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
+
+    expect(await screen.findByText("100%")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "放大 SVG" }));
+    expect(screen.getByText("125%")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "缩小 SVG" }));
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 });

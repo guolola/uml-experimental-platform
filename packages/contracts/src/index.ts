@@ -13,6 +13,7 @@ export const designDiagramKindSchema = z.enum([
   "activity",
   "class",
   "deployment",
+  "table",
 ]);
 export type DesignDiagramKind = z.infer<typeof designDiagramKindSchema>;
 
@@ -468,6 +469,61 @@ export const sequenceDiagramSpecSchema = z.object({
 });
 export type SequenceDiagramSpec = z.infer<typeof sequenceDiagramSpecSchema>;
 
+export const tableColumnReferenceSchema = z.object({
+  tableId: z.string().min(1),
+  columnId: z.string().min(1),
+});
+export type TableColumnReference = z.infer<typeof tableColumnReferenceSchema>;
+
+export const tableColumnSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  dataType: z.string().min(1),
+  isPrimaryKey: z.boolean().default(false),
+  isForeignKey: z.boolean().default(false),
+  nullable: z.boolean().default(true),
+  references: tableColumnReferenceSchema.optional(),
+  description: z.string().min(1).optional(),
+});
+export type TableColumn = z.infer<typeof tableColumnSchema>;
+
+export const tableSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1).optional(),
+  columns: z.array(tableColumnSchema).min(1),
+});
+export type TableSpec = z.infer<typeof tableSchema>;
+
+export const tableRelationshipTypeSchema = z.enum([
+  "one-to-one",
+  "one-to-many",
+  "many-to-many",
+]);
+export type TableRelationshipType = z.infer<typeof tableRelationshipTypeSchema>;
+
+export const tableRelationshipSchema = z.object({
+  id: z.string().min(1),
+  type: tableRelationshipTypeSchema,
+  sourceTableId: z.string().min(1),
+  targetTableId: z.string().min(1),
+  sourceColumnId: z.string().min(1).optional(),
+  targetColumnId: z.string().min(1).optional(),
+  label: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+});
+export type TableRelationship = z.infer<typeof tableRelationshipSchema>;
+
+export const tableDiagramSpecSchema = z.object({
+  diagramKind: z.literal("table"),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  notes: noteListSchema,
+  tables: z.array(tableSchema).min(1),
+  relationships: z.array(tableRelationshipSchema),
+});
+export type TableDiagramSpec = z.infer<typeof tableDiagramSpecSchema>;
+
 export const diagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
   useCaseDiagramSpecSchema,
   classDiagramSpecSchema,
@@ -486,6 +542,7 @@ export const designDiagramModelSpecSchema = z.discriminatedUnion("diagramKind", 
   classDiagramSpecSchema,
   activityDiagramSpecSchema,
   deploymentDiagramSpecSchema,
+  tableDiagramSpecSchema,
 ]);
 export type DesignDiagramModelSpec = z.infer<typeof designDiagramModelSpecSchema>;
 
@@ -535,6 +592,237 @@ export const providerSettingsSchema = z.object({
 });
 export type ProviderSettings = z.infer<typeof providerSettingsSchema>;
 
+export const imageProviderSettingsSchema = providerSettingsSchema.extend({
+  model: z.enum([
+    "gpt-image-2",
+    "gemini-3.1-flash-image-preview-2k",
+    "nano-banana-pro",
+  ]),
+});
+export type ImageProviderSettings = z.infer<typeof imageProviderSettingsSchema>;
+
+export const codeThemeSchema = z.object({
+  name: z.string().min(1),
+  primaryColor: z.string().min(1),
+  backgroundColor: z.string().min(1),
+  surfaceColor: z.string().min(1),
+  textColor: z.string().min(1),
+  accentColor: z.string().min(1),
+  density: z.enum(["compact", "comfortable"]).default("compact"),
+  tone: z.string().min(1),
+});
+export type CodeTheme = z.infer<typeof codeThemeSchema>;
+
+export const codePageSpecSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  route: z.string().min(1),
+  purpose: z.string().min(1),
+  sourceDiagramIds: z.array(z.string().min(1)),
+});
+export type CodePageSpec = z.infer<typeof codePageSpecSchema>;
+
+export const codeComponentSpecSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  responsibility: z.string().min(1),
+  sourceDiagramIds: z.array(z.string().min(1)),
+});
+export type CodeComponentSpec = z.infer<typeof codeComponentSpecSchema>;
+
+export const codeInteractionSpecSchema = z.object({
+  id: z.string().min(1),
+  trigger: z.string().min(1),
+  behavior: z.string().min(1),
+  sourceDiagramIds: z.array(z.string().min(1)),
+});
+export type CodeInteractionSpec = z.infer<typeof codeInteractionSpecSchema>;
+
+export const codeDataEntitySpecSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  fields: z.array(
+    z.object({
+      name: z.string().min(1),
+      type: z.string().min(1),
+      required: z.boolean().default(false),
+    }),
+  ),
+  sourceDiagramIds: z.array(z.string().min(1)),
+});
+export type CodeDataEntitySpec = z.infer<typeof codeDataEntitySpecSchema>;
+
+export const codeAppBlueprintSchema = z.object({
+  appName: z.string().min(1),
+  domain: z.string().min(1),
+  targetUsers: z.array(z.string().min(1)).min(1),
+  coreWorkflow: z.string().min(1),
+  pages: z.array(codePageSpecSchema).min(2).max(6),
+  successCriteria: z.array(z.string().min(1)).min(1),
+});
+export type CodeAppBlueprint = z.infer<typeof codeAppBlueprintSchema>;
+
+export const codeAppBlueprintResultSchema = z.object({
+  appBlueprint: codeAppBlueprintSchema,
+});
+export type CodeAppBlueprintResult = z.infer<typeof codeAppBlueprintResultSchema>;
+
+export const codeUiBlueprintSchema = z.object({
+  theme: codeThemeSchema,
+  visualLanguage: z.string().min(1),
+  navigationModel: z.string().min(1),
+  layoutPrinciples: z.array(z.string().min(1)).min(1),
+  componentGuidelines: z.array(z.string().min(1)).min(1),
+  stateGuidelines: z.array(z.string().min(1)).min(1),
+});
+export type CodeUiBlueprint = z.infer<typeof codeUiBlueprintSchema>;
+
+export const codeUiBlueprintResultSchema = z.object({
+  uiBlueprint: codeUiBlueprintSchema,
+});
+export type CodeUiBlueprintResult = z.infer<typeof codeUiBlueprintResultSchema>;
+
+export const codeUiMockupSchema = z.object({
+  status: z.enum(["completed", "failed"]),
+  model: z.string().min(1),
+  prompt: z.string().min(1),
+  summary: z.string().min(1),
+  imageUrl: z.string().min(1).nullable().default(null),
+  imageDataUrl: z.string().min(1).nullable().default(null),
+  errorMessage: z.string().min(1).nullable().default(null),
+  createdAt: z.string().min(1),
+});
+export type CodeUiMockup = z.infer<typeof codeUiMockupSchema>;
+
+export const codeUiReferenceSpecSchema = z.object({
+  layoutStructure: z.array(z.string().min(1)).default([]),
+  navigation: z.string().min(1),
+  colorPalette: z.array(z.string().min(1)).default([]),
+  componentShapes: z.array(z.string().min(1)).default([]),
+  informationDensity: z.string().min(1),
+  keyBusinessAreas: z.array(z.string().min(1)).default([]),
+  stateExpressions: z.array(z.string().min(1)).default([]),
+  implementationGuidelines: z.array(z.string().min(1)).default([]),
+  fallbackReason: z.string().min(1).nullable().default(null),
+});
+export type CodeUiReferenceSpec = z.infer<typeof codeUiReferenceSpecSchema>;
+
+export const codeUiReferenceSpecResultSchema = z.object({
+  uiReferenceSpec: codeUiReferenceSpecSchema,
+});
+export type CodeUiReferenceSpecResult = z.infer<typeof codeUiReferenceSpecResultSchema>;
+
+export const codeUiFidelityReportSchema = z.object({
+  passed: z.boolean(),
+  matched: z.array(z.string().min(1)).default([]),
+  missing: z.array(z.string().min(1)).default([]),
+  repairSuggestions: z.array(z.string().min(1)).default([]),
+  summary: z.string().min(1),
+});
+export type CodeUiFidelityReport = z.infer<typeof codeUiFidelityReportSchema>;
+
+export const codeUiFidelityReportResultSchema = z.object({
+  uiFidelityReport: codeUiFidelityReportSchema,
+});
+export type CodeUiFidelityReportResult = z.infer<typeof codeUiFidelityReportResultSchema>;
+
+export const codeFilePlanSchema = z.object({
+  entryFile: z.string().min(1),
+  files: z.array(
+    z.object({
+      path: z.string().min(1),
+      kind: z.enum(["entry", "page", "component", "domain", "data", "style", "lib"]),
+      responsibility: z.string().min(1),
+    }),
+  ).min(8),
+});
+export type CodeFilePlan = z.infer<typeof codeFilePlanSchema>;
+
+export const codeFilePlanResultSchema = z.object({
+  filePlan: codeFilePlanSchema,
+});
+export type CodeFilePlanResult = z.infer<typeof codeFilePlanResultSchema>;
+
+export const codeQualityIssueSchema = z.object({
+  severity: z.enum(["info", "warning", "error"]),
+  message: z.string().min(1),
+  path: z.string().min(1).optional(),
+});
+export type CodeQualityIssue = z.infer<typeof codeQualityIssueSchema>;
+
+export const codeQualityDiagnosticSchema = z.object({
+  passed: z.boolean(),
+  metrics: z.object({
+    fileCount: z.number().int().nonnegative(),
+    pageFileCount: z.number().int().nonnegative(),
+    componentFileCount: z.number().int().nonnegative(),
+  }),
+  issues: z.array(codeQualityIssueSchema),
+});
+export type CodeQualityDiagnostic = z.infer<typeof codeQualityDiagnosticSchema>;
+
+export const codeGenerationSpecSchema = z.object({
+  appName: z.string().min(1),
+  summary: z.string().min(1),
+  theme: codeThemeSchema,
+  pages: z.array(codePageSpecSchema).min(1),
+  components: z.array(codeComponentSpecSchema).min(1),
+  interactions: z.array(codeInteractionSpecSchema),
+  dataEntities: z.array(codeDataEntitySpecSchema),
+  implementationNotes: z.array(z.string().min(1)),
+  appBlueprint: codeAppBlueprintSchema.nullable().default(null),
+  uiBlueprint: codeUiBlueprintSchema.nullable().default(null),
+  uiReferenceSpec: codeUiReferenceSpecSchema.nullable().default(null),
+  filePlan: codeFilePlanSchema.nullable().default(null),
+});
+export type CodeGenerationSpec = z.infer<typeof codeGenerationSpecSchema>;
+
+export const codeGenerationSpecResultSchema = z.object({
+  spec: codeGenerationSpecSchema,
+});
+export type CodeGenerationSpecResult = z.infer<typeof codeGenerationSpecResultSchema>;
+
+export const codeFileBundleSchema = z.object({
+  files: z.record(z.string().min(1), z.string()),
+  entryFile: z.string().min(1),
+  dependencies: z.record(z.string().min(1), z.string().min(1)).default({}),
+});
+export type CodeFileBundle = z.infer<typeof codeFileBundleSchema>;
+
+export const codeFileBundleResultSchema = z.object({
+  bundle: codeFileBundleSchema,
+});
+export type CodeFileBundleResult = z.infer<typeof codeFileBundleResultSchema>;
+
+export const codeAgentPlanResultSchema = z.object({
+  plan: z.array(z.string().min(1)).min(1),
+});
+export type CodeAgentPlanResult = z.infer<typeof codeAgentPlanResultSchema>;
+
+export const codeFileOperationSchema = z.discriminatedUnion("operation", [
+  z.object({
+    operation: z.enum(["create_file", "update_file"]),
+    path: z.string().min(1),
+    content: z.string(),
+    reason: z.string().min(1),
+  }),
+  z.object({
+    operation: z.literal("set_entry_file"),
+    path: z.string().min(1),
+    reason: z.string().min(1),
+  }),
+  z.object({
+    operation: z.literal("note"),
+    message: z.string().min(1),
+  }),
+]);
+export type CodeFileOperation = z.infer<typeof codeFileOperationSchema>;
+
+export const codeFileOperationsResultSchema = z.object({
+  operations: z.array(codeFileOperationSchema).min(1),
+});
+export type CodeFileOperationsResult = z.infer<typeof codeFileOperationsResultSchema>;
+
 export const startRunRequestSchema = z.object({
   requirementText: z.string().min(1),
   selectedDiagrams: z.array(diagramKindSchema),
@@ -551,11 +839,75 @@ export const startDesignRunRequestSchema = z.object({
 });
 export type StartDesignRunRequest = z.infer<typeof startDesignRunRequestSchema>;
 
+export const startCodeRunRequestSchema = z.object({
+  requirementText: z.string().min(1),
+  rules: z.array(requirementRuleSchema),
+  designModels: z.array(designDiagramModelSpecSchema).min(1),
+  existingFiles: z.record(z.string().min(1), z.string()).default({}),
+  generationMode: z.enum(["continue", "regenerate"]).default("continue"),
+  providerSettings: providerSettingsSchema,
+  imageProviderSettings: imageProviderSettingsSchema.optional(),
+});
+export type StartCodeRunRequest = z.infer<typeof startCodeRunRequestSchema>;
+
+export const documentKindSchema = z.enum(["requirementsSpec", "softwareDesignSpec"]);
+export type DocumentKind = z.infer<typeof documentKindSchema>;
+
+export const documentSectionTableSchema = z.object({
+  headers: z.array(z.string()),
+  rows: z.array(z.array(z.string())),
+});
+export type DocumentSectionTable = z.infer<typeof documentSectionTableSchema>;
+
+export const documentSectionSchema = z.object({
+  level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  title: z.string().min(1),
+  body: z.array(z.string()).default([]),
+  table: documentSectionTableSchema.optional(),
+  diagramKind: z.string().optional(),
+});
+export type DocumentSection = z.infer<typeof documentSectionSchema>;
+
+export const documentContentResultSchema = z.object({
+  sections: z.array(documentSectionSchema).min(1),
+});
+export type DocumentContentResult = z.infer<typeof documentContentResultSchema>;
+
+export const startDocumentRunRequestSchema = z.object({
+  documentKind: documentKindSchema,
+  requirementText: z.string().min(1),
+  rules: z.array(requirementRuleSchema).default([]),
+  requirementModels: z.array(diagramModelSpecSchema).default([]),
+  requirementPlantUml: z.array(plantUmlArtifactSchema).default([]),
+  requirementSvgArtifacts: z.array(svgArtifactSchema).default([]),
+  designModels: z.array(designDiagramModelSpecSchema).default([]),
+  designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
+  designSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
+  providerSettings: providerSettingsSchema,
+  useAiText: z.boolean().default(true),
+});
+export type StartDocumentRunRequest = z.infer<typeof startDocumentRunRequestSchema>;
+
 export const runStageSchema = z.enum([
   "extract_rules",
   "generate_models",
   "generate_design_sequence",
   "generate_design_models",
+  "analyze_code_product",
+  "plan_code_ui",
+  "generate_code_ui_mockup",
+  "analyze_code_ui_mockup",
+  "plan_code_files",
+  "generate_code_spec",
+  "generate_code_files",
+  "plan_code",
+  "write_code_files",
+  "audit_code_quality",
+  "verify_code_ui_fidelity",
+  "verify_code_preview",
+  "repair_code_files",
+  "generate_document_text",
+  "render_document_file",
   "generate_plantuml",
   "render_svg",
 ]);
@@ -606,6 +958,54 @@ export const designRunSnapshotSchema = z.object({
 });
 export type DesignRunSnapshot = z.infer<typeof designRunSnapshotSchema>;
 
+export const codeRunSnapshotSchema = z.object({
+  runId: z.string().min(1),
+  requirementText: z.string(),
+  rules: z.array(requirementRuleSchema),
+  designModels: z.array(designDiagramModelSpecSchema),
+  spec: codeGenerationSpecSchema.nullable(),
+  appBlueprint: codeAppBlueprintSchema.nullable().default(null),
+  uiBlueprint: codeUiBlueprintSchema.nullable().default(null),
+  uiMockup: codeUiMockupSchema.nullable().default(null),
+  uiReferenceSpec: codeUiReferenceSpecSchema.nullable().default(null),
+  uiFidelityReport: codeUiFidelityReportSchema.nullable().default(null),
+  filePlan: codeFilePlanSchema.nullable().default(null),
+  qualityDiagnostics: z.array(codeQualityDiagnosticSchema).default([]),
+  files: z.record(z.string().min(1), z.string()),
+  entryFile: z.string().min(1).nullable(),
+  dependencies: z.record(z.string().min(1), z.string().min(1)).default({}),
+  agentPlan: z.array(z.string().min(1)).default([]),
+  generationMode: z.enum(["continue", "regenerate"]).default("continue"),
+  changedFileCount: z.number().int().min(0).default(0),
+  diagnostics: z.array(
+    z.object({
+      stage: runStageSchema,
+      message: z.string().min(1),
+      at: z.string().min(1),
+    }),
+  ).default([]),
+  codeContextHash: z.string().nullable().default(null),
+  currentStage: runStageSchema.nullable(),
+  status: runStatusSchema,
+  errorMessage: z.string().nullable(),
+});
+export type CodeRunSnapshot = z.infer<typeof codeRunSnapshotSchema>;
+
+export const documentRunSnapshotSchema = z.object({
+  runId: z.string().min(1),
+  documentKind: documentKindSchema,
+  requirementText: z.string(),
+  sections: z.array(documentSectionSchema).default([]),
+  fileName: z.string().min(1).nullable(),
+  mimeType: z.string().min(1).nullable(),
+  byteLength: z.number().int().min(0).default(0),
+  missingArtifacts: z.array(z.string()).default([]),
+  currentStage: runStageSchema.nullable(),
+  status: runStatusSchema,
+  errorMessage: z.string().nullable(),
+});
+export type DocumentRunSnapshot = z.infer<typeof documentRunSnapshotSchema>;
+
 export const queuedRunEventSchema = z.object({
   type: z.literal("queued"),
 });
@@ -631,13 +1031,39 @@ export const stageProgressRunEventSchema = z.object({
 export const artifactReadyRunEventSchema = z.object({
   type: z.literal("artifact_ready"),
   stage: runStageSchema,
-  artifactKind: z.enum(["rules", "model", "plantuml", "svg"]),
+  artifactKind: z.enum([
+    "rules",
+    "model",
+    "plantuml",
+    "svg",
+    "codeSpec",
+    "codeFiles",
+    "uiMockup",
+    "uiReferenceSpec",
+    "uiFidelityReport",
+    "document",
+  ]),
   diagramKind: umlDiagramKindSchema.optional(),
+  uiMockup: codeUiMockupSchema.optional(),
+  uiReferenceSpec: codeUiReferenceSpecSchema.optional(),
+  uiFidelityReport: codeUiFidelityReportSchema.optional(),
+});
+
+export const codeFileChangedRunEventSchema = z.object({
+  type: z.literal("code_file_changed"),
+  path: z.string().min(1),
+  content: z.string(),
+  reason: z.string().min(1),
 });
 
 export const completedRunEventSchema = z.object({
   type: z.literal("completed"),
-  snapshot: z.union([runSnapshotSchema, designRunSnapshotSchema]),
+  snapshot: z.union([
+    runSnapshotSchema,
+    designRunSnapshotSchema,
+    codeRunSnapshotSchema,
+    documentRunSnapshotSchema,
+  ]),
 });
 
 export const failedRunEventSchema = z.object({
@@ -652,6 +1078,7 @@ export const runEventSchema = z.discriminatedUnion("type", [
   llmChunkRunEventSchema,
   stageProgressRunEventSchema,
   artifactReadyRunEventSchema,
+  codeFileChangedRunEventSchema,
   completedRunEventSchema,
   failedRunEventSchema,
 ]);
@@ -663,6 +1090,10 @@ export const startRunResponseSchema = z.object({
 export type StartRunResponse = z.infer<typeof startRunResponseSchema>;
 export const startDesignRunResponseSchema = startRunResponseSchema;
 export type StartDesignRunResponse = z.infer<typeof startDesignRunResponseSchema>;
+export const startCodeRunResponseSchema = startRunResponseSchema;
+export type StartCodeRunResponse = z.infer<typeof startCodeRunResponseSchema>;
+export const startDocumentRunResponseSchema = startRunResponseSchema;
+export type StartDocumentRunResponse = z.infer<typeof startDocumentRunResponseSchema>;
 
 export const renderSvgRequestSchema = z.object({
   diagramKind: umlDiagramKindSchema,
@@ -675,3 +1106,12 @@ export const renderSvgResponseSchema = z.object({
   renderMeta: svgArtifactSchema.shape.renderMeta,
 });
 export type RenderSvgResponse = z.infer<typeof renderSvgResponseSchema>;
+
+export const renderPngRequestSchema = renderSvgRequestSchema;
+export type RenderPngRequest = z.infer<typeof renderPngRequestSchema>;
+
+export const renderPngResponseSchema = z.object({
+  pngBase64: z.string().min(1),
+  renderMeta: svgArtifactSchema.shape.renderMeta,
+});
+export type RenderPngResponse = z.infer<typeof renderPngResponseSchema>;

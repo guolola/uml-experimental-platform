@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   diagramModelsResultSchema,
+  designDiagramModelsResultSchema,
   renderSvgResponseSchema,
   requirementRulesResultSchema,
   runEventSchema,
@@ -67,6 +68,23 @@ test("contracts validate representative stage payloads", () => {
   });
   assert.equal(event.type, "stage_progress");
 
+  const uiMockupEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "generate_code_ui_mockup",
+    artifactKind: "uiMockup",
+    uiMockup: {
+      status: "completed",
+      model: "gpt-image-2",
+      prompt: "生成活动日历界面图",
+      summary: "公共活动日历主界面",
+      imageUrl: "https://example.com/mockup.png",
+      imageDataUrl: null,
+      errorMessage: null,
+      createdAt: new Date().toISOString(),
+    },
+  });
+  assert.equal(uiMockupEvent.type, "artifact_ready");
+
   const render = renderSvgResponseSchema.parse({
     svg: "<svg></svg>",
     renderMeta: {
@@ -77,6 +95,74 @@ test("contracts validate representative stage payloads", () => {
     },
   });
   assert.match(render.svg, /<svg/);
+});
+
+test("contracts validate design table relationship diagrams", () => {
+  const result = designDiagramModelsResultSchema.parse({
+    models: [
+      {
+        diagramKind: "table",
+        title: "订单表关系",
+        summary: "体现用户、订单和订单明细的主外键关系。",
+        notes: ["由设计类图推导"],
+        tables: [
+          {
+            id: "user",
+            name: "user",
+            columns: [
+              {
+                id: "id",
+                name: "id",
+                dataType: "INT",
+                isPrimaryKey: true,
+                isForeignKey: false,
+                nullable: false,
+              },
+            ],
+          },
+          {
+            id: "order",
+            name: "order",
+            columns: [
+              {
+                id: "id",
+                name: "id",
+                dataType: "INT",
+                isPrimaryKey: true,
+                isForeignKey: false,
+                nullable: false,
+              },
+              {
+                id: "user_id",
+                name: "user_id",
+                dataType: "INT",
+                isPrimaryKey: false,
+                isForeignKey: true,
+                nullable: false,
+                references: {
+                  tableId: "user",
+                  columnId: "id",
+                },
+              },
+            ],
+          },
+        ],
+        relationships: [
+          {
+            id: "rel_user_order",
+            type: "one-to-many",
+            sourceTableId: "user",
+            targetTableId: "order",
+            sourceColumnId: "id",
+            targetColumnId: "user_id",
+            label: "1对多",
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.models[0]?.diagramKind, "table");
 });
 
 test("contracts reject invalid stage payloads", () => {

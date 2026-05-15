@@ -51,7 +51,7 @@ export const DESIGN_DIAGRAM_META: Record<
     description: "全局业务逻辑流转、并行与分支",
   },
   class: {
-    label: "领域概念模型",
+    label: "设计类图",
     english: "Class Diagram",
     description: "实体、接口、聚合根及静态关联",
   },
@@ -60,11 +60,17 @@ export const DESIGN_DIAGRAM_META: Record<
     english: "Deployment Diagram",
     description: "组件在 Pod、服务器、数据库上的分布",
   },
+  table: {
+    label: "表关系图",
+    english: "Table Relationship Diagram",
+    description: "数据库表、主键、外键与表间关联",
+  },
 };
 
 export const DESIGN_DIAGRAM_ORDER: DesignDiagramType[] = [
   "sequence",
+  "class",
   "activity",
   "deployment",
-  "class",
+  "table",
 ];

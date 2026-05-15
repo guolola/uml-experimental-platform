@@ -56,7 +56,13 @@ describe("SidebarMenu", () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
-          generatedDesignDiagramTypes: ["class", "deployment", "activity", "sequence"],
+          generatedDesignDiagramTypes: [
+            "class",
+            "deployment",
+            "activity",
+            "sequence",
+            "table",
+          ],
           designModels: {
             sequence: {
               diagramKind: "sequence",
@@ -92,12 +98,35 @@ describe("SidebarMenu", () => {
             },
             class: {
               diagramKind: "class",
-              title: "领域概念模型",
+              title: "设计类图",
               summary: "静态结构",
               notes: [],
               classes: [],
               interfaces: [],
               enums: [],
+              relationships: [],
+            },
+            table: {
+              diagramKind: "table",
+              title: "表关系图",
+              summary: "主外键关系",
+              notes: [],
+              tables: [
+                {
+                  id: "user",
+                  name: "user",
+                  columns: [
+                    {
+                      id: "id",
+                      name: "id",
+                      dataType: "INT",
+                      isPrimaryKey: true,
+                      isForeignKey: false,
+                      nullable: false,
+                    },
+                  ],
+                },
+              ],
               relationships: [],
             },
           },
@@ -132,11 +161,14 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("业务逻辑模型")).not.toBeInTheDocument();
     expect(screen.queryByText("静态结构模型")).not.toBeInTheDocument();
     expect(screen.queryByText("物理部署模型")).not.toBeInTheDocument();
+    expect(screen.queryByText("领域概念模型")).not.toBeInTheDocument();
 
     const navText = screen.getByRole("navigation").textContent ?? "";
     expect(navText.indexOf("顺序图")).toBeLessThan(navText.indexOf("界面关系"));
+    expect(navText.indexOf("顺序图")).toBeLessThan(navText.indexOf("设计类图"));
+    expect(navText.indexOf("设计类图")).toBeLessThan(navText.indexOf("界面关系"));
     expect(navText.indexOf("界面关系")).toBeLessThan(navText.indexOf("部署模型"));
-    expect(navText.indexOf("部署模型")).toBeLessThan(navText.indexOf("领域概念模型"));
+    expect(navText.indexOf("部署模型")).toBeLessThan(navText.indexOf("表关系图"));
   });
 
   it("expands design tree one level at a time", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Wand2 } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
@@ -27,13 +27,23 @@ const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DiagramType | "sequence"> = {
   activity: "activity",
   class: "class",
   deployment: "deployment",
+  table: "class",
 };
 
 function ensureSequenceDependency(diagrams: DesignDiagramType[]) {
-  if (diagrams.some((diagram) => diagram !== "sequence") && !diagrams.includes("sequence")) {
-    return ["sequence", ...diagrams] as DesignDiagramType[];
+  let next = [...diagrams];
+  if (next.some((diagram) => diagram !== "sequence") && !next.includes("sequence")) {
+    next = ["sequence", ...next] as DesignDiagramType[];
   }
-  return diagrams;
+  if (next.includes("table") && !next.includes("class")) {
+    const tableIndex = next.indexOf("table");
+    next = [
+      ...next.slice(0, tableIndex),
+      "class",
+      ...next.slice(tableIndex),
+    ] as DesignDiagramType[];
+  }
+  return DESIGN_DIAGRAM_ORDER.filter((diagram) => next.includes(diagram));
 }
 
 export function DesignModelPage() {
@@ -45,18 +55,13 @@ export function DesignModelPage() {
     generatedDesignDiagrams,
     designDiagramErrors,
     generating,
-    runProgress,
-    runMessage,
     errorMessage,
-    currentRunDiagnostics,
     generateDesignDiagrams,
   } = useWorkspaceSession();
   const { openDesignDiagram } = useWorkspaceShell();
   const [defaultModel, setDefaultModel] = useState(
     () => loadUserSettings().defaultModel,
   );
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const streamEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const syncSettings = () => {
@@ -68,12 +73,6 @@ export function DesignModelPage() {
       window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, syncSettings);
     };
   }, []);
-
-  useEffect(() => {
-    if (showDiagnostics) {
-      streamEndRef.current?.scrollIntoView({ block: "end" });
-    }
-  }, [showDiagnostics, currentRunDiagnostics.streamText]);
 
   const sourceStatus = useMemo(
     () => ({
@@ -213,7 +212,7 @@ export function DesignModelPage() {
           })}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>选择界面关系、领域概念模型或部署模型时，系统会自动补齐顺序图依赖。</span>
+          <span>选择设计类图、界面关系、部署模型或表关系图时，系统会自动补齐顺序图依赖；表关系图会同时补齐设计类图。</span>
           <span className="ml-auto">
             当前模型：{getModelDisplayName(defaultModel).triggerLabel}
           </span>
@@ -247,40 +246,6 @@ export function DesignModelPage() {
           设计生成会同时使用原始需求文本、{rules.length} 条需求规则和上方需求阶段模型。
         </div>
       </Section>
-
-      {generating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-          <div className="flex w-[min(560px,92vw)] flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-lg">
-            <div className="flex items-center gap-3">
-              <Loader2 className="size-6 animate-spin text-primary" />
-              <div className="flex flex-1 flex-col">
-                <span className="text-sm font-medium">正在生成设计模型</span>
-                <span className="text-xs text-muted-foreground">
-                  {runMessage ?? "等待服务返回进度"}
-                </span>
-              </div>
-              <Badge variant="secondary" className="font-mono">
-                {runProgress}%
-              </Badge>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 self-start px-2 text-xs"
-              onClick={() => setShowDiagnostics((value) => !value)}
-            >
-              {showDiagnostics ? "收起详情" : "查看详情"}
-            </Button>
-            {showDiagnostics && (
-              <div className="max-h-56 overflow-auto rounded-md border border-border bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100">
-                {currentRunDiagnostics.streamText || "等待模型输出..."}
-                <div ref={streamEndRef} />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {errorMessage && !generating && (
         <div className="mx-3 mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

@@ -6,6 +6,7 @@ export type UserSettings = {
   apiBaseUrl: string;
   apiKey: string;
   defaultModel: string;
+  imageModel: "gpt-image-2" | "gemini-3.1-flash-image-preview-2k" | "nano-banana-pro";
   fontSize: "sm" | "md" | "lg";
   autoGenerate: boolean;
   showStaleBanner: boolean;
@@ -15,6 +16,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   apiBaseUrl: "https://ai.comfly.chat",
   apiKey: "",
   defaultModel: DEFAULT_MODEL_ID,
+  imageModel: "gpt-image-2",
   fontSize: "md",
   autoGenerate: false,
   showStaleBanner: true,

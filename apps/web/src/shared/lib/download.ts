@@ -4,6 +4,10 @@ export function downloadTextFile(
   mime = "text/plain",
 ) {
   const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  downloadBlobFile(filename, blob);
+}
+
+export function downloadBlobFile(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

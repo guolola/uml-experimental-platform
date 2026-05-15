@@ -16,8 +16,11 @@ module.exports = {
     {
       name: "uml-render-service",
       cwd: __dirname,
-      script: "apps/render-service/dist/index.js",
-      interpreter: "node",
+      script: "bash",
+      args: [
+        "-lc",
+        "cd \"$PWD\" && RENDER_SERVICE_HOST=127.0.0.1 RENDER_SERVICE_PORT=4002 node apps/render-service/dist/index.js",
+      ],
       instances: 1,
       exec_mode: "fork",
       env: renderServiceEnv,
@@ -28,8 +31,11 @@ module.exports = {
     {
       name: "uml-api",
       cwd: __dirname,
-      script: "apps/api/dist/index.js",
-      interpreter: "node",
+      script: "bash",
+      args: [
+        "-lc",
+        "cd \"$PWD\" && API_HOST=127.0.0.1 API_PORT=4001 RENDER_SERVICE_BASE_URL=http://127.0.0.1:4002 node apps/api/dist/index.js",
+      ],
       instances: 1,
       exec_mode: "fork",
       env: apiEnv,
