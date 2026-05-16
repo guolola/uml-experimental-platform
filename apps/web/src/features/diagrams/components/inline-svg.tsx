@@ -114,6 +114,11 @@ export function InlineSvg({
   return (
     <>
       <style>{`
+        .uml-inline-svg {
+          --uml-highlight: #38bdf8;
+          --uml-highlight-strong: #0284c7;
+          --uml-highlight-soft: rgba(56, 189, 248, 0.22);
+        }
         .pum-highlight rect,
         .pum-highlight ellipse,
         .pum-highlight circle,
@@ -124,18 +129,28 @@ export function InlineSvg({
         circle.pum-highlight,
         polygon.pum-highlight,
         path.pum-highlight {
-          stroke: hsl(var(--primary, 222 47% 51%)) !important;
-          stroke-width: 3px !important;
-          filter: drop-shadow(0 0 6px hsl(var(--primary, 222 47% 51%) / 0.55));
+          stroke: var(--uml-highlight) !important;
+          stroke-width: 4px !important;
+          filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.75));
+        }
+        .pum-highlight rect,
+        .pum-highlight ellipse,
+        .pum-highlight circle,
+        .pum-highlight polygon,
+        rect.pum-highlight,
+        ellipse.pum-highlight,
+        circle.pum-highlight,
+        polygon.pum-highlight {
+          fill: color-mix(in srgb, var(--uml-highlight-soft) 45%, currentColor 0%) !important;
         }
         text.pum-highlight {
-          fill: hsl(var(--primary, 222 47% 51%)) !important;
-          font-weight: 600;
+          fill: var(--uml-highlight-strong) !important;
+          font-weight: 700;
         }
       `}</style>
       <div
         ref={containerRef}
-        className={className}
+        className={["uml-inline-svg", className].filter(Boolean).join(" ")}
         dangerouslySetInnerHTML={{ __html: sanitizedSvg }}
       />
     </>

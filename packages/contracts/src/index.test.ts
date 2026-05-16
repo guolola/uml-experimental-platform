@@ -2,11 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   diagramModelsResultSchema,
+  designRunSnapshotSchema,
+  designTraceEntrySchema,
   designDiagramModelsResultSchema,
+  codeRunSnapshotSchema,
+  codeSkillActionSchema,
+  codeSkillContextSchema,
+  codeSkillSchema,
   codeUiIrResultSchema,
   renderSvgResponseSchema,
+  requirementTraceEntrySchema,
   requirementRulesResultSchema,
   runEventSchema,
+  runSnapshotSchema,
 } from "./index.js";
 
 test("contracts validate representative stage payloads", () => {
@@ -144,6 +152,187 @@ test("contracts validate representative stage payloads", () => {
     uiIr: uiIr.uiIr,
   });
   assert.equal(uiIrEvent.type, "artifact_ready");
+
+  const codeSkill = codeSkillSchema.parse({
+    name: "react-prototype-quality",
+    description: "提升 React 原型质量",
+    triggers: ["React", "原型"],
+    appliesTo: ["planning", "implementation"],
+    priority: 80,
+    source: "builtin",
+    location: "apps/api/src/code-skills/builtin/react-prototype-quality/SKILL.md",
+    baseDir: "apps/api/src/code-skills/builtin/react-prototype-quality",
+    fileManifest: [
+      {
+        path: "apps/api/src/code-skills/builtin/react-prototype-quality/SKILL.md",
+        relativePath: "SKILL.md",
+        kind: "skill",
+        size: 120,
+      },
+    ],
+    content: "生成完整可运行代码。",
+  });
+  assert.equal(codeSkill.name, "react-prototype-quality");
+
+  const skillAction = codeSkillActionSchema.parse({
+    name: "design-system",
+    description: "查询设计系统",
+    command: "python",
+    args: ["scripts/search.py", "{query}", "--design-system"],
+    outputFormat: "markdown",
+  });
+  assert.equal(skillAction.command, "python");
+  assert.throws(() =>
+    codeSkillActionSchema.parse({
+      name: "bad",
+      description: "危险命令",
+      command: "rm",
+      args: ["-rf", "."],
+    }),
+  );
+
+  const codeSkillsEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "select_code_skills",
+    artifactKind: "codeSkills",
+    codeSkills: [
+      {
+        name: codeSkill.name,
+        description: codeSkill.description,
+        source: codeSkill.source,
+        location: codeSkill.location,
+        appliesTo: codeSkill.appliesTo,
+        priority: codeSkill.priority,
+        reason: "默认启用 React 原型质量技能。",
+      },
+    ],
+    skillDiagnostics: [],
+  });
+  assert.equal(codeSkillsEvent.type, "artifact_ready");
+
+  const codeSkillContext = codeSkillContextSchema.parse({
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    query: "校园活动 dashboard React",
+    designSystem: "## Design System",
+    stackGuidelines: "{\"results\":[]}",
+    domainGuidelines: "{\"results\":[]}",
+    actionResults: [
+      {
+        name: "design-system",
+        description: "查询设计系统",
+        command: "python",
+        args: ["scripts/search.py", "校园活动", "--design-system"],
+        outputFormat: "markdown",
+        status: "completed",
+        stdout: "## Design System",
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      },
+    ],
+    diagnostics: [],
+  });
+  assert.equal(codeSkillContext.actionResults[0]?.status, "completed");
+
+  const codeSkillContextEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "plan_code_ui",
+    artifactKind: "codeSkillContext",
+    codeSkillContext,
+  });
+  assert.equal(codeSkillContextEvent.type, "artifact_ready");
+
+  const codeSnapshot = codeRunSnapshotSchema.parse({
+    runId: "code-run",
+    requirementText: "生成活动报名原型",
+    rules: [],
+    designModels: [],
+    spec: null,
+    codeSkillContext,
+    selectedCodeSkills: codeSkillsEvent.codeSkills,
+    skillDiagnostics: [],
+    files: {},
+    entryFile: "/src/App.tsx",
+    currentStage: "select_code_skills",
+    status: "running",
+    errorMessage: null,
+  });
+  assert.equal(codeSnapshot.selectedCodeSkills.length, 1);
+
+  const designTraceEntry = designTraceEntrySchema.parse({
+    stage: "render_svg",
+    attempt: 1,
+    kind: "render_error",
+    diagramKind: "activity",
+    plantUmlSource: "@startuml\nstart\n@enduml",
+    errorMessage: "Syntax Error? (line 2)",
+    createdAt: new Date().toISOString(),
+  });
+  assert.equal(designTraceEntry.kind, "render_error");
+
+  const designSnapshot = designRunSnapshotSchema.parse({
+    runId: "design-run",
+    requirementText: "生成设计模型",
+    selectedDiagrams: ["sequence"],
+    rules: [],
+    requirementModels: [],
+    models: [],
+    plantUml: [],
+    svgArtifacts: [],
+    diagramErrors: {},
+    designTrace: [
+      designTraceEntry,
+      {
+        stage: "generate_design_sequence",
+        attempt: 1,
+        kind: "llm_output",
+        rawOutput: "{\"models\":[]}",
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    currentStage: "render_svg",
+    status: "running",
+    errorMessage: null,
+  });
+  assert.equal(designSnapshot.designTrace.length, 2);
+
+  const requirementTraceEntry = requirementTraceEntrySchema.parse({
+    stage: "generate_models",
+    attempt: 1,
+    kind: "parse_error",
+    rawOutput: "{\"models\":[]}",
+    errorMessage: "models.0.notes: Required",
+    createdAt: new Date().toISOString(),
+  });
+  assert.equal(requirementTraceEntry.kind, "parse_error");
+
+  const requirementSnapshot = runSnapshotSchema.parse({
+    runId: "run",
+    requirementText: "生成需求模型",
+    selectedDiagrams: ["usecase"],
+    rules: [],
+    models: [],
+    plantUml: [],
+    svgArtifacts: [],
+    diagramErrors: {},
+    requirementTrace: [
+      requirementTraceEntry,
+      {
+        stage: "generate_plantuml",
+        attempt: 1,
+        kind: "plantuml_source",
+        diagramKind: "usecase",
+        plantUmlSource: "@startuml\n@enduml",
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    currentStage: "generate_models",
+    status: "running",
+    errorMessage: null,
+  });
+  assert.equal(requirementSnapshot.requirementTrace.length, 2);
 
   const render = renderSvgResponseSchema.parse({
     svg: "<svg></svg>",

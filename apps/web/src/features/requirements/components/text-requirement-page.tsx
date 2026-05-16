@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   RefreshCw,
   ArrowUp,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
@@ -18,6 +20,10 @@ import {
   DIAGRAM_ORDER,
   type DiagramType,
 } from "../../../entities/diagram/model";
+import {
+  RULE_CATEGORY_ORDER,
+  type RequirementRule,
+} from "../../../entities/requirement-rule/model";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { ModelPicker } from "../../../shared/ui/model-picker";
 import {
@@ -31,6 +37,9 @@ export function TextRequirementView() {
     requirementText,
     setRequirementText,
     rules,
+    addRequirementRule,
+    updateRequirementRule,
+    deleteRequirementRule,
     selectedDiagrams,
     setSelectedDiagrams,
     generating,
@@ -81,6 +90,18 @@ export function TextRequirementView() {
         ? Array.from(new Set([...selectedDiagrams, diagram]))
         : selectedDiagrams.filter((value) => value !== diagram),
     );
+  };
+
+  const toggleRuleDiagram = (
+    rule: RequirementRule,
+    diagram: DiagramType,
+    checked: boolean,
+  ) => {
+    const next = checked
+      ? Array.from(new Set([...rule.relatedDiagrams, diagram]))
+      : rule.relatedDiagrams.filter((value) => value !== diagram);
+    if (next.length === 0) return;
+    updateRequirementRule(rule.id, { relatedDiagrams: next });
   };
 
   const filteredRules = useMemo(() => {
@@ -185,30 +206,99 @@ export function TextRequirementView() {
                 className="h-7 pl-7 text-xs"
               />
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7"
+              onClick={addRequirementRule}
+              disabled={generating}
+            >
+              <Plus className="size-3.5" /> 新增需求项
+            </Button>
           </div>
           {filteredRules.length === 0 ? (
             <div className="border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">
               没有匹配的规则。
             </div>
           ) : (
-            <ul className="flex flex-col">
+            <ul className="flex flex-col gap-2">
               {filteredRules.map((rule) => (
                 <li
                   key={rule.id}
                   id={`rule-${rule.id}`}
-                  className="flex items-start gap-2 border-l-2 border-border py-1.5 pl-3 text-sm hover:border-primary/60 hover:bg-accent/30"
+                  className="rounded-md border border-border bg-card p-3 text-sm transition-colors hover:border-primary/40"
                 >
-                  <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">
-                    {rule.id}
-                  </span>
-                  <Badge variant="secondary" className="shrink-0 font-mono text-[10px]">
-                    {rule.category}
-                  </Badge>
-                  <span className="flex-1 leading-relaxed">{rule.text}</span>
+                  <div className="mb-2 flex items-center gap-2">
+                    <Input
+                      value={rule.id}
+                      onChange={(event) =>
+                        updateRequirementRule(rule.id, {
+                          id: event.target.value.trim() || rule.id,
+                        })
+                      }
+                      className="h-7 w-20 font-mono text-xs uppercase"
+                      disabled={generating}
+                    />
+                    <select
+                      value={rule.category}
+                      onChange={(event) =>
+                        updateRequirementRule(rule.id, {
+                          category: event.target.value as RequirementRule["category"],
+                        })
+                      }
+                      className="h-7 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+                      disabled={generating}
+                    >
+                      {RULE_CATEGORY_ORDER.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-7 px-2 text-muted-foreground hover:text-destructive"
+                      onClick={() => deleteRequirementRule(rule.id)}
+                      disabled={generating}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                  <textarea
+                    value={rule.text}
+                    onChange={(event) =>
+                      updateRequirementRule(rule.id, { text: event.target.value })
+                    }
+                    className="min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+                    disabled={generating}
+                  />
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {DIAGRAM_ORDER.map((diagram) => (
+                      <label
+                        key={`${rule.id}:${diagram}`}
+                        className="inline-flex cursor-pointer items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        <Checkbox
+                          checked={rule.relatedDiagrams.includes(diagram)}
+                          onCheckedChange={(value) =>
+                            toggleRuleDiagram(rule, diagram, Boolean(value))
+                          }
+                          disabled={generating}
+                        />
+                        {DIAGRAM_META[diagram].label}
+                      </label>
+                    ))}
+                  </div>
                 </li>
               ))}
             </ul>
           )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里已确认的需求项；原始需求文本只作为背景。
+          </p>
         </Section>
       )}
 

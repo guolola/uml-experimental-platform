@@ -213,7 +213,7 @@ export function SettingsDialog() {
                 id="api-base"
                 value={settings.apiBaseUrl}
                 onChange={(e) => update("apiBaseUrl", e.target.value)}
-                placeholder="https://your-model-provider.example.com"
+                placeholder="https://ai.comfly.org"
                 className="h-9 font-mono text-xs"
               />
               <span className="text-[11px] text-muted-foreground">

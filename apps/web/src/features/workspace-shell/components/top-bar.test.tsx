@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DesignRunSnapshot } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
   createRunSnapshot,
@@ -67,6 +68,20 @@ function TopBarTaskHarness() {
       <TopBar currentRoute="/" onNavigate={() => {}} />
       <button type="button" onClick={() => void generateRules()}>
         开始测试任务
+      </button>
+      <HistoryDrawer open={historyDrawerOpen} onClose={closeHistoryDrawer} />
+    </>
+  );
+}
+
+function TopBarRestoreHarness() {
+  const { historyDrawerOpen, closeHistoryDrawer } = useWorkspaceShell();
+  const { restoreRunHistory } = useWorkspaceSession();
+  return (
+    <>
+      <TopBar currentRoute="/" onNavigate={() => {}} />
+      <button type="button" onClick={() => void restoreRunHistory("history-design-trace")}>
+        恢复设计追踪
       </button>
       <HistoryDrawer open={historyDrawerOpen} onClose={closeHistoryDrawer} />
     </>
@@ -271,5 +286,64 @@ describe("TopBar", () => {
     expect(screen.queryByText("stage_started")).not.toBeInTheDocument();
 
     completeRun();
+  });
+
+  it("shows design debug trace from restored design history", async () => {
+    const designSnapshot: DesignRunSnapshot = {
+      runId: "design-trace-run",
+      requirementText: "生成设计模型",
+      selectedDiagrams: ["sequence"],
+      rules: [],
+      requirementModels: [],
+      models: [],
+      plantUml: [],
+      svgArtifacts: [],
+      diagramErrors: {},
+      designTrace: [
+        {
+          stage: "render_svg",
+          attempt: 1,
+          kind: "render_error",
+          diagramKind: "sequence",
+          plantUmlSource: "@startuml\n用户 -> 系统: 生成\n@enduml",
+          errorMessage: "Syntax Error? (line 2)",
+          createdAt: "2026-05-16T07:00:00.000Z",
+        },
+      ],
+      currentStage: "render_svg",
+      status: "failed",
+      errorMessage: "Syntax Error? (line 2)",
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => ({
+        id: "history-design-trace",
+        createdAt: "2026-05-16T07:00:00.000Z",
+        title: "设计追踪",
+        providerModel: "gpt-5.5",
+        snapshot: designSnapshot,
+      })),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TopBarRestoreHarness />, repository));
+
+    await user.click(screen.getByRole("button", { name: "恢复设计追踪" }));
+    await user.click(screen.getByRole("button", { name: "生成任务" }));
+
+    expect(await screen.findByText("设计调试追踪")).toBeInTheDocument();
+    expect(screen.getByText(/渲染图像 \/ sequence \/ 第 1 次 \/ 渲染错误/)).toBeInTheDocument();
+    expect(screen.getAllByText("Syntax Error? (line 2)").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "复制追踪内容" })).toBeInTheDocument();
   });
 });

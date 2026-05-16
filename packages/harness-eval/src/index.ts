@@ -104,6 +104,7 @@ function createMockSnapshot(fixture: EvalFixture): RunSnapshot {
       },
     })),
     diagramErrors: {},
+    requirementTrace: [],
     currentStage: "render_svg",
     status: "completed",
     errorMessage: null,

@@ -48,8 +48,20 @@ export function DiagramView({
   );
 }
 
-export function DesignDiagramView({ type }: { type: DesignDiagramType }) {
-  return <DiagramDetailView stage="design" type={type} highlightedElement={null} />;
+export function DesignDiagramView({
+  type,
+  highlightedElement,
+}: {
+  type: DesignDiagramType;
+  highlightedElement?: { kind: string; id: string } | null;
+}) {
+  return (
+    <DiagramDetailView
+      stage="design"
+      type={type}
+      highlightedElement={highlightedElement}
+    />
+  );
 }
 
 function DiagramDetailView({
@@ -75,8 +87,13 @@ function DiagramDetailView({
     generateDiagrams,
     generating,
   } = useWorkspaceSession();
-  const { openDiagram, openDesignDiagram, openDiagramElement, openRequirementsText } =
-    useWorkspaceShell();
+  const {
+    openDiagram,
+    openDesignDiagram,
+    openDiagramElement,
+    openDesignDiagramElement,
+    openRequirementsText,
+  } = useWorkspaceShell();
   const isDesign = stage === "design";
   const requirementType = type as DiagramType;
   const designType = type as DesignDiagramType;
@@ -347,7 +364,12 @@ function DiagramDetailView({
                                 key={`${el.kind}:${el.id}`}
                                 onClick={() =>
                                   isDesign
-                                    ? openDesignDiagram(designType)
+                                    ? openDesignDiagramElement(
+                                        designType,
+                                        el.kind,
+                                        el.id,
+                                        el.label,
+                                      )
                                     : openDiagramElement(
                                         requirementType,
                                         el.kind,

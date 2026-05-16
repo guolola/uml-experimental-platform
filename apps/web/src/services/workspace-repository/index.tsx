@@ -70,6 +70,7 @@ export interface ProviderSettingsInput {
 export interface StartRunInput {
   requirementText: string;
   selectedDiagrams: DiagramType[];
+  rules: RequirementRule[];
   providerSettings: ProviderSettingsInput;
 }
 
@@ -85,12 +86,10 @@ export interface StartCodeRunInput {
   requirementText: string;
   rules: RequirementRule[];
   designModels: DesignDiagramModelSpec[];
+  designPlantUml: DesignPlantUmlArtifact[];
   existingFiles: Record<string, string>;
   generationMode: "continue" | "regenerate";
   providerSettings: ProviderSettingsInput;
-  imageProviderSettings?: ProviderSettingsInput & {
-    model: "gpt-image-2" | "gemini-3.1-flash-image-preview-2k" | "nano-banana-pro";
-  };
 }
 
 export interface StartDocumentRunInput {
@@ -110,6 +109,7 @@ export interface StartDocumentRunInput {
 export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceRecord>;
   updateRequirementText(text: string): Promise<void>;
+  updateRequirementRules?(rules: RequirementRule[]): Promise<void>;
   startRun(input: StartRunInput): Promise<{ runId: string }>;
   startDesignRun?(input: StartDesignRunInput): Promise<{ runId: string }>;
   startCodeRun?(input: StartCodeRunInput): Promise<{ runId: string }>;
@@ -175,11 +175,15 @@ function createEmptyWorkspace(): WorkspaceRecord {
     designSvgArtifacts: {},
     designDiagramErrors: {},
     codeSpec: null,
+    codeBusinessLogic: null,
     codeFiles: {},
     codeEntryFile: null,
     codeDependencies: {},
     codeUiMockup: null,
     codeAgentPlan: [],
+    codeSkills: [],
+    codeSkillDiagnostics: [],
+    codeSkillContext: null,
     codeDiagnostics: [],
     rulesVersion: 0,
     rulesBasedOnTextVersion: null,
@@ -323,16 +327,22 @@ async function waitForDocumentRunSnapshot(
 
 export function createHttpWorkspaceRepository(): WorkspaceRepository {
   let localRequirementText = "";
+  let localRequirementRules: RequirementRule[] = [];
 
   return {
     async loadWorkspace() {
       const workspace = createEmptyWorkspace();
       workspace.requirementText = localRequirementText;
+      workspace.rules = [...localRequirementRules];
       return workspace;
     },
 
     async updateRequirementText(text: string) {
       localRequirementText = text;
+    },
+
+    async updateRequirementRules(rules: RequirementRule[]) {
+      localRequirementRules = [...rules];
     },
 
     async startRun(input: StartRunInput) {
@@ -808,10 +818,18 @@ export function createMockWorkspaceRepository(
         designSvgArtifacts: { ...workspace.designSvgArtifacts },
         designDiagramErrors: { ...workspace.designDiagramErrors },
         codeSpec: workspace.codeSpec,
+        codeBusinessLogic: workspace.codeBusinessLogic,
         codeFiles: { ...workspace.codeFiles },
         codeEntryFile: workspace.codeEntryFile,
         codeDependencies: { ...workspace.codeDependencies },
         codeUiMockup: workspace.codeUiMockup,
+        codeAgentPlan: [...workspace.codeAgentPlan],
+        codeSkills: [...workspace.codeSkills],
+        codeSkillDiagnostics: [...workspace.codeSkillDiagnostics],
+        codeSkillContext: workspace.codeSkillContext,
+        codeDiagnostics: [...workspace.codeDiagnostics],
+        rulesVersion: workspace.rulesVersion,
+        rulesBasedOnTextVersion: workspace.rulesBasedOnTextVersion,
         diagramVersions: { ...workspace.diagramVersions },
       };
     },
@@ -823,6 +841,13 @@ export function createMockWorkspaceRepository(
       };
     },
 
+    async updateRequirementRules(rules: RequirementRule[]) {
+      workspace = {
+        ...workspace,
+        rules: [...rules],
+      };
+    },
+
     async startRun(input: StartRunInput) {
       const runId = `run-${Math.random().toString(36).slice(2, 10)}`;
       const snapshot =
@@ -830,7 +855,7 @@ export function createMockWorkspaceRepository(
           runId,
           requirementText: input.requirementText,
           selectedDiagrams: input.selectedDiagrams,
-          rules: workspace.rules as RequirementRule[],
+          rules: input.rules.length > 0 ? input.rules : (workspace.rules as RequirementRule[]),
           models: Object.values(workspace.models),
           plantUml: Object.entries(workspace.plantUml).map(([diagramKind, source]) => ({
             diagramKind: diagramKind as DiagramType,
@@ -838,6 +863,7 @@ export function createMockWorkspaceRepository(
           })),
           svgArtifacts: Object.values(workspace.svgArtifacts),
           diagramErrors: workspace.diagramErrors,
+          requirementTrace: [],
           currentStage: "render_svg",
           status: "completed",
           errorMessage: null,
@@ -861,6 +887,7 @@ export function createMockWorkspaceRepository(
         })),
         svgArtifacts: Object.values(workspace.designSvgArtifacts),
         diagramErrors: workspace.designDiagramErrors,
+        designTrace: [],
         currentStage: "render_svg",
         status: "completed",
         errorMessage: null,
@@ -887,8 +914,12 @@ export function createMockWorkspaceRepository(
         requirementText: input.requirementText,
         rules: input.rules,
         designModels: input.designModels,
+        designPlantUml: input.designPlantUml,
         spec: workspace.codeSpec,
+        loadedCodeSkill: null,
+        codeSkillContext: null,
         appBlueprint: workspace.codeSpec?.appBlueprint ?? null,
+        businessLogic: workspace.codeBusinessLogic,
         uiBlueprint: workspace.codeSpec?.uiBlueprint ?? null,
         uiMockup: null,
         uiReferenceSpec: null,
@@ -898,6 +929,8 @@ export function createMockWorkspaceRepository(
         uiIr: null,
         visualDiffReport: null,
         repairLoopSummary: null,
+        selectedCodeSkills: [],
+        skillDiagnostics: [],
         filePlan: workspace.codeSpec?.filePlan ?? null,
         qualityDiagnostics: [],
         files: mergedFiles,
@@ -1074,6 +1107,9 @@ export function createMockWorkspaceRepository(
         codeDependencies: { ...snapshot.dependencies },
         codeUiMockup: snapshot.uiMockup,
         codeAgentPlan: [...snapshot.agentPlan],
+        codeSkills: [...snapshot.selectedCodeSkills],
+        codeSkillDiagnostics: [...snapshot.skillDiagnostics],
+        codeSkillContext: snapshot.codeSkillContext,
         codeDiagnostics: [...snapshot.diagnostics],
       };
       return snapshot;
@@ -1179,6 +1215,7 @@ export function useWorkspaceRepository() {
 export function createStartRunInput(
   requirementText: string,
   selectedDiagrams: DiagramType[],
+  rules: RequirementRule[] = [],
 ): StartRunInput {
   const settings = loadUserSettings();
   const rawApiBaseUrl = settings.apiBaseUrl.trim();
@@ -1204,6 +1241,7 @@ export function createStartRunInput(
   return {
     requirementText,
     selectedDiagrams,
+    rules,
     providerSettings: {
       apiBaseUrl,
       apiKey,
@@ -1232,23 +1270,19 @@ export function createStartCodeRunInput(
   requirementText: string,
   rules: RequirementRule[],
   designModels: DesignDiagramModelSpec[],
+  designPlantUml: DesignPlantUmlArtifact[] = [],
   existingFiles: Record<string, string> = {},
   generationMode: "continue" | "regenerate" = "continue",
 ): StartCodeRunInput {
   const base = createStartRunInput(requirementText, []);
-  const settings = loadUserSettings();
   return {
     requirementText,
     rules,
     designModels,
+    designPlantUml,
     existingFiles: generationMode === "regenerate" ? {} : existingFiles,
     generationMode,
     providerSettings: base.providerSettings,
-    imageProviderSettings: {
-      apiBaseUrl: base.providerSettings.apiBaseUrl,
-      apiKey: base.providerSettings.apiKey,
-      model: settings.imageModel,
-    },
   };
 }
 

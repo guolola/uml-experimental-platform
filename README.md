@@ -1,79 +1,140 @@
+<p align="center">
+  <a href="./README.md">
+    <img src="https://img.shields.io/badge/Software%20Engineering-Lab%20Platform-181717?style=flat-square" alt="Project Badge" />
+  </a>
+</p>
+
+<p align="center">
+  <strong>简体中文</strong>
+</p>
+
+<div align="center">
+
 # 软件工程实验平台
 
-软件工程实验平台是一个面向软件工程课程、实验和原型验证的 AI 辅助建模系统。平台从自然语言需求出发，逐步生成需求规则、UML 需求模型、软件设计模型、PlantUML 图像、前端可运行原型以及说明书文档，帮助用户把“需求到设计再到代码”的过程沉淀为可追踪产物。
+<p align="center">
+  <b>
+    AI 辅助 UML 建模与前端原型生成工作台
+    <br />
+    从需求规则、UML 模型到 React 原型和说明书导出
+    <br />
+    PlantUML 渲染 × 生成追踪 × ui-ux-pro-max Skill Runtime
+  </b>
+</p>
 
-![工作台需求区](docs/assets/screenshots/workspace-require.png)
-![工作台代码区](docs/assets/screenshots/workspace-dev.png)
+<p align="center">
+  <img src="https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61dafb?style=for-the-badge" alt="React Vite Badge" />
+  <img src="https://img.shields.io/badge/API-Fastify%20%2B%20Zod-111827?style=for-the-badge" alt="Fastify Zod Badge" />
+  <img src="https://img.shields.io/badge/UML-PlantUML-f59e0b?style=for-the-badge" alt="PlantUML Badge" />
+</p>
 
-## 目前支持的功能
+> 一套面向软件工程课程、实验和原型验证的 AI 工作台：把需求、规则、UML、设计模型、前端原型、质量检查和说明书统一沉淀为可追踪产物。
 
-- 需求分析：输入需求文本后，生成结构化需求规则，并按用例图、类图、活动图、部署图生成需求阶段模型。
-- 设计建模：基于需求模型继续生成顺序图、设计类图、设计活动图、部署图和表关系图。
-- 图像渲染：将结构化 UML 模型转换为 PlantUML 源码，并通过本地渲染服务输出网页预览图。
-- 代码原型：根据需求、规则和设计模型生成 React + TypeScript + Tailwind 的 Sandpack 前端原型。
-- 多模态按图生成：代码生成链路会先生成界面设计图，再通过多模态 `/v1/chat/completions` 解析设计图，约束后续文件规划、代码实现和还原度检查。
-- 后台任务：需求、设计、代码和说明书生成都通过统一任务入口展示阶段、进度、执行详情、成功或失败通知。
-- 说明书导出：根据需求产物导出《需求规格说明书》，根据设计产物导出《软件设计说明书》，文档内 UML 图以 PNG 嵌入以兼容 Word/WPS。
-- 历史快照：保存生成完成后的模型、图像、代码文件、质量检查和说明书记录，支持回看与导出。
+</div>
 
-## 生成链路
+---
+
+# 🌟 项目简介
+
+软件工程实验平台以“需求到设计再到代码”的实验链路为核心，帮助用户从自然语言需求生成结构化需求规则、需求阶段 UML、设计阶段 UML、可运行 React 原型和 Word 说明书。
+
+它不是一次性模型调用器，而是强调阶段化、可追溯和可修复的实验工作台：
+
+- ✅ **需求阶段建模**
+  从需求文本抽取需求规则，并生成用例图、类图、活动图、部署图等结构化模型。
+- ✅ **设计阶段建模**
+  基于需求模型继续生成顺序图、设计类图、设计活动图、部署图和表关系图。
+- ✅ **PlantUML 本地渲染**
+  将结构化模型转换为 PlantUML 源码，通过本地渲染服务输出 SVG 预览和 DOCX 可嵌入 PNG。
+- ✅ **生成追踪与修复记录**
+  记录模型原始返回、解析错误、修复返回、PlantUML 源码、渲染错误和修复后源码，方便定位第一次失败原因。
+- ✅ **代码页 Agent 生成**
+  当前链路为 `businessLogic + ui-ux-pro-max Skill Runtime + React 原型`：平台先抽取业务逻辑，再由 skill runtime 读取设计知识和 React 栈建议，生成可预览前端原型。
+- ✅ **说明书导出**
+  支持导出《需求规格说明书》和《软件设计说明书》，保留章节层级、图注、缺图提示和通用封面格式。
+
+---
+
+# 📦 主要能力
+
+- **需求规则与 UML 模型**
+  支持需求规则抽取、模型结构化校验、PlantUML 生成、SVG 渲染和错误修复。
+- **设计模型链路**
+  顺序图作为设计阶段动态行为基础，下游设计图从需求模型和顺序图共同推导。
+- **代码原型生成**
+  使用业务逻辑 function calling 抽取实体、角色、流程、权限、状态和异常分支，再由 `ui-ux-pro-max` 作为前端设计执行器生成 React + TypeScript + CSS 原型。
+- **Skill Runtime**
+  扫描本地 skill，读取 `SKILL.md`、资源清单和声明式 action，向代码生成 prompt 注入 design-system、react-stack、ux-guidelines 等上下文。
+- **质量与预览检查**
+  对生成文件、入口、依赖、业务覆盖、渲染结构和预览可用性进行检查，并把诊断回传给修复阶段。
+- **文档生成**
+  用 `docx` 生成 Word 文档，UML 图以 PNG 插入，缺失图会在正文中留下明确提示。
+
+---
+
+# 🧩 当前链路
 
 ```mermaid
 flowchart LR
   A["需求文本"] --> B["需求规则"]
   B --> C["需求 UML 模型"]
   C --> D["设计 UML 模型"]
-  D --> E["界面设计图"]
-  E --> F["多模态视觉解析"]
-  F --> G["文件规划与代码生成"]
-  G --> H["质量与还原度检查"]
-  H --> I["Sandpack 原型预览"]
+  D --> E["业务逻辑分析"]
+  E --> F["ui-ux-pro-max Skill Runtime"]
+  F --> G["React 原型文件"]
+  G --> H["质量与预览检查"]
+  H --> I["Sandpack 预览"]
   C --> J["需求规格说明书"]
   D --> K["软件设计说明书"]
 ```
 
-## 技术栈
+代码生成阶段不会把权限边界、服务边界、过滤条件或函数名当作用户页面文案直接展示；这些说明性内容应进入开发说明文档或注释，页面只呈现真实业务流程、数据、操作和状态反馈。
 
-- Monorepo：npm workspaces
-- Web：React、TypeScript、Vite、Tailwind CSS、Radix UI、Sonner、Sandpack
-- API：Fastify、TypeScript、Zod、OpenAI 兼容 `/v1/chat/completions`
-- Render Service：PlantUML 本地渲染，支持 SVG 网页预览和 PNG 文档嵌入
-- 文档：docx 生成 Word 文档
+---
 
-## 环境要求
+# 🔰 安装与启动
+
+## 1. 进入项目根目录
+
+```powershell
+cd umlExperimentalPlatform
+```
+
+后续命令默认在仓库根目录执行。
+
+## 2. 安装基础环境
+
+本地至少需要：
 
 - Node.js 22 或更高版本
 - npm 10 或更高版本
 - Java/JRE 21 或可运行当前 PlantUML jar 的版本
-- 项目内置 `plantuml/build/libs/plantuml-1.2026.3beta8.jar`
-- 可访问的 OpenAI 兼容模型服务，文本和多模态图片消息均走 `/v1/chat/completions`
 
-## 目录结构
+检查方式：
 
-```text
-apps/
-  api/             # 生成任务 API、SSE 事件、文档生成、代码生成编排
-  render-service/  # PlantUML SVG/PNG 渲染服务
-  web/             # 前端工作台
-packages/
-  contracts/       # 前后端共享 schema 和类型
-  prompts/         # 需求、设计、代码、文档生成 prompt
-docs/
-  assets/          # README 截图等文档资产
-  deployment/      # 部署说明
-  template/        # 说明书模板
-plantuml/          # 本地 PlantUML 运行依赖
+```powershell
+node -v
+npm -v
+java -version
 ```
 
-## 快速开始
+项目内置 PlantUML jar：
 
-1. 安装依赖：
+```text
+plantuml/build/libs/plantuml-1.2026.3beta8.jar
+```
+
+## 3. 安装依赖
 
 ```powershell
 npm install
 ```
 
-2. 一键启动本地服务：
+本仓库使用 npm workspaces，`apps/*` 和 `packages/*` 的依赖会在根目录统一安装。
+
+## 4. 启动本地服务
+
+推荐一键启动：
 
 ```powershell
 npm run dev
@@ -81,13 +142,11 @@ npm run dev
 
 该命令会同时启动：
 
-- `render-service`: `http://127.0.0.1:4002`
-- `api`: `http://127.0.0.1:4101`
-- `web`: Vite 输出的本地地址，默认会指向 `http://127.0.0.1:4101`
+- Render Service: `http://127.0.0.1:4002`
+- API: `http://127.0.0.1:4101`
+- Web: Vite 输出地址，通常为 `http://127.0.0.1:5173`
 
-3. 打开终端里显示的 Web 地址，在设置面板填写模型服务地址、API Key、文本模型和图片模型。
-
-也可以单独启动各服务：
+也可以单独启动：
 
 ```powershell
 npm run dev:render
@@ -95,68 +154,106 @@ npm run dev:api
 npm run dev:web
 ```
 
-## 端口说明
+## 5. 配置模型服务
 
-| 服务 | 本地默认端口 | 说明 |
-| --- | --- | --- |
-| Web | `5173` 起，按 Vite 实际输出为准 | 前端工作台 |
-| API | `4101` | 本地安全开发端口，由 `npm run dev` 注入 |
-| API 生产 | `4001` | PM2/部署环境默认监听 `127.0.0.1` |
-| Render Service | `4002` | PlantUML SVG/PNG 渲染服务，默认监听 `127.0.0.1` |
+打开 Web 后进入设置面板，至少填写：
 
-## 模型配置
-
-前端设置面板中需要填写：
-
-- `API Base URL`：只填写模型服务根地址，例如 `https://your-model-provider.example.com`
+- `API Base URL`：例如 `https://ai.comfly.org`
 - `API Key`：模型服务密钥
-- 默认文本模型：用于需求、设计、代码、文档正文生成
-- 图片模型：用于代码生成前的界面设计图生成
+- 默认文本模型：用于需求、设计、代码和文档生成
 
-平台会自动拼接 `/v1/chat/completions`，不需要在设置里手动填写 `/v1` 或完整接口路径。当前多模态链路使用 OpenAI 兼容消息格式：
+平台会自动拼接 OpenAI 兼容接口路径，通常不需要在设置里填写完整 `/v1/chat/completions`。
 
-```json
-{
-  "role": "user",
-  "content": [
-    { "type": "text", "text": "请分析这张界面设计图" },
-    { "type": "image_url", "image_url": { "url": "https://example.com/ui.png" } }
-  ]
-}
+---
+
+# 🗂️ 项目结构
+
+```text
+umlExperimentalPlatform/
+├── apps/
+│   ├── api/             # Fastify API、SSE、生成编排、文档输出、Skill Runtime
+│   ├── render-service/  # PlantUML SVG/PNG 本地渲染服务
+│   └── web/             # Vite + React 前端工作台
+├── packages/
+│   ├── contracts/       # 前后端共享 Zod schema 和类型
+│   ├── prompts/         # 需求、设计、代码、文档 prompt
+│   └── harness-eval/    # 评测与回归辅助
+├── docs/                # 文档、部署说明、说明书模板
+└── plantuml/            # 本地 PlantUML 运行依赖
 ```
 
-API Key 当前保存在浏览器本地存储中。公开部署或多人使用时，请避免在共享浏览器中保存个人密钥；如需统一托管密钥，建议后续改为后端代理配置。
+---
 
-## 常用校验
+# 🏗️ 当前技术栈
+
+- **前端**：Vite、React、TypeScript、Tailwind CSS、Radix UI、Sonner、Sandpack
+- **后端**：Fastify、TypeScript、Zod、OpenAI 兼容 Chat Completions
+- **UML 渲染**：PlantUML、本地 SVG/PNG 渲染服务
+- **代码生成**：业务逻辑抽取、通用 Skill Runtime、`ui-ux-pro-max`、React 原型文件操作协议
+- **文档**：docx、PNG 图像嵌入、说明书结构化渲染
+- **Monorepo**：npm workspaces
+
+---
+
+# ✅ 常用命令
 
 ```powershell
+# 一键启动本地开发服务
+npm run dev
+
+# 构建共享契约与 prompt
 npm run build:contracts
 npm run build:prompts
+
+# 构建 API / Render / Web
 npm run build:api
 npm run build:render
-npm run typecheck:web
-npm run lint:web
+npm run build:web
+
+# 测试
 npm run test:contracts
 npm run test --workspace @uml-platform/prompts
 npm run test:api
 npm run test:web
-npm run build:web
+
+# Web 类型检查
+npm run typecheck:web
 ```
 
-## 部署提示
+---
+
+# 🚀 部署提示
 
 - 前端构建产物位于 `apps/web/dist`。
-- API 服务需要配置模型服务 Base URL、Key、默认模型和渲染服务地址。
-- 渲染服务依赖 `plantuml/build/libs/plantuml-1.2026.3beta8.jar`。
+- API 默认生产端口可按环境变量配置，本地安全开发端口为 `4101`。
+- Render Service 默认端口为 `4002`，依赖 PlantUML jar 和 Java 运行环境。
 - 生产环境建议配置 CORS 白名单：
-  - `API_CORS_ORIGINS=https://your-domain.example.com`
-  - `RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com`
-- 部署后可访问 `http://127.0.0.1:4001/api/version` 检查实际运行目录、release 信息和关键 schema 能力。
+
+```env
+API_CORS_ORIGINS=https://your-domain.example.com
+RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com
+```
+
+- 部署后可访问 API 版本接口检查运行目录、release 信息和 schema 能力。
 - 宝塔/PM2 部署可参考 [docs/deployment/baota-cicd.md](docs/deployment/baota-cicd.md)。
 
-## 上传前检查
+---
 
-- 不要提交 `.env`、API Key、私钥、token、日志文件、导出的说明书或临时截图。
-- `.gitignore` 已忽略常见日志、构建产物、缓存、临时文件和完整 PlantUML 源码树。
-- README 截图位于 `docs/assets/screenshots/`，用于展示公开演示界面；上传前仍建议确认截图中没有私人账号、密钥或真实业务隐私。
-- `docs/template/` 中的说明书模板会参与文档生成功能，上传前请确认模板本身不含单位内部修订记录或敏感作者信息。
+# 📚 文档入口
+
+- [API 说明](./apps/api/README.md)
+- [部署文档](./docs/deployment/baota-cicd.md)
+- [OpenAI 兼容 Chat Completions 说明](./docs/contracts/chat-completions.md)
+- [说明书模板目录](./docs/template)
+
+---
+
+# 📜 许可证
+
+请以仓库中的 LICENSE 文件或项目实际授权说明为准。
+
+---
+
+# 🤝 反馈
+
+欢迎继续围绕需求建模、设计追踪、Skill Runtime、代码原型质量和说明书格式提出改进建议。

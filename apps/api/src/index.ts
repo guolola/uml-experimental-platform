@@ -22,12 +22,16 @@ import {
   artifactReadyRunEventSchema,
   codeAppBlueprintResultSchema,
   codeAgentPlanResultSchema,
+  codeBusinessLogicResultSchema,
   codeGenerationSpecSchema,
   codeFilePlanResultSchema,
   codeFileChangedRunEventSchema,
   codeFileOperationsResultSchema,
   codeQualityDiagnosticSchema,
   codeRunSnapshotSchema,
+  codeSkillDiagnosticsSchema,
+  codeSkillContextSchema,
+  loadedCodeSkillSchema,
   codeUiIrResultSchema,
   codeVisualDiffReportSchema,
   codeUiFidelityReportResultSchema,
@@ -38,9 +42,11 @@ import {
   documentContentResultSchema,
   documentRunSnapshotSchema,
   completedRunEventSchema,
+  designTraceEntrySchema,
   designDiagramModelsResultSchema,
   designRunSnapshotSchema,
   diagramErrorSchema,
+  diagramKindSchema,
   diagramModelsResultSchema,
   failedRunEventSchema,
   llmChunkRunEventSchema,
@@ -49,6 +55,7 @@ import {
   renderPngRequestSchema,
   renderPngResponseSchema,
   repairPlantUmlResultSchema,
+  requirementTraceEntrySchema,
   renderSvgRequestSchema,
   renderSvgResponseSchema,
   requirementRulesResultSchema,
@@ -65,11 +72,15 @@ import {
   startRunResponseSchema,
   type CodeFileOperation,
   type CodeAppBlueprint,
+  type CodeBusinessLogic,
   type CodeFilePlan,
   type CodeGenerationSpec,
   type CodeUiIr,
   type CodeQualityDiagnostic,
   type CodeRunSnapshot,
+  type CodeSkillSelection,
+  type CodeSkillContext,
+  type LoadedCodeSkill,
   type CodeUiBlueprint,
   type CodeUiFidelityReport,
   type CodeUiMockup,
@@ -82,6 +93,7 @@ import {
   type DesignDiagramModelSpec,
   type DesignPlantUmlArtifact,
   type DesignRunSnapshot,
+  type DesignTraceEntry,
   type DesignSvgArtifact,
   type DiagramKind,
   type DiagramError,
@@ -90,7 +102,9 @@ import {
   type PlantUmlArtifact,
   type ProviderSettings,
   type RenderPngResponse,
+  type RepairPlantUmlResult,
   type RequirementRule,
+  type RequirementTraceEntry,
   type RunEvent,
   type RunSnapshot,
   type RunStage,
@@ -100,6 +114,7 @@ import {
 } from "@uml-platform/contracts";
 import {
   JSON_ONLY_SYSTEM_PROMPT,
+  buildAnalyzeCodeBusinessLogicPrompt,
   buildAnalyzeCodeUiMockupPrompt,
   buildGenerateCodeAppBlueprintPrompt,
   buildExtractRulesPrompt,
@@ -108,7 +123,6 @@ import {
   buildGenerateCodeFileOperationsPrompt,
   buildGenerateCodeUiIrPrompt,
   buildGenerateCodeUiMockupPrompt,
-  buildGenerateCodeUiBlueprintPrompt,
   buildVerifyCodeUiFidelityPrompt,
   buildGenerateDocumentContentPrompt,
   buildGenerateDesignModelsPrompt,
@@ -121,13 +135,18 @@ import {
 } from "@uml-platform/prompts";
 import {
   createRealLlmTransport,
-  createRealImageGenerationClient,
   type ChatCompletionResponseFormat,
   type ChatMessage,
   type ImageGenerationClient,
   type LlmTransport,
 } from "./llm.js";
 import { getModelCapability } from "./model-capabilities.js";
+import {
+  formatWebDesignSkillForPrompt,
+  loadWebDesignSkill,
+  resolveCodeSkillContext,
+  toWebDesignSkillSelection,
+} from "./code-skills.js";
 import {
   generateDesignPlantUmlArtifacts,
   generatePlantUmlArtifacts,
@@ -1114,6 +1133,132 @@ const CODE_THEME_RESPONSE_SCHEMA = {
   ],
 };
 
+const CODE_BUSINESS_LOGIC_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    appName: { type: "string" },
+    domainSummary: { type: "string" },
+    coreWorkflow: { type: "string" },
+    actors: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          type: { type: "string" },
+          responsibilities: { type: "array", items: { type: "string" } },
+        },
+        required: ["id", "name", "type", "responsibilities"],
+      },
+    },
+    businessEntities: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string" },
+          fields: { type: "array", items: { type: "string" } },
+          relationships: { type: "array", items: { type: "string" } },
+        },
+        required: ["id", "name", "description", "fields", "relationships"],
+      },
+    },
+    pageFlows: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          route: { type: "string" },
+          purpose: { type: "string" },
+          actors: { type: "array", items: { type: "string" } },
+          entryPoints: { type: "array", items: { type: "string" } },
+          userActions: { type: "array", items: { type: "string" } },
+          states: { type: "array", items: { type: "string" } },
+          sourceRefs: { type: "array", items: { type: "string" } },
+        },
+        required: [
+          "id",
+          "name",
+          "route",
+          "purpose",
+          "actors",
+          "entryPoints",
+          "userActions",
+          "states",
+          "sourceRefs",
+        ],
+      },
+    },
+    stateMachines: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          entity: { type: "string" },
+          states: { type: "array", items: { type: "string" } },
+          transitions: { type: "array", items: { type: "string" } },
+        },
+        required: ["entity", "states", "transitions"],
+      },
+    },
+    permissions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          actor: { type: "string" },
+          allowedActions: { type: "array", items: { type: "string" } },
+          restrictedActions: { type: "array", items: { type: "string" } },
+        },
+        required: ["actor", "allowedActions", "restrictedActions"],
+      },
+    },
+    edgeCases: { type: "array", items: { type: "string" } },
+    frontendOperations: { type: "array", items: { type: "string" } },
+    plantUmlTraceability: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "appName",
+    "domainSummary",
+    "coreWorkflow",
+    "actors",
+    "businessEntities",
+    "pageFlows",
+    "stateMachines",
+    "permissions",
+    "edgeCases",
+    "frontendOperations",
+    "plantUmlTraceability",
+  ],
+};
+
+const GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "code_business_logic_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        businessLogic: CODE_BUSINESS_LOGIC_RESPONSE_SCHEMA,
+      },
+      required: ["businessLogic"],
+    },
+  },
+};
+
 const GENERATE_CODE_APP_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
   json_schema: {
@@ -1534,20 +1679,93 @@ function createEmptySnapshot(
   runId: string,
   requirementText: string,
   selectedDiagrams: DiagramKind[],
+  rules: RequirementRule[] = [],
 ): RunSnapshot {
   return runSnapshotSchema.parse({
     runId,
     requirementText,
     selectedDiagrams,
-    rules: [],
+    rules,
     models: [],
     plantUml: [],
     svgArtifacts: [],
     diagramErrors: {},
+    requirementTrace: [],
     currentStage: null,
     status: "queued",
     errorMessage: null,
   });
+}
+
+function isRequirementRunRecord(record: RunRecord): record is RunRecord & {
+  snapshot: RunSnapshot;
+} {
+  return (
+    "models" in record.snapshot &&
+    "plantUml" in record.snapshot &&
+    "svgArtifacts" in record.snapshot &&
+    Array.isArray((record.snapshot as RunSnapshot).requirementTrace) &&
+    !("requirementModels" in record.snapshot) &&
+    !("files" in record.snapshot)
+  );
+}
+
+function appendRequirementTrace(
+  record: RunRecord,
+  entry: Omit<RequirementTraceEntry, "createdAt">,
+) {
+  if (!isRequirementRunRecord(record)) {
+    return;
+  }
+
+  record.snapshot.requirementTrace = [
+    ...record.snapshot.requirementTrace,
+    requirementTraceEntrySchema.parse({
+      ...entry,
+      createdAt: new Date().toISOString(),
+    }),
+  ];
+}
+
+function isDesignRunRecord(record: RunRecord): record is RunRecord & {
+  snapshot: DesignRunSnapshot;
+} {
+  return (
+    "requirementModels" in record.snapshot &&
+    "selectedDiagrams" in record.snapshot &&
+    Array.isArray((record.snapshot as DesignRunSnapshot).designTrace)
+  );
+}
+
+function appendDesignTrace(
+  record: RunRecord,
+  entry: Omit<DesignTraceEntry, "createdAt">,
+) {
+  if (!isDesignRunRecord(record)) {
+    return;
+  }
+
+  record.snapshot.designTrace = [
+    ...record.snapshot.designTrace,
+    designTraceEntrySchema.parse({
+      ...entry,
+      createdAt: new Date().toISOString(),
+    }),
+  ];
+}
+
+function designDiagramKindFromArtifact(
+  artifact: AnyPlantUmlArtifact,
+): DesignDiagramKind | undefined {
+  const parsed = designDiagramKindSchema.safeParse(artifact.diagramKind);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function requirementDiagramKindFromArtifact(
+  artifact: AnyPlantUmlArtifact,
+): DiagramKind | undefined {
+  const parsed = diagramKindSchema.safeParse(artifact.diagramKind);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function withSequenceDependency(selectedDiagrams: DesignDiagramKind[]) {
@@ -1597,17 +1815,27 @@ function createEmptyCodeSnapshot(
     requirementText: string;
     rules: RequirementRule[];
     designModels: DesignDiagramModelSpec[];
+    designPlantUml?: DesignPlantUmlArtifact[];
     existingFiles?: Record<string, string>;
     generationMode?: "continue" | "regenerate";
   },
 ): CodeRunSnapshot {
   const generationMode = input.generationMode ?? "continue";
+  const existingFiles = Object.fromEntries(
+    Object.entries(input.existingFiles ?? {}).filter(
+      ([path]) => !normalizeFilePath(path).startsWith("/src/docs/"),
+    ),
+  );
   return codeRunSnapshotSchema.parse({
     runId,
     requirementText: input.requirementText,
     rules: input.rules,
     designModels: input.designModels,
+    designPlantUml: input.designPlantUml ?? [],
     spec: null,
+    businessLogic: null,
+    loadedCodeSkill: null,
+    codeSkillContext: null,
     appBlueprint: null,
     uiBlueprint: null,
     uiMockup: null,
@@ -1618,8 +1846,10 @@ function createEmptyCodeSnapshot(
     uiIr: null,
     visualDiffReport: null,
     repairLoopSummary: null,
+    selectedCodeSkills: [],
+    skillDiagnostics: [],
     filePlan: null,
-    files: generationMode === "regenerate" ? {} : input.existingFiles ?? {},
+    files: generationMode === "regenerate" ? {} : existingFiles,
     entryFile: null,
     dependencies: {},
     agentPlan: [],
@@ -1698,6 +1928,12 @@ function getGenerateCodeSpecResponseFormat(model: string) {
 function getGenerateCodeFilesResponseFormat(model: string) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_CODE_FILES_RESPONSE_FORMAT
+    : undefined;
+}
+
+function getGenerateCodeBusinessLogicResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT
     : undefined;
 }
 
@@ -1854,6 +2090,223 @@ function formatParseError(error: unknown) {
   return getErrorMessage(error);
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => normalizeStringArray(item))
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (value === null || value === undefined) {
+    return [];
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [String(value)];
+  }
+  if (isPlainRecord(value)) {
+    const labelKeys = ["name", "title", "type", "description", "label", "value"];
+    const parts = labelKeys
+      .map((key) => value[key])
+      .filter((item) => item !== undefined && item !== null)
+      .map((item) =>
+        typeof item === "string" ? item.trim() : JSON.stringify(item),
+      )
+      .filter(Boolean);
+    return parts.length > 0 ? [parts.join(": ")] : [];
+  }
+  return [];
+}
+
+function ensureArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+function normalizeSequenceMessageType(value: unknown) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (["sync", "async", "return", "create", "destroy"].includes(raw)) {
+    return raw;
+  }
+  if (["response", "result", "reply", "returnvalue", "return_value"].includes(raw)) {
+    return "return";
+  }
+  if (["call", "request", "invoke", "command"].includes(raw)) {
+    return "sync";
+  }
+  if (["event", "notify", "notification", "signal", "message"].includes(raw)) {
+    return "async";
+  }
+  if (["new", "instantiate", "constructor"].includes(raw)) {
+    return "create";
+  }
+  if (["delete", "remove", "terminate"].includes(raw)) {
+    return "destroy";
+  }
+  return "sync";
+}
+
+function normalizeClassKind(value: unknown) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    return undefined;
+  }
+  if (["entity", "aggregate", "valueObject", "service", "other"].includes(raw)) {
+    return raw;
+  }
+  return "other";
+}
+
+function normalizeDesignDiagramModel(model: unknown) {
+  if (!isPlainRecord(model)) {
+    return model;
+  }
+
+  const normalized: Record<string, unknown> = { ...model };
+  normalized.notes = normalizeStringArray(normalized.notes);
+  const diagramKind = normalized.diagramKind;
+
+  if (diagramKind === "sequence") {
+    normalized.participants = ensureArray(normalized.participants);
+    normalized.messages = ensureArray(normalized.messages).map((message) => {
+      if (!isPlainRecord(message)) {
+        return message;
+      }
+      return {
+        ...message,
+        type: normalizeSequenceMessageType(message.type),
+        parameters: normalizeStringArray(message.parameters),
+      };
+    });
+    normalized.fragments = ensureArray(normalized.fragments).map((fragment) => {
+      if (!isPlainRecord(fragment)) {
+        return fragment;
+      }
+      return {
+        ...fragment,
+        messageIds: normalizeStringArray(fragment.messageIds),
+      };
+    });
+  }
+
+  if (diagramKind === "class") {
+    normalized.classes = ensureArray(normalized.classes).map((classItem) => {
+      if (!isPlainRecord(classItem)) {
+        return classItem;
+      }
+      const nextClass: Record<string, unknown> = {
+        ...classItem,
+        attributes: ensureArray(classItem.attributes),
+        operations: ensureArray(classItem.operations).map((operation) => {
+          if (!isPlainRecord(operation)) {
+            return operation;
+          }
+          return {
+            ...operation,
+            parameters: ensureArray(operation.parameters),
+          };
+        }),
+      };
+      const classKind = normalizeClassKind(nextClass.classKind);
+      if (classKind) {
+        nextClass.classKind = classKind;
+      } else {
+        delete nextClass.classKind;
+      }
+      return nextClass;
+    });
+    normalized.interfaces = ensureArray(normalized.interfaces).map((item) => {
+      if (!isPlainRecord(item)) {
+        return item;
+      }
+      return {
+        ...item,
+        operations: ensureArray(item.operations).map((operation) => {
+          if (!isPlainRecord(operation)) {
+            return operation;
+          }
+          return {
+            ...operation,
+            parameters: ensureArray(operation.parameters),
+          };
+        }),
+      };
+    });
+    normalized.enums = ensureArray(normalized.enums).map((item) => {
+      if (!isPlainRecord(item)) {
+        return item;
+      }
+      return {
+        ...item,
+        literals: normalizeStringArray(item.literals),
+      };
+    });
+    normalized.relationships = ensureArray(normalized.relationships);
+  }
+
+  if (diagramKind === "activity") {
+    normalized.swimlanes = ensureArray(normalized.swimlanes);
+    normalized.nodes = ensureArray(normalized.nodes).map((node) => {
+      if (!isPlainRecord(node)) {
+        return node;
+      }
+      return {
+        ...node,
+        input: "input" in node ? normalizeStringArray(node.input) : node.input,
+        output: "output" in node ? normalizeStringArray(node.output) : node.output,
+      };
+    });
+    normalized.relationships = ensureArray(normalized.relationships);
+  }
+
+  if (diagramKind === "deployment") {
+    normalized.nodes = ensureArray(normalized.nodes);
+    normalized.databases = ensureArray(normalized.databases);
+    normalized.components = ensureArray(normalized.components);
+    normalized.externalSystems = ensureArray(normalized.externalSystems);
+    normalized.artifacts = ensureArray(normalized.artifacts);
+    normalized.relationships = ensureArray(normalized.relationships);
+  }
+
+  if (diagramKind === "table") {
+    normalized.tables = ensureArray(normalized.tables).map((table) => {
+      if (!isPlainRecord(table)) {
+        return table;
+      }
+      return {
+        ...table,
+        columns: ensureArray(table.columns),
+      };
+    });
+    normalized.relationships = ensureArray(normalized.relationships);
+  }
+
+  return normalized;
+}
+
+function parseDesignDiagramModelsResult(value: string) {
+  const parsed = parseJson<unknown>(value);
+  const normalized = isPlainRecord(parsed)
+    ? {
+        ...parsed,
+        models: ensureArray(parsed.models).map(normalizeDesignDiagramModel),
+      }
+    : parsed;
+  return designDiagramModelsResultSchema.parse(normalized);
+}
+
 function stageProgressValue(stage: RunStage) {
   switch (stage) {
     case "extract_rules":
@@ -1864,6 +2317,8 @@ function stageProgressValue(stage: RunStage) {
       return 45;
     case "generate_design_models":
       return 70;
+    case "analyze_code_business_logic":
+      return 18;
     case "analyze_code_product":
       return 18;
     case "plan_code_ui":
@@ -1874,8 +2329,12 @@ function stageProgressValue(stage: RunStage) {
       return 46;
     case "generate_code_ui_ir":
       return 49;
-    case "plan_code_files":
+    case "load_web_design_skill":
       return 50;
+    case "select_code_skills":
+      return 50;
+    case "plan_code_files":
+      return 52;
     case "generate_code_spec":
       return 45;
     case "generate_code_files":
@@ -2021,6 +2480,22 @@ async function renderArtifactWithRepair(
       };
     } catch (error) {
       lastErrorMessage = getErrorMessage(error);
+      appendDesignTrace(record, {
+        stage: "render_svg",
+        attempt: attempt + 1,
+        kind: "render_error",
+        diagramKind: designDiagramKindFromArtifact(currentArtifact),
+        plantUmlSource: currentArtifact.source,
+        errorMessage: lastErrorMessage,
+      });
+      appendRequirementTrace(record, {
+        stage: "render_svg",
+        attempt: attempt + 1,
+        kind: "render_error",
+        diagramKind: requirementDiagramKindFromArtifact(currentArtifact),
+        plantUmlSource: currentArtifact.source,
+        errorMessage: lastErrorMessage,
+      });
 
       if (attempt === MAX_PLANTUML_REPAIR_ATTEMPTS) {
         return {
@@ -2040,7 +2515,7 @@ async function renderArtifactWithRepair(
         }),
       );
 
-      const repairResult = await collectStructuredResult(
+      const repairOutput = await collectTextResult(
         llmTransport,
         providerSettings,
         createMessages(
@@ -2051,7 +2526,6 @@ async function renderArtifactWithRepair(
             lastErrorMessage,
           ),
         ),
-        "render_svg",
         (chunk) => {
           emitEvent(
             record,
@@ -2062,15 +2536,71 @@ async function renderArtifactWithRepair(
             }),
           );
         },
-        (text) => repairPlantUmlResultSchema.parse(parseJson(text)),
         undefined,
-        attempt + 1,
       );
+      appendDesignTrace(record, {
+        stage: "render_svg",
+        attempt: attempt + 1,
+        kind: "repair_output",
+        diagramKind: designDiagramKindFromArtifact(currentArtifact),
+        rawOutput: repairOutput,
+      });
+      appendRequirementTrace(record, {
+        stage: "render_svg",
+        attempt: attempt + 1,
+        kind: "repair_output",
+        diagramKind: requirementDiagramKindFromArtifact(currentArtifact),
+        rawOutput: repairOutput,
+      });
+
+      let repairResult: RepairPlantUmlResult;
+      try {
+        repairResult = repairPlantUmlResultSchema.parse(parseJson(repairOutput));
+      } catch (repairError) {
+        logFailedStructuredOutput(
+          "render_svg",
+          providerSettings.model,
+          repairError,
+          repairOutput,
+          attempt + 1,
+        );
+        appendDesignTrace(record, {
+          stage: "render_svg",
+          attempt: attempt + 1,
+          kind: "parse_error",
+          diagramKind: designDiagramKindFromArtifact(currentArtifact),
+          rawOutput: repairOutput,
+          errorMessage: formatParseError(repairError),
+        });
+        appendRequirementTrace(record, {
+          stage: "render_svg",
+          attempt: attempt + 1,
+          kind: "parse_error",
+          diagramKind: requirementDiagramKindFromArtifact(currentArtifact),
+          rawOutput: repairOutput,
+          errorMessage: formatParseError(repairError),
+        });
+        throw repairError;
+      }
 
       currentArtifact = {
         ...currentArtifact,
         source: repairResult.source,
       };
+      appendDesignTrace(record, {
+        stage: "render_svg",
+        attempt: attempt + 1,
+        kind: "repaired_plantuml",
+        diagramKind: designDiagramKindFromArtifact(currentArtifact),
+        plantUmlSource: currentArtifact.source,
+      });
+      appendRequirementTrace(record, {
+        stage: "render_svg",
+        attempt: attempt + 1,
+        kind: "repaired_plantuml",
+        diagramKind: requirementDiagramKindFromArtifact(currentArtifact),
+        plantUmlSource: currentArtifact.source,
+      });
     }
   }
 
@@ -2135,9 +2665,22 @@ async function generateModelsWithRepair(
       responseFormat,
     );
     previousOutput = content;
+    appendRequirementTrace(record, {
+      stage: "generate_models",
+      attempt: attempt + 1,
+      kind: "llm_output",
+      rawOutput: content,
+    });
 
     try {
-      return diagramModelsResultSchema.parse(parseJson(content));
+      const parsed = diagramModelsResultSchema.parse(parseJson(content));
+      appendRequirementTrace(record, {
+        stage: "generate_models",
+        attempt: attempt + 1,
+        kind: "parsed_model",
+        parsedData: parsed,
+      });
+      return parsed;
     } catch (error) {
       logFailedStructuredOutput(
         "generate_models",
@@ -2147,6 +2690,13 @@ async function generateModelsWithRepair(
         attempt + 1,
       );
       lastErrorMessage = formatParseError(error);
+      appendRequirementTrace(record, {
+        stage: "generate_models",
+        attempt: attempt + 1,
+        kind: "parse_error",
+        rawOutput: content,
+        errorMessage: lastErrorMessage,
+      });
 
       if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
         throw new Error(
@@ -2191,6 +2741,8 @@ async function generateDesignModelsWithRepair(
   let prompt = initialPrompt;
   let previousOutput = "";
   let lastErrorMessage = "";
+  const traceStage =
+    stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
   for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
     const content = await collectTextResult(
@@ -2210,13 +2762,26 @@ async function generateDesignModelsWithRepair(
       responseFormat,
     );
     previousOutput = content;
+    appendDesignTrace(record, {
+      stage: traceStage,
+      attempt: attempt + 1,
+      kind: "llm_output",
+      rawOutput: content,
+    });
 
     try {
-      const parsed = designDiagramModelsResultSchema.parse(parseJson(content));
+      const parsed = parseDesignDiagramModelsResult(content);
+      const filteredModels = parsed.models.filter((model) =>
+        selectedDiagrams.includes(model.diagramKind),
+      );
+      appendDesignTrace(record, {
+        stage: traceStage,
+        attempt: attempt + 1,
+        kind: "parsed_model",
+        parsedData: { models: filteredModels },
+      });
       return {
-        models: parsed.models.filter((model) =>
-          selectedDiagrams.includes(model.diagramKind),
-        ),
+        models: filteredModels,
       };
     } catch (error) {
       logFailedStructuredOutput(
@@ -2227,6 +2792,13 @@ async function generateDesignModelsWithRepair(
         attempt + 1,
       );
       lastErrorMessage = formatParseError(error);
+      appendDesignTrace(record, {
+        stage: traceStage,
+        attempt: attempt + 1,
+        kind: "parse_error",
+        rawOutput: content,
+        errorMessage: lastErrorMessage,
+      });
 
       if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
         throw new Error(
@@ -2302,39 +2874,41 @@ async function runStagePipeline(
     );
   };
 
-  let rules: RequirementRule[] = [];
+  let rules: RequirementRule[] = [...snapshot.rules];
   let models: DiagramModelSpec[] = [];
   let plantUml: PlantUmlArtifact[] = [];
   let diagramErrors: Partial<Record<DiagramKind, DiagramError>> = {};
 
-  updateStage("extract_rules", "正在抽取需求规则");
-  const ruleResult = await collectStructuredResult(
-    llmTransport,
-    providerSettings,
-    createMessages(buildExtractRulesPrompt(snapshot.requirementText)),
-    "extract_rules",
-    (chunk) => {
-      emitEvent(
-        record,
-        llmChunkRunEventSchema.parse({
-          type: "llm_chunk",
-          stage: "extract_rules",
-          chunk,
-        }),
-      );
-    },
-    (text) => requirementRulesResultSchema.parse(parseJson(text)),
-  );
-  rules = ruleResult.rules;
-  snapshot.rules = rules;
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "extract_rules",
-      artifactKind: "rules",
-    }),
-  );
+  if (rules.length === 0 || snapshot.selectedDiagrams.length === 0) {
+    updateStage("extract_rules", "正在抽取需求规则");
+    const ruleResult = await collectStructuredResult(
+      llmTransport,
+      providerSettings,
+      createMessages(buildExtractRulesPrompt(snapshot.requirementText)),
+      "extract_rules",
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage: "extract_rules",
+            chunk,
+          }),
+        );
+      },
+      (text) => requirementRulesResultSchema.parse(parseJson(text)),
+    );
+    rules = ruleResult.rules;
+    snapshot.rules = rules;
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "extract_rules",
+        artifactKind: "rules",
+      }),
+    );
+  }
 
   updateStage("generate_models", "正在生成结构化模型");
   if (snapshot.selectedDiagrams.length > 0) {
@@ -2363,6 +2937,13 @@ async function runStagePipeline(
   plantUml = generatePlantUmlArtifacts(models);
   snapshot.plantUml = plantUml;
   for (const artifact of plantUml) {
+    appendRequirementTrace(record, {
+      stage: "generate_plantuml",
+      attempt: 1,
+      kind: "plantuml_source",
+      diagramKind: artifact.diagramKind,
+      plantUmlSource: artifact.source,
+    });
     emitEvent(
       record,
       artifactReadyRunEventSchema.parse({
@@ -2555,6 +3136,13 @@ async function runDesignStagePipeline(
   let plantUml = generateDesignPlantUmlArtifacts(models);
   snapshot.plantUml = plantUml;
   for (const artifact of plantUml) {
+    appendDesignTrace(record, {
+      stage: "generate_plantuml",
+      attempt: 1,
+      kind: "plantuml_source",
+      diagramKind: artifact.diagramKind,
+      plantUmlSource: artifact.source,
+    });
     emitEvent(
       record,
       artifactReadyRunEventSchema.parse({
@@ -2625,8 +3213,6 @@ async function runDesignStagePipeline(
   );
 }
 
-type CodePlanCache = Map<string, { plan: string[] }>;
-
 function normalizeFilePath(path: string) {
   const trimmed = path.trim();
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
@@ -2655,10 +3241,18 @@ function emitCodeFileChanged(
   reason: string,
 ) {
   const normalizedPath = normalizeFilePath(path);
+  if (normalizedPath.startsWith("/src/docs/")) {
+    addCodeDiagnostic(
+      snapshot,
+      "write_code_files",
+      `${normalizedPath} 已忽略：说明性业务规则由平台代码页展示，不写入原型本地文档。`,
+    );
+    return false;
+  }
   const previousContent = snapshot.files[normalizedPath];
   if (previousContent === content) {
     addCodeDiagnostic(snapshot, "write_code_files", `${normalizedPath} 内容未变化：${reason}`);
-    return;
+    return false;
   }
   snapshot.changedFileCount += 1;
   snapshot.files = {
@@ -2674,6 +3268,7 @@ function emitCodeFileChanged(
       reason,
     }),
   );
+  return true;
 }
 
 function createStableCodeScaffold() {
@@ -2817,6 +3412,43 @@ function buildCodeContext(snapshot: CodeRunSnapshot) {
       relatedDiagrams: rule.relatedDiagrams,
     })),
     designModels: snapshot.designModels.map(summarizeDesignModelForCode),
+    designPlantUml: snapshot.designPlantUml.map((artifact) => ({
+      diagramKind: artifact.diagramKind,
+      sourceLength: artifact.source.length,
+    })),
+    businessLogic: snapshot.businessLogic,
+    loadedCodeSkill: snapshot.loadedCodeSkill
+      ? {
+          alias: snapshot.loadedCodeSkill.alias,
+          name: snapshot.loadedCodeSkill.name,
+          description: snapshot.loadedCodeSkill.description,
+          source: snapshot.loadedCodeSkill.source,
+          location: snapshot.loadedCodeSkill.location,
+          baseDir: snapshot.loadedCodeSkill.baseDir,
+          fileManifest: snapshot.loadedCodeSkill.fileManifest.map((file) => ({
+            relativePath: file.relativePath,
+            kind: file.kind,
+            size: file.size,
+          })),
+        }
+      : null,
+    codeSkillContext: snapshot.codeSkillContext
+      ? {
+          skillName: snapshot.codeSkillContext.skillName,
+          alias: snapshot.codeSkillContext.alias,
+          query: snapshot.codeSkillContext.query,
+          actionResults: snapshot.codeSkillContext.actionResults.map((result) => ({
+            name: result.name,
+            status: result.status,
+            outputFormat: result.outputFormat,
+            exitCode: result.exitCode,
+            stdoutLength: result.stdout.length,
+            stderr: result.stderr,
+            errorMessage: result.errorMessage,
+          })),
+          diagnostics: snapshot.codeSkillContext.diagnostics,
+        }
+      : null,
     appBlueprint: snapshot.appBlueprint,
     uiBlueprint: snapshot.uiBlueprint,
     uiMockup: snapshot.uiMockup
@@ -2836,6 +3468,8 @@ function buildCodeContext(snapshot: CodeRunSnapshot) {
     uiIr: snapshot.uiIr,
     visualDiffReport: snapshot.visualDiffReport,
     repairLoopSummary: snapshot.repairLoopSummary,
+    selectedCodeSkills: snapshot.selectedCodeSkills,
+    skillDiagnostics: snapshot.skillDiagnostics,
     filePlan: snapshot.filePlan,
     constraints: {
       target: "React 18 + TypeScript + Sandpack front-end prototype",
@@ -2947,6 +3581,16 @@ function stringifyStructuredPromptValue(value: unknown): string {
       record.title,
       record.name,
       record.label,
+      record.from,
+      record.to,
+      record.source,
+      record.target,
+      record.type,
+      record.status,
+      record.action,
+      record.trigger,
+      record.condition,
+      record.description,
       record.pattern,
       record.rule,
       record.guideline,
@@ -2956,7 +3600,29 @@ function stringifyStructuredPromptValue(value: unknown): string {
       .map((item) => stringifyStructuredPromptValue(item))
       .filter(Boolean);
     const remaining = Object.entries(record)
-      .filter(([key]) => !["title", "name", "label", "pattern", "rule", "guideline", "reason", "audience"].includes(key))
+      .filter(
+        ([key]) =>
+          ![
+            "title",
+            "name",
+            "label",
+            "from",
+            "to",
+            "source",
+            "target",
+            "type",
+            "status",
+            "action",
+            "trigger",
+            "condition",
+            "description",
+            "pattern",
+            "rule",
+            "guideline",
+            "reason",
+            "audience",
+          ].includes(key),
+      )
       .map(([key, item]) => {
         const text = stringifyStructuredPromptValue(item);
         return text ? `${key}: ${text}` : "";
@@ -2977,8 +3643,196 @@ function normalizeStringListCandidate(value: unknown): string[] {
   return text ? [text] : [];
 }
 
-function parseCodeUiBlueprintResult(text: string) {
+function normalizeRequiredStringCandidate(value: unknown, fallback: string) {
+  const text = stringifyStructuredPromptValue(value).trim();
+  return text || fallback;
+}
+
+function normalizeRequiredStringListCandidate(value: unknown, fallback: string[]) {
+  const normalized = normalizeStringListCandidate(value)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function createFallbackCodeUiBlueprint(
+  businessLogic?: CodeBusinessLogic | null,
+): CodeUiBlueprint {
+  const appName = businessLogic?.appName?.trim() || "业务原型";
+  const domainSummary = businessLogic?.domainSummary?.trim() || `${appName}的核心业务流程`;
+  const pageNames =
+    businessLogic?.pageFlows
+      ?.map((flow) => flow.name.trim())
+      .filter((name) => name.length > 0) ?? [];
+  const operationNames =
+    businessLogic?.frontendOperations
+      ?.map((operation) => operation.trim())
+      .filter((operation) => operation.length > 0) ?? [];
+  const entityNames =
+    businessLogic?.businessEntities
+      ?.map((entity) => entity.name.trim())
+      .filter((name) => name.length > 0) ?? [];
+  const edgeCases =
+    businessLogic?.edgeCases
+      ?.map((edgeCase) => edgeCase.trim())
+      .filter((edgeCase) => edgeCase.length > 0) ?? [];
+
+  return codeUiBlueprintResultSchema.parse({
+    uiBlueprint: {
+      theme: {
+        name: `${appName}专业工作台`,
+        primaryColor: "#2563eb",
+        backgroundColor: "#f8fafc",
+        surfaceColor: "#ffffff",
+        textColor: "#0f172a",
+        accentColor: "#f97316",
+        density: "compact",
+        tone: "清晰、可信、业务导向",
+      },
+      visualLanguage: `围绕${domainSummary}构建高信息密度的业务工作台，突出流程状态、待处理任务和关键操作。`,
+      navigationModel:
+        pageNames.length > 0
+          ? `按${pageNames.join("、")}组织主导航，入口顺序贴合核心业务流程。`
+          : "使用左侧主导航组织总览、核心流程和详情处理页面。",
+      layoutPrinciples: [
+        "首屏呈现核心状态、关键指标和下一步操作，避免空壳营销式布局。",
+        operationNames.length > 0
+          ? `围绕${operationNames.slice(0, 4).join("、")}安排列表、详情和操作区。`
+          : "围绕查询、查看详情、提交和状态反馈安排列表、详情和操作区。",
+      ],
+      componentGuidelines: [
+        entityNames.length > 0
+          ? `使用表格、列表和详情面板承载${entityNames.slice(0, 4).join("、")}等业务对象。`
+          : "使用表格、列表和详情面板承载核心业务对象。",
+        "主要操作使用明确按钮，状态使用徽标、分组和上下文提示表达。",
+      ],
+      stateGuidelines: [
+        edgeCases.length > 0
+          ? `覆盖${edgeCases.slice(0, 3).join("、")}等异常或边界状态。`
+          : "覆盖空状态、加载、错误、成功和权限不足状态。",
+        "状态反馈必须给出可执行的下一步，而不是只显示静态说明。",
+      ],
+    },
+  }).uiBlueprint;
+}
+
+function normalizeCodeThemeCandidate(
+  value: unknown,
+  fallback: CodeUiBlueprint["theme"],
+): CodeUiBlueprint["theme"] {
+  const record =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const density =
+    record.density === "compact" || record.density === "comfortable"
+      ? record.density
+      : fallback.density;
+
+  return {
+    name: normalizeRequiredStringCandidate(record.name, fallback.name),
+    primaryColor: normalizeRequiredStringCandidate(
+      record.primaryColor,
+      fallback.primaryColor,
+    ),
+    backgroundColor: normalizeRequiredStringCandidate(
+      record.backgroundColor,
+      fallback.backgroundColor,
+    ),
+    surfaceColor: normalizeRequiredStringCandidate(
+      record.surfaceColor,
+      fallback.surfaceColor,
+    ),
+    textColor: normalizeRequiredStringCandidate(record.textColor, fallback.textColor),
+    accentColor: normalizeRequiredStringCandidate(
+      record.accentColor,
+      fallback.accentColor,
+    ),
+    density,
+    tone: normalizeRequiredStringCandidate(record.tone, fallback.tone),
+  };
+}
+
+function normalizeBusinessLogicStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => normalizeBusinessLogicStringArray(item))
+      .filter((item) => item.trim().length > 0);
+  }
+  const text = stringifyStructuredPromptValue(value).trim();
+  return text ? [text] : [];
+}
+
+function parseCodeBusinessLogicResult(text: string) {
   const parsed = parseJson<unknown>(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return codeBusinessLogicResultSchema.parse(parsed);
+  }
+
+  const object = parsed as Record<string, unknown>;
+  const businessLogic =
+    object.businessLogic &&
+    typeof object.businessLogic === "object" &&
+    !Array.isArray(object.businessLogic)
+      ? { ...(object.businessLogic as Record<string, unknown>) }
+      : object.businessLogic;
+
+  if (businessLogic && typeof businessLogic === "object" && !Array.isArray(businessLogic)) {
+    const normalized = businessLogic as Record<string, unknown>;
+    normalized.appName = normalizeRequiredStringCandidate(
+      normalized.appName,
+      "业务原型",
+    );
+    normalized.domainSummary = normalizeRequiredStringCandidate(
+      normalized.domainSummary,
+      "当前业务领域由需求和设计模型推导。",
+    );
+    normalized.coreWorkflow = normalizeRequiredStringCandidate(
+      normalized.coreWorkflow,
+      "查看核心业务数据并完成主要操作闭环。",
+    );
+    if (Array.isArray(normalized.businessEntities)) {
+      normalized.businessEntities = normalized.businessEntities.map((entity) => {
+        if (!entity || typeof entity !== "object" || Array.isArray(entity)) return entity;
+        const next = { ...(entity as Record<string, unknown>) };
+        next.fields = normalizeBusinessLogicStringArray(next.fields);
+        next.relationships = normalizeBusinessLogicStringArray(next.relationships);
+        return next;
+      });
+    }
+    if (Array.isArray(normalized.stateMachines)) {
+      normalized.stateMachines = normalized.stateMachines.map((stateMachine) => {
+        if (!stateMachine || typeof stateMachine !== "object" || Array.isArray(stateMachine)) {
+          return stateMachine;
+        }
+        const next = { ...(stateMachine as Record<string, unknown>) };
+        next.transitions = normalizeBusinessLogicStringArray(next.transitions);
+        return next;
+      });
+    }
+    normalized.edgeCases = normalizeBusinessLogicStringArray(normalized.edgeCases);
+    normalized.frontendOperations = normalizeBusinessLogicStringArray(
+      normalized.frontendOperations,
+    );
+    normalized.plantUmlTraceability = normalizeBusinessLogicStringArray(
+      normalized.plantUmlTraceability,
+    );
+
+    return codeBusinessLogicResultSchema.parse({
+      ...object,
+      businessLogic: normalized,
+    });
+  }
+
+  return codeBusinessLogicResultSchema.parse(parsed);
+}
+
+function parseCodeUiBlueprintResult(
+  text: string,
+  businessLogic?: CodeBusinessLogic | null,
+) {
+  const parsed = parseJson<unknown>(text);
+  const fallback = createFallbackCodeUiBlueprint(businessLogic);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return codeUiBlueprintResultSchema.parse(parsed);
   }
@@ -2991,10 +3845,27 @@ function parseCodeUiBlueprintResult(text: string) {
 
   if (uiBlueprint && typeof uiBlueprint === "object" && !Array.isArray(uiBlueprint)) {
     const normalized = uiBlueprint as Record<string, unknown>;
-    normalized.navigationModel = stringifyStructuredPromptValue(normalized.navigationModel);
-    normalized.layoutPrinciples = normalizeStringListCandidate(normalized.layoutPrinciples);
-    normalized.componentGuidelines = normalizeStringListCandidate(normalized.componentGuidelines);
-    normalized.stateGuidelines = normalizeStringListCandidate(normalized.stateGuidelines);
+    normalized.theme = normalizeCodeThemeCandidate(normalized.theme, fallback.theme);
+    normalized.visualLanguage = normalizeRequiredStringCandidate(
+      normalized.visualLanguage,
+      fallback.visualLanguage,
+    );
+    normalized.navigationModel = normalizeRequiredStringCandidate(
+      normalized.navigationModel,
+      fallback.navigationModel,
+    );
+    normalized.layoutPrinciples = normalizeRequiredStringListCandidate(
+      normalized.layoutPrinciples,
+      fallback.layoutPrinciples,
+    );
+    normalized.componentGuidelines = normalizeRequiredStringListCandidate(
+      normalized.componentGuidelines,
+      fallback.componentGuidelines,
+    );
+    normalized.stateGuidelines = normalizeRequiredStringListCandidate(
+      normalized.stateGuidelines,
+      fallback.stateGuidelines,
+    );
     return codeUiBlueprintResultSchema.parse({
       ...object,
       uiBlueprint: normalized,
@@ -3536,10 +4407,9 @@ async function verifyCodeUiFidelity(
   providerSettings: ProviderSettings,
   llmTransport: LlmTransport,
 ) {
-  const imageUrl = getUiMockupImage(snapshot.uiMockup);
-  if (!imageUrl || !snapshot.uiReferenceSpec) {
+  if (!snapshot.businessLogic) {
     const report = fallbackUiFidelityReport(
-      "界面设计图或视觉解析不可用，已跳过多模态还原检查。",
+      "业务逻辑不可用，已跳过结构一致性检查。",
     );
     snapshot.uiFidelityReport = report;
     addCodeDiagnostic(snapshot, "verify_code_ui_fidelity", report.summary);
@@ -3550,13 +4420,12 @@ async function verifyCodeUiFidelity(
     const result = await collectStructuredResult(
       llmTransport,
       providerSettings,
-      createMultimodalMessages(
+      createMessages(
         buildVerifyCodeUiFidelityPrompt(
-          snapshot.uiReferenceSpec,
+          snapshot.businessLogic,
+          snapshot.uiBlueprint,
           snapshot.files,
-          snapshot.appBlueprint,
         ),
-        imageUrl,
       ),
       "verify_code_ui_fidelity",
       (chunk) => {
@@ -3586,7 +4455,7 @@ async function verifyCodeUiFidelity(
     return result.uiFidelityReport;
   } catch (error) {
     const report = fallbackUiFidelityReport(
-      `设计图还原检查失败，已保留当前原型：${getErrorMessage(error)}`,
+      `业务/界面覆盖检查失败，已保留当前原型：${getErrorMessage(error)}`,
     );
     snapshot.uiFidelityReport = report;
     addCodeDiagnostic(snapshot, "verify_code_ui_fidelity", report.summary);
@@ -3702,9 +4571,137 @@ function buildCodeGenerationSpecFromBlueprints(
   });
 }
 
+function createDefaultCodeTheme(appName: string): CodeUiBlueprint["theme"] {
+  return {
+    name: `${appName}业务原型`,
+    primaryColor: "#2563eb",
+    backgroundColor: "#f8fafc",
+    surfaceColor: "#ffffff",
+    textColor: "#0f172a",
+    accentColor: "#f97316",
+    density: "compact",
+    tone: "由 ui-ux-pro-max 根据业务逻辑进一步推导界面气质",
+  };
+}
+
+function buildCodeGenerationSpecFromBusinessLogic(
+  businessLogic: CodeBusinessLogic,
+  uiBlueprint: CodeUiBlueprint | null = null,
+): CodeGenerationSpec {
+  const pages = businessLogic.pageFlows.map((flow) => ({
+    id: flow.id,
+    name: flow.name,
+    route: flow.route.startsWith("/") ? flow.route : `/${flow.route}`,
+    purpose: flow.purpose,
+    sourceDiagramIds: flow.sourceRefs,
+  }));
+  const entities = businessLogic.businessEntities.length
+    ? businessLogic.businessEntities
+    : [
+        {
+          id: "entity-domain-record",
+          name: "业务记录",
+          description: businessLogic.domainSummary,
+          fields: ["id:string", "name:string", "status:string"],
+          relationships: [],
+        },
+      ];
+
+  return codeGenerationSpecSchema.parse({
+    appName: businessLogic.appName,
+    summary: businessLogic.coreWorkflow,
+    theme: uiBlueprint?.theme ?? createDefaultCodeTheme(businessLogic.appName),
+    pages,
+    components: [
+      {
+        id: "component-workspace-shell",
+        name: "WorkspaceShell",
+        responsibility: "组织原型导航、页面切换和全局布局",
+        sourceDiagramIds: [],
+      },
+      {
+        id: "component-domain-table",
+        name: "DomainDataTable",
+        responsibility: "展示业务实体列表、筛选、状态和主要操作",
+        sourceDiagramIds: businessLogic.plantUmlTraceability,
+      },
+      {
+        id: "component-detail-panel",
+        name: "DetailPanel",
+        responsibility: "承载详情、审批、提交、异常和状态切换",
+        sourceDiagramIds: businessLogic.plantUmlTraceability,
+      },
+    ],
+    interactions: businessLogic.frontendOperations.map((operation, index) => ({
+      id: `interaction-${index + 1}`,
+      trigger: operation,
+      behavior: operation,
+      sourceDiagramIds: businessLogic.plantUmlTraceability,
+    })),
+    dataEntities: entities.map((entity) => ({
+      id: entity.id,
+      name: entity.name,
+      fields: entity.fields.map((field) => {
+        const [name, type = "string"] = field.split(":");
+        return {
+          name: name.trim() || field,
+          type: type.trim() || "string",
+          required: true,
+        };
+      }),
+      sourceDiagramIds: businessLogic.plantUmlTraceability,
+    })),
+    implementationNotes: [
+      businessLogic.domainSummary,
+      businessLogic.coreWorkflow,
+      uiBlueprint?.visualLanguage ??
+        "ui-ux-pro-max 负责从业务逻辑推导页面主题、导航、布局密度、组件结构和状态表达。",
+      uiBlueprint?.navigationModel ??
+        "新链路不单独生成 uiBlueprint，导航模型由 ui-ux-pro-max 在代码生成阶段确定。",
+      "新链路由 ui-ux-pro-max 直接生成 React 文件操作，不依赖界面图或 UI IR。",
+    ],
+    appBlueprint: null,
+    uiBlueprint,
+    uiReferenceSpec: null,
+    uiIr: null,
+    filePlan: null,
+  });
+}
+
+function addBusinessCoverageTerm(terms: Set<string>, value: string | undefined) {
+  const normalized = value?.trim();
+  if (!normalized || normalized.length < 2) return;
+  terms.add(normalized);
+}
+
+function extractBusinessCoverageTerms(businessLogic: CodeBusinessLogic) {
+  const terms = new Set<string>();
+  addBusinessCoverageTerm(terms, businessLogic.appName);
+  for (const page of businessLogic.pageFlows) {
+    addBusinessCoverageTerm(terms, page.name);
+    addBusinessCoverageTerm(terms, page.purpose);
+    for (const action of page.userActions) addBusinessCoverageTerm(terms, action);
+    for (const state of page.states) addBusinessCoverageTerm(terms, state);
+  }
+  for (const entity of businessLogic.businessEntities) {
+    addBusinessCoverageTerm(terms, entity.name);
+    for (const field of entity.fields) {
+      addBusinessCoverageTerm(terms, field.split(":")[0]);
+    }
+  }
+  for (const operation of businessLogic.frontendOperations) {
+    addBusinessCoverageTerm(terms, operation);
+  }
+  for (const edgeCase of businessLogic.edgeCases) {
+    addBusinessCoverageTerm(terms, edgeCase);
+  }
+  return [...terms];
+}
+
 function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagnostic {
   const issues: CodeQualityDiagnostic["issues"] = [];
   const filePaths = Object.keys(snapshot.files);
+  const filesText = Object.values(snapshot.files).join("\n");
   const pageFiles = filePaths.filter((path) => /^\/src\/pages\/.+\.tsx$/.test(path));
   const componentFiles = filePaths.filter((path) =>
     /^\/src\/components\/.+\.tsx$/.test(path),
@@ -3774,6 +4771,19 @@ function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagno
     }
   }
 
+  if (snapshot.businessLogic) {
+    const terms = extractBusinessCoverageTerms(snapshot.businessLogic);
+    const matchedTerms = terms.filter((term) => filesText.includes(term));
+    const minimumMatches = Math.min(4, Math.max(2, Math.ceil(terms.length * 0.2)));
+    if (terms.length > 0 && matchedTerms.length < minimumMatches) {
+      issues.push({
+        severity: "error",
+        message:
+          "生成文件没有体现足够的业务逻辑关键词，疑似只保留了稳定骨架或空泛原型",
+      });
+    }
+  }
+
   return codeQualityDiagnosticSchema.parse({
     passed: issues.every((issue) => issue.severity !== "error"),
     metrics: {
@@ -3781,6 +4791,18 @@ function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagno
       pageFileCount: pageFiles.length,
       componentFileCount: componentFiles.length,
     },
+    issues,
+  });
+}
+
+function appendCodeQualityIssue(
+  diagnostic: CodeQualityDiagnostic,
+  issue: CodeQualityDiagnostic["issues"][number],
+): CodeQualityDiagnostic {
+  const issues = [...diagnostic.issues, issue];
+  return codeQualityDiagnosticSchema.parse({
+    ...diagnostic,
+    passed: issues.every((item) => item.severity !== "error"),
     issues,
   });
 }
@@ -3859,24 +4881,23 @@ async function generateCodeFileOperationsWithRepair(
   providerSettings: ProviderSettings,
   llmTransport: LlmTransport,
   codeContext: unknown,
-  agentPlan: string[],
   existingFiles: Record<string, string>,
   generationContext?: {
-    appBlueprint?: CodeAppBlueprint | null;
+    businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
-    uiMockup?: CodeUiMockup | null;
-    uiReferenceSpec?: CodeUiReferenceSpec | null;
-    uiIr?: CodeUiIr | null;
-    filePlan?: CodeFilePlan | null;
+    loadedCodeSkill?: LoadedCodeSkill | null;
+    codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
+    selectedCodeSkills?: CodeSkillSelection[];
+    codeSkillInstructions?: string;
   },
+  stage: RunStage = "generate_code_files",
 ) {
   const responseFormat = getGenerateCodeFileOperationsResponseFormat(
     providerSettings.model,
   );
   let prompt = buildGenerateCodeFileOperationsPrompt(
     codeContext,
-    agentPlan,
     existingFiles,
     generationContext,
   );
@@ -3897,7 +4918,7 @@ async function generateCodeFileOperationsWithRepair(
           record,
           llmChunkRunEventSchema.parse({
             type: "llm_chunk",
-            stage: "write_code_files",
+            stage,
             chunk,
           }),
         );
@@ -3936,7 +4957,6 @@ async function generateCodeFileOperationsWithRepair(
 
       prompt = buildRepairCodeFileOperationsPrompt(
         codeContext,
-        agentPlan,
         existingFiles,
         previousOutput,
         lastErrorMessage,
@@ -3958,20 +4978,20 @@ function applyCodeOperation(
   switch (operation.operation) {
     case "create_file":
     case "update_file":
-      emitCodeFileChanged(
+      return emitCodeFileChanged(
         record,
         snapshot,
         operation.path,
         operation.content,
         operation.reason,
       );
-      return;
     case "set_entry_file":
       snapshot.entryFile = normalizeFilePath(operation.path);
       addCodeDiagnostic(snapshot, "write_code_files", operation.reason);
-      return;
+      return false;
     case "note":
       addCodeDiagnostic(snapshot, "write_code_files", operation.message);
+      return false;
   }
 }
 
@@ -4142,23 +5162,71 @@ function ensureDocumentDiagramSections(
   return documentContentResultSchema.parse({ sections: [...sections, ...additions] }).sections;
 }
 
+function replaceUnprovidedInstitutionNames(text: string, allowedSource: string) {
+  return text.replace(/[\u4e00-\u9fa5]{2,}(?:大学|学院)/g, (match) =>
+    allowedSource.includes(match) ? match : "待填写",
+  );
+}
+
+function sanitizeDocumentSections(
+  input: StartDocumentRunRequest,
+  sections: DocumentSection[],
+) {
+  const allowedSource = JSON.stringify(buildDocumentContext(input));
+  return documentContentResultSchema.parse({
+    sections: sections.map((section) => ({
+      ...section,
+      title: replaceUnprovidedInstitutionNames(section.title, allowedSource),
+      body: section.body.map((paragraph) =>
+        replaceUnprovidedInstitutionNames(paragraph, allowedSource),
+      ),
+      table: section.table
+        ? {
+            headers: section.table.headers.map((cell) =>
+              replaceUnprovidedInstitutionNames(cell, allowedSource),
+            ),
+            rows: section.table.rows.map((row) =>
+              row.map((cell) => replaceUnprovidedInstitutionNames(cell, allowedSource)),
+            ),
+          }
+        : undefined,
+    })),
+  }).sections;
+}
+
 function createTextParagraph(text: string) {
   return new Paragraph({
-    children: [new TextRun({ text })],
-    spacing: { after: 160 },
+    children: [
+      new TextRun({
+        text,
+        font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: "SimSun" },
+        size: 24,
+      }),
+    ],
+    indent: { firstLine: 480 },
+    spacing: { after: 160, line: 360 },
   });
 }
 
-function createHeadingParagraph(section: DocumentSection) {
+function createHeadingParagraph(section: DocumentSection, pageBreakBefore = false) {
   const heading =
     section.level === 1
       ? HeadingLevel.HEADING_1
       : section.level === 2
         ? HeadingLevel.HEADING_2
         : HeadingLevel.HEADING_3;
+  const size = section.level === 1 ? 32 : section.level === 2 ? 28 : 26;
   return new Paragraph({
-    text: section.title,
+    children: [
+      new TextRun({
+        text: section.title,
+        bold: true,
+        font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: "SimHei" },
+        size,
+      }),
+    ],
     heading,
+    pageBreakBefore,
     spacing: { before: section.level === 1 ? 320 : 180, after: 120 },
   });
 }
@@ -4216,9 +5284,42 @@ function createPngImageParagraph(png: Buffer, title: string) {
 function createFigureCaption(text: string) {
   return new Paragraph({
     alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text, italics: true })],
+    children: [
+      new TextRun({
+        text,
+        italics: true,
+        font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: "SimSun" },
+        size: 21,
+      }),
+    ],
     spacing: { before: 40, after: 160 },
   });
+}
+
+function createCoverParagraph(text: string, options?: { title?: boolean; subtitle?: boolean }) {
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children: [
+      new TextRun({
+        text,
+        bold: Boolean(options?.title || options?.subtitle),
+        font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: "SimHei" },
+        size: options?.title ? 36 : options?.subtitle ? 30 : 24,
+      }),
+    ],
+    spacing: { before: options?.title ? 1200 : 160, after: options?.title ? 520 : 220 },
+  });
+}
+
+function createDocumentCover(documentKind: DocumentKind) {
+  const generatedDate = new Date().toISOString().slice(0, 10);
+  return [
+    createCoverParagraph("课程设计文档", { title: true }),
+    createCoverParagraph(documentTitle(documentKind), { subtitle: true }),
+    createCoverParagraph("项目名称：待填写"),
+    createCoverParagraph(`文档类型：${documentTitle(documentKind)}`),
+    createCoverParagraph(`生成日期：${generatedDate}`),
+  ];
 }
 
 async function renderDocumentBuffer(
@@ -4229,22 +5330,10 @@ async function renderDocumentBuffer(
   pngRenderClient: PngRenderClient,
   missingArtifacts: string[],
 ) {
-  const children: Array<Paragraph | Table> = [
-    new Paragraph({
-      text: documentTitle(documentKind),
-      heading: HeadingLevel.TITLE,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 360 },
-    }),
-    new Paragraph({
-      text: "成都信息工程大学 软件工程学院",
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 360 },
-    }),
-  ];
+  const children: Array<Paragraph | Table> = createDocumentCover(documentKind);
 
-  for (const section of sections) {
-    children.push(createHeadingParagraph(section));
+  for (const [index, section] of sections.entries()) {
+    children.push(createHeadingParagraph(section, index === 0));
     for (const paragraph of section.body) {
       children.push(createTextParagraph(paragraph));
     }
@@ -4284,7 +5373,16 @@ async function renderDocumentBuffer(
   const doc = new Document({
     sections: [
       {
-        properties: {},
+        properties: {
+          page: {
+            margin: {
+              top: 1440,
+              right: 1440,
+              bottom: 1440,
+              left: 1440,
+            },
+          },
+        },
         children,
       },
     ],
@@ -4342,6 +5440,7 @@ async function runDocumentStagePipeline(
     sections = result.sections;
   }
   sections = ensureDocumentDiagramSections(input.documentKind, sections);
+  sections = sanitizeDocumentSections(input, sections);
   snapshot.sections = sections;
 
   updateStage("render_document_file", "正在写入说明书文件");
@@ -4379,10 +5478,7 @@ async function runDocumentStagePipeline(
 async function runCodeStagePipeline(
   record: RunRecord,
   providerSettings: ProviderSettings,
-  imageProviderSettings: ImageProviderSettings | null,
   llmTransport: LlmTransport,
-  imageClient: ImageGenerationClient,
-  codePlanCache: CodePlanCache,
 ) {
   const snapshot = record.snapshot as CodeRunSnapshot;
 
@@ -4414,161 +5510,121 @@ async function runCodeStagePipeline(
   const codeContextHash = hashCodeContext(codeContext);
   snapshot.codeContextHash = codeContextHash;
 
-  updateStage("analyze_code_product", "正在分析业务背景和页面闭环");
-  const appBlueprintResult = await collectStructuredResult(
+  updateStage("analyze_code_business_logic", "正在从需求、设计模型和 PlantUML 提取业务逻辑");
+  const businessLogicResult = await collectStructuredResult(
     llmTransport,
     providerSettings,
     createMessages(
-      buildGenerateCodeAppBlueprintPrompt(
+      buildAnalyzeCodeBusinessLogicPrompt(
         snapshot.requirementText,
         snapshot.rules,
         snapshot.designModels,
+        snapshot.designPlantUml,
       ),
     ),
-    "analyze_code_product",
+    "analyze_code_business_logic",
     (chunk) => {
       emitEvent(
         record,
         llmChunkRunEventSchema.parse({
           type: "llm_chunk",
-          stage: "analyze_code_product",
+          stage: "analyze_code_business_logic",
           chunk,
         }),
       );
     },
-    (text) => codeAppBlueprintResultSchema.parse(parseJson(text)),
-    getGenerateCodeAppBlueprintResponseFormat(providerSettings.model),
+    parseCodeBusinessLogicResult,
+    getGenerateCodeBusinessLogicResponseFormat(providerSettings.model),
   );
-  const appBlueprint = appBlueprintResult.appBlueprint;
-  snapshot.appBlueprint = appBlueprint;
+  const businessLogic = businessLogicResult.businessLogic;
+  snapshot.businessLogic = businessLogic;
   addCodeDiagnostic(
     snapshot,
-    "analyze_code_product",
-    `已规划 ${appBlueprint.pages.length} 个业务页面`,
-  );
-
-  codeContext = buildCodeContext(snapshot);
-  updateStage("plan_code_ui", "正在规划界面主题、布局和状态");
-  const uiBlueprintResult = await collectStructuredResult(
-    llmTransport,
-    providerSettings,
-    createMessages(buildGenerateCodeUiBlueprintPrompt(codeContext, appBlueprint)),
-    "plan_code_ui",
-    (chunk) => {
-      emitEvent(
-        record,
-        llmChunkRunEventSchema.parse({
-          type: "llm_chunk",
-          stage: "plan_code_ui",
-          chunk,
-        }),
-      );
-    },
-    parseCodeUiBlueprintResult,
-    getGenerateCodeUiBlueprintResponseFormat(providerSettings.model),
-  );
-  const uiBlueprint = uiBlueprintResult.uiBlueprint;
-  snapshot.uiBlueprint = uiBlueprint;
-  addCodeDiagnostic(snapshot, "plan_code_ui", uiBlueprint.visualLanguage);
-
-  let uiMockup: CodeUiMockup | null = null;
-  if (imageProviderSettings) {
-    updateStage("generate_code_ui_mockup", "正在生成界面设计图");
-    uiMockup = await generateCodeUiMockup(
-      record,
-      snapshot,
-      imageClient,
-      imageProviderSettings,
-      appBlueprint,
-      uiBlueprint,
-    );
-  } else {
-    addCodeDiagnostic(
-      snapshot,
-      "generate_code_ui_mockup",
-      "未配置图片模型，已跳过界面设计图生成",
-    );
-  }
-
-  updateStage("analyze_code_ui_mockup", "正在解析界面设计图");
-  const uiReferenceSpec = await analyzeCodeUiMockup(
-    record,
-    snapshot,
-    providerSettings,
-    llmTransport,
-    appBlueprint,
-    uiBlueprint,
-    uiMockup,
-  );
-
-  updateStage("generate_code_ui_ir", "正在生成结构化 UI IR 和组件约束");
-  const uiIr = await generateCodeUiIr(
-    record,
-    snapshot,
-    providerSettings,
-    llmTransport,
-    appBlueprint,
-    uiBlueprint,
-    uiMockup,
-    uiReferenceSpec,
-  );
-
-  codeContext = buildCodeContext(snapshot);
-  updateStage("plan_code_files", "正在规划多页面文件结构");
-  const filePlanResult = await collectStructuredResult(
-    llmTransport,
-    providerSettings,
-    createMessages(
-      buildGenerateCodeFilePlanPrompt(
-        codeContext,
-        appBlueprint,
-        uiBlueprint,
-        uiMockup,
-        uiReferenceSpec,
-        uiIr,
-        snapshot.files,
-      ),
-    ),
-    "plan_code_files",
-    (chunk) => {
-      emitEvent(
-        record,
-        llmChunkRunEventSchema.parse({
-          type: "llm_chunk",
-          stage: "plan_code_files",
-          chunk,
-        }),
-      );
-    },
-    (text) => codeFilePlanResultSchema.parse(parseJson(text)),
-    getGenerateCodeFilePlanResponseFormat(providerSettings.model),
-  );
-  const filePlan = filePlanResult.filePlan;
-  snapshot.filePlan = filePlan;
-  snapshot.entryFile = normalizeFilePath(filePlan.entryFile);
-  snapshot.spec = buildCodeGenerationSpecFromBlueprints(
-    appBlueprint,
-    uiBlueprint,
-    filePlan,
-    uiIr,
-  );
-  snapshot.spec.uiReferenceSpec = uiReferenceSpec;
-  snapshot.spec.uiIr = uiIr;
-  addCodeDiagnostic(
-    snapshot,
-    "plan_code_files",
-    `已规划 ${filePlan.files.length} 个原型文件`,
+    "analyze_code_business_logic",
+    `已抽取 ${businessLogic.pageFlows.length} 个页面流程和 ${businessLogic.frontendOperations.length} 个前端操作`,
   );
   emitEvent(
     record,
     artifactReadyRunEventSchema.parse({
       type: "artifact_ready",
-      stage: "plan_code_files",
+      stage: "analyze_code_business_logic",
+      artifactKind: "businessLogic",
+      businessLogic,
+    }),
+  );
+
+  codeContext = buildCodeContext(snapshot);
+  updateStage("plan_code_ui", "正在由 ui-ux-pro-max 规划界面方案");
+  const loadedSkillResult = loadWebDesignSkill();
+  const loadedCodeSkill = loadedCodeSkillSchema.parse(loadedSkillResult.skill);
+  snapshot.loadedCodeSkill = loadedCodeSkill;
+  snapshot.selectedCodeSkills = [toWebDesignSkillSelection(loadedCodeSkill)];
+  snapshot.skillDiagnostics = loadedSkillResult.diagnostics.map((diagnostic) =>
+    codeSkillDiagnosticsSchema.parse(diagnostic),
+  );
+  addCodeDiagnostic(
+    snapshot,
+    "plan_code_ui",
+    `已加载 ${loadedCodeSkill.name} skill，发现 ${loadedCodeSkill.fileManifest.length} 个可用资源文件`,
+  );
+  const skillContext = codeSkillContextSchema.parse(
+    await resolveCodeSkillContext(loadedCodeSkill, businessLogic),
+  );
+  snapshot.codeSkillContext = skillContext;
+  snapshot.skillDiagnostics = [
+    ...snapshot.skillDiagnostics,
+    ...skillContext.diagnostics.map((diagnostic) =>
+      codeSkillDiagnosticsSchema.parse(diagnostic),
+    ),
+  ];
+  const codeSkillInstructions = formatWebDesignSkillForPrompt(
+    loadedCodeSkill,
+    skillContext,
+  );
+  addCodeDiagnostic(
+    snapshot,
+    "plan_code_ui",
+    `${loadedCodeSkill.alias} 已接管界面主题、布局、组件和视觉方案规划，已执行 ${skillContext.actionResults.length} 个 skill action`,
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
+      artifactKind: "codeSkills",
+      codeSkills: snapshot.selectedCodeSkills,
+      skillDiagnostics: snapshot.skillDiagnostics,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
+      artifactKind: "codeSkillContext",
+      codeSkillContext: skillContext,
+      skillDiagnostics: snapshot.skillDiagnostics,
+    }),
+  );
+
+  codeContext = buildCodeContext(snapshot);
+  snapshot.uiBlueprint = null;
+  snapshot.spec = buildCodeGenerationSpecFromBusinessLogic(businessLogic, null);
+  addCodeDiagnostic(
+    snapshot,
+    "plan_code_ui",
+    "已形成业务逻辑驱动的代码生成规格，界面方案由 ui-ux-pro-max 在代码生成阶段推导",
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
       artifactKind: "codeSpec",
     }),
   );
 
-  updateStage("write_code_files", "正在写入可运行骨架文件");
+  updateStage("generate_code_files", "正在写入可运行骨架文件");
   const scaffold = createStableCodeScaffold();
   for (const [path, content] of Object.entries(scaffold)) {
     if (!snapshot.files[path]) {
@@ -4577,68 +5633,48 @@ async function runCodeStagePipeline(
   }
 
   codeContext = buildCodeContext(snapshot);
-
-  updateStage("plan_code", "正在制定文件实现步骤");
-  const cachedPlan = codePlanCache.get(codeContextHash);
-  if (cachedPlan) {
-    snapshot.agentPlan = cachedPlan.plan;
-    addCodeDiagnostic(snapshot, "plan_code", "复用同一设计模型的实现计划缓存");
-  } else {
-    const planResult = await collectStructuredResult(
-      llmTransport,
-      providerSettings,
-      createMessages(buildGenerateCodeAgentPlanPrompt(codeContext, snapshot.files)),
-      "plan_code",
-      (chunk) => {
-        emitEvent(
-          record,
-          llmChunkRunEventSchema.parse({
-            type: "llm_chunk",
-            stage: "plan_code",
-            chunk,
-          }),
-        );
-      },
-      (text) => codeAgentPlanResultSchema.parse(parseJson(text)),
-      getGenerateCodeAgentPlanResponseFormat(providerSettings.model),
-    );
-    snapshot.agentPlan = planResult.plan;
-    codePlanCache.set(codeContextHash, { plan: planResult.plan });
-  }
-
-  updateStage("write_code_files", "正在生成多页面原型代码");
+  updateStage("generate_code_files", "正在由 ui-ux-pro-max 生成多页面原型代码");
   const operationsResult = await generateCodeFileOperationsWithRepair(
     record,
     providerSettings,
     llmTransport,
     codeContext,
-    snapshot.agentPlan,
     snapshot.files,
     {
-      appBlueprint,
-      uiBlueprint,
-      uiMockup,
-      uiReferenceSpec,
-      uiIr,
-      filePlan,
+      businessLogic,
+      uiBlueprint: null,
+      loadedCodeSkill,
+      codeSkillContext: skillContext,
+      selectedCodeSkills: snapshot.selectedCodeSkills,
+      codeSkillInstructions,
     },
+    "generate_code_files",
   );
 
+  let generatedFileChangeCount = 0;
   for (const operation of operationsResult.operations) {
-    applyCodeOperation(record, snapshot, operation);
+    if (applyCodeOperation(record, snapshot, operation)) {
+      generatedFileChangeCount += 1;
+    }
   }
 
   emitEvent(
     record,
     artifactReadyRunEventSchema.parse({
       type: "artifact_ready",
-      stage: "write_code_files",
+      stage: "generate_code_files",
       artifactKind: "codeFiles",
     }),
   );
 
   updateStage("audit_code_quality", "正在检查页面数量、文件结构和实现质量");
   let qualityDiagnostic = auditCodePrototypeQuality(snapshot);
+  if (generatedFileChangeCount === 0) {
+    qualityDiagnostic = appendCodeQualityIssue(qualityDiagnostic, {
+      severity: "error",
+      message: "ui-ux-pro-max 没有产生任何实质文件变更，不能将稳定骨架视为生成成功",
+    });
+  }
   recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
   if (!qualityDiagnostic.passed) {
     updateStage("repair_code_files", "正在根据质量问题补齐原型代码");
@@ -4650,17 +5686,17 @@ async function runCodeStagePipeline(
       providerSettings,
       llmTransport,
       buildCodeContext(snapshot),
-      snapshot.agentPlan,
       snapshot.files,
       {
-        appBlueprint,
-        uiBlueprint,
-        uiMockup,
-        uiReferenceSpec,
-        uiIr,
-        filePlan,
+        businessLogic,
+        uiBlueprint: null,
+        loadedCodeSkill,
+        codeSkillContext: skillContext,
         qualityIssues: repairIssues,
+        selectedCodeSkills: snapshot.selectedCodeSkills,
+        codeSkillInstructions,
       },
+      "repair_code_files",
     );
     for (const operation of repairOperations.operations) {
       applyCodeOperation(record, snapshot, operation);
@@ -4670,7 +5706,7 @@ async function runCodeStagePipeline(
     recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
   }
 
-  updateStage("verify_code_ui_fidelity", "正在检查原型是否贴合界面设计图");
+  updateStage("verify_code_ui_fidelity", "正在检查原型是否覆盖业务逻辑和界面方案");
   let fidelityReport = await verifyCodeUiFidelity(
     record,
     snapshot,
@@ -4690,7 +5726,7 @@ async function runCodeStagePipeline(
   ) {
     updateStage(
       "repair_code_files",
-      `正在根据设计图还原检查修复原型（第 ${repairRound}/${MAX_UI_FIDELITY_REPAIR_ROUNDS} 轮）`,
+      `正在根据业务/界面覆盖检查修复原型（第 ${repairRound}/${MAX_UI_FIDELITY_REPAIR_ROUNDS} 轮）`,
     );
     const changedBeforeRepair = snapshot.changedFileCount;
     const repairOperations = await generateCodeFileOperationsWithRepair(
@@ -4698,22 +5734,22 @@ async function runCodeStagePipeline(
       providerSettings,
       llmTransport,
       buildCodeContext(snapshot),
-      snapshot.agentPlan,
       snapshot.files,
       {
-        appBlueprint,
-        uiBlueprint,
-        uiMockup,
-        uiReferenceSpec,
-        uiIr,
-        filePlan,
+        businessLogic,
+        uiBlueprint: null,
+        loadedCodeSkill,
+        codeSkillContext: skillContext,
         qualityIssues: [
           ...fidelityReport.repairSuggestions,
           ...qualityDiagnostic.issues.map((issue) =>
             `${issue.path ? `${issue.path}：` : ""}${issue.message}`,
           ),
         ],
+        selectedCodeSkills: snapshot.selectedCodeSkills,
+        codeSkillInstructions,
       },
+      "repair_code_files",
     );
     for (const operation of repairOperations.operations) {
       applyCodeOperation(record, snapshot, operation);
@@ -4733,7 +5769,7 @@ async function runCodeStagePipeline(
       break;
     }
 
-    updateStage("verify_code_ui_fidelity", "正在复查原型是否贴合界面设计图");
+    updateStage("verify_code_ui_fidelity", "正在复查原型是否覆盖业务逻辑和界面方案");
     fidelityReport = await verifyCodeUiFidelity(
       record,
       snapshot,
@@ -4803,7 +5839,6 @@ export async function createApiServer(options?: {
   await app.register(cors, {
     origin: createCorsOriginChecker("API_CORS_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS),
   });
-  const codePlanCache: CodePlanCache = new Map();
   app.setErrorHandler((error, request, reply) => {
     request.log.error(error);
     if (error instanceof ZodError) {
@@ -4824,7 +5859,6 @@ export async function createApiServer(options?: {
   });
 
   const llmTransport = options?.llmTransport ?? createRealLlmTransport();
-  const imageClient = options?.imageClient ?? createRealImageGenerationClient();
   const renderServiceBaseUrl =
     options?.renderServiceBaseUrl ?? DEFAULT_RENDER_SERVICE_BASE_URL;
   const renderClient: RenderClient =
@@ -4864,7 +5898,12 @@ export async function createApiServer(options?: {
     const input = startRunRequestSchema.parse(request.body);
     const runId = randomUUID();
     const record: RunRecord = {
-      snapshot: createEmptySnapshot(runId, input.requirementText, input.selectedDiagrams),
+      snapshot: createEmptySnapshot(
+        runId,
+        input.requirementText,
+        input.selectedDiagrams,
+        input.rules,
+      ),
       events: [],
       listeners: new Set(),
       terminal: false,
@@ -4945,10 +5984,7 @@ export async function createApiServer(options?: {
     void runCodeStagePipeline(
       record,
       input.providerSettings,
-      input.imageProviderSettings ?? null,
       llmTransport,
-      imageClient,
-      codePlanCache,
     ).catch((error) => {
       record.snapshot.status = "failed";
       record.snapshot.errorMessage =

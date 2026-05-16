@@ -17,7 +17,7 @@ npm run test:api
 
 Provider 配置约定：
 
-- 前端设置中的 `Base URL` 只填写 `https://your-model-provider.example.com`
+- 前端设置中的 `Base URL` 只填写 `https://<your_api_provider>`
 - API 服务会固定拼接 `/v1/chat/completions`
 - `API Key` 以 `Authorization: Bearer <key>` 方式透传给模型服务
 

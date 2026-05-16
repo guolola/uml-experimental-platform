@@ -10,11 +10,14 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type {
+  CodeBusinessLogic,
   CodeGenerationSpec,
   CodeRunSnapshot,
   CodeUiFidelityReport,
   CodeUiMockup,
   CodeUiReferenceSpec,
+  DesignTraceEntry,
+  RequirementTraceEntry,
   DocumentKind,
   DocumentRunSnapshot,
   DesignDiagramModelSpec,
@@ -69,12 +72,20 @@ interface RunDiagnostics {
   uiMockup: CodeUiMockup | null;
   uiReferenceSpec: CodeUiReferenceSpec | null;
   uiFidelityReport: CodeUiFidelityReport | null;
+  requirementTrace: RequirementTraceEntry[];
+  designTrace: DesignTraceEntry[];
 }
 
 interface WorkspaceSessionState {
   requirementText: string;
   setRequirementText: (value: string) => void;
   rules: RequirementRule[];
+  addRequirementRule: () => void;
+  updateRequirementRule: (
+    id: string,
+    patch: Partial<RequirementRule>,
+  ) => void;
+  deleteRequirementRule: (id: string) => void;
   models: WorkspaceRecord["models"];
   selectedDiagrams: DiagramType[];
   setSelectedDiagrams: (value: DiagramType[]) => void;
@@ -88,11 +99,15 @@ interface WorkspaceSessionState {
   designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
   designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
   codeSpec: CodeGenerationSpec | null;
+  codeBusinessLogic: CodeBusinessLogic | null;
   codeFiles: Record<string, string>;
   codeEntryFile: string | null;
   codeDependencies: Record<string, string>;
   codeUiMockup: CodeUiMockup | null;
   codeAgentPlan: string[];
+  codeSkills: CodeRunSnapshot["selectedCodeSkills"];
+  codeSkillDiagnostics: CodeRunSnapshot["skillDiagnostics"];
+  codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
   updateCodeFile: (path: string, value: string) => void;
   generatedDesignDiagrams: DesignDiagramType[];
@@ -199,6 +214,8 @@ function createEmptyDiagnostics(): RunDiagnostics {
     uiMockup: null,
     uiReferenceSpec: null,
     uiFidelityReport: null,
+    requirementTrace: [],
+    designTrace: [],
   };
 }
 
@@ -209,18 +226,21 @@ function formatStageForDiagnostics(stage: RunStage | null) {
     generate_models: "生成需求模型",
     generate_design_sequence: "生成设计顺序图",
     generate_design_models: "生成设计模型",
+    analyze_code_business_logic: "分析业务逻辑",
     analyze_code_product: "分析业务背景",
     plan_code_ui: "规划界面方案",
     generate_code_ui_mockup: "生成界面设计图",
     analyze_code_ui_mockup: "解析界面设计图",
     generate_code_ui_ir: "生成结构化 UI IR",
+    load_web_design_skill: "加载 ui-ux-pro-max",
+    select_code_skills: "选择 Agent Skills",
     plan_code_files: "规划文件结构",
     generate_code_spec: "生成代码规格",
     generate_code_files: "生成代码文件",
     plan_code: "制定实现步骤",
     write_code_files: "写入原型文件",
     audit_code_quality: "检查原型质量",
-    verify_code_ui_fidelity: "检查设计图还原度",
+    verify_code_ui_fidelity: "检查业务/界面覆盖",
     verify_code_rendered_preview: "验证渲染预览",
     verify_code_preview: "检查预览入口",
     repair_code_files: "修复代码输出",
@@ -238,11 +258,13 @@ function sanitizeDiagnosticText(text: string) {
     ["generate_models", "生成需求模型"],
     ["generate_design_sequence", "生成设计顺序图"],
     ["generate_design_models", "生成设计模型"],
+    ["analyze_code_business_logic", "分析业务逻辑"],
     ["analyze_code_product", "分析业务背景"],
     ["plan_code_ui", "规划界面方案"],
     ["generate_code_ui_mockup", "生成界面设计图"],
     ["analyze_code_ui_mockup", "解析界面设计图"],
     ["generate_code_ui_ir", "生成结构化 UI IR"],
+    ["select_code_skills", "选择 Agent Skills"],
     ["plan_code_files", "规划文件结构"],
     ["generate_code_spec", "生成代码规格"],
     ["generate_code_files", "生成代码文件"],
@@ -263,7 +285,8 @@ function sanitizeDiagnosticText(text: string) {
     ["codeSpec", "代码规格"],
     ["uiMockup", "界面设计图"],
     ["uiReferenceSpec", "界面设计图解析"],
-    ["uiFidelityReport", "设计图还原检查"],
+    ["businessLogic", "业务逻辑"],
+    ["uiFidelityReport", "业务/界面覆盖检查"],
     ["designTokens", "设计 Token"],
     ["componentRegistry", "组件 Registry"],
     ["uiIr", "结构化 UI IR"],
@@ -407,10 +430,14 @@ function getProgressFromEvent(event: RunEvent) {
           return 45;
         case "generate_design_models":
           return 70;
+        case "analyze_code_business_logic":
+          return 18;
         case "analyze_code_product":
           return 18;
         case "plan_code_ui":
           return 34;
+        case "load_web_design_skill":
+          return 48;
         case "generate_code_ui_mockup":
           return 42;
         case "plan_code_files":
@@ -485,11 +512,22 @@ export function WorkspaceSessionProvider({
     WorkspaceRecord["designDiagramErrors"]
   >({});
   const [codeSpec, setCodeSpec] = useState<CodeGenerationSpec | null>(null);
+  const [codeBusinessLogic, setCodeBusinessLogic] =
+    useState<CodeBusinessLogic | null>(null);
   const [codeFiles, setCodeFiles] = useState<Record<string, string>>({});
   const [codeEntryFile, setCodeEntryFile] = useState<string | null>(null);
   const [codeDependencies, setCodeDependencies] = useState<Record<string, string>>({});
   const [codeUiMockup, setCodeUiMockup] = useState<CodeUiMockup | null>(null);
   const [codeAgentPlan, setCodeAgentPlan] = useState<string[]>([]);
+  const [codeSkills, setCodeSkills] = useState<CodeRunSnapshot["selectedCodeSkills"]>(
+    [],
+  );
+  const [codeSkillDiagnostics, setCodeSkillDiagnostics] = useState<
+    CodeRunSnapshot["skillDiagnostics"]
+  >([]);
+  const [codeSkillContext, setCodeSkillContext] = useState<
+    CodeRunSnapshot["codeSkillContext"]
+  >(null);
   const [codeDiagnostics, setCodeDiagnostics] = useState<CodeRunSnapshot["diagnostics"]>(
     [],
   );
@@ -550,11 +588,15 @@ export function WorkspaceSessionProvider({
       setDesignSvgArtifacts(workspace.designSvgArtifacts);
       setDesignDiagramErrors(workspace.designDiagramErrors);
       setCodeSpec(workspace.codeSpec);
+      setCodeBusinessLogic(workspace.codeBusinessLogic);
       setCodeFiles(workspace.codeFiles);
       setCodeEntryFile(workspace.codeEntryFile);
       setCodeDependencies(workspace.codeDependencies);
       setCodeUiMockup(workspace.codeUiMockup);
       setCodeAgentPlan(workspace.codeAgentPlan);
+      setCodeSkills(workspace.codeSkills);
+      setCodeSkillDiagnostics(workspace.codeSkillDiagnostics);
+      setCodeSkillContext(workspace.codeSkillContext);
       setCodeDiagnostics(workspace.codeDiagnostics);
       setGeneratedDiagrams(workspace.generatedDiagramTypes);
       setGeneratedDesignDiagrams(workspace.generatedDesignDiagramTypes);
@@ -591,6 +633,59 @@ export function WorkspaceSessionProvider({
       void repository.updateRequirementText(value);
     },
     [repository],
+  );
+
+  const commitRequirementRules = useCallback(
+    (nextRules: RequirementRule[]) => {
+      setRules(nextRules);
+      setRulesVersion((current) => current + 1);
+      setRulesBasedOnTextVersion(textVersion);
+      void repository.updateRequirementRules?.(nextRules);
+    },
+    [repository, textVersion],
+  );
+
+  const addRequirementRule = useCallback(() => {
+    const maxIndex = rules.reduce((max, rule) => {
+      const match = /^r(\d+)$/i.exec(rule.id);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0);
+    commitRequirementRules([
+      ...rules,
+      {
+        id: `r${maxIndex + 1}`,
+        category: "功能需求",
+        text: "待填写需求项",
+        relatedDiagrams: ["usecase"],
+      },
+    ]);
+  }, [commitRequirementRules, rules]);
+
+  const updateRequirementRule = useCallback(
+    (id: string, patch: Partial<RequirementRule>) => {
+      commitRequirementRules(
+        rules.map((rule) =>
+          rule.id === id
+            ? {
+                ...rule,
+                ...patch,
+                relatedDiagrams:
+                  patch.relatedDiagrams && patch.relatedDiagrams.length > 0
+                    ? patch.relatedDiagrams
+                    : (patch.relatedDiagrams ?? rule.relatedDiagrams),
+              }
+            : rule,
+        ),
+      );
+    },
+    [commitRequirementRules, rules],
+  );
+
+  const deleteRequirementRule = useCallback(
+    (id: string) => {
+      commitRequirementRules(rules.filter((rule) => rule.id !== id));
+    },
+    [commitRequirementRules, rules],
   );
 
   const rulesForDiagram = useCallback(
@@ -731,11 +826,15 @@ export function WorkspaceSessionProvider({
 
   const applyCodeRunSnapshot = useCallback((snapshot: WorkspaceCodeRunSnapshot) => {
     setCodeSpec(snapshot.spec);
+    setCodeBusinessLogic(snapshot.businessLogic);
     setCodeFiles({ ...snapshot.files });
     setCodeEntryFile(snapshot.entryFile);
     setCodeDependencies({ ...snapshot.dependencies });
     setCodeUiMockup(snapshot.uiMockup);
     setCodeAgentPlan([...snapshot.agentPlan]);
+    setCodeSkills([...snapshot.selectedCodeSkills]);
+    setCodeSkillDiagnostics([...snapshot.skillDiagnostics]);
+    setCodeSkillContext(snapshot.codeSkillContext);
     setCodeDiagnostics([...snapshot.diagnostics]);
   }, []);
 
@@ -762,6 +861,17 @@ export function WorkspaceSessionProvider({
           snapshot.status === "completed" || snapshot.status === "failed" ? 100 : 0,
         runMessage: snapshot.status === "completed" ? "已恢复说明书记录" : null,
         errorMessage: snapshot.errorMessage,
+      });
+      setCurrentRunDiagnostics({
+        ...createEmptyDiagnostics(),
+        runKind: "document",
+        runId: snapshot.runId,
+        activeStage: snapshot.currentStage,
+        finishedAt:
+          snapshot.status === "completed" || snapshot.status === "failed"
+            ? new Date().toISOString()
+            : null,
+        streamText: snapshot.errorMessage ?? "",
       });
       return;
     }
@@ -818,10 +928,14 @@ export function WorkspaceSessionProvider({
       setDesignDiagramErrors(snapshot.diagramErrors);
       setGeneratedDesignDiagrams([...snapshot.selectedDiagrams]);
       setCodeSpec(null);
+      setCodeBusinessLogic(null);
       setCodeFiles({});
       setCodeEntryFile(null);
       setCodeDependencies({});
       setCodeAgentPlan([]);
+      setCodeSkills([]);
+      setCodeSkillDiagnostics([]);
+      setCodeSkillContext(null);
       setCodeDiagnostics([]);
     } else {
       const mapped = snapshotToMaps(snapshot);
@@ -846,10 +960,14 @@ export function WorkspaceSessionProvider({
       setDesignDiagramErrors({});
       setGeneratedDesignDiagrams([]);
       setCodeSpec(null);
+      setCodeBusinessLogic(null);
       setCodeFiles({});
       setCodeEntryFile(null);
       setCodeDependencies({});
       setCodeAgentPlan([]);
+      setCodeSkills([]);
+      setCodeSkillDiagnostics([]);
+      setCodeSkillContext(null);
       setCodeDiagnostics([]);
     }
 
@@ -858,6 +976,35 @@ export function WorkspaceSessionProvider({
       runProgress: snapshot.status === "completed" || snapshot.status === "failed" ? 100 : 0,
       runMessage: snapshot.status === "completed" ? "已恢复历史快照" : null,
       errorMessage: snapshot.errorMessage,
+    });
+    setCurrentRunDiagnostics({
+      ...createEmptyDiagnostics(),
+      runKind: isCodeRunSnapshot(snapshot)
+        ? "code"
+        : isDesignRunSnapshot(snapshot)
+          ? "design"
+          : "requirements",
+      runId: snapshot.runId,
+      activeStage: snapshot.currentStage,
+      finishedAt:
+        snapshot.status === "completed" || snapshot.status === "failed"
+          ? new Date().toISOString()
+          : null,
+      streamText: snapshot.errorMessage ?? "",
+      uiMockup: isCodeRunSnapshot(snapshot) ? snapshot.uiMockup : null,
+      uiReferenceSpec: isCodeRunSnapshot(snapshot)
+        ? snapshot.uiReferenceSpec
+        : null,
+      uiFidelityReport: isCodeRunSnapshot(snapshot)
+        ? snapshot.uiFidelityReport
+        : null,
+      requirementTrace:
+        !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot)
+          ? snapshot.requirementTrace ?? []
+          : [],
+      designTrace: isDesignRunSnapshot(snapshot)
+        ? snapshot.designTrace ?? []
+        : [],
     });
   }, [applyCodeRunSnapshot, repository, rulesVersion, textVersion]);
 
@@ -903,14 +1050,27 @@ export function WorkspaceSessionProvider({
     async (diagrams: DiagramType[], mode: RunMode) => {
       const runRequestId = ++runRequestIdRef.current;
       const baseTextVersion = textVersion;
-      const baseInputFingerprint = snapshotInputFingerprint({ requirementText });
+      const rulesForRun = mode.kind === "rules-only" ? [] : rules;
+      const baseInputFingerprint = snapshotInputFingerprint({
+        requirementText,
+        rules: rulesForRun,
+      });
       let lastCompletedSnapshot: WorkspaceRunSnapshot | null = null;
       let runId: string | null = null;
       const startedAtMs = Date.now();
       let providerModel = "";
 
       try {
-        const startInput = createStartRunInput(requirementText, diagrams);
+        const startInput = createStartRunInput(
+          requirementText,
+          diagrams,
+          rulesForRun.filter(
+            (rule) =>
+              rule.id.trim() &&
+              rule.text.trim() &&
+              rule.relatedDiagrams.length > 0,
+          ),
+        );
         providerModel = startInput.providerSettings.model;
         setRunUiState({
           runStatus: "queued",
@@ -972,6 +1132,14 @@ export function WorkspaceSessionProvider({
               event.type === "stage_progress" && event.message
                 ? { ...current.stageMessages, [event.stage]: event.message }
                 : current.stageMessages,
+            designTrace:
+              event.type === "completed" && "designTrace" in event.snapshot
+                ? event.snapshot.designTrace ?? []
+                : current.designTrace,
+            requirementTrace:
+              event.type === "completed" && "requirementTrace" in event.snapshot
+                ? event.snapshot.requirementTrace ?? []
+                : current.requirementTrace,
             events: [...current.events, diagnosticEvent].slice(-80),
           }));
 
@@ -1020,7 +1188,10 @@ export function WorkspaceSessionProvider({
         notifyGenerationCompleted("requirements");
         if (
           baseInputFingerprint !==
-          snapshotInputFingerprint({ requirementText: latestInputRef.current.requirementText })
+          snapshotInputFingerprint({
+            requirementText: latestInputRef.current.requirementText,
+            rules: mode.kind === "rules-only" ? [] : latestInputRef.current.rules,
+          })
         ) {
           notifyGenerationResultStale();
         }
@@ -1031,6 +1202,10 @@ export function WorkspaceSessionProvider({
         if (runId) {
           try {
             const failedSnapshot = await repository.getRunSnapshot(runId);
+            setCurrentRunDiagnostics((current) => ({
+              ...current,
+              requirementTrace: failedSnapshot.requirementTrace ?? current.requirementTrace,
+            }));
             await saveHistorySnapshot(failedSnapshot, {
               providerModel,
               durationMs: Date.now() - startedAtMs,
@@ -1061,7 +1236,7 @@ export function WorkspaceSessionProvider({
         notifyGenerationFailed(error instanceof Error ? `生成失败：${error.message}` : "生成失败");
       }
     },
-    [applyRunSnapshot, repository, requirementText, saveHistorySnapshot, textVersion],
+    [applyRunSnapshot, repository, requirementText, rules, saveHistorySnapshot, textVersion],
   );
 
   const runDesignGeneration = useCallback(
@@ -1152,6 +1327,10 @@ export function WorkspaceSessionProvider({
               event.type === "stage_progress" && event.message
                 ? { ...current.stageMessages, [event.stage]: event.message }
                 : current.stageMessages,
+            designTrace:
+              event.type === "completed" && "designTrace" in event.snapshot
+                ? event.snapshot.designTrace ?? []
+                : current.designTrace,
             events: [...current.events, diagnosticEvent].slice(-80),
           }));
 
@@ -1187,6 +1366,10 @@ export function WorkspaceSessionProvider({
         }
 
         applyDesignRunSnapshot(snapshot, diagrams);
+        setCurrentRunDiagnostics((current) => ({
+          ...current,
+          designTrace: snapshot.designTrace ?? [],
+        }));
         await saveHistorySnapshot(snapshot, {
           providerModel,
           durationMs: Date.now() - startedAtMs,
@@ -1216,6 +1399,10 @@ export function WorkspaceSessionProvider({
           try {
             const failedSnapshot = await repository.getDesignRunSnapshot(runId);
             applyDesignRunSnapshot(failedSnapshot, diagrams);
+            setCurrentRunDiagnostics((current) => ({
+              ...current,
+              designTrace: failedSnapshot.designTrace ?? [],
+            }));
             await saveHistorySnapshot(failedSnapshot, {
               providerModel,
               durationMs: Date.now() - startedAtMs,
@@ -1287,11 +1474,18 @@ export function WorkspaceSessionProvider({
       if (availableDesignModels.length === 0) {
         throw new Error("请先生成设计模型，再生成前端原型代码");
       }
+      const availableDesignPlantUml = Object.entries(designPlantUml)
+        .filter(([, source]) => source.trim().length > 0)
+        .map(([diagramKind, source]) => ({
+          diagramKind: diagramKind as DesignDiagramType,
+          source,
+        }));
 
       const startInput = createStartCodeRunInput(
         requirementText,
         rules,
         availableDesignModels,
+        availableDesignPlantUml,
         codeFiles,
         generationMode,
       );
@@ -1336,6 +1530,14 @@ export function WorkspaceSessionProvider({
         }
         if (event.type === "artifact_ready" && event.artifactKind === "uiMockup") {
           setCodeUiMockup(event.uiMockup ?? null);
+        }
+        if (event.type === "artifact_ready" && event.artifactKind === "codeSkills") {
+          setCodeSkills(event.codeSkills ?? []);
+          setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
+        }
+        if (event.type === "artifact_ready" && event.artifactKind === "codeSkillContext") {
+          setCodeSkillContext(event.codeSkillContext ?? null);
+          setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
         }
         const diagnosticEvent = summarizeEvent(event);
         setCurrentRunDiagnostics((current) => ({
@@ -1818,6 +2020,9 @@ export function WorkspaceSessionProvider({
       requirementText,
       setRequirementText,
       rules,
+      addRequirementRule,
+      updateRequirementRule,
+      deleteRequirementRule,
       models,
       selectedDiagrams,
       setSelectedDiagrams,
@@ -1831,11 +2036,15 @@ export function WorkspaceSessionProvider({
       designSvgArtifacts,
       designDiagramErrors,
       codeSpec,
+      codeBusinessLogic,
       codeFiles,
       codeEntryFile,
       codeDependencies,
       codeUiMockup,
       codeAgentPlan,
+      codeSkills,
+      codeSkillDiagnostics,
+      codeSkillContext,
       codeDiagnostics,
       updateCodeFile,
       generatedDesignDiagrams,
@@ -1870,6 +2079,9 @@ export function WorkspaceSessionProvider({
       requirementText,
       setRequirementText,
       rules,
+      addRequirementRule,
+      updateRequirementRule,
+      deleteRequirementRule,
       models,
       selectedDiagrams,
       plantUml,
@@ -1881,11 +2093,15 @@ export function WorkspaceSessionProvider({
       designSvgArtifacts,
       designDiagramErrors,
       codeSpec,
+      codeBusinessLogic,
       codeFiles,
       codeEntryFile,
       codeDependencies,
       codeUiMockup,
       codeAgentPlan,
+      codeSkills,
+      codeSkillDiagnostics,
+      codeSkillContext,
       codeDiagnostics,
       updateCodeFile,
       generatedDesignDiagrams,

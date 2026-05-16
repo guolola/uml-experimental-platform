@@ -1,6 +1,7 @@
 import type {
   DesignDiagramModelSpec,
   CodeGenerationSpec,
+  CodeBusinessLogic,
   CodeRunSnapshot,
   CodeUiMockup,
   DesignRunSnapshot,
@@ -39,11 +40,15 @@ export interface WorkspaceRecord {
   designSvgArtifacts: Partial<Record<DesignDiagramType, DesignSvgArtifact>>;
   designDiagramErrors: Partial<Record<DesignDiagramType, DiagramError>>;
   codeSpec: CodeGenerationSpec | null;
+  codeBusinessLogic: CodeBusinessLogic | null;
   codeFiles: Record<string, string>;
   codeEntryFile: string | null;
   codeDependencies: Record<string, string>;
   codeUiMockup: CodeUiMockup | null;
   codeAgentPlan: string[];
+  codeSkills: CodeRunSnapshot["selectedCodeSkills"];
+  codeSkillDiagnostics: CodeRunSnapshot["skillDiagnostics"];
+  codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
   rulesVersion: number;
   rulesBasedOnTextVersion: number | null;

@@ -106,7 +106,18 @@ export function Shell() {
       body = <DesignModelPage />;
       break;
     case "design-diagram":
-      body = <DesignDiagramView type={selection.diagram} />;
+      body = <DesignDiagramView type={selection.diagram} highlightedElement={null} />;
+      break;
+    case "design-diagram-element":
+      body = (
+        <DesignDiagramView
+          type={selection.diagram}
+          highlightedElement={{
+            kind: selection.elementKind,
+            id: selection.elementId,
+          }}
+        />
+      );
       break;
     case "workspace-placeholder":
       body =

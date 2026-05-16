@@ -21,7 +21,7 @@ describe("createStartRunInput", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
-        apiBaseUrl: "https://your-model-provider.example.com",
+        apiBaseUrl: "https://ai.comfly.org",
         apiKey: "",
         defaultModel: "gpt-5.5",
         fontSize: "md",
@@ -39,7 +39,7 @@ describe("createStartRunInput", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
-        apiBaseUrl: "https://your-model-provider.example.com/v1/chat/completions",
+        apiBaseUrl: "https://ai.comfly.org/v1/chat/completions",
         apiKey: "sk-demo",
         defaultModel: "gpt-5.5",
         imageModel: "nano-banana-pro",
@@ -51,7 +51,7 @@ describe("createStartRunInput", () => {
 
     expect(createStartRunInput("生成 UML", ["usecase"])).toMatchObject({
       providerSettings: {
-        apiBaseUrl: "https://your-model-provider.example.com",
+        apiBaseUrl: "https://ai.comfly.org",
         apiKey: "sk-demo",
         model: "gpt-5.5",
       },
@@ -62,7 +62,7 @@ describe("createStartRunInput", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
-        apiBaseUrl: "https://your-model-provider.example.com",
+        apiBaseUrl: "https://ai.comfly.org",
         apiKey: "sk-demo",
         defaultModel: "gpt-5.5",
         imageModel: "nano-banana-pro",
@@ -86,15 +86,16 @@ describe("createStartRunInput", () => {
           fragments: [],
         },
       ],
+      [],
       { "/src/App.tsx": "export default function App() { return null; }" },
     );
 
     expect(input.existingFiles["/src/App.tsx"]).toContain("return null");
-    expect(input.imageProviderSettings).toMatchObject({
-      apiBaseUrl: "https://your-model-provider.example.com",
+    expect(input.providerSettings).toMatchObject({
+      apiBaseUrl: "https://ai.comfly.org",
       apiKey: "sk-demo",
-      model: "nano-banana-pro",
     });
+    expect("imageProviderSettings" in input).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Boxes,
   CheckCircle2,
+  Copy,
   Download,
   FileCode2,
   FileText,
@@ -15,7 +16,12 @@ import {
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { RunSnapshot, RunStage } from "@uml-platform/contracts";
+import type {
+  DesignTraceEntry,
+  RequirementTraceEntry,
+  RunSnapshot,
+  RunStage,
+} from "@uml-platform/contracts";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { SettingsDialog } from "../../settings/components/settings-dialog";
@@ -63,18 +69,21 @@ const STAGE_LABELS: Record<RunStage, string> = {
   generate_models: "生成需求模型",
   generate_design_sequence: "生成设计顺序图",
   generate_design_models: "生成设计模型",
+  analyze_code_business_logic: "分析业务逻辑",
   analyze_code_product: "分析业务背景",
   plan_code_ui: "规划界面方案",
   generate_code_ui_mockup: "生成界面设计图",
   analyze_code_ui_mockup: "解析界面设计图",
   generate_code_ui_ir: "生成结构化 UI IR",
+  load_web_design_skill: "加载 ui-ux-pro-max",
+  select_code_skills: "选择 Agent Skills",
   plan_code_files: "规划文件结构",
   generate_code_spec: "生成代码规格",
   generate_code_files: "生成代码文件",
   plan_code: "制定实现步骤",
   write_code_files: "写入原型文件",
   audit_code_quality: "检查原型质量",
-  verify_code_ui_fidelity: "检查设计图还原度",
+  verify_code_ui_fidelity: "检查业务/界面覆盖",
   verify_code_rendered_preview: "验证渲染预览",
   verify_code_preview: "检查预览入口",
   repair_code_files: "修复代码输出",
@@ -98,14 +107,9 @@ const STAGES_BY_KIND: Record<RunKind, RunStage[]> = {
     "render_svg",
   ],
   code: [
-    "analyze_code_product",
+    "analyze_code_business_logic",
     "plan_code_ui",
-    "generate_code_ui_mockup",
-    "analyze_code_ui_mockup",
-    "generate_code_ui_ir",
-    "plan_code_files",
-    "plan_code",
-    "write_code_files",
+    "generate_code_files",
     "audit_code_quality",
     "verify_code_ui_fidelity",
     "verify_code_rendered_preview",
@@ -127,11 +131,13 @@ function sanitizeTaskText(text: string | null | undefined) {
     ["generate_models", "生成需求模型"],
     ["generate_design_sequence", "生成设计顺序图"],
     ["generate_design_models", "生成设计模型"],
+    ["analyze_code_business_logic", "分析业务逻辑"],
     ["analyze_code_product", "分析业务背景"],
     ["plan_code_ui", "规划界面方案"],
     ["generate_code_ui_mockup", "生成界面设计图"],
     ["analyze_code_ui_mockup", "解析界面设计图"],
     ["generate_code_ui_ir", "生成结构化 UI IR"],
+    ["select_code_skills", "选择 Agent Skills"],
     ["plan_code_files", "规划文件结构"],
     ["generate_code_spec", "生成代码规格"],
     ["generate_code_files", "生成代码文件"],
@@ -153,7 +159,8 @@ function sanitizeTaskText(text: string | null | undefined) {
     ["llm_chunk", "收到模型输出"],
     ["uiMockup", "界面设计图"],
     ["uiReferenceSpec", "界面设计图解析"],
-    ["uiFidelityReport", "设计图还原检查"],
+    ["businessLogic", "业务逻辑"],
+    ["uiFidelityReport", "业务/界面覆盖检查"],
     ["designTokens", "设计 Token"],
     ["componentRegistry", "组件 Registry"],
     ["uiIr", "结构化 UI IR"],
@@ -171,6 +178,44 @@ function getTaskStages(kind: RunKind | null, activeStage: RunStage | null) {
     base.push(activeStage);
   }
   return base;
+}
+
+const TRACE_KIND_LABELS: Record<DesignTraceEntry["kind"], string> = {
+  llm_output: "模型原始返回",
+  parse_error: "解析错误",
+  parsed_model: "解析后的模型",
+  plantuml_source: "PlantUML 源码",
+  render_error: "渲染错误",
+  repair_output: "修复原始返回",
+  repaired_plantuml: "修复后 PlantUML",
+};
+
+function formatDesignTraceEntryTitle(entry: DesignTraceEntry) {
+  return [
+    formatStageLabel(entry.stage),
+    entry.diagramKind ?? "全局",
+    `第 ${entry.attempt} 次`,
+    TRACE_KIND_LABELS[entry.kind],
+  ].join(" / ");
+}
+
+function formatRequirementTraceEntryTitle(entry: RequirementTraceEntry) {
+  return [
+    formatStageLabel(entry.stage),
+    entry.diagramKind ?? "全局",
+    `第 ${entry.attempt} 次`,
+    TRACE_KIND_LABELS[entry.kind],
+  ].join(" / ");
+}
+
+function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry) {
+  if (entry.rawOutput) return entry.rawOutput;
+  if (entry.plantUmlSource) return entry.plantUmlSource;
+  if (entry.errorMessage) return entry.errorMessage;
+  if (entry.parsedData !== undefined) {
+    return JSON.stringify(entry.parsedData, null, 2);
+  }
+  return "无详细内容";
 }
 
 export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
@@ -211,6 +256,17 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
     : -1;
   const uiMockup = currentRunDiagnostics.uiMockup;
   const uiMockupImage = uiMockup?.imageUrl ?? uiMockup?.imageDataUrl ?? null;
+  const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
+  const designTraceEntries = currentRunDiagnostics.designTrace;
+
+  const copyTraceEntry = async (entry: DesignTraceEntry | RequirementTraceEntry) => {
+    try {
+      await navigator.clipboard.writeText(getTraceEntryBody(entry));
+      toast.success("已复制追踪内容");
+    } catch {
+      toast.error("复制失败");
+    }
+  };
 
   const currentSnapshot = (): RunSnapshot => ({
     runId: "workspace-current",
@@ -221,6 +277,7 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
     plantUml: [],
     svgArtifacts: Object.values(svgArtifacts).filter((artifact) => !!artifact),
     diagramErrors,
+    requirementTrace: [],
     currentStage: null,
     status: runStatus === "idle" ? "completed" as const : runStatus,
     errorMessage,
@@ -456,6 +513,132 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
                         .join("；")}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {requirementTraceEntries.length > 0 && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <FileCode2 className="size-3.5" />
+                  需求调试追踪
+                </div>
+                <div className="space-y-2">
+                  {requirementTraceEntries.map((entry, index) => {
+                    const body = getTraceEntryBody(entry);
+                    const errorSummary = entry.errorMessage
+                      ? sanitizeTaskText(entry.errorMessage).slice(0, 120)
+                      : null;
+                    return (
+                      <details
+                        key={`${entry.stage}:${entry.diagramKind ?? "all"}:${entry.attempt}:${entry.kind}:${index}`}
+                        className="rounded-md border border-border bg-background p-3 text-sm"
+                      >
+                        <summary className="cursor-pointer list-none">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">
+                                {formatRequirementTraceEntryTitle(entry)}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <Badge variant="outline">
+                                  {TRACE_KIND_LABELS[entry.kind]}
+                                </Badge>
+                                <span>
+                                  {new Date(entry.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              {errorSummary && (
+                                <div className="mt-1 text-xs text-destructive">
+                                  {errorSummary}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 shrink-0"
+                              title="复制追踪内容"
+                              aria-label="复制追踪内容"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void copyTraceEntry(entry);
+                              }}
+                            >
+                              <Copy className="size-4" />
+                            </Button>
+                          </div>
+                        </summary>
+                        <pre className="mt-3 max-h-52 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100">
+                          {sanitizeTaskText(body)}
+                        </pre>
+                      </details>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {designTraceEntries.length > 0 && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <FileCode2 className="size-3.5" />
+                  设计调试追踪
+                </div>
+                <div className="space-y-2">
+                  {designTraceEntries.map((entry, index) => {
+                    const body = getTraceEntryBody(entry);
+                    const errorSummary = entry.errorMessage
+                      ? sanitizeTaskText(entry.errorMessage).slice(0, 120)
+                      : null;
+                    return (
+                      <details
+                        key={`${entry.stage}:${entry.diagramKind ?? "all"}:${entry.attempt}:${entry.kind}:${index}`}
+                        className="rounded-md border border-border bg-background p-3 text-sm"
+                      >
+                        <summary className="cursor-pointer list-none">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">
+                                {formatDesignTraceEntryTitle(entry)}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <Badge variant="outline">
+                                  {TRACE_KIND_LABELS[entry.kind]}
+                                </Badge>
+                                <span>
+                                  {new Date(entry.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              {errorSummary && (
+                                <div className="mt-1 text-xs text-destructive">
+                                  {errorSummary}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 shrink-0"
+                              title="复制追踪内容"
+                              aria-label="复制追踪内容"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void copyTraceEntry(entry);
+                              }}
+                            >
+                              <Copy className="size-4" />
+                            </Button>
+                          </div>
+                        </summary>
+                        <pre className="mt-3 max-h-52 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100">
+                          {sanitizeTaskText(body)}
+                        </pre>
+                      </details>
+                    );
+                  })}
                 </div>
               </div>
             )}

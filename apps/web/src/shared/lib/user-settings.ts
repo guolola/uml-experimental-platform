@@ -13,7 +13,7 @@ export type UserSettings = {
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
-  apiBaseUrl: "https://your-model-provider.example.com",
+  apiBaseUrl: "https://ai.comfly.org",
   apiKey: "",
   defaultModel: DEFAULT_MODEL_ID,
   imageModel: "gpt-image-2",

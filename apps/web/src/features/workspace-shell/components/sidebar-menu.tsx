@@ -240,6 +240,12 @@ function buildDesignDiagramNode(
   model: ReturnType<typeof useWorkspaceSession>["designModels"][DesignDiagramType],
   failed: boolean,
   openDesignDiagram: (diagram: DesignDiagramType) => void,
+  openDesignDiagramElement: (
+    diagram: DesignDiagramType,
+    elementKind: string,
+    elementId: string,
+    label: string,
+  ) => void,
 ): Node {
   const detail = buildDiagramDetailModel(model);
   const children: Node[] = detail.groups.map((group) => ({
@@ -251,7 +257,8 @@ function buildDesignDiagramNode(
       key: `design-diagram-element:${diagram}:${element.kind}:${element.id}`,
       label: element.label,
       icon: KIND_ICON[element.kind],
-      onSelect: () => openDesignDiagram(diagram),
+      onSelect: () =>
+        openDesignDiagramElement(diagram, element.kind, element.id, element.label),
     })),
   }));
 
@@ -293,6 +300,7 @@ export function SidebarMenu() {
     openDiagram,
     openDesignHome,
     openDesignDiagram,
+    openDesignDiagramElement,
     openDiagramElement,
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
@@ -351,6 +359,7 @@ export function SidebarMenu() {
             designModels[diagram],
             Boolean(designDiagramErrors[diagram]),
             openDesignDiagram,
+            openDesignDiagramElement,
           ),
         ),
       ],

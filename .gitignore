@@ -45,6 +45,11 @@ dev-implementation*.log
 vite-web*.log
 .codex-web-dev*.log
 apps/web/.codex-vite*.log
+*.heapsnapshot
+*.network-request
+*.network-response
+trace*.json
+trace*.json.gz
 frontend-prototype.sandpack.json
 uml-run-snapshot.json
 uml-run-report.md
@@ -61,3 +66,5 @@ plantuml/**
 !plantuml/build/
 !plantuml/build/libs/
 !plantuml/build/libs/plantuml-1.2026.3beta8.jar
+
+opencode/**

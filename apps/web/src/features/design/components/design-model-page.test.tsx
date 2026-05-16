@@ -59,6 +59,7 @@ describe("DesignModelPage", () => {
         },
       ],
       diagramErrors: {},
+      designTrace: [],
       currentStage: "render_svg",
       status: "completed",
       errorMessage: null,

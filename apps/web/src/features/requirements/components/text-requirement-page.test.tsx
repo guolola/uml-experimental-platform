@@ -172,6 +172,7 @@ describe("TextRequirementView", () => {
       expect(startRun).toHaveBeenCalledWith(
         expect.objectContaining({
           selectedDiagrams: ["usecase"],
+          rules: [createRule()],
         }),
       );
     });

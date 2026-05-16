@@ -24,6 +24,13 @@ export type WorkspaceSelection =
   | { kind: "design-home"; label: string }
   | { kind: "design-diagram"; diagram: DesignDiagramType; label: string }
   | {
+      kind: "design-diagram-element";
+      diagram: DesignDiagramType;
+      elementKind: string;
+      elementId: string;
+      label: string;
+    }
+  | {
       kind: "diagram-element";
       diagram: DiagramType;
       elementKind: string;
@@ -55,6 +62,12 @@ interface WorkspaceShellState {
   openDiagram: (diagram: DiagramType) => void;
   openDesignHome: () => void;
   openDesignDiagram: (diagram: DesignDiagramType) => void;
+  openDesignDiagramElement: (
+    diagram: DesignDiagramType,
+    elementKind: string,
+    elementId: string,
+    label: string,
+  ) => void;
   openDiagramElement: (
     diagram: DiagramType,
     elementKind: string,
@@ -79,6 +92,7 @@ function tabIdForSelection(selection: WorkspaceSelection) {
     case "design-home":
       return "design";
     case "design-diagram":
+    case "design-diagram-element":
       return `design-diagram:${selection.diagram}`;
     case "workspace-placeholder":
       return `workspace:${selection.workspaceId}`;
@@ -95,6 +109,7 @@ function tabLabelForSelection(selection: WorkspaceSelection) {
     case "design-home":
       return "设计";
     case "design-diagram":
+    case "design-diagram-element":
       return DESIGN_DIAGRAM_META[selection.diagram].label;
     case "workspace-placeholder":
       return selection.label;
@@ -186,6 +201,24 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     });
   }, [openWorkspaceTab]);
 
+  const openDesignDiagramElement = useCallback(
+    (
+      diagram: DesignDiagramType,
+      elementKind: string,
+      elementId: string,
+      label: string,
+    ) => {
+      openWorkspaceTab({
+        kind: "design-diagram-element",
+        diagram,
+        elementKind,
+        elementId,
+        label,
+      });
+    },
+    [openWorkspaceTab],
+  );
+
   const openDiagramElement = useCallback(
     (
       diagram: DiagramType,
@@ -230,6 +263,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openDiagram,
       openDesignHome,
       openDesignDiagram,
+      openDesignDiagramElement,
       openDiagramElement,
       openWorkspacePlaceholder,
     }),
@@ -245,6 +279,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openDiagram,
       openDesignHome,
       openDesignDiagram,
+      openDesignDiagramElement,
       openDiagramElement,
       openWorkspacePlaceholder,
       historyDrawerOpen,
@@ -277,6 +312,8 @@ export function getSelectionKey(selection: WorkspaceSelection) {
       return "design";
     case "design-diagram":
       return `design-diagram:${selection.diagram}`;
+    case "design-diagram-element":
+      return `design-diagram-element:${selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "diagram-element":
       return `diagram-element:${selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "workspace-placeholder":

@@ -6,8 +6,12 @@ import type {
   DocumentKind,
   RequirementRule,
   CodeAppBlueprint,
+  CodeBusinessLogic,
   CodeFilePlan,
   CodeGenerationSpec,
+  LoadedCodeSkill,
+  CodeSkillSelection,
+  CodeSkillContext,
   CodeUiBlueprint,
   CodeUiMockup,
   CodeUiIr,
@@ -26,6 +30,16 @@ function truncateForPrompt(value: string, maxChars: number) {
 
 function stringifyForPrompt(value: unknown, maxChars: number) {
   return truncateForPrompt(JSON.stringify(value, null, 2), maxChars);
+}
+
+function formatSelectedCodeSkillsForPrompt(
+  selectedCodeSkills: CodeSkillSelection[] | undefined,
+  maxChars = 12000,
+) {
+  if (!selectedCodeSkills || selectedCodeSkills.length === 0) {
+    return "[]";
+  }
+  return stringifyForPrompt(selectedCodeSkills, maxChars);
 }
 
 function compactCodeContextForUiMockup(codeContext: unknown) {
@@ -78,12 +92,13 @@ export function buildGenerateModelsPrompt(
   selectedDiagrams: DiagramKind[],
 ) {
   return [
-    "请根据原始需求和需求规则生成 UML 结构化模型。",
+    "请根据已确认的需求项生成 UML 结构化模型；原始需求只作为背景，不得覆盖需求项。",
     "返回 JSON 对象，格式必须是 {\"models\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     "每个 model 必须包含：diagramKind, title, summary, notes，以及对应图类型要求的强类型字段。",
     "notes 必须是字符串数组，不能是对象数组。",
-    "你必须从需求规则中提取参与者、约束、功能点、流程和部署信息，不能依赖不存在的 SRS 字段。",
+    "你必须从需求项中提取参与者、约束、功能点、流程和部署信息，不能依赖不存在的 SRS 字段。",
+    "如果原始需求与需求项冲突，必须以需求项的编号、分类和文本为准。",
     REQUIREMENT_STAGE_SEMANTICS,
     "只生成以下图类型：",
     selectedDiagrams.join(", "),
@@ -124,7 +139,7 @@ export function buildGenerateModelsPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项（后续模型生成的唯一权威基线）：",
     JSON.stringify(rules, null, 2),
   ].join("\n");
 }
@@ -142,6 +157,7 @@ export function buildRepairModelsPrompt(
     "返回格式必须是 {\"models\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何额外文字。",
     "只修复 JSON 结构问题，不要改变原有业务语义。",
+    "已确认需求项是唯一权威基线；原始需求只作为背景，不得覆盖需求项。",
     REQUIREMENT_STAGE_SEMANTICS,
     "notes 必须是字符串数组，不能是对象数组。",
     "diagramKind 只能使用: usecase, class, activity, deployment。",
@@ -157,7 +173,7 @@ export function buildRepairModelsPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "上一次模型输出：",
@@ -183,6 +199,9 @@ const DESIGN_MODEL_SCHEMA_INSTRUCTIONS = [
   "  participants[].字段：id, name, participantType(actor|boundary|control|entity|service|database|external), description(可选)。",
   "  messages[].字段：id, type(sync|async|return|create|destroy), sourceId, targetId, name, parameters(string[]), returnValue(可选), condition(可选), description(可选)。",
   "  fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选)。",
+  "- 所有设计模型都必须包含 notes 字段，且 notes 永远是字符串数组；没有备注时输出 []，不要输出字符串。",
+  "- sequence.messages[].type 只能使用 sync|async|return|create|destroy；response/reply/result 必须写 return，request/call 必须写 sync，event/notify 必须写 async。",
+  "- class.classes[].classKind 只能使用 entity|aggregate|valueObject|service|other；不确定时用 other 或省略，不能输出中文、自造枚举或 controller 等非枚举值。",
   "- activity/class/deployment 必须沿用需求阶段对应图的强类型字段，不允许输出通用 nodes/relations 旧结构。",
   "- table: 必须包含 tables, relationships。",
   "  tables[].字段：id, name, description(可选), columns(array)。",
@@ -201,18 +220,19 @@ export function buildGenerateDesignSequencePrompt(
   useCaseModel: DiagramModelSpec,
 ) {
   return [
-    "请根据需求阶段用例模型生成设计阶段顺序图结构化模型。",
+    "请根据已确认需求项和需求阶段用例模型生成设计阶段顺序图结构化模型。",
     "返回 JSON 对象，格式必须是 {\"models\":[...]}，且只包含一个 diagramKind 为 sequence 的模型。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     DESIGN_STAGE_SEMANTICS,
     DESIGN_MODEL_SCHEMA_INSTRUCTIONS,
+    "已确认需求项是设计阶段的权威基线；原始需求只作为背景，不得覆盖需求项。",
     "顺序图必须把用例中的角色、系统边界和关键用例转化为对象间方法调用时序。",
-    "必须包含主要正常流程；如需求规则中存在异常处理或扩展条件，也要用消息或片段表达。",
+    "必须包含主要正常流程；如已确认需求项中存在异常处理或扩展条件，也要用消息或片段表达。",
     "",
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "需求阶段用例模型：",
@@ -228,11 +248,12 @@ export function buildGenerateDesignModelsPrompt(
   selectedDiagrams: DesignDiagramKind[],
 ) {
   return [
-    "请根据需求阶段模型和设计阶段顺序图生成设计阶段 UML 结构化模型。",
+    "请根据已确认需求项、需求阶段模型和设计阶段顺序图生成设计阶段 UML 结构化模型。",
     "返回 JSON 对象，格式必须是 {\"models\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     DESIGN_STAGE_SEMANTICS,
     DESIGN_MODEL_SCHEMA_INSTRUCTIONS,
+    "已确认需求项是设计阶段的权威基线；原始需求只作为背景，不得覆盖需求项。",
     "只生成以下设计图类型：",
     selectedDiagrams.join(", "),
     "",
@@ -245,7 +266,7 @@ export function buildGenerateDesignModelsPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "需求阶段来源模型：",
@@ -268,7 +289,8 @@ export function buildRepairDesignModelsPrompt(
     "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
     "返回格式必须是 {\"models\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何额外文字。",
-    "只修复 JSON 结构问题，不要改变原有业务语义。",
+    "请严格按错误路径逐项修复 JSON 结构问题，不要改变原有业务语义。",
+    "已确认需求项是设计阶段的权威基线；原始需求只作为背景，不得覆盖需求项。",
     DESIGN_STAGE_SEMANTICS,
     DESIGN_MODEL_SCHEMA_INSTRUCTIONS,
     "只生成以下设计图类型：",
@@ -277,7 +299,7 @@ export function buildRepairDesignModelsPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "上一次模型输出：",
@@ -292,7 +314,7 @@ const CODE_GENERATION_SEMANTICS = [
   "代码生成阶段职责：",
   "- 第一版只生成可运行的前端原型，不生成真实后端、数据库迁移或完整仓库补丁。",
   "- 外层代码页属于 UML 实验平台，但 Sandpack 内生成的业务原型必须契合用户需求背景，而不是套用 UML 实验平台视觉风格。",
-  "- 必须从 requirementText、需求规则和设计模型推导业务主题、领域文案、信息架构和视觉语言；校园活动、医疗预约、仓储管理、图书借阅、在线商城等应呈现不同 UI 气质。",
+  "- 必须从已确认需求项和设计模型推导业务主题、领域文案、信息架构和视觉语言；requirementText 只作为背景，校园活动、医疗预约、仓储管理、图书借阅、在线商城等应呈现不同 UI 气质。",
   "- 生成的业务原型要低噪声、可读、可操作，不要营销页式空壳；但不要强制蓝色、低饱和或工程工作台风格，除非需求背景本身适合。",
   "- 顺序图(sequence) -> 用户操作流程、事件处理函数、API/mock 调用顺序。",
   "- 设计类图(class) -> TypeScript types、domain model、service 层、状态结构。",
@@ -307,7 +329,7 @@ export function buildGenerateCodeSpecPrompt(
   designModels: DesignDiagramModelSpec[],
 ) {
   return [
-    "请根据设计阶段 UML 结构化模型生成前端原型代码规格。",
+    "请根据已确认需求项和设计阶段 UML 结构化模型生成前端原型代码规格。",
     "返回 JSON 对象，格式必须是 {\"spec\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -327,7 +349,7 @@ export function buildGenerateCodeSpecPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "设计阶段模型：",
@@ -341,7 +363,7 @@ export function buildGenerateCodeAppBlueprintPrompt(
   designModels: DesignDiagramModelSpec[],
 ) {
   return [
-    "请作为产品架构师，根据需求、规则和设计模型规划前端原型的业务应用蓝图。",
+    "请作为产品架构师，根据已确认需求项和设计模型规划前端原型的业务应用蓝图。",
     "返回 JSON 对象，格式必须是 {\"appBlueprint\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -358,7 +380,7 @@ export function buildGenerateCodeAppBlueprintPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "设计阶段模型：",
@@ -366,12 +388,62 @@ export function buildGenerateCodeAppBlueprintPrompt(
   ].join("\n");
 }
 
-export function buildGenerateCodeUiBlueprintPrompt(
-  codeContext: unknown,
-  appBlueprint: CodeAppBlueprint,
+export function buildAnalyzeCodeBusinessLogicPrompt(
+  requirementText: string,
+  rules: RequirementRule[],
+  designModels: DesignDiagramModelSpec[],
+  designPlantUml: unknown[] = [],
 ) {
   return [
-    "请作为产品界面设计师，为前端原型制定界面方案。",
+    "请作为前端业务逻辑分析器，从已确认需求项、设计模型和 PlantUML 中抽取代码生成必须遵守的业务事实；原始需求只作为背景。",
+    "返回 JSON 对象，格式必须是 {\"businessLogic\":{...}}。",
+    "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
+    CODE_GENERATION_SEMANTICS,
+    "",
+    "businessLogic 字段结构：",
+    "- appName: 业务原型名称，必须来自需求语义，缺失时用中性业务名。",
+    "- domainSummary: 业务领域、目标用户和核心价值的一句话总结。",
+    "- coreWorkflow: 前端原型必须覆盖的核心业务闭环。",
+    "- actors[]: id, name, type, responsibilities[]。",
+    "- businessEntities[]: id, name, description, fields[], relationships[]。",
+    "- pageFlows[]: id, name, route, purpose, actors[], entryPoints[], userActions[], states[], sourceRefs[]。",
+    "- stateMachines[]: entity, states[], transitions[]。",
+    "- permissions[]: actor, allowedActions[], restrictedActions[]。",
+    "- edgeCases[]: 异常、空态、失败、权限不足等前端必须表达的分支。",
+    "- frontendOperations[]: 前端必须实现的操作，例如筛选、创建、审批、提交、切换状态、查看详情。",
+    "- plantUmlTraceability[]: 简述这些业务事实来自哪些图、类、消息、活动节点或表。",
+    "- coreWorkflow 必须是一个字符串，不要输出数组；多个步骤用中文分号合并成一句。",
+    "- fields、relationships、transitions、edgeCases、frontendOperations、plantUmlTraceability 必须全部是字符串数组，不要输出对象数组。",
+    "- fields 示例：fields: [\"id:string\", \"status:待审核|已通过\"]，不要输出 {\"name\":\"id\",\"type\":\"string\"}。",
+    "- 复杂关系、状态迁移、异常分支、前端操作和溯源也要压成一句字符串，例如 transitions: [\"提交报名 -> 待审核：创建报名记录\"]。",
+    "",
+    "强约束：",
+    "- 这一步不是 skill，而是代码生成必做的 function calling。",
+    "- 已确认需求项是唯一权威基线；如果原始需求与需求项冲突，必须以需求项为准。",
+    "- 必须把 sequence/activity/class/table/usecase 中能影响页面行为的数据关系、状态和异常分支落到 businessLogic。",
+    "- pageFlows 至少 2 个页面，简单需求也要包含总览/核心流程；route 必须以 / 开头。",
+    "- 不要输出 UI 风格建议；视觉主题由下一步 plan_code_ui 决定。",
+    "",
+    "原始需求：",
+    requirementText,
+    "",
+    "已确认需求项：",
+    stringifyForPrompt(rules, 12000),
+    "",
+    "设计阶段模型：",
+    stringifyForPrompt(designModels, 20000),
+    "",
+    "PlantUML 源：",
+    stringifyForPrompt(designPlantUml, 16000),
+  ].join("\n");
+}
+
+export function buildGenerateCodeUiBlueprintPrompt(
+  codeContext: unknown,
+  businessLogicOrAppBlueprint: CodeBusinessLogic | CodeAppBlueprint,
+) {
+  return [
+    "请作为产品界面设计师，根据业务逻辑制定前端原型界面方案。",
     "返回 JSON 对象，格式必须是 {\"uiBlueprint\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -383,13 +455,18 @@ export function buildGenerateCodeUiBlueprintPrompt(
     "- layoutPrinciples[]: 布局原则，必须服务于业务操作效率。",
     "- componentGuidelines[]: 表格、表单、状态、详情、列表等组件风格规则。",
     "- stateGuidelines[]: 空状态、加载、错误、成功、选中态等页面状态规则。",
-    "避免空壳营销页、单调卡片堆叠和 UML 实验平台默认工作台风格。",
+    "",
+    "强约束：",
+    "- 这一步不是 skill，而是从业务逻辑确定界面方案的必做 function calling。",
+    "- 主题风格、布局密度、导航模型和状态表达必须从 businessLogic 的领域、角色、页面流程、状态机和异常分支推导。",
+    "- 避免空壳营销页、单调卡片堆叠和 UML 实验平台默认工作台风格。",
+    "- 不要生成 UI IR、文件计划或代码；ui-ux-pro-max 会在下一步直接生成前端代码。",
     "",
     "精简代码上下文：",
-    JSON.stringify(codeContext, null, 2),
+    stringifyForPrompt(codeContext, 12000),
     "",
-    "应用蓝图：",
-    JSON.stringify(appBlueprint, null, 2),
+    "业务逻辑：",
+    stringifyForPrompt(businessLogicOrAppBlueprint, 12000),
   ].join("\n");
 }
 
@@ -584,6 +661,7 @@ export function buildGenerateCodeFilePlanPrompt(
   uiReferenceSpec: CodeUiReferenceSpec | null,
   uiIr: CodeUiIr | null,
   existingFiles: Record<string, string>,
+  selectedCodeSkills: CodeSkillSelection[] = [],
 ) {
   return [
     "请作为 React 文件架构师，为 Sandpack 前端原型规划文件树。",
@@ -601,6 +679,10 @@ export function buildGenerateCodeFilePlanPrompt(
     "- 禁止把主要 UI 全塞进 /src/App.tsx 或单个 /src/components/WorkspaceShell.tsx。",
     "- 不要生成 /index.html 或 /src/main.tsx，服务端已经提供稳定骨架。",
     "- 如果存在 UI IR，文件计划必须覆盖 UI IR 中的页面、组件和样式 token 文件需求。",
+    "- 如果存在 Code Skills，文件计划必须吸收其文件结构、运行环境和质量约束。",
+    "",
+    "当前启用的 Code Skills（摘要）：",
+    formatSelectedCodeSkillsForPrompt(selectedCodeSkills, 6000),
     "",
     "精简代码上下文：",
     JSON.stringify(codeContext, null, 2),
@@ -645,7 +727,7 @@ export function buildGenerateCodeFilesPrompt(
   designModels: DesignDiagramModelSpec[],
 ) {
   return [
-    "请根据前端原型代码规格生成 Sandpack 可运行文件集合。",
+    "请根据已确认需求项和前端原型代码规格生成 Sandpack 可运行文件集合。",
     "返回 JSON 对象，格式必须是 {\"bundle\":{\"files\":{},\"entryFile\":\"/src/App.tsx\",\"dependencies\":{}}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -665,7 +747,7 @@ export function buildGenerateCodeFilesPrompt(
     "原始需求：",
     requirementText,
     "",
-    "需求规则：",
+    "已确认需求项：",
     JSON.stringify(rules, null, 2),
     "",
     "设计阶段模型：",
@@ -676,6 +758,7 @@ export function buildGenerateCodeFilesPrompt(
 export function buildGenerateCodeAgentPlanPrompt(
   codeContext: unknown,
   existingFiles: Record<string, string>,
+  selectedCodeSkills: CodeSkillSelection[] = [],
 ) {
   return [
     "请为前端原型生成任务制定一个简短文件实现计划。",
@@ -688,6 +771,10 @@ export function buildGenerateCodeAgentPlanPrompt(
     "- 面向文件实施，不要写空泛方法论。",
     "- 计划必须体现模块化文件结构：App、components、domain/types、data/mock-data，必要时包含 features 或 lib。",
     "- 第一版只生成可运行前端原型。",
+    "- 计划必须明确如何应用当前启用的 Code Skills。",
+    "",
+    "当前启用的 Code Skills（摘要）：",
+    formatSelectedCodeSkillsForPrompt(selectedCodeSkills, 6000),
     "",
     "精简代码上下文：",
     JSON.stringify(codeContext, null, 2),
@@ -699,20 +786,19 @@ export function buildGenerateCodeAgentPlanPrompt(
 
 export function buildGenerateCodeFileOperationsPrompt(
   codeContext: unknown,
-  agentPlan: string[],
   existingFiles: Record<string, string>,
   generationContext?: {
-    appBlueprint?: CodeAppBlueprint | null;
+    businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
-    uiMockup?: CodeUiMockup | null;
-    uiReferenceSpec?: CodeUiReferenceSpec | null;
-    uiIr?: CodeUiIr | null;
-    filePlan?: CodeFilePlan | null;
+    loadedCodeSkill?: LoadedCodeSkill | null;
+    codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
+    selectedCodeSkills?: CodeSkillSelection[];
+    codeSkillInstructions?: string;
   },
 ) {
   return [
-    "请作为资深 React 实现工程师，根据计划生成或更新前端原型文件。",
+    "请作为 ui-ux-pro-max 主设计执行器，根据业务逻辑直接规划界面方案并生成或更新前端原型文件。",
     "返回 JSON 对象，格式必须是 {\"operations\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -727,78 +813,63 @@ export function buildGenerateCodeFileOperationsPrompt(
     "",
     "文件要求：",
     "- 必须生成或更新 /src/App.tsx、/src/components/WorkspaceShell.tsx、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
-    "- 必须生成或更新文件计划中的所有 /src/pages/* 和 /src/components/* 文件。",
-    "- 如果存在界面设计图视觉解析，必须优先贴合其中的布局、颜色、组件形态、信息密度和业务区域；不要只生成默认后台工作台。",
-    "- 如果存在 UI IR，必须优先按 uiIr.pages[].componentTree 生成页面结构，只能使用 componentRegistry 中的组件语义，不要在代码阶段重新设计整体布局。",
-    "- 如果存在 designTokens，/src/styles.css 必须定义并使用 CSS variables，例如 --color-primary、--space-3、--radius-md。",
+    "- 必须覆盖 businessLogic.pageFlows 中的页面、操作、状态、权限和异常分支。",
     "- 至少 2 个页面文件、至少 3 个组件文件；默认做 3 到 5 个页面。",
     "- 可以按需求新增 /src/components/*、/src/pages/*、/src/features/*、/src/lib/*，但必须保证所有 import 都能解析。",
     "- 不要生成 /index.html 或 /src/main.tsx，服务端已经提供稳定骨架。",
     "- 代码必须完整可运行，不要省略 import、类型、组件实现或样式。",
     "- 不要使用真实网络请求，使用 /src/data/mock-data.ts。",
+    "- ui-ux-pro-max 必须先从 businessLogic 推导设计系统（产品类型、行业、风格、颜色、字体、布局密度、UX 规则），再落 React 文件操作。",
+    "- 必须优先消费 skillContext 中 design-system、react-stack、ux-guidelines 的查询结果；这些结果高于 SKILL.md 中的通用示例。",
+    "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
     "- UI 必须契合需求背景主题，不能默认套 UML 实验平台风格。",
     "- 不要把主体界面塞进单个大组件；页面负责流程，组件负责复用展示。",
     "- App.tsx 应只负责挂载 WorkspaceShell，WorkspaceShell 负责导航和页面切换。",
+    "- 必须执行 ui-ux-pro-max skill；若 skill 与用户需求或 businessLogic 冲突，以用户需求和 function calling 输出为准。",
+    "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 文件操作。",
+    "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上，例如不要在用户界面中展示“游客：查看列表、详情、申请注册”“findPublishedPublicEvents 过滤”等规则说明。",
+    "- 不要为了这些说明性业务规则创建 /src/docs/* 或其它本地说明文件；平台代码页会在原型外侧单独展示这些规则，可见原型 UI 只呈现真实业务流程、数据、操作按钮、状态和反馈。",
+    "- 新链路不生成界面图、不解析界面图、不生成 UI IR、不单独生成文件计划或 agent plan。",
     "",
-    "生成计划：",
-    JSON.stringify(agentPlan, null, 2),
+    "ui-ux-pro-max Skill（主设计执行上下文）：",
+    generationContext?.codeSkillInstructions ?? "[]",
     "",
-    "应用蓝图：",
-    JSON.stringify(generationContext?.appBlueprint ?? null, null, 2),
+    "Skill action 查询结果（必须优先使用）：",
+    stringifyForPrompt(generationContext?.codeSkillContext ?? null, 18000),
+    "",
+    "当前启用的 Skill 摘要：",
+    formatSelectedCodeSkillsForPrompt(generationContext?.selectedCodeSkills, 6000),
+    "",
+    "业务逻辑（必须覆盖）：",
+    stringifyForPrompt(generationContext?.businessLogic ?? null, 12000),
     "",
     "界面方案：",
-    JSON.stringify(generationContext?.uiBlueprint ?? null, null, 2),
-    "",
-    "界面设计图摘要：",
-    JSON.stringify(
-      generationContext?.uiMockup
-        ? {
-            status: generationContext.uiMockup.status,
-            model: generationContext.uiMockup.model,
-            summary: generationContext.uiMockup.summary,
-            imageUrl: generationContext.uiMockup.imageUrl,
-            hasImageData: Boolean(generationContext.uiMockup.imageDataUrl),
-            errorMessage: generationContext.uiMockup.errorMessage,
-          }
-        : null,
-      null,
-      2,
-    ),
-    "",
-    "界面设计图视觉解析：",
-    JSON.stringify(generationContext?.uiReferenceSpec ?? null, null, 2),
-    "",
-    "结构化 UI IR（主约束）：",
-    JSON.stringify(generationContext?.uiIr ?? null, null, 2),
-    "",
-    "文件计划：",
-    JSON.stringify(generationContext?.filePlan ?? null, null, 2),
+    "新链路不单独提供 uiBlueprint，ui-ux-pro-max 必须在本步骤从业务逻辑直接完成界面方案并落到代码。",
     "",
     "需要修复的质量问题：",
-    JSON.stringify(generationContext?.qualityIssues ?? [], null, 2),
+    stringifyForPrompt(generationContext?.qualityIssues ?? [], 6000),
     "",
     "精简代码上下文：",
-    JSON.stringify(codeContext, null, 2),
+    stringifyForPrompt(codeContext, 14000),
     "",
     "当前文件内容：",
-    JSON.stringify(existingFiles, null, 2),
+    stringifyForPrompt(existingFiles, 22000),
   ].join("\n");
 }
 
 export function buildRepairCodeFileOperationsPrompt(
   codeContext: unknown,
-  agentPlan: string[],
   existingFiles: Record<string, string>,
   previousOutput: string,
   parseError: string,
   generationContext?: {
-    appBlueprint?: CodeAppBlueprint | null;
+    businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
-    uiMockup?: CodeUiMockup | null;
-    uiReferenceSpec?: CodeUiReferenceSpec | null;
-    uiIr?: CodeUiIr | null;
-    filePlan?: CodeFilePlan | null;
+    loadedCodeSkill?: LoadedCodeSkill | null;
+    codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
+    selectedCodeSkills?: CodeSkillSelection[];
+    codeSkillInstructions?: string;
   },
 ) {
   return [
@@ -815,52 +886,38 @@ export function buildRepairCodeFileOperationsPrompt(
     "- note 的 message 必须非空，path、content、reason 填空字符串。",
     "- 禁止使用 type/action/op/kind 代替 operation。",
     "- 必须使用模块化路径：/src/App.tsx、/src/components/*、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
-    "- 必须覆盖文件计划中的页面和组件文件，避免单文件大组件。",
-    "- UI 内容和主题必须契合需求背景，并优先贴合界面设计图视觉解析，不要套 UML 实验平台风格。",
-    "- 如果存在 UI IR，必须优先修复到 uiIr.pages[].componentTree、designTokens 和 componentRegistry 所表达的结构。",
+    "- 必须覆盖 businessLogic.pageFlows、frontendOperations、stateMachines、permissions 和 edgeCases。",
+    "- UI 内容和主题必须由 ui-ux-pro-max 从 businessLogic 推导，不要套 UML 实验平台风格。",
+    "- 必须优先使用 skillContext 的 design-system、react-stack、ux-guidelines 查询结果来修复设计系统、布局、组件和交互问题。",
+    "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
+    "- 必须执行 ui-ux-pro-max；若 skill 与用户需求或 businessLogic 冲突，以 function calling 输出为准。",
+    "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 文件操作。",
+    "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上；也不要为了这些内容创建 /src/docs/* 或其它本地说明文件。",
+    "- 可见 UI 只呈现真实业务流程、业务数据、用户可执行操作、状态反馈和异常处理。",
     "",
-    "生成计划：",
-    JSON.stringify(agentPlan, null, 2),
+    "ui-ux-pro-max Skill（主设计执行上下文）：",
+    generationContext?.codeSkillInstructions ?? "[]",
     "",
-    "应用蓝图：",
-    JSON.stringify(generationContext?.appBlueprint ?? null, null, 2),
+    "Skill action 查询结果（必须优先使用）：",
+    stringifyForPrompt(generationContext?.codeSkillContext ?? null, 18000),
+    "",
+    "当前启用的 Skill 摘要：",
+    formatSelectedCodeSkillsForPrompt(generationContext?.selectedCodeSkills, 6000),
+    "",
+    "业务逻辑（必须覆盖）：",
+    stringifyForPrompt(generationContext?.businessLogic ?? null, 12000),
     "",
     "界面方案：",
-    JSON.stringify(generationContext?.uiBlueprint ?? null, null, 2),
-    "",
-    "界面设计图摘要：",
-    JSON.stringify(
-      generationContext?.uiMockup
-        ? {
-            status: generationContext.uiMockup.status,
-            model: generationContext.uiMockup.model,
-            summary: generationContext.uiMockup.summary,
-            imageUrl: generationContext.uiMockup.imageUrl,
-            hasImageData: Boolean(generationContext.uiMockup.imageDataUrl),
-            errorMessage: generationContext.uiMockup.errorMessage,
-          }
-        : null,
-      null,
-      2,
-    ),
-    "",
-    "界面设计图视觉解析：",
-    JSON.stringify(generationContext?.uiReferenceSpec ?? null, null, 2),
-    "",
-    "结构化 UI IR（主约束）：",
-    JSON.stringify(generationContext?.uiIr ?? null, null, 2),
-    "",
-    "文件计划：",
-    JSON.stringify(generationContext?.filePlan ?? null, null, 2),
+    "新链路不单独提供 uiBlueprint，ui-ux-pro-max 必须在修复中补齐界面主题、导航、布局、组件和状态表达。",
     "",
     "需要修复的质量问题：",
-    JSON.stringify(generationContext?.qualityIssues ?? [], null, 2),
+    stringifyForPrompt(generationContext?.qualityIssues ?? [], 6000),
     "",
     "精简代码上下文：",
-    JSON.stringify(codeContext, null, 2),
+    stringifyForPrompt(codeContext, 14000),
     "",
     "当前文件内容：",
-    JSON.stringify(existingFiles, null, 2),
+    stringifyForPrompt(existingFiles, 22000),
     "",
     "上一次输出：",
     previousOutput,
@@ -871,27 +928,29 @@ export function buildRepairCodeFileOperationsPrompt(
 }
 
 export function buildVerifyCodeUiFidelityPrompt(
-  uiReferenceSpec: CodeUiReferenceSpec,
+  businessLogic: CodeBusinessLogic,
+  uiBlueprint: CodeUiBlueprint | null,
   files: Record<string, string>,
-  appBlueprint: CodeAppBlueprint | null,
 ): string {
   return [
-    "请对照随消息一起提供的界面设计图，检查当前 React 原型代码是否还原了设计图的视觉语言和页面结构。",
+    "请检查当前 React 原型代码是否覆盖业务逻辑，以及 ui-ux-pro-max 应从业务逻辑推导出的界面方案。",
     "返回 JSON 对象，格式必须是 {\"uiFidelityReport\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码块。",
     "",
     "uiFidelityReport 字段结构：",
-    "- passed: 如果主要布局、导航、色彩、组件形态和业务信息层级都基本贴合则为 true，否则为 false。",
-    "- matched[]: 已经在代码中体现的设计图特征。",
-    "- missing[]: 明显没有还原或偏离设计图的特征。",
+    "- passed: 如果页面、状态、操作、数据关系、权限/异常分支和业务化界面表达基本覆盖则为 true，否则为 false。",
+    "- matched[]: 已经在代码中体现的业务与界面要求。",
+    "- missing[]: 没有实现或明显偏离 businessLogic 的页面、状态、操作、异常分支和业务化界面表达。",
     "- repairSuggestions[]: 可直接指导下一轮代码修复的中文建议。",
     "- summary: 一句话中文总结。",
     "",
-    "应用蓝图：",
-    stringifyForPrompt(appBlueprint, 4000),
+    "业务逻辑：",
+    stringifyForPrompt(businessLogic, 10000),
     "",
-    "界面设计图视觉解析：",
-    stringifyForPrompt(uiReferenceSpec, 6000),
+    "界面方案：",
+    uiBlueprint
+      ? stringifyForPrompt(uiBlueprint, 8000)
+      : "新链路不单独提供 uiBlueprint；请按 businessLogic 判断界面是否足够业务化、可操作、非空泛。",
     "",
     "当前原型文件：",
     stringifyForPrompt(files, 16000),
@@ -940,7 +999,9 @@ export function buildGenerateDocumentContentPrompt(
     "写作要求：",
     "- 正文要像课程软件工程文档，不要写成运行报告或聊天总结。",
     "- 必须保留标题 1、标题 2、标题 3 的完整层级，不要只生成一级标题。",
-    "- 表格内容必须来自需求规则、模型、类、表、接口或图产物，不要虚构无法追溯的系统能力。",
+    "- 不得出现具体大学、学院、教师、班级、学号、姓名等未由用户输入明确提供的真实机构或个人信息。",
+    "- 模板类字段缺失时统一写“待填写”，需求或设计事实缺失时统一写“当前阶段未明确”。",
+    "- 表格内容必须来自已确认需求项、模型、类、表、接口或图产物，不要虚构无法追溯的系统能力。",
     "- 缺失信息可以写“当前阶段未明确”，但不要阻塞整篇文档。",
     "",
     "当前产物上下文：",

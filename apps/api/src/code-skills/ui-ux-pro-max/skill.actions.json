@@ -1,0 +1,40 @@
+{
+  "actions": [
+    {
+      "name": "design-system",
+      "description": "Generate the required UI/UX design system recommendation from the business query.",
+      "command": "python",
+      "args": ["scripts/search.py", "{query}", "--design-system", "-f", "markdown"],
+      "outputFormat": "markdown",
+      "maxOutputChars": 12000,
+      "when": "always"
+    },
+    {
+      "name": "react-stack",
+      "description": "Fetch React implementation guidelines for the generated prototype.",
+      "command": "python",
+      "args": ["scripts/search.py", "{query}", "--stack", "react", "--json"],
+      "outputFormat": "json",
+      "maxOutputChars": 8000,
+      "when": "always"
+    },
+    {
+      "name": "ux-guidelines",
+      "description": "Fetch UX, accessibility, responsive, form, and loading guidance.",
+      "command": "python",
+      "args": ["scripts/search.py", "accessibility navigation forms loading responsive", "--domain", "ux", "--json"],
+      "outputFormat": "json",
+      "maxOutputChars": 8000,
+      "when": "always"
+    },
+    {
+      "name": "chart-guidelines",
+      "description": "Fetch chart and data visualization guidance when the business logic needs analytics.",
+      "command": "python",
+      "args": ["scripts/search.py", "{query}", "--domain", "chart", "--json"],
+      "outputFormat": "json",
+      "maxOutputChars": 8000,
+      "when": "hasCharts"
+    }
+  ]
+}
