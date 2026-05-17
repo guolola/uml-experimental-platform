@@ -692,14 +692,21 @@ function createQualityCodeOperations(label = "校园活动") {
       operation: "update_file",
       path: "/src/App.tsx",
       content:
-        "import { WorkspaceShell } from './components/WorkspaceShell';\nexport default function App() { return <WorkspaceShell />; }",
+        `import { useEffect } from 'react';
+import { WorkspaceShell } from './components/WorkspaceShell';
+export default function App() {
+  useEffect(() => {
+    document.title = '${label}';
+  }, []);
+  return <WorkspaceShell />;
+}`,
       reason: "保持入口组件轻量",
     },
     {
       operation: "update_file",
       path: "/src/components/WorkspaceShell.tsx",
       content:
-        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst tabs = ['总览','报名','详情'] as const;\nexport function WorkspaceShell() { const [tab,setTab]=useState<(typeof tabs)[number]>('总览'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"prototype-shell\" data-theme={theme}><nav>{tabs.map((item)=><button key={item} onClick={()=>setTab(item)}>{item}</button>)}<button className=\"theme-toggle\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</button></nav>{tab==='总览'?<DashboardPage />:tab==='报名'?<RegistrationPage />:<DetailPage />}</main>; }",
+        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst routes = [{ path: '/', label: '总览' }, { path: '/registration', label: '报名' }, { path: '/detail', label: '详情' }] as const;\ntype RoutePath = (typeof routes)[number]['path'];\nexport function WorkspaceShell() { const [currentRoute,setCurrentRoute]=useState<RoutePath>('/'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"prototype-shell\" data-theme={theme}><nav>{routes.map((item)=><button key={item.path} onClick={()=>setCurrentRoute(item.path)}>{item.label}</button>)}<span className=\"route-pill\">当前路径：{currentRoute}</span><button className=\"theme-toggle\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</button></nav>{currentRoute==='/'?<DashboardPage />:currentRoute==='/registration'?<RegistrationPage />:<DetailPage />}</main>; }",
       reason: "生成多页面导航外壳",
     },
     {
@@ -2080,13 +2087,13 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
             yield JSON.stringify({
               operations: operations.map((operation) => {
                 if (
-                  operation.operation === "create_file" &&
+                  operation.operation === "update_file" &&
                   operation.path === "/src/components/WorkspaceShell.tsx"
                 ) {
                   return {
                     ...operation,
                     content:
-                      "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst tabs = ['总览','报名','详情'] as const;\nexport function WorkspaceShell() { const [tab,setTab]=useState<(typeof tabs)[number]>('总览'); return <main className=\"prototype-shell\"><nav>{tabs.map((item)=><button key={item} onClick={()=>setTab(item)}>{item}</button>)}</nav>{tab==='总览'?<DashboardPage />:tab==='报名'?<RegistrationPage />:<DetailPage />}</main>; }",
+                      "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst tabs = ['总览','报名','详情'] as const;\nexport function WorkspaceShell() { history.replaceState({}, '', 'http://8.137.182.253/events'); const [tab,setTab]=useState<(typeof tabs)[number]>('总览'); return <main className=\"prototype-shell\"><nav>{tabs.map((item)=><button key={item} onClick={()=>setTab(item)}>{item}</button>)}</nav>{tab==='总览'?<DashboardPage />:tab==='报名'?<RegistrationPage />:<DetailPage />}</main>; }",
                   };
                 }
                 if (
@@ -2148,6 +2155,7 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
   });
   assert.match(events.body, /repair_code_files/);
   assert.match(events.body, /纯黑或近纯黑/);
+  assert.match(events.body, /SecurityError|真实浏览器路由/);
   assert.match(events.body, /"type":"completed"/);
 
   const snapshot = (

@@ -378,9 +378,15 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /浅色\/深色主题切换控件/);
   assert.match(operationsPrompt, /#050506/);
   assert.match(operationsPrompt, /--bg、--surface、--text、--muted、--primary、--border/);
+  assert.match(operationsPrompt, /document\.title/);
+  assert.match(operationsPrompt, /内存模拟路由表/);
+  assert.match(operationsPrompt, /history\.replaceState/);
+  assert.match(operationsPrompt, /SecurityError/);
   assert.match(repairOperationsPrompt, /默认必须修复为浅色主题/);
   assert.match(repairOperationsPrompt, /#050506/);
   assert.match(repairOperationsPrompt, /\[data-theme="dark"\]/);
+  assert.match(repairOperationsPrompt, /document\.title/);
+  assert.match(repairOperationsPrompt, /BrowserRouter/);
   assert.match(operationsPrompt, /不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示/);
   assert.match(operationsPrompt, /\/BUSINESS_CONTEXT\.md/);
   assert.match(operationsPrompt, /不要放到 \/src\/docs\/\*/);

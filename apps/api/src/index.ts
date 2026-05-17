@@ -5067,6 +5067,22 @@ function hasThemeToggleLogic(filesText: string) {
   );
 }
 
+function hasUnsafePreviewNavigation(filesText: string) {
+  return /\bBrowserRouter\b|\bcreateBrowserRouter\b|\bhistory\.(?:pushState|replaceState)\b|\bwindow\.history\.(?:pushState|replaceState)\b|\bwindow\.location\b|\blocation\.(?:href|assign|replace)\b|\bdocument\.location\b/i.test(
+    filesText,
+  );
+}
+
+function hasAbsoluteUrlNavigation(filesText: string) {
+  return /\b(?:navigate|setRoute|setCurrentRoute|open|href|src)\s*[=:]?\s*\(\s*["'`]https?:\/\/|\b(?:href|to)\s*=\s*["'`]https?:\/\/|\bhistory\.(?:pushState|replaceState)\s*\([^)]*["'`]https?:\/\//i.test(
+    filesText,
+  );
+}
+
+function hasDocumentTitleSetter(snapshot: CodeRunSnapshot, filesText: string) {
+  return !snapshot.businessLogic?.appName?.trim() || filesText.includes("document.title");
+}
+
 function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagnostic {
   const issues: CodeQualityDiagnostic["issues"] = [];
   const filePaths = Object.keys(snapshot.files);
@@ -5150,6 +5166,21 @@ function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagno
       severity: "error",
       message:
         "原型缺少可见的浅色/深色主题切换逻辑，需要在顶部栏等位置提供主题切换控件",
+    });
+  }
+  if (hasUnsafePreviewNavigation(filesText) || hasAbsoluteUrlNavigation(filesText)) {
+    issues.push({
+      severity: "error",
+      message:
+        "原型使用了真实浏览器路由或绝对 URL 导航，srcdoc 预览会触发 SecurityError；必须改为内存模拟路由或普通 React state 页面切换",
+    });
+  }
+  if (!hasDocumentTitleSetter(snapshot, filesText)) {
+    issues.push({
+      severity: "error",
+      path: "/src/App.tsx",
+      message:
+        "应用标题没有通过 React 设置 document.title；不要修改 /index.html，应在运行时设置为业务应用名称",
     });
   }
 
@@ -5277,6 +5308,16 @@ function verifyRenderedPreviewStructure(snapshot: CodeRunSnapshot): CodeVisualDi
   if (!hasThemeToggleLogic(filesText)) {
     findings.push("未检测到浅色/深色主题切换控件或 data-theme 切换逻辑。");
     repairSuggestions.push("在顶部栏增加主题切换按钮，使用 React state 控制 data-theme 或 class。");
+  }
+
+  if (hasUnsafePreviewNavigation(filesText) || hasAbsoluteUrlNavigation(filesText)) {
+    findings.push("检测到真实浏览器路由、history API、window.location 或绝对 URL 导航，srcdoc 预览可能抛出 SecurityError。");
+    repairSuggestions.push("保留 businessLogic 中的 route 字符串作为模拟路径，使用 React state 切换页面；删除 BrowserRouter、history.pushState/replaceState、window.location 和绝对 URL 跳转。");
+  }
+
+  if (!hasDocumentTitleSetter(snapshot, filesText)) {
+    findings.push("未检测到通过 React 设置业务应用 document.title。");
+    repairSuggestions.push("在 /src/App.tsx 中用 useEffect 设置 document.title 为 businessLogic.appName，不要生成或修改 /index.html。");
   }
 
   if (snapshot.uiIr && !/--color-primary|--space-3|--radius-md/.test(filesText)) {
