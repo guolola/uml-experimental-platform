@@ -10,6 +10,7 @@ import type {
   CodeFilePlan,
   CodeGenerationSpec,
   LoadedCodeSkill,
+  CodeSkillResourcePlan,
   CodeSkillSelection,
   CodeSkillContext,
   CodeUiBlueprint,
@@ -95,8 +96,11 @@ export function buildGenerateModelsPrompt(
     "请根据已确认的需求项生成 UML 结构化模型；原始需求只作为背景，不得覆盖需求项。",
     "返回 JSON 对象，格式必须是 {\"models\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
+    "JSON 必须完整合法，字符串必须正确转义，不能出现未闭合字符串、未闭合数组/对象或裸换行。",
     "每个 model 必须包含：diagramKind, title, summary, notes，以及对应图类型要求的强类型字段。",
     "notes 必须是字符串数组，不能是对象数组。",
+    "所有 relationships[] 必须显式包含 sourceId 和 targetId；如果无法确定端点，不要输出该 relationship。",
+    "deployment.relationships[].port 如需填写，必须是字符串，例如 \"8080\"，不能是数字。",
     "你必须从需求项中提取参与者、约束、功能点、流程和部署信息，不能依赖不存在的 SRS 字段。",
     "如果原始需求与需求项冲突，必须以需求项的编号、分类和文本为准。",
     REQUIREMENT_STAGE_SEMANTICS,
@@ -156,11 +160,14 @@ export function buildRepairModelsPrompt(
     "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
     "返回格式必须是 {\"models\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何额外文字。",
+    "JSON 必须完整合法，字符串必须正确转义，不能出现未闭合字符串、未闭合数组/对象或裸换行。",
     "只修复 JSON 结构问题，不要改变原有业务语义。",
     "已确认需求项是唯一权威基线；原始需求只作为背景，不得覆盖需求项。",
     REQUIREMENT_STAGE_SEMANTICS,
     "notes 必须是字符串数组，不能是对象数组。",
     "diagramKind 只能使用: usecase, class, activity, deployment。",
+    "relationships[] 必须显式包含 sourceId 和 targetId；如果无法确定端点，删除该 relationship。",
+    "deployment.relationships[].port 必须是字符串，例如 \"8080\"，不能是数字。",
     "必须按 diagramKind 输出对应的强类型字段：",
     "- usecase => actors, useCases, systemBoundaries, relationships",
     "- class => classes, interfaces, enums, relationships",
@@ -791,6 +798,7 @@ export function buildGenerateCodeFileOperationsPrompt(
     businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
     loadedCodeSkill?: LoadedCodeSkill | null;
+    skillResourcePlan?: CodeSkillResourcePlan | null;
     codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
     selectedCodeSkills?: CodeSkillSelection[];
@@ -820,19 +828,27 @@ export function buildGenerateCodeFileOperationsPrompt(
     "- 代码必须完整可运行，不要省略 import、类型、组件实现或样式。",
     "- 不要使用真实网络请求，使用 /src/data/mock-data.ts。",
     "- ui-ux-pro-max 必须先从 businessLogic 推导设计系统（产品类型、行业、风格、颜色、字体、布局密度、UX 规则），再落 React 文件操作。",
-    "- 必须优先消费 skillContext 中 design-system、react-stack、ux-guidelines 的查询结果；这些结果高于 SKILL.md 中的通用示例。",
+    "- 必须优先消费 skillResourcePlan 声明后获得的 skillContext 查询结果；这些结果高于 SKILL.md 中的通用示例。",
     "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
     "- UI 必须契合需求背景主题，不能默认套 UML 实验平台风格。",
+    "- 默认必须是浅色主题；即使 skillContext 返回 dark-mode、dramatic、crypto、neon 等深色资源，也只能作为可选深色模式，不能覆盖默认浅色。",
+    "- 必须实现可见的浅色/深色主题切换控件，建议放在顶部栏右侧；使用 React state 切换 data-theme 或 class。",
+    "- 必须使用 CSS variables 定义两套主题，例如 :root 与 [data-theme=\"dark\"]；浅色主题至少包含 --bg、--surface、--text、--muted、--primary、--border。",
+    "- 禁止把 #050506、#030304、#000、#000000、rgb(0,0,0) 或 black 作为页面主背景；深色主题应使用 #0f172a、#111827、#18181b 等柔和深色。",
+    "- 必须做响应式布局：代码页窄 iframe 与新窗口宽 viewport 下都必须可用；可以布局不同，但不能内容挤压、遮挡、横向溢出或关键操作不可见。",
     "- 不要把主体界面塞进单个大组件；页面负责流程，组件负责复用展示。",
     "- App.tsx 应只负责挂载 WorkspaceShell，WorkspaceShell 负责导航和页面切换。",
     "- 必须执行 ui-ux-pro-max skill；若 skill 与用户需求或 businessLogic 冲突，以用户需求和 function calling 输出为准。",
     "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 文件操作。",
     "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上，例如不要在用户界面中展示“游客：查看列表、详情、申请注册”“findPublishedPublicEvents 过滤”等规则说明。",
-    "- 不要为了这些说明性业务规则创建 /src/docs/* 或其它本地说明文件；平台代码页会在原型外侧单独展示这些规则，可见原型 UI 只呈现真实业务流程、数据、操作按钮、状态和反馈。",
+    "- 允许维护根级 /BUSINESS_CONTEXT.md 来承载项目背景、权限边界、规则溯源和服务边界；不要放到 /src/docs/*，也不要把这些说明性规则渲染进业务 UI。",
     "- 新链路不生成界面图、不解析界面图、不生成 UI IR、不单独生成文件计划或 agent plan。",
     "",
     "ui-ux-pro-max Skill（主设计执行上下文）：",
     generationContext?.codeSkillInstructions ?? "[]",
+    "",
+    "Skill 资源查询计划（模型已声明、API 已验证执行）：",
+    stringifyForPrompt(generationContext?.skillResourcePlan ?? null, 8000),
     "",
     "Skill action 查询结果（必须优先使用）：",
     stringifyForPrompt(generationContext?.codeSkillContext ?? null, 18000),
@@ -866,6 +882,7 @@ export function buildRepairCodeFileOperationsPrompt(
     businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
     loadedCodeSkill?: LoadedCodeSkill | null;
+    skillResourcePlan?: CodeSkillResourcePlan | null;
     codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
     selectedCodeSkills?: CodeSkillSelection[];
@@ -888,15 +905,22 @@ export function buildRepairCodeFileOperationsPrompt(
     "- 必须使用模块化路径：/src/App.tsx、/src/components/*、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
     "- 必须覆盖 businessLogic.pageFlows、frontendOperations、stateMachines、permissions 和 edgeCases。",
     "- UI 内容和主题必须由 ui-ux-pro-max 从 businessLogic 推导，不要套 UML 实验平台风格。",
-    "- 必须优先使用 skillContext 的 design-system、react-stack、ux-guidelines 查询结果来修复设计系统、布局、组件和交互问题。",
+    "- 默认必须修复为浅色主题，并保留可见的浅色/深色主题切换控件；深色只能作为用户主动切换后的模式。",
+    "- 必须使用 :root 与 [data-theme=\"dark\"] 或等价 CSS variables 定义两套主题；浅色主题至少包含 --bg、--surface、--text、--muted、--primary、--border。",
+    "- 如果发现 #050506、#030304、#000、#000000、rgb(0,0,0) 或 black 作为页面主背景，必须替换为浅色默认背景，并为深色模式选择柔和深色。",
+    "- 必须优先使用 skillResourcePlan 声明后获得的 skillContext 查询结果来修复设计系统、布局、组件和交互问题。",
     "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
+    "- 必须保持响应式布局：窄 iframe 和新窗口宽 viewport 都不能出现内容挤压、遮挡、横向溢出或关键操作不可见。",
     "- 必须执行 ui-ux-pro-max；若 skill 与用户需求或 businessLogic 冲突，以 function calling 输出为准。",
     "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 文件操作。",
-    "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上；也不要为了这些内容创建 /src/docs/* 或其它本地说明文件。",
+    "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上；这些内容只能进入根级 /BUSINESS_CONTEXT.md，不能放入 /src/docs/*。",
     "- 可见 UI 只呈现真实业务流程、业务数据、用户可执行操作、状态反馈和异常处理。",
     "",
     "ui-ux-pro-max Skill（主设计执行上下文）：",
     generationContext?.codeSkillInstructions ?? "[]",
+    "",
+    "Skill 资源查询计划（模型已声明、API 已验证执行）：",
+    stringifyForPrompt(generationContext?.skillResourcePlan ?? null, 8000),
     "",
     "Skill action 查询结果（必须优先使用）：",
     stringifyForPrompt(generationContext?.codeSkillContext ?? null, 18000),
@@ -924,6 +948,53 @@ export function buildRepairCodeFileOperationsPrompt(
     "",
     "解析或校验错误：",
     parseError,
+  ].join("\n");
+}
+
+export function buildGenerateCodeSkillResourcePlanPrompt(
+  businessLogic: CodeBusinessLogic,
+  loadedCodeSkill: LoadedCodeSkill,
+) {
+  const manifest = loadedCodeSkill.fileManifest.map((file) => ({
+    relativePath: file.relativePath,
+    kind: file.kind,
+    size: file.size,
+  }));
+
+  return [
+    "请作为 opencode-like skill runtime 的规划步骤，阅读 ui-ux-pro-max 的 SKILL.md 摘要和文件清单，自主声明本次生成 React 原型需要查询哪些 skill 资源。",
+    "返回 JSON 对象，格式必须是 {\"skillResourcePlan\":{...}}。",
+    "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
+    "",
+    "skillResourcePlan 字段：",
+    "- skillName: 必须是 ui-ux-pro-max。",
+    "- alias: 使用 @web-design。",
+    "- query: 面向本业务的一句话检索词，包含产品类型、领域、页面、关键交互、React、responsive、accessible。",
+    "- requests: 1 到 6 个资源请求；每个请求必须包含 resourceType, name, query, csvPath, stack, domain, actionName, maxResults, reason。",
+    "- diagnostics: 字符串数组；没有诊断则 []。",
+    "",
+    "resourceType 可选值：",
+    "- design-system: 需要设计系统/风格/颜色/字体/密度时使用；csvPath、stack、domain、actionName 填空字符串。",
+    "- stack: 查询技术栈规则；React 原型必须至少声明一次 stack=react。",
+    "- domain: 查询 UX 或 chart 等领域规则；domain 可用 ux、chart。只有业务逻辑包含图表/统计/趋势/报表时才声明 chart。",
+    "- csv: 当你根据 fileManifest 明确知道要读某个 data/**/*.csv 时使用；csvPath 必须是 skill 内相对路径，例如 data/ux-guidelines.csv。",
+    "- action: 只有确实需要 scripts/search.py 的增强结果时声明；actionName 必须来自 skill.actions.json 的 action 名称。默认优先用 CSV，不要为了常规 React 原型声明 action。",
+    "",
+    "重要约束：",
+    "- 不要声明所有 CSV；只声明本次业务必要的少量资源。",
+    "- 不要声明 shadcn stack；本项目生成普通 React + TypeScript + CSS variables。",
+    "- 如果查询到 dark-mode 资源，只能用于可选深色主题；默认主题必须保持浅色，并需要查询或推导对应浅色 token。",
+    "- 不要声明会写文件的 action；不要使用 --persist。",
+    "- maxResults 推荐 5 到 8。",
+    "",
+    "ui-ux-pro-max SKILL.md 摘要：",
+    truncateForPrompt(loadedCodeSkill.content, 9000),
+    "",
+    "可用文件清单：",
+    stringifyForPrompt(manifest, 10000),
+    "",
+    "业务逻辑：",
+    stringifyForPrompt(businessLogic, 12000),
   ].join("\n");
 }
 

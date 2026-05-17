@@ -18,7 +18,7 @@
     <br />
     从需求规则、UML 模型到 React 原型和说明书导出
     <br />
-    PlantUML 渲染 × 生成追踪 × ui-ux-pro-max Skill Runtime
+    PlantUML 渲染 × 生成追踪 × 通用 Skill Runtime
   </b>
 </p>
 
@@ -49,7 +49,7 @@
 - ✅ **生成追踪与修复记录**
   记录模型原始返回、解析错误、修复返回、PlantUML 源码、渲染错误和修复后源码，方便定位第一次失败原因。
 - ✅ **代码页 Agent 生成**
-  当前链路为 `businessLogic + ui-ux-pro-max Skill Runtime + React 原型`：平台先抽取业务逻辑，再由 skill runtime 读取设计知识和 React 栈建议，生成可预览前端原型。
+  当前链路为 `businessLogic + 通用 Skill Runtime + React 原型`：平台先抽取业务逻辑，再由前端设计执行器读取设计知识和 React 栈建议，生成可预览前端原型。
 - ✅ **说明书导出**
   支持导出《需求规格说明书》和《软件设计说明书》，保留章节层级、图注、缺图提示和通用封面格式。
 
@@ -62,7 +62,7 @@
 - **设计模型链路**
   顺序图作为设计阶段动态行为基础，下游设计图从需求模型和顺序图共同推导。
 - **代码原型生成**
-  使用业务逻辑 function calling 抽取实体、角色、流程、权限、状态和异常分支，再由 `ui-ux-pro-max` 作为前端设计执行器生成 React + TypeScript + CSS 原型。
+  使用业务逻辑 function calling 抽取实体、角色、流程、权限、状态和异常分支，再由前端设计执行器生成 React + TypeScript + CSS 原型。
 - **Skill Runtime**
   扫描本地 skill，读取 `SKILL.md`、资源清单和声明式 action，向代码生成 prompt 注入 design-system、react-stack、ux-guidelines 等上下文。
 - **质量与预览检查**
@@ -80,7 +80,7 @@ flowchart LR
   B --> C["需求 UML 模型"]
   C --> D["设计 UML 模型"]
   D --> E["业务逻辑分析"]
-  E --> F["ui-ux-pro-max Skill Runtime"]
+  E --> F["前端设计执行器"]
   F --> G["React 原型文件"]
   G --> H["质量与预览检查"]
   H --> I["Sandpack 预览"]
@@ -158,7 +158,7 @@ npm run dev:web
 
 打开 Web 后进入设置面板，至少填写：
 
-- `API Base URL`：例如 `https://ai.comfly.org`
+- `API Base URL`：例如 `https://your_provider_baseurl`
 - `API Key`：模型服务密钥
 - 默认文本模型：用于需求、设计、代码和文档生成
 
@@ -189,7 +189,7 @@ umlExperimentalPlatform/
 - **前端**：Vite、React、TypeScript、Tailwind CSS、Radix UI、Sonner、Sandpack
 - **后端**：Fastify、TypeScript、Zod、OpenAI 兼容 Chat Completions
 - **UML 渲染**：PlantUML、本地 SVG/PNG 渲染服务
-- **代码生成**：业务逻辑抽取、通用 Skill Runtime、`ui-ux-pro-max`、React 原型文件操作协议
+- **代码生成**：业务逻辑抽取、通用 Skill Runtime、前端设计执行器、React 原型文件操作协议
 - **文档**：docx、PNG 图像嵌入、说明书结构化渲染
 - **Monorepo**：npm workspaces
 

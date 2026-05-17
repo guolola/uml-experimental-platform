@@ -935,6 +935,28 @@ export const codeSkillActionResultSchema = z.object({
 });
 export type CodeSkillActionResult = z.infer<typeof codeSkillActionResultSchema>;
 
+export const codeSkillResourceRequestSchema = z.object({
+  resourceType: z.enum(["design-system", "stack", "domain", "csv", "action"]),
+  name: z.string().min(1),
+  query: z.string().min(1),
+  csvPath: z.string().default(""),
+  stack: z.string().default(""),
+  domain: z.string().default(""),
+  actionName: z.string().default(""),
+  maxResults: z.number().int().min(1).max(20).default(8),
+  reason: z.string().min(1),
+});
+export type CodeSkillResourceRequest = z.infer<typeof codeSkillResourceRequestSchema>;
+
+export const codeSkillResourcePlanSchema = z.object({
+  skillName: z.string().min(1),
+  alias: z.string().min(1).optional(),
+  query: z.string().min(1),
+  requests: z.array(codeSkillResourceRequestSchema).min(1).max(8),
+  diagnostics: z.array(z.string().min(1)).default([]),
+});
+export type CodeSkillResourcePlan = z.infer<typeof codeSkillResourcePlanSchema>;
+
 export const codeSkillSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
@@ -1309,6 +1331,7 @@ export const codeRunSnapshotSchema = z.object({
   spec: codeGenerationSpecSchema.nullable(),
   businessLogic: codeBusinessLogicSchema.nullable().default(null),
   loadedCodeSkill: loadedCodeSkillSchema.nullable().default(null),
+  skillResourcePlan: codeSkillResourcePlanSchema.nullable().default(null),
   codeSkillContext: codeSkillContextSchema.nullable().default(null),
   appBlueprint: codeAppBlueprintSchema.nullable().default(null),
   uiBlueprint: codeUiBlueprintSchema.nullable().default(null),
@@ -1400,6 +1423,7 @@ export const artifactReadyRunEventSchema = z.object({
     "uiIr",
     "codeSkills",
     "codeSkill",
+    "skillResourcePlan",
     "codeSkillContext",
     "visualDiffReport",
     "document",
@@ -1407,6 +1431,7 @@ export const artifactReadyRunEventSchema = z.object({
   diagramKind: umlDiagramKindSchema.optional(),
   businessLogic: codeBusinessLogicSchema.optional(),
   loadedCodeSkill: loadedCodeSkillSchema.optional(),
+  skillResourcePlan: codeSkillResourcePlanSchema.optional(),
   codeSkillContext: codeSkillContextSchema.optional(),
   uiMockup: codeUiMockupSchema.optional(),
   uiReferenceSpec: codeUiReferenceSpecSchema.optional(),

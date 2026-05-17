@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   readdirSync,
@@ -13,6 +13,7 @@ import {
   codeSkillContextSchema,
   codeSkillDiagnosticsSchema,
   codeSkillFileSchema,
+  codeSkillResourcePlanSchema,
   codeSkillSelectionSchema,
   loadedCodeSkillSchema,
   type CodeBusinessLogic,
@@ -21,6 +22,8 @@ import {
   type CodeSkillContext,
   type CodeSkillDiagnostics,
   type CodeSkillFile,
+  type CodeSkillResourcePlan,
+  type CodeSkillResourceRequest,
   type CodeSkillSelection,
   type LoadedCodeSkill,
 } from "@uml-platform/contracts";
@@ -30,6 +33,9 @@ const WEB_DESIGN_SKILL_NAME = "ui-ux-pro-max";
 const MAX_SKILL_CONTENT_CHARS = 32000;
 const MAX_MANIFEST_FILES = 80;
 const ACTION_CONFIG_FILE = "skill.actions.json";
+const CODE_SKILL_ACTION_MODE_VALUES = ["csv", "python", "auto"] as const;
+
+type CodeSkillActionMode = (typeof CODE_SKILL_ACTION_MODE_VALUES)[number];
 
 export type LoadedWebDesignSkill = LoadedCodeSkill;
 
@@ -119,17 +125,27 @@ function uniquePaths(paths: string[]) {
   return Array.from(new Set(paths.map((path) => resolve(path))));
 }
 
-function skillSearchRoots() {
+function skillSearchRootCandidates() {
   const here = dirname(fileURLToPath(import.meta.url));
+  const envRoots = (process.env.UML_CODE_SKILLS_ROOT ?? "")
+    .split(/[;,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
   const roots = [
+    ...envRoots,
     resolve(here, "code-skills"),
     resolve(here, "../src/code-skills"),
     ...projectRootCandidates().flatMap((root) => [
+      resolve(root, "apps/api/dist/code-skills"),
       resolve(root, "apps/api/src/code-skills"),
       resolve(root, "skills/code"),
     ]),
   ];
-  return uniquePaths(roots).filter((path) => {
+  return uniquePaths(roots);
+}
+
+function skillSearchRoots() {
+  return skillSearchRootCandidates().filter((path) => {
     try {
       return existsSync(path) && statSync(path).isDirectory();
     } catch {
@@ -252,18 +268,36 @@ export function loadWebDesignSkill(): {
 } {
   const result = loadSkillByNameOrAlias(WEB_DESIGN_SKILL_NAME) ?? loadSkillByNameOrAlias(WEB_DESIGN_SKILL_ALIAS);
   if (!result) {
-    throw new Error("@web-design skill missing: apps/api/src/code-skills/ui-ux-pro-max/SKILL.md");
+    throw new Error(
+      `前端设计执行器 skill missing: SKILL.md. Scanned roots: ${skillSearchRootCandidates().join(", ")}`,
+    );
   }
   if (result.skill.name !== WEB_DESIGN_SKILL_NAME) {
     result.diagnostics.push(
       codeSkillDiagnosticsSchema.parse({
         level: "warning",
         source: result.skill.location,
-        message: `@web-design skill name 是 ${result.skill.name}，期望 ${WEB_DESIGN_SKILL_NAME}。`,
+        message: "前端设计执行器 skill 元数据名称与平台默认配置不一致。",
       }),
     );
   }
   return result;
+}
+
+export function getCodeSkillRuntimeStatus() {
+  const roots = skillSearchRootCandidates();
+  const existingRoots = skillSearchRoots();
+  const skill = loadSkillByNameOrAlias(WEB_DESIGN_SKILL_NAME) ?? loadSkillByNameOrAlias(WEB_DESIGN_SKILL_ALIAS);
+  const actionMode = getCodeSkillActionMode();
+  return {
+    roots,
+    existingRoots,
+    hasUiUxProMaxSkill: Boolean(skill),
+    uiUxProMaxSkillPath: skill?.skill.location ?? null,
+    actionMode,
+    pythonAvailable: isPythonAvailable(),
+    pythonActionsOptional: true,
+  };
 }
 
 export function toWebDesignSkillSelection(
@@ -277,7 +311,7 @@ export function toWebDesignSkillSelection(
     location: skill.location,
     appliesTo: ["planning", "implementation", "repair", "audit"],
     priority: 100,
-    reason: "加载 ui-ux-pro-max，作为代码页前端设计执行 skill；alias @web-design 保持兼容。",
+    reason: "加载前端设计执行器，作为代码页前端设计执行 skill；alias @web-design 保持兼容。",
   });
 }
 
@@ -304,6 +338,30 @@ function readSkillActions(skill: LoadedCodeSkill): {
     );
     return { actions: [], diagnostics };
   }
+}
+
+function getCodeSkillActionMode(): CodeSkillActionMode {
+  const value = (process.env.UML_CODE_SKILL_ACTION_MODE ?? "csv").toLowerCase();
+  return CODE_SKILL_ACTION_MODE_VALUES.includes(value as CodeSkillActionMode)
+    ? (value as CodeSkillActionMode)
+    : "csv";
+}
+
+function isPythonAvailable() {
+  for (const command of ["python", "python3", "py"]) {
+    try {
+      const result = spawnSync(command, ["--version"], {
+        shell: false,
+        windowsHide: true,
+        encoding: "utf8",
+        timeout: 3000,
+      });
+      if (!result.error && result.status === 0) return true;
+    } catch {
+      // Try the next command.
+    }
+  }
+  return false;
 }
 
 function hasChartNeed(businessLogic: CodeBusinessLogic) {
@@ -414,55 +472,294 @@ function runAction(skill: LoadedCodeSkill, action: CodeSkillAction, query: strin
   });
 }
 
-export async function resolveCodeSkillContext(
+function tokenizeSkillQuery(query: string) {
+  const lower = query.toLowerCase();
+  const latin = lower.match(/[a-z0-9][a-z0-9-]{2,}/g) ?? [];
+  const cjk = lower.match(/[\u4e00-\u9fa5]{2,}/g) ?? [];
+  return Array.from(new Set([...latin, ...cjk]));
+}
+
+function scoreSkillContextLine(line: string, tokens: string[]) {
+  const lower = line.toLowerCase();
+  return tokens.reduce((score, token) => score + (lower.includes(token) ? 1 : 0), 0);
+}
+
+function normalizeSkillRelativePath(value: string) {
+  return value.replaceAll("\\", "/").replace(/^\/+/, "");
+}
+
+function resolveSkillRelativeFile(skill: LoadedCodeSkill, relativePath: string) {
+  const normalized = normalizeSkillRelativePath(relativePath);
+  const baseDir = resolve(skill.baseDir);
+  const filePath = resolve(baseDir, normalized);
+  if (filePath !== baseDir && !filePath.startsWith(`${baseDir}${sep}`)) {
+    throw new Error(`resource escapes skill directory: ${relativePath}`);
+  }
+  return { normalized, filePath };
+}
+
+function assertAllowedCsvResource(skill: LoadedCodeSkill, relativePath: string) {
+  const { normalized, filePath } = resolveSkillRelativeFile(skill, relativePath);
+  if (!normalized.startsWith("data/") || !normalized.endsWith(".csv")) {
+    throw new Error(`only data/**/*.csv resources are allowed: ${relativePath}`);
+  }
+  const listed = skill.fileManifest.some(
+    (file) =>
+      file.kind === "data" &&
+      normalizeSkillRelativePath(file.relativePath) === normalized,
+  );
+  if (!listed) {
+    throw new Error(`CSV resource is not in skill manifest: ${relativePath}`);
+  }
+  return { normalized, filePath };
+}
+
+function readCsvContext(
+  skill: LoadedCodeSkill,
+  relativePath: string,
+  query: string,
+  maxChars: number,
+  maxResults = 8,
+) {
+  const { filePath } = assertAllowedCsvResource(skill, relativePath);
+  if (!existsSync(filePath)) return "";
+  const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+
+  const tokens = tokenizeSkillQuery(query);
+  const header = lines[0].includes(",") ? lines[0] : "";
+  const body = header ? lines.slice(1) : lines;
+  const ranked = body
+    .map((line, index) => ({ line, index, score: scoreSkillContextLine(line, tokens) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  const selected = ranked
+    .filter((item) => item.score > 0)
+    .slice(0, maxResults)
+    .map((item) => item.line);
+  const fallback = body.slice(0, Math.min(maxResults, body.length));
+  const content = [header, ...(selected.length > 0 ? selected : fallback)]
+    .filter(Boolean)
+    .join("\n");
+  return content.slice(0, maxChars);
+}
+
+function createCsvActionResult(
+  name: string,
+  description: string,
+  relativePath: string,
+  outputFormat: CodeSkillActionResult["outputFormat"],
+  stdout: string,
+): CodeSkillActionResult {
+  const now = new Date().toISOString();
+  return codeSkillActionResultSchema.parse({
+    name,
+    description,
+    command: "node-csv-resolver",
+    args: [relativePath],
+    outputFormat,
+    status: stdout ? "completed" : "skipped",
+    stdout,
+    stderr: "",
+    exitCode: 0,
+    errorMessage: stdout ? undefined : `${relativePath} 未找到或无可用内容。`,
+    startedAt: now,
+    completedAt: now,
+  });
+}
+
+function csvPathForRequest(request: CodeSkillResourceRequest) {
+  if (request.resourceType === "design-system") return "data/design.csv";
+  if (request.resourceType === "stack") {
+    const stack = (request.stack || request.name || "react").toLowerCase();
+    return `data/stacks/${stack}.csv`;
+  }
+  if (request.resourceType === "domain") {
+    const domain = (request.domain || request.name).toLowerCase();
+    if (domain === "ux" || domain === "guidelines") return "data/ux-guidelines.csv";
+    if (domain === "chart" || domain === "charts") return "data/charts.csv";
+    return `data/${domain}.csv`;
+  }
+  if (request.resourceType === "csv") return request.csvPath;
+  return "";
+}
+
+function createFailedActionResult(
+  request: CodeSkillResourceRequest,
+  command: string,
+  errorMessage: string,
+): CodeSkillActionResult {
+  const now = new Date().toISOString();
+  return codeSkillActionResultSchema.parse({
+    name: request.name,
+    description: request.reason,
+    command,
+    args: request.csvPath ? [request.csvPath] : [],
+    outputFormat: "text",
+    status: "failed",
+    stdout: "",
+    stderr: "",
+    exitCode: null,
+    errorMessage,
+    startedAt: now,
+    completedAt: now,
+  });
+}
+
+function createDefaultSkillResourcePlan(
   skill: LoadedCodeSkill,
   businessLogic: CodeBusinessLogic,
-): Promise<CodeSkillContext> {
+): CodeSkillResourcePlan {
   const query = buildSkillQuery(businessLogic);
-  const { actions, diagnostics } = readSkillActions(skill);
-  const actionResults: CodeSkillActionResult[] = [];
-  const shouldRunChart = hasChartNeed(businessLogic);
+  const requests: CodeSkillResourceRequest[] = [
+    {
+      resourceType: "design-system",
+      name: "design-system",
+      query,
+      csvPath: "",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取本业务原型的设计系统、视觉风格、颜色和密度建议。",
+    },
+    {
+      resourceType: "stack",
+      name: "react-stack",
+      query,
+      csvPath: "",
+      stack: "react",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取普通 React + TypeScript 原型实现规则。",
+    },
+    {
+      resourceType: "domain",
+      name: "ux-guidelines",
+      query,
+      csvPath: "",
+      stack: "",
+      domain: "ux",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取导航、表单、加载、空状态和可访问性 UX 规则。",
+    },
+  ];
+  if (hasChartNeed(businessLogic)) {
+    requests.push({
+      resourceType: "domain",
+      name: "chart-guidelines",
+      query,
+      csvPath: "",
+      stack: "",
+      domain: "chart",
+      actionName: "",
+      maxResults: 6,
+      reason: "业务逻辑包含图表、统计、趋势或报表，需要图表呈现规则。",
+    });
+  }
 
-  for (const action of actions) {
-    if (action.when === "hasCharts" && !shouldRunChart) {
-      const now = new Date().toISOString();
-      actionResults.push(
-        codeSkillActionResultSchema.parse({
-          name: action.name,
-          description: action.description,
-          command: action.command,
-          args: resolveActionArgs(action, query),
-          outputFormat: action.outputFormat,
-          status: "skipped",
-          stdout: "",
-          stderr: "",
-          exitCode: null,
-          errorMessage: "业务逻辑未体现图表/统计/趋势需求，跳过该 action。",
-          startedAt: now,
-          completedAt: now,
+  return codeSkillResourcePlanSchema.parse({
+    skillName: skill.name,
+    alias: skill.alias,
+    query,
+    requests,
+    diagnostics: ["未获得模型声明的 skillResourcePlan，使用最小默认资源计划。"],
+  });
+}
+
+export function fallbackCodeSkillResourcePlan(
+  skill: LoadedCodeSkill,
+  businessLogic: CodeBusinessLogic,
+): CodeSkillResourcePlan {
+  return createDefaultSkillResourcePlan(skill, businessLogic);
+}
+
+export async function resolveCodeSkillContext(
+  skill: LoadedCodeSkill,
+  resourcePlan: CodeSkillResourcePlan,
+): Promise<CodeSkillContext> {
+  const parsedPlan = codeSkillResourcePlanSchema.parse(resourcePlan);
+  const query = parsedPlan.query;
+  const { actions, diagnostics } = readSkillActions(skill);
+  const actionMode = getCodeSkillActionMode();
+  const actionResults: CodeSkillActionResult[] = [];
+  const completedByName = new Map<string, string>();
+
+  for (const request of parsedPlan.requests) {
+    if (request.resourceType === "action" && actionMode !== "csv") {
+      const action = actions.find((candidate) => candidate.name === request.actionName);
+      if (!action) {
+        const failed = createFailedActionResult(
+          request,
+          "skill-action",
+          `未授权或不存在的 skill action: ${request.actionName}`,
+        );
+        actionResults.push(failed);
+        continue;
+      }
+      try {
+        const result = await runAction(skill, action, request.query || query);
+        actionResults.push(result);
+        if (result.status === "completed") {
+          completedByName.set(request.name, result.stdout);
+          completedByName.set(action.name, result.stdout);
+        }
+      } catch (error) {
+        actionResults.push(
+          createFailedActionResult(
+            request,
+            action.command,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (request.resourceType === "action" && actionMode === "csv") {
+      diagnostics.push(
+        codeSkillDiagnosticsSchema.parse({
+          level: "warning",
+          source: skill.location,
+          message: `默认 csv 模式跳过 Python action ${request.actionName || request.name}；如需启用请设置 UML_CODE_SKILL_ACTION_MODE=python 或 auto。`,
         }),
       );
       continue;
     }
+
     try {
-      actionResults.push(await runAction(skill, action, query));
+      const relativePath = csvPathForRequest(request);
+      const stdout = readCsvContext(
+        skill,
+        relativePath,
+        request.query || query,
+        request.resourceType === "domain" && request.domain === "chart" ? 6000 : 8000,
+        request.maxResults,
+      );
+      const result = createCsvActionResult(
+        request.name,
+        request.reason,
+        relativePath,
+        request.resourceType === "design-system" ? "markdown" : "json",
+        stdout,
+      );
+      actionResults.push(result);
+      if (result.status === "completed") {
+        completedByName.set(request.name, result.stdout);
+        completedByName.set(relativePath, result.stdout);
+      }
     } catch (error) {
-      const now = new Date().toISOString();
       actionResults.push(
-        codeSkillActionResultSchema.parse({
-          name: action.name,
-          description: action.description,
-          command: action.command,
-          args: resolveActionArgs(action, query),
-          outputFormat: action.outputFormat,
-          status: "failed",
-          stdout: "",
-          stderr: "",
-          exitCode: null,
-          errorMessage: error instanceof Error ? error.message : String(error),
-          startedAt: now,
-          completedAt: now,
-        }),
+        createFailedActionResult(
+          request,
+          "node-csv-resolver",
+          error instanceof Error ? error.message : String(error),
+        ),
       );
     }
   }
@@ -479,18 +776,33 @@ export async function resolveCodeSkillContext(
     }
   }
 
-  const outputFor = (name: string) =>
-    actionResults.find((result) => result.name === name && result.status === "completed")?.stdout ?? "";
+  if (actionMode === "auto" && actionResults.some((result) => result.status === "failed" && result.command !== "node-csv-resolver")) {
+    diagnostics.push(
+      codeSkillDiagnosticsSchema.parse({
+        level: "warning",
+        source: skill.location,
+        message: "Python action 执行失败；已保留 CSV 结果，代码生成继续。",
+      }),
+    );
+  }
+
+  const outputFor = (...names: string[]) =>
+    names
+      .map((name) => completedByName.get(name))
+      .find((value): value is string => Boolean(value)) ?? "";
+
+  const domainOutputs = parsedPlan.requests
+    .filter((request) => request.resourceType === "domain" || request.resourceType === "csv")
+    .map((request) => outputFor(request.name, request.csvPath))
+    .filter(Boolean);
 
   return codeSkillContextSchema.parse({
     skillName: skill.name,
     alias: skill.alias,
     query,
-    designSystem: outputFor("design-system"),
-    stackGuidelines: outputFor("react-stack"),
-    domainGuidelines: [outputFor("ux-guidelines"), outputFor("chart-guidelines")]
-      .filter(Boolean)
-      .join("\n\n"),
+    designSystem: outputFor("design-system", "data/design.csv"),
+    stackGuidelines: outputFor("react-stack", "data/stacks/react.csv"),
+    domainGuidelines: domainOutputs.join("\n\n"),
     actionResults,
     diagnostics,
   });
@@ -498,6 +810,7 @@ export async function resolveCodeSkillContext(
 
 export function formatWebDesignSkillForPrompt(
   skill: LoadedWebDesignSkill,
+  resourcePlan?: CodeSkillResourcePlan | null,
   skillContext?: CodeSkillContext | null,
 ) {
   const manifest = skill.fileManifest.map((file) => ({
@@ -515,6 +828,10 @@ export function formatWebDesignSkillForPrompt(
     "<skill_files>",
     JSON.stringify(manifest, null, 2),
     "</skill_files>",
+    "",
+    "<skill_resource_plan>",
+    JSON.stringify(resourcePlan ?? null, null, 2),
+    "</skill_resource_plan>",
     "",
     "<skill_context>",
     JSON.stringify(skillContext ?? null, null, 2),

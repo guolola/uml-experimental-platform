@@ -17,7 +17,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import {
   artifactReadyRunEventSchema,
   codeAppBlueprintResultSchema,
@@ -31,6 +31,7 @@ import {
   codeRunSnapshotSchema,
   codeSkillDiagnosticsSchema,
   codeSkillContextSchema,
+  codeSkillResourcePlanSchema,
   loadedCodeSkillSchema,
   codeUiIrResultSchema,
   codeVisualDiffReportSchema,
@@ -80,6 +81,7 @@ import {
   type CodeRunSnapshot,
   type CodeSkillSelection,
   type CodeSkillContext,
+  type CodeSkillResourcePlan,
   type LoadedCodeSkill,
   type CodeUiBlueprint,
   type CodeUiFidelityReport,
@@ -121,6 +123,7 @@ import {
   buildGenerateCodeAgentPlanPrompt,
   buildGenerateCodeFilePlanPrompt,
   buildGenerateCodeFileOperationsPrompt,
+  buildGenerateCodeSkillResourcePlanPrompt,
   buildGenerateCodeUiIrPrompt,
   buildGenerateCodeUiMockupPrompt,
   buildVerifyCodeUiFidelityPrompt,
@@ -143,6 +146,8 @@ import {
 import { getModelCapability } from "./model-capabilities.js";
 import {
   formatWebDesignSkillForPrompt,
+  fallbackCodeSkillResourcePlan,
+  getCodeSkillRuntimeStatus,
   loadWebDesignSkill,
   resolveCodeSkillContext,
   toWebDesignSkillSelection,
@@ -1259,6 +1264,64 @@ const GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT: ChatCompletionResponseFormat
   },
 };
 
+const GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "code_skill_resource_plan_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        skillResourcePlan: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            skillName: { type: "string" },
+            alias: { type: "string" },
+            query: { type: "string" },
+            requests: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  resourceType: {
+                    type: "string",
+                    enum: ["design-system", "stack", "domain", "csv", "action"],
+                  },
+                  name: { type: "string" },
+                  query: { type: "string" },
+                  csvPath: { type: "string" },
+                  stack: { type: "string" },
+                  domain: { type: "string" },
+                  actionName: { type: "string" },
+                  maxResults: { type: "number" },
+                  reason: { type: "string" },
+                },
+                required: [
+                  "resourceType",
+                  "name",
+                  "query",
+                  "csvPath",
+                  "stack",
+                  "domain",
+                  "actionName",
+                  "maxResults",
+                  "reason",
+                ],
+              },
+            },
+            diagnostics: { type: "array", items: { type: "string" } },
+          },
+          required: ["skillName", "alias", "query", "requests", "diagnostics"],
+        },
+      },
+      required: ["skillResourcePlan"],
+    },
+  },
+};
+
 const GENERATE_CODE_APP_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
   json_schema: {
@@ -1835,6 +1898,7 @@ function createEmptyCodeSnapshot(
     spec: null,
     businessLogic: null,
     loadedCodeSkill: null,
+    skillResourcePlan: null,
     codeSkillContext: null,
     appBlueprint: null,
     uiBlueprint: null,
@@ -1934,6 +1998,12 @@ function getGenerateCodeFilesResponseFormat(model: string) {
 function getGenerateCodeBusinessLogicResponseFormat(model: string) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT
+    : undefined;
+}
+
+function getGenerateCodeSkillResourcePlanResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT
     : undefined;
 }
 
@@ -2133,6 +2203,184 @@ function ensureArray(value: unknown): unknown[] {
     return [value.trim()];
   }
   return [];
+}
+
+function normalizeRequirementModelElementMaps(model: Record<string, unknown>) {
+  const candidates: unknown[] = [];
+  for (const key of [
+    "actors",
+    "useCases",
+    "systemBoundaries",
+    "classes",
+    "interfaces",
+    "enums",
+    "swimlanes",
+    "nodes",
+    "databases",
+    "components",
+    "externalSystems",
+    "artifacts",
+  ]) {
+    candidates.push(...ensureArray(model[key]));
+  }
+
+  const byName = new Map<string, string>();
+  const byId = new Map<string, string>();
+  for (const item of candidates) {
+    if (!isPlainRecord(item)) continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    if (!id) continue;
+    byId.set(id.toLowerCase(), id);
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    if (name) {
+      byName.set(name.toLowerCase(), id);
+    }
+  }
+  return { byName, byId };
+}
+
+function resolveRequirementEndpoint(
+  value: unknown,
+  maps: ReturnType<typeof normalizeRequirementModelElementMaps>,
+) {
+  if (typeof value !== "string" && typeof value !== "number") {
+    return "";
+  }
+  const raw = String(value).trim();
+  if (!raw) return "";
+  return maps.byId.get(raw.toLowerCase()) ?? maps.byName.get(raw.toLowerCase()) ?? raw;
+}
+
+function normalizeRequirementRelationship(
+  relationship: unknown,
+  maps: ReturnType<typeof normalizeRequirementModelElementMaps>,
+) {
+  if (!isPlainRecord(relationship)) return null;
+  const normalized: Record<string, unknown> = { ...relationship };
+  const sourceCandidate =
+    normalized.sourceId ??
+    normalized.source ??
+    normalized.from ??
+    normalized.start ??
+    normalized.sourceRef ??
+    normalized.sourceNodeId ??
+    normalized.sourceUseCaseId ??
+    normalized.actorId ??
+    normalized.sourceName;
+  const targetCandidate =
+    normalized.targetId ??
+    normalized.target ??
+    normalized.to ??
+    normalized.end ??
+    normalized.targetRef ??
+    normalized.targetNodeId ??
+    normalized.targetUseCaseId ??
+    normalized.useCaseId ??
+    normalized.targetName;
+  const sourceId = resolveRequirementEndpoint(sourceCandidate, maps);
+  const targetId = resolveRequirementEndpoint(targetCandidate, maps);
+  if (!sourceId || !targetId) {
+    return null;
+  }
+
+  normalized.sourceId = sourceId;
+  normalized.targetId = targetId;
+  if ("port" in normalized && normalized.port !== undefined && normalized.port !== null) {
+    normalized.port = String(normalized.port);
+  }
+  return normalized;
+}
+
+function normalizeRequirementDiagramModel(model: unknown) {
+  if (!isPlainRecord(model)) return model;
+  const diagramKind = typeof model.diagramKind === "string" ? model.diagramKind : "";
+  const normalized: Record<string, unknown> = {
+    ...model,
+    notes: normalizeStringArray(model.notes),
+  };
+
+  if (diagramKind === "usecase") {
+    normalized.actors = ensureArray(normalized.actors).map((actor) =>
+      isPlainRecord(actor)
+        ? { ...actor, responsibilities: normalizeStringArray(actor.responsibilities) }
+        : actor,
+    );
+    normalized.useCases = ensureArray(normalized.useCases).map((useCase) =>
+      isPlainRecord(useCase)
+        ? {
+            ...useCase,
+            preconditions: normalizeStringArray(useCase.preconditions),
+            postconditions: normalizeStringArray(useCase.postconditions),
+            supportingActorIds: normalizeStringArray(useCase.supportingActorIds),
+          }
+        : useCase,
+    );
+    normalized.systemBoundaries = ensureArray(normalized.systemBoundaries);
+  }
+
+  if (diagramKind === "class") {
+    normalized.classes = ensureArray(normalized.classes).map((classItem) => {
+      if (!isPlainRecord(classItem)) return classItem;
+      return {
+        ...classItem,
+        attributes: ensureArray(classItem.attributes),
+        operations: ensureArray(classItem.operations).map((operation) =>
+          isPlainRecord(operation)
+            ? { ...operation, parameters: ensureArray(operation.parameters) }
+            : operation,
+        ),
+      };
+    });
+    normalized.interfaces = ensureArray(normalized.interfaces).map((interfaceItem) =>
+      isPlainRecord(interfaceItem)
+        ? { ...interfaceItem, operations: ensureArray(interfaceItem.operations) }
+        : interfaceItem,
+    );
+    normalized.enums = ensureArray(normalized.enums).map((enumItem) =>
+      isPlainRecord(enumItem)
+        ? { ...enumItem, literals: normalizeStringArray(enumItem.literals) }
+        : enumItem,
+    );
+  }
+
+  if (diagramKind === "activity") {
+    normalized.swimlanes = ensureArray(normalized.swimlanes);
+    normalized.nodes = ensureArray(normalized.nodes).map((node) =>
+      isPlainRecord(node)
+        ? {
+            ...node,
+            input: "input" in node ? normalizeStringArray(node.input) : node.input,
+            output: "output" in node ? normalizeStringArray(node.output) : node.output,
+          }
+        : node,
+    );
+  }
+
+  if (diagramKind === "deployment") {
+    normalized.nodes = ensureArray(normalized.nodes);
+    normalized.databases = ensureArray(normalized.databases);
+    normalized.components = ensureArray(normalized.components);
+    normalized.externalSystems = ensureArray(normalized.externalSystems);
+    normalized.artifacts = ensureArray(normalized.artifacts);
+  }
+
+  const maps = normalizeRequirementModelElementMaps(normalized);
+  normalized.relationships = ensureArray(normalized.relationships)
+    .map((relationship) => normalizeRequirementRelationship(relationship, maps))
+    .filter((relationship): relationship is Record<string, unknown> => Boolean(relationship));
+
+  return normalized;
+}
+
+function parseRequirementDiagramModelsResult(value: string) {
+  const parsed = parseJson<unknown>(value);
+  const normalized = isPlainRecord(parsed)
+    ? {
+        ...parsed,
+        models: ensureArray(parsed.models).map(normalizeRequirementDiagramModel),
+      }
+    : parsed;
+  return diagramModelsResultSchema.parse(normalized);
 }
 
 function normalizeSequenceMessageType(value: unknown) {
@@ -2673,7 +2921,7 @@ async function generateModelsWithRepair(
     });
 
     try {
-      const parsed = diagramModelsResultSchema.parse(parseJson(content));
+      const parsed = parseRequirementDiagramModelsResult(content);
       appendRequirementTrace(record, {
         stage: "generate_models",
         attempt: attempt + 1,
@@ -3301,15 +3549,22 @@ function createStableCodeScaffold() {
     ].join("\n"),
     "/src/styles.css": [
       ":root {",
+      "  --bg: #f6f8fb;",
+      "  --surface: #ffffff;",
+      "  --text: #172033;",
+      "  --muted: #64748b;",
+      "  --primary: #2563eb;",
+      "  --border: #dbe4f0;",
       "  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;",
-      "  color: #172033;",
-      "  background: #f6f8fb;",
+      "  color: var(--text);",
+      "  background: var(--bg);",
       "}",
+      "[data-theme=\"dark\"] { --bg: #111827; --surface: #1f2937; --text: #f8fafc; --muted: #cbd5e1; --primary: #60a5fa; --border: #334155; }",
       "",
       "* { box-sizing: border-box; }",
-      "body { margin: 0; min-width: 320px; min-height: 100vh; background: #f6f8fb; }",
+      "body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }",
       "button, input, select, textarea { font: inherit; }",
-      ".prototype-shell { min-height: 100vh; padding: 24px; color: #172033; }",
+      ".prototype-shell { min-height: 100vh; padding: 24px; color: var(--text); background: var(--bg); }",
     ].join("\n"),
     "/src/domain/types.ts": [
       "export interface PrototypeRecord {",
@@ -3430,6 +3685,24 @@ function buildCodeContext(snapshot: CodeRunSnapshot) {
             kind: file.kind,
             size: file.size,
           })),
+      }
+      : null,
+    skillResourcePlan: snapshot.skillResourcePlan
+      ? {
+          skillName: snapshot.skillResourcePlan.skillName,
+          alias: snapshot.skillResourcePlan.alias,
+          query: snapshot.skillResourcePlan.query,
+          requests: snapshot.skillResourcePlan.requests.map((request) => ({
+            resourceType: request.resourceType,
+            name: request.name,
+            csvPath: request.csvPath,
+            stack: request.stack,
+            domain: request.domain,
+            actionName: request.actionName,
+            maxResults: request.maxResults,
+            reason: request.reason,
+          })),
+          diagnostics: snapshot.skillResourcePlan.diagnostics,
         }
       : null,
     codeSkillContext: snapshot.codeSkillContext
@@ -3825,6 +4098,13 @@ function parseCodeBusinessLogicResult(text: string) {
   }
 
   return codeBusinessLogicResultSchema.parse(parsed);
+}
+
+function parseCodeSkillResourcePlanResult(text: string) {
+  const parsed = parseJson<unknown>(text);
+  return z.object({
+    skillResourcePlan: codeSkillResourcePlanSchema,
+  }).parse(parsed);
 }
 
 function parseCodeUiBlueprintResult(
@@ -4580,7 +4860,7 @@ function createDefaultCodeTheme(appName: string): CodeUiBlueprint["theme"] {
     textColor: "#0f172a",
     accentColor: "#f97316",
     density: "compact",
-    tone: "由 ui-ux-pro-max 根据业务逻辑进一步推导界面气质",
+    tone: "由前端设计执行器根据业务逻辑进一步推导界面气质",
   };
 }
 
@@ -4655,10 +4935,10 @@ function buildCodeGenerationSpecFromBusinessLogic(
       businessLogic.domainSummary,
       businessLogic.coreWorkflow,
       uiBlueprint?.visualLanguage ??
-        "ui-ux-pro-max 负责从业务逻辑推导页面主题、导航、布局密度、组件结构和状态表达。",
+        "前端设计执行器负责从业务逻辑推导页面主题、导航、布局密度、组件结构和状态表达。",
       uiBlueprint?.navigationModel ??
-        "新链路不单独生成 uiBlueprint，导航模型由 ui-ux-pro-max 在代码生成阶段确定。",
-      "新链路由 ui-ux-pro-max 直接生成 React 文件操作，不依赖界面图或 UI IR。",
+        "新链路不单独生成 uiBlueprint，导航模型由前端设计执行器在代码生成阶段确定。",
+      "新链路由前端设计执行器直接生成 React 文件操作，不依赖界面图或 UI IR。",
     ],
     appBlueprint: null,
     uiBlueprint,
@@ -4666,6 +4946,74 @@ function buildCodeGenerationSpecFromBusinessLogic(
     uiIr: null,
     filePlan: null,
   });
+}
+
+function appendMarkdownList(lines: string[], title: string, values: string[]) {
+  const filtered = values.map((value) => value.trim()).filter(Boolean);
+  if (filtered.length === 0) return;
+  lines.push(`## ${title}`, "");
+  for (const value of filtered) {
+    lines.push(`- ${value}`);
+  }
+  lines.push("");
+}
+
+function buildBusinessContextMarkdown(snapshot: CodeRunSnapshot) {
+  const businessLogic = snapshot.businessLogic;
+  const lines = [
+    "# Business Context",
+    "",
+    "此文件由平台根据已确认需求项和业务逻辑自动维护，用于承载项目背景、权限边界、规则溯源和服务边界。",
+    "这些说明性内容供代码页查看，不应直接渲染到业务原型 UI 中。",
+    "",
+  ];
+
+  if (!businessLogic) {
+    appendMarkdownList(
+      lines,
+      "已确认需求项",
+      snapshot.rules.map((rule) => `${rule.id} [${rule.category}] ${rule.text}`),
+    );
+    return `${lines.join("\n").trim()}\n`;
+  }
+
+  lines.push("## 项目背景", "");
+  lines.push(`- 应用名称：${businessLogic.appName}`);
+  lines.push(`- 领域摘要：${businessLogic.domainSummary}`);
+  lines.push(`- 核心流程：${businessLogic.coreWorkflow}`, "");
+
+  appendMarkdownList(
+    lines,
+    "权限边界",
+    businessLogic.permissions.map(
+      (permission) =>
+        `${permission.actor}：${permission.allowedActions.join("、")}${
+          permission.restrictedActions.length
+            ? `；不可执行：${permission.restrictedActions.join("、")}`
+            : ""
+        }`,
+    ),
+  );
+  appendMarkdownList(lines, "前端必须实现的操作", businessLogic.frontendOperations);
+  appendMarkdownList(lines, "异常与边界条件", businessLogic.edgeCases);
+  appendMarkdownList(lines, "PlantUML 溯源", businessLogic.plantUmlTraceability);
+  appendMarkdownList(
+    lines,
+    "已确认需求项",
+    snapshot.rules.map((rule) => `${rule.id} [${rule.category}] ${rule.text}`),
+  );
+
+  return `${lines.join("\n").trim()}\n`;
+}
+
+function upsertBusinessContextMarkdown(record: RunRecord, snapshot: CodeRunSnapshot) {
+  emitCodeFileChanged(
+    record,
+    snapshot,
+    "/BUSINESS_CONTEXT.md",
+    buildBusinessContextMarkdown(snapshot),
+    "写入业务说明文档，供代码页查看，不进入业务 UI",
+  );
 }
 
 function addBusinessCoverageTerm(terms: Set<string>, value: string | undefined) {
@@ -4698,10 +5046,32 @@ function extractBusinessCoverageTerms(businessLogic: CodeBusinessLogic) {
   return [...terms];
 }
 
+const nearBlackMainBackgroundPattern =
+  /(?:--(?:bg|background)\s*:\s*(?:#(?:0{3}|000000|030304|050506)\b|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\)|black\b)|background(?:-color)?\s*:\s*(?:#(?:0{3}|000000|030304|050506)\b|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\)|black\b))/i;
+
+function hasRequiredThemeTokens(styles: string) {
+  return ["--bg", "--surface", "--text", "--muted", "--primary", "--border"].every(
+    (token) => styles.includes(token),
+  );
+}
+
+function hasDarkThemeDefinition(styles: string) {
+  return /\[data-theme=["']?dark["']?\]|\.dark\b|data-theme\s*=\s*["']dark["']/i.test(
+    styles,
+  );
+}
+
+function hasThemeToggleLogic(filesText: string) {
+  return /data-theme|setAttribute\(["']data-theme|useState[^\n]*(?:theme|dark)|setTheme|浅色|深色|Light|Dark/i.test(
+    filesText,
+  );
+}
+
 function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagnostic {
   const issues: CodeQualityDiagnostic["issues"] = [];
   const filePaths = Object.keys(snapshot.files);
   const filesText = Object.values(snapshot.files).join("\n");
+  const stylesText = snapshot.files["/src/styles.css"] ?? "";
   const pageFiles = filePaths.filter((path) => /^\/src\/pages\/.+\.tsx$/.test(path));
   const componentFiles = filePaths.filter((path) =>
     /^\/src\/components\/.+\.tsx$/.test(path),
@@ -4756,6 +5126,30 @@ function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagno
       severity: "error",
       path: snapshot.entryFile ?? undefined,
       message: "入口文件不存在或未设置",
+    });
+  }
+
+  if (nearBlackMainBackgroundPattern.test(stylesText)) {
+    issues.push({
+      severity: "error",
+      path: "/src/styles.css",
+      message:
+        "页面主背景使用了纯黑或近纯黑颜色，生成原型必须默认浅色主题，深色只能作为可切换模式",
+    });
+  }
+  if (!hasRequiredThemeTokens(stylesText) || !hasDarkThemeDefinition(stylesText)) {
+    issues.push({
+      severity: "error",
+      path: "/src/styles.css",
+      message:
+        "样式缺少浅色默认与深色模式 CSS variables，至少需要 :root、[data-theme=\"dark\"] 以及 --bg/--surface/--text/--muted/--primary/--border",
+    });
+  }
+  if (!hasThemeToggleLogic(filesText)) {
+    issues.push({
+      severity: "error",
+      message:
+        "原型缺少可见的浅色/深色主题切换逻辑，需要在顶部栏等位置提供主题切换控件",
     });
   }
 
@@ -4830,6 +5224,7 @@ function recordCodeQualityDiagnostics(
 
 function verifyRenderedPreviewStructure(snapshot: CodeRunSnapshot): CodeVisualDiffReport {
   const filesText = Object.values(snapshot.files).join("\n");
+  const stylesText = snapshot.files["/src/styles.css"] ?? "";
   const findings: string[] = [];
   const repairSuggestions: string[] = [];
 
@@ -4859,6 +5254,31 @@ function verifyRenderedPreviewStructure(snapshot: CodeRunSnapshot): CodeVisualDi
     repairSuggestions.push("为主页面增加一个清晰的主要操作入口，并使用 token 样式。");
   }
 
+  if (!/@media|clamp\(|minmax\(|flex-wrap|grid-template-columns:\s*repeat\(|max-width:\s*100%|overflow-x:\s*auto/i.test(filesText)) {
+    findings.push("没有检测到基础响应式布局策略，窄 iframe 与新窗口宽 viewport 可能表现不稳定。");
+    repairSuggestions.push("补齐响应式 CSS：使用 media query、flex-wrap、minmax grid、max-width:100% 或 overflow-x:auto，确保窄宽 viewport 都可用。");
+  }
+
+  if (/min-width:\s*(?:9\d{2,}|\d{4,})px|width:\s*(?:9\d{2,}|\d{4,})px|100vw/i.test(filesText)) {
+    findings.push("检测到可能导致窄预览横向溢出的固定宽度或 100vw 用法。");
+    repairSuggestions.push("移除大固定宽度和 100vw 容器，改用 width:100%、max-width、minmax 或容器内滚动。");
+  }
+
+  if (nearBlackMainBackgroundPattern.test(stylesText)) {
+    findings.push("页面主背景使用了纯黑或近纯黑颜色，默认浅色主题要求未满足。");
+    repairSuggestions.push("将默认主题改为浅色 CSS variables，并把柔和深色仅放入 [data-theme=\"dark\"] 模式。");
+  }
+
+  if (!hasRequiredThemeTokens(stylesText) || !hasDarkThemeDefinition(stylesText)) {
+    findings.push("未检测到完整的浅色/深色主题 token 定义。");
+    repairSuggestions.push("在 /src/styles.css 中补齐 :root 与 [data-theme=\"dark\"]，包含 --bg、--surface、--text、--muted、--primary、--border。");
+  }
+
+  if (!hasThemeToggleLogic(filesText)) {
+    findings.push("未检测到浅色/深色主题切换控件或 data-theme 切换逻辑。");
+    repairSuggestions.push("在顶部栏增加主题切换按钮，使用 React state 控制 data-theme 或 class。");
+  }
+
   if (snapshot.uiIr && !/--color-primary|--space-3|--radius-md/.test(filesText)) {
     findings.push("未检测到 UI IR 要求的 token CSS variables 使用。");
     repairSuggestions.push("在 /src/styles.css 定义并在组件中使用 --color-primary、--space-3、--radius-md 等变量。");
@@ -4871,7 +5291,7 @@ function verifyRenderedPreviewStructure(snapshot: CodeRunSnapshot): CodeVisualDi
     findings,
     repairSuggestions,
     summary: passed
-      ? "结构化预览验证通过：入口、导航、业务区和主要操作均已具备。"
+      ? "结构化预览验证通过：入口、导航、业务区、主要操作和基础响应式策略均已具备。"
       : `结构化预览验证发现 ${findings.length} 个问题。`,
   });
 }
@@ -4886,6 +5306,7 @@ async function generateCodeFileOperationsWithRepair(
     businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
     loadedCodeSkill?: LoadedCodeSkill | null;
+    skillResourcePlan?: CodeSkillResourcePlan | null;
     codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
     selectedCodeSkills?: CodeSkillSelection[];
@@ -5554,7 +5975,7 @@ async function runCodeStagePipeline(
   );
 
   codeContext = buildCodeContext(snapshot);
-  updateStage("plan_code_ui", "正在由 ui-ux-pro-max 规划界面方案");
+  updateStage("plan_code_ui", "正在规划界面方案");
   const loadedSkillResult = loadWebDesignSkill();
   const loadedCodeSkill = loadedCodeSkillSchema.parse(loadedSkillResult.skill);
   snapshot.loadedCodeSkill = loadedCodeSkill;
@@ -5565,10 +5986,49 @@ async function runCodeStagePipeline(
   addCodeDiagnostic(
     snapshot,
     "plan_code_ui",
-    `已加载 ${loadedCodeSkill.name} skill，发现 ${loadedCodeSkill.fileManifest.length} 个可用资源文件`,
+    `已加载前端设计执行器，发现 ${loadedCodeSkill.fileManifest.length} 个可用资源文件`,
+  );
+  let skillResourcePlan: CodeSkillResourcePlan;
+  try {
+    const skillResourcePlanResult = await collectStructuredResult(
+      llmTransport,
+      providerSettings,
+      createMessages(buildGenerateCodeSkillResourcePlanPrompt(businessLogic, loadedCodeSkill)),
+      "plan_code_ui",
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage: "plan_code_ui",
+            chunk,
+          }),
+        );
+      },
+      parseCodeSkillResourcePlanResult,
+      getGenerateCodeSkillResourcePlanResponseFormat(providerSettings.model),
+    );
+    skillResourcePlan = codeSkillResourcePlanSchema.parse(
+      skillResourcePlanResult.skillResourcePlan,
+    );
+  } catch (error) {
+    skillResourcePlan = fallbackCodeSkillResourcePlan(loadedCodeSkill, businessLogic);
+    snapshot.skillDiagnostics.push(
+      codeSkillDiagnosticsSchema.parse({
+        level: "warning",
+        source: loadedCodeSkill.location,
+        message: `skillResourcePlan 生成失败，已使用最小默认计划：${formatParseError(error)}`,
+      }),
+    );
+  }
+  snapshot.skillResourcePlan = skillResourcePlan;
+  addCodeDiagnostic(
+    snapshot,
+    "plan_code_ui",
+    `前端设计执行器声明 ${skillResourcePlan.requests.length} 个设计资源查询`,
   );
   const skillContext = codeSkillContextSchema.parse(
-    await resolveCodeSkillContext(loadedCodeSkill, businessLogic),
+    await resolveCodeSkillContext(loadedCodeSkill, skillResourcePlan),
   );
   snapshot.codeSkillContext = skillContext;
   snapshot.skillDiagnostics = [
@@ -5579,12 +6039,13 @@ async function runCodeStagePipeline(
   ];
   const codeSkillInstructions = formatWebDesignSkillForPrompt(
     loadedCodeSkill,
+    skillResourcePlan,
     skillContext,
   );
   addCodeDiagnostic(
     snapshot,
     "plan_code_ui",
-    `${loadedCodeSkill.alias} 已接管界面主题、布局、组件和视觉方案规划，已执行 ${skillContext.actionResults.length} 个 skill action`,
+    `前端设计执行器已接管界面主题、布局、组件和视觉方案规划，已执行 ${skillContext.actionResults.length} 个资源查询`,
   );
   emitEvent(
     record,
@@ -5593,6 +6054,16 @@ async function runCodeStagePipeline(
       stage: "plan_code_ui",
       artifactKind: "codeSkills",
       codeSkills: snapshot.selectedCodeSkills,
+      skillDiagnostics: snapshot.skillDiagnostics,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
+      artifactKind: "skillResourcePlan",
+      skillResourcePlan,
       skillDiagnostics: snapshot.skillDiagnostics,
     }),
   );
@@ -5613,7 +6084,7 @@ async function runCodeStagePipeline(
   addCodeDiagnostic(
     snapshot,
     "plan_code_ui",
-    "已形成业务逻辑驱动的代码生成规格，界面方案由 ui-ux-pro-max 在代码生成阶段推导",
+    "已形成业务逻辑驱动的代码生成规格，界面方案由前端设计执行器在代码生成阶段推导",
   );
   emitEvent(
     record,
@@ -5633,7 +6104,7 @@ async function runCodeStagePipeline(
   }
 
   codeContext = buildCodeContext(snapshot);
-  updateStage("generate_code_files", "正在由 ui-ux-pro-max 生成多页面原型代码");
+  updateStage("generate_code_files", "正在生成前端原型代码");
   const operationsResult = await generateCodeFileOperationsWithRepair(
     record,
     providerSettings,
@@ -5644,6 +6115,7 @@ async function runCodeStagePipeline(
       businessLogic,
       uiBlueprint: null,
       loadedCodeSkill,
+      skillResourcePlan,
       codeSkillContext: skillContext,
       selectedCodeSkills: snapshot.selectedCodeSkills,
       codeSkillInstructions,
@@ -5657,6 +6129,7 @@ async function runCodeStagePipeline(
       generatedFileChangeCount += 1;
     }
   }
+  upsertBusinessContextMarkdown(record, snapshot);
 
   emitEvent(
     record,
@@ -5672,7 +6145,7 @@ async function runCodeStagePipeline(
   if (generatedFileChangeCount === 0) {
     qualityDiagnostic = appendCodeQualityIssue(qualityDiagnostic, {
       severity: "error",
-      message: "ui-ux-pro-max 没有产生任何实质文件变更，不能将稳定骨架视为生成成功",
+      message: "前端设计执行器没有产生任何实质文件变更，不能将稳定骨架视为生成成功",
     });
   }
   recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
@@ -5691,6 +6164,7 @@ async function runCodeStagePipeline(
         businessLogic,
         uiBlueprint: null,
         loadedCodeSkill,
+        skillResourcePlan,
         codeSkillContext: skillContext,
         qualityIssues: repairIssues,
         selectedCodeSkills: snapshot.selectedCodeSkills,
@@ -5701,6 +6175,7 @@ async function runCodeStagePipeline(
     for (const operation of repairOperations.operations) {
       applyCodeOperation(record, snapshot, operation);
     }
+    upsertBusinessContextMarkdown(record, snapshot);
     updateStage("audit_code_quality", "正在复查修复后的原型质量");
     qualityDiagnostic = auditCodePrototypeQuality(snapshot);
     recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
@@ -5739,6 +6214,7 @@ async function runCodeStagePipeline(
         businessLogic,
         uiBlueprint: null,
         loadedCodeSkill,
+        skillResourcePlan,
         codeSkillContext: skillContext,
         qualityIssues: [
           ...fidelityReport.repairSuggestions,
@@ -5754,6 +6230,7 @@ async function runCodeStagePipeline(
     for (const operation of repairOperations.operations) {
       applyCodeOperation(record, snapshot, operation);
     }
+    upsertBusinessContextMarkdown(record, snapshot);
     repairRoundsRun = repairRound;
 
     if (snapshot.changedFileCount === changedBeforeRepair) {
@@ -5887,6 +6364,7 @@ export async function createApiServer(options?: {
       supportsDesignTableDiagram:
         designDiagramKindSchema.safeParse("table").success,
     },
+    codeSkillStatus: getCodeSkillRuntimeStatus(),
   });
 
   app.get("/health", async () => healthPayload());

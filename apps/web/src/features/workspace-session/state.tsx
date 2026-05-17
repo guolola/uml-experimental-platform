@@ -13,6 +13,8 @@ import type {
   CodeBusinessLogic,
   CodeGenerationSpec,
   CodeRunSnapshot,
+  CodeSkillContext,
+  CodeSkillResourcePlan,
   CodeUiFidelityReport,
   CodeUiMockup,
   CodeUiReferenceSpec,
@@ -72,6 +74,8 @@ interface RunDiagnostics {
   uiMockup: CodeUiMockup | null;
   uiReferenceSpec: CodeUiReferenceSpec | null;
   uiFidelityReport: CodeUiFidelityReport | null;
+  skillResourcePlan: CodeSkillResourcePlan | null;
+  codeSkillContext: CodeSkillContext | null;
   requirementTrace: RequirementTraceEntry[];
   designTrace: DesignTraceEntry[];
 }
@@ -107,6 +111,7 @@ interface WorkspaceSessionState {
   codeAgentPlan: string[];
   codeSkills: CodeRunSnapshot["selectedCodeSkills"];
   codeSkillDiagnostics: CodeRunSnapshot["skillDiagnostics"];
+  codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
   codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
   updateCodeFile: (path: string, value: string) => void;
@@ -214,6 +219,8 @@ function createEmptyDiagnostics(): RunDiagnostics {
     uiMockup: null,
     uiReferenceSpec: null,
     uiFidelityReport: null,
+    skillResourcePlan: null,
+    codeSkillContext: null,
     requirementTrace: [],
     designTrace: [],
   };
@@ -232,8 +239,8 @@ function formatStageForDiagnostics(stage: RunStage | null) {
     generate_code_ui_mockup: "生成界面设计图",
     analyze_code_ui_mockup: "解析界面设计图",
     generate_code_ui_ir: "生成结构化 UI IR",
-    load_web_design_skill: "加载 ui-ux-pro-max",
-    select_code_skills: "选择 Agent Skills",
+    load_web_design_skill: "加载前端设计执行器",
+    select_code_skills: "选择前端设计执行器",
     plan_code_files: "规划文件结构",
     generate_code_spec: "生成代码规格",
     generate_code_files: "生成代码文件",
@@ -264,7 +271,8 @@ function sanitizeDiagnosticText(text: string) {
     ["generate_code_ui_mockup", "生成界面设计图"],
     ["analyze_code_ui_mockup", "解析界面设计图"],
     ["generate_code_ui_ir", "生成结构化 UI IR"],
-    ["select_code_skills", "选择 Agent Skills"],
+    ["load_web_design_skill", "加载前端设计执行器"],
+    ["select_code_skills", "选择前端设计执行器"],
     ["plan_code_files", "规划文件结构"],
     ["generate_code_spec", "生成代码规格"],
     ["generate_code_files", "生成代码文件"],
@@ -291,6 +299,7 @@ function sanitizeDiagnosticText(text: string) {
     ["componentRegistry", "组件 Registry"],
     ["uiIr", "结构化 UI IR"],
     ["visualDiffReport", "预览验证报告"],
+    ["ui-ux-pro-max", "前端设计执行器"],
   ];
   return replacements.reduce(
     (current, [source, target]) => current.split(source).join(target),
@@ -525,6 +534,9 @@ export function WorkspaceSessionProvider({
   const [codeSkillDiagnostics, setCodeSkillDiagnostics] = useState<
     CodeRunSnapshot["skillDiagnostics"]
   >([]);
+  const [codeSkillResourcePlan, setCodeSkillResourcePlan] = useState<
+    CodeRunSnapshot["skillResourcePlan"]
+  >(null);
   const [codeSkillContext, setCodeSkillContext] = useState<
     CodeRunSnapshot["codeSkillContext"]
   >(null);
@@ -596,6 +608,7 @@ export function WorkspaceSessionProvider({
       setCodeAgentPlan(workspace.codeAgentPlan);
       setCodeSkills(workspace.codeSkills);
       setCodeSkillDiagnostics(workspace.codeSkillDiagnostics);
+      setCodeSkillResourcePlan(workspace.codeSkillResourcePlan);
       setCodeSkillContext(workspace.codeSkillContext);
       setCodeDiagnostics(workspace.codeDiagnostics);
       setGeneratedDiagrams(workspace.generatedDiagramTypes);
@@ -834,6 +847,7 @@ export function WorkspaceSessionProvider({
     setCodeAgentPlan([...snapshot.agentPlan]);
     setCodeSkills([...snapshot.selectedCodeSkills]);
     setCodeSkillDiagnostics([...snapshot.skillDiagnostics]);
+    setCodeSkillResourcePlan(snapshot.skillResourcePlan);
     setCodeSkillContext(snapshot.codeSkillContext);
     setCodeDiagnostics([...snapshot.diagnostics]);
   }, []);
@@ -935,6 +949,7 @@ export function WorkspaceSessionProvider({
       setCodeAgentPlan([]);
       setCodeSkills([]);
       setCodeSkillDiagnostics([]);
+      setCodeSkillResourcePlan(null);
       setCodeSkillContext(null);
       setCodeDiagnostics([]);
     } else {
@@ -967,6 +982,7 @@ export function WorkspaceSessionProvider({
       setCodeAgentPlan([]);
       setCodeSkills([]);
       setCodeSkillDiagnostics([]);
+      setCodeSkillResourcePlan(null);
       setCodeSkillContext(null);
       setCodeDiagnostics([]);
     }
@@ -997,6 +1013,12 @@ export function WorkspaceSessionProvider({
         : null,
       uiFidelityReport: isCodeRunSnapshot(snapshot)
         ? snapshot.uiFidelityReport
+        : null,
+      skillResourcePlan: isCodeRunSnapshot(snapshot)
+        ? snapshot.skillResourcePlan
+        : null,
+      codeSkillContext: isCodeRunSnapshot(snapshot)
+        ? snapshot.codeSkillContext
         : null,
       requirementTrace:
         !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot)
@@ -1535,6 +1557,10 @@ export function WorkspaceSessionProvider({
           setCodeSkills(event.codeSkills ?? []);
           setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
         }
+        if (event.type === "artifact_ready" && event.artifactKind === "skillResourcePlan") {
+          setCodeSkillResourcePlan(event.skillResourcePlan ?? null);
+          setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
+        }
         if (event.type === "artifact_ready" && event.artifactKind === "codeSkillContext") {
           setCodeSkillContext(event.codeSkillContext ?? null);
           setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
@@ -1583,6 +1609,18 @@ export function WorkspaceSessionProvider({
               : event.type === "completed" && "uiFidelityReport" in event.snapshot
                 ? event.snapshot.uiFidelityReport ?? current.uiFidelityReport
                 : current.uiFidelityReport,
+          skillResourcePlan:
+            event.type === "artifact_ready" && event.artifactKind === "skillResourcePlan"
+              ? event.skillResourcePlan ?? current.skillResourcePlan
+              : event.type === "completed" && "skillResourcePlan" in event.snapshot
+                ? event.snapshot.skillResourcePlan ?? current.skillResourcePlan
+                : current.skillResourcePlan,
+          codeSkillContext:
+            event.type === "artifact_ready" && event.artifactKind === "codeSkillContext"
+              ? event.codeSkillContext ?? current.codeSkillContext
+              : event.type === "completed" && "codeSkillContext" in event.snapshot
+                ? event.snapshot.codeSkillContext ?? current.codeSkillContext
+                : current.codeSkillContext,
         }));
 
         setRunUiState((current) => ({
@@ -2044,6 +2082,7 @@ export function WorkspaceSessionProvider({
       codeAgentPlan,
       codeSkills,
       codeSkillDiagnostics,
+      codeSkillResourcePlan,
       codeSkillContext,
       codeDiagnostics,
       updateCodeFile,
@@ -2101,6 +2140,7 @@ export function WorkspaceSessionProvider({
       codeAgentPlan,
       codeSkills,
       codeSkillDiagnostics,
+      codeSkillResourcePlan,
       codeSkillContext,
       codeDiagnostics,
       updateCodeFile,

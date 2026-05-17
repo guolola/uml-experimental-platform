@@ -6,6 +6,7 @@ import {
   buildGenerateCodeAgentPlanPrompt,
   buildGenerateCodeFilePlanPrompt,
   buildGenerateCodeFileOperationsPrompt,
+  buildGenerateCodeSkillResourcePlanPrompt,
   buildGenerateCodeUiIrPrompt,
   buildGenerateCodeSpecPrompt,
   buildGenerateCodeUiBlueprintPrompt,
@@ -13,6 +14,7 @@ import {
   buildGenerateDocumentContentPrompt,
   buildGenerateDesignModelsPrompt,
   buildGenerateModelsPrompt,
+  buildRepairCodeFileOperationsPrompt,
   buildRepairDesignModelsPrompt,
   buildRepairModelsPrompt,
 } from "./index.js";
@@ -30,6 +32,9 @@ test("requirement model prompts include requirement-stage responsibilities", () 
   assert.match(prompt, /领域概念模型\(class\): 建立领域模型/);
   assert.match(prompt, /界面关系\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
   assert.match(prompt, /部署模型\(deployment\): 描述物理架构、网络拓扑、服务器节点及通信协议/);
+  assert.match(prompt, /JSON 必须完整合法/);
+  assert.match(prompt, /sourceId 和 targetId/);
+  assert.match(prompt, /port.*字符串/);
 });
 
 test("requirement repair prompt preserves requirement-stage responsibilities", () => {
@@ -43,6 +48,8 @@ test("requirement repair prompt preserves requirement-stage responsibilities", (
 
   assert.match(prompt, /需求阶段模型职责/);
   assert.match(prompt, /界面关系\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
+  assert.match(prompt, /relationships\[\] 必须显式包含 sourceId 和 targetId/);
+  assert.match(prompt, /deployment\.relationships\[\]\.port 必须是字符串/);
 });
 
 test("design model prompt keeps design-stage activity semantics", () => {
@@ -246,6 +253,25 @@ test("code generation prompts use business background theme and modular files", 
       ],
       codeSkillInstructions:
         '<code_skill alias="@web-design" name="ui-ux-pro-max">生成完整可运行代码。</code_skill>',
+      skillResourcePlan: {
+        skillName: "ui-ux-pro-max",
+        alias: "@web-design",
+        query: "校园活动 React responsive",
+        requests: [
+          {
+            resourceType: "stack",
+            name: "react-stack",
+            query: "React responsive prototype",
+            csvPath: "",
+            stack: "react",
+            domain: "",
+            actionName: "",
+            maxResults: 6,
+            reason: "获取 React stack 规则。",
+          },
+        ],
+        diagnostics: [],
+      },
       codeSkillContext: {
         skillName: "ui-ux-pro-max",
         alias: "@web-design",
@@ -258,12 +284,60 @@ test("code generation prompts use business background theme and modular files", 
       },
     },
   );
+  const repairOperationsPrompt = buildRepairCodeFileOperationsPrompt(
+    codeContext,
+    {
+      "/src/App.tsx": "export default function App() { return null; }",
+      "/src/styles.css": ":root{--bg:#050506}body{background:#050506}",
+    },
+    '{"operations":[]}',
+    "缺少主题切换",
+    {
+      businessLogic,
+      selectedCodeSkills: [
+        {
+          alias: "@web-design",
+          name: "ui-ux-pro-max",
+          description: "ui-ux-pro-max",
+          source: "project",
+          location: "apps/api/src/code-skills/ui-ux-pro-max/SKILL.md",
+          appliesTo: ["implementation", "repair"],
+          priority: 100,
+          reason: "固定启用",
+        },
+      ],
+      codeSkillInstructions:
+        '<code_skill alias="@web-design" name="ui-ux-pro-max">生成完整可运行代码。</code_skill>',
+    },
+  );
   const uiIrPrompt = buildGenerateCodeUiIrPrompt(
     codeContext,
     appBlueprint,
     uiBlueprint,
     null,
     null,
+  );
+  const skillResourcePlanPrompt = buildGenerateCodeSkillResourcePlanPrompt(
+    businessLogic,
+    {
+      alias: "@web-design",
+      aliases: ["@web-design"],
+      name: "ui-ux-pro-max",
+      description: "UI/UX design intelligence",
+      source: "project",
+      location: "apps/api/src/code-skills/ui-ux-pro-max/SKILL.md",
+      baseDir: "apps/api/src/code-skills/ui-ux-pro-max",
+      fileManifest: [
+        {
+          path: "apps/api/src/code-skills/ui-ux-pro-max/data/stacks/react.csv",
+          relativePath: "data/stacks/react.csv",
+          kind: "data",
+          size: 120,
+        },
+      ],
+      content: "Use search.py and CSV resources for UI/UX guidance.",
+      loadedAt: new Date().toISOString(),
+    },
   );
 
   assert.match(specPrompt, /theme 必须描述业务领域主题/);
@@ -293,13 +367,28 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /\/src\/data\/mock-data\.ts/);
   assert.match(operationsPrompt, /不能默认套 UML 实验平台风格/);
   assert.match(operationsPrompt, /ui-ux-pro-max Skill（主设计执行上下文）/);
+  assert.match(operationsPrompt, /Skill 资源查询计划/);
   assert.match(operationsPrompt, /Skill action 查询结果（必须优先使用）/);
-  assert.match(operationsPrompt, /design-system、react-stack、ux-guidelines/);
+  assert.match(operationsPrompt, /skillResourcePlan/);
   assert.match(operationsPrompt, /ui-ux-pro-max/);
   assert.match(operationsPrompt, /不使用 shadcn stack/);
   assert.match(operationsPrompt, /新链路不生成界面图/);
+  assert.match(operationsPrompt, /响应式布局/);
+  assert.match(operationsPrompt, /默认必须是浅色主题/);
+  assert.match(operationsPrompt, /浅色\/深色主题切换控件/);
+  assert.match(operationsPrompt, /#050506/);
+  assert.match(operationsPrompt, /--bg、--surface、--text、--muted、--primary、--border/);
+  assert.match(repairOperationsPrompt, /默认必须修复为浅色主题/);
+  assert.match(repairOperationsPrompt, /#050506/);
+  assert.match(repairOperationsPrompt, /\[data-theme="dark"\]/);
   assert.match(operationsPrompt, /不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示/);
-  assert.match(operationsPrompt, /不要为了这些说明性业务规则创建 \/src\/docs\/\*/);
+  assert.match(operationsPrompt, /\/BUSINESS_CONTEXT\.md/);
+  assert.match(operationsPrompt, /不要放到 \/src\/docs\/\*/);
+  assert.match(skillResourcePlanPrompt, /自主声明/);
+  assert.match(skillResourcePlanPrompt, /data\/\*\*\/\.csv|data\/\*\*\/\*\.csv/);
+  assert.match(skillResourcePlanPrompt, /不要声明所有 CSV/);
+  assert.match(skillResourcePlanPrompt, /React 原型必须至少声明一次 stack=react/);
+  assert.match(skillResourcePlanPrompt, /dark-mode 资源，只能用于可选深色主题/);
 
   const longUiMockupPrompt = buildGenerateCodeUiMockupPrompt(
     {

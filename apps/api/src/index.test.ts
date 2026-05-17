@@ -337,6 +337,52 @@ function createCodeBusinessLogicJson(appName = "校园活动运营台") {
   });
 }
 
+function createCodeSkillResourcePlanJson() {
+  return JSON.stringify({
+    skillResourcePlan: {
+      skillName: "ui-ux-pro-max",
+      alias: "@web-design",
+      query: "校园活动运营台 React dashboard responsive accessible",
+      requests: [
+        {
+          resourceType: "design-system",
+          name: "design-system",
+          query: "campus activity management dashboard",
+          csvPath: "",
+          stack: "",
+          domain: "",
+          actionName: "",
+          maxResults: 6,
+          reason: "获取业务原型的设计系统建议。",
+        },
+        {
+          resourceType: "stack",
+          name: "react-stack",
+          query: "React TypeScript responsive prototype",
+          csvPath: "",
+          stack: "react",
+          domain: "",
+          actionName: "",
+          maxResults: 6,
+          reason: "获取 React 实现规则。",
+        },
+        {
+          resourceType: "domain",
+          name: "ux-guidelines",
+          query: "navigation forms loading empty states accessibility",
+          csvPath: "",
+          stack: "",
+          domain: "ux",
+          actionName: "",
+          maxResults: 6,
+          reason: "获取 UX 规则。",
+        },
+      ],
+      diagnostics: [],
+    },
+  });
+}
+
 function createCodeBusinessLogicObjectArrayJson(appName = "校园活动运营台") {
   return JSON.stringify({
     businessLogic: {
@@ -653,7 +699,7 @@ function createQualityCodeOperations(label = "校园活动") {
       operation: "update_file",
       path: "/src/components/WorkspaceShell.tsx",
       content:
-        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst tabs = ['总览','报名','详情'] as const;\nexport function WorkspaceShell() { const [tab,setTab]=useState<(typeof tabs)[number]>('总览'); return <main className=\"prototype-shell\"><nav>{tabs.map((item)=><button key={item} onClick={()=>setTab(item)}>{item}</button>)}</nav>{tab==='总览'?<DashboardPage />:tab==='报名'?<RegistrationPage />:<DetailPage />}</main>; }",
+        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst tabs = ['总览','报名','详情'] as const;\nexport function WorkspaceShell() { const [tab,setTab]=useState<(typeof tabs)[number]>('总览'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"prototype-shell\" data-theme={theme}><nav>{tabs.map((item)=><button key={item} onClick={()=>setTab(item)}>{item}</button>)}<button className=\"theme-toggle\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</button></nav>{tab==='总览'?<DashboardPage />:tab==='报名'?<RegistrationPage />:<DetailPage />}</main>; }",
       reason: "生成多页面导航外壳",
     },
     {
@@ -710,7 +756,7 @@ export const registrations: Registration[] = [{ id: 'r1', studentName: '李同�
       operation: "update_file",
       path: "/src/styles.css",
       content:
-        ":root{--color-primary:#2563eb;--space-3:12px;--radius-md:8px;font-family:Inter,system-ui,sans-serif;color:#14213d;background:#f7fafc}body{margin:0}.prototype-shell{min-height:100vh;padding:24px;background:#f7fafc}nav{display:flex;gap:8px;margin-bottom:20px}button{border:0;border-radius:var(--radius-md);padding:8px var(--space-3);background:var(--color-primary);color:white}.metric-card,article{border:1px solid #dbe4f0;border-radius:12px;background:white;padding:16px;margin:10px 0}.status-badge{color:#f97316;font-weight:700}",
+        ":root{--bg:#f7fafc;--surface:#ffffff;--text:#14213d;--muted:#64748b;--primary:#2563eb;--border:#dbe4f0;--space-3:12px;--radius-md:8px;font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg)}[data-theme=\"dark\"]{--bg:#111827;--surface:#1f2937;--text:#f8fafc;--muted:#cbd5e1;--primary:#60a5fa;--border:#334155}body{margin:0;background:var(--bg)}.prototype-shell{min-height:100vh;width:100%;max-width:100%;padding:24px;background:var(--bg);color:var(--text);box-sizing:border-box}nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.theme-toggle{margin-left:auto;background:var(--surface);color:var(--text);border:1px solid var(--border)}section{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}button{border:0;border-radius:var(--radius-md);padding:8px var(--space-3);background:var(--primary);color:white}.metric-card,article{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:16px;margin:10px 0;max-width:100%;overflow-x:auto}.status-badge{color:#f97316;font-weight:700}@media (max-width:640px){.prototype-shell{padding:14px}section{grid-template-columns:1fr}}",
       reason: "生成业务主题样式",
     },
     {
@@ -1406,6 +1452,10 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
           yield createCodeBusinessLogicJson();
           return;
         }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
+          return;
+        }
         if (prompt.includes("请作为产品界面设计师")) {
           yield createCodeUiBlueprintJson();
           return;
@@ -1475,6 +1525,8 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.match(firstEvents.body, /"stage":"plan_code_ui"/);
   assert.doesNotMatch(firstEvents.body, /"stage":"load_web_design_skill"/);
   assert.match(firstEvents.body, /"artifactKind":"codeSkills"/);
+  assert.match(firstEvents.body, /"artifactKind":"skillResourcePlan"/);
+  assert.match(firstEvents.body, /"artifactKind":"codeSkillContext"/);
   assert.match(firstEvents.body, /"stage":"generate_code_files"/);
   assert.match(firstEvents.body, /"stage":"audit_code_quality"/);
   assert.match(firstEvents.body, /"stage":"verify_code_ui_fidelity"/);
@@ -1498,6 +1550,8 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.equal(firstSnapshot.entryFile, "/src/App.tsx");
   assert.equal(firstSnapshot.businessLogic.pageFlows.length, 3);
   assert.equal(firstSnapshot.loadedCodeSkill.alias, "@web-design");
+  assert.equal(firstSnapshot.skillResourcePlan.skillName, "ui-ux-pro-max");
+  assert.ok(firstSnapshot.skillResourcePlan.requests.length >= 3);
   assert.equal(firstSnapshot.codeSkillContext.skillName, "ui-ux-pro-max");
   assert.ok(firstSnapshot.codeSkillContext.actionResults.length >= 3);
   assert.equal(firstSnapshot.uiBlueprint, null);
@@ -1582,6 +1636,10 @@ test("api code run normalizes object-array business logic fields", async () => {
         assert.equal(responseFormat?.type, "json_schema");
         if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
           yield createCodeBusinessLogicObjectArrayJson();
+          return;
+        }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
           return;
         }
         if (prompt.includes("请作为产品界面设计师")) {
@@ -1675,6 +1733,10 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
           yield createCodeBusinessLogicJson();
           return;
         }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
+          return;
+        }
         if (prompt.includes("请作为产品界面设计师")) {
           yield `${createCodeUiBlueprintJson()} 说明：界面方案已生成`;
           return;
@@ -1744,6 +1806,10 @@ test("api code run does not call a separate UI blueprint stage", async () => {
         assert.equal(responseFormat?.type, "json_schema");
         if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
           yield createCodeBusinessLogicJson();
+          return;
+        }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
           return;
         }
         if (prompt.includes("请作为产品界面设计师")) {
@@ -1819,6 +1885,10 @@ test("api code run continues when UI mockup image generation fails", async () =>
         assert.equal(responseFormat?.type, "json_schema");
         if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
           yield createCodeBusinessLogicJson();
+          return;
+        }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
           return;
         }
         if (prompt.includes("请作为产品界面设计师")) {
@@ -1902,6 +1972,10 @@ test("api code runs repair invalid code operation discriminators", async () => {
           yield createCodeBusinessLogicJson();
           return;
         }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
+          return;
+        }
         if (prompt.includes("请作为产品界面设计师")) {
           yield createCodeUiBlueprintJson();
           return;
@@ -1978,6 +2052,116 @@ test("api code runs repair invalid code operation discriminators", async () => {
   assert.match(snapshot.files["/src/data/mock-data.ts"], /业务原型/);
   assert.equal(snapshot.qualityDiagnostics.at(-1).passed, true);
   assert.equal(operationCalls, 2);
+
+  await app.close();
+});
+
+test("api code run rejects near-black default backgrounds and repairs theme toggle", async () => {
+  let operationCalls = 0;
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+        assert.equal(responseFormat?.type, "json_schema");
+        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+          yield createCodeBusinessLogicJson();
+          return;
+        }
+        if (prompt.includes("opencode-like skill runtime")) {
+          yield createCodeSkillResourcePlanJson();
+          return;
+        }
+        if (prompt.includes("ui-ux-pro-max 主设计执行器")) {
+          operationCalls += 1;
+          const operations = createQualityCodeOperations(
+            operationCalls === 1 ? "黑底原型" : "浅色主题原型",
+          );
+          if (operationCalls === 1) {
+            yield JSON.stringify({
+              operations: operations.map((operation) => {
+                if (
+                  operation.operation === "create_file" &&
+                  operation.path === "/src/components/WorkspaceShell.tsx"
+                ) {
+                  return {
+                    ...operation,
+                    content:
+                      "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst tabs = ['总览','报名','详情'] as const;\nexport function WorkspaceShell() { const [tab,setTab]=useState<(typeof tabs)[number]>('总览'); return <main className=\"prototype-shell\"><nav>{tabs.map((item)=><button key={item} onClick={()=>setTab(item)}>{item}</button>)}</nav>{tab==='总览'?<DashboardPage />:tab==='报名'?<RegistrationPage />:<DetailPage />}</main>; }",
+                  };
+                }
+                if (
+                  operation.operation === "update_file" &&
+                  operation.path === "/src/styles.css"
+                ) {
+                  return {
+                    ...operation,
+                    content:
+                      ":root{--bg:#050506;--surface:#111;--text:#fff;--muted:#999;--primary:#7c3aed;--border:#222}body{margin:0;background:#050506}.prototype-shell{min-height:100vh;background:var(--bg);color:var(--text)}nav{display:flex;flex-wrap:wrap;gap:8px}section{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}button{background:var(--primary);color:white}.metric-card,article{background:var(--surface);border:1px solid var(--border);max-width:100%;overflow-x:auto}@media (max-width:640px){section{grid-template-columns:1fr}}",
+                  };
+                }
+                return operation;
+              }),
+            });
+            return;
+          }
+          assert.match(prompt, /纯黑或近纯黑|浅色\/深色主题切换|默认必须是浅色主题/);
+          yield JSON.stringify({ operations });
+          return;
+        }
+        if (prompt.includes("检查当前 React 原型代码是否覆盖业务逻辑")) {
+          yield JSON.stringify({
+            uiFidelityReport: {
+              passed: true,
+              matched: ["已覆盖业务流程"],
+              missing: [],
+              repairSuggestions: [],
+              summary: "通过。",
+            },
+          });
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt.slice(0, 80)}`);
+      },
+    },
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    payload: {
+      requirementText: "校园活动平台支持活动报名和提醒。",
+      rules: JSON.parse(RULES_JSON).rules,
+      designModels: [DESIGN_SEQUENCE_MODEL],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const runId = startResponse.json().runId;
+  const events = await app.inject({
+    method: "GET",
+    url: `/api/code-runs/${runId}/events`,
+  });
+  assert.match(events.body, /repair_code_files/);
+  assert.match(events.body, /纯黑或近纯黑/);
+  assert.match(events.body, /"type":"completed"/);
+
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/code-runs/${runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "completed");
+  assert.equal(operationCalls, 2);
+  assert.equal(snapshot.qualityDiagnostics.at(-1).passed, true);
+  assert.match(snapshot.files["/src/styles.css"], /\[data-theme="dark"\]/);
+  assert.doesNotMatch(snapshot.files["/src/styles.css"], /#050506/);
+  assert.match(snapshot.files["/src/components/WorkspaceShell.tsx"], /setTheme/);
 
   await app.close();
 });
@@ -2230,45 +2414,7 @@ test("api repairs generate_models output when the first model JSON is malformed"
         assert.equal(responseFormat?.type, "json_schema");
         modelAttempts += 1;
         if (modelAttempts === 1) {
-          yield `${JSON.stringify({
-            models: [
-              {
-                diagramKind: "usecase",
-                title: "实验平台用例",
-                summary: "主要参与者和用例",
-                notes: [{ text: "仅包含核心流程" }],
-                actors: [
-                  {
-                    id: "actor_researcher",
-                    name: "研究人员",
-                    actorType: "human",
-                    responsibilities: ["发起生成请求"],
-                  },
-                ],
-                useCases: [
-                  {
-                    id: "usecase_generate",
-                    name: "生成模型",
-                    goal: "根据需求生成 UML 模型",
-                    preconditions: ["已输入需求文本"],
-                    postconditions: ["系统返回结构化模型与图"],
-                    primaryActorId: "actor_researcher",
-                    supportingActorIds: [],
-                  },
-                ],
-                systemBoundaries: [{ id: "boundary_platform", name: "实验平台" }],
-                relationships: [
-                  {
-                    id: "rel_association_1",
-                    sourceId: "actor_researcher",
-                    targetId: "usecase_generate",
-                    type: "association",
-                    label: "发起",
-                  },
-                ],
-              },
-            ],
-          })}\n说明：模型已生成`;
+          yield '{"models":[{"diagramKind":"usecase","title":"实验平台用例","summary":"主要参与者和用例","notes":["仅包含核心流程"],"actors":[';
           return;
         }
 
@@ -2324,7 +2470,7 @@ test("api repairs generate_models output when the first model JSON is malformed"
       (entry: { attempt: number; kind: string; rawOutput?: string }) =>
         entry.attempt === 1 &&
         entry.kind === "llm_output" &&
-        /模型已生成/.test(entry.rawOutput ?? ""),
+        /actors/.test(entry.rawOutput ?? ""),
     ),
   );
   assert.ok(
@@ -2332,7 +2478,7 @@ test("api repairs generate_models output when the first model JSON is malformed"
       (entry: { attempt: number; kind: string; errorMessage?: string }) =>
         entry.attempt === 1 &&
         entry.kind === "parse_error" &&
-        /notes/.test(entry.errorMessage ?? ""),
+        /JSON|Unterminated|Unexpected/.test(entry.errorMessage ?? ""),
     ),
   );
   assert.ok(
@@ -2410,6 +2556,99 @@ test("api skips json_schema for compatible-mode models and completes", async () 
   await app.close();
 });
 
+test("api normalizes requirement model relationship aliases and numeric deployment ports", async () => {
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages }) {
+        const prompt = lastPromptText(messages);
+        if (prompt.includes("抽取结构化需求规则")) {
+          yield RULES_JSON;
+          return;
+        }
+
+        yield JSON.stringify({
+          models: [
+            {
+              diagramKind: "deployment",
+              title: "部署模型",
+              summary: "API 与邮件服务部署",
+              notes: "线上部署拓扑",
+              nodes: [{ id: "node_api", name: "Node API", nodeType: "server" }],
+              databases: [{ id: "db_main", name: "主数据库" }],
+              components: [{ id: "component_web", name: "Web 前端" }],
+              externalSystems: [{ id: "mail_service", name: "邮件服务" }],
+              artifacts: [],
+              relationships: [
+                {
+                  id: "rel_by_name",
+                  type: "communication",
+                  sourceName: "Web 前端",
+                  targetName: "Node API",
+                  port: 8080,
+                  protocol: "HTTP",
+                },
+                {
+                  id: "rel_from_to",
+                  type: "communication",
+                  from: "Node API",
+                  to: "主数据库",
+                  port: 5432,
+                  protocol: "TCP",
+                },
+                {
+                  id: "rel_drop",
+                  type: "communication",
+                  label: "无法确定端点",
+                },
+              ],
+            },
+          ],
+        });
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>ok</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: {
+      requirementText: "系统部署包含 Web、Node API、数据库和邮件服务。",
+      selectedDiagrams: ["deployment"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  const { runId } = startResponse.json();
+  await app.inject({ method: "GET", url: `/api/runs/${runId}/events` });
+  const snapshotResponse = await app.inject({ method: "GET", url: `/api/runs/${runId}` });
+  const snapshot = snapshotResponse.json();
+  const model = snapshot.models[0];
+  assert.equal(snapshot.status, "completed");
+  assert.deepEqual(model.notes, ["线上部署拓扑"]);
+  assert.equal(model.relationships.length, 2);
+  assert.equal(model.relationships[0].sourceId, "component_web");
+  assert.equal(model.relationships[0].targetId, "node_api");
+  assert.equal(model.relationships[0].port, "8080");
+  assert.equal(model.relationships[1].sourceId, "node_api");
+  assert.equal(model.relationships[1].targetId, "db_main");
+  assert.equal(model.relationships[1].port, "5432");
+
+  await app.close();
+});
+
 test("api logs the final generate_models output when parsing or schema validation fails", async () => {
   await withCapturedConsoleError(async (logs) => {
     let modelAttempts = 0;
@@ -2426,45 +2665,7 @@ test("api logs the final generate_models output when parsing or schema validatio
           assert.equal(responseFormat?.type, "json_schema");
           modelAttempts += 1;
           if (modelAttempts === 1) {
-            yield `${JSON.stringify({
-              models: [
-                {
-                  diagramKind: "usecase",
-                  title: "实验平台用例",
-                  summary: "主要参与者和用例",
-                  notes: [{ text: "仅包含核心流程" }],
-                  actors: [
-                    {
-                      id: "actor_researcher",
-                      name: "研究人员",
-                      actorType: "human",
-                      responsibilities: ["发起生成请求"],
-                    },
-                  ],
-                  useCases: [
-                    {
-                      id: "usecase_generate",
-                      name: "生成模型",
-                      goal: "根据需求生成 UML 模型",
-                      preconditions: ["已输入需求文本"],
-                      postconditions: ["系统返回结构化模型与图"],
-                      primaryActorId: "actor_researcher",
-                      supportingActorIds: [],
-                    },
-                  ],
-                  systemBoundaries: [{ id: "boundary_platform", name: "实验平台" }],
-                  relationships: [
-                    {
-                      id: "rel_association_1",
-                      sourceId: "actor_researcher",
-                      targetId: "usecase_generate",
-                      type: "association",
-                      label: "发起",
-                    },
-                  ],
-                },
-              ],
-            })}\n说明：模型已生成`;
+            yield '{"models":[{"diagramKind":"usecase","title":"实验平台用例","summary":"主要参与者和用例","notes":["仅包含核心流程"],"actors":[';
             return;
           }
 
@@ -2512,7 +2713,7 @@ test("api logs the final generate_models output when parsing or schema validatio
           entry.includes("[llm-structured-output-failed]") &&
           entry.includes("stage=generate_models") &&
           entry.includes("attempt=1") &&
-          entry.includes("说明：模型已生成"),
+          entry.includes('"actors":['),
       ),
     );
 

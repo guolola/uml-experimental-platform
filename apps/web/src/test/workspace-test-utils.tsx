@@ -39,6 +39,7 @@ export function createWorkspaceRecord(
     codeAgentPlan: [],
     codeSkills: [],
     codeSkillDiagnostics: [],
+    codeSkillResourcePlan: null,
     codeSkillContext: null,
     codeDiagnostics: [],
     rulesVersion: 0,

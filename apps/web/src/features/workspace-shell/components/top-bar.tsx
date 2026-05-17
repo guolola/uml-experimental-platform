@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -75,8 +75,8 @@ const STAGE_LABELS: Record<RunStage, string> = {
   generate_code_ui_mockup: "生成界面设计图",
   analyze_code_ui_mockup: "解析界面设计图",
   generate_code_ui_ir: "生成结构化 UI IR",
-  load_web_design_skill: "加载 ui-ux-pro-max",
-  select_code_skills: "选择 Agent Skills",
+  load_web_design_skill: "加载前端设计执行器",
+  select_code_skills: "选择前端设计执行器",
   plan_code_files: "规划文件结构",
   generate_code_spec: "生成代码规格",
   generate_code_files: "生成代码文件",
@@ -137,7 +137,8 @@ function sanitizeTaskText(text: string | null | undefined) {
     ["generate_code_ui_mockup", "生成界面设计图"],
     ["analyze_code_ui_mockup", "解析界面设计图"],
     ["generate_code_ui_ir", "生成结构化 UI IR"],
-    ["select_code_skills", "选择 Agent Skills"],
+    ["load_web_design_skill", "加载前端设计执行器"],
+    ["select_code_skills", "选择前端设计执行器"],
     ["plan_code_files", "规划文件结构"],
     ["generate_code_spec", "生成代码规格"],
     ["generate_code_files", "生成代码文件"],
@@ -165,6 +166,7 @@ function sanitizeTaskText(text: string | null | undefined) {
     ["componentRegistry", "组件 Registry"],
     ["uiIr", "结构化 UI IR"],
     ["visualDiffReport", "预览验证报告"],
+    ["ui-ux-pro-max", "前端设计执行器"],
   ];
   return replacements.reduce(
     (current, [source, target]) => current.split(source).join(target),
@@ -221,6 +223,7 @@ function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry) {
 export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const { theme, toggle } = useTheme();
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const executionDetailRef = useRef<HTMLDivElement | null>(null);
   const {
     requirementText,
     rules,
@@ -258,6 +261,17 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const uiMockupImage = uiMockup?.imageUrl ?? uiMockup?.imageDataUrl ?? null;
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
   const designTraceEntries = currentRunDiagnostics.designTrace;
+
+  useEffect(() => {
+    if (!taskDialogOpen) return;
+    const element = executionDetailRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+  }, [
+    currentRunDiagnostics.activeStage,
+    currentRunDiagnostics.streamText,
+    taskDialogOpen,
+  ]);
 
   const copyTraceEntry = async (entry: DesignTraceEntry | RequirementTraceEntry) => {
     try {
@@ -643,6 +657,90 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
               </div>
             )}
 
+            {(currentRunDiagnostics.skillResourcePlan ||
+              currentRunDiagnostics.codeSkillContext) && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <Palette className="size-3.5" />
+                  界面方案资源
+                </div>
+                <div className="space-y-2">
+                  {currentRunDiagnostics.skillResourcePlan && (
+                    <div className="rounded-md border border-border bg-background p-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">资源查询计划</span>
+                        <Badge variant="outline">
+                          {currentRunDiagnostics.skillResourcePlan.requests.length} 项
+                        </Badge>
+                      </div>
+                      <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                        {sanitizeTaskText(currentRunDiagnostics.skillResourcePlan.query)}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {currentRunDiagnostics.skillResourcePlan.requests.map((request, index) => (
+                          <div
+                            key={`${request.resourceType}:${request.name}:${index}`}
+                            className="rounded border border-border/70 bg-card px-2 py-1.5 text-xs"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate font-medium">
+                                {sanitizeTaskText(request.name)}
+                              </span>
+                              <Badge variant="secondary">
+                                {sanitizeTaskText(request.resourceType)}
+                              </Badge>
+                            </div>
+                            <div className="mt-1 line-clamp-2 text-muted-foreground">
+                              {sanitizeTaskText(request.reason)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {currentRunDiagnostics.codeSkillContext && (
+                    <div className="rounded-md border border-border bg-background p-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">资源查询结果</span>
+                        <Badge variant="outline">
+                          {currentRunDiagnostics.codeSkillContext.actionResults.length} 项
+                        </Badge>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {currentRunDiagnostics.codeSkillContext.actionResults.map((result, index) => (
+                          <div
+                            key={`${result.name}:${index}`}
+                            className="rounded border border-border/70 bg-card px-2 py-1.5 text-xs"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate font-medium">
+                                {sanitizeTaskText(result.name)}
+                              </span>
+                              <Badge
+                                variant={result.status === "completed" ? "secondary" : "outline"}
+                              >
+                                {result.status === "completed"
+                                  ? "完成"
+                                  : result.status === "skipped"
+                                    ? "跳过"
+                                    : "失败"}
+                              </Badge>
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              输出 {result.stdout.length} 字符
+                              {result.errorMessage
+                                ? `；${sanitizeTaskText(result.errorMessage)}`
+                                : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="mt-5">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Activity className="size-3.5" />
@@ -719,7 +817,10 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
                 <Activity className="size-3.5" />
                 执行详情
               </div>
-              <div className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100 shadow-inner">
+              <div
+                ref={executionDetailRef}
+                className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100 shadow-inner"
+              >
                 {currentRunDiagnostics.streamText ? (
                   <pre className="whitespace-pre-wrap break-words">
                     {sanitizeTaskText(currentRunDiagnostics.streamText)}

@@ -8,6 +8,7 @@ import {
   codeRunSnapshotSchema,
   codeSkillActionSchema,
   codeSkillContextSchema,
+  codeSkillResourcePlanSchema,
   codeSkillSchema,
   codeUiIrResultSchema,
   renderSvgResponseSchema,
@@ -236,6 +237,35 @@ test("contracts validate representative stage payloads", () => {
   });
   assert.equal(codeSkillContext.actionResults[0]?.status, "completed");
 
+  const skillResourcePlan = codeSkillResourcePlanSchema.parse({
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    query: "校园活动 dashboard React responsive accessible",
+    requests: [
+      {
+        resourceType: "stack",
+        name: "react-stack",
+        query: "React prototype",
+        csvPath: "",
+        stack: "react",
+        domain: "",
+        actionName: "",
+        maxResults: 6,
+        reason: "获取 React 原型实现规则。",
+      },
+    ],
+    diagnostics: [],
+  });
+  assert.equal(skillResourcePlan.requests[0]?.stack, "react");
+
+  const skillResourcePlanEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "plan_code_ui",
+    artifactKind: "skillResourcePlan",
+    skillResourcePlan,
+  });
+  assert.equal(skillResourcePlanEvent.type, "artifact_ready");
+
   const codeSkillContextEvent = runEventSchema.parse({
     type: "artifact_ready",
     stage: "plan_code_ui",
@@ -250,6 +280,7 @@ test("contracts validate representative stage payloads", () => {
     rules: [],
     designModels: [],
     spec: null,
+    skillResourcePlan,
     codeSkillContext,
     selectedCodeSkills: codeSkillsEvent.codeSkills,
     skillDiagnostics: [],

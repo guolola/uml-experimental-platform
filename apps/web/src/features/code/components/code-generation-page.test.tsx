@@ -175,6 +175,10 @@ describe("CodeGenerationPage", () => {
       configurable: true,
       value: vi.fn(),
     });
+    Object.defineProperty(window, "open", {
+      configurable: true,
+      value: vi.fn(() => ({})),
+    });
   });
 
   it("lets the Sandpack wrapper fill the code workspace height", async () => {
@@ -223,6 +227,35 @@ describe("CodeGenerationPage", () => {
     expect(sandpackMocks.providerProps?.options?.visibleFiles).toContain(
       "/public/index.html",
     );
+  });
+
+  it("keeps explanatory skill/rule chrome out of the code page", async () => {
+    render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
+
+    await screen.findByTestId("sandpack-provider");
+
+    expect(screen.queryByText("Agent Skills")).not.toBeInTheDocument();
+    expect(screen.queryByText("业务规则说明")).not.toBeInTheDocument();
+  });
+
+  it("opens the full preview from the preview title", async () => {
+    render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('iframe[title="Prototype Preview"]'),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新窗口查看预览" }));
+
+    await waitFor(() => {
+      expect(window.open).toHaveBeenCalledWith(
+        "blob:preview",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
   });
 
   it("surfaces local preview build errors instead of leaving a blank preview", async () => {

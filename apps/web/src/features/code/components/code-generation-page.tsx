@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Editor, { useMonaco, type Monaco } from "@monaco-editor/react";
 import type * as TypeScript from "typescript";
 import {
@@ -12,14 +19,11 @@ import {
   ChevronRight,
   Code2,
   Download,
-  ExternalLink,
   FileCode2,
-  FileText,
   Folder,
   FolderOpen,
   FolderTree,
   Loader2,
-  Maximize2,
   Play,
   RefreshCw,
 } from "lucide-react";
@@ -32,12 +36,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "../../../shared/ui/resizable";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "../../../shared/ui/dialog";
 import { downloadTextFile } from "../../../shared/lib/download";
 import { getModelCapability } from "../../../shared/lib/model-catalog";
 import {
@@ -47,7 +45,6 @@ import {
 } from "../../../shared/lib/user-settings";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
-import type { CodeBusinessLogic } from "@uml-platform/contracts";
 
 const DEFAULT_FILES: Record<string, string> = {
   "/src/App.tsx": [
@@ -781,16 +778,22 @@ function FileTree({
   return <>{nodes.map((node) => renderNode(node, 0))}</>;
 }
 
-function LocalPrototypePreview({
-  files,
-  entryFile,
-}: {
+type LocalPrototypePreviewHandle = {
+  openPreviewWindow: () => void;
+};
+
+const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
   files: Record<string, string>;
   entryFile: string;
-}) {
+}>(function LocalPrototypePreview(
+  {
+    files,
+    entryFile,
+  },
+  ref,
+) {
   const buildIndexRef = useRef(0);
   const activeBuildIdRef = useRef("");
-  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [previewState, setPreviewState] = useState<{
     srcDoc: string;
     buildError: string | null;
@@ -913,34 +916,13 @@ function LocalPrototypePreview({
     window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   };
 
+  useImperativeHandle(ref, () => ({ openPreviewWindow }), [
+    previewState.buildError,
+    previewState.srcDoc,
+  ]);
+
   return (
     <div className="relative h-full overflow-hidden border border-border bg-background">
-      <div className="absolute right-3 top-3 z-20 flex items-center gap-1">
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="size-8 bg-background/95 shadow-sm"
-          title="全览"
-          aria-label="全览"
-          onClick={() => setFullscreenOpen(true)}
-          disabled={!previewState.srcDoc}
-        >
-          <Maximize2 className="size-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="size-8 bg-background/95 shadow-sm"
-          title="新窗口打开"
-          aria-label="新窗口打开"
-          onClick={openPreviewWindow}
-          disabled={!previewState.srcDoc}
-        >
-          <ExternalLink className="size-4" />
-        </Button>
-      </div>
       {previewMessage && (
         <div
           data-testid="local-preview-status"
@@ -966,143 +948,18 @@ function LocalPrototypePreview({
           {previewState.buildError ?? "暂无可预览内容"}
         </div>
       )}
-      <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
-        <DialogContent className="flex h-[92vh] max-w-[96vw] flex-col gap-3 p-4">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
-              <Maximize2 className="size-4 text-primary" />
-              原型全览
-            </DialogTitle>
-          </DialogHeader>
-          <div className="relative min-h-0 flex-1 overflow-hidden border border-border bg-background">
-            {previewMessage && (
-              <div
-                className={cn(
-                  "absolute left-3 right-3 top-3 z-10 rounded-md border px-3 py-2 text-xs shadow-sm",
-                  isError
-                    ? "border-destructive/40 bg-destructive/10 text-destructive"
-                    : "border-border bg-background/95 text-muted-foreground",
-                )}
-              >
-                {previewMessage}
-              </div>
-            )}
-            {previewState.srcDoc ? (
-              <iframe
-                title="Prototype Full Preview"
-                sandbox="allow-scripts"
-                srcDoc={previewState.srcDoc}
-                className="h-full w-full bg-white"
-              />
-            ) : (
-              <div className="grid h-full place-items-center px-6 text-center text-xs text-muted-foreground">
-                {previewState.buildError ?? "暂无可预览内容"}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
-}
-
-function buildBusinessRuleSections(businessLogic: CodeBusinessLogic | null) {
-  if (!businessLogic) return [];
-
-  return [
-    {
-      title: "权限边界",
-      items: businessLogic.permissions.flatMap((permission) => {
-        const allowed =
-          permission.allowedActions.length > 0
-            ? `${permission.actor} 可执行：${permission.allowedActions.join("、")}`
-            : null;
-        const restricted =
-          permission.restrictedActions.length > 0
-            ? `${permission.actor} 不可执行：${permission.restrictedActions.join("、")}`
-            : null;
-        return [allowed, restricted].filter((item): item is string => Boolean(item));
-      }),
-    },
-    {
-      title: "前端操作",
-      items: businessLogic.frontendOperations,
-    },
-    {
-      title: "状态与异常",
-      items: [
-        ...businessLogic.stateMachines.flatMap((machine) =>
-          machine.transitions.map((transition) => `${machine.entity}: ${transition}`),
-        ),
-        ...businessLogic.edgeCases,
-      ],
-    },
-    {
-      title: "模型溯源",
-      items: businessLogic.plantUmlTraceability,
-    },
-  ].filter((section) => section.items.length > 0);
-}
-
-function BusinessRulesPanel({
-  businessLogic,
-}: {
-  businessLogic: CodeBusinessLogic | null;
-}) {
-  const sections = buildBusinessRuleSections(businessLogic);
-  if (sections.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="border-b border-border bg-card px-3 py-3">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-        <FileText className="size-3.5" />
-        业务规则说明
-        <Badge variant="outline" className="font-mono">
-          平台展示
-        </Badge>
-      </div>
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-        {sections.map((section) => (
-          <div
-            key={section.title}
-            className="min-w-0 rounded-md border border-border bg-background p-3"
-          >
-            <div className="mb-2 text-xs font-semibold text-foreground">
-              {section.title}
-            </div>
-            <ul className="space-y-1 text-xs leading-relaxed text-muted-foreground">
-              {section.items.slice(0, 5).map((item, index) => (
-                <li key={`${section.title}:${index}`} className="line-clamp-2">
-                  {item}
-                </li>
-              ))}
-            </ul>
-            {section.items.length > 5 && (
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                另有 {section.items.length - 5} 条
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+});
 
 export function CodeGenerationPage() {
   const {
     requirementText,
     designModels,
     codeSpec,
-    codeBusinessLogic,
     codeFiles,
     codeEntryFile,
     codeDependencies,
-    codeSkills,
-    codeSkillDiagnostics,
-    codeSkillContext,
     generating,
     runProgress,
     runMessage,
@@ -1127,6 +984,7 @@ export function CodeGenerationPage() {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(
     () => new Set(DEFAULT_EXPANDED_DIRS),
   );
+  const previewRef = useRef<LocalPrototypePreviewHandle | null>(null);
 
   useEffect(() => {
     setFiles(initialFiles);
@@ -1311,41 +1169,6 @@ export function CodeGenerationPage() {
           {errorMessage}
         </div>
       )}
-      {(codeSkills.length > 0 ||
-        codeSkillDiagnostics.length > 0 ||
-        (codeSkillContext?.actionResults.length ?? 0) > 0) && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs">
-          <span className="font-medium text-muted-foreground">Agent Skills</span>
-          {codeSkills.map((skill) => (
-            <Badge key={`${skill.source}:${skill.name}`} variant="secondary">
-              {skill.name}
-              <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                {skill.source}
-              </span>
-            </Badge>
-          ))}
-          {codeSkillDiagnostics.length > 0 && (
-            <Badge variant="outline">
-              {codeSkillDiagnostics.length} 条技能诊断
-            </Badge>
-          )}
-          {codeSkillContext?.actionResults.map((action) => (
-            <Badge
-              key={action.name}
-              variant={action.status === "completed" ? "secondary" : "outline"}
-              title={action.errorMessage ?? action.description}
-            >
-              {action.name}
-              <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                {action.status}
-              </span>
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      <BusinessRulesPanel businessLogic={codeBusinessLogic} />
-
       <SandpackProvider
         className="flex min-h-0 flex-1 flex-col overflow-hidden"
         style={{
@@ -1421,7 +1244,13 @@ export function CodeGenerationPage() {
           <ResizablePanel defaultSize={42} minSize={28}>
             <section className="flex h-full min-h-0 flex-col bg-card">
               <div className="flex h-10 items-center justify-between border-b border-border px-3">
-                <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  className="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title="新窗口查看预览"
+                  aria-label="新窗口查看预览"
+                  onClick={() => previewRef.current?.openPreviewWindow()}
+                >
                   <Play className="size-3.5 text-primary" />
                   <span className="text-xs font-semibold">预览</span>
                   {codeSpec && (
@@ -1429,13 +1258,17 @@ export function CodeGenerationPage() {
                       {codeSpec.appName}
                     </span>
                   )}
-                </div>
+                </button>
                 <Badge variant="secondary" className="font-mono">
                   Local TSX
                 </Badge>
               </div>
               <div className="relative min-h-0 flex-1 bg-muted/40 p-2">
-                <LocalPrototypePreview files={files} entryFile="/src/main.tsx" />
+                <LocalPrototypePreview
+                  ref={previewRef}
+                  files={files}
+                  entryFile="/src/main.tsx"
+                />
               </div>
             </section>
           </ResizablePanel>

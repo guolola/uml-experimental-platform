@@ -48,6 +48,7 @@ export interface WorkspaceRecord {
   codeAgentPlan: string[];
   codeSkills: CodeRunSnapshot["selectedCodeSkills"];
   codeSkillDiagnostics: CodeRunSnapshot["skillDiagnostics"];
+  codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
   codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
   rulesVersion: number;
