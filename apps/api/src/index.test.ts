@@ -383,6 +383,67 @@ function createCodeSkillResourcePlanJson() {
   });
 }
 
+function createCodeVisualDirectionJson() {
+  return JSON.stringify({
+    visualDirection: {
+      productType: "campus activity operations dashboard",
+      targetAudience: "students and activity administrators",
+      toneKeywords: ["friendly", "professional", "clear"],
+      styleKeywords: ["light SaaS", "soft cards", "calendar workspace"],
+      colorMood: "light blue and green with warm neutral surfaces",
+      typographyMood: "clean readable sans-serif hierarchy",
+      layoutMood: "responsive workspace with navigation, cards, forms and detail panels",
+      componentTexture: "soft borders, subtle shadows and calm status badges",
+      interactionMood: "visible feedback, loading states and accessible forms",
+      avoidStyles: ["pure black default background", "mobile-native haptics"],
+      promptBrief:
+        "Friendly campus activity operations dashboard with a light blue-green SaaS palette, soft cards, responsive calendar workspace and clear form feedback.",
+    },
+  });
+}
+
+function createCodeSkillResourceDiscoveryPlanJson() {
+  return JSON.stringify({
+    skillResourceDiscoveryPlan: {
+      skillName: "ui-ux-pro-max",
+      alias: "@web-design",
+      requests: [
+        {
+          path: "data/styles.csv",
+          reason: "理解适合业务原型的 Web 视觉风格。",
+          expectedUse: "选择浅色 SaaS 卡片与布局质感。",
+        },
+        {
+          path: "data/products.csv",
+          reason: "理解产品类型到页面模式的映射。",
+          expectedUse: "匹配活动日历和运营工作台。",
+        },
+        {
+          path: "data/colors.csv",
+          reason: "理解色彩系统。",
+          expectedUse: "生成浅色默认与可选深色 token。",
+        },
+        {
+          path: "data/typography.csv",
+          reason: "理解字体层级。",
+          expectedUse: "生成清晰业务排版。",
+        },
+        {
+          path: "data/ux-guidelines.csv",
+          reason: "理解 UX 规则。",
+          expectedUse: "保证表单、反馈与可访问性。",
+        },
+        {
+          path: "data/stacks/react.csv",
+          reason: "理解 React 实现规则。",
+          expectedUse: "保证 React 原型可运行。",
+        },
+      ],
+      diagnostics: [],
+    },
+  });
+}
+
 function createCodeBusinessLogicObjectArrayJson(appName = "校园活动运营台") {
   return JSON.stringify({
     businessLogic: {
@@ -1459,7 +1520,15 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
           yield createCodeBusinessLogicJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -1478,6 +1547,16 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
           return;
         }
         if (prompt.includes("检查当前 React 原型代码是否覆盖业务逻辑")) {
+          assert.match(prompt, /criticalFiles/);
+          assert.match(prompt, /pageFiles/);
+          assert.match(prompt, /supportingFiles/);
+          assert.match(prompt, /omittedFiles/);
+          assert.match(prompt, /\/src\/App\.tsx/);
+          assert.match(prompt, /\/src\/components\/WorkspaceShell\.tsx/);
+          assert.match(prompt, /\/src\/pages\/DashboardPage\.tsx/);
+          assert.match(prompt, /业务路径只需要通过模拟 route state/);
+          assert.match(prompt, /不得再笼统声称“未包含 App 或具体页面组件”/);
+          assert.match(prompt, /\/BUSINESS_CONTEXT\.md/);
           yield JSON.stringify({
             uiFidelityReport: {
               passed: true,
@@ -1532,6 +1611,9 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.match(firstEvents.body, /"stage":"plan_code_ui"/);
   assert.doesNotMatch(firstEvents.body, /"stage":"load_web_design_skill"/);
   assert.match(firstEvents.body, /"artifactKind":"codeSkills"/);
+  assert.match(firstEvents.body, /"artifactKind":"visualDirection"/);
+  assert.match(firstEvents.body, /"artifactKind":"skillResourceDiscoveryPlan"/);
+  assert.match(firstEvents.body, /"artifactKind":"skillResourcePreviews"/);
   assert.match(firstEvents.body, /"artifactKind":"skillResourcePlan"/);
   assert.match(firstEvents.body, /"artifactKind":"codeSkillContext"/);
   assert.match(firstEvents.body, /"stage":"generate_code_files"/);
@@ -1557,6 +1639,9 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.equal(firstSnapshot.entryFile, "/src/App.tsx");
   assert.equal(firstSnapshot.businessLogic.pageFlows.length, 3);
   assert.equal(firstSnapshot.loadedCodeSkill.alias, "@web-design");
+  assert.match(firstSnapshot.visualDirection.promptBrief, /Friendly campus activity/);
+  assert.ok(firstSnapshot.skillResourceDiscoveryPlan.requests.length >= 6);
+  assert.ok(firstSnapshot.skillResourcePreviews.previews.length >= 6);
   assert.equal(firstSnapshot.skillResourcePlan.skillName, "ui-ux-pro-max");
   assert.ok(firstSnapshot.skillResourcePlan.requests.length >= 3);
   assert.equal(firstSnapshot.codeSkillContext.skillName, "ui-ux-pro-max");
@@ -1566,6 +1651,7 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.equal(firstSnapshot.uiReferenceSpec, null);
   assert.equal(firstSnapshot.uiIr, null);
   assert.equal(firstSnapshot.uiFidelityReport.passed, true);
+  assert.doesNotMatch(firstSnapshot.uiFidelityReport.summary, /覆盖检查失败/);
   assert.ok(
     firstSnapshot.selectedCodeSkills.some(
       (skill: { alias: string; name: string }) =>
@@ -1645,7 +1731,15 @@ test("api code run normalizes object-array business logic fields", async () => {
           yield createCodeBusinessLogicObjectArrayJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -1740,7 +1834,15 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
           yield createCodeBusinessLogicJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -1815,7 +1917,15 @@ test("api code run does not call a separate UI blueprint stage", async () => {
           yield createCodeBusinessLogicJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -1894,7 +2004,15 @@ test("api code run continues when UI mockup image generation fails", async () =>
           yield createCodeBusinessLogicJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -1979,7 +2097,15 @@ test("api code runs repair invalid code operation discriminators", async () => {
           yield createCodeBusinessLogicJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -2074,7 +2200,15 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
           yield createCodeBusinessLogicJson();
           return;
         }
-        if (prompt.includes("opencode-like skill runtime")) {
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
           yield createCodeSkillResourcePlanJson();
           return;
         }
@@ -3379,4 +3513,5 @@ test("api applies the configured CORS origin allowlist", async () => {
     }
   }
 });
+
 

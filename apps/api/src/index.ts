@@ -31,7 +31,10 @@ import {
   codeRunSnapshotSchema,
   codeSkillDiagnosticsSchema,
   codeSkillContextSchema,
+  codeSkillResourceDiscoveryPlanSchema,
+  codeSkillResourcePreviewResultSchema,
   codeSkillResourcePlanSchema,
+  codeVisualDirectionResultSchema,
   loadedCodeSkillSchema,
   codeUiIrResultSchema,
   codeVisualDiffReportSchema,
@@ -81,7 +84,10 @@ import {
   type CodeRunSnapshot,
   type CodeSkillSelection,
   type CodeSkillContext,
+  type CodeSkillResourceDiscoveryPlan,
+  type CodeSkillResourcePreviewResult,
   type CodeSkillResourcePlan,
+  type CodeVisualDirection,
   type LoadedCodeSkill,
   type CodeUiBlueprint,
   type CodeUiFidelityReport,
@@ -123,7 +129,9 @@ import {
   buildGenerateCodeAgentPlanPrompt,
   buildGenerateCodeFilePlanPrompt,
   buildGenerateCodeFileOperationsPrompt,
+  buildGenerateCodeSkillResourceDiscoveryPrompt,
   buildGenerateCodeSkillResourcePlanPrompt,
+  buildGenerateCodeVisualDirectionPrompt,
   buildGenerateCodeUiIrPrompt,
   buildGenerateCodeUiMockupPrompt,
   buildVerifyCodeUiFidelityPrompt,
@@ -149,7 +157,10 @@ import {
   fallbackCodeSkillResourcePlan,
   getCodeSkillRuntimeStatus,
   loadWebDesignSkill,
+  fallbackCodeSkillResourceDiscoveryPlan,
+  fallbackCodeVisualDirection,
   resolveCodeSkillContext,
+  resolveCodeSkillResourcePreviews,
   toWebDesignSkillSelection,
 } from "./code-skills.js";
 import {
@@ -1322,6 +1333,89 @@ const GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT: ChatCompletionResponseF
   },
 };
 
+const GENERATE_CODE_VISUAL_DIRECTION_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "code_visual_direction_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        visualDirection: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            productType: { type: "string" },
+            targetAudience: { type: "string" },
+            toneKeywords: { type: "array", items: { type: "string" } },
+            styleKeywords: { type: "array", items: { type: "string" } },
+            colorMood: { type: "string" },
+            typographyMood: { type: "string" },
+            layoutMood: { type: "string" },
+            componentTexture: { type: "string" },
+            interactionMood: { type: "string" },
+            avoidStyles: { type: "array", items: { type: "string" } },
+            promptBrief: { type: "string" },
+          },
+          required: [
+            "productType",
+            "targetAudience",
+            "toneKeywords",
+            "styleKeywords",
+            "colorMood",
+            "typographyMood",
+            "layoutMood",
+            "componentTexture",
+            "interactionMood",
+            "avoidStyles",
+            "promptBrief",
+          ],
+        },
+      },
+      required: ["visualDirection"],
+    },
+  },
+};
+
+const GENERATE_CODE_SKILL_RESOURCE_DISCOVERY_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "code_skill_resource_discovery_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        skillResourceDiscoveryPlan: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            skillName: { type: "string" },
+            alias: { type: "string" },
+            requests: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  path: { type: "string" },
+                  reason: { type: "string" },
+                  expectedUse: { type: "string" },
+                },
+                required: ["path", "reason", "expectedUse"],
+              },
+            },
+            diagnostics: { type: "array", items: { type: "string" } },
+          },
+          required: ["skillName", "alias", "requests", "diagnostics"],
+        },
+      },
+      required: ["skillResourceDiscoveryPlan"],
+    },
+  },
+};
+
 const GENERATE_CODE_APP_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
   json_schema: {
@@ -1898,6 +1992,9 @@ function createEmptyCodeSnapshot(
     spec: null,
     businessLogic: null,
     loadedCodeSkill: null,
+    visualDirection: null,
+    skillResourceDiscoveryPlan: null,
+    skillResourcePreviews: null,
     skillResourcePlan: null,
     codeSkillContext: null,
     appBlueprint: null,
@@ -2004,6 +2101,18 @@ function getGenerateCodeBusinessLogicResponseFormat(model: string) {
 function getGenerateCodeSkillResourcePlanResponseFormat(model: string) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT
+    : undefined;
+}
+
+function getGenerateCodeVisualDirectionResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_CODE_VISUAL_DIRECTION_RESPONSE_FORMAT
+    : undefined;
+}
+
+function getGenerateCodeSkillResourceDiscoveryResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_CODE_SKILL_RESOURCE_DISCOVERY_RESPONSE_FORMAT
     : undefined;
 }
 
@@ -3687,6 +3796,35 @@ function buildCodeContext(snapshot: CodeRunSnapshot) {
           })),
       }
       : null,
+    visualDirection: snapshot.visualDirection,
+    skillResourceDiscoveryPlan: snapshot.skillResourceDiscoveryPlan
+      ? {
+          skillName: snapshot.skillResourceDiscoveryPlan.skillName,
+          alias: snapshot.skillResourceDiscoveryPlan.alias,
+          requests: snapshot.skillResourceDiscoveryPlan.requests.map((request) => ({
+            path: request.path,
+            reason: request.reason,
+            expectedUse: request.expectedUse,
+          })),
+          diagnostics: snapshot.skillResourceDiscoveryPlan.diagnostics,
+        }
+      : null,
+    skillResourcePreviews: snapshot.skillResourcePreviews
+      ? {
+          skillName: snapshot.skillResourcePreviews.skillName,
+          alias: snapshot.skillResourcePreviews.alias,
+          previews: snapshot.skillResourcePreviews.previews.map((preview) => ({
+            path: preview.path,
+            rowCount: preview.rowCount,
+            headers: preview.headers,
+            sampleRows: preview.sampleRows.slice(0, 3),
+            matchedHints: preview.matchedHints,
+            status: preview.status,
+            errorMessage: preview.errorMessage,
+          })),
+          diagnostics: snapshot.skillResourcePreviews.diagnostics,
+        }
+      : null,
     skillResourcePlan: snapshot.skillResourcePlan
       ? {
           skillName: snapshot.skillResourcePlan.skillName,
@@ -4681,6 +4819,167 @@ function fallbackUiFidelityReport(reason: string): CodeUiFidelityReport {
   }).uiFidelityReport;
 }
 
+function createFidelityFileEntry(path: string, content: string, maxChars = 7000) {
+  const truncated = content.length > maxChars;
+  return {
+    path,
+    content: truncated ? `${content.slice(0, maxChars)}\n...（文件内容已为还原检查截断）` : content,
+    truncated,
+    originalLength: content.length,
+  };
+}
+
+function summarizeStylesForFidelity(content: string) {
+  const selected = content
+    .split(/\r?\n/)
+    .filter((line) =>
+      /:root|\[data-theme|data-theme|--bg|--surface|--text|--muted|--primary|--border|@media|prototype-shell|route|theme|nav|button|grid|flex|overflow|max-width|minmax/i.test(
+        line,
+      ),
+    )
+    .join("\n");
+  return selected || content.slice(0, 4000);
+}
+
+function buildDeterministicFidelityCheck(
+  snapshot: CodeRunSnapshot,
+  filesText: string,
+  pagePaths: string[],
+) {
+  const fileFacts: string[] = [];
+  const missing: string[] = [];
+  const repairSuggestions: string[] = [];
+  const hasApp = !isBlankCodeFile(snapshot.files["/src/App.tsx"]);
+  const hasShell = !isBlankCodeFile(snapshot.files["/src/components/WorkspaceShell.tsx"]);
+  const hasMockDataBinding =
+    /mock-data|activities|events|registrations|requests|reminders|from ['"].*data\/mock-data/i.test(
+      filesText,
+    );
+  const hasPrimaryButton = /<button|role=["']button["']|onClick=|onSubmit=/i.test(filesText);
+  const hasStateFlow = /useState|loading|isLoading|empty|error|success|selected|filter|status|空态|加载|失败|成功|详情/i.test(
+    filesText,
+  );
+  const hasMockRouteState =
+    /currentRoute|setCurrentRoute|routes\s*=|mock route|PageKey|currentPage|setCurrentPage|useState<[^>]*(?:Route|Page)/i.test(
+      filesText,
+    );
+  const businessRoutes = snapshot.businessLogic?.pageFlows
+    .map((flow) => flow.route)
+    .filter(Boolean) ?? [];
+  const routeMatches = businessRoutes.filter((route) => filesText.includes(route));
+
+  if (hasApp) fileFacts.push("/src/App.tsx 存在并已纳入还原检查上下文。");
+  else {
+    missing.push("缺少 /src/App.tsx。");
+    repairSuggestions.push("补齐 /src/App.tsx，挂载 WorkspaceShell，并通过 useEffect 设置 document.title。");
+  }
+
+  if (hasShell) fileFacts.push("/src/components/WorkspaceShell.tsx 存在并已纳入还原检查上下文。");
+  else {
+    missing.push("缺少 /src/components/WorkspaceShell.tsx。");
+    repairSuggestions.push("补齐 /src/components/WorkspaceShell.tsx，实现导航、模拟路由 state 和主题切换。");
+  }
+
+  if (pagePaths.length > 0) {
+    fileFacts.push(`检测到 ${pagePaths.length} 个页面/功能文件：${pagePaths.join(", ")}。`);
+  } else {
+    missing.push("缺少 /src/pages 或 /src/features 页面实现。");
+    repairSuggestions.push("新增 /src/pages/* 或 /src/features/* 页面文件，覆盖 businessLogic.pageFlows 中的核心页面。");
+  }
+
+  if (hasMockDataBinding) fileFacts.push("检测到 mock 数据导入或业务数据绑定。");
+  else {
+    missing.push("未检测到 mock 数据绑定。");
+    repairSuggestions.push("在页面组件中导入 /src/data/mock-data.ts，并将列表、详情、申请、提醒等 UI 绑定到 mock 数据。");
+  }
+
+  if (hasPrimaryButton) fileFacts.push("检测到按钮、提交或点击操作。");
+  else {
+    missing.push("未检测到主要操作按钮。");
+    repairSuggestions.push("为列表筛选、详情查看、申请提交、创建/编辑/删除、提醒触发等流程增加可点击操作。");
+  }
+
+  if (hasStateFlow) fileFacts.push("检测到状态流转关键词或 React state。");
+  else {
+    missing.push("未检测到加载、空态、错误、成功或选择状态。");
+    repairSuggestions.push("补齐加载中、列表展示、空态、筛选无结果、详情展示、操作成功/失败提示等状态。");
+  }
+
+  if (businessRoutes.length === 0 || hasMockRouteState || routeMatches.length > 0) {
+    fileFacts.push(
+      `业务路径以模拟路由/页面状态验证；匹配路径：${routeMatches.join(", ") || "未提供或由 PageKey 表达"}`,
+    );
+  } else {
+    missing.push(`未检测到业务路径字符串或模拟路由状态：${businessRoutes.join(", ")}。`);
+    repairSuggestions.push("在 WorkspaceShell 中增加 mock route table/currentRoute state，保留 businessLogic.pageFlows[].route 字符串并用 setCurrentRoute 切换页面。");
+  }
+
+  return {
+    fileFacts,
+    missing,
+    repairSuggestions,
+    routeExpectation:
+      "业务路径只要求通过模拟 route state / mock route table / PageKey 体现，不要求 BrowserRouter、真实地址栏路由或 history API。",
+  };
+}
+
+function buildFidelityCheckContext(snapshot: CodeRunSnapshot) {
+  const files = snapshot.files;
+  const pagePaths = Object.keys(files)
+    .filter((path) => /^\/src\/(?:pages|features)\/.+\.(?:tsx|ts)$/.test(path))
+    .sort();
+  const componentPaths = Object.keys(files)
+    .filter(
+      (path) =>
+        /^\/src\/components\/.+\.tsx$/.test(path) &&
+        path !== "/src/components/WorkspaceShell.tsx",
+    )
+    .sort();
+  const criticalPaths = ["/src/App.tsx", "/src/components/WorkspaceShell.tsx"];
+  const supportingPaths = [
+    ...componentPaths.slice(0, 10),
+    "/src/data/mock-data.ts",
+    "/src/domain/types.ts",
+    "/src/styles.css",
+  ];
+  const included = new Set<string>();
+  const createEntry = (path: string, maxChars?: number) => {
+    const content = files[path];
+    if (!content) return null;
+    included.add(path);
+    if (path === "/src/styles.css") {
+      return createFidelityFileEntry(path, summarizeStylesForFidelity(content), maxChars ?? 4500);
+    }
+    return createFidelityFileEntry(path, content, maxChars);
+  };
+
+  const criticalFiles = criticalPaths.map((path) => createEntry(path, 8000)).filter(Boolean);
+  const pageFiles = pagePaths.map((path) => createEntry(path, 7000)).filter(Boolean);
+  const supportingFiles = supportingPaths
+    .map((path) => createEntry(path, path === "/src/data/mock-data.ts" ? 7000 : 5000))
+    .filter(Boolean);
+  const omittedFiles = Object.entries(files)
+    .filter(([path]) => !included.has(path))
+    .map(([path, content]) => ({
+      path,
+      originalLength: content.length,
+      reason:
+        path === "/BUSINESS_CONTEXT.md" || path === "/index.html" || path === "/src/main.tsx"
+          ? "辅助/骨架文件，已从业务覆盖判断正文中省略。"
+          : "非优先文件，因还原检查上下文预算省略；不能据此判定文件不存在。",
+    }));
+  const filesText = Object.values(files).join("\n");
+
+  return {
+    purpose: "用于 verify_code_ui_fidelity 的专用上下文；关键 React 文件优先，避免完整文件树截断导致误判。",
+    deterministicCheck: buildDeterministicFidelityCheck(snapshot, filesText, pagePaths),
+    criticalFiles,
+    pageFiles,
+    supportingFiles,
+    omittedFiles,
+  };
+}
+
 async function verifyCodeUiFidelity(
   record: RunRecord,
   snapshot: CodeRunSnapshot,
@@ -4697,6 +4996,7 @@ async function verifyCodeUiFidelity(
   }
 
   try {
+    const fidelityCheckContext = buildFidelityCheckContext(snapshot);
     const result = await collectStructuredResult(
       llmTransport,
       providerSettings,
@@ -4704,7 +5004,7 @@ async function verifyCodeUiFidelity(
         buildVerifyCodeUiFidelityPrompt(
           snapshot.businessLogic,
           snapshot.uiBlueprint,
-          snapshot.files,
+          fidelityCheckContext,
         ),
       ),
       "verify_code_ui_fidelity",
@@ -4721,24 +5021,55 @@ async function verifyCodeUiFidelity(
       (text) => codeUiFidelityReportResultSchema.parse(parseJson(text)),
       getGenerateCodeUiFidelityResponseFormat(providerSettings.model),
     );
-    snapshot.uiFidelityReport = result.uiFidelityReport;
-    addCodeDiagnostic(snapshot, "verify_code_ui_fidelity", result.uiFidelityReport.summary);
+    const deterministicCheck = fidelityCheckContext.deterministicCheck;
+    const report =
+      deterministicCheck.missing.length > 0
+        ? codeUiFidelityReportResultSchema.parse({
+            uiFidelityReport: {
+              passed: false,
+              matched: [
+                ...result.uiFidelityReport.matched,
+                ...deterministicCheck.fileFacts,
+              ],
+              missing: [
+                ...result.uiFidelityReport.missing,
+                ...deterministicCheck.missing,
+              ],
+              repairSuggestions: [
+                ...result.uiFidelityReport.repairSuggestions,
+                ...deterministicCheck.repairSuggestions,
+              ],
+              summary: `确定性文件检查发现 ${deterministicCheck.missing.length} 个阻塞问题，需要修复后再判定业务覆盖。`,
+            },
+          }).uiFidelityReport
+        : result.uiFidelityReport;
+    snapshot.uiFidelityReport = report;
+    addCodeDiagnostic(snapshot, "verify_code_ui_fidelity", report.summary);
     emitEvent(
       record,
       artifactReadyRunEventSchema.parse({
         type: "artifact_ready",
         stage: "verify_code_ui_fidelity",
         artifactKind: "uiFidelityReport",
-        uiFidelityReport: result.uiFidelityReport,
+        uiFidelityReport: report,
       }),
     );
-    return result.uiFidelityReport;
+    return report;
   } catch (error) {
     const report = fallbackUiFidelityReport(
       `业务/界面覆盖检查失败，已保留当前原型：${getErrorMessage(error)}`,
     );
     snapshot.uiFidelityReport = report;
     addCodeDiagnostic(snapshot, "verify_code_ui_fidelity", report.summary);
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "verify_code_ui_fidelity",
+        artifactKind: "uiFidelityReport",
+        uiFidelityReport: report,
+      }),
+    );
     return report;
   }
 }
@@ -5347,6 +5678,9 @@ async function generateCodeFileOperationsWithRepair(
     businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
     loadedCodeSkill?: LoadedCodeSkill | null;
+    visualDirection?: CodeVisualDirection | null;
+    skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
+    skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
     skillResourcePlan?: CodeSkillResourcePlan | null;
     codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
@@ -6029,12 +6363,120 @@ async function runCodeStagePipeline(
     "plan_code_ui",
     `已加载前端设计执行器，发现 ${loadedCodeSkill.fileManifest.length} 个可用资源文件`,
   );
+  let visualDirection: CodeVisualDirection;
+  try {
+    const visualDirectionResult = await collectStructuredResult(
+      llmTransport,
+      providerSettings,
+      createMessages(buildGenerateCodeVisualDirectionPrompt(businessLogic, loadedCodeSkill)),
+      "plan_code_ui",
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage: "plan_code_ui",
+            chunk,
+          }),
+        );
+      },
+      (text) => codeVisualDirectionResultSchema.parse(parseJson(text)),
+      getGenerateCodeVisualDirectionResponseFormat(providerSettings.model),
+    );
+    visualDirection = visualDirectionResult.visualDirection;
+  } catch (error) {
+    visualDirection = fallbackCodeVisualDirection(businessLogic);
+    snapshot.skillDiagnostics.push(
+      codeSkillDiagnosticsSchema.parse({
+        level: "warning",
+        source: loadedCodeSkill.location,
+        message: `visualDirection 生成失败，已使用默认视觉方向：${formatParseError(error)}`,
+      }),
+    );
+  }
+  snapshot.visualDirection = visualDirection;
+  addCodeDiagnostic(
+    snapshot,
+    "plan_code_ui",
+    `已形成视觉方向：${visualDirection.promptBrief}`,
+  );
+
+  let skillResourceDiscoveryPlan: CodeSkillResourceDiscoveryPlan;
+  try {
+    const discoveryResult = await collectStructuredResult(
+      llmTransport,
+      providerSettings,
+      createMessages(
+        buildGenerateCodeSkillResourceDiscoveryPrompt(
+          businessLogic,
+          loadedCodeSkill,
+          visualDirection,
+        ),
+      ),
+      "plan_code_ui",
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage: "plan_code_ui",
+            chunk,
+          }),
+        );
+      },
+      (text) =>
+        z
+          .object({ skillResourceDiscoveryPlan: codeSkillResourceDiscoveryPlanSchema })
+          .parse(parseJson(text)),
+      getGenerateCodeSkillResourceDiscoveryResponseFormat(providerSettings.model),
+    );
+    skillResourceDiscoveryPlan = codeSkillResourceDiscoveryPlanSchema.parse(
+      discoveryResult.skillResourceDiscoveryPlan,
+    );
+  } catch (error) {
+    skillResourceDiscoveryPlan = fallbackCodeSkillResourceDiscoveryPlan(loadedCodeSkill);
+    snapshot.skillDiagnostics.push(
+      codeSkillDiagnosticsSchema.parse({
+        level: "warning",
+        source: loadedCodeSkill.location,
+        message: `skillResourceDiscoveryPlan 生成失败，已使用默认资源预览计划：${formatParseError(error)}`,
+      }),
+    );
+  }
+  snapshot.skillResourceDiscoveryPlan = skillResourceDiscoveryPlan;
+  const skillResourcePreviews = codeSkillResourcePreviewResultSchema.parse(
+    resolveCodeSkillResourcePreviews(
+      loadedCodeSkill,
+      skillResourceDiscoveryPlan,
+      visualDirection.promptBrief,
+    ),
+  );
+  snapshot.skillResourcePreviews = skillResourcePreviews;
+  snapshot.skillDiagnostics = [
+    ...snapshot.skillDiagnostics,
+    ...skillResourcePreviews.diagnostics.map((diagnostic) =>
+      codeSkillDiagnosticsSchema.parse(diagnostic),
+    ),
+  ];
+  addCodeDiagnostic(
+    snapshot,
+    "plan_code_ui",
+    `已预览 ${skillResourcePreviews.previews.length} 个设计资源，后续将基于表头和样例行选择正式查询`,
+  );
+
   let skillResourcePlan: CodeSkillResourcePlan;
   try {
     const skillResourcePlanResult = await collectStructuredResult(
       llmTransport,
       providerSettings,
-      createMessages(buildGenerateCodeSkillResourcePlanPrompt(businessLogic, loadedCodeSkill)),
+      createMessages(
+        buildGenerateCodeSkillResourcePlanPrompt(
+          businessLogic,
+          loadedCodeSkill,
+          visualDirection,
+          skillResourcePreviews,
+        ),
+      ),
       "plan_code_ui",
       (chunk) => {
         emitEvent(
@@ -6103,6 +6545,36 @@ async function runCodeStagePipeline(
     artifactReadyRunEventSchema.parse({
       type: "artifact_ready",
       stage: "plan_code_ui",
+      artifactKind: "visualDirection",
+      visualDirection,
+      skillDiagnostics: snapshot.skillDiagnostics,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
+      artifactKind: "skillResourceDiscoveryPlan",
+      skillResourceDiscoveryPlan,
+      skillDiagnostics: snapshot.skillDiagnostics,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
+      artifactKind: "skillResourcePreviews",
+      skillResourcePreviews,
+      skillDiagnostics: snapshot.skillDiagnostics,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "plan_code_ui",
       artifactKind: "skillResourcePlan",
       skillResourcePlan,
       skillDiagnostics: snapshot.skillDiagnostics,
@@ -6156,6 +6628,9 @@ async function runCodeStagePipeline(
       businessLogic,
       uiBlueprint: null,
       loadedCodeSkill,
+      visualDirection,
+      skillResourceDiscoveryPlan,
+      skillResourcePreviews,
       skillResourcePlan,
       codeSkillContext: skillContext,
       selectedCodeSkills: snapshot.selectedCodeSkills,
@@ -6205,6 +6680,9 @@ async function runCodeStagePipeline(
         businessLogic,
         uiBlueprint: null,
         loadedCodeSkill,
+        visualDirection,
+        skillResourceDiscoveryPlan,
+        skillResourcePreviews,
         skillResourcePlan,
         codeSkillContext: skillContext,
         qualityIssues: repairIssues,
@@ -6255,6 +6733,9 @@ async function runCodeStagePipeline(
         businessLogic,
         uiBlueprint: null,
         loadedCodeSkill,
+        visualDirection,
+        skillResourceDiscoveryPlan,
+        skillResourcePreviews,
         skillResourcePlan,
         codeSkillContext: skillContext,
         qualityIssues: [

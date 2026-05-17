@@ -6,7 +6,9 @@ import {
   buildGenerateCodeAgentPlanPrompt,
   buildGenerateCodeFilePlanPrompt,
   buildGenerateCodeFileOperationsPrompt,
+  buildGenerateCodeSkillResourceDiscoveryPrompt,
   buildGenerateCodeSkillResourcePlanPrompt,
+  buildGenerateCodeVisualDirectionPrompt,
   buildGenerateCodeUiIrPrompt,
   buildGenerateCodeSpecPrompt,
   buildGenerateCodeUiBlueprintPrompt,
@@ -17,6 +19,7 @@ import {
   buildRepairCodeFileOperationsPrompt,
   buildRepairDesignModelsPrompt,
   buildRepairModelsPrompt,
+  buildVerifyCodeUiFidelityPrompt,
 } from "./index.js";
 
 test("requirement model prompts include requirement-stage responsibilities", () => {
@@ -233,12 +236,67 @@ test("code generation prompts use business background theme and modular files", 
     appBlueprint,
     uiBlueprint,
   );
+  const visualDirection = {
+    productType: "public activity calendar",
+    targetAudience: "guests and registered users",
+    toneKeywords: ["friendly", "professional"],
+    styleKeywords: ["light SaaS", "soft cards"],
+    colorMood: "light blue green",
+    typographyMood: "clean readable sans-serif",
+    layoutMood: "responsive calendar workspace",
+    componentTexture: "soft shadows and subtle borders",
+    interactionMood: "clear feedback and accessible forms",
+    avoidStyles: ["pure black default background"],
+    promptBrief: "Friendly public activity calendar with light blue green palette and polished SaaS cards.",
+  };
+  const skillResourceDiscoveryPlan = {
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    requests: [
+      {
+        path: "data/styles.csv",
+        reason: "理解视觉风格。",
+        expectedUse: "选择卡片和浅色主题规则。",
+      },
+      {
+        path: "data/stacks/react.csv",
+        reason: "理解 React 实现规则。",
+        expectedUse: "保证原型可运行。",
+      },
+    ],
+    diagnostics: [],
+  };
+  const skillResourcePreviews = {
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    previews: [
+      {
+        path: "data/styles.csv",
+        rowCount: 120,
+        headers: ["No", "Category", "Style", "Description"],
+        sampleRows: [
+          {
+            No: "1",
+            Category: "Cards",
+            Style: "soft SaaS",
+            Description: "Light cards with subtle borders",
+          },
+        ],
+        matchedHints: ["calendar"],
+        status: "completed" as const,
+      },
+    ],
+    diagnostics: [],
+  };
   const operationsPrompt = buildGenerateCodeFileOperationsPrompt(
     codeContext,
     {},
     {
       businessLogic,
       uiBlueprint,
+      visualDirection,
+      skillResourceDiscoveryPlan,
+      skillResourcePreviews,
       selectedCodeSkills: [
         {
           alias: "@web-design",
@@ -294,6 +352,9 @@ test("code generation prompts use business background theme and modular files", 
     "缺少主题切换",
     {
       businessLogic,
+      visualDirection,
+      skillResourceDiscoveryPlan,
+      skillResourcePreviews,
       selectedCodeSkills: [
         {
           alias: "@web-design",
@@ -338,7 +399,72 @@ test("code generation prompts use business background theme and modular files", 
       content: "Use search.py and CSV resources for UI/UX guidance.",
       loadedAt: new Date().toISOString(),
     },
+    visualDirection,
+    skillResourcePreviews,
   );
+  const visualDirectionPrompt = buildGenerateCodeVisualDirectionPrompt(
+    businessLogic,
+    {
+      alias: "@web-design",
+      aliases: ["@web-design"],
+      name: "ui-ux-pro-max",
+      description: "UI/UX design intelligence",
+      source: "project",
+      location: "apps/api/src/code-skills/ui-ux-pro-max/SKILL.md",
+      baseDir: "apps/api/src/code-skills/ui-ux-pro-max",
+      fileManifest: [],
+      content: "UI/UX design intelligence",
+      loadedAt: new Date().toISOString(),
+    },
+  );
+  const discoveryPrompt = buildGenerateCodeSkillResourceDiscoveryPrompt(
+    businessLogic,
+    {
+      alias: "@web-design",
+      aliases: ["@web-design"],
+      name: "ui-ux-pro-max",
+      description: "UI/UX design intelligence",
+      source: "project",
+      location: "apps/api/src/code-skills/ui-ux-pro-max/SKILL.md",
+      baseDir: "apps/api/src/code-skills/ui-ux-pro-max",
+      fileManifest: [
+        {
+          path: "apps/api/src/code-skills/ui-ux-pro-max/data/styles.csv",
+          relativePath: "data/styles.csv",
+          kind: "data",
+          size: 100,
+        },
+      ],
+      content: "UI/UX design intelligence",
+      loadedAt: new Date().toISOString(),
+    },
+    visualDirection,
+  );
+  const verifyFidelityPrompt = buildVerifyCodeUiFidelityPrompt(businessLogic, null, {
+    deterministicCheck: {
+      fileFacts: [
+        "/src/App.tsx 存在并已纳入还原检查上下文。",
+        "检测到 4 个页面/功能文件：/src/pages/CalendarPage.tsx。",
+      ],
+      missing: [],
+      repairSuggestions: [],
+      routeExpectation:
+        "业务路径只要求通过模拟 route state / mock route table / PageKey 体现。",
+    },
+    criticalFiles: [
+      { path: "/src/App.tsx", content: "export default function App() { return null; }" },
+      { path: "/src/components/WorkspaceShell.tsx", content: "const routes = ['/calendar'];" },
+    ],
+    pageFiles: [
+      { path: "/src/pages/CalendarPage.tsx", content: "export function CalendarPage() { return <button />; }" },
+    ],
+    supportingFiles: [
+      { path: "/src/data/mock-data.ts", content: "export const events = [];" },
+    ],
+    omittedFiles: [
+      { path: "/BUSINESS_CONTEXT.md", originalLength: 3000, reason: "辅助说明文件省略。" },
+    ],
+  });
 
   assert.match(specPrompt, /theme 必须描述业务领域主题/);
   assert.match(specPrompt, /不是 UML 实验平台主题/);
@@ -368,6 +494,9 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /不能默认套 UML 实验平台风格/);
   assert.match(operationsPrompt, /ui-ux-pro-max Skill（主设计执行上下文）/);
   assert.match(operationsPrompt, /Skill 资源查询计划/);
+  assert.match(operationsPrompt, /视觉方向（必须执行）/);
+  assert.match(operationsPrompt, /Skill 资源预览结果/);
+  assert.match(operationsPrompt, /visualDirection\.promptBrief/);
   assert.match(operationsPrompt, /Skill action 查询结果（必须优先使用）/);
   assert.match(operationsPrompt, /skillResourcePlan/);
   assert.match(operationsPrompt, /ui-ux-pro-max/);
@@ -391,10 +520,33 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /\/BUSINESS_CONTEXT\.md/);
   assert.match(operationsPrompt, /不要放到 \/src\/docs\/\*/);
   assert.match(skillResourcePlanPrompt, /自主声明/);
+  assert.match(skillResourcePlanPrompt, /Skill 资源预览结果/);
+  assert.match(skillResourcePlanPrompt, /headers\/sampleRows/);
+  assert.match(skillResourcePlanPrompt, /data\/styles\.csv/);
+  assert.match(skillResourcePlanPrompt, /data\/products\.csv/);
+  assert.match(skillResourcePlanPrompt, /data\/colors\.csv/);
+  assert.match(skillResourcePlanPrompt, /data\/typography\.csv/);
   assert.match(skillResourcePlanPrompt, /data\/\*\*\/\.csv|data\/\*\*\/\*\.csv/);
   assert.match(skillResourcePlanPrompt, /不要声明所有 CSV/);
+  assert.match(skillResourcePlanPrompt, /Web React 原型/);
+  assert.match(skillResourcePlanPrompt, /data\/app-interface\.csv/);
+  assert.match(skillResourcePlanPrompt, /React Native 的 haptics/);
   assert.match(skillResourcePlanPrompt, /React 原型必须至少声明一次 stack=react/);
   assert.match(skillResourcePlanPrompt, /dark-mode 资源，只能用于可选深色主题/);
+  assert.match(visualDirectionPrompt, /promptBrief/);
+  assert.match(visualDirectionPrompt, /优秀官网 demo/);
+  assert.match(visualDirectionPrompt, /Web React/);
+  assert.match(discoveryPrompt, /先声明要预览哪些 CSV/);
+  assert.match(discoveryPrompt, /data\/styles\.csv/);
+  assert.match(discoveryPrompt, /data\/stacks\/react\.csv/);
+  assert.match(discoveryPrompt, /禁止预览移动端\/原生端资源/);
+  assert.match(verifyFidelityPrompt, /criticalFiles/);
+  assert.match(verifyFidelityPrompt, /pageFiles/);
+  assert.match(verifyFidelityPrompt, /supportingFiles/);
+  assert.match(verifyFidelityPrompt, /omittedFiles/);
+  assert.match(verifyFidelityPrompt, /模拟 route state/);
+  assert.match(verifyFidelityPrompt, /不得把 omittedFiles 中的辅助文件直接判定为缺失/);
+  assert.match(verifyFidelityPrompt, /不得再笼统声称“未包含 App 或具体页面组件”/);
 
   const longUiMockupPrompt = buildGenerateCodeUiMockupPrompt(
     {

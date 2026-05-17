@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -225,5 +225,106 @@ describe("TextRequirementView", () => {
     expect(screen.queryByText("extract_rules 收到模型输出")).not.toBeInTheDocument();
 
     completeRun();
+  });
+
+  it("renders requirement rules as an editable-text table", async () => {
+    const updateRequirementRules = vi.fn(async () => {});
+    const originalRule = createRule({
+      id: "r1",
+      category: "业务规则",
+      text: "用户必须登录后才能访问主要功能。",
+      relatedDiagrams: ["usecase", "activity"],
+    });
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [originalRule],
+          rulesVersion: 1,
+          selectedDiagramTypes: ["usecase"],
+        }),
+      ),
+      updateRequirementRules,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "编号" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "类型" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "需求文本内容" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
+    expect(within(table).getByText("r1")).toBeInTheDocument();
+    expect(within(table).getByText("业务规则")).toBeInTheDocument();
+    expect(within(table).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(table).queryByRole("checkbox")).not.toBeInTheDocument();
+
+    const textEditor = within(table).getByDisplayValue("用户必须登录后才能访问主要功能。");
+    await user.clear(textEditor);
+    await user.type(textEditor, "游客可以查看公开活动列表。");
+
+    await waitFor(() => {
+      expect(updateRequirementRules).toHaveBeenLastCalledWith([
+        {
+          ...originalRule,
+          text: "游客可以查看公开活动列表。",
+        },
+      ]);
+    });
+  });
+
+  it("creates a requirement rule from the add-rule dialog", async () => {
+    const updateRequirementRules = vi.fn(async () => {});
+    const existingRule = createRule({
+      id: "r1",
+      category: "业务规则",
+      text: "游客可以查看公开活动。",
+      relatedDiagrams: ["usecase"],
+    });
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [existingRule],
+          rulesVersion: 1,
+          selectedDiagramTypes: ["usecase"],
+        }),
+      ),
+      updateRequirementRules,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    await user.click(await screen.findByRole("button", { name: /新增需求项/ }));
+    const dialog = await screen.findByRole("dialog", { name: "新增需求项" });
+    const submitButton = within(dialog).getByRole("button", { name: "创建需求项" });
+    expect(submitButton).toBeDisabled();
+
+    await user.selectOptions(within(dialog).getByRole("combobox"), "数据需求");
+    await user.click(within(dialog).getByRole("checkbox", { name: "领域概念模型" }));
+    await user.type(
+      within(dialog).getByPlaceholderText("填写这条需求项的具体内容"),
+      "系统必须保存活动报名记录。",
+    );
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(updateRequirementRules).toHaveBeenLastCalledWith([
+        existingRule,
+        {
+          id: "r2",
+          category: "数据需求",
+          text: "系统必须保存活动报名记录。",
+          relatedDiagrams: ["usecase", "activity", "class"],
+        },
+      ]);
+    });
+    expect(screen.queryByRole("dialog", { name: "新增需求项" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("r2")).toBeInTheDocument();
+      expect(within(table).getByText("数据需求")).toBeInTheDocument();
+      expect(within(table).getByDisplayValue("系统必须保存活动报名记录。")).toBeInTheDocument();
+    });
   });
 });

@@ -957,6 +957,67 @@ export const codeSkillResourcePlanSchema = z.object({
 });
 export type CodeSkillResourcePlan = z.infer<typeof codeSkillResourcePlanSchema>;
 
+export const codeSkillDiagnosticsSchema = z.object({
+  level: z.enum(["info", "warning", "error"]),
+  source: z.string().min(1),
+  message: z.string().min(1),
+});
+export type CodeSkillDiagnostics = z.infer<typeof codeSkillDiagnosticsSchema>;
+
+export const codeVisualDirectionSchema = z.object({
+  productType: z.string().min(1),
+  targetAudience: z.string().min(1),
+  toneKeywords: z.array(z.string().min(1)).default([]),
+  styleKeywords: z.array(z.string().min(1)).default([]),
+  colorMood: z.string().min(1),
+  typographyMood: z.string().min(1),
+  layoutMood: z.string().min(1),
+  componentTexture: z.string().min(1),
+  interactionMood: z.string().min(1),
+  avoidStyles: z.array(z.string().min(1)).default([]),
+  promptBrief: z.string().min(1),
+});
+export type CodeVisualDirection = z.infer<typeof codeVisualDirectionSchema>;
+
+export const codeVisualDirectionResultSchema = z.object({
+  visualDirection: codeVisualDirectionSchema,
+});
+export type CodeVisualDirectionResult = z.infer<typeof codeVisualDirectionResultSchema>;
+
+export const codeSkillResourceDiscoveryRequestSchema = z.object({
+  path: z.string().min(1),
+  reason: z.string().min(1),
+  expectedUse: z.string().min(1),
+});
+export type CodeSkillResourceDiscoveryRequest = z.infer<typeof codeSkillResourceDiscoveryRequestSchema>;
+
+export const codeSkillResourceDiscoveryPlanSchema = z.object({
+  skillName: z.string().min(1),
+  alias: z.string().min(1).optional(),
+  requests: z.array(codeSkillResourceDiscoveryRequestSchema).min(1).max(10),
+  diagnostics: z.array(z.string().min(1)).default([]),
+});
+export type CodeSkillResourceDiscoveryPlan = z.infer<typeof codeSkillResourceDiscoveryPlanSchema>;
+
+export const codeSkillResourcePreviewSchema = z.object({
+  path: z.string().min(1),
+  rowCount: z.number().int().min(0).default(0),
+  headers: z.array(z.string()).default([]),
+  sampleRows: z.array(z.record(z.string(), z.string())).default([]),
+  matchedHints: z.array(z.string()).default([]),
+  status: z.enum(["completed", "failed", "skipped"]),
+  errorMessage: z.string().optional(),
+});
+export type CodeSkillResourcePreview = z.infer<typeof codeSkillResourcePreviewSchema>;
+
+export const codeSkillResourcePreviewResultSchema = z.object({
+  skillName: z.string().min(1),
+  alias: z.string().min(1).optional(),
+  previews: z.array(codeSkillResourcePreviewSchema).default([]),
+  diagnostics: z.array(codeSkillDiagnosticsSchema).default([]),
+});
+export type CodeSkillResourcePreviewResult = z.infer<typeof codeSkillResourcePreviewResultSchema>;
+
 export const codeSkillSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
@@ -997,13 +1058,6 @@ export const loadedCodeSkillSchema = z.object({
   loadedAt: z.string().min(1),
 });
 export type LoadedCodeSkill = z.infer<typeof loadedCodeSkillSchema>;
-
-export const codeSkillDiagnosticsSchema = z.object({
-  level: z.enum(["info", "warning", "error"]),
-  source: z.string().min(1),
-  message: z.string().min(1),
-});
-export type CodeSkillDiagnostics = z.infer<typeof codeSkillDiagnosticsSchema>;
 
 export const codeSkillContextSchema = z.object({
   skillName: z.string().min(1),
@@ -1331,6 +1385,9 @@ export const codeRunSnapshotSchema = z.object({
   spec: codeGenerationSpecSchema.nullable(),
   businessLogic: codeBusinessLogicSchema.nullable().default(null),
   loadedCodeSkill: loadedCodeSkillSchema.nullable().default(null),
+  visualDirection: codeVisualDirectionSchema.nullable().default(null),
+  skillResourceDiscoveryPlan: codeSkillResourceDiscoveryPlanSchema.nullable().default(null),
+  skillResourcePreviews: codeSkillResourcePreviewResultSchema.nullable().default(null),
   skillResourcePlan: codeSkillResourcePlanSchema.nullable().default(null),
   codeSkillContext: codeSkillContextSchema.nullable().default(null),
   appBlueprint: codeAppBlueprintSchema.nullable().default(null),
@@ -1423,6 +1480,9 @@ export const artifactReadyRunEventSchema = z.object({
     "uiIr",
     "codeSkills",
     "codeSkill",
+    "visualDirection",
+    "skillResourceDiscoveryPlan",
+    "skillResourcePreviews",
     "skillResourcePlan",
     "codeSkillContext",
     "visualDiffReport",
@@ -1431,6 +1491,9 @@ export const artifactReadyRunEventSchema = z.object({
   diagramKind: umlDiagramKindSchema.optional(),
   businessLogic: codeBusinessLogicSchema.optional(),
   loadedCodeSkill: loadedCodeSkillSchema.optional(),
+  visualDirection: codeVisualDirectionSchema.optional(),
+  skillResourceDiscoveryPlan: codeSkillResourceDiscoveryPlanSchema.optional(),
+  skillResourcePreviews: codeSkillResourcePreviewResultSchema.optional(),
   skillResourcePlan: codeSkillResourcePlanSchema.optional(),
   codeSkillContext: codeSkillContextSchema.optional(),
   uiMockup: codeUiMockupSchema.optional(),

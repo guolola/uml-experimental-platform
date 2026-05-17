@@ -12,6 +12,14 @@ import {
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { Checkbox } from "../../../shared/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
 import { Input } from "../../../shared/ui/input";
 import { Section } from "../../../shared/ui/section";
 import { cn } from "../../../shared/ui/utils";
@@ -32,12 +40,14 @@ import {
   USER_SETTINGS_CHANGED_EVENT,
 } from "../../../shared/lib/user-settings";
 
+const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
+
 export function TextRequirementView() {
   const {
     requirementText,
     setRequirementText,
     rules,
-    addRequirementRule,
+    createRequirementRule,
     updateRequirementRule,
     deleteRequirementRule,
     selectedDiagrams,
@@ -58,6 +68,14 @@ export function TextRequirementView() {
   const [showStaleBanner, setShowStaleBanner] = useState(
     () => loadUserSettings().showStaleBanner,
   );
+  const [newRuleDialogOpen, setNewRuleDialogOpen] = useState(false);
+  const [newRuleCategory, setNewRuleCategory] =
+    useState<RequirementRule["category"]>("功能需求");
+  const [newRuleDiagrams, setNewRuleDiagrams] = useState<DiagramType[]>(
+    DEFAULT_NEW_RULE_DIAGRAMS,
+  );
+  const [newRuleText, setNewRuleText] = useState("");
+  const [newRuleError, setNewRuleError] = useState<string | null>(null);
 
   useEffect(() => {
     const syncSettings = () => {
@@ -92,17 +110,41 @@ export function TextRequirementView() {
     );
   };
 
-  const toggleRuleDiagram = (
-    rule: RequirementRule,
-    diagram: DiagramType,
-    checked: boolean,
-  ) => {
-    const next = checked
-      ? Array.from(new Set([...rule.relatedDiagrams, diagram]))
-      : rule.relatedDiagrams.filter((value) => value !== diagram);
-    if (next.length === 0) return;
-    updateRequirementRule(rule.id, { relatedDiagrams: next });
+  const toggleNewRuleDiagram = (diagram: DiagramType, checked: boolean) => {
+    setNewRuleDiagrams((current) =>
+      checked
+        ? Array.from(new Set([...current, diagram]))
+        : current.filter((value) => value !== diagram),
+    );
   };
+
+  const resetNewRuleForm = () => {
+    setNewRuleCategory("功能需求");
+    setNewRuleDiagrams(DEFAULT_NEW_RULE_DIAGRAMS);
+    setNewRuleText("");
+    setNewRuleError(null);
+  };
+
+  const submitNewRule = () => {
+    const trimmedText = newRuleText.trim();
+    if (!trimmedText) {
+      setNewRuleError("请填写需求文本。");
+      return;
+    }
+    if (newRuleDiagrams.length === 0) {
+      setNewRuleError("请至少选择一个对应模型。");
+      return;
+    }
+    createRequirementRule({
+      category: newRuleCategory,
+      relatedDiagrams: newRuleDiagrams,
+      text: trimmedText,
+    });
+    setNewRuleDialogOpen(false);
+    resetNewRuleForm();
+  };
+
+  const newRuleCanSubmit = newRuleText.trim().length > 0 && newRuleDiagrams.length > 0;
 
   const filteredRules = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -211,7 +253,7 @@ export function TextRequirementView() {
               size="sm"
               variant="outline"
               className="h-7"
-              onClick={addRequirementRule}
+              onClick={() => setNewRuleDialogOpen(true)}
               disabled={generating}
             >
               <Plus className="size-3.5" /> 新增需求项
@@ -222,79 +264,67 @@ export function TextRequirementView() {
               没有匹配的规则。
             </div>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {filteredRules.map((rule) => (
-                <li
-                  key={rule.id}
-                  id={`rule-${rule.id}`}
-                  className="rounded-md border border-border bg-card p-3 text-sm transition-colors hover:border-primary/40"
-                >
-                  <div className="mb-2 flex items-center gap-2">
-                    <Input
-                      value={rule.id}
-                      onChange={(event) =>
-                        updateRequirementRule(rule.id, {
-                          id: event.target.value.trim() || rule.id,
-                        })
-                      }
-                      className="h-7 w-20 font-mono text-xs uppercase"
-                      disabled={generating}
-                    />
-                    <select
-                      value={rule.category}
-                      onChange={(event) =>
-                        updateRequirementRule(rule.id, {
-                          category: event.target.value as RequirementRule["category"],
-                        })
-                      }
-                      className="h-7 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
-                      disabled={generating}
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full min-w-[720px] border-collapse bg-card text-sm">
+                <thead className="bg-muted/40 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">
+                      编号
+                    </th>
+                    <th className="w-28 border-b border-border px-3 py-2 text-left font-medium">
+                      类型
+                    </th>
+                    <th className="border-b border-border px-3 py-2 text-left font-medium">
+                      需求文本内容
+                    </th>
+                    <th className="w-20 border-b border-border px-3 py-2 text-center font-medium">
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRules.map((rule) => (
+                    <tr
+                      key={rule.id}
+                      id={`rule-${rule.id}`}
+                      className="border-b border-border last:border-b-0 hover:bg-muted/20"
                     >
-                      {RULE_CATEGORY_ORDER.map((category) => (
-                        <option key={category} value={category}>
-                          {category}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="ml-auto h-7 px-2 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteRequirementRule(rule.id)}
-                      disabled={generating}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                  <textarea
-                    value={rule.text}
-                    onChange={(event) =>
-                      updateRequirementRule(rule.id, { text: event.target.value })
-                    }
-                    className="min-h-16 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-                    disabled={generating}
-                  />
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {DIAGRAM_ORDER.map((diagram) => (
-                      <label
-                        key={`${rule.id}:${diagram}`}
-                        className="inline-flex cursor-pointer items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                      >
-                        <Checkbox
-                          checked={rule.relatedDiagrams.includes(diagram)}
-                          onCheckedChange={(value) =>
-                            toggleRuleDiagram(rule, diagram, Boolean(value))
+                      <td className="px-3 py-2 align-top">
+                        <span className="font-mono text-xs uppercase text-muted-foreground">
+                          {rule.id}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <Badge variant="outline">{rule.category}</Badge>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <textarea
+                          value={rule.text}
+                          onChange={(event) =>
+                            updateRequirementRule(rule.id, { text: event.target.value })
                           }
+                          className="min-h-12 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
                           disabled={generating}
                         />
-                        {DIAGRAM_META[diagram].label}
-                      </label>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                      </td>
+                      <td className="px-3 py-2 text-center align-top">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteRequirementRule(rule.id)}
+                          disabled={generating}
+                          aria-label={`删除需求项 ${rule.id}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <p className="mt-2 text-xs text-muted-foreground">
             之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里已确认的需求项；原始需求文本只作为背景。
@@ -420,6 +450,103 @@ export function TextRequirementView() {
           </p>
         </Section>
       )}
+
+      <Dialog
+        open={newRuleDialogOpen}
+        onOpenChange={(open) => {
+          setNewRuleDialogOpen(open);
+          if (!open) resetNewRuleForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>新增需求项</DialogTitle>
+            <DialogDescription>
+              新增时选择类型和对应模型；创建后列表中只允许修改文本内容。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">需求类型</span>
+              <select
+                value={newRuleCategory}
+                onChange={(event) => {
+                  setNewRuleCategory(event.target.value as RequirementRule["category"]);
+                  setNewRuleError(null);
+                }}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                disabled={generating}
+              >
+                {RULE_CATEGORY_ORDER.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid gap-2 text-sm">
+              <span className="font-medium">对应模型</span>
+              <div className="grid grid-cols-2 gap-2">
+                {DIAGRAM_ORDER.map((diagram) => (
+                  <label
+                    key={`new-rule:${diagram}`}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <Checkbox
+                      checked={newRuleDiagrams.includes(diagram)}
+                      onCheckedChange={(value) => {
+                        toggleNewRuleDiagram(diagram, Boolean(value));
+                        setNewRuleError(null);
+                      }}
+                      disabled={generating}
+                    />
+                    {DIAGRAM_META[diagram].label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">需求文本</span>
+              <textarea
+                value={newRuleText}
+                onChange={(event) => {
+                  setNewRuleText(event.target.value);
+                  setNewRuleError(null);
+                }}
+                placeholder="填写这条需求项的具体内容"
+                className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+                disabled={generating}
+              />
+            </label>
+
+            {newRuleError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {newRuleError}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setNewRuleDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={submitNewRule}
+              disabled={generating || !newRuleCanSubmit}
+            >
+              创建需求项
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

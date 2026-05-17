@@ -11,8 +11,11 @@ import type {
   CodeGenerationSpec,
   LoadedCodeSkill,
   CodeSkillResourcePlan,
+  CodeSkillResourcePreviewResult,
+  CodeSkillResourceDiscoveryPlan,
   CodeSkillSelection,
   CodeSkillContext,
+  CodeVisualDirection,
   CodeUiBlueprint,
   CodeUiMockup,
   CodeUiIr,
@@ -798,6 +801,9 @@ export function buildGenerateCodeFileOperationsPrompt(
     businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
     loadedCodeSkill?: LoadedCodeSkill | null;
+    visualDirection?: CodeVisualDirection | null;
+    skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
+    skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
     skillResourcePlan?: CodeSkillResourcePlan | null;
     codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
@@ -832,6 +838,8 @@ export function buildGenerateCodeFileOperationsPrompt(
     "- 必须优先消费 skillResourcePlan 声明后获得的 skillContext 查询结果；这些结果高于 SKILL.md 中的通用示例。",
     "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
     "- UI 必须契合需求背景主题，不能默认套 UML 实验平台风格。",
+    "- 必须执行 visualDirection.promptBrief；先把视觉方向转成设计系统，再落到页面、组件、色彩、字体、密度和动效。",
+    "- 必须综合 styles/products/colors/typography 等视觉资源查询结果，不能只生成普通后台表格。",
     "- 默认必须是浅色主题；即使 skillContext 返回 dark-mode、dramatic、crypto、neon 等深色资源，也只能作为可选深色模式，不能覆盖默认浅色。",
     "- 必须实现可见的浅色/深色主题切换控件，建议放在顶部栏右侧；使用 React state 切换 data-theme 或 class。",
     "- 必须使用 CSS variables 定义两套主题，例如 :root 与 [data-theme=\"dark\"]；浅色主题至少包含 --bg、--surface、--text、--muted、--primary、--border。",
@@ -850,6 +858,15 @@ export function buildGenerateCodeFileOperationsPrompt(
     "",
     "ui-ux-pro-max Skill（主设计执行上下文）：",
     generationContext?.codeSkillInstructions ?? "[]",
+    "",
+    "视觉方向（必须执行）：",
+    stringifyForPrompt(generationContext?.visualDirection ?? null, 8000),
+    "",
+    "Skill 资源预览计划：",
+    stringifyForPrompt(generationContext?.skillResourceDiscoveryPlan ?? null, 8000),
+    "",
+    "Skill 资源预览结果（用于理解 CSV 结构和用途）：",
+    stringifyForPrompt(generationContext?.skillResourcePreviews ?? null, 12000),
     "",
     "Skill 资源查询计划（模型已声明、API 已验证执行）：",
     stringifyForPrompt(generationContext?.skillResourcePlan ?? null, 8000),
@@ -886,6 +903,9 @@ export function buildRepairCodeFileOperationsPrompt(
     businessLogic?: CodeBusinessLogic | null;
     uiBlueprint?: CodeUiBlueprint | null;
     loadedCodeSkill?: LoadedCodeSkill | null;
+    visualDirection?: CodeVisualDirection | null;
+    skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
+    skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
     skillResourcePlan?: CodeSkillResourcePlan | null;
     codeSkillContext?: CodeSkillContext | null;
     qualityIssues?: string[];
@@ -910,6 +930,8 @@ export function buildRepairCodeFileOperationsPrompt(
     "- 不要生成或修改 /index.html；如果需要体现应用名称，必须在 React 中通过 useEffect 设置 document.title。",
     "- 必须覆盖 businessLogic.pageFlows、frontendOperations、stateMachines、permissions 和 edgeCases。",
     "- UI 内容和主题必须由 ui-ux-pro-max 从 businessLogic 推导，不要套 UML 实验平台风格。",
+    "- 必须执行 visualDirection.promptBrief，修复时也要保留视觉方向，而不是退回普通后台表格。",
+    "- 必须综合 styles/products/colors/typography 等视觉资源查询结果修复视觉系统。",
     "- 默认必须修复为浅色主题，并保留可见的浅色/深色主题切换控件；深色只能作为用户主动切换后的模式。",
     "- 必须使用 :root 与 [data-theme=\"dark\"] 或等价 CSS variables 定义两套主题；浅色主题至少包含 --bg、--surface、--text、--muted、--primary、--border。",
     "- 如果发现 #050506、#030304、#000、#000000、rgb(0,0,0) 或 black 作为页面主背景，必须替换为浅色默认背景，并为深色模式选择柔和深色。",
@@ -925,6 +947,15 @@ export function buildRepairCodeFileOperationsPrompt(
     "",
     "ui-ux-pro-max Skill（主设计执行上下文）：",
     generationContext?.codeSkillInstructions ?? "[]",
+    "",
+    "视觉方向（必须执行）：",
+    stringifyForPrompt(generationContext?.visualDirection ?? null, 8000),
+    "",
+    "Skill 资源预览计划：",
+    stringifyForPrompt(generationContext?.skillResourceDiscoveryPlan ?? null, 8000),
+    "",
+    "Skill 资源预览结果（用于理解 CSV 结构和用途）：",
+    stringifyForPrompt(generationContext?.skillResourcePreviews ?? null, 12000),
     "",
     "Skill 资源查询计划（模型已声明、API 已验证执行）：",
     stringifyForPrompt(generationContext?.skillResourcePlan ?? null, 8000),
@@ -961,6 +992,8 @@ export function buildRepairCodeFileOperationsPrompt(
 export function buildGenerateCodeSkillResourcePlanPrompt(
   businessLogic: CodeBusinessLogic,
   loadedCodeSkill: LoadedCodeSkill,
+  visualDirection?: CodeVisualDirection | null,
+  skillResourcePreviews?: CodeSkillResourcePreviewResult | null,
 ) {
   const manifest = loadedCodeSkill.fileManifest.map((file) => ({
     relativePath: file.relativePath,
@@ -977,7 +1010,7 @@ export function buildGenerateCodeSkillResourcePlanPrompt(
     "- skillName: 必须是 ui-ux-pro-max。",
     "- alias: 使用 @web-design。",
     "- query: 面向本业务的一句话检索词，包含产品类型、领域、页面、关键交互、React、responsive、accessible。",
-    "- requests: 1 到 6 个资源请求；每个请求必须包含 resourceType, name, query, csvPath, stack, domain, actionName, maxResults, reason。",
+    "- requests: 1 到 8 个资源请求；每个请求必须包含 resourceType, name, query, csvPath, stack, domain, actionName, maxResults, reason。",
     "- diagnostics: 字符串数组；没有诊断则 []。",
     "",
     "resourceType 可选值：",
@@ -988,14 +1021,88 @@ export function buildGenerateCodeSkillResourcePlanPrompt(
     "- action: 只有确实需要 scripts/search.py 的增强结果时声明；actionName 必须来自 skill.actions.json 的 action 名称。默认优先用 CSV，不要为了常规 React 原型声明 action。",
     "",
     "重要约束：",
+    "- 当前目标固定是浏览器内运行的 Web React 原型，不是 React Native、Expo、iOS、Android 或 Flutter 应用。",
+    "- 你已经拿到 skillResourcePreviews，必须根据 headers/sampleRows 判断每个 CSV 是否有用，不要只根据文件名猜测。",
+    "- 必须查询 Web React 核心实现资源：stack=react 与 domain=ux。",
+    "- 对视觉表现，优先从预览中选择与 visualDirection 匹配的资源，例如 data/styles.csv、data/products.csv、data/colors.csv、data/typography.csv。",
     "- 不要声明所有 CSV；只声明本次业务必要的少量资源。",
     "- 不要声明 shadcn stack；本项目生成普通 React + TypeScript + CSS variables。",
+    "- 不要声明移动端/原生端资源，例如 data/draft.csv、data/app-interface.csv、data/stacks/react-native.csv、data/stacks/flutter.csv、data/stacks/swiftui.csv。",
+    "- 查询 UX 资源时只使用 Web / All / React 相关规则，不能把 React Native 的 haptics、SafeAreaView、Expo、Reanimated、Pressable 等规则注入 Web 原型。",
     "- 如果查询到 dark-mode 资源，只能用于可选深色主题；默认主题必须保持浅色，并需要查询或推导对应浅色 token。",
     "- 不要声明会写文件的 action；不要使用 --persist。",
     "- maxResults 推荐 5 到 8。",
     "",
     "ui-ux-pro-max SKILL.md 摘要：",
     truncateForPrompt(loadedCodeSkill.content, 9000),
+    "",
+    "可用文件清单：",
+    stringifyForPrompt(manifest, 10000),
+    "",
+    "视觉方向：",
+    stringifyForPrompt(visualDirection ?? null, 8000),
+    "",
+    "Skill 资源预览结果：",
+    stringifyForPrompt(skillResourcePreviews ?? null, 14000),
+    "",
+    "业务逻辑：",
+    stringifyForPrompt(businessLogic, 12000),
+  ].join("\n");
+}
+
+export function buildGenerateCodeVisualDirectionPrompt(
+  businessLogic: CodeBusinessLogic,
+  loadedCodeSkill: LoadedCodeSkill,
+) {
+  return [
+    "请为当前 Web React 原型生成明确的视觉方向 brief，让后续代码生成像优秀官网 demo 一样有清晰风格，而不是普通后台表格。",
+    "返回 JSON 对象，格式必须是 {\"visualDirection\":{...}}。",
+    "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码块。",
+    "",
+    "visualDirection 字段：productType, targetAudience, toneKeywords, styleKeywords, colorMood, typographyMood, layoutMood, componentTexture, interactionMood, avoidStyles, promptBrief。",
+    "- promptBrief 必须是一句适合直接指导 UI 生成的英文短句，包含产品类型、视觉风格、颜色气质、组件质感和交互气质。",
+    "- 当前目标是 Web React，不是 React Native / Expo / Flutter。",
+    "- 默认浅色友好，可提供深色切换，但不要使用纯黑或近纯黑作为默认主背景。",
+    "",
+    "ui-ux-pro-max SKILL.md 摘要：",
+    truncateForPrompt(loadedCodeSkill.content, 7000),
+    "",
+    "业务逻辑：",
+    stringifyForPrompt(businessLogic, 12000),
+  ].join("\n");
+}
+
+export function buildGenerateCodeSkillResourceDiscoveryPrompt(
+  businessLogic: CodeBusinessLogic,
+  loadedCodeSkill: LoadedCodeSkill,
+  visualDirection: CodeVisualDirection | null,
+) {
+  const manifest = loadedCodeSkill.fileManifest.map((file) => ({
+    relativePath: file.relativePath,
+    kind: file.kind,
+    size: file.size,
+  }));
+
+  return [
+    "请作为 opencode-like skill runtime 的资源理解步骤，先声明要预览哪些 CSV 资源，再由 API 返回 header 和样例行。",
+    "返回 JSON 对象，格式必须是 {\"skillResourceDiscoveryPlan\":{...}}。",
+    "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码块。",
+    "",
+    "skillResourceDiscoveryPlan 字段：",
+    "- skillName: 必须是 ui-ux-pro-max。",
+    "- alias: 使用 @web-design。",
+    "- requests: 1 到 10 个资源预览请求；每个请求包含 path, reason, expectedUse。",
+    "- diagnostics: 字符串数组；没有诊断则 []。",
+    "",
+    "选择规则：",
+    "- 只能预览 data/**/*.csv。",
+    "- 必须预览 Web React 核心与视觉核心资源：data/styles.csv、data/products.csv、data/colors.csv、data/typography.csv、data/ux-guidelines.csv、data/stacks/react.csv。",
+    "- 可按 visualDirection 选择 data/icons.csv、data/google-fonts.csv、data/ui-reasoning.csv、data/react-performance.csv。",
+    "- 只有 landing/营销页才预览 data/landing.csv；只有图表/统计/趋势业务才预览 data/charts.csv。",
+    "- 禁止预览移动端/原生端资源：data/draft.csv、data/app-interface.csv、data/stacks/react-native.csv、data/stacks/flutter.csv、data/stacks/swiftui.csv。",
+    "",
+    "视觉方向：",
+    stringifyForPrompt(visualDirection ?? null, 8000),
     "",
     "可用文件清单：",
     stringifyForPrompt(manifest, 10000),
@@ -1008,7 +1115,7 @@ export function buildGenerateCodeSkillResourcePlanPrompt(
 export function buildVerifyCodeUiFidelityPrompt(
   businessLogic: CodeBusinessLogic,
   uiBlueprint: CodeUiBlueprint | null,
-  files: Record<string, string>,
+  fidelityCheckContext: unknown,
 ): string {
   return [
     "请检查当前 React 原型代码是否覆盖业务逻辑，以及 ui-ux-pro-max 应从业务逻辑推导出的界面方案。",
@@ -1022,6 +1129,13 @@ export function buildVerifyCodeUiFidelityPrompt(
     "- repairSuggestions[]: 可直接指导下一轮代码修复的中文建议。",
     "- summary: 一句话中文总结。",
     "",
+    "检查规则：",
+    "- 当前原型文件不是完整文件树，而是还原检查专用上下文；criticalFiles、pageFiles、supportingFiles 中的内容优先用于判断。",
+    "- omittedFiles 只表示文件被压缩或省略，不得把 omittedFiles 中的辅助文件直接判定为缺失。",
+    "- 若 deterministicCheck.fileFacts 已说明 /src/App.tsx、WorkspaceShell 或页面文件存在，不得再笼统声称“未包含 App 或具体页面组件”。",
+    "- 业务路径只需要通过模拟 route state / mock route table / PageKey 页面状态体现，不要求 BrowserRouter、真实地址栏路由或 history API。",
+    "- 判断重点是页面是否可操作、状态流转、权限差异、异常分支、mock 数据绑定和主要操作按钮，而不是是否使用真实浏览器路由。",
+    "",
     "业务逻辑：",
     stringifyForPrompt(businessLogic, 10000),
     "",
@@ -1030,8 +1144,8 @@ export function buildVerifyCodeUiFidelityPrompt(
       ? stringifyForPrompt(uiBlueprint, 8000)
       : "新链路不单独提供 uiBlueprint；请按 businessLogic 判断界面是否足够业务化、可操作、非空泛。",
     "",
-    "当前原型文件：",
-    stringifyForPrompt(files, 16000),
+    "当前原型还原检查上下文：",
+    stringifyForPrompt(fidelityCheckContext, 26000),
   ].join("\n");
 }
 

@@ -13,8 +13,11 @@ import {
   codeSkillContextSchema,
   codeSkillDiagnosticsSchema,
   codeSkillFileSchema,
+  codeSkillResourceDiscoveryPlanSchema,
+  codeSkillResourcePreviewResultSchema,
   codeSkillResourcePlanSchema,
   codeSkillSelectionSchema,
+  codeVisualDirectionSchema,
   loadedCodeSkillSchema,
   type CodeBusinessLogic,
   type CodeSkillAction,
@@ -22,9 +25,13 @@ import {
   type CodeSkillContext,
   type CodeSkillDiagnostics,
   type CodeSkillFile,
+  type CodeSkillResourceDiscoveryPlan,
+  type CodeSkillResourcePreview,
+  type CodeSkillResourcePreviewResult,
   type CodeSkillResourcePlan,
   type CodeSkillResourceRequest,
   type CodeSkillSelection,
+  type CodeVisualDirection,
   type LoadedCodeSkill,
 } from "@uml-platform/contracts";
 
@@ -34,6 +41,17 @@ const MAX_SKILL_CONTENT_CHARS = 32000;
 const MAX_MANIFEST_FILES = 80;
 const ACTION_CONFIG_FILE = "skill.actions.json";
 const CODE_SKILL_ACTION_MODE_VALUES = ["csv", "python", "auto"] as const;
+const WEB_REACT_BLOCKED_CSV_PATHS = new Set([
+  "data/app-interface.csv",
+  "data/draft.csv",
+  "data/stacks/flutter.csv",
+  "data/stacks/jetpack-compose.csv",
+  "data/stacks/react-native.csv",
+  "data/stacks/swiftui.csv",
+]);
+const WEB_REACT_BLOCKED_PLATFORM_PATTERN =
+  /\b(mobile|ios|android|react native|flutter|swiftui|jetpack compose|expo|nativewind|reanimated|haptics?)\b/i;
+const WEB_REACT_ALLOWED_PLATFORM_PATTERN = /\b(web|all|general|react|next\.?js|react\/next\.js)\b/i;
 
 type CodeSkillActionMode = (typeof CODE_SKILL_ACTION_MODE_VALUES)[number];
 
@@ -503,6 +521,9 @@ function assertAllowedCsvResource(skill: LoadedCodeSkill, relativePath: string) 
   if (!normalized.startsWith("data/") || !normalized.endsWith(".csv")) {
     throw new Error(`only data/**/*.csv resources are allowed: ${relativePath}`);
   }
+  if (WEB_REACT_BLOCKED_CSV_PATHS.has(normalized)) {
+    throw new Error(`CSV resource is mobile/native-only and is not allowed for Web React prototypes: ${relativePath}`);
+  }
   const listed = skill.fileManifest.some(
     (file) =>
       file.kind === "data" &&
@@ -512,6 +533,49 @@ function assertAllowedCsvResource(skill: LoadedCodeSkill, relativePath: string) 
     throw new Error(`CSV resource is not in skill manifest: ${relativePath}`);
   }
   return { normalized, filePath };
+}
+
+function splitCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function filterCsvRowsForWebReact(header: string, rows: string[]) {
+  const columns = splitCsvLine(header).map((column) => column.toLowerCase());
+  const platformIndex = columns.findIndex((column) => column === "platform");
+  const typeIndex = columns.findIndex((column) => column === "type");
+  const scopedIndex = platformIndex >= 0 ? platformIndex : typeIndex;
+  if (scopedIndex < 0) return rows;
+
+  return rows.filter((row) => {
+    const cells = splitCsvLine(row);
+    const scope = cells[scopedIndex] ?? "";
+    if (!scope) return true;
+    if (WEB_REACT_BLOCKED_PLATFORM_PATTERN.test(scope)) return false;
+    return WEB_REACT_ALLOWED_PLATFORM_PATTERN.test(scope) || !scope.trim();
+  });
 }
 
 function readCsvContext(
@@ -532,7 +596,7 @@ function readCsvContext(
 
   const tokens = tokenizeSkillQuery(query);
   const header = lines[0].includes(",") ? lines[0] : "";
-  const body = header ? lines.slice(1) : lines;
+  const body = header ? filterCsvRowsForWebReact(header, lines.slice(1)) : lines;
   const ranked = body
     .map((line, index) => ({ line, index, score: scoreSkillContextLine(line, tokens) }))
     .sort((a, b) => b.score - a.score || a.index - b.index);
@@ -545,6 +609,69 @@ function readCsvContext(
     .filter(Boolean)
     .join("\n");
   return content.slice(0, maxChars);
+}
+
+function csvRowsForPreview(filePath: string) {
+  const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return { headers: [] as string[], rows: [] as string[] };
+  }
+  const headers = splitCsvLine(lines[0]);
+  return { headers, rows: lines.slice(1) };
+}
+
+function previewCsvResource(
+  skill: LoadedCodeSkill,
+  relativePath: string,
+  query: string,
+): Omit<CodeSkillResourcePreview, "path"> {
+  const { filePath } = assertAllowedCsvResource(skill, relativePath);
+  if (!existsSync(filePath)) {
+    return {
+      rowCount: 0,
+      headers: [],
+      sampleRows: [],
+      matchedHints: [],
+      status: "failed",
+      errorMessage: `${relativePath} 未找到。`,
+    };
+  }
+
+  const { headers, rows } = csvRowsForPreview(filePath);
+  const filteredRows = headers.length > 0
+    ? filterCsvRowsForWebReact(headers.join(","), rows)
+    : rows;
+  const tokens = tokenizeSkillQuery(query);
+  const ranked = filteredRows
+    .map((line, index) => ({ line, index, score: scoreSkillContextLine(line, tokens) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  const selected = ranked
+    .filter((item) => item.score > 0)
+    .slice(0, 4)
+    .map((item) => item.line);
+  const fallback = filteredRows.slice(0, Math.min(4, filteredRows.length));
+  const sampleLines = selected.length > 0 ? selected : fallback;
+  const sampleRows = sampleLines.map((line) => {
+    const cells = splitCsvLine(line);
+    return Object.fromEntries(
+      headers.slice(0, 12).map((header, index) => [header, cells[index] ?? ""]),
+    );
+  });
+
+  return {
+    rowCount: filteredRows.length,
+    headers,
+    sampleRows,
+    matchedHints: tokens.filter((token) =>
+      sampleLines.some((line) => line.toLowerCase().includes(token)),
+    ).slice(0, 12),
+    status: sampleRows.length > 0 ? "completed" : "skipped",
+    errorMessage: sampleRows.length > 0 ? undefined : `${relativePath} 无可预览内容。`,
+  };
 }
 
 function createCsvActionResult(
@@ -638,6 +765,50 @@ function createDefaultSkillResourcePlan(
       reason: "获取普通 React + TypeScript 原型实现规则。",
     },
     {
+      resourceType: "csv",
+      name: "visual-styles",
+      query,
+      csvPath: "data/styles.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取适合业务视觉方向的 Web/General 风格规则。",
+    },
+    {
+      resourceType: "csv",
+      name: "product-patterns",
+      query,
+      csvPath: "data/products.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 6,
+      reason: "获取产品类型到页面模式、色彩和注意事项的映射。",
+    },
+    {
+      resourceType: "csv",
+      name: "color-palettes",
+      query,
+      csvPath: "data/colors.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 6,
+      reason: "获取浅色默认主题和可选深色主题的色彩灵感。",
+    },
+    {
+      resourceType: "csv",
+      name: "typography-system",
+      query,
+      csvPath: "data/typography.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 6,
+      reason: "获取字体气质、层级和排版建议。",
+    },
+    {
       resourceType: "domain",
       name: "ux-guidelines",
       query,
@@ -669,6 +840,87 @@ function createDefaultSkillResourcePlan(
     query,
     requests,
     diagnostics: ["未获得模型声明的 skillResourcePlan，使用最小默认资源计划。"],
+  });
+}
+
+export function fallbackCodeVisualDirection(
+  businessLogic: CodeBusinessLogic,
+): CodeVisualDirection {
+  const productType = businessLogic.appName || "业务原型";
+  return codeVisualDirectionSchema.parse({
+    productType,
+    targetAudience: businessLogic.actors.map((actor) => actor.name).slice(0, 4).join("、") || "业务用户",
+    toneKeywords: ["professional", "friendly", "clear", "accessible"],
+    styleKeywords: ["soft cards", "light SaaS", "business workflow", "responsive dashboard"],
+    colorMood: "light, optimistic, trustworthy blue-green palette with warm neutral surfaces",
+    typographyMood: "clean sans-serif hierarchy, readable labels, strong section titles",
+    layoutMood: "responsive multi-page workspace with clear navigation and card-based sections",
+    componentTexture: "soft shadows, subtle borders, rounded cards, calm status badges",
+    interactionMood: "visible feedback, fast micro-interactions, clear loading and success states",
+    avoidStyles: ["pure black default background", "React Native haptics", "mobile-only gestures", "generic admin table only"],
+    promptBrief: `${productType} as a friendly professional Web React product, soft card-based layout, light blue-green palette, clear business workflow, polished SaaS visual system`,
+  });
+}
+
+export function fallbackCodeSkillResourceDiscoveryPlan(
+  skill: LoadedCodeSkill,
+): CodeSkillResourceDiscoveryPlan {
+  return codeSkillResourceDiscoveryPlanSchema.parse({
+    skillName: skill.name,
+    alias: skill.alias,
+    requests: [
+      ["data/styles.csv", "理解 Web/General 视觉风格。", "选择适合业务的表现风格。"],
+      ["data/products.csv", "理解产品类型到页面模式的映射。", "匹配业务产品类型。"],
+      ["data/colors.csv", "理解色彩系统。", "生成浅色默认主题和可选深色主题 token。"],
+      ["data/typography.csv", "理解字体气质。", "生成清晰、有风格的字体层级。"],
+      ["data/ux-guidelines.csv", "理解 Web/All UX 规则。", "保证表单、导航、反馈和可访问性。"],
+      ["data/stacks/react.csv", "理解 React 实现规则。", "保证 React 原型可运行。"],
+      ["data/icons.csv", "理解图标资源建议。", "辅助状态、空态和操作表达。"],
+      ["data/ui-reasoning.csv", "理解产品类型推导规则。", "辅助视觉方向判断。"],
+    ].map(([path, reason, expectedUse]) => ({ path, reason, expectedUse })),
+    diagnostics: ["未获得模型声明的资源预览计划，使用默认 Web React 视觉核心资源预览。"],
+  });
+}
+
+export function resolveCodeSkillResourcePreviews(
+  skill: LoadedCodeSkill,
+  discoveryPlan: CodeSkillResourceDiscoveryPlan,
+  query: string,
+): CodeSkillResourcePreviewResult {
+  const parsedPlan = codeSkillResourceDiscoveryPlanSchema.parse(discoveryPlan);
+  const diagnostics: CodeSkillDiagnostics[] = [];
+  const previews = parsedPlan.requests.map((request) => {
+    try {
+      return {
+        path: normalizeSkillRelativePath(request.path),
+        ...previewCsvResource(skill, request.path, `${query} ${request.expectedUse}`),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostics.push(
+        codeSkillDiagnosticsSchema.parse({
+          level: "warning",
+          source: skill.location,
+          message: `skill resource preview ${request.path} 失败：${message}`,
+        }),
+      );
+      return {
+        path: normalizeSkillRelativePath(request.path),
+        rowCount: 0,
+        headers: [],
+        sampleRows: [],
+        matchedHints: [],
+        status: "failed" as const,
+        errorMessage: message,
+      };
+    }
+  });
+
+  return codeSkillResourcePreviewResultSchema.parse({
+    skillName: skill.name,
+    alias: skill.alias,
+    previews,
+    diagnostics,
   });
 }
 

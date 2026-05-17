@@ -6,10 +6,13 @@ import {
   designTraceEntrySchema,
   designDiagramModelsResultSchema,
   codeRunSnapshotSchema,
+  codeSkillResourceDiscoveryPlanSchema,
+  codeSkillResourcePreviewResultSchema,
   codeSkillActionSchema,
   codeSkillContextSchema,
   codeSkillResourcePlanSchema,
   codeSkillSchema,
+  codeVisualDirectionSchema,
   codeUiIrResultSchema,
   renderSvgResponseSchema,
   requirementTraceEntrySchema,
@@ -258,6 +261,52 @@ test("contracts validate representative stage payloads", () => {
   });
   assert.equal(skillResourcePlan.requests[0]?.stack, "react");
 
+  const visualDirection = codeVisualDirectionSchema.parse({
+    productType: "活动服务原型",
+    targetAudience: "学生和活动管理员",
+    toneKeywords: ["友好", "清爽"],
+    styleKeywords: ["soft cards", "community calendar"],
+    colorMood: "浅色蓝绿社区服务色板",
+    typographyMood: "清晰、圆润、易扫读",
+    layoutMood: "卡片式多页面业务工作台",
+    componentTexture: "柔和阴影和轻量边框",
+    interactionMood: "明确反馈、轻微动效",
+    avoidStyles: ["纯黑背景", "移动端原生交互"],
+    promptBrief: "friendly civic calendar, soft event cards, optimistic blue-green palette",
+  });
+  assert.match(visualDirection.promptBrief, /friendly civic calendar/);
+
+  const skillResourceDiscoveryPlan = codeSkillResourceDiscoveryPlanSchema.parse({
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    requests: [
+      {
+        path: "data/styles.csv",
+        reason: "理解可选视觉风格。",
+        expectedUse: "选择适合社区活动日历的卡片风格。",
+      },
+    ],
+    diagnostics: [],
+  });
+  assert.equal(skillResourceDiscoveryPlan.requests[0]?.path, "data/styles.csv");
+
+  const skillResourcePreviews = codeSkillResourcePreviewResultSchema.parse({
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    previews: [
+      {
+        path: "data/styles.csv",
+        rowCount: 12,
+        headers: ["No", "Style Category", "Type"],
+        sampleRows: [{ No: "1", "Style Category": "Minimalism", Type: "General" }],
+        matchedHints: ["General"],
+        status: "completed",
+      },
+    ],
+    diagnostics: [],
+  });
+  assert.equal(skillResourcePreviews.previews[0]?.headers[1], "Style Category");
+
   const skillResourcePlanEvent = runEventSchema.parse({
     type: "artifact_ready",
     stage: "plan_code_ui",
@@ -274,12 +323,39 @@ test("contracts validate representative stage payloads", () => {
   });
   assert.equal(codeSkillContextEvent.type, "artifact_ready");
 
+  const visualDirectionEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "plan_code_ui",
+    artifactKind: "visualDirection",
+    visualDirection,
+  });
+  assert.equal(visualDirectionEvent.type, "artifact_ready");
+
+  const skillResourceDiscoveryPlanEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "plan_code_ui",
+    artifactKind: "skillResourceDiscoveryPlan",
+    skillResourceDiscoveryPlan,
+  });
+  assert.equal(skillResourceDiscoveryPlanEvent.type, "artifact_ready");
+
+  const skillResourcePreviewsEvent = runEventSchema.parse({
+    type: "artifact_ready",
+    stage: "plan_code_ui",
+    artifactKind: "skillResourcePreviews",
+    skillResourcePreviews,
+  });
+  assert.equal(skillResourcePreviewsEvent.type, "artifact_ready");
+
   const codeSnapshot = codeRunSnapshotSchema.parse({
     runId: "code-run",
     requirementText: "生成活动报名原型",
     rules: [],
     designModels: [],
     spec: null,
+    visualDirection,
+    skillResourceDiscoveryPlan,
+    skillResourcePreviews,
     skillResourcePlan,
     codeSkillContext,
     selectedCodeSkills: codeSkillsEvent.codeSkills,

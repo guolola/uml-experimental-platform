@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   formatWebDesignSkillForPrompt,
+  fallbackCodeSkillResourceDiscoveryPlan,
   fallbackCodeSkillResourcePlan,
+  fallbackCodeVisualDirection,
   getCodeSkillRuntimeStatus,
   loadWebDesignSkill,
   resolveCodeSkillContext,
+  resolveCodeSkillResourcePreviews,
   toWebDesignSkillSelection,
 } from "./code-skills.js";
 
@@ -130,4 +133,124 @@ test("rejects skill resource path traversal and does not query undeclared chart 
   assert.ok(context.actionResults.some((action) => action.name === "react-stack"));
   assert.ok(context.actionResults.some((action) => action.name === "bad-path" && action.status === "failed"));
   assert.ok(!context.actionResults.some((action) => action.name === "chart-guidelines"));
+});
+
+test("filters mobile and React Native resources from Web React skill context", async () => {
+  const result = loadWebDesignSkill();
+  const plan = {
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    query: "modern enterprise SaaS public calendar React responsive accessible light theme",
+    requests: [
+      {
+        resourceType: "csv" as const,
+        name: "web-styles",
+        query: "modern enterprise SaaS mobile React Native Expo haptics",
+        csvPath: "data/styles.csv",
+        stack: "",
+        domain: "",
+        actionName: "",
+        maxResults: 8,
+        reason: "Should only return web/general style rows for this Web React prototype.",
+      },
+      {
+        resourceType: "csv" as const,
+        name: "mobile-draft",
+        query: "Modern Enterprise SaaS Mobile React Native",
+        csvPath: "data/draft.csv",
+        stack: "",
+        domain: "",
+        actionName: "",
+        maxResults: 5,
+        reason: "simulate a model-declared mobile-only draft resource",
+      },
+      {
+        resourceType: "csv" as const,
+        name: "native-interface",
+        query: "React Native accessibilityLabel haptics",
+        csvPath: "data/app-interface.csv",
+        stack: "",
+        domain: "",
+        actionName: "",
+        maxResults: 5,
+        reason: "simulate native-only app interface resource",
+      },
+    ],
+    diagnostics: [],
+  };
+
+  const context = await resolveCodeSkillContext(result.skill, plan);
+  const webStyles = context.actionResults.find((action) => action.name === "web-styles");
+  assert.equal(webStyles?.status, "completed");
+  assert.doesNotMatch(webStyles?.stdout ?? "", /React Native|Expo|Haptics|Modern Enterprise SaaS \(Mobile\)/i);
+  assert.ok(context.actionResults.some((action) => action.name === "mobile-draft" && action.status === "failed"));
+  assert.ok(context.actionResults.some((action) => action.name === "native-interface" && action.status === "failed"));
+  assert.ok(
+    context.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("mobile/native-only"),
+    ),
+  );
+});
+
+test("previews skill CSV resources before final resource selection", () => {
+  const result = loadWebDesignSkill();
+  const businessLogic = {
+    appName: "公众活动日历",
+    domainSummary: "公开活动浏览、注册申请和提醒。",
+    coreWorkflow: "游客浏览公开活动并提交注册申请。",
+    actors: [],
+    businessEntities: [],
+    pageFlows: [],
+    stateMachines: [],
+    permissions: [],
+    edgeCases: [],
+    frontendOperations: ["浏览活动", "提交申请"],
+    plantUmlTraceability: [],
+  };
+  const visualDirection = fallbackCodeVisualDirection(businessLogic);
+  const discoveryPlan = fallbackCodeSkillResourceDiscoveryPlan(result.skill);
+  const previews = resolveCodeSkillResourcePreviews(
+    result.skill,
+    discoveryPlan,
+    visualDirection.promptBrief,
+  );
+
+  assert.equal(previews.skillName, "ui-ux-pro-max");
+  assert.ok(previews.previews.some((preview) => preview.path === "data/styles.csv"));
+  const styles = previews.previews.find((preview) => preview.path === "data/styles.csv");
+  assert.equal(styles?.status, "completed");
+  assert.ok((styles?.headers.length ?? 0) > 0);
+  assert.ok((styles?.sampleRows.length ?? 0) > 0);
+});
+
+test("rejects mobile-only CSV resources during preview", () => {
+  const result = loadWebDesignSkill();
+  const previews = resolveCodeSkillResourcePreviews(
+    result.skill,
+    {
+      skillName: "ui-ux-pro-max",
+      alias: "@web-design",
+      requests: [
+        {
+          path: "data/draft.csv",
+          reason: "simulate native draft request",
+          expectedUse: "should be blocked",
+        },
+        {
+          path: "data/app-interface.csv",
+          reason: "simulate native interface request",
+          expectedUse: "should be blocked",
+        },
+      ],
+      diagnostics: [],
+    },
+    "mobile native haptics",
+  );
+
+  assert.ok(previews.previews.every((preview) => preview.status === "failed"));
+  assert.ok(
+    previews.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes("mobile/native-only"),
+    ),
+  );
 });

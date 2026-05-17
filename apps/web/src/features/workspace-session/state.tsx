@@ -14,7 +14,10 @@ import type {
   CodeGenerationSpec,
   CodeRunSnapshot,
   CodeSkillContext,
+  CodeSkillResourceDiscoveryPlan,
+  CodeSkillResourcePreviewResult,
   CodeSkillResourcePlan,
+  CodeVisualDirection,
   CodeUiFidelityReport,
   CodeUiMockup,
   CodeUiReferenceSpec,
@@ -74,6 +77,9 @@ interface RunDiagnostics {
   uiMockup: CodeUiMockup | null;
   uiReferenceSpec: CodeUiReferenceSpec | null;
   uiFidelityReport: CodeUiFidelityReport | null;
+  visualDirection: CodeVisualDirection | null;
+  skillResourceDiscoveryPlan: CodeSkillResourceDiscoveryPlan | null;
+  skillResourcePreviews: CodeSkillResourcePreviewResult | null;
   skillResourcePlan: CodeSkillResourcePlan | null;
   codeSkillContext: CodeSkillContext | null;
   requirementTrace: RequirementTraceEntry[];
@@ -85,6 +91,11 @@ interface WorkspaceSessionState {
   setRequirementText: (value: string) => void;
   rules: RequirementRule[];
   addRequirementRule: () => void;
+  createRequirementRule: (input: {
+    category: RequirementRule["category"];
+    text: string;
+    relatedDiagrams: DiagramType[];
+  }) => void;
   updateRequirementRule: (
     id: string,
     patch: Partial<RequirementRule>,
@@ -219,6 +230,9 @@ function createEmptyDiagnostics(): RunDiagnostics {
     uiMockup: null,
     uiReferenceSpec: null,
     uiFidelityReport: null,
+    visualDirection: null,
+    skillResourceDiscoveryPlan: null,
+    skillResourcePreviews: null,
     skillResourcePlan: null,
     codeSkillContext: null,
     requirementTrace: [],
@@ -658,21 +672,48 @@ export function WorkspaceSessionProvider({
     [repository, textVersion],
   );
 
-  const addRequirementRule = useCallback(() => {
+  const getNextRequirementRuleId = useCallback(() => {
+    const used = new Set(rules.map((rule) => rule.id.toLowerCase()));
     const maxIndex = rules.reduce((max, rule) => {
       const match = /^r(\d+)$/i.exec(rule.id);
       return match ? Math.max(max, Number(match[1])) : max;
     }, 0);
-    commitRequirementRules([
-      ...rules,
-      {
-        id: `r${maxIndex + 1}`,
-        category: "功能需求",
-        text: "待填写需求项",
-        relatedDiagrams: ["usecase"],
-      },
-    ]);
-  }, [commitRequirementRules, rules]);
+    let nextIndex = maxIndex + 1;
+    while (used.has(`r${nextIndex}`)) {
+      nextIndex += 1;
+    }
+    return `r${nextIndex}`;
+  }, [rules]);
+
+  const createRequirementRule = useCallback(
+    (input: {
+      category: RequirementRule["category"];
+      text: string;
+      relatedDiagrams: DiagramType[];
+    }) => {
+      const relatedDiagrams = input.relatedDiagrams.length > 0
+        ? input.relatedDiagrams
+        : (["usecase"] as DiagramType[]);
+      commitRequirementRules([
+        ...rules,
+        {
+          id: getNextRequirementRuleId(),
+          category: input.category,
+          text: input.text.trim() || "待填写需求项",
+          relatedDiagrams,
+        },
+      ]);
+    },
+    [commitRequirementRules, getNextRequirementRuleId, rules],
+  );
+
+  const addRequirementRule = useCallback(() => {
+    createRequirementRule({
+      category: "功能需求",
+      text: "待填写需求项",
+      relatedDiagrams: ["usecase", "activity"],
+    });
+  }, [createRequirementRule]);
 
   const updateRequirementRule = useCallback(
     (id: string, patch: Partial<RequirementRule>) => {
@@ -1013,6 +1054,15 @@ export function WorkspaceSessionProvider({
         : null,
       uiFidelityReport: isCodeRunSnapshot(snapshot)
         ? snapshot.uiFidelityReport
+        : null,
+      visualDirection: isCodeRunSnapshot(snapshot)
+        ? snapshot.visualDirection
+        : null,
+      skillResourceDiscoveryPlan: isCodeRunSnapshot(snapshot)
+        ? snapshot.skillResourceDiscoveryPlan
+        : null,
+      skillResourcePreviews: isCodeRunSnapshot(snapshot)
+        ? snapshot.skillResourcePreviews
         : null,
       skillResourcePlan: isCodeRunSnapshot(snapshot)
         ? snapshot.skillResourcePlan
@@ -1609,6 +1659,24 @@ export function WorkspaceSessionProvider({
               : event.type === "completed" && "uiFidelityReport" in event.snapshot
                 ? event.snapshot.uiFidelityReport ?? current.uiFidelityReport
                 : current.uiFidelityReport,
+          visualDirection:
+            event.type === "artifact_ready" && event.artifactKind === "visualDirection"
+              ? event.visualDirection ?? current.visualDirection
+              : event.type === "completed" && "visualDirection" in event.snapshot
+                ? event.snapshot.visualDirection ?? current.visualDirection
+                : current.visualDirection,
+          skillResourceDiscoveryPlan:
+            event.type === "artifact_ready" && event.artifactKind === "skillResourceDiscoveryPlan"
+              ? event.skillResourceDiscoveryPlan ?? current.skillResourceDiscoveryPlan
+              : event.type === "completed" && "skillResourceDiscoveryPlan" in event.snapshot
+                ? event.snapshot.skillResourceDiscoveryPlan ?? current.skillResourceDiscoveryPlan
+                : current.skillResourceDiscoveryPlan,
+          skillResourcePreviews:
+            event.type === "artifact_ready" && event.artifactKind === "skillResourcePreviews"
+              ? event.skillResourcePreviews ?? current.skillResourcePreviews
+              : event.type === "completed" && "skillResourcePreviews" in event.snapshot
+                ? event.snapshot.skillResourcePreviews ?? current.skillResourcePreviews
+                : current.skillResourcePreviews,
           skillResourcePlan:
             event.type === "artifact_ready" && event.artifactKind === "skillResourcePlan"
               ? event.skillResourcePlan ?? current.skillResourcePlan
@@ -2059,6 +2127,7 @@ export function WorkspaceSessionProvider({
       setRequirementText,
       rules,
       addRequirementRule,
+      createRequirementRule,
       updateRequirementRule,
       deleteRequirementRule,
       models,
@@ -2119,6 +2188,7 @@ export function WorkspaceSessionProvider({
       setRequirementText,
       rules,
       addRequirementRule,
+      createRequirementRule,
       updateRequirementRule,
       deleteRequirementRule,
       models,
