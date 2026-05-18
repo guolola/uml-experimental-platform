@@ -167,11 +167,33 @@ ls -1 /www/wwwroot/uml-platform/releases
 切换 `current` 到某个旧版本：
 
 ```bash
-ln -sfn /www/wwwroot/uml-platform/releases/<release-sha> /www/wwwroot/uml-platform/current
+ln -sfnT /www/wwwroot/uml-platform/releases/<release-sha> /www/wwwroot/uml-platform/current
 cd /www/wwwroot/uml-platform/current
 pm2 startOrReload ecosystem.config.cjs --env production
 pm2 save
 ```
+
+如果宝塔报错 `current/apps/web/dist` 或 `current/apps` 不存在，通常是 `current` 软链接指向的 release 已被清理。先检查：
+
+```bash
+readlink -f /www/wwwroot/uml-platform/current
+ls -l /www/wwwroot/uml-platform/releases
+```
+
+然后选择一个仍包含前端产物的 release 恢复：
+
+```bash
+for d in /www/wwwroot/uml-platform/releases/*; do
+  [ -f "$d/apps/web/dist/index.html" ] && echo "$d"
+done
+
+ln -sfnT /www/wwwroot/uml-platform/releases/<release-sha> /www/wwwroot/uml-platform/current
+cd /www/wwwroot/uml-platform/current
+pm2 startOrReload ecosystem.config.cjs --env production
+pm2 save
+```
+
+发布脚本会按目录更新时间清理旧 release，并保护 `current` 当前指向的版本，避免再次误删正在使用的 release。
 
 ## 常见问题
 

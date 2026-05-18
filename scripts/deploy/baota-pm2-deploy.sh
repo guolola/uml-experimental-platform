@@ -67,7 +67,7 @@ echo "Installing production dependencies ..."
 )
 
 mv "$TMP_DIR" "$RELEASE_DIR"
-ln -sfn "$RELEASE_DIR" "$DEPLOY_PATH/current"
+ln -sfnT "$RELEASE_DIR" "$DEPLOY_PATH/current"
 
 echo "Reloading PM2 processes ..."
 (
@@ -140,10 +140,28 @@ echo "Reloading PM2 processes ..."
 )
 
 echo "Cleaning old releases, keeping latest $KEEP_RELEASES ..."
-find "$DEPLOY_PATH/releases" -mindepth 1 -maxdepth 1 -type d \
-  | sort -r \
-  | tail -n +"$((KEEP_RELEASES + 1))" \
-  | xargs -r rm -rf
+CURRENT_RELEASE="$(readlink -f "$DEPLOY_PATH/current" || true)"
+if [[ -z "$CURRENT_RELEASE" || ! -d "$CURRENT_RELEASE" ]]; then
+  echo "Current release symlink is invalid after deploy: $DEPLOY_PATH/current" >&2
+  exit 1
+fi
+
+release_rank=0
+while read -r _ release_dir; do
+  release_rank="$((release_rank + 1))"
+  release_real="$(readlink -f "$release_dir" || true)"
+
+  if [[ "$release_rank" -le "$KEEP_RELEASES" || "$release_real" == "$CURRENT_RELEASE" ]]; then
+    continue
+  fi
+
+  rm -rf -- "$release_dir"
+done < <(find "$DEPLOY_PATH/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -rn)
+
+if [[ ! -f "$DEPLOY_PATH/current/apps/web/dist/index.html" ]]; then
+  echo "Current release is missing web dist after cleanup: $DEPLOY_PATH/current/apps/web/dist/index.html" >&2
+  exit 1
+fi
 
 rm -f "$RELEASE_ARCHIVE"
 
