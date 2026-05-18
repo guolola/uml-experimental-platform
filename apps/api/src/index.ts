@@ -25,6 +25,7 @@ import {
   codeBusinessLogicResultSchema,
   codeGenerationSpecSchema,
   codeFilePlanResultSchema,
+  codeTraceEntrySchema,
   codeFileChangedRunEventSchema,
   codeFileOperationsResultSchema,
   codeQualityDiagnosticSchema,
@@ -87,6 +88,7 @@ import {
   type CodeSkillResourceDiscoveryPlan,
   type CodeSkillResourcePreviewResult,
   type CodeSkillResourcePlan,
+  type CodeTraceEntry,
   type CodeVisualDirection,
   type LoadedCodeSkill,
   type CodeUiBlueprint,
@@ -154,6 +156,7 @@ import {
 import { getModelCapability } from "./model-capabilities.js";
 import {
   formatWebDesignSkillForPrompt,
+  ensureRequiredWebReactSkillResources,
   fallbackCodeSkillResourcePlan,
   getCodeSkillRuntimeStatus,
   loadWebDesignSkill,
@@ -1911,6 +1914,27 @@ function appendDesignTrace(
   ];
 }
 
+function isCodeSnapshot(snapshot: RunRecord["snapshot"]): snapshot is CodeRunSnapshot {
+  return "files" in snapshot && "entryFile" in snapshot;
+}
+
+function appendCodeTrace(
+  record: RunRecord,
+  entry: Omit<CodeTraceEntry, "createdAt">,
+) {
+  if (!isCodeSnapshot(record.snapshot)) {
+    return;
+  }
+
+  record.snapshot.codeTrace = [
+    ...(record.snapshot.codeTrace ?? []),
+    codeTraceEntrySchema.parse({
+      ...entry,
+      createdAt: new Date().toISOString(),
+    }),
+  ];
+}
+
 function designDiagramKindFromArtifact(
   artifact: AnyPlantUmlArtifact,
 ): DesignDiagramKind | undefined {
@@ -2171,7 +2195,7 @@ async function collectStructuredResult<T>(
   stage: RunStage,
   onChunk: (chunk: string) => void,
   parse: (text: string) => T,
-  responseFormat?: ChatCompletionResponseFormat,
+  responseFormat?: ChatCompletionResponseFormat | null,
   attempt?: number,
 ) {
   let content = "";
@@ -2973,7 +2997,7 @@ async function collectTextResult(
   providerSettings: ProviderSettings,
   messages: ChatMessage[],
   onChunk: (chunk: string) => void,
-  responseFormat?: ChatCompletionResponseFormat,
+  responseFormat?: ChatCompletionResponseFormat | null,
 ) {
   let content = "";
   for await (const chunk of llmTransport.streamChatCompletion({
@@ -3585,6 +3609,24 @@ function addCodeDiagnostic(
     {
       stage,
       message,
+      at: new Date().toISOString(),
+    },
+  ];
+}
+
+function addFileGenerationDiagnostic(
+  snapshot: CodeRunSnapshot,
+  entry: {
+    stage: "file_operations" | "implementation_brief" | "operation_manifest" | "file_content";
+    path?: string;
+    status: "completed" | "failed" | "repaired";
+    message: string;
+  },
+) {
+  snapshot.fileGenerationDiagnostics = [
+    ...snapshot.fileGenerationDiagnostics,
+    {
+      ...entry,
       at: new Date().toISOString(),
     },
   ];
@@ -5414,6 +5456,37 @@ function hasDocumentTitleSetter(snapshot: CodeRunSnapshot, filesText: string) {
   return !snapshot.businessLogic?.appName?.trim() || filesText.includes("document.title");
 }
 
+function countTailwindUtilityClassHits(filesText: string) {
+  return (
+    filesText.match(
+      /\b(?:flex|inline-flex|grid|items-center|items-start|justify-center|justify-between|rounded(?:-[\w:[\]/.-]+)?|bg-[\w:[\]/#%.-]+|text-[\w:[\]/#%.-]+|p[trblxy]?-[\w[\]/.-]+|m[trblxy]?-[\w[\]/.-]+|gap-[\w[\]/.-]+|space-[xy]-[\w[\]/.-]+|shadow(?:-[\w[\]/.-]+)?|border(?:-[\w[\]/.-]+)?|ring(?:-[\w[\]/.-]+)?|hover:|focus:|focus-visible:|dark:|sm:|md:|lg:|xl:)\b/g,
+    ) ?? []
+  ).length;
+}
+
+function findMissingLocalUiComponentImports(snapshot: CodeRunSnapshot) {
+  const missing = new Set<string>();
+  const importPattern =
+    /from\s+["'](?:@\/components\/ui\/([^"']+)|(?:\.{1,2}\/)+[^"']*components\/ui\/([^"']+))["']/g;
+  for (const content of Object.values(snapshot.files)) {
+    for (const match of content.matchAll(importPattern)) {
+      const importName = (match[1] ?? match[2] ?? "").replace(/\.(tsx?|jsx?)$/, "");
+      if (!importName || importName.includes("*")) {
+        continue;
+      }
+      const normalizedName = importName.split("/")[0];
+      const candidates = [
+        `/src/components/ui/${normalizedName}.tsx`,
+        `/src/components/ui/${normalizedName}/index.tsx`,
+      ];
+      if (!candidates.some((candidate) => !isBlankCodeFile(snapshot.files[candidate]))) {
+        missing.add(`/src/components/ui/${normalizedName}.tsx`);
+      }
+    }
+  }
+  return [...missing];
+}
+
 function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagnostic {
   const issues: CodeQualityDiagnostic["issues"] = [];
   const filePaths = Object.keys(snapshot.files);
@@ -5422,6 +5495,9 @@ function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagno
   const pageFiles = filePaths.filter((path) => /^\/src\/pages\/.+\.tsx$/.test(path));
   const componentFiles = filePaths.filter((path) =>
     /^\/src\/components\/.+\.tsx$/.test(path),
+  );
+  const uiComponentFiles = filePaths.filter((path) =>
+    /^\/src\/components\/ui\/.+\.tsx$/.test(path),
   );
   const requiredFiles = [
     "/src/App.tsx",
@@ -5460,6 +5536,50 @@ function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagno
     issues.push({
       severity: "error",
       message: "组件文件不足，至少需要 3 个 /src/components/* 组件文件",
+    });
+  }
+  if (isBlankCodeFile(snapshot.files["/src/lib/utils.ts"])) {
+    issues.push({
+      severity: "error",
+      path: "/src/lib/utils.ts",
+      message:
+        "缺少 shadcn 风格 cn 工具文件；必须生成 /src/lib/utils.ts，并使用 clsx + tailwind-merge 提供 cn()",
+    });
+  }
+  if (uiComponentFiles.length < 3) {
+    issues.push({
+      severity: "error",
+      path: "/src/components/ui",
+      message:
+        "本地 shadcn 风格 UI 组件不足；至少需要 3 个 /src/components/ui/* 组件，默认包含 button、badge、card",
+    });
+  }
+  if (!/class-variance-authority|cva\s*\(/.test(filesText)) {
+    issues.push({
+      severity: "error",
+      message:
+        "未检测到 class-variance-authority/cva variants；至少一个本地 UI 组件必须使用 cva 定义 variants",
+    });
+  }
+  if (!/\bcn\s*\(/.test(filesText)) {
+    issues.push({
+      severity: "error",
+      message:
+        "未检测到 cn() className 组合；本地 UI 组件和页面必须通过 cn() 组合 Tailwind className",
+    });
+  }
+  if (countTailwindUtilityClassHits(filesText) < 20) {
+    issues.push({
+      severity: "error",
+      message:
+        "Tailwind utility class 使用不足，页面仍像主要依赖普通 CSS；必须以 Tailwind utility class 主导布局、间距、圆角、颜色和响应式",
+    });
+  }
+  for (const missingPath of findMissingLocalUiComponentImports(snapshot)) {
+    issues.push({
+      severity: "error",
+      path: missingPath,
+      message: "引用了本地 shadcn 风格组件但缺少对应源码文件，必须补齐 /src/components/ui/*",
     });
   }
   if (filePaths.filter((path) => path.startsWith("/src/")).length < 8) {
@@ -5668,27 +5788,30 @@ function verifyRenderedPreviewStructure(snapshot: CodeRunSnapshot): CodeVisualDi
   });
 }
 
+type CodeFileGenerationContext = {
+  businessLogic?: CodeBusinessLogic | null;
+  uiBlueprint?: CodeUiBlueprint | null;
+  loadedCodeSkill?: LoadedCodeSkill | null;
+  visualDirection?: CodeVisualDirection | null;
+  skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
+  skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
+  skillResourcePlan?: CodeSkillResourcePlan | null;
+  codeSkillContext?: CodeSkillContext | null;
+  qualityIssues?: string[];
+  selectedCodeSkills?: CodeSkillSelection[];
+  codeSkillInstructions?: string;
+};
+
 async function generateCodeFileOperationsWithRepair(
   record: RunRecord,
   providerSettings: ProviderSettings,
   llmTransport: LlmTransport,
   codeContext: unknown,
   existingFiles: Record<string, string>,
-  generationContext?: {
-    businessLogic?: CodeBusinessLogic | null;
-    uiBlueprint?: CodeUiBlueprint | null;
-    loadedCodeSkill?: LoadedCodeSkill | null;
-    visualDirection?: CodeVisualDirection | null;
-    skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
-    skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
-    skillResourcePlan?: CodeSkillResourcePlan | null;
-    codeSkillContext?: CodeSkillContext | null;
-    qualityIssues?: string[];
-    selectedCodeSkills?: CodeSkillSelection[];
-    codeSkillInstructions?: string;
-  },
+  generationContext?: CodeFileGenerationContext,
   stage: RunStage = "generate_code_files",
 ) {
+  const snapshot = record.snapshot as CodeRunSnapshot;
   const responseFormat = getGenerateCodeFileOperationsResponseFormat(
     providerSettings.model,
   );
@@ -5699,6 +5822,9 @@ async function generateCodeFileOperationsWithRepair(
   );
   let previousOutput = "";
   let lastErrorMessage = "";
+  snapshot.codeGenerationMode = "json_schema_operations";
+  snapshot.codeImplementationBrief = null;
+  snapshot.codeFileOperationManifest = null;
 
   for (
     let attempt = 0;
@@ -5722,9 +5848,27 @@ async function generateCodeFileOperationsWithRepair(
       responseFormat,
     );
     previousOutput = content;
+    appendCodeTrace(record, {
+      stage: "generate_file_operations",
+      attempt: attempt + 1,
+      kind: attempt === 0 ? "llm_output" : "repair_output",
+      rawOutput: content,
+    });
 
     try {
-      return parseCodeFileOperationsResult(content);
+      const result = parseCodeFileOperationsResult(content);
+      appendCodeTrace(record, {
+        stage: "generate_file_operations",
+        attempt: attempt + 1,
+        kind: attempt === 0 ? "parsed_data" : "repaired_data",
+        parsedData: result,
+      });
+      addFileGenerationDiagnostic(snapshot, {
+        stage: "file_operations",
+        status: attempt === 0 ? "completed" : "repaired",
+        message: `已生成 ${result.operations.length} 个代码文件操作`,
+      });
+      return result;
     } catch (error) {
       logFailedStructuredOutput(
         "write_code_files",
@@ -5734,8 +5878,20 @@ async function generateCodeFileOperationsWithRepair(
         attempt + 1,
       );
       lastErrorMessage = formatParseError(error);
+      appendCodeTrace(record, {
+        stage: "generate_file_operations",
+        attempt: attempt + 1,
+        kind: "parse_error",
+        rawOutput: content,
+        errorMessage: lastErrorMessage,
+      });
 
       if (attempt === MAX_CODE_OPERATION_REPAIR_ATTEMPTS) {
+        addFileGenerationDiagnostic(snapshot, {
+          stage: "file_operations",
+          status: "failed",
+          message: lastErrorMessage,
+        });
         throw new Error(
           `write_code_files structured output failed: ${lastErrorMessage}`,
         );
@@ -6297,6 +6453,18 @@ async function runCodeStagePipeline(
     react: "^18.3.1",
     "react-dom": "^18.3.1",
     "lucide-react": "^0.487.0",
+    "@radix-ui/react-checkbox": "^1.1.4",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "class-variance-authority": "^0.7.1",
+    clsx: "^2.1.1",
+    "tailwind-merge": "^3.2.0",
     ...snapshot.dependencies,
   };
   snapshot.dependencies = dependencies;
@@ -6504,6 +6672,11 @@ async function runCodeStagePipeline(
       }),
     );
   }
+  skillResourcePlan = ensureRequiredWebReactSkillResources(
+    loadedCodeSkill,
+    businessLogic,
+    skillResourcePlan,
+  );
   snapshot.skillResourcePlan = skillResourcePlan;
   addCodeDiagnostic(
     snapshot,

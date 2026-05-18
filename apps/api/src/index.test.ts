@@ -748,7 +748,7 @@ function createCodeFilePlanJson() {
 }
 
 function createQualityCodeOperations(label = "校园活动") {
-  return [
+  const operations = [
     {
       operation: "update_file",
       path: "/src/App.tsx",
@@ -767,43 +767,71 @@ export default function App() {
       operation: "update_file",
       path: "/src/components/WorkspaceShell.tsx",
       content:
-        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nconst routes = [{ path: '/', label: '总览' }, { path: '/registration', label: '报名' }, { path: '/detail', label: '详情' }] as const;\ntype RoutePath = (typeof routes)[number]['path'];\nexport function WorkspaceShell() { const [currentRoute,setCurrentRoute]=useState<RoutePath>('/'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"prototype-shell\" data-theme={theme}><nav>{routes.map((item)=><button key={item.path} onClick={()=>setCurrentRoute(item.path)}>{item.label}</button>)}<span className=\"route-pill\">当前路径：{currentRoute}</span><button className=\"theme-toggle\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</button></nav>{currentRoute==='/'?<DashboardPage />:currentRoute==='/registration'?<RegistrationPage />:<DetailPage />}</main>; }",
+        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nimport { Button } from './ui/button';\nimport { Badge } from './ui/badge';\nconst routes = [{ path: '/', label: '总览' }, { path: '/registration', label: '报名' }, { path: '/detail', label: '详情' }] as const;\ntype RoutePath = (typeof routes)[number]['path'];\nexport function WorkspaceShell() { const [currentRoute,setCurrentRoute]=useState<RoutePath>('/'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"min-h-screen w-full bg-[var(--bg)] px-4 py-5 text-[var(--text)] sm:px-6 lg:px-8\" data-theme={theme}><nav className=\"mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm\">{routes.map((item)=><Button key={item.path} variant={currentRoute===item.path?'default':'secondary'} size=\"sm\" onClick={()=>setCurrentRoute(item.path)}>{item.label}</Button>)}<Badge variant=\"outline\" className=\"ml-auto\">当前路径：{currentRoute}</Badge><Button variant=\"outline\" size=\"sm\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</Button></nav>{currentRoute==='/'?<DashboardPage />:currentRoute==='/registration'?<RegistrationPage />:<DetailPage />}</main>; }",
       reason: "生成多页面导航外壳",
     },
     {
       operation: "create_file",
       path: "/src/pages/DashboardPage.tsx",
       content:
-        "import { MetricCard } from '../components/MetricCard';\nimport { activities } from '../data/mock-data';\nexport function DashboardPage() { return <section><h1>活动总览</h1><MetricCard label=\"可报名活动\" value={activities.length} /><p>校园活动运营状态一目了然。</p></section>; }",
+        "import { MetricCard } from '../components/MetricCard';\nimport { activities } from '../data/mock-data';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function DashboardPage() { return <section className=\"grid gap-4 lg:grid-cols-[1fr_320px]\"><div className=\"grid gap-4 sm:grid-cols-2\"><MetricCard label=\"可报名活动\" value={activities.length} /><MetricCard label=\"今日提醒\" value={1} /></div><Card className=\"bg-white/90\"><CardHeader><CardTitle>活动总览</CardTitle></CardHeader><CardContent><p className=\"text-sm leading-6 text-[var(--muted)]\">校园活动运营状态一目了然，支持加载、空态、报名和提醒反馈。</p></CardContent></Card></section>; }",
       reason: "生成总览页面",
     },
     {
       operation: "create_file",
       path: "/src/pages/RegistrationPage.tsx",
       content:
-        "import { StatusBadge } from '../components/StatusBadge';\nimport { activities } from '../data/mock-data';\nexport function RegistrationPage() { return <section><h1>活动报名</h1>{activities.map((item)=><article key={item.id}><h2>{item.name}</h2><StatusBadge status={item.status} /><button>报名</button></article>)}</section>; }",
+        "import { StatusBadge } from '../components/StatusBadge';\nimport { activities } from '../data/mock-data';\nimport { Button } from '../components/ui/button';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function RegistrationPage() { return <section className=\"grid gap-4\"><h1 className=\"text-2xl font-semibold tracking-tight\">活动报名</h1>{activities.map((item)=><Card key={item.id} className=\"border-[var(--border)]\"><CardHeader className=\"flex flex-row items-center justify-between gap-3\"><CardTitle>{item.name}</CardTitle><StatusBadge status={item.status} /></CardHeader><CardContent className=\"flex flex-wrap items-center gap-3\"><p className=\"text-sm text-[var(--muted)]\">公开活动可提交申请，成功后展示反馈。</p><Button>报名</Button></CardContent></Card>)}</section>; }",
       reason: "生成核心流程页面",
     },
     {
       operation: "create_file",
       path: "/src/pages/DetailPage.tsx",
       content:
-        "import { registrations } from '../data/mock-data';\nexport function DetailPage() { return <section><h1>报名详情</h1>{registrations.map((item)=><article key={item.id}><strong>{item.studentName}</strong><p>{item.activityName}</p><p>{item.reminder}</p></article>)}</section>; }",
+        "import { registrations } from '../data/mock-data';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function DetailPage() { return <section className=\"grid gap-4 md:grid-cols-2\"><h1 className=\"col-span-full text-2xl font-semibold tracking-tight\">报名详情</h1>{registrations.map((item)=><Card key={item.id} className=\"shadow-sm\"><CardHeader><CardTitle>{item.studentName}</CardTitle></CardHeader><CardContent className=\"space-y-2 text-sm text-[var(--muted)]\"><p>{item.activityName}</p><p>{item.reminder}</p></CardContent></Card>)}</section>; }",
       reason: "生成详情页面",
     },
     {
       operation: "create_file",
       path: "/src/components/StatusBadge.tsx",
       content:
-        "export function StatusBadge({ status }: { status: string }) { return <span className=\"status-badge\">{status}</span>; }",
+        "import { Badge } from './ui/badge';\nexport function StatusBadge({ status }: { status: string }) { return <Badge variant=\"secondary\" className=\"bg-amber-100 text-amber-800\">{status}</Badge>; }",
       reason: "生成状态组件",
     },
     {
       operation: "create_file",
       path: "/src/components/MetricCard.tsx",
       content:
-        "export function MetricCard({ label, value }: { label: string; value: number }) { return <div className=\"metric-card\"><span>{label}</span><strong>{value}</strong></div>; }",
+        "import { Card, CardContent } from './ui/card';\nexport function MetricCard({ label, value }: { label: string; value: number }) { return <Card className=\"bg-white/90\"><CardContent className=\"space-y-2 p-5\"><span className=\"text-sm text-[var(--muted)]\">{label}</span><strong className=\"block text-3xl font-semibold text-[var(--text)]\">{value}</strong></CardContent></Card>; }",
       reason: "生成指标组件",
+    },
+    {
+      operation: "create_file",
+      path: "/src/lib/utils.ts",
+      content:
+        "import { clsx, type ClassValue } from 'clsx';\nimport { twMerge } from 'tailwind-merge';\nexport function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }",
+      reason: "生成 shadcn 风格 cn 工具",
+    },
+    {
+      operation: "create_file",
+      path: "/src/components/ui/button.tsx",
+      content:
+        "import * as React from 'react';\nimport { Slot } from '@radix-ui/react-slot';\nimport { cva, type VariantProps } from 'class-variance-authority';\nimport { cn } from '../../lib/utils';\nconst buttonVariants = cva('inline-flex items-center justify-center rounded-xl text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:pointer-events-none disabled:opacity-50', { variants: { variant: { default: 'bg-[var(--primary)] text-white shadow-sm hover:opacity-90', secondary: 'bg-slate-100 text-slate-900 hover:bg-slate-200', outline: 'border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:bg-slate-50' }, size: { sm: 'h-9 px-3', default: 'h-10 px-4 py-2', lg: 'h-11 px-6' } }, defaultVariants: { variant: 'default', size: 'default' } });\nexport interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> { asChild?: boolean }\nexport const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, variant, size, asChild = false, ...props }, ref) => { const Comp = asChild ? Slot : 'button'; return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />; });\nButton.displayName = 'Button';\nexport { buttonVariants };",
+      reason: "生成 shadcn 风格按钮组件",
+    },
+    {
+      operation: "create_file",
+      path: "/src/components/ui/badge.tsx",
+      content:
+        "import * as React from 'react';\nimport { cva, type VariantProps } from 'class-variance-authority';\nimport { cn } from '../../lib/utils';\nconst badgeVariants = cva('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors', { variants: { variant: { default: 'border-transparent bg-[var(--primary)] text-white', secondary: 'border-transparent bg-slate-100 text-slate-900', outline: 'border-[var(--border)] text-[var(--text)]' } }, defaultVariants: { variant: 'default' } });\nexport interface BadgeProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}\nexport function Badge({ className, variant, ...props }: BadgeProps) { return <div className={cn(badgeVariants({ variant }), className)} {...props} />; }\nexport { badgeVariants };",
+      reason: "生成 shadcn 风格徽章组件",
+    },
+    {
+      operation: "create_file",
+      path: "/src/components/ui/card.tsx",
+      content:
+        "import * as React from 'react';\nimport { cn } from '../../lib/utils';\nexport const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => <div ref={ref} className={cn('rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] shadow-sm', className)} {...props} />);\nCard.displayName = 'Card';\nexport const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => <div ref={ref} className={cn('flex flex-col space-y-1.5 p-5', className)} {...props} />);\nCardHeader.displayName = 'CardHeader';\nexport const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(({ className, ...props }, ref) => <h3 ref={ref} className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />);\nCardTitle.displayName = 'CardTitle';\nexport const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => <div ref={ref} className={cn('p-5 pt-0', className)} {...props} />);\nCardContent.displayName = 'CardContent';",
+      reason: "生成 shadcn 风格卡片组件",
     },
     {
       operation: "update_file",
@@ -824,7 +852,7 @@ export const registrations: Registration[] = [{ id: 'r1', studentName: '李同�
       operation: "update_file",
       path: "/src/styles.css",
       content:
-        ":root{--bg:#f7fafc;--surface:#ffffff;--text:#14213d;--muted:#64748b;--primary:#2563eb;--border:#dbe4f0;--space-3:12px;--radius-md:8px;font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg)}[data-theme=\"dark\"]{--bg:#111827;--surface:#1f2937;--text:#f8fafc;--muted:#cbd5e1;--primary:#60a5fa;--border:#334155}body{margin:0;background:var(--bg)}.prototype-shell{min-height:100vh;width:100%;max-width:100%;padding:24px;background:var(--bg);color:var(--text);box-sizing:border-box}nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.theme-toggle{margin-left:auto;background:var(--surface);color:var(--text);border:1px solid var(--border)}section{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}button{border:0;border-radius:var(--radius-md);padding:8px var(--space-3);background:var(--primary);color:white}.metric-card,article{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:16px;margin:10px 0;max-width:100%;overflow-x:auto}.status-badge{color:#f97316;font-weight:700}@media (max-width:640px){.prototype-shell{padding:14px}section{grid-template-columns:1fr}}",
+        ":root{--bg:#f7fafc;--surface:#ffffff;--text:#14213d;--muted:#64748b;--primary:#2563eb;--border:#dbe4f0;font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg)}[data-theme=\"dark\"]{--bg:#111827;--surface:#1f2937;--text:#f8fafc;--muted:#cbd5e1;--primary:#60a5fa;--border:#334155}body{margin:0;background:var(--bg)}*{box-sizing:border-box}@media (max-width:640px){body{overflow-x:hidden}}",
       reason: "生成业务主题样式",
     },
     {
@@ -833,6 +861,11 @@ export const registrations: Registration[] = [{ id: 'r1', studentName: '李同�
       reason: "设置 React 入口组件",
     },
   ];
+  return operations.map((operation) => ({
+    content: "",
+    message: "",
+    ...operation,
+  }));
 }
 
 const DESIGN_SEQUENCE_JSON = JSON.stringify({
@@ -1509,7 +1542,7 @@ test("api auto-adds class dependency for design table diagrams", async () => {
   await app.close();
 });
 
-test("api code runs stream multi-stage quality file changes and reuse cached plans", async () => {
+test("api code runs with Claude send json_schema through file operations and reuse cached plans", async () => {
   let operationCalls = 0;
   const app = await createApiServer({
     llmTransport: {
@@ -1538,8 +1571,8 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
         }
         if (prompt.includes("ui-ux-pro-max 主设计执行器")) {
           assert.doesNotMatch(JSON.stringify(responseFormat), /"oneOf"/);
-          assert.match(prompt, /ui-ux-pro-max Skill（主设计执行上下文）/);
-          assert.match(prompt, /ui-ux-pro-max/);
+          assert.match(prompt, /operation, path, content, reason, message/);
+          assert.match(prompt, /完整文件正文/);
           operationCalls += 1;
           yield JSON.stringify({
             operations: createQualityCodeOperations(),
@@ -1591,7 +1624,7 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
     providerSettings: {
       apiBaseUrl: "https://ai.comfly.org",
       apiKey: "sk-test",
-      model: "gpt-5.5",
+      model: "claude-opus-4-6-thinking",
     },
   };
 
@@ -1717,6 +1750,134 @@ test("api code runs stream multi-stage quality file changes and reuse cached pla
   assert.equal(regenerateSnapshot.generationMode, "regenerate");
   assert.doesNotMatch(regenerateSnapshot.files["/src/App.tsx"], /旧原型/);
   assert.equal(operationCalls, 3);
+
+  await app.close();
+});
+
+test("api records code file operations repair trace", async () => {
+  let operationAttempts = 0;
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+
+        assert.equal(responseFormat?.type, "json_schema");
+        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+          yield createCodeBusinessLogicJson("蓝图追踪");
+          return;
+        }
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
+          yield createCodeSkillResourcePlanJson();
+          return;
+        }
+        if (prompt.includes("ui-ux-pro-max 主设计执行器")) {
+          operationAttempts += 1;
+          yield '{"operations":[{"operation":"bad_operation","path":"/src/App.tsx","content":"export default function App(){return <main>bad</main>}","reason":"bad","message":""}]}';
+          return;
+        }
+        if (prompt.includes("请修复下面不符合代码文件操作协议")) {
+          operationAttempts += 1;
+          yield JSON.stringify({
+            operations: createQualityCodeOperations("操作追踪"),
+          });
+          return;
+        }
+        if (prompt.includes("检查当前 React 原型代码是否覆盖业务逻辑")) {
+          yield JSON.stringify({
+            uiFidelityReport: {
+              passed: true,
+              matched: ["代码蓝图修复后已覆盖业务流程"],
+              missing: [],
+              repairSuggestions: [],
+              summary: "通过。",
+            },
+          });
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt.slice(0, 80)}`);
+      },
+    },
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    payload: {
+      requirementText: "校园活动平台支持活动报名和提醒。",
+      rules: JSON.parse(RULES_JSON).rules,
+      designModels: [DESIGN_SEQUENCE_MODEL],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "claude-opus-4-6-thinking",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const runId = startResponse.json().runId;
+  const events = await app.inject({
+    method: "GET",
+    url: `/api/code-runs/${runId}/events`,
+  });
+  assert.match(events.body, /代码文件操作 JSON 结构不合法/);
+  assert.match(events.body, /"type":"completed"/);
+
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/code-runs/${runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.codeGenerationMode, "json_schema_operations");
+  assert.equal(snapshot.codeImplementationBrief, null);
+  assert.equal(snapshot.codeFileOperationManifest, null);
+  assert.equal(operationAttempts, 2);
+  assert.ok(
+    snapshot.codeTrace.some(
+      (entry: { stage: string; attempt: number; kind: string; rawOutput?: string }) =>
+        entry.stage === "generate_file_operations" &&
+        entry.attempt === 1 &&
+        entry.kind === "llm_output" &&
+        /bad_operation/.test(entry.rawOutput ?? ""),
+    ),
+  );
+  assert.ok(
+    snapshot.codeTrace.some(
+      (entry: { stage: string; attempt: number; kind: string; errorMessage?: string }) =>
+        entry.stage === "generate_file_operations" &&
+        entry.attempt === 1 &&
+        entry.kind === "parse_error" &&
+        /operation/.test(entry.errorMessage ?? ""),
+    ),
+  );
+  assert.ok(
+    snapshot.codeTrace.some(
+      (entry: { stage: string; attempt: number; kind: string; rawOutput?: string }) =>
+        entry.stage === "generate_file_operations" &&
+        entry.attempt === 2 &&
+        entry.kind === "repair_output" &&
+        /操作追踪/.test(entry.rawOutput ?? ""),
+    ),
+  );
+  assert.ok(
+    snapshot.codeTrace.some(
+      (entry: { stage: string; attempt: number; kind: string; parsedData?: unknown }) =>
+        entry.stage === "generate_file_operations" &&
+        entry.attempt === 2 &&
+        entry.kind === "repaired_data" &&
+        Boolean(entry.parsedData),
+    ),
+  );
 
   await app.close();
 });
@@ -2633,7 +2794,7 @@ test("api repairs generate_models output when the first model JSON is malformed"
   await app.close();
 });
 
-test("api skips json_schema for compatible-mode models and completes", async () => {
+test("api sends json_schema for Claude models and completes", async () => {
   let sawGenerateModels = false;
   const app = await createApiServer({
     llmTransport: {
@@ -2646,7 +2807,7 @@ test("api skips json_schema for compatible-mode models and completes", async () 
 
         if (prompt.includes("生成 UML 结构化模型")) {
           sawGenerateModels = true;
-          assert.equal(responseFormat, undefined);
+          assert.equal(responseFormat?.type, "json_schema");
         }
         yield USECASE_MODEL_JSON;
       },
@@ -3350,7 +3511,7 @@ test("api tests provider connections and returns model capability", async () => 
     assert.equal(response.statusCode, 200);
     const body = response.json();
     assert.equal(body.ok, true);
-    assert.equal(body.capability.supportsJsonSchema, false);
+    assert.equal(body.capability.supportsJsonSchema, true);
 
     await app.close();
   } finally {

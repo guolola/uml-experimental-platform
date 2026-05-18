@@ -743,17 +743,6 @@ function createDefaultSkillResourcePlan(
   const query = buildSkillQuery(businessLogic);
   const requests: CodeSkillResourceRequest[] = [
     {
-      resourceType: "design-system",
-      name: "design-system",
-      query,
-      csvPath: "",
-      stack: "",
-      domain: "",
-      actionName: "",
-      maxResults: 8,
-      reason: "获取本业务原型的设计系统、视觉风格、颜色和密度建议。",
-    },
-    {
       resourceType: "stack",
       name: "react-stack",
       query,
@@ -763,6 +752,39 @@ function createDefaultSkillResourcePlan(
       actionName: "",
       maxResults: 8,
       reason: "获取普通 React + TypeScript 原型实现规则。",
+    },
+    {
+      resourceType: "stack",
+      name: "shadcn-stack",
+      query,
+      csvPath: "",
+      stack: "shadcn",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取 shadcn 风格本地组件、variants、cn 组合和主题规则。",
+    },
+    {
+      resourceType: "stack",
+      name: "html-tailwind-stack",
+      query,
+      csvPath: "",
+      stack: "html-tailwind",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取 Tailwind utility class、响应式布局和浏览器原型实现规则。",
+    },
+    {
+      resourceType: "domain",
+      name: "ux-guidelines",
+      query,
+      csvPath: "",
+      stack: "",
+      domain: "ux",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取导航、表单、加载、空状态和可访问性 UX 规则。",
     },
     {
       resourceType: "csv",
@@ -808,6 +830,52 @@ function createDefaultSkillResourcePlan(
       maxResults: 6,
       reason: "获取字体气质、层级和排版建议。",
     },
+  ];
+
+  return codeSkillResourcePlanSchema.parse({
+    skillName: skill.name,
+    alias: skill.alias,
+    query,
+    requests,
+    diagnostics: ["未获得模型声明的 skillResourcePlan，使用最小默认资源计划。"],
+  });
+}
+
+function getRequiredWebReactRequests(query: string): CodeSkillResourceRequest[] {
+  return [
+    {
+      resourceType: "stack",
+      name: "react-stack",
+      query,
+      csvPath: "",
+      stack: "react",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取普通 React + TypeScript 原型实现规则。",
+    },
+    {
+      resourceType: "stack",
+      name: "shadcn-stack",
+      query,
+      csvPath: "",
+      stack: "shadcn",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取 shadcn 风格本地组件、variants、cn 组合和主题规则。",
+    },
+    {
+      resourceType: "stack",
+      name: "html-tailwind-stack",
+      query,
+      csvPath: "",
+      stack: "html-tailwind",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取 Tailwind utility class、响应式布局和浏览器原型实现规则。",
+    },
     {
       resourceType: "domain",
       name: "ux-guidelines",
@@ -819,8 +887,112 @@ function createDefaultSkillResourcePlan(
       maxResults: 8,
       reason: "获取导航、表单、加载、空状态和可访问性 UX 规则。",
     },
+    {
+      resourceType: "csv",
+      name: "visual-styles",
+      query,
+      csvPath: "data/styles.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 8,
+      reason: "获取适合业务视觉方向的 Web/General 风格规则。",
+    },
+    {
+      resourceType: "csv",
+      name: "color-palettes",
+      query,
+      csvPath: "data/colors.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 6,
+      reason: "获取浅色默认主题和可选深色主题的色彩灵感。",
+    },
+    {
+      resourceType: "csv",
+      name: "typography-system",
+      query,
+      csvPath: "data/typography.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 6,
+      reason: "获取字体气质、层级和排版建议。",
+    },
+    {
+      resourceType: "csv",
+      name: "product-patterns",
+      query,
+      csvPath: "data/products.csv",
+      stack: "",
+      domain: "",
+      actionName: "",
+      maxResults: 6,
+      reason: "获取产品类型到页面模式、色彩和注意事项的映射。",
+    },
   ];
-  if (hasChartNeed(businessLogic)) {
+}
+
+function codeSkillResourceRequestKey(request: CodeSkillResourceRequest) {
+  if (request.resourceType === "stack") {
+    return `stack:${request.stack}`;
+  }
+  if (request.resourceType === "domain") {
+    return `domain:${request.domain}`;
+  }
+  if (request.resourceType === "csv") {
+    return `csv:${normalizeSkillRelativePath(request.csvPath)}`;
+  }
+  if (request.resourceType === "action") {
+    return `action:${request.actionName}`;
+  }
+  return `design-system:${request.name}`;
+}
+
+export function ensureRequiredWebReactSkillResources(
+  skill: LoadedCodeSkill,
+  businessLogic: CodeBusinessLogic,
+  plan: CodeSkillResourcePlan,
+): CodeSkillResourcePlan {
+  const parsedPlan = codeSkillResourcePlanSchema.parse(plan);
+  const query = parsedPlan.query || buildSkillQuery(businessLogic);
+  const required = getRequiredWebReactRequests(query);
+  const byKey = new Map<string, CodeSkillResourceRequest>();
+  for (const request of parsedPlan.requests) {
+    byKey.set(codeSkillResourceRequestKey(request), request);
+  }
+  const requests: CodeSkillResourceRequest[] = [];
+  const used = new Set<string>();
+
+  for (const requiredRequest of required) {
+    const key = codeSkillResourceRequestKey(requiredRequest);
+    requests.push(byKey.get(key) ?? requiredRequest);
+    used.add(key);
+  }
+
+  for (const request of parsedPlan.requests) {
+    if (requests.length >= 8) {
+      break;
+    }
+    const key = codeSkillResourceRequestKey(request);
+    if (used.has(key)) {
+      continue;
+    }
+    requests.push(request);
+    used.add(key);
+  }
+
+  const diagnostics = [...parsedPlan.diagnostics];
+  const missingKeys = required
+    .map((request) => codeSkillResourceRequestKey(request))
+    .filter((key) => !byKey.has(key));
+  if (missingKeys.length > 0) {
+    diagnostics.push(
+      `已自动补齐 Web React/Tailwind/shadcn 必需设计资源：${missingKeys.join(", ")}`,
+    );
+  }
+  if (hasChartNeed(businessLogic) && requests.length < 8 && !used.has("domain:chart")) {
     requests.push({
       resourceType: "domain",
       name: "chart-guidelines",
@@ -839,7 +1011,7 @@ function createDefaultSkillResourcePlan(
     alias: skill.alias,
     query,
     requests,
-    diagnostics: ["未获得模型声明的 skillResourcePlan，使用最小默认资源计划。"],
+    diagnostics,
   });
 }
 
@@ -875,6 +1047,8 @@ export function fallbackCodeSkillResourceDiscoveryPlan(
       ["data/typography.csv", "理解字体气质。", "生成清晰、有风格的字体层级。"],
       ["data/ux-guidelines.csv", "理解 Web/All UX 规则。", "保证表单、导航、反馈和可访问性。"],
       ["data/stacks/react.csv", "理解 React 实现规则。", "保证 React 原型可运行。"],
+      ["data/stacks/shadcn.csv", "理解 shadcn 风格本地组件规则。", "生成本地 ui 组件、variants 和 cn 组合。"],
+      ["data/stacks/html-tailwind.csv", "理解 Tailwind utility 实现规则。", "保证页面以 Tailwind utility 为主组织样式。"],
       ["data/icons.csv", "理解图标资源建议。", "辅助状态、空态和操作表达。"],
       ["data/ui-reasoning.csv", "理解产品类型推导规则。", "辅助视觉方向判断。"],
     ].map(([path, reason, expectedUse]) => ({ path, reason, expectedUse })),

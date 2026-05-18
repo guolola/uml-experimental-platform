@@ -46,6 +46,20 @@ function formatSelectedCodeSkillsForPrompt(
   return stringifyForPrompt(selectedCodeSkills, maxChars);
 }
 
+type CodeGenerationPromptContext = {
+  businessLogic?: CodeBusinessLogic | null;
+  uiBlueprint?: CodeUiBlueprint | null;
+  loadedCodeSkill?: LoadedCodeSkill | null;
+  visualDirection?: CodeVisualDirection | null;
+  skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
+  skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
+  skillResourcePlan?: CodeSkillResourcePlan | null;
+  codeSkillContext?: CodeSkillContext | null;
+  qualityIssues?: string[];
+  selectedCodeSkills?: CodeSkillSelection[];
+  codeSkillInstructions?: string;
+};
+
 function compactCodeContextForUiMockup(codeContext: unknown) {
   if (!codeContext || typeof codeContext !== "object") return codeContext;
 
@@ -797,33 +811,22 @@ export function buildGenerateCodeAgentPlanPrompt(
 export function buildGenerateCodeFileOperationsPrompt(
   codeContext: unknown,
   existingFiles: Record<string, string>,
-  generationContext?: {
-    businessLogic?: CodeBusinessLogic | null;
-    uiBlueprint?: CodeUiBlueprint | null;
-    loadedCodeSkill?: LoadedCodeSkill | null;
-    visualDirection?: CodeVisualDirection | null;
-    skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
-    skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
-    skillResourcePlan?: CodeSkillResourcePlan | null;
-    codeSkillContext?: CodeSkillContext | null;
-    qualityIssues?: string[];
-    selectedCodeSkills?: CodeSkillSelection[];
-    codeSkillInstructions?: string;
-  },
+  generationContext?: CodeGenerationPromptContext,
 ) {
   return [
-    "请作为 ui-ux-pro-max 主设计执行器，根据业务逻辑直接规划界面方案并生成或更新前端原型文件。",
-    "返回 JSON 对象，格式必须是 {\"operations\":[...]}。",
+    "请作为 ui-ux-pro-max 主设计执行器，根据已冻结的界面方案生成前端原型文件操作。",
+    "返回 JSON 对象，格式必须是 {\"operations\":[...]}，其中 create_file/update_file 必须包含完整文件 content。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
     "",
-    "operation 支持：",
+    "文件操作协议：",
     "- 每个操作必须使用字段 operation，不能使用 type、action、op、kind。",
-    "- 为兼容结构化输出，每个 operation 对象都必须包含 operation, path, content, reason, message 五个字段；不适用字段填空字符串。",
+    "- 每个 operation 对象必须包含 operation, path, content, reason, message 五个字段；不适用字段填空字符串。",
     "- create_file: operation=\"create_file\", path, content, reason；message 填空字符串。",
     "- update_file: operation=\"update_file\", path, content, reason；message 填空字符串。",
     "- set_entry_file: operation=\"set_entry_file\", path, reason；content 和 message 填空字符串。",
     "- note: operation=\"note\", message；path、content、reason 填空字符串。",
+    "- create_file/update_file 的 content 必须是完整文件正文，不能只给 diff、片段、说明或 Markdown 代码围栏。",
     "",
     "文件要求：",
     "- 必须生成或更新 /src/App.tsx、/src/components/WorkspaceShell.tsx、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
@@ -832,11 +835,16 @@ export function buildGenerateCodeFileOperationsPrompt(
     "- 可以按需求新增 /src/components/*、/src/pages/*、/src/features/*、/src/lib/*，但必须保证所有 import 都能解析。",
     "- 不要生成 /index.html 或 /src/main.tsx，服务端已经提供稳定骨架。",
     "- 不要为了修改浏览器标题而生成 /index.html；应用名称必须在 React 中通过 useEffect 设置 document.title。",
-    "- 代码必须完整可运行，不要省略 import、类型、组件实现或样式。",
+    "- operations 必须覆盖完整可运行原型所需的文件，并直接提供完整文件正文。",
     "- 不要使用真实网络请求，使用 /src/data/mock-data.ts。",
-    "- ui-ux-pro-max 必须先从 businessLogic 推导设计系统（产品类型、行业、风格、颜色、字体、布局密度、UX 规则），再落 React 文件操作。",
+    "- ui-ux-pro-max 已在 plan_code_ui 形成界面方案；本步骤只能执行方案，不能重新规划视觉方向。",
     "- 必须优先消费 skillResourcePlan 声明后获得的 skillContext 查询结果；这些结果高于 SKILL.md 中的通用示例。",
-    "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
+    "- 必须使用 react + html-tailwind + shadcn 资源形成实现方案；页面和业务组件必须主要使用 Tailwind utility class，而不是主要依赖大段普通 CSS class。",
+    "- 必须生成 /src/lib/utils.ts，提供 cn(...inputs)，内部使用 clsx + tailwind-merge。",
+    "- 必须生成至少 3 个 /src/components/ui/* 本地 shadcn 风格组件；默认优先 button.tsx、badge.tsx、card.tsx，需要弹窗/标签页/选择器时再加 dialog.tsx、tabs.tsx、select.tsx。",
+    "- 必须使用 class-variance-authority 定义至少一个组件 variants，并通过 cn() 组合 className。",
+    "- 可以使用 Radix UI、class-variance-authority、clsx、tailwind-merge 和 shadcn 风格本地组件；必须把所有组件源码随 operations 一起提供，不能引用不存在的组件。",
+    "- 不得生成 shadcn CLI 配置、components.json、tailwind.config.*、postcss.config.* 或依赖构建期 Tailwind 插件；预览阶段使用浏览器内 Tailwind runtime。",
     "- UI 必须契合需求背景主题，不能默认套 UML 实验平台风格。",
     "- 必须执行 visualDirection.promptBrief；先把视觉方向转成设计系统，再落到页面、组件、色彩、字体、密度和动效。",
     "- 必须综合 styles/products/colors/typography 等视觉资源查询结果，不能只生成普通后台表格。",
@@ -855,10 +863,6 @@ export function buildGenerateCodeFileOperationsPrompt(
     "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上，例如不要在用户界面中展示“游客：查看列表、详情、申请注册”“findPublishedPublicEvents 过滤”等规则说明。",
     "- 允许维护根级 /BUSINESS_CONTEXT.md 来承载项目背景、权限边界、规则溯源和服务边界；不要放到 /src/docs/*，也不要把这些说明性规则渲染进业务 UI。",
     "- 新链路不生成界面图、不解析界面图、不生成 UI IR、不单独生成文件计划或 agent plan。",
-    "",
-    "ui-ux-pro-max Skill（主设计执行上下文）：",
-    generationContext?.codeSkillInstructions ?? "[]",
-    "",
     "视觉方向（必须执行）：",
     stringifyForPrompt(generationContext?.visualDirection ?? null, 8000),
     "",
@@ -890,7 +894,7 @@ export function buildGenerateCodeFileOperationsPrompt(
     stringifyForPrompt(codeContext, 14000),
     "",
     "当前文件内容：",
-    stringifyForPrompt(existingFiles, 22000),
+    stringifyForPrompt(existingFiles, 18000),
   ].join("\n");
 }
 
@@ -899,19 +903,7 @@ export function buildRepairCodeFileOperationsPrompt(
   existingFiles: Record<string, string>,
   previousOutput: string,
   parseError: string,
-  generationContext?: {
-    businessLogic?: CodeBusinessLogic | null;
-    uiBlueprint?: CodeUiBlueprint | null;
-    loadedCodeSkill?: LoadedCodeSkill | null;
-    visualDirection?: CodeVisualDirection | null;
-    skillResourceDiscoveryPlan?: CodeSkillResourceDiscoveryPlan | null;
-    skillResourcePreviews?: CodeSkillResourcePreviewResult | null;
-    skillResourcePlan?: CodeSkillResourcePlan | null;
-    codeSkillContext?: CodeSkillContext | null;
-    qualityIssues?: string[];
-    selectedCodeSkills?: CodeSkillSelection[];
-    codeSkillInstructions?: string;
-  },
+  generationContext?: CodeGenerationPromptContext,
 ) {
   return [
     "请修复下面不符合代码文件操作协议的 JSON 输出。",
@@ -925,6 +917,7 @@ export function buildRepairCodeFileOperationsPrompt(
     "- create_file/update_file 的 path、content、reason 必须非空，message 填空字符串。",
     "- set_entry_file 的 path、reason 必须非空，content 和 message 填空字符串。",
     "- note 的 message 必须非空，path、content、reason 填空字符串。",
+    "- create_file/update_file 的 content 必须是完整文件正文，不能只给 diff、片段、说明或 Markdown 代码围栏。",
     "- 禁止使用 type/action/op/kind 代替 operation。",
     "- 必须使用模块化路径：/src/App.tsx、/src/components/*、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
     "- 不要生成或修改 /index.html；如果需要体现应用名称，必须在 React 中通过 useEffect 设置 document.title。",
@@ -936,18 +929,19 @@ export function buildRepairCodeFileOperationsPrompt(
     "- 必须使用 :root 与 [data-theme=\"dark\"] 或等价 CSS variables 定义两套主题；浅色主题至少包含 --bg、--surface、--text、--muted、--primary、--border。",
     "- 如果发现 #050506、#030304、#000、#000000、rgb(0,0,0) 或 black 作为页面主背景，必须替换为浅色默认背景，并为深色模式选择柔和深色。",
     "- 必须优先使用 skillResourcePlan 声明后获得的 skillContext 查询结果来修复设计系统、布局、组件和交互问题。",
-    "- 使用 react stack，不使用 shadcn stack；不得生成 shadcn CLI 配置、components.json 或依赖 Tailwind 编译的 @/components/ui/*。",
+    "- 必须使用 react + html-tailwind + shadcn 资源修复实现方案；页面和业务组件必须主要使用 Tailwind utility class，而不是主要依赖大段普通 CSS class。",
+    "- 必须生成 /src/lib/utils.ts，提供 cn(...inputs)，内部使用 clsx + tailwind-merge。",
+    "- 必须生成至少 3 个 /src/components/ui/* 本地 shadcn 风格组件；默认优先 button.tsx、badge.tsx、card.tsx，需要弹窗/标签页/选择器时再加 dialog.tsx、tabs.tsx、select.tsx。",
+    "- 必须使用 class-variance-authority 定义至少一个组件 variants，并通过 cn() 组合 className；若缺少这套结构，必须补齐，不能退回普通 CSS。",
+    "- 可以使用 Radix UI、class-variance-authority、clsx、tailwind-merge 和 shadcn 风格本地组件；必须把所有组件源码随 operations 一起提供；若引用了缺失的本地组件，必须补齐文件。",
+    "- 不得生成 shadcn CLI 配置、components.json、tailwind.config.*、postcss.config.* 或依赖构建期 Tailwind 插件；预览阶段使用浏览器内 Tailwind runtime。",
     "- 必须保持响应式布局：窄 iframe 和新窗口宽 viewport 都不能出现内容挤压、遮挡、横向溢出或关键操作不可见。",
     "- 修复路由时只能使用内存模拟路由表和 React state，保留 businessLogic.pageFlows[].route 作为模拟 path 字符串。",
     "- 禁止 BrowserRouter、createBrowserRouter、history.pushState、history.replaceState、window.location、location.href、location.assign、location.replace 和绝对 URL 跳转；如果已经生成这些代码，必须替换为 mock route state 或普通按钮 setState。",
     "- 必须执行 ui-ux-pro-max；若 skill 与用户需求或 businessLogic 冲突，以 function calling 输出为准。",
-    "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 文件操作。",
+    "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 操作。",
     "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上；这些内容只能进入根级 /BUSINESS_CONTEXT.md，不能放入 /src/docs/*。",
     "- 可见 UI 只呈现真实业务流程、业务数据、用户可执行操作、状态反馈和异常处理。",
-    "",
-    "ui-ux-pro-max Skill（主设计执行上下文）：",
-    generationContext?.codeSkillInstructions ?? "[]",
-    "",
     "视觉方向（必须执行）：",
     stringifyForPrompt(generationContext?.visualDirection ?? null, 8000),
     "",
@@ -979,10 +973,10 @@ export function buildRepairCodeFileOperationsPrompt(
     stringifyForPrompt(codeContext, 14000),
     "",
     "当前文件内容：",
-    stringifyForPrompt(existingFiles, 22000),
+    stringifyForPrompt(existingFiles, 18000),
     "",
-    "上一次输出：",
-    previousOutput,
+    "上一次 operations 输出：",
+    truncateForPrompt(previousOutput, 12000),
     "",
     "解析或校验错误：",
     parseError,
@@ -1015,7 +1009,7 @@ export function buildGenerateCodeSkillResourcePlanPrompt(
     "",
     "resourceType 可选值：",
     "- design-system: 需要设计系统/风格/颜色/字体/密度时使用；csvPath、stack、domain、actionName 填空字符串。",
-    "- stack: 查询技术栈规则；React 原型必须至少声明一次 stack=react。",
+    "- stack: 查询技术栈规则；React 原型必须声明 stack=react、stack=shadcn、stack=html-tailwind。",
     "- domain: 查询 UX 或 chart 等领域规则；domain 可用 ux、chart。只有业务逻辑包含图表/统计/趋势/报表时才声明 chart。",
     "- csv: 当你根据 fileManifest 明确知道要读某个 data/**/*.csv 时使用；csvPath 必须是 skill 内相对路径，例如 data/ux-guidelines.csv。",
     "- action: 只有确实需要 scripts/search.py 的增强结果时声明；actionName 必须来自 skill.actions.json 的 action 名称。默认优先用 CSV，不要为了常规 React 原型声明 action。",
@@ -1023,10 +1017,10 @@ export function buildGenerateCodeSkillResourcePlanPrompt(
     "重要约束：",
     "- 当前目标固定是浏览器内运行的 Web React 原型，不是 React Native、Expo、iOS、Android 或 Flutter 应用。",
     "- 你已经拿到 skillResourcePreviews，必须根据 headers/sampleRows 判断每个 CSV 是否有用，不要只根据文件名猜测。",
-    "- 必须查询 Web React 核心实现资源：stack=react 与 domain=ux。",
+    "- 必须查询 Web React 核心实现资源：stack=react、stack=shadcn、stack=html-tailwind 与 domain=ux。",
     "- 对视觉表现，优先从预览中选择与 visualDirection 匹配的资源，例如 data/styles.csv、data/products.csv、data/colors.csv、data/typography.csv。",
     "- 不要声明所有 CSV；只声明本次业务必要的少量资源。",
-    "- 不要声明 shadcn stack；本项目生成普通 React + TypeScript + CSS variables。",
+    "- 必须声明 Tailwind utility、CSS variables、Radix UI 和 shadcn 风格本地组件相关资源；不要声明需要 shadcn CLI、components.json 或构建期 Tailwind 配置的资源。",
     "- 不要声明移动端/原生端资源，例如 data/draft.csv、data/app-interface.csv、data/stacks/react-native.csv、data/stacks/flutter.csv、data/stacks/swiftui.csv。",
     "- 查询 UX 资源时只使用 Web / All / React 相关规则，不能把 React Native 的 haptics、SafeAreaView、Expo、Reanimated、Pressable 等规则注入 Web 原型。",
     "- 如果查询到 dark-mode 资源，只能用于可选深色主题；默认主题必须保持浅色，并需要查询或推导对应浅色 token。",
@@ -1096,7 +1090,7 @@ export function buildGenerateCodeSkillResourceDiscoveryPrompt(
     "",
     "选择规则：",
     "- 只能预览 data/**/*.csv。",
-    "- 必须预览 Web React 核心与视觉核心资源：data/styles.csv、data/products.csv、data/colors.csv、data/typography.csv、data/ux-guidelines.csv、data/stacks/react.csv。",
+    "- 必须预览 Web React 核心与视觉核心资源：data/styles.csv、data/products.csv、data/colors.csv、data/typography.csv、data/ux-guidelines.csv、data/stacks/react.csv、data/stacks/shadcn.csv、data/stacks/html-tailwind.csv。",
     "- 可按 visualDirection 选择 data/icons.csv、data/google-fonts.csv、data/ui-reasoning.csv、data/react-performance.csv。",
     "- 只有 landing/营销页才预览 data/landing.csv；只有图表/统计/趋势业务才预览 data/charts.csv。",
     "- 禁止预览移动端/原生端资源：data/draft.csv、data/app-interface.csv、data/stacks/react-native.csv、data/stacks/flutter.csv、data/stacks/swiftui.csv。",

@@ -12,7 +12,12 @@ import {
 } from "../../entities/diagram/model";
 
 export const RUN_HISTORY_STORAGE_KEY = "uml-platform.run-history.v1";
-export const RUN_HISTORY_LIMIT = 30;
+export const RUN_HISTORY_LIMIT = 12;
+
+const TRACE_TEXT_PREVIEW_LIMIT = 2_000;
+const PARSED_DATA_PREVIEW_LIMIT = 3_000;
+const SKILL_OUTPUT_PREVIEW_LIMIT = 1_500;
+const DIAGNOSTIC_TEXT_PREVIEW_LIMIT = 1_000;
 
 export type RunHistorySnapshot =
   | RunSnapshot
@@ -27,6 +32,13 @@ export interface RunHistoryItem {
   snapshot: RunHistorySnapshot;
   providerModel: string;
   durationMs?: number;
+}
+
+export class RunHistoryStorageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RunHistoryStorageError";
+  }
 }
 
 export function isCodeRunSnapshot(
@@ -78,11 +90,176 @@ export function loadRunHistory(): RunHistoryItem[] {
   return safeParseHistory(localStorage.getItem(RUN_HISTORY_STORAGE_KEY));
 }
 
-export function persistRunHistory(items: RunHistoryItem[]) {
-  localStorage.setItem(
-    RUN_HISTORY_STORAGE_KEY,
-    JSON.stringify(items.slice(0, RUN_HISTORY_LIMIT)),
+function truncateText(value: string | undefined, limit: number) {
+  if (!value || value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n\n[已截断，原始长度 ${value.length} 字符]`;
+}
+
+function stringifyPreview(value: unknown, limit: number) {
+  if (value === undefined) return undefined;
+  const text =
+    typeof value === "string"
+      ? value
+      : (() => {
+          try {
+            return JSON.stringify(value, null, 2);
+          } catch {
+            return String(value);
+          }
+        })();
+  return {
+    preview: truncateText(text, limit) ?? "",
+    truncated: text.length > limit,
+  };
+}
+
+function compactTraceEntries<T extends Record<string, unknown>>(entries: T[]) {
+  return entries.map((entry) => ({
+    ...entry,
+    rawOutput: truncateText(entry.rawOutput as string | undefined, TRACE_TEXT_PREVIEW_LIMIT),
+    plantUmlSource: truncateText(
+      entry.plantUmlSource as string | undefined,
+      TRACE_TEXT_PREVIEW_LIMIT,
+    ),
+    errorMessage: truncateText(
+      entry.errorMessage as string | undefined,
+      DIAGNOSTIC_TEXT_PREVIEW_LIMIT,
+    ),
+    parsedData:
+      entry.parsedData === undefined
+        ? undefined
+        : stringifyPreview(entry.parsedData, PARSED_DATA_PREVIEW_LIMIT),
+  }));
+}
+
+function compactCodeSnapshot(snapshot: CodeRunSnapshot): CodeRunSnapshot {
+  return {
+    ...snapshot,
+    loadedCodeSkill: null,
+    uiMockup: snapshot.uiMockup
+      ? {
+          ...snapshot.uiMockup,
+          prompt:
+            truncateText(snapshot.uiMockup.prompt, DIAGNOSTIC_TEXT_PREVIEW_LIMIT) ??
+            snapshot.uiMockup.prompt,
+          imageDataUrl: null,
+        }
+      : null,
+    skillResourcePreviews: snapshot.skillResourcePreviews
+      ? {
+          ...snapshot.skillResourcePreviews,
+          previews: snapshot.skillResourcePreviews.previews.map((preview) => ({
+            ...preview,
+            sampleRows: [],
+            errorMessage: truncateText(
+              preview.errorMessage,
+              DIAGNOSTIC_TEXT_PREVIEW_LIMIT,
+            ),
+          })),
+        }
+      : null,
+    codeSkillContext: snapshot.codeSkillContext
+      ? {
+          ...snapshot.codeSkillContext,
+          designSystem: truncateText(
+            snapshot.codeSkillContext.designSystem,
+            SKILL_OUTPUT_PREVIEW_LIMIT,
+          ) ?? "",
+          stackGuidelines: truncateText(
+            snapshot.codeSkillContext.stackGuidelines,
+            SKILL_OUTPUT_PREVIEW_LIMIT,
+          ) ?? "",
+          domainGuidelines: truncateText(
+            snapshot.codeSkillContext.domainGuidelines,
+            SKILL_OUTPUT_PREVIEW_LIMIT,
+          ) ?? "",
+          actionResults: snapshot.codeSkillContext.actionResults.map((result) => ({
+            ...result,
+            stdout: truncateText(result.stdout, SKILL_OUTPUT_PREVIEW_LIMIT) ?? "",
+            stderr:
+              truncateText(result.stderr, DIAGNOSTIC_TEXT_PREVIEW_LIMIT) ?? "",
+            errorMessage: truncateText(
+              result.errorMessage,
+              DIAGNOSTIC_TEXT_PREVIEW_LIMIT,
+            ),
+          })),
+        }
+      : null,
+    codeImplementationBrief: null,
+    codeFileOperationManifest: null,
+    fileGenerationDiagnostics: snapshot.fileGenerationDiagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      message: truncateText(diagnostic.message, DIAGNOSTIC_TEXT_PREVIEW_LIMIT) ?? "",
+    })),
+    codeTrace: compactTraceEntries(snapshot.codeTrace) as CodeRunSnapshot["codeTrace"],
+    diagnostics: snapshot.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      message: truncateText(diagnostic.message, DIAGNOSTIC_TEXT_PREVIEW_LIMIT) ?? "",
+    })),
+  };
+}
+
+export function compactRunHistorySnapshot(
+  snapshot: RunHistorySnapshot,
+): RunHistorySnapshot {
+  if (isCodeRunSnapshot(snapshot)) {
+    return compactCodeSnapshot(snapshot);
+  }
+  if (isDesignRunSnapshot(snapshot)) {
+    return {
+      ...snapshot,
+      designTrace: compactTraceEntries(
+        snapshot.designTrace,
+      ) as DesignRunSnapshot["designTrace"],
+    };
+  }
+  if (!isDocumentRunSnapshot(snapshot)) {
+    return {
+      ...snapshot,
+      requirementTrace: compactTraceEntries(
+        snapshot.requirementTrace,
+      ) as RunSnapshot["requirementTrace"],
+    };
+  }
+  return snapshot;
+}
+
+function compactRunHistoryItem(item: RunHistoryItem): RunHistoryItem {
+  return {
+    ...item,
+    snapshot: compactRunHistorySnapshot(item.snapshot),
+  };
+}
+
+function isQuotaExceededError(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
   );
+}
+
+export function persistRunHistory(items: RunHistoryItem[]) {
+  let next = items.slice(0, RUN_HISTORY_LIMIT).map(compactRunHistoryItem);
+
+  while (next.length > 0) {
+    try {
+      localStorage.setItem(RUN_HISTORY_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    } catch (error) {
+      if (!isQuotaExceededError(error)) {
+        throw error;
+      }
+      if (next.length === 1) {
+        throw new RunHistoryStorageError(
+          "历史快照过大，已跳过保存，不影响当前结果。",
+        );
+      }
+      next = next.slice(0, -1);
+    }
+  }
+
+  localStorage.setItem(RUN_HISTORY_STORAGE_KEY, "[]");
+  return [];
 }
 
 export function saveRunHistoryItem(
@@ -103,14 +280,13 @@ export function saveRunHistoryItem(
   };
   const existing = loadRunHistory().filter((entry) => entry.id !== item.id);
   const next = [item, ...existing].slice(0, RUN_HISTORY_LIMIT);
-  persistRunHistory(next);
-  return item;
+  const saved = persistRunHistory(next);
+  return saved[0] ?? compactRunHistoryItem(item);
 }
 
 export function deleteRunHistoryItem(id: string) {
   const next = loadRunHistory().filter((item) => item.id !== id);
-  persistRunHistory(next);
-  return next;
+  return persistRunHistory(next);
 }
 
 export function clearRunHistoryItems() {

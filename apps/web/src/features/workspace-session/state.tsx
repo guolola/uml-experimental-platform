@@ -17,6 +17,7 @@ import type {
   CodeSkillResourceDiscoveryPlan,
   CodeSkillResourcePreviewResult,
   CodeSkillResourcePlan,
+  CodeTraceEntry,
   CodeVisualDirection,
   CodeUiFidelityReport,
   CodeUiMockup,
@@ -84,6 +85,7 @@ interface RunDiagnostics {
   codeSkillContext: CodeSkillContext | null;
   requirementTrace: RequirementTraceEntry[];
   designTrace: DesignTraceEntry[];
+  codeTrace: CodeTraceEntry[];
 }
 
 interface WorkspaceSessionState {
@@ -237,6 +239,7 @@ function createEmptyDiagnostics(): RunDiagnostics {
     codeSkillContext: null,
     requirementTrace: [],
     designTrace: [],
+    codeTrace: [],
   };
 }
 
@@ -1070,6 +1073,9 @@ export function WorkspaceSessionProvider({
       codeSkillContext: isCodeRunSnapshot(snapshot)
         ? snapshot.codeSkillContext
         : null,
+      codeTrace: isCodeRunSnapshot(snapshot)
+        ? snapshot.codeTrace ?? []
+        : [],
       requirementTrace:
         !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot)
           ? snapshot.requirementTrace ?? []
@@ -1112,8 +1118,18 @@ export function WorkspaceSessionProvider({
       snapshot: RunHistorySnapshot,
       meta: { providerModel: string; durationMs?: number },
     ) => {
-      await repository.saveRunHistory(snapshot, meta);
-      setHistoryItems(await repository.listRunHistory());
+      try {
+        await repository.saveRunHistory(snapshot, meta);
+        setHistoryItems(await repository.listRunHistory());
+      } catch (error) {
+        console.warn("Failed to save run history snapshot", error);
+        toast.message("历史快照过大，已跳过保存，不影响当前结果");
+        try {
+          setHistoryItems(await repository.listRunHistory());
+        } catch {
+          // The generated result is more important than a secondary history refresh failure.
+        }
+      }
     },
     [repository],
   );
@@ -1689,6 +1705,10 @@ export function WorkspaceSessionProvider({
               : event.type === "completed" && "codeSkillContext" in event.snapshot
                 ? event.snapshot.codeSkillContext ?? current.codeSkillContext
                 : current.codeSkillContext,
+          codeTrace:
+            event.type === "completed" && "codeTrace" in event.snapshot
+              ? event.snapshot.codeTrace ?? []
+              : current.codeTrace,
         }));
 
         setRunUiState((current) => ({
@@ -1729,6 +1749,10 @@ export function WorkspaceSessionProvider({
       }
 
       applyCodeRunSnapshot(snapshot);
+      setCurrentRunDiagnostics((current) => ({
+        ...current,
+        codeTrace: snapshot.codeTrace ?? [],
+      }));
       await saveHistorySnapshot(snapshot, {
         providerModel,
         durationMs: Date.now() - startedAtMs,
@@ -1768,6 +1792,10 @@ export function WorkspaceSessionProvider({
         try {
           const failedSnapshot = await repository.getCodeRunSnapshot(runId);
           applyCodeRunSnapshot(failedSnapshot);
+          setCurrentRunDiagnostics((current) => ({
+            ...current,
+            codeTrace: failedSnapshot.codeTrace ?? current.codeTrace,
+          }));
           await saveHistorySnapshot(failedSnapshot, {
             providerModel,
             durationMs: Date.now() - startedAtMs,

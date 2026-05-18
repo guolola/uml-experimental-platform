@@ -22,14 +22,29 @@ const sourceDir = join(
 );
 const targetDir = join(webRoot, "public", "sandpack");
 const sandboxJsDir = join(targetDir, "static", "js");
+const tailwindBrowserSource = join(
+  repoRoot,
+  "node_modules",
+  "@tailwindcss",
+  "browser",
+  "dist",
+  "index.global.js",
+);
+const vendorDir = join(webRoot, "public", "vendor");
 
 if (!existsSync(sourceDir)) {
   throw new Error(`Sandpack client assets were not found at ${sourceDir}`);
 }
 
+if (!existsSync(tailwindBrowserSource)) {
+  throw new Error(`Tailwind browser runtime was not found at ${tailwindBrowserSource}`);
+}
+
 rmSync(targetDir, { recursive: true, force: true });
 mkdirSync(targetDir, { recursive: true });
 cpSync(sourceDir, targetDir, { recursive: true });
+mkdirSync(vendorDir, { recursive: true });
+cpSync(tailwindBrowserSource, join(vendorDir, "tailwindcss-browser.js"));
 
 const indexPath = join(targetDir, "index.html");
 const indexHtml = readFileSync(indexPath, "utf8")

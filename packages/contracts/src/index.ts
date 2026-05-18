@@ -1088,6 +1088,77 @@ export const codeFilePlanResultSchema = z.object({
 });
 export type CodeFilePlanResult = z.infer<typeof codeFilePlanResultSchema>;
 
+export const codeImplementationBriefSchema = z.object({
+  appName: z.string().min(1),
+  summary: z.string().min(1),
+  routes: z.array(
+    z.object({
+      path: z.string().min(1),
+      label: z.string().min(1),
+      page: z.string().min(1),
+      description: z.string().min(1),
+    }),
+  ).min(1),
+  navigation: z.array(z.string().min(1)).min(1),
+  dataContracts: z.array(z.string().min(1)).default([]),
+  componentContracts: z.array(z.string().min(1)).default([]),
+  themeTokens: z.array(z.string().min(1)).default([]),
+  interactionRules: z.array(z.string().min(1)).default([]),
+  constraints: z.array(z.string().min(1)).default([]),
+});
+export type CodeImplementationBrief = z.infer<typeof codeImplementationBriefSchema>;
+
+export const codeImplementationBriefResultSchema = z.object({
+  implementationBrief: codeImplementationBriefSchema,
+});
+export type CodeImplementationBriefResult = z.infer<typeof codeImplementationBriefResultSchema>;
+
+export const codeFileOperationManifestItemSchema = z.object({
+  operation: z.enum(["create_file", "update_file", "set_entry_file", "note"]),
+  path: z.string().default(""),
+  reason: z.string().default(""),
+  message: z.string().default(""),
+  responsibility: z.string().default(""),
+  dependsOn: z.array(z.string().min(1)).default([]),
+}).superRefine((operation, context) => {
+  if (
+    (operation.operation === "create_file" || operation.operation === "update_file") &&
+    (!operation.path.trim() || !operation.reason.trim() || !operation.responsibility.trim())
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "create_file/update_file manifest item requires non-empty path, reason and responsibility",
+    });
+  }
+  if (operation.operation === "set_entry_file" && (!operation.path.trim() || !operation.reason.trim())) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "set_entry_file manifest item requires non-empty path and reason",
+    });
+  }
+  if (operation.operation === "note" && !operation.message.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "note manifest item requires non-empty message",
+    });
+  }
+});
+export type CodeFileOperationManifestItem = z.infer<typeof codeFileOperationManifestItemSchema>;
+
+export const codeFileOperationManifestResultSchema = z.object({
+  operations: z.array(codeFileOperationManifestItemSchema).min(1),
+});
+export type CodeFileOperationManifestResult = z.infer<typeof codeFileOperationManifestResultSchema>;
+
+export const codeFileGenerationDiagnosticSchema = z.object({
+  stage: z.enum(["file_operations", "implementation_brief", "operation_manifest", "file_content"]),
+  path: z.string().optional(),
+  status: z.enum(["completed", "failed", "repaired"]),
+  message: z.string().min(1),
+  at: z.string().min(1),
+});
+export type CodeFileGenerationDiagnostic = z.infer<typeof codeFileGenerationDiagnosticSchema>;
+
 export const codeQualityIssueSchema = z.object({
   severity: z.enum(["info", "warning", "error"]),
   message: z.string().min(1),
@@ -1343,6 +1414,31 @@ export const requirementTraceEntrySchema = z.object({
 });
 export type RequirementTraceEntry = z.infer<typeof requirementTraceEntrySchema>;
 
+export const codeTraceEntrySchema = z.object({
+  stage: z.enum([
+    "generate_file_operations",
+    "generate_implementation_brief",
+    "generate_file_manifest",
+    "generate_file_content",
+  ]),
+  attempt: z.number().int().min(1),
+  kind: z.enum([
+    "llm_output",
+    "parse_error",
+    "parsed_data",
+    "validation_error",
+    "repair_output",
+    "repaired_data",
+    "file_content",
+  ]),
+  path: z.string().min(1).optional(),
+  rawOutput: z.string().optional(),
+  parsedData: z.unknown().optional(),
+  errorMessage: z.string().optional(),
+  createdAt: z.string().min(1),
+});
+export type CodeTraceEntry = z.infer<typeof codeTraceEntrySchema>;
+
 export const runSnapshotSchema = z.object({
   runId: z.string().min(1),
   requirementText: z.string(),
@@ -1403,6 +1499,11 @@ export const codeRunSnapshotSchema = z.object({
   selectedCodeSkills: z.array(codeSkillSelectionSchema).default([]),
   skillDiagnostics: z.array(codeSkillDiagnosticsSchema).default([]),
   filePlan: codeFilePlanSchema.nullable().default(null),
+  codeImplementationBrief: codeImplementationBriefSchema.nullable().default(null),
+  codeFileOperationManifest: codeFileOperationManifestResultSchema.nullable().default(null),
+  fileGenerationDiagnostics: z.array(codeFileGenerationDiagnosticSchema).default([]),
+  codeTrace: z.array(codeTraceEntrySchema).default([]),
+  codeGenerationMode: z.enum(["json_schema_operations", "segmented_file_generation"]).default("json_schema_operations"),
   qualityDiagnostics: z.array(codeQualityDiagnosticSchema).default([]),
   files: z.record(z.string().min(1), z.string()),
   entryFile: z.string().min(1).nullable(),

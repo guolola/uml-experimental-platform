@@ -430,6 +430,25 @@ describe("TopBar", () => {
           },
         ],
       },
+      codeTrace: [
+        {
+          stage: "generate_file_operations",
+          attempt: 1,
+          kind: "parse_error",
+          rawOutput: "{\"operations\":[{\"operation\":\"bad_operation\"}]}",
+          errorMessage: "operations.0.operation: Invalid enum value",
+          createdAt: "2026-05-17T08:00:02.000Z",
+        },
+        {
+          stage: "generate_file_operations",
+          attempt: 2,
+          kind: "repaired_data",
+          parsedData: {
+            operations: [],
+          },
+          createdAt: "2026-05-17T08:00:03.000Z",
+        },
+      ],
       currentStage: "plan_code_ui",
       status: "completed",
       errorMessage: null,
@@ -477,6 +496,9 @@ describe("TopBar", () => {
     await user.click(screen.getByRole("button", { name: "生成任务" }));
 
     expect(await screen.findByText("阶段清单")).toBeInTheDocument();
+    expect(screen.getByText("代码调试追踪")).toBeInTheDocument();
+    expect(screen.getByText(/生成代码文件操作 \/ 全局 \/ 第 1 次 \/ 解析错误/)).toBeInTheDocument();
+    expect(screen.getByText(/operations\.0\.operation/)).toBeInTheDocument();
     expect(screen.queryByText("界面方案资源")).not.toBeInTheDocument();
     expect(screen.queryByText("资源查询结果")).not.toBeInTheDocument();
     expect(screen.queryByText("React TypeScript CSS variables UI rules")).not.toBeInTheDocument();

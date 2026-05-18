@@ -30,7 +30,7 @@ export type ChatCompletionResponseFormat =
 export interface StreamChatCompletionInput {
   providerSettings: ProviderSettings;
   messages: ChatMessage[];
-  responseFormat?: ChatCompletionResponseFormat;
+  responseFormat?: ChatCompletionResponseFormat | null;
 }
 
 export interface LlmTransport {
@@ -168,7 +168,9 @@ export function createRealLlmTransport(): LlmTransport {
           messages,
           stream: true,
           temperature: 0.2,
-          response_format: responseFormat ?? { type: "json_object" },
+          ...(responseFormat === null
+            ? {}
+            : { response_format: responseFormat ?? { type: "json_object" } }),
           tools: [],
           tool_choice: "none",
         }),

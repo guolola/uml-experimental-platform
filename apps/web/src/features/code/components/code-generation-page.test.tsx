@@ -258,6 +258,72 @@ describe("CodeGenerationPage", () => {
     });
   });
 
+  it("loads Tailwind and shadcn-style runtime dependencies in the local preview", async () => {
+    render(
+      withWorkspaceProviders(
+        <CodeGenerationPage />,
+        createRepository({
+          "/src/main.tsx": [
+            "import React from 'react';",
+            "import { createRoot } from 'react-dom/client';",
+            "import './styles.css';",
+            "import App from './App';",
+            "createRoot(document.getElementById('root')!).render(<App />);",
+          ].join("\n"),
+          "/src/App.tsx": [
+            "import { Button } from '@/components/ui/button';",
+            "import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';",
+            "export default function App() {",
+            "  return <main className=\"flex min-h-screen items-center justify-center bg-white p-6\"><Dialog><DialogTrigger asChild><Button>Open</Button></DialogTrigger><DialogContent>Tailwind works</DialogContent></Dialog></main>;",
+            "}",
+          ].join("\n"),
+          "/src/lib/utils.ts": [
+            "import { clsx, type ClassValue } from 'clsx';",
+            "import { twMerge } from 'tailwind-merge';",
+            "export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }",
+          ].join("\n"),
+          "/src/components/ui/button.tsx": [
+            "import * as React from 'react';",
+            "import { Slot } from '@radix-ui/react-slot';",
+            "import { cva, type VariantProps } from 'class-variance-authority';",
+            "import { cn } from '@/lib/utils';",
+            "const buttonVariants = cva('inline-flex items-center justify-center rounded-xl px-4 py-2 shadow');",
+            "export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> { asChild?: boolean }",
+            "export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, asChild = false, ...props }, ref) => {",
+            "  const Comp = asChild ? Slot : 'button';",
+            "  return <Comp ref={ref} className={cn(buttonVariants(), className)} {...props} />;",
+            "});",
+          ].join("\n"),
+          "/src/components/ui/dialog.tsx": [
+            "import * as DialogPrimitive from '@radix-ui/react-dialog';",
+            "export const Dialog = DialogPrimitive.Root;",
+            "export const DialogTrigger = DialogPrimitive.Trigger;",
+            "export const DialogContent = DialogPrimitive.Content;",
+          ].join("\n"),
+          "/src/styles.css": ":root { --bg: #ffffff; }",
+        }),
+      ),
+    );
+
+    let iframe: HTMLIFrameElement | null = null;
+    await waitFor(() => {
+      iframe = document.querySelector('iframe[title="Prototype Preview"]');
+      expect(iframe).toBeInTheDocument();
+    });
+
+    const srcDoc = iframe?.getAttribute("srcdoc") ?? "";
+    expect(srcDoc).toContain("/vendor/tailwindcss-browser.js");
+    expect(srcDoc).toContain("@radix-ui/react-slot");
+    expect(srcDoc).toContain("@radix-ui/react-dialog");
+    expect(srcDoc).toContain("class-variance-authority");
+    expect(srcDoc).toContain("tailwind-merge");
+    expect(srcDoc).toContain("text/tailwindcss");
+    const status = screen.queryByTestId("local-preview-status");
+    if (status) {
+      expect(status).not.toHaveTextContent("无法解析导入");
+    }
+  });
+
   it("surfaces local preview build errors instead of leaving a blank preview", async () => {
     render(
       withWorkspaceProviders(
@@ -296,6 +362,10 @@ describe("CodeGenerationPage", () => {
     expect(monacoMocks.addExtraLib).toHaveBeenCalledWith(
       expect.stringContaining('declare module "lucide-react"'),
       "file:///node_modules/@types/lucide-react/index.d.ts",
+    );
+    expect(monacoMocks.addExtraLib).toHaveBeenCalledWith(
+      expect.stringContaining('declare module "class-variance-authority"'),
+      "file:///node_modules/@types/shadcn-preview-runtime/index.d.ts",
     );
     expect(monacoMocks.monaco.editor.createModel).toHaveBeenCalledWith(
       expect.stringContaining("function App"),

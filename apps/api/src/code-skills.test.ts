@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   formatWebDesignSkillForPrompt,
+  ensureRequiredWebReactSkillResources,
   fallbackCodeSkillResourceDiscoveryPlan,
   fallbackCodeSkillResourcePlan,
   fallbackCodeVisualDirection,
@@ -84,17 +85,17 @@ test("resolves ui-ux-pro-max context from model-declared skill resource plan", a
 
   assert.equal(context.skillName, "ui-ux-pro-max");
   assert.match(context.query, /校园活动管理平台/);
-  assert.ok(context.actionResults.some((action) => action.name === "design-system"));
   assert.ok(context.actionResults.some((action) => action.name === "react-stack"));
+  assert.ok(context.actionResults.some((action) => action.name === "shadcn-stack"));
+  assert.ok(context.actionResults.some((action) => action.name === "html-tailwind-stack"));
   assert.ok(context.actionResults.some((action) => action.name === "ux-guidelines"));
-  assert.ok(context.actionResults.some((action) => action.name === "chart-guidelines"));
-  assert.match(context.designSystem, /Bauhaus|design|style/i);
   assert.match(context.stackGuidelines, /useState|React|State/i);
+  assert.match(context.stackGuidelines, /shadcn|Tailwind|component/i);
 
   const promptText = formatWebDesignSkillForPrompt(result.skill, plan, context);
   assert.match(promptText, /<skill_resource_plan>/);
   assert.match(promptText, /<skill_context>/);
-  assert.match(promptText, /design-system/);
+  assert.match(promptText, /shadcn-stack/);
 });
 
 test("rejects skill resource path traversal and does not query undeclared chart resources", async () => {
@@ -217,10 +218,56 @@ test("previews skill CSV resources before final resource selection", () => {
 
   assert.equal(previews.skillName, "ui-ux-pro-max");
   assert.ok(previews.previews.some((preview) => preview.path === "data/styles.csv"));
+  assert.ok(previews.previews.some((preview) => preview.path === "data/stacks/shadcn.csv"));
+  assert.ok(previews.previews.some((preview) => preview.path === "data/stacks/html-tailwind.csv"));
   const styles = previews.previews.find((preview) => preview.path === "data/styles.csv");
   assert.equal(styles?.status, "completed");
   assert.ok((styles?.headers.length ?? 0) > 0);
   assert.ok((styles?.sampleRows.length ?? 0) > 0);
+});
+
+test("ensures required React Tailwind shadcn resources in resource plans", () => {
+  const result = loadWebDesignSkill();
+  const businessLogic = {
+    appName: "公众活动日历",
+    domainSummary: "公开活动浏览、注册申请和提醒。",
+    coreWorkflow: "游客浏览公开活动并提交注册申请。",
+    actors: [],
+    businessEntities: [],
+    pageFlows: [],
+    stateMachines: [],
+    permissions: [],
+    edgeCases: [],
+    frontendOperations: ["浏览活动", "提交申请"],
+    plantUmlTraceability: [],
+  };
+  const plan = ensureRequiredWebReactSkillResources(result.skill, businessLogic, {
+    skillName: "ui-ux-pro-max",
+    alias: "@web-design",
+    query: "public event calendar",
+    requests: [
+      {
+        resourceType: "stack",
+        name: "react-stack",
+        query: "public event calendar",
+        csvPath: "",
+        stack: "react",
+        domain: "",
+        actionName: "",
+        maxResults: 5,
+        reason: "React rules",
+      },
+    ],
+    diagnostics: [],
+  });
+
+  assert.equal(plan.requests.length, 8);
+  assert.ok(plan.requests.some((request) => request.resourceType === "stack" && request.stack === "react"));
+  assert.ok(plan.requests.some((request) => request.resourceType === "stack" && request.stack === "shadcn"));
+  assert.ok(plan.requests.some((request) => request.resourceType === "stack" && request.stack === "html-tailwind"));
+  assert.ok(plan.requests.some((request) => request.resourceType === "domain" && request.domain === "ux"));
+  assert.ok(plan.requests.some((request) => request.resourceType === "csv" && request.csvPath === "data/styles.csv"));
+  assert.ok(plan.diagnostics.some((message) => message.includes("已自动补齐")));
 });
 
 test("rejects mobile-only CSV resources during preview", () => {

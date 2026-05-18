@@ -163,9 +163,17 @@ declare module "react" {
   export type SVGProps<T = any> = Record<string, any> & { ref?: any };
   export type ComponentType<P = Record<string, any>> = (props: P) => any;
   export type FC<P = Record<string, any>> = ComponentType<P>;
+  export type ElementRef<T = any> = any;
+  export type ComponentProps<T = any> = Record<string, any>;
+  export type ComponentPropsWithoutRef<T = any> = Record<string, any>;
+  export type ComponentPropsWithRef<T = any> = Record<string, any>;
+  export type HTMLAttributes<T = any> = Record<string, any>;
+  export type ButtonHTMLAttributes<T = any> = Record<string, any>;
+  export type InputHTMLAttributes<T = any> = Record<string, any>;
   export const StrictMode: any;
   export const Fragment: any;
   export function createElement(...args: any[]): any;
+  export function forwardRef<T = any, P = Record<string, any>>(render: (props: P, ref: any) => any): any;
   export function useCallback<T extends (...args: any[]) => any>(callback: T, deps: any[]): T;
   export function useEffect(effect: () => void | (() => void), deps?: any[]): void;
   export function useMemo<T>(factory: () => T, deps: any[]): T;
@@ -175,6 +183,7 @@ declare module "react" {
     StrictMode: any;
     Fragment: any;
     createElement: typeof createElement;
+    forwardRef: typeof forwardRef;
   };
   export default React;
 }
@@ -195,6 +204,99 @@ declare module "react-dom/client" {
 declare module "*.css" {
   const content: string;
   export default content;
+}
+`;
+
+const MONACO_SHADCN_RUNTIME_TYPES = `
+declare module "class-variance-authority" {
+  export type VariantProps<T = any> = any;
+  export function cva(...args: any[]): (...args: any[]) => string;
+}
+
+declare module "clsx" {
+  export type ClassValue = any;
+  export function clsx(...inputs: ClassValue[]): string;
+  export default clsx;
+}
+
+declare module "tailwind-merge" {
+  export function twMerge(...inputs: any[]): string;
+}
+
+declare module "@radix-ui/react-slot" {
+  export const Slot: any;
+}
+
+declare module "@radix-ui/react-dialog" {
+  export const Root: any;
+  export const Trigger: any;
+  export const Portal: any;
+  export const Overlay: any;
+  export const Content: any;
+  export const Title: any;
+  export const Description: any;
+  export const Close: any;
+}
+
+declare module "@radix-ui/react-dropdown-menu" {
+  export const Root: any;
+  export const Trigger: any;
+  export const Portal: any;
+  export const Content: any;
+  export const Group: any;
+  export const Item: any;
+  export const CheckboxItem: any;
+  export const RadioItem: any;
+  export const Label: any;
+  export const Separator: any;
+  export const Shortcut: any;
+  export const Sub: any;
+  export const SubTrigger: any;
+  export const SubContent: any;
+  export const RadioGroup: any;
+}
+
+declare module "@radix-ui/react-label" {
+  export const Root: any;
+}
+
+declare module "@radix-ui/react-select" {
+  export const Root: any;
+  export const Group: any;
+  export const Value: any;
+  export const Trigger: any;
+  export const Portal: any;
+  export const Content: any;
+  export const Viewport: any;
+  export const Label: any;
+  export const Item: any;
+  export const ItemText: any;
+  export const ItemIndicator: any;
+  export const Separator: any;
+  export const ScrollUpButton: any;
+  export const ScrollDownButton: any;
+  export const Icon: any;
+}
+
+declare module "@radix-ui/react-separator" {
+  export const Root: any;
+}
+
+declare module "@radix-ui/react-switch" {
+  export const Root: any;
+  export const Thumb: any;
+}
+
+declare module "@radix-ui/react-tabs" {
+  export const Root: any;
+  export const List: any;
+  export const Trigger: any;
+  export const Content: any;
+}
+
+declare module "@radix-ui/react-checkbox" {
+  export const Root: any;
+  export const Indicator: any;
 }
 `;
 
@@ -351,10 +453,23 @@ function toSandpackFiles(files: Record<string, string>, activeFile: string): San
 
 const PREVIEW_IMPORT_MAP = {
   react: "https://esm.sh/react@18.3.1",
+  "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
   "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
   "react/jsx-dev-runtime": "https://esm.sh/react@18.3.1/jsx-dev-runtime",
   "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
   "lucide-react": "https://esm.sh/lucide-react@0.487.0?external=react",
+  "@radix-ui/react-slot": "https://esm.sh/@radix-ui/react-slot@1.1.2?bundle&external=react",
+  "@radix-ui/react-dialog": "https://esm.sh/@radix-ui/react-dialog@1.1.6?bundle&external=react,react-dom",
+  "@radix-ui/react-dropdown-menu": "https://esm.sh/@radix-ui/react-dropdown-menu@2.1.6?bundle&external=react,react-dom",
+  "@radix-ui/react-label": "https://esm.sh/@radix-ui/react-label@2.1.2?bundle&external=react,react-dom",
+  "@radix-ui/react-select": "https://esm.sh/@radix-ui/react-select@2.1.6?bundle&external=react,react-dom",
+  "@radix-ui/react-separator": "https://esm.sh/@radix-ui/react-separator@1.1.2?bundle&external=react",
+  "@radix-ui/react-switch": "https://esm.sh/@radix-ui/react-switch@1.1.3?bundle&external=react,react-dom",
+  "@radix-ui/react-tabs": "https://esm.sh/@radix-ui/react-tabs@1.1.3?bundle&external=react",
+  "@radix-ui/react-checkbox": "https://esm.sh/@radix-ui/react-checkbox@1.1.4?bundle&external=react,react-dom",
+  "class-variance-authority": "https://esm.sh/class-variance-authority@0.7.1",
+  clsx: "https://esm.sh/clsx@2.1.1",
+  "tailwind-merge": "https://esm.sh/tailwind-merge@3.2.0",
 };
 
 function normalizePreviewPath(path: string) {
@@ -508,6 +623,10 @@ async function buildLocalPreviewDocument(
 
   const entryUrl = compileFile(entryFile);
   const importMap = JSON.stringify({ imports: PREVIEW_IMPORT_MAP });
+  const tailwindBrowserUrl = new URL(
+    "/vendor/tailwindcss-browser.js",
+    window.location.origin,
+  ).toString();
   const srcDoc = [
     "<!doctype html>",
     '<html lang="zh-CN">',
@@ -518,7 +637,11 @@ async function buildLocalPreviewDocument(
     "      html, body, #root { min-height: 100%; margin: 0; }",
     "      body { background: #ffffff; }",
     "    </style>",
+    "    <style type=\"text/tailwindcss\">",
+    "      @custom-variant dark (&:where(.dark, .dark *, [data-theme=\"dark\"], [data-theme=\"dark\"] *));",
+    "    </style>",
     `    <script type="importmap">${importMap}</script>`,
+    `    <script src="${tailwindBrowserUrl}"></script>`,
     "  </head>",
     "  <body>",
     '    <div id="root"></div>',
@@ -576,6 +699,10 @@ function configureMonacoForPrototype(monaco: Monaco) {
   ts.typescriptDefaults.addExtraLib(
     MONACO_LUCIDE_TYPES,
     "file:///node_modules/@types/lucide-react/index.d.ts",
+  );
+  ts.typescriptDefaults.addExtraLib(
+    MONACO_SHADCN_RUNTIME_TYPES,
+    "file:///node_modules/@types/shadcn-preview-runtime/index.d.ts",
   );
 
   monacoConfigured = true;
@@ -1029,6 +1156,18 @@ export function CodeGenerationPage() {
     react: "^18.3.1",
     "react-dom": "^18.3.1",
     "lucide-react": "^0.487.0",
+    "@radix-ui/react-checkbox": "^1.1.4",
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-dropdown-menu": "^2.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.3",
+    "@radix-ui/react-tabs": "^1.1.3",
+    "class-variance-authority": "^0.7.1",
+    clsx: "^2.1.1",
+    "tailwind-merge": "^3.2.0",
     ...codeDependencies,
   };
   const sandpackBundlerUrl =

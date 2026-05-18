@@ -12,6 +12,7 @@ import {
   codeSkillContextSchema,
   codeSkillResourcePlanSchema,
   codeSkillSchema,
+  codeTraceEntrySchema,
   codeVisualDirectionSchema,
   codeUiIrResultSchema,
   renderSvgResponseSchema,
@@ -362,11 +363,33 @@ test("contracts validate representative stage payloads", () => {
     skillDiagnostics: [],
     files: {},
     entryFile: "/src/App.tsx",
+    codeTrace: [
+      {
+        stage: "generate_file_operations",
+        attempt: 1,
+        kind: "parse_error",
+        rawOutput: "{\"operations\":[{\"operation\":\"bad_operation\"}]}",
+        errorMessage: "operations.0.operation: Invalid enum value",
+        createdAt: new Date().toISOString(),
+      },
+    ],
     currentStage: "select_code_skills",
     status: "running",
     errorMessage: null,
   });
   assert.equal(codeSnapshot.selectedCodeSkills.length, 1);
+  assert.equal(codeSnapshot.codeTrace.length, 1);
+
+  const codeTraceEntry = codeTraceEntrySchema.parse({
+    stage: "generate_file_content",
+    attempt: 2,
+    kind: "validation_error",
+    path: "/src/App.tsx",
+    rawOutput: "```tsx\nexport default function App() { return null; }\n```",
+    errorMessage: "/src/App.tsx content still contains a Markdown fence",
+    createdAt: new Date().toISOString(),
+  });
+  assert.equal(codeTraceEntry.path, "/src/App.tsx");
 
   const designTraceEntry = designTraceEntrySchema.parse({
     stage: "render_svg",
