@@ -155,7 +155,9 @@ while read -r _ release_dir; do
     continue
   fi
 
-  rm -rf -- "$release_dir"
+  if ! rm -rf -- "$release_dir"; then
+    echo "Warning: failed to remove old release, keeping it: $release_dir" >&2
+  fi
 done < <(find "$DEPLOY_PATH/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -rn)
 
 if [[ ! -f "$DEPLOY_PATH/current/apps/web/dist/index.html" ]]; then

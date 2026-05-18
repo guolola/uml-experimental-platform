@@ -181,6 +181,74 @@ describe("TextRequirementView", () => {
     expect(screen.queryByText("模型结果")).not.toBeInTheDocument();
   });
 
+  it("disables target diagrams that do not have linked requirement rules", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              relatedDiagrams: ["usecase"],
+            }),
+          ],
+          rulesVersion: 1,
+          selectedDiagramTypes: ["class"],
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    expect(await screen.findByRole("checkbox", { name: /用例模型/ })).toBeEnabled();
+    const classDiagramCheckbox = screen.getByRole("checkbox", {
+      name: /领域概念模型/,
+    });
+    expect(classDiagramCheckbox).toBeDisabled();
+    expect(classDiagramCheckbox).not.toBeChecked();
+    expect(screen.getAllByText("缺少对应需求规则").length).toBeGreaterThan(0);
+    expect(screen.getByText("0/4")).toBeInTheDocument();
+  });
+
+  it("auto-removes a selected target diagram when its last linked rule is deleted", async () => {
+    const updateRequirementRules = vi.fn(async () => {});
+    const usecaseRule = createRule({
+      id: "r1",
+      text: "用户可以提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const classRule = createRule({
+      id: "r2",
+      text: "系统必须保存订单实体。",
+      relatedDiagrams: ["class"],
+    });
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [usecaseRule, classRule],
+          rulesVersion: 1,
+          selectedDiagramTypes: ["class"],
+        }),
+      ),
+      updateRequirementRules,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const classDiagramCheckbox = await screen.findByRole("checkbox", {
+      name: /领域概念模型/,
+    });
+    expect(classDiagramCheckbox).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "删除需求项 r2" }));
+
+    await waitFor(() => {
+      expect(updateRequirementRules).toHaveBeenLastCalledWith([usecaseRule]);
+      expect(classDiagramCheckbox).not.toBeChecked();
+      expect(classDiagramCheckbox).toBeDisabled();
+    });
+  });
+
   it("keeps generation in the background without opening diagnostics overlay", async () => {
     let completeRun!: () => void;
     const snapshot = createRunSnapshot({

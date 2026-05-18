@@ -26,6 +26,17 @@ const useCaseModel = {
   relationships: [],
 };
 
+const classModel = {
+  diagramKind: "class" as const,
+  title: "领域概念模型",
+  summary: "核心实体",
+  notes: [],
+  classes: [],
+  interfaces: [],
+  enums: [],
+  relationships: [],
+};
+
 describe("DesignModelPage", () => {
   it("auto-includes sequence dependency when generating downstream design diagrams", async () => {
     const snapshot: DesignRunSnapshot = {
@@ -110,6 +121,138 @@ describe("DesignModelPage", () => {
       expect(startDesignRun).toHaveBeenCalledWith(
         expect.objectContaining({
           selectedDiagrams: ["sequence", "activity"],
+        }),
+      );
+    });
+  });
+
+  it("disables design diagrams when their prerequisite requirement models are missing", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+          },
+          selectedDesignDiagramTypes: ["class"],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("设计模型");
+    const [sequenceCheckbox, classDiagramCheckbox] = screen.getAllByRole("checkbox");
+    expect(sequenceCheckbox).toBeEnabled();
+    expect(classDiagramCheckbox).toBeDisabled();
+    expect(classDiagramCheckbox).not.toBeChecked();
+    expect(screen.getAllByText("缺少需求阶段领域概念模型").length).toBeGreaterThan(0);
+    expect(screen.getByText("0/5")).toBeInTheDocument();
+  });
+
+  it("blocks downstream design diagrams when the use case prerequisite is missing", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            class: classModel,
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("设计模型");
+    const [sequenceCheckbox, classDiagramCheckbox] = screen.getAllByRole("checkbox");
+    expect(sequenceCheckbox).toBeDisabled();
+    expect(classDiagramCheckbox).toBeDisabled();
+    expect(screen.getAllByText("缺少需求阶段用例模型").length).toBeGreaterThan(0);
+  });
+
+  it("auto-includes valid sequence and class dependencies when generating table diagrams", async () => {
+    const snapshot: DesignRunSnapshot = {
+      runId: "design-run-table",
+      requirementText: "生成 UML",
+      selectedDiagrams: ["sequence", "class", "table"],
+      rules: [],
+      requirementModels: [useCaseModel, classModel],
+      models: [],
+      plantUml: [],
+      svgArtifacts: [],
+      diagramErrors: {},
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      errorMessage: null,
+    };
+    const startDesignRun = vi.fn(async () => ({ runId: "design-run-table" }));
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+            class: classModel,
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun,
+      subscribeToDesignRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "completed", snapshot });
+      }),
+      getDesignRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await userEvent.click(await screen.findByRole("checkbox", { name: /表关系图/ }));
+    await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
+
+    await waitFor(() => {
+      expect(startDesignRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selectedDiagrams: ["sequence", "class", "table"],
         }),
       );
     });

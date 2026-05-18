@@ -102,13 +102,35 @@ export function TextRequirementView() {
     patchUserSettings({ defaultModel: model });
   };
 
+  const selectableDiagramSet = useMemo(
+    () =>
+      new Set(
+        DIAGRAM_ORDER.filter((diagram) =>
+          rules.some((rule) => rule.relatedDiagrams.includes(diagram)),
+        ),
+      ),
+    [rules],
+  );
+
   const toggleDiagram = (diagram: DiagramType, checked: boolean) => {
+    if (checked && !selectableDiagramSet.has(diagram)) {
+      return;
+    }
     setSelectedDiagrams(
       checked
         ? Array.from(new Set([...selectedDiagrams, diagram]))
         : selectedDiagrams.filter((value) => value !== diagram),
     );
   };
+
+  useEffect(() => {
+    const nextSelectedDiagrams = selectedDiagrams.filter((diagram) =>
+      selectableDiagramSet.has(diagram),
+    );
+    if (nextSelectedDiagrams.length !== selectedDiagrams.length) {
+      setSelectedDiagrams(nextSelectedDiagrams);
+    }
+  }, [selectableDiagramSet, selectedDiagrams, setSelectedDiagrams]);
 
   const toggleNewRuleDiagram = (diagram: DiagramType, checked: boolean) => {
     setNewRuleDiagrams((current) =>
@@ -382,19 +404,27 @@ export function TextRequirementView() {
               const linkedRules = rules.filter((rule) =>
                 rule.relatedDiagrams.includes(diagram),
               );
+              const canSelectDiagram = linkedRules.length > 0;
               return (
                 <div
                   key={diagram}
                   className={cn(
                     "flex flex-col gap-2 px-3 py-2.5 transition-colors",
                     checked ? "bg-primary/10" : "bg-card",
+                    !canSelectDiagram && "opacity-60",
                   )}
                 >
-                  <label className="flex cursor-pointer items-start gap-2">
+                  <label
+                    className={cn(
+                      "flex items-start gap-2",
+                      canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
+                    )}
+                  >
                     <Checkbox
                       checked={checked}
                       onCheckedChange={(value) => toggleDiagram(diagram, !!value)}
                       className="mt-0.5"
+                      disabled={!canSelectDiagram}
                     />
                     <div className="flex flex-1 flex-col gap-0.5">
                       <span className="flex items-center gap-2">
@@ -411,6 +441,12 @@ export function TextRequirementView() {
                       </span>
                     </div>
                   </label>
+                  {!canSelectDiagram && (
+                    <div className="flex items-center gap-1.5 pl-6 text-[11px] text-destructive">
+                      <AlertTriangle className="size-3.5" />
+                      缺少对应需求规则
+                    </div>
+                  )}
                   {linkedRules.length > 0 && (
                     <div className="flex flex-wrap gap-1 pl-6">
                       {linkedRules.map((rule) => (

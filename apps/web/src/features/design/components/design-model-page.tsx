@@ -30,6 +30,8 @@ const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DiagramType | "sequence"> = {
   table: "class",
 };
 
+type RequirementSourceStatus = Record<DiagramType, boolean>;
+
 function ensureSequenceDependency(diagrams: DesignDiagramType[]) {
   let next = [...diagrams];
   if (next.some((diagram) => diagram !== "sequence") && !next.includes("sequence")) {
@@ -44,6 +46,29 @@ function ensureSequenceDependency(diagrams: DesignDiagramType[]) {
     ] as DesignDiagramType[];
   }
   return DESIGN_DIAGRAM_ORDER.filter((diagram) => next.includes(diagram));
+}
+
+function sameDesignDiagramSelection(
+  left: DesignDiagramType[],
+  right: DesignDiagramType[],
+) {
+  return left.length === right.length && left.every((diagram, index) => diagram === right[index]);
+}
+
+function getDesignDiagramBlockReason(
+  diagram: DesignDiagramType,
+  sourceStatus: RequirementSourceStatus,
+) {
+  if (!sourceStatus.usecase) {
+    return `缺少需求阶段${DIAGRAM_META.usecase.label}`;
+  }
+
+  const source = DESIGN_SOURCE_MAP[diagram];
+  if (source !== "sequence" && !sourceStatus[source]) {
+    return `缺少需求阶段${DIAGRAM_META[source].label}`;
+  }
+
+  return null;
 }
 
 export function DesignModelPage() {
@@ -84,7 +109,38 @@ export function DesignModelPage() {
     [models],
   );
 
-  const effectiveSelected = ensureSequenceDependency(selectedDesignDiagrams);
+  const selectableDesignDiagramSet = useMemo(
+    () =>
+      new Set(
+        DESIGN_DIAGRAM_ORDER.filter(
+          (diagram) => !getDesignDiagramBlockReason(diagram, sourceStatus),
+        ),
+      ),
+    [sourceStatus],
+  );
+
+  const validSelectedDesignDiagrams = useMemo(
+    () =>
+      selectedDesignDiagrams.filter((diagram) =>
+        selectableDesignDiagramSet.has(diagram),
+      ),
+    [selectableDesignDiagramSet, selectedDesignDiagrams],
+  );
+
+  const effectiveSelected = useMemo(
+    () =>
+      ensureSequenceDependency(validSelectedDesignDiagrams).filter((diagram) =>
+        selectableDesignDiagramSet.has(diagram),
+      ),
+    [selectableDesignDiagramSet, validSelectedDesignDiagrams],
+  );
+
+  useEffect(() => {
+    if (!sameDesignDiagramSelection(selectedDesignDiagrams, validSelectedDesignDiagrams)) {
+      setSelectedDesignDiagrams(validSelectedDesignDiagrams);
+    }
+  }, [selectedDesignDiagrams, setSelectedDesignDiagrams, validSelectedDesignDiagrams]);
+
   const canGenerate =
     effectiveSelected.length > 0 &&
     sourceStatus.usecase &&
@@ -99,9 +155,14 @@ export function DesignModelPage() {
   };
 
   const toggleDiagram = (diagram: DesignDiagramType, checked: boolean) => {
+    if (checked && !selectableDesignDiagramSet.has(diagram)) {
+      return;
+    }
     setSelectedDesignDiagrams(
       checked
-        ? Array.from(new Set([...selectedDesignDiagrams, diagram]))
+        ? ensureSequenceDependency(Array.from(new Set([...selectedDesignDiagrams, diagram]))).filter(
+            (item) => selectableDesignDiagramSet.has(item),
+          )
         : selectedDesignDiagrams.filter((item) => item !== diagram),
     );
   };
@@ -148,7 +209,7 @@ export function DesignModelPage() {
             const meta = DESIGN_DIAGRAM_META[diagram];
             const checked = effectiveSelected.includes(diagram);
             const source = DESIGN_SOURCE_MAP[diagram];
-            const hasSource = source === "sequence" || sourceStatus[source];
+            const blockReason = getDesignDiagramBlockReason(diagram, sourceStatus);
             const generated = generatedDesignDiagrams.includes(diagram);
             const error = designDiagramErrors[diagram];
             return (
@@ -157,14 +218,20 @@ export function DesignModelPage() {
                 className={cn(
                   "flex flex-col gap-2 bg-card px-3 py-2.5 transition-colors",
                   checked && "bg-primary/10",
-                  !hasSource && "opacity-60",
+                  blockReason && "opacity-60",
                 )}
               >
-                <label className="flex cursor-pointer items-start gap-2">
+                <label
+                  className={cn(
+                    "flex items-start gap-2",
+                    blockReason ? "cursor-not-allowed" : "cursor-pointer",
+                  )}
+                >
                   <Checkbox
                     checked={checked}
                     onCheckedChange={(value) => toggleDiagram(diagram, !!value)}
                     className="mt-0.5"
+                    disabled={Boolean(blockReason)}
                   />
                   <div className="flex flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-2">
@@ -196,10 +263,10 @@ export function DesignModelPage() {
                     </span>
                   </div>
                 </label>
-                {!hasSource && (
+                {blockReason && (
                   <div className="flex items-center gap-1.5 pl-6 text-[11px] text-destructive">
                     <AlertTriangle className="size-3.5" />
-                    缺少需求阶段{DIAGRAM_META[source as DiagramType].label}
+                    {blockReason}
                   </div>
                 )}
                 {error && (
