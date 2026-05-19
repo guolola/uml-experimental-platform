@@ -71,4 +71,26 @@ describe("InlineSvg", () => {
     expect(styleText).toContain("stroke-width: 4px");
     expect(styleText).not.toContain("--primary");
   });
+
+  it("removes unsafe SVG scripting surfaces before injection", async () => {
+    const { container } = render(
+      <InlineSvg
+        svg={
+          '<svg onload="alert(1)"><script>alert(1)</script><foreignObject><iframe src="https://example.com"></iframe></foreignObject><a href="javascript:alert(1)"><text onclick="alert(1)">ok</text></a><path style="fill:url(javascript:alert(1))" d="M0 0L1 1" /></svg>'
+        }
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("svg")).not.toBeNull();
+    });
+
+    const injected = container.querySelector(".uml-inline-svg")?.innerHTML ?? "";
+    expect(injected).not.toContain("onload");
+    expect(injected).not.toContain("onclick");
+    expect(injected).not.toContain("<script");
+    expect(injected).not.toContain("foreignObject");
+    expect(injected).not.toContain("javascript:");
+    expect(injected).not.toContain("<a");
+  });
 });

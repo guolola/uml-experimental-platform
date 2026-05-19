@@ -1,0 +1,87 @@
+// Provides the default editable React prototype files shown before generation.
+
+
+
+export const DEFAULT_FILES: Record<string, string> = {
+  "/src/App.tsx": [
+    "import { WorkspaceShell } from './components/WorkspaceShell';",
+    "",
+    "export default function App() {",
+    "  return <WorkspaceShell />;",
+    "}",
+  ].join("\n"),
+  "/src/components/WorkspaceShell.tsx": [
+    "export function WorkspaceShell() {",
+    "  return (",
+    "    <main className=\"empty-state\">",
+    "      <div>",
+    "        <span className=\"eyebrow\">UML Prototype</span>",
+    "        <h1>等待生成前端原型</h1>",
+    "        <p>先在设计页生成设计模型，再回到代码页生成可编辑、可预览的 React 原型。</p>",
+    "      </div>",
+    "    </main>",
+    "  );",
+    "}",
+  ].join("\n"),
+  "/src/domain/types.ts": [
+    "export interface PrototypeRecord {",
+    "  id: string;",
+    "  name: string;",
+    "  status: string;",
+    "}",
+  ].join("\n"),
+  "/src/data/mock-data.ts": [
+    "import type { PrototypeRecord } from '../domain/types';",
+    "",
+    "export const mockData: PrototypeRecord[] = [];",
+  ].join("\n"),
+  "/src/styles.css": [
+    "body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #f7f8fa; color: #1d1f23; }",
+    ".empty-state { min-height: 100vh; display: grid; place-items: center; padding: 32px; }",
+    ".empty-state > div { max-width: 560px; border: 1px solid #e5e7eb; background: #fff; padding: 24px; }",
+    ".eyebrow { color: #337dff; font-size: 12px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }",
+    "h1 { margin: 8px 0; font-size: 24px; }",
+    "p { margin: 0; color: #6b7280; }",
+  ].join("\n"),
+  "/src/main.tsx": [
+    "import React from 'react';",
+    "import { createRoot } from 'react-dom/client';",
+    "import './styles.css';",
+    "import App from './App';",
+    "",
+    "createRoot(document.getElementById('root')!).render(",
+    "  <React.StrictMode>",
+    "    <App />",
+    "  </React.StrictMode>,",
+    ");",
+  ].join("\n"),
+  "/index.html":
+    [
+      "<!doctype html>",
+      "<html>",
+      "  <head>",
+      "    <meta charset=\"UTF-8\" />",
+      "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />",
+      "    <title>UML Prototype</title>",
+      "  </head>",
+      "  <body>",
+      "    <div id=\"root\"></div>",
+      "    <script type=\"module\" src=\"/src/main.tsx\"></script>",
+      "  </body>",
+      "</html>",
+    ].join("\n"),
+  "/public/index.html":
+    [
+      "<!doctype html>",
+      "<html>",
+      "  <head>",
+      "    <meta charset=\"UTF-8\" />",
+      "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />",
+      "    <title>UML Prototype</title>",
+      "  </head>",
+      "  <body>",
+      "    <div id=\"root\"></div>",
+      "  </body>",
+      "</html>",
+    ].join("\n"),
+};

@@ -8,6 +8,7 @@ import type {
   DesignDiagramModelSpec,
   CodeRunSnapshot,
   DocumentKind,
+  DocumentStyleSettings,
   DocumentRunSnapshot,
   DesignPlantUmlArtifact,
   DesignRunSnapshot,
@@ -29,6 +30,13 @@ import {
 } from "../../shared/lib/user-settings";
 import type { ModelCapability } from "../../shared/lib/model-catalog";
 import {
+  ApiClientError,
+  downloadBlob,
+  postJson,
+  requestJson,
+} from "../api-client";
+import { subscribeToRunEvents } from "../sse-client";
+import {
   clearRunHistoryItems,
   deleteRunHistoryItem,
   loadRunHistory,
@@ -37,29 +45,7 @@ import {
   type RunHistorySnapshot,
 } from "../../features/history";
 
-const APP_API_BASE_URL =
-  import.meta.env.VITE_APP_API_BASE_URL ?? "http://127.0.0.1:4001";
-const API_PATH_PREFIX = "/api";
-
-export function buildApiUrl(path: string, baseUrl = APP_API_BASE_URL) {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
-
-  if (!normalizedBaseUrl) {
-    return normalizedPath;
-  }
-
-  if (
-    normalizedBaseUrl.endsWith(API_PATH_PREFIX) &&
-    (normalizedPath === API_PATH_PREFIX ||
-      normalizedPath.startsWith(`${API_PATH_PREFIX}/`))
-  ) {
-    const pathWithoutApiPrefix = normalizedPath.slice(API_PATH_PREFIX.length);
-    return `${normalizedBaseUrl}${pathWithoutApiPrefix || "/"}`;
-  }
-
-  return `${normalizedBaseUrl}${normalizedPath}`;
-}
+export { buildApiUrl } from "../api-client";
 
 export interface ProviderSettingsInput {
   apiBaseUrl: ProviderSettings["apiBaseUrl"];
@@ -104,6 +90,7 @@ export interface StartDocumentRunInput {
   designSvgArtifacts: DesignSvgArtifact[];
   providerSettings: ProviderSettingsInput;
   useAiText: boolean;
+  documentStyle?: DocumentStyleSettings;
 }
 
 export interface WorkspaceRepository {
@@ -134,7 +121,10 @@ export interface WorkspaceRepository {
   getDesignRunSnapshot?(runId: string): Promise<DesignRunSnapshot>;
   getCodeRunSnapshot?(runId: string): Promise<CodeRunSnapshot>;
   getDocumentRunSnapshot?(runId: string): Promise<DocumentRunSnapshot>;
-  downloadDocumentRun?(runId: string): Promise<{ blob: Blob; fileName: string }>;
+  downloadDocumentRun?(
+    runId: string,
+    defaultFileName?: string,
+  ): Promise<{ blob: Blob; fileName: string }>;
   renderPlantUml(
     diagramKind: DiagramType,
     plantUmlSource: string,
@@ -226,54 +216,41 @@ function mapDesignSnapshotToRecords(snapshot: DesignRunSnapshot) {
 }
 
 async function readRunSnapshot(runId: string) {
-  const response = await fetch(buildApiUrl(`/api/runs/${runId}`));
-  if (!response.ok) {
-    throw new Error(`读取运行快照失败：HTTP ${response.status}`);
-  }
-  return (await response.json()) as RunSnapshot;
+  return requestJson<RunSnapshot>(`/api/runs/${runId}`, {
+    errorMessage: "读取运行快照失败",
+  });
 }
 
 async function readDesignRunSnapshot(runId: string) {
-  const response = await fetch(buildApiUrl(`/api/design-runs/${runId}`));
-  if (!response.ok) {
-    throw new Error(`读取设计运行快照失败：HTTP ${response.status}`);
-  }
-  return (await response.json()) as DesignRunSnapshot;
+  return requestJson<DesignRunSnapshot>(`/api/design-runs/${runId}`, {
+    errorMessage: "读取设计运行快照失败",
+  });
 }
 
 async function readCodeRunSnapshot(runId: string) {
-  const response = await fetch(buildApiUrl(`/api/code-runs/${runId}`));
-  if (!response.ok) {
-    if (response.status === 404) {
+  try {
+    return await requestJson<CodeRunSnapshot>(`/api/code-runs/${runId}`, {
+      errorMessage: "读取代码运行快照失败",
+    });
+  } catch (error) {
+    if (error instanceof ApiClientError && error.status === 404) {
       throw new Error("代码生成任务已丢失，可能是本地 API 服务重启，请重新生成");
     }
-    throw new Error(`读取代码运行快照失败：HTTP ${response.status}`);
+    throw error;
   }
-  return (await response.json()) as CodeRunSnapshot;
 }
 
 async function readDocumentRunSnapshot(runId: string) {
-  const response = await fetch(buildApiUrl(`/api/document-runs/${runId}`));
-  if (!response.ok) {
-    throw new Error(`读取说明书运行快照失败：HTTP ${response.status}`);
-  }
-  return (await response.json()) as DocumentRunSnapshot;
+  return requestJson<DocumentRunSnapshot>(`/api/document-runs/${runId}`, {
+    errorMessage: "读取说明书运行快照失败",
+  });
 }
 
-async function downloadDocumentRunFile(runId: string) {
-  const response = await fetch(buildApiUrl(`/api/document-runs/${runId}/download`));
-  if (!response.ok) {
-    throw new Error(`下载说明书失败：HTTP ${response.status}`);
-  }
-  const disposition = response.headers.get("Content-Disposition") ?? "";
-  const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
-  const fileName = match
-    ? decodeURIComponent(match[1])
-    : "说明书.docx";
-  return {
-    blob: await response.blob(),
-    fileName,
-  };
+async function downloadDocumentRunFile(runId: string, defaultFileName?: string) {
+  return downloadBlob(`/api/document-runs/${runId}/download`, {
+    errorMessage: "下载说明书失败",
+    defaultFileName: defaultFileName ?? "说明书.docx",
+  });
 }
 
 async function waitForCodeRunSnapshot(
@@ -347,307 +324,81 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async startRun(input: StartRunInput) {
-      const response = await fetch(buildApiUrl("/api/runs"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
+      return postJson<{ runId: string }>("/api/runs", input, {
+        errorMessage: "启动生成失败",
       });
-
-      if (!response.ok) {
-        let message = `启动生成失败：HTTP ${response.status}`;
-        try {
-          const payload = (await response.json()) as { message?: string };
-          if (payload.message) {
-            message = payload.message;
-          }
-        } catch {
-          // Ignore non-JSON error payloads and fall back to status text.
-        }
-        throw new Error(message);
-      }
-
-      return (await response.json()) as { runId: string };
     },
 
     async startDesignRun(input: StartDesignRunInput) {
-      const response = await fetch(buildApiUrl("/api/design-runs"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
+      return postJson<{ runId: string }>("/api/design-runs", input, {
+        errorMessage: "启动设计生成失败",
       });
-
-      if (!response.ok) {
-        let message = `启动设计生成失败：HTTP ${response.status}`;
-        try {
-          const payload = (await response.json()) as { message?: string };
-          if (payload.message) {
-            message = payload.message;
-          }
-        } catch {
-          // Ignore non-JSON error payloads and fall back to status text.
-        }
-        throw new Error(message);
-      }
-
-      return (await response.json()) as { runId: string };
     },
 
     async startCodeRun(input: StartCodeRunInput) {
-      const response = await fetch(buildApiUrl("/api/code-runs"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
+      return postJson<{ runId: string }>("/api/code-runs", input, {
+        errorMessage: "启动代码生成失败",
       });
-
-      if (!response.ok) {
-        let message = `启动代码生成失败：HTTP ${response.status}`;
-        try {
-          const payload = (await response.json()) as { message?: string };
-          if (payload.message) {
-            message = payload.message;
-          }
-        } catch {
-          // Ignore non-JSON error payloads and fall back to status text.
-        }
-        throw new Error(message);
-      }
-
-      return (await response.json()) as { runId: string };
     },
 
     async startDocumentRun(input: StartDocumentRunInput) {
-      const response = await fetch(buildApiUrl("/api/document-runs"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
+      return postJson<{ runId: string }>("/api/document-runs", input, {
+        errorMessage: "启动说明书生成失败",
       });
-
-      if (!response.ok) {
-        let message = `启动说明书生成失败：HTTP ${response.status}`;
-        try {
-          const payload = (await response.json()) as { message?: string };
-          if (payload.message) {
-            message = payload.message;
-          }
-        } catch {
-          // Ignore non-JSON error payloads and fall back to status text.
-        }
-        throw new Error(message);
-      }
-
-      return (await response.json()) as { runId: string };
     },
 
     async subscribeToRun(runId: string, onEvent: (event: RunEvent) => void) {
-      await new Promise<void>((resolve, reject) => {
-        const source = new EventSource(buildApiUrl(`/api/runs/${runId}/events`));
-        let settled = false;
-
-        source.onmessage = (message) => {
-          try {
-            const event = JSON.parse(message.data) as RunEvent;
-            onEvent(event);
-            if (event.type === "completed") {
-              settled = true;
-              source.close();
-              resolve();
-            }
-            if (event.type === "failed") {
-              settled = true;
-              source.close();
-              reject(new Error(event.message));
-            }
-          } catch (error) {
-            settled = true;
-            source.close();
-            reject(error);
+      const subscription = subscribeToRunEvents(`/api/runs/${runId}/events`, {
+        onEvent,
+        onError: async () => {
+          const snapshot = await readRunSnapshot(runId);
+          if (snapshot.status === "failed") {
+            throw new Error(snapshot.errorMessage ?? "生成失败");
           }
-        };
-
-        source.onerror = () => {
-          if (settled) {
-            source.close();
-            return;
+          if (snapshot.status !== "completed") {
+            throw new Error("SSE 订阅失败");
           }
-          source.close();
-          void readRunSnapshot(runId)
-            .then((snapshot) => {
-              settled = true;
-              if (snapshot.status === "failed") {
-                reject(new Error(snapshot.errorMessage ?? "生成失败"));
-                return;
-              }
-              if (snapshot.status === "completed") {
-                resolve();
-                return;
-              }
-              reject(new Error("SSE 订阅失败"));
-            })
-            .catch(() => {
-              settled = true;
-              reject(new Error("SSE 订阅失败"));
-            });
-        };
+        },
       });
+      await subscription.closed;
     },
 
     async subscribeToDesignRun(runId: string, onEvent: (event: RunEvent) => void) {
-      await new Promise<void>((resolve, reject) => {
-        const source = new EventSource(
-          buildApiUrl(`/api/design-runs/${runId}/events`),
-        );
-        let settled = false;
-
-        source.onmessage = (message) => {
-          try {
-            const event = JSON.parse(message.data) as RunEvent;
-            onEvent(event);
-            if (event.type === "completed") {
-              settled = true;
-              source.close();
-              resolve();
+      const subscription = subscribeToRunEvents(
+        `/api/design-runs/${runId}/events`,
+        {
+          onEvent,
+          onError: async () => {
+            const snapshot = await readDesignRunSnapshot(runId);
+            if (snapshot.status === "failed") {
+              throw new Error(snapshot.errorMessage ?? "设计生成失败");
             }
-            if (event.type === "failed") {
-              settled = true;
-              source.close();
-              reject(new Error(event.message));
+            if (snapshot.status !== "completed") {
+              throw new Error("设计 SSE 订阅失败");
             }
-          } catch (error) {
-            settled = true;
-            source.close();
-            reject(error);
-          }
-        };
-
-        source.onerror = () => {
-          if (settled) {
-            source.close();
-            return;
-          }
-          source.close();
-          void readDesignRunSnapshot(runId)
-            .then((snapshot) => {
-              settled = true;
-              if (snapshot.status === "failed") {
-                reject(new Error(snapshot.errorMessage ?? "设计生成失败"));
-                return;
-              }
-              if (snapshot.status === "completed") {
-                resolve();
-                return;
-              }
-              reject(new Error("设计 SSE 订阅失败"));
-            })
-            .catch(() => {
-              settled = true;
-              reject(new Error("设计 SSE 订阅失败"));
-            });
-        };
-      });
+          },
+        },
+      );
+      await subscription.closed;
     },
 
     async subscribeToCodeRun(runId: string, onEvent: (event: RunEvent) => void) {
-      await new Promise<void>((resolve, reject) => {
-        const source = new EventSource(buildApiUrl(`/api/code-runs/${runId}/events`));
-        let settled = false;
-
-        source.onmessage = (message) => {
-          try {
-            const event = JSON.parse(message.data) as RunEvent;
-            onEvent(event);
-            if (event.type === "completed") {
-              settled = true;
-              source.close();
-              resolve();
-            }
-            if (event.type === "failed") {
-              settled = true;
-              source.close();
-              reject(new Error(event.message));
-            }
-          } catch (error) {
-            settled = true;
-            source.close();
-            reject(error);
-          }
-        };
-
-        source.onerror = () => {
-          if (settled) {
-            source.close();
-            return;
-          }
-          source.close();
-          void waitForCodeRunSnapshot(runId, onEvent)
-            .then(() => {
-              settled = true;
-              resolve();
-            })
-            .catch((error) => {
-              settled = true;
-              reject(error instanceof Error ? error : new Error("代码 SSE 订阅失败"));
-            });
-        };
+      const subscription = subscribeToRunEvents(`/api/code-runs/${runId}/events`, {
+        onEvent,
+        onError: () => waitForCodeRunSnapshot(runId, onEvent),
       });
+      await subscription.closed;
     },
 
     async subscribeToDocumentRun(runId: string, onEvent: (event: RunEvent) => void) {
-      await new Promise<void>((resolve, reject) => {
-        const source = new EventSource(
-          buildApiUrl(`/api/document-runs/${runId}/events`),
-        );
-        let settled = false;
-
-        source.onmessage = (message) => {
-          try {
-            const event = JSON.parse(message.data) as RunEvent;
-            onEvent(event);
-            if (event.type === "completed") {
-              settled = true;
-              source.close();
-              resolve();
-            }
-            if (event.type === "failed") {
-              settled = true;
-              source.close();
-              reject(new Error(event.message));
-            }
-          } catch (error) {
-            settled = true;
-            source.close();
-            reject(error);
-          }
-        };
-
-        source.onerror = () => {
-          if (settled) {
-            source.close();
-            return;
-          }
-          source.close();
-          void waitForDocumentRunSnapshot(runId, onEvent)
-            .then(() => {
-              settled = true;
-              resolve();
-            })
-            .catch((error) => {
-              settled = true;
-              reject(
-                error instanceof Error
-                  ? error
-                  : new Error("说明书 SSE 订阅失败"),
-              );
-            });
-        };
-      });
+      const subscription = subscribeToRunEvents(
+        `/api/document-runs/${runId}/events`,
+        {
+          onEvent,
+          onError: () => waitForDocumentRunSnapshot(runId, onEvent),
+        },
+      );
+      await subscription.closed;
     },
 
     async getRunSnapshot(runId: string) {
@@ -666,53 +417,29 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
       return readDocumentRunSnapshot(runId);
     },
 
-    async downloadDocumentRun(runId: string) {
-      return downloadDocumentRunFile(runId);
+    async downloadDocumentRun(runId: string, defaultFileName?: string) {
+      return downloadDocumentRunFile(runId, defaultFileName);
     },
 
     async renderPlantUml(diagramKind, plantUmlSource) {
-      const response = await fetch(buildApiUrl("/api/render/svg"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          diagramKind,
-          plantUmlSource,
-        }),
+      return postJson<RenderSvgResponse>("/api/render/svg", {
+        diagramKind,
+        plantUmlSource,
+      }, {
+        errorMessage: "渲染 PlantUML 失败",
       });
-
-      if (!response.ok) {
-        let message = `渲染 PlantUML 失败：HTTP ${response.status}`;
-        try {
-          const payload = (await response.json()) as { message?: string };
-          if (payload.message) {
-            message = payload.message;
-          }
-        } catch {
-          // Ignore non-JSON error payloads and fall back to status text.
-        }
-        throw new Error(message);
-      }
-
-      return (await response.json()) as RenderSvgResponse;
     },
 
     async testProviderSettings(providerSettings) {
-      const response = await fetch(buildApiUrl("/api/provider/test"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(providerSettings),
-      });
-      const payload = (await response.json()) as {
+      const payload = await postJson<{
         ok?: boolean;
         message?: string;
         capability?: ModelCapability;
-      };
-      if (!response.ok || !payload.ok || !payload.capability) {
-        throw new Error(payload.message ?? `连接测试失败：HTTP ${response.status}`);
+      }>("/api/provider/test", providerSettings, {
+        errorMessage: "连接测试失败",
+      });
+      if (!payload.ok || !payload.capability) {
+        throw new Error(payload.message ?? "连接测试失败");
       }
       return {
         ok: true,
@@ -1132,7 +859,7 @@ export function createMockWorkspaceRepository(
       return snapshot;
     },
 
-    async downloadDocumentRun(runId) {
+    async downloadDocumentRun(runId, defaultFileName) {
       const snapshot = documentSnapshots.get(runId);
       const blob = documentBuffers.get(runId);
       if (!snapshot || !blob) {
@@ -1140,7 +867,7 @@ export function createMockWorkspaceRepository(
       }
       return {
         blob,
-        fileName: snapshot.fileName ?? "说明书.docx",
+        fileName: snapshot.fileName ?? defaultFileName ?? "说明书.docx",
       };
     },
 
@@ -1305,6 +1032,7 @@ export function createStartDocumentRunInput(
   designModels: DesignDiagramModelSpec[],
   designPlantUml: DesignPlantUmlArtifact[],
   designSvgArtifacts: DesignSvgArtifact[],
+  documentStyle?: DocumentStyleSettings,
 ): StartDocumentRunInput {
   const base = createStartRunInput(requirementText, []);
   return {
@@ -1319,5 +1047,6 @@ export function createStartDocumentRunInput(
     designSvgArtifacts,
     providerSettings: base.providerSettings,
     useAiText: true,
+    documentStyle,
   };
 }

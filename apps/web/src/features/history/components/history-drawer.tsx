@@ -44,13 +44,16 @@ export function HistoryDrawer({
     onClose();
   };
 
-  const downloadDocument = async (id: string) => {
+  const downloadDocument = async (id: string, defaultFileName?: string | null) => {
     if (!repository.downloadDocumentRun) {
       toast.error("当前仓储不支持重新下载说明书");
       return;
     }
     try {
-      const downloaded = await repository.downloadDocumentRun(id);
+      const downloaded = await repository.downloadDocumentRun(
+        id,
+        defaultFileName ?? undefined,
+      );
       downloadBlobFile(downloaded.fileName, downloaded.blob);
       toast.success("已重新下载说明书");
     } catch (error) {
@@ -165,7 +168,14 @@ export function HistoryDrawer({
                             size="icon"
                             className="size-8"
                             title="重新下载 DOCX"
-                            onClick={() => void downloadDocument(item.id)}
+                            onClick={() =>
+                              void downloadDocument(
+                                item.id,
+                                isDocumentRunSnapshot(item.snapshot)
+                                  ? item.snapshot.fileName
+                                  : undefined,
+                              )
+                            }
                           >
                             <Download className="size-4" />
                           </Button>

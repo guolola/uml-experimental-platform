@@ -1284,6 +1284,55 @@ export type StartCodeRunRequest = z.infer<typeof startCodeRunRequestSchema>;
 export const documentKindSchema = z.enum(["requirementsSpec", "softwareDesignSpec"]);
 export type DocumentKind = z.infer<typeof documentKindSchema>;
 
+export const documentStylePresetNameSchema = z.enum(["courseDesign"]);
+export type DocumentStylePresetName = z.infer<typeof documentStylePresetNameSchema>;
+
+const documentFontSchema = z.string().trim().min(1).max(64);
+const documentPointSizeSchema = z.number().min(6).max(72);
+const documentSpacingPtSchema = z.number().min(0).max(72);
+
+export const documentLineSpacingSchema = z.object({
+  type: z.enum(["single", "multiple"]),
+  value: z.number().min(1).max(3),
+});
+export type DocumentLineSpacing = z.infer<typeof documentLineSpacingSchema>;
+
+export const documentParagraphStyleSchema = z.object({
+  eastAsiaFont: documentFontSchema.optional(),
+  asciiFont: documentFontSchema.optional(),
+  sizePt: documentPointSizeSchema.optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  lineSpacing: documentLineSpacingSchema.optional(),
+  spacingBeforePt: documentSpacingPtSchema.optional(),
+  spacingAfterPt: documentSpacingPtSchema.optional(),
+  firstLineIndentChars: z.number().min(0).max(4).optional(),
+});
+export type DocumentParagraphStyle = z.infer<typeof documentParagraphStyleSchema>;
+
+export const documentHeadingStyleSchema = documentParagraphStyleSchema.extend({
+  keepNext: z.boolean().optional(),
+});
+export type DocumentHeadingStyle = z.infer<typeof documentHeadingStyleSchema>;
+
+export const documentTableStyleSchema = documentParagraphStyleSchema.extend({
+  headerBold: z.boolean().optional(),
+});
+export type DocumentTableStyle = z.infer<typeof documentTableStyleSchema>;
+
+export const documentStyleSettingsSchema = z.object({
+  presetName: documentStylePresetNameSchema.default("courseDesign"),
+  includeTableOfContents: z.boolean().default(true),
+  autoNumberHeadings: z.boolean().default(true),
+  heading1: documentHeadingStyleSchema.optional(),
+  heading2: documentHeadingStyleSchema.optional(),
+  heading3: documentHeadingStyleSchema.optional(),
+  body: documentParagraphStyleSchema.optional(),
+  table: documentTableStyleSchema.optional(),
+  caption: documentParagraphStyleSchema.optional(),
+});
+export type DocumentStyleSettings = z.infer<typeof documentStyleSettingsSchema>;
+
 export const documentSectionTableSchema = z.object({
   headers: z.array(z.string()),
   rows: z.array(z.array(z.string())),
@@ -1316,6 +1365,7 @@ export const startDocumentRunRequestSchema = z.object({
   designSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
   providerSettings: providerSettingsSchema,
   useAiText: z.boolean().default(true),
+  documentStyle: documentStyleSettingsSchema.optional(),
 });
 export type StartDocumentRunRequest = z.infer<typeof startDocumentRunRequestSchema>;
 

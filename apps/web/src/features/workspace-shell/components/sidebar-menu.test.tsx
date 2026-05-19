@@ -2,7 +2,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
-import { createWorkspaceRecord, withWorkspaceProviders } from "../../../test/workspace-test-utils";
+import {
+  createRule,
+  createWorkspaceRecord,
+  withWorkspaceProviders,
+} from "../../../test/workspace-test-utils";
 import { SidebarMenu } from "./sidebar-menu";
 import { WorkspaceTabsBar } from "./workspace-tabs-bar";
 
@@ -50,6 +54,186 @@ describe("SidebarMenu", () => {
     expect(await screen.findByText("界面关系")).toBeInTheDocument();
     expect(screen.getByText("失败")).toBeInTheDocument();
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
+  });
+
+  it("shows requirement rule provenance badges for generated diagrams", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDiagramTypes: ["usecase"],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例图",
+              summary: "核心用例",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+          rules: [
+            createRule({ id: "r1", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "r2", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "R3", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "r4", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "r5", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "r6", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "r7", relatedDiagrams: ["usecase"] }),
+          ],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 需求" }));
+
+    expect(screen.getByText("用例模型")).toBeInTheDocument();
+    const badge = screen.getByText("R1 R2 R3 +4");
+    expect(badge).toBeInTheDocument();
+    expect(screen.queryByText("R1, R2, R3, R4, R5, R6, R7")).not.toBeInTheDocument();
+
+    await user.hover(badge);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "R1, R2, R3, R4, R5, R6, R7",
+    );
+  });
+
+  it("shows design diagram upstream provenance badges", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDesignDiagramTypes: ["sequence"],
+          designModels: {
+            sequence: {
+              diagramKind: "sequence",
+              title: "顺序图",
+              summary: "动态行为",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+
+    expect(screen.getByText("顺序图")).toBeInTheDocument();
+    expect(screen.getByText("用例模型")).toBeInTheDocument();
+  });
+
+  it("shows multiple upstream badges for downstream design diagrams", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDesignDiagramTypes: ["class"],
+          designModels: {
+            class: {
+              diagramKind: "class",
+              title: "设计类图",
+              summary: "静态结构",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+
+    expect(screen.getByRole("button", { name: "设计类图" })).toBeInTheDocument();
+    expect(screen.getByText("领域概念模型")).toBeInTheDocument();
+    expect(screen.getByText("顺序图")).toBeInTheDocument();
+  });
+
+  it("does not show element count badges in the design navigation", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDesignDiagramTypes: ["sequence"],
+          designModels: {
+            sequence: {
+              diagramKind: "sequence",
+              title: "顺序图",
+              summary: "动态行为",
+              notes: [],
+              participants: [
+                { id: "actor", name: "用户", participantType: "actor" },
+              ],
+              messages: [],
+              fragments: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 顺序图" }));
+
+    expect(screen.getByText("用例模型")).toBeInTheDocument();
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
 
   it("shows primary workspace entries without default secondary pages", async () => {
@@ -156,19 +340,22 @@ describe("SidebarMenu", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
 
-    expect(screen.getByText("顺序图")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "顺序图" })).toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
     expect(screen.queryByText("业务逻辑模型")).not.toBeInTheDocument();
     expect(screen.queryByText("静态结构模型")).not.toBeInTheDocument();
     expect(screen.queryByText("物理部署模型")).not.toBeInTheDocument();
-    expect(screen.queryByText("领域概念模型")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "领域概念模型" })).not.toBeInTheDocument();
 
-    const navText = screen.getByRole("navigation").textContent ?? "";
-    expect(navText.indexOf("顺序图")).toBeLessThan(navText.indexOf("界面关系"));
-    expect(navText.indexOf("顺序图")).toBeLessThan(navText.indexOf("设计类图"));
-    expect(navText.indexOf("设计类图")).toBeLessThan(navText.indexOf("界面关系"));
-    expect(navText.indexOf("界面关系")).toBeLessThan(navText.indexOf("部署模型"));
-    expect(navText.indexOf("部署模型")).toBeLessThan(navText.indexOf("表关系图"));
+    const nodeLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim())
+      .filter(Boolean);
+    expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("界面关系"));
+    expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("设计类图"));
+    expect(nodeLabels.indexOf("设计类图")).toBeLessThan(nodeLabels.indexOf("界面关系"));
+    expect(nodeLabels.indexOf("界面关系")).toBeLessThan(nodeLabels.indexOf("部署模型"));
+    expect(nodeLabels.indexOf("部署模型")).toBeLessThan(nodeLabels.indexOf("表关系图"));
   });
 
   it("expands design tree one level at a time", async () => {

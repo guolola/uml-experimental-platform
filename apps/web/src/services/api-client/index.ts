@@ -1,7 +1,136 @@
-export interface ApiClient {
-  readonly kind: "http";
+// Centralizes HTTP URL resolution, JSON requests, downloads, and error parsing.
+const APP_API_BASE_URL =
+  import.meta.env.VITE_APP_API_BASE_URL ?? "http://127.0.0.1:4001";
+const API_PATH_PREFIX = "/api";
+
+export class ApiClientError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(message: string, status: number, payload?: unknown) {
+    super(message);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.payload = payload;
+  }
 }
 
-export const apiClientScaffold: ApiClient = {
-  kind: "http",
-};
+export function buildApiUrl(path: string, baseUrl = APP_API_BASE_URL) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+
+  if (!normalizedBaseUrl) {
+    return normalizedPath;
+  }
+
+  if (
+    normalizedBaseUrl.endsWith(API_PATH_PREFIX) &&
+    (normalizedPath === API_PATH_PREFIX ||
+      normalizedPath.startsWith(`${API_PATH_PREFIX}/`))
+  ) {
+    const pathWithoutApiPrefix = normalizedPath.slice(API_PATH_PREFIX.length);
+    return `${normalizedBaseUrl}${pathWithoutApiPrefix || "/"}`;
+  }
+
+  return `${normalizedBaseUrl}${normalizedPath}`;
+}
+
+async function parseErrorPayload(response: Response) {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const text = await response.text();
+    return text.trim() ? { message: text.trim() } : null;
+  } catch {
+    return null;
+  }
+}
+
+function messageFromPayload(
+  payload: unknown,
+  fallback: string,
+) {
+  if (payload && typeof payload === "object") {
+    const maybeMessage = "message" in payload ? payload.message : undefined;
+    if (typeof maybeMessage === "string" && maybeMessage.trim()) {
+      return maybeMessage;
+    }
+    const maybeError = "error" in payload ? payload.error : undefined;
+    if (maybeError && typeof maybeError === "object" && "message" in maybeError) {
+      const nestedMessage = maybeError.message;
+      if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+        return nestedMessage;
+      }
+    }
+  }
+  return fallback;
+}
+
+export async function requestJson<T>(
+  path: string,
+  options: RequestInit & { errorMessage?: string } = {},
+): Promise<T> {
+  const { errorMessage, ...requestOptions } = options;
+  const response = await fetch(buildApiUrl(path), requestOptions);
+  if (!response.ok) {
+    const payload = await parseErrorPayload(response);
+    throw new ApiClientError(
+      messageFromPayload(payload, errorMessage ?? `HTTP ${response.status}`),
+      response.status,
+      payload,
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
+export function postJson<T>(
+  path: string,
+  body: unknown,
+  options: RequestInit & { errorMessage?: string } = {},
+) {
+  return requestJson<T>(path, {
+    ...options,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function downloadBlob(
+  path: string,
+  options: RequestInit & { errorMessage?: string; defaultFileName?: string } = {},
+) {
+  const { errorMessage, defaultFileName = "download", ...requestOptions } = options;
+  const response = await fetch(buildApiUrl(path), requestOptions);
+  if (!response.ok) {
+    const payload = await parseErrorPayload(response);
+    throw new ApiClientError(
+      messageFromPayload(payload, errorMessage ?? `HTTP ${response.status}`),
+      response.status,
+      payload,
+    );
+  }
+
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+  const quotedMatch = disposition.match(/filename="?([^";]+)"?/);
+  const fileName = utf8Match
+    ? decodeURIComponent(utf8Match[1])
+    : quotedMatch?.[1] ?? defaultFileName;
+
+  return {
+    blob: await response.blob(),
+    fileName,
+  };
+}

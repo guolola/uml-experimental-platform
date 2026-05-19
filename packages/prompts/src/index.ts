@@ -1195,6 +1195,42 @@ export function buildGenerateDocumentContentPrompt(
   ].join("\n");
 }
 
+export function buildRepairDocumentContentPrompt(
+  documentKind: DocumentKind,
+  context: unknown,
+  previousOutput: string,
+  errorMessage: string,
+) {
+  const title =
+    documentKind === "requirementsSpec" ? "需求规格说明书" : "软件设计说明书";
+
+  return [
+    `请修复《${title}》正文生成结果的 JSON 结构。`,
+    "你是说明书结构化正文修复助手。",
+    "只允许返回一个顶层 JSON 对象，不允许输出 Markdown、解释或代码围栏。",
+    "返回格式必须是 {\"sections\":[...]}。",
+    "",
+    "sections 每项字段：",
+    "- level: 只能是 1、2、3。",
+    "- title: 小节标题，不要包含 Markdown 符号。",
+    "- body: 段落数组，每段为完整中文说明。",
+    "- table: 可选，格式为 {headers:string[], rows:string[][]}。",
+    "- diagramKind: 可选，只能标记已有图产物对应的小节。",
+    "",
+    "必须保留上一轮输出中可用的文档内容，但要修复 JSON 语法、字段类型、缺失字段和 schema 不匹配问题。",
+    "如果某些内容无法安全还原，使用“当前阶段未明确”，不要虚构无法追溯的能力。",
+    "",
+    "解析或校验错误：",
+    errorMessage,
+    "",
+    "上一轮原始输出：",
+    truncateForPrompt(previousOutput, 16000),
+    "",
+    "当前产物上下文：",
+    stringifyDocumentContext(context),
+  ].join("\n");
+}
+
 export function buildRepairPlantUmlPrompt(
   diagramKind: DiagramKind | DesignDiagramKind,
   model: DiagramModelSpec | DesignDiagramModelSpec,

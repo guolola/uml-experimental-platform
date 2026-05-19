@@ -2478,14 +2478,29 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
           sections: [
             {
               level: 1,
-              title: "1 项目引言",
+              title: "项目引言",
               body: ["说明项目背景，禁止写入成都信息工程大学 软件工程学院等模板外机构名。"],
             },
             {
+              level: 1,
+              title: "需求概述",
+              body: ["说明系统面向的用户与范围。"],
+            },
+            {
+              level: 1,
+              title: "需求规定",
+              body: [],
+            },
+            {
               level: 2,
-              title: "1.1 总体用例图",
-              body: ["总体用例图如下。"],
+              title: "功能需求",
+              body: ["总体功能需求说明。总体用例图如下。"],
               diagramKind: "usecase",
+            },
+            {
+              level: 3,
+              title: "用例1：名称（编号）",
+              body: ["用例参与者、前置条件、基本流程和异常流程见需求模型。"],
             },
           ],
         });
@@ -2568,15 +2583,37 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
   );
   assert.ok(mediaPngs.length > 0);
   const documentXml = entries.get("word/document.xml")?.toString("utf8") ?? "";
+  const stylesXml = entries.get("word/styles.xml")?.toString("utf8") ?? "";
   const relsXml =
     entries.get("word/_rels/document.xml.rels")?.toString("utf8") ?? "";
+  assert.match(
+    download.headers["content-disposition"] ?? "",
+    /%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6\.docx/,
+  );
   assert.doesNotMatch(documentXml, /成都信息工程大学/);
   assert.doesNotMatch(documentXml, /软件工程学院/);
   assert.match(documentXml, /课程设计文档/);
+  assert.match(documentXml, /目录/);
+  assert.match(documentXml, /TOC/);
+  assert.match(documentXml, /Heading1/);
+  assert.match(documentXml, /Heading2/);
+  assert.match(documentXml, /Heading3/);
+  assert.match(documentXml, /3 需求规定/);
+  assert.match(documentXml, /3\.1 功能需求/);
+  assert.match(documentXml, /3\.1\.1 用例1：名称（编号）/);
+  assert.match(documentXml, /3 需求规定<\/w:t><w:tab\/><w:t(?: [^>]*)?>1<\/w:t>/);
+  assert.match(documentXml, /<w:pgNumType w:start="1"\/>/);
   assert.match(documentXml, /项目名称：待填写/);
   assert.match(documentXml, /文档类型：需求规格说明书/);
   assert.match(documentXml, /生成日期：\d{4}-\d{2}-\d{2}/);
   assert.match(documentXml, /图 总体用例图/);
+  assert.match(stylesXml, /Times New Roman/);
+  assert.match(stylesXml, /SimHei/);
+  assert.match(stylesXml, /SimSun/);
+  assert.match(stylesXml, /w:sz[^>]+w:val="32"/);
+  assert.match(stylesXml, /w:spacing[^>]+w:before="260"/);
+  assert.match(stylesXml, /w:spacing[^>]+w:after="260"/);
+  assert.match(stylesXml, /w:spacing[^>]+w:line="415"/);
   assert.match(relsXml, /media\/.+\.png/);
 
   await app.close();
@@ -2595,7 +2632,7 @@ test("api software design document uses generic cover without school names", asy
       requirementModels: [],
       requirementPlantUml: [],
       requirementSvgArtifacts: [],
-      designModels: [],
+      designModels: [DESIGN_SEQUENCE_MODEL],
       designPlantUml: [],
       designSvgArtifacts: [],
       providerSettings: {
@@ -2655,6 +2692,7 @@ test("api document run reports missing embeddable image source when only SVG exi
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
       requirementSvgArtifacts: [
         {
           diagramKind: "usecase",
@@ -2698,6 +2736,163 @@ test("api document run reports missing embeddable image source when only SVG exi
   const entries = extractZipEntries(download.rawPayload);
   const documentXml = entries.get("word/document.xml")?.toString("utf8") ?? "";
   assert.match(documentXml, /当前未生成该图/);
+
+  await app.close();
+});
+
+test("api repairs document content JSON before rendering DOCX", async () => {
+  let attempts = 0;
+  const prompts: string[] = [];
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages }) {
+        const prompt = lastPromptText(messages);
+        prompts.push(prompt);
+        attempts += 1;
+        if (attempts === 1) {
+          yield '{"sections":[{"level":4,"title":"","body":"bad"}]}';
+          return;
+        }
+        assert.match(prompt, /上一轮原始输出/);
+        assert.match(prompt, /"level":4/);
+        assert.match(prompt, /解析或校验错误/);
+        yield JSON.stringify({
+          sections: [
+            {
+              level: 1,
+              title: "需求规定",
+              body: ["修复后的说明书正文。"],
+            },
+          ],
+        });
+      },
+    },
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    payload: {
+      documentKind: "requirementsSpec",
+      requirementText: "根据需求生成说明书。",
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+      useAiText: true,
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const runId = startResponse.json().runId;
+  const events = await app.inject({
+    method: "GET",
+    url: `/api/document-runs/${runId}/events`,
+  });
+  assert.match(events.body, /说明书正文 JSON 结构不合法/);
+  assert.match(events.body, /"type":"completed"/);
+  assert.equal(attempts, 2);
+  assert.equal(prompts.length, 2);
+
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/document-runs/${runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.sections[0].title, "需求规定");
+
+  await app.close();
+});
+
+test("api fails document runs after document content repair attempts are exhausted", async () => {
+  let attempts = 0;
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion() {
+        attempts += 1;
+        yield '{"sections":[{"level":4,"title":"","body":"bad"}]}';
+      },
+    },
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    payload: {
+      documentKind: "requirementsSpec",
+      requirementText: "根据需求生成说明书。",
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+      useAiText: true,
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const runId = startResponse.json().runId;
+  const events = await app.inject({
+    method: "GET",
+    url: `/api/document-runs/${runId}/events`,
+  });
+  assert.match(events.body, /"type":"failed"/);
+  assert.equal(attempts, 3);
+
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/document-runs/${runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "failed");
+  assert.match(snapshot.errorMessage, /generate_document_text structured output failed/);
+
+  await app.close();
+});
+
+test("api document run rejects exports before the required models exist", async () => {
+  const app = await createApiServer();
+
+  const requirementsResponse = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    payload: {
+      documentKind: "requirementsSpec",
+      requirementText: "根据需求生成说明书。",
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+      useAiText: false,
+    },
+  });
+  assert.equal(requirementsResponse.statusCode, 400);
+  assert.match(requirementsResponse.json().message, /需求页生成需求模型/);
+
+  const designResponse = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    payload: {
+      documentKind: "softwareDesignSpec",
+      requirementText: "根据设计产物生成软件设计说明书。",
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+      useAiText: false,
+    },
+  });
+  assert.equal(designResponse.statusCode, 400);
+  assert.match(designResponse.json().message, /设计页生成设计模型/);
 
   await app.close();
 });
@@ -3662,6 +3857,10 @@ test("api applies the configured CORS origin allowlist", async () => {
     assert.equal(
       allowed.headers["access-control-allow-origin"],
       "https://app.example.com",
+    );
+    assert.match(
+      String(allowed.headers["access-control-expose-headers"] ?? ""),
+      /Content-Disposition/i,
     );
     assert.equal(blocked.statusCode, 200);
     assert.equal(blocked.headers["access-control-allow-origin"], undefined);

@@ -25,6 +25,7 @@ import type {
   DesignTraceEntry,
   RequirementTraceEntry,
   DocumentKind,
+  DocumentStyleSettings,
   DocumentRunSnapshot,
   DesignDiagramModelSpec,
   DiagramModelSpec,
@@ -55,455 +56,63 @@ import {
   type RunHistoryItem,
   type RunHistorySnapshot,
 } from "../history";
+import { useRunController } from "./run-controller";
+import type {
+  GenerationTask,
+  GenerationTaskKind,
+  RunMode,
+  WorkspaceSessionState,
+} from "./model/session-state";
+import {
+  notifyGenerationCompleted,
+  notifyGenerationFailed,
+  notifyGenerationResultStale,
+  notifyGenerationStarted,
+} from "./lib/notifications";
+import { createEmptyRunUiState } from "./lib/run-ui-state";
+import { snapshotInputFingerprint } from "./lib/fingerprint";
+import {
+  appendDiagnosticStream,
+  createEmptyDiagnostics,
+  getProgressFromEvent,
+  summarizeEvent,
+} from "./lib/diagnostics";
+import {
+  addLocalFailureToDiagnostics,
+  assignTaskRunId,
+  createClientTaskId,
+  createGenerationTask,
+  isTaskActive,
+  updateTaskFromEvent,
+} from "./lib/generation-tasks";
+import { designSnapshotToMaps, snapshotToMaps } from "./lib/snapshot-maps";
+import { useRequirementsSlice } from "./slices/requirements-slice";
+import { useDiagramsSlice } from "./slices/diagrams-slice";
+import { useDesignSlice } from "./slices/design-slice";
+import { useCodeSlice } from "./slices/code-slice";
+import { useRunDiagnosticsSlice } from "./slices/run-diagnostics-slice";
 
-interface DiagnosticEvent {
-  id: string;
-  at: string;
-  label: string;
-  detail: string | null;
-}
 
-interface RunDiagnostics {
-  runKind: "requirements" | "design" | "code" | "document" | null;
-  runId: string | null;
-  providerModel: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  activeStage: RunStage | null;
-  streamText: string;
-  chunkCount: number;
-  stageStartedAt: Partial<Record<RunStage, string>>;
-  stageMessages: Partial<Record<string, string>>;
-  events: DiagnosticEvent[];
-  uiMockup: CodeUiMockup | null;
-  uiReferenceSpec: CodeUiReferenceSpec | null;
-  uiFidelityReport: CodeUiFidelityReport | null;
-  visualDirection: CodeVisualDirection | null;
-  skillResourceDiscoveryPlan: CodeSkillResourceDiscoveryPlan | null;
-  skillResourcePreviews: CodeSkillResourcePreviewResult | null;
-  skillResourcePlan: CodeSkillResourcePlan | null;
-  codeSkillContext: CodeSkillContext | null;
-  requirementTrace: RequirementTraceEntry[];
-  designTrace: DesignTraceEntry[];
-  codeTrace: CodeTraceEntry[];
-}
 
-interface WorkspaceSessionState {
-  requirementText: string;
-  setRequirementText: (value: string) => void;
-  rules: RequirementRule[];
-  addRequirementRule: () => void;
-  createRequirementRule: (input: {
-    category: RequirementRule["category"];
-    text: string;
-    relatedDiagrams: DiagramType[];
-  }) => void;
-  updateRequirementRule: (
-    id: string,
-    patch: Partial<RequirementRule>,
-  ) => void;
-  deleteRequirementRule: (id: string) => void;
-  models: WorkspaceRecord["models"];
-  selectedDiagrams: DiagramType[];
-  setSelectedDiagrams: (value: DiagramType[]) => void;
-  plantUml: Partial<Record<DiagramType, string>>;
-  svgArtifacts: WorkspaceRecord["svgArtifacts"];
-  diagramErrors: WorkspaceRecord["diagramErrors"];
-  selectedDesignDiagrams: DesignDiagramType[];
-  setSelectedDesignDiagrams: (value: DesignDiagramType[]) => void;
-  designModels: WorkspaceRecord["designModels"];
-  designPlantUml: WorkspaceRecord["designPlantUml"];
-  designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
-  designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
-  codeSpec: CodeGenerationSpec | null;
-  codeBusinessLogic: CodeBusinessLogic | null;
-  codeFiles: Record<string, string>;
-  codeEntryFile: string | null;
-  codeDependencies: Record<string, string>;
-  codeUiMockup: CodeUiMockup | null;
-  codeAgentPlan: string[];
-  codeSkills: CodeRunSnapshot["selectedCodeSkills"];
-  codeSkillDiagnostics: CodeRunSnapshot["skillDiagnostics"];
-  codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
-  codeSkillContext: CodeRunSnapshot["codeSkillContext"];
-  codeDiagnostics: CodeRunSnapshot["diagnostics"];
-  updateCodeFile: (path: string, value: string) => void;
-  generatedDesignDiagrams: DesignDiagramType[];
-  generatedDiagrams: DiagramType[];
-  generating: boolean;
-  runStatus: RunStatus;
-  runProgress: number;
-  runMessage: string | null;
-  errorMessage: string | null;
-  generateRules: () => Promise<void>;
-  generateDiagrams: (only?: DiagramType[]) => Promise<void>;
-  generateDesignDiagrams: (only?: DesignDiagramType[]) => Promise<void>;
-  generateCodePrototype: (mode?: "continue" | "regenerate") => Promise<void>;
-  generateRequirementsSpec: () => Promise<void>;
-  generateSoftwareDesignSpec: () => Promise<void>;
-  rulesForDiagram: (diagram: DiagramType) => RequirementRule[];
-  textVersion: number;
-  rulesVersion: number;
-  rulesBasedOnTextVersion: number | null;
-  diagramVersions: Partial<Record<DiagramType, number>>;
-  isRulesStale: boolean;
-  staleDiagrams: DiagramType[];
-  historyItems: RunHistoryItem[];
-  refreshHistory: () => Promise<void>;
-  restoreRunHistory: (id: string) => Promise<void>;
-  deleteRunHistory: (id: string) => Promise<void>;
-  clearRunHistory: () => Promise<void>;
-  renderPlantUml: (diagram: DiagramType, source: string) => Promise<void>;
-  currentRunDiagnostics: RunDiagnostics;
-}
 
-type RunMode =
-  | { kind: "rules-only" }
-  | { kind: "full-diagrams" }
-  | { kind: "partial-diagrams"; diagrams: DiagramType[] };
 
 const WorkspaceSessionContext = createContext<WorkspaceSessionState | null>(null);
-const MAX_DIAGNOSTIC_STREAM_CHARS = 30_000;
-const GENERATION_COMPLETED_EVENT = "uml-generation-completed";
 
-function notifyGenerationCompleted(kind: "requirements" | "design") {
-  const message = kind === "requirements" ? "需求模型生成完成" : "设计模型生成完成";
-  toast.success(message);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(
-      new CustomEvent(GENERATION_COMPLETED_EVENT, {
-        detail: { kind },
-      }),
-    );
-  }
-}
 
-function notifyGenerationStarted(
-  kind: "requirements" | "design" | "code" | "document",
-  documentKind?: DocumentKind,
-) {
-  const message =
-    kind === "requirements"
-      ? "需求生成已开始"
-      : kind === "design"
-        ? "设计生成已开始"
-        : kind === "code"
-          ? "代码生成已开始"
-          : documentKind === "requirementsSpec"
-            ? "需求规格说明书生成已开始"
-            : "软件设计说明书生成已开始";
-  toast.message(message);
-}
 
-function notifyGenerationFailed(message: string) {
-  toast.error(message);
-}
 
-function notifyGenerationResultStale() {
-  toast.message("结果基于生成开始时的内容，期间修改不会自动合并到本次结果");
-}
 
-function snapshotInputFingerprint(value: unknown) {
-  return JSON.stringify(value);
-}
 
-function createEmptyRunUiState() {
-  return {
-    runStatus: "idle" as RunStatus,
-    runProgress: 0,
-    runMessage: null as string | null,
-    errorMessage: null as string | null,
-  };
-}
 
-function createEmptyDiagnostics(): RunDiagnostics {
-  return {
-    runKind: null,
-    runId: null,
-    providerModel: null,
-    startedAt: null,
-    finishedAt: null,
-    activeStage: null,
-    streamText: "",
-    chunkCount: 0,
-    stageStartedAt: {},
-    stageMessages: {},
-    events: [],
-    uiMockup: null,
-    uiReferenceSpec: null,
-    uiFidelityReport: null,
-    visualDirection: null,
-    skillResourceDiscoveryPlan: null,
-    skillResourcePreviews: null,
-    skillResourcePlan: null,
-    codeSkillContext: null,
-    requirementTrace: [],
-    designTrace: [],
-    codeTrace: [],
-  };
-}
 
-function formatStageForDiagnostics(stage: RunStage | null) {
-  if (!stage) return "等待任务";
-  const labels: Record<RunStage, string> = {
-    extract_rules: "抽取需求规则",
-    generate_models: "生成需求模型",
-    generate_design_sequence: "生成设计顺序图",
-    generate_design_models: "生成设计模型",
-    analyze_code_business_logic: "分析业务逻辑",
-    analyze_code_product: "分析业务背景",
-    plan_code_ui: "规划界面方案",
-    generate_code_ui_mockup: "生成界面设计图",
-    analyze_code_ui_mockup: "解析界面设计图",
-    generate_code_ui_ir: "生成结构化 UI IR",
-    load_web_design_skill: "加载前端设计执行器",
-    select_code_skills: "选择前端设计执行器",
-    plan_code_files: "规划文件结构",
-    generate_code_spec: "生成代码规格",
-    generate_code_files: "生成代码文件",
-    plan_code: "制定实现步骤",
-    write_code_files: "写入原型文件",
-    audit_code_quality: "检查原型质量",
-    verify_code_ui_fidelity: "检查业务/界面覆盖",
-    verify_code_rendered_preview: "验证渲染预览",
-    verify_code_preview: "检查预览入口",
-    repair_code_files: "修复代码输出",
-    generate_document_text: "生成说明书正文",
-    render_document_file: "写入说明书文件",
-    generate_plantuml: "生成图源码",
-    render_svg: "渲染图像",
-  };
-  return labels[stage];
-}
 
-function sanitizeDiagnosticText(text: string) {
-  const replacements = [
-    ["extract_rules", "抽取需求规则"],
-    ["generate_models", "生成需求模型"],
-    ["generate_design_sequence", "生成设计顺序图"],
-    ["generate_design_models", "生成设计模型"],
-    ["analyze_code_business_logic", "分析业务逻辑"],
-    ["analyze_code_product", "分析业务背景"],
-    ["plan_code_ui", "规划界面方案"],
-    ["generate_code_ui_mockup", "生成界面设计图"],
-    ["analyze_code_ui_mockup", "解析界面设计图"],
-    ["generate_code_ui_ir", "生成结构化 UI IR"],
-    ["load_web_design_skill", "加载前端设计执行器"],
-    ["select_code_skills", "选择前端设计执行器"],
-    ["plan_code_files", "规划文件结构"],
-    ["generate_code_spec", "生成代码规格"],
-    ["generate_code_files", "生成代码文件"],
-    ["plan_code", "制定实现步骤"],
-    ["write_code_files", "写入原型文件"],
-    ["audit_code_quality", "检查原型质量"],
-    ["verify_code_ui_fidelity", "检查设计图还原度"],
-    ["verify_code_rendered_preview", "验证渲染预览"],
-    ["verify_code_preview", "检查预览入口"],
-    ["repair_code_files", "修复代码输出"],
-    ["generate_document_text", "生成说明书正文"],
-    ["render_document_file", "写入说明书文件"],
-    ["generate_plantuml", "生成图源码"],
-    ["render_svg", "渲染图像"],
-    ["PlantUML", "图源码"],
-    ["SVG", "图像"],
-    ["codeFiles", "代码文件"],
-    ["codeSpec", "代码规格"],
-    ["uiMockup", "界面设计图"],
-    ["uiReferenceSpec", "界面设计图解析"],
-    ["businessLogic", "业务逻辑"],
-    ["uiFidelityReport", "业务/界面覆盖检查"],
-    ["designTokens", "设计 Token"],
-    ["componentRegistry", "组件 Registry"],
-    ["uiIr", "结构化 UI IR"],
-    ["visualDiffReport", "预览验证报告"],
-    ["ui-ux-pro-max", "前端设计执行器"],
-  ];
-  return replacements.reduce(
-    (current, [source, target]) => current.split(source).join(target),
-    text,
-  );
-}
 
-function appendDiagnosticStream(current: string, chunk: string) {
-  const next = current + chunk;
-  if (next.length <= MAX_DIAGNOSTIC_STREAM_CHARS) {
-    return next;
-  }
-  return next.slice(next.length - MAX_DIAGNOSTIC_STREAM_CHARS);
-}
 
-function summarizeEvent(event: RunEvent): DiagnosticEvent {
-  const at = new Date().toISOString();
-  const suffix = `${at}:${Math.random().toString(36).slice(2, 8)}`;
-  switch (event.type) {
-    case "queued":
-      return { id: `${suffix}:queued`, at, label: "已排队", detail: "任务已进入队列" };
-    case "stage_started":
-      return {
-        id: `${suffix}:stage_started:${event.stage}`,
-        at,
-        label: "阶段开始",
-        detail: `${formatStageForDiagnostics(event.stage)}已开始`,
-      };
-    case "stage_progress":
-      return {
-        id: `${suffix}:stage_progress:${event.stage}:${event.progress}`,
-        at,
-        label: "阶段进度",
-        detail: sanitizeDiagnosticText(
-          event.message ?? `${formatStageForDiagnostics(event.stage)} ${event.progress}%`,
-        ),
-      };
-    case "artifact_ready":
-      return {
-        id: `${suffix}:artifact_ready:${event.artifactKind}:${event.diagramKind ?? "all"}`,
-        at,
-        label: "产物已生成",
-        detail:
-          event.artifactKind === "document"
-            ? "说明书文件已准备好"
-            : `${formatStageForDiagnostics(event.stage)}的产物已准备好`,
-      };
-    case "code_file_changed":
-      return {
-        id: `${suffix}:code_file_changed:${event.path}`,
-        at,
-        label: "文件已更新",
-        detail: sanitizeDiagnosticText(event.reason),
-      };
-    case "completed":
-      if ("files" in event.snapshot) {
-        return {
-          id: `${suffix}:completed`,
-          at,
-          label: "任务完成",
-          detail: `完成，代码文件 ${Object.keys(event.snapshot.files).length} 个`,
-        };
-      }
-      if ("documentKind" in event.snapshot) {
-        return {
-          id: `${suffix}:completed`,
-          at,
-          label: "任务完成",
-          detail: `完成，说明书 ${event.snapshot.fileName ?? ""}`,
-        };
-      }
-      return {
-        id: `${suffix}:completed`,
-        at,
-        label: "任务完成",
-        detail:
-          "svgArtifacts" in event.snapshot
-            ? `完成，图像 ${event.snapshot.svgArtifacts.length} 个`
-            : "完成",
-      };
-    case "failed":
-      return {
-        id: `${suffix}:failed`,
-        at,
-        label: "任务失败",
-        detail: sanitizeDiagnosticText(event.message),
-      };
-    case "llm_chunk":
-      return {
-        id: `${suffix}:llm_chunk:${event.stage}`,
-        at,
-        label: "收到模型输出",
-        detail: `${formatStageForDiagnostics(event.stage)}收到模型输出`,
-      };
-  }
-}
 
-function snapshotToMaps(snapshot: WorkspaceRunSnapshot) {
-  return {
-    models: Object.fromEntries(
-      snapshot.models.map((model) => [model.diagramKind, model]),
-    ) as WorkspaceRecord["models"],
-    plantUml: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [artifact.diagramKind, artifact.source]),
-    ) as WorkspaceRecord["plantUml"],
-    svgArtifacts: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [artifact.diagramKind, artifact]),
-    ) as WorkspaceRecord["svgArtifacts"],
-  };
-}
 
-function designSnapshotToMaps(snapshot: WorkspaceDesignRunSnapshot) {
-  return {
-    models: Object.fromEntries(
-      snapshot.models.map((model) => [model.diagramKind, model]),
-    ) as WorkspaceRecord["designModels"],
-    plantUml: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [artifact.diagramKind, artifact.source]),
-    ) as WorkspaceRecord["designPlantUml"],
-    svgArtifacts: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [artifact.diagramKind, artifact]),
-    ) as WorkspaceRecord["designSvgArtifacts"],
-  };
-}
 
-function getProgressFromEvent(event: RunEvent) {
-  switch (event.type) {
-    case "queued":
-      return 5;
-    case "stage_started":
-      switch (event.stage) {
-        case "extract_rules":
-          return 20;
-        case "generate_models":
-          return 65;
-        case "generate_design_sequence":
-          return 45;
-        case "generate_design_models":
-          return 70;
-        case "analyze_code_business_logic":
-          return 18;
-        case "analyze_code_product":
-          return 18;
-        case "plan_code_ui":
-          return 34;
-        case "load_web_design_skill":
-          return 48;
-        case "generate_code_ui_mockup":
-          return 42;
-        case "plan_code_files":
-          return 50;
-        case "generate_code_spec":
-          return 45;
-        case "generate_code_files":
-          return 80;
-        case "plan_code":
-          return 58;
-        case "write_code_files":
-          return 74;
-        case "audit_code_quality":
-          return 88;
-        case "verify_code_preview":
-          return 92;
-        case "repair_code_files":
-          return 96;
-        case "generate_document_text":
-          return 55;
-        case "render_document_file":
-          return 90;
-        case "generate_plantuml":
-          return 80;
-        case "render_svg":
-          return 95;
-      }
-      return null;
-    case "stage_progress":
-      return event.progress;
-    case "completed":
-      return 100;
-    case "failed":
-      return 100;
-    case "llm_chunk":
-    case "artifact_ready":
-    case "code_file_changed":
-      return null;
-  }
-}
+
+
 
 export function WorkspaceSessionProvider({
   children,
@@ -511,74 +120,92 @@ export function WorkspaceSessionProvider({
   children: ReactNode;
 }) {
   const repository = useWorkspaceRepository();
-  const [requirementText, setRequirementTextRaw] = useState("");
-  const [rules, setRules] = useState<RequirementRule[]>([]);
-  const [models, setModels] = useState<WorkspaceRecord["models"]>({});
-  const [selectedDiagrams, setSelectedDiagrams] = useState<DiagramType[]>([]);
-  const [plantUml, setPlantUml] = useState<WorkspaceRecord["plantUml"]>({});
-  const [svgArtifacts, setSvgArtifacts] = useState<WorkspaceRecord["svgArtifacts"]>(
-    {},
-  );
-  const [diagramErrors, setDiagramErrors] = useState<WorkspaceRecord["diagramErrors"]>(
-    {},
-  );
-  const [selectedDesignDiagrams, setSelectedDesignDiagrams] = useState<
-    DesignDiagramType[]
-  >([]);
-  const [designModels, setDesignModels] = useState<WorkspaceRecord["designModels"]>(
-    {},
-  );
-  const [designPlantUml, setDesignPlantUml] = useState<
-    WorkspaceRecord["designPlantUml"]
-  >({});
-  const [designSvgArtifacts, setDesignSvgArtifacts] = useState<
-    WorkspaceRecord["designSvgArtifacts"]
-  >({});
-  const [designDiagramErrors, setDesignDiagramErrors] = useState<
-    WorkspaceRecord["designDiagramErrors"]
-  >({});
-  const [codeSpec, setCodeSpec] = useState<CodeGenerationSpec | null>(null);
-  const [codeBusinessLogic, setCodeBusinessLogic] =
-    useState<CodeBusinessLogic | null>(null);
-  const [codeFiles, setCodeFiles] = useState<Record<string, string>>({});
-  const [codeEntryFile, setCodeEntryFile] = useState<string | null>(null);
-  const [codeDependencies, setCodeDependencies] = useState<Record<string, string>>({});
-  const [codeUiMockup, setCodeUiMockup] = useState<CodeUiMockup | null>(null);
-  const [codeAgentPlan, setCodeAgentPlan] = useState<string[]>([]);
-  const [codeSkills, setCodeSkills] = useState<CodeRunSnapshot["selectedCodeSkills"]>(
-    [],
-  );
-  const [codeSkillDiagnostics, setCodeSkillDiagnostics] = useState<
-    CodeRunSnapshot["skillDiagnostics"]
-  >([]);
-  const [codeSkillResourcePlan, setCodeSkillResourcePlan] = useState<
-    CodeRunSnapshot["skillResourcePlan"]
-  >(null);
-  const [codeSkillContext, setCodeSkillContext] = useState<
-    CodeRunSnapshot["codeSkillContext"]
-  >(null);
-  const [codeDiagnostics, setCodeDiagnostics] = useState<CodeRunSnapshot["diagnostics"]>(
-    [],
-  );
-  const [generatedDiagrams, setGeneratedDiagrams] = useState<DiagramType[]>([]);
-  const [generatedDesignDiagrams, setGeneratedDesignDiagrams] = useState<
-    DesignDiagramType[]
-  >([]);
+  const {
+    requirementText,
+    setRequirementText,
+    setRequirementTextRaw,
+    rules,
+    setRules,
+    textVersion,
+    setTextVersion,
+    rulesVersion,
+    setRulesVersion,
+    rulesBasedOnTextVersion,
+    setRulesBasedOnTextVersion,
+    addRequirementRule,
+    createRequirementRule,
+    updateRequirementRule,
+    deleteRequirementRule,
+    rulesForDiagram,
+  } = useRequirementsSlice(repository);
+  const {
+    models,
+    setModels,
+    selectedDiagrams,
+    setSelectedDiagrams,
+    plantUml,
+    setPlantUml,
+    svgArtifacts,
+    setSvgArtifacts,
+    diagramErrors,
+    setDiagramErrors,
+    generatedDiagrams,
+    setGeneratedDiagrams,
+    diagramVersions,
+    setDiagramVersions,
+  } = useDiagramsSlice();
+  const {
+    selectedDesignDiagrams,
+    setSelectedDesignDiagrams,
+    designModels,
+    setDesignModels,
+    designPlantUml,
+    setDesignPlantUml,
+    designSvgArtifacts,
+    setDesignSvgArtifacts,
+    designDiagramErrors,
+    setDesignDiagramErrors,
+    generatedDesignDiagrams,
+    setGeneratedDesignDiagrams,
+  } = useDesignSlice();
+  const {
+    codeSpec,
+    setCodeSpec,
+    codeBusinessLogic,
+    setCodeBusinessLogic,
+    codeFiles,
+    setCodeFiles,
+    codeEntryFile,
+    setCodeEntryFile,
+    codeDependencies,
+    setCodeDependencies,
+    codeUiMockup,
+    setCodeUiMockup,
+    codeAgentPlan,
+    setCodeAgentPlan,
+    codeSkills,
+    setCodeSkills,
+    codeSkillDiagnostics,
+    setCodeSkillDiagnostics,
+    codeSkillResourcePlan,
+    setCodeSkillResourcePlan,
+    codeSkillContext,
+    setCodeSkillContext,
+    codeDiagnostics,
+    setCodeDiagnostics,
+    codeEditVersion,
+    applyCodeRunSnapshot,
+    updateCodeFile,
+  } = useCodeSlice();
+  const { currentRunDiagnostics, setCurrentRunDiagnostics } =
+    useRunDiagnosticsSlice();
   const [runUiState, setRunUiState] = useState(createEmptyRunUiState);
-  const [textVersion, setTextVersion] = useState(0);
-  const [rulesVersion, setRulesVersion] = useState(0);
-  const [rulesBasedOnTextVersion, setRulesBasedOnTextVersion] = useState<
-    number | null
-  >(null);
-  const [codeEditVersion, setCodeEditVersion] = useState(0);
-  const [diagramVersions, setDiagramVersions] = useState<
-    Partial<Record<DiagramType, number>>
-  >({});
+  const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
+  const [selectedGenerationTaskId, setSelectedGenerationTaskId] =
+    useState<string | null>(null);
   const [historyItems, setHistoryItems] = useState<RunHistoryItem[]>([]);
-  const [currentRunDiagnostics, setCurrentRunDiagnostics] =
-    useState(createEmptyDiagnostics);
 
-  const runRequestIdRef = useRef(0);
+  const runController = useRunController();
   const latestInputRef = useRef({
     requirementText,
     rules,
@@ -598,6 +225,63 @@ export function WorkspaceSessionProvider({
       codeEditVersion,
     };
   }, [codeEditVersion, codeFiles, designModels, models, requirementText, rules]);
+
+  const selectGenerationTask = useCallback((id: string) => {
+    setSelectedGenerationTaskId(id);
+  }, []);
+
+  const clearCompletedGenerationTasks = useCallback(() => {
+    setGenerationTasks((current) => {
+      const active = current.filter((task) => isTaskActive(task));
+      setSelectedGenerationTaskId((selectedId) =>
+        selectedId && active.some((task) => task.clientTaskId === selectedId)
+          ? selectedId
+          : active[0]?.clientTaskId ?? null,
+      );
+      return active;
+    });
+  }, []);
+
+  const enqueueGenerationTask = useCallback(
+    (input: {
+      kind: GenerationTaskKind;
+      title: string;
+      providerModel: string | null;
+      documentKind?: DocumentKind;
+      message: string;
+      startedAtMs: number;
+    }) => {
+      const clientTaskId = createClientTaskId(input.kind);
+      const startedAt = new Date(input.startedAtMs).toISOString();
+      const task = createGenerationTask({
+        clientTaskId,
+        kind: input.kind,
+        title: input.title,
+        providerModel: input.providerModel,
+        documentKind: input.documentKind,
+        message: input.message,
+        startedAt,
+      });
+      setGenerationTasks((current) => [task, ...current].slice(0, 30));
+      setSelectedGenerationTaskId(clientTaskId);
+      return clientTaskId;
+    },
+    [],
+  );
+
+  const updateGenerationTask = useCallback(
+    (
+      clientTaskId: string,
+      updater: (task: GenerationTask) => GenerationTask,
+    ) => {
+      setGenerationTasks((current) =>
+        current.map((task) =>
+          task.clientTaskId === clientTaskId ? updater(task) : task,
+        ),
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -652,104 +336,13 @@ export function WorkspaceSessionProvider({
     };
   }, [repository]);
 
-  const setRequirementText = useCallback(
-    (value: string) => {
-      setRequirementTextRaw((prev) => {
-        if (prev !== value) {
-          setTextVersion((current) => current + 1);
-        }
-        return value;
-      });
-      void repository.updateRequirementText(value);
-    },
-    [repository],
-  );
 
-  const commitRequirementRules = useCallback(
-    (nextRules: RequirementRule[]) => {
-      setRules(nextRules);
-      setRulesVersion((current) => current + 1);
-      setRulesBasedOnTextVersion(textVersion);
-      void repository.updateRequirementRules?.(nextRules);
-    },
-    [repository, textVersion],
-  );
 
-  const getNextRequirementRuleId = useCallback(() => {
-    const used = new Set(rules.map((rule) => rule.id.toLowerCase()));
-    const maxIndex = rules.reduce((max, rule) => {
-      const match = /^r(\d+)$/i.exec(rule.id);
-      return match ? Math.max(max, Number(match[1])) : max;
-    }, 0);
-    let nextIndex = maxIndex + 1;
-    while (used.has(`r${nextIndex}`)) {
-      nextIndex += 1;
-    }
-    return `r${nextIndex}`;
-  }, [rules]);
 
-  const createRequirementRule = useCallback(
-    (input: {
-      category: RequirementRule["category"];
-      text: string;
-      relatedDiagrams: DiagramType[];
-    }) => {
-      const relatedDiagrams = input.relatedDiagrams.length > 0
-        ? input.relatedDiagrams
-        : (["usecase"] as DiagramType[]);
-      commitRequirementRules([
-        ...rules,
-        {
-          id: getNextRequirementRuleId(),
-          category: input.category,
-          text: input.text.trim() || "待填写需求项",
-          relatedDiagrams,
-        },
-      ]);
-    },
-    [commitRequirementRules, getNextRequirementRuleId, rules],
-  );
 
-  const addRequirementRule = useCallback(() => {
-    createRequirementRule({
-      category: "功能需求",
-      text: "待填写需求项",
-      relatedDiagrams: ["usecase", "activity"],
-    });
-  }, [createRequirementRule]);
 
-  const updateRequirementRule = useCallback(
-    (id: string, patch: Partial<RequirementRule>) => {
-      commitRequirementRules(
-        rules.map((rule) =>
-          rule.id === id
-            ? {
-                ...rule,
-                ...patch,
-                relatedDiagrams:
-                  patch.relatedDiagrams && patch.relatedDiagrams.length > 0
-                    ? patch.relatedDiagrams
-                    : (patch.relatedDiagrams ?? rule.relatedDiagrams),
-              }
-            : rule,
-        ),
-      );
-    },
-    [commitRequirementRules, rules],
-  );
 
-  const deleteRequirementRule = useCallback(
-    (id: string) => {
-      commitRequirementRules(rules.filter((rule) => rule.id !== id));
-    },
-    [commitRequirementRules, rules],
-  );
 
-  const rulesForDiagram = useCallback(
-    (diagram: DiagramType) =>
-      rules.filter((rule) => rule.relatedDiagrams.includes(diagram)),
-    [rules],
-  );
 
   const applyRunSnapshot = useCallback(
     (
@@ -881,28 +474,7 @@ export function WorkspaceSessionProvider({
     [],
   );
 
-  const applyCodeRunSnapshot = useCallback((snapshot: WorkspaceCodeRunSnapshot) => {
-    setCodeSpec(snapshot.spec);
-    setCodeBusinessLogic(snapshot.businessLogic);
-    setCodeFiles({ ...snapshot.files });
-    setCodeEntryFile(snapshot.entryFile);
-    setCodeDependencies({ ...snapshot.dependencies });
-    setCodeUiMockup(snapshot.uiMockup);
-    setCodeAgentPlan([...snapshot.agentPlan]);
-    setCodeSkills([...snapshot.selectedCodeSkills]);
-    setCodeSkillDiagnostics([...snapshot.skillDiagnostics]);
-    setCodeSkillResourcePlan(snapshot.skillResourcePlan);
-    setCodeSkillContext(snapshot.codeSkillContext);
-    setCodeDiagnostics([...snapshot.diagnostics]);
-  }, []);
 
-  const updateCodeFile = useCallback((path: string, value: string) => {
-    setCodeFiles((current) => ({
-      ...current,
-      [path]: value,
-    }));
-    setCodeEditVersion((current) => current + 1);
-  }, []);
 
   const applyRestoredSnapshot = useCallback((snapshot: RunHistorySnapshot) => {
     const restoredRulesVersion = rulesVersion + 1;
@@ -1136,7 +708,7 @@ export function WorkspaceSessionProvider({
 
   const runGeneration = useCallback(
     async (diagrams: DiagramType[], mode: RunMode) => {
-      const runRequestId = ++runRequestIdRef.current;
+      const runRequestId = runController.beginRun("requirements");
       const baseTextVersion = textVersion;
       const rulesForRun = mode.kind === "rules-only" ? [] : rules;
       const baseInputFingerprint = snapshotInputFingerprint({
@@ -1147,6 +719,7 @@ export function WorkspaceSessionProvider({
       let runId: string | null = null;
       const startedAtMs = Date.now();
       let providerModel = "";
+      let clientTaskId: string | null = null;
 
       try {
         const startInput = createStartRunInput(
@@ -1160,6 +733,13 @@ export function WorkspaceSessionProvider({
           ),
         );
         providerModel = startInput.providerSettings.model;
+        clientTaskId = enqueueGenerationTask({
+          kind: "requirements",
+          title: mode.kind === "rules-only" ? "需求规则生成" : "需求模型生成",
+          providerModel,
+          message: "任务已进入队列",
+          startedAtMs,
+        });
         setRunUiState({
           runStatus: "queued",
           runProgress: 5,
@@ -1178,6 +758,9 @@ export function WorkspaceSessionProvider({
           startInput,
         );
         runId = started.runId;
+        updateGenerationTask(clientTaskId, (task) =>
+          assignTaskRunId(task, runId!, providerModel),
+        );
         setCurrentRunDiagnostics((current) => ({
           ...current,
           runId,
@@ -1185,7 +768,15 @@ export function WorkspaceSessionProvider({
         }));
 
         await repository.subscribeToRun(runId, (event) => {
-          if (runRequestId !== runRequestIdRef.current) {
+          if (clientTaskId) {
+            updateGenerationTask(clientTaskId, (task) =>
+              updateTaskFromEvent(task, event, {
+                queued: "任务已进入队列",
+                completed: "生成完成",
+              }),
+            );
+          }
+          if (!runController.isCurrentRun(runRequestId, "requirements")) {
             return;
           }
 
@@ -1258,7 +849,7 @@ export function WorkspaceSessionProvider({
 
         const snapshot =
           (await repository.getRunSnapshot(runId)) ?? lastCompletedSnapshot;
-        if (!snapshot || runRequestId !== runRequestIdRef.current) {
+        if (!snapshot || !runController.isCurrentRun(runRequestId, "requirements")) {
           return;
         }
 
@@ -1284,7 +875,19 @@ export function WorkspaceSessionProvider({
           notifyGenerationResultStale();
         }
       } catch (error) {
-        if (runRequestId !== runRequestIdRef.current) {
+        const detail = error instanceof Error ? error.message : "生成失败";
+        if (clientTaskId) {
+          updateGenerationTask(clientTaskId, (task) => ({
+            ...task,
+            status: "failed",
+            progress: 100,
+            message: null,
+            errorMessage: detail,
+            finishedAt: new Date().toISOString(),
+            diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+          }));
+        }
+        if (!runController.isCurrentRun(runRequestId, "requirements")) {
           return;
         }
         if (runId) {
@@ -1324,12 +927,12 @@ export function WorkspaceSessionProvider({
         notifyGenerationFailed(error instanceof Error ? `生成失败：${error.message}` : "生成失败");
       }
     },
-    [applyRunSnapshot, repository, requirementText, rules, saveHistorySnapshot, textVersion],
+    [applyRunSnapshot, repository, requirementText, rules, runController, saveHistorySnapshot, textVersion],
   );
 
   const runDesignGeneration = useCallback(
     async (diagrams: DesignDiagramType[]) => {
-      const runRequestId = ++runRequestIdRef.current;
+      const runRequestId = runController.beginRun("design");
       let lastCompletedSnapshot: WorkspaceDesignRunSnapshot | null = null;
       const baseInputFingerprint = snapshotInputFingerprint({
         requirementText,
@@ -1339,6 +942,7 @@ export function WorkspaceSessionProvider({
       let runId: string | null = null;
       const startedAtMs = Date.now();
       let providerModel = "";
+      let clientTaskId: string | null = null;
 
       try {
         if (
@@ -1357,6 +961,13 @@ export function WorkspaceSessionProvider({
           diagrams,
         );
         providerModel = startInput.providerSettings.model;
+        clientTaskId = enqueueGenerationTask({
+          kind: "design",
+          title: "设计模型生成",
+          providerModel,
+          message: "设计生成任务已进入队列",
+          startedAtMs,
+        });
         setRunUiState({
           runStatus: "queued",
           runProgress: 5,
@@ -1373,6 +984,9 @@ export function WorkspaceSessionProvider({
 
         const started = await repository.startDesignRun(startInput);
         runId = started.runId;
+        updateGenerationTask(clientTaskId, (task) =>
+          assignTaskRunId(task, runId!, providerModel),
+        );
         setCurrentRunDiagnostics((current) => ({
           ...current,
           runId,
@@ -1380,7 +994,15 @@ export function WorkspaceSessionProvider({
         }));
 
         await repository.subscribeToDesignRun(runId, (event) => {
-          if (runRequestId !== runRequestIdRef.current) {
+          if (clientTaskId) {
+            updateGenerationTask(clientTaskId, (task) =>
+              updateTaskFromEvent(task, event, {
+                queued: "设计生成任务已进入队列",
+                completed: "设计生成完成",
+              }),
+            );
+          }
+          if (!runController.isCurrentRun(runRequestId, "design")) {
             return;
           }
 
@@ -1449,7 +1071,7 @@ export function WorkspaceSessionProvider({
 
         const snapshot =
           (await repository.getDesignRunSnapshot(runId)) ?? lastCompletedSnapshot;
-        if (!snapshot || runRequestId !== runRequestIdRef.current) {
+        if (!snapshot || !runController.isCurrentRun(runRequestId, "design")) {
           return;
         }
 
@@ -1480,7 +1102,19 @@ export function WorkspaceSessionProvider({
           notifyGenerationResultStale();
         }
       } catch (error) {
-        if (runRequestId !== runRequestIdRef.current) {
+        const detail = error instanceof Error ? error.message : "设计生成失败";
+        if (clientTaskId) {
+          updateGenerationTask(clientTaskId, (task) => ({
+            ...task,
+            status: "failed",
+            progress: 100,
+            message: null,
+            errorMessage: detail,
+            finishedAt: new Date().toISOString(),
+            diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+          }));
+        }
+        if (!runController.isCurrentRun(runRequestId, "design")) {
           return;
         }
         if (runId) {
@@ -1528,6 +1162,7 @@ export function WorkspaceSessionProvider({
       models,
       repository,
       requirementText,
+      runController,
       rules,
       saveHistorySnapshot,
     ],
@@ -1536,7 +1171,7 @@ export function WorkspaceSessionProvider({
   const runCodeGeneration = useCallback(async (
     generationMode: "continue" | "regenerate" = "continue",
   ) => {
-    const runRequestId = ++runRequestIdRef.current;
+    const runRequestId = runController.beginRun("code");
     const baseInputFingerprint = snapshotInputFingerprint({
       requirementText,
       rules,
@@ -1547,6 +1182,7 @@ export function WorkspaceSessionProvider({
     let runId: string | null = null;
     const startedAtMs = Date.now();
     let providerModel = "";
+    let clientTaskId: string | null = null;
 
     try {
       if (
@@ -1578,6 +1214,13 @@ export function WorkspaceSessionProvider({
         generationMode,
       );
       providerModel = startInput.providerSettings.model;
+      clientTaskId = enqueueGenerationTask({
+        kind: "code",
+        title: generationMode === "regenerate" ? "代码重新生成" : "代码生成",
+        providerModel,
+        message: "代码生成任务已进入队列",
+        startedAtMs,
+      });
       setRunUiState({
         runStatus: "queued",
         runProgress: 5,
@@ -1594,6 +1237,9 @@ export function WorkspaceSessionProvider({
 
       const started = await repository.startCodeRun(startInput);
       runId = started.runId;
+      updateGenerationTask(clientTaskId, (task) =>
+        assignTaskRunId(task, runId!, providerModel),
+      );
       setCurrentRunDiagnostics((current) => ({
         ...current,
         runId,
@@ -1601,7 +1247,22 @@ export function WorkspaceSessionProvider({
       }));
 
       await repository.subscribeToCodeRun(runId, (event) => {
-        if (runRequestId !== runRequestIdRef.current) {
+        if (clientTaskId) {
+          updateGenerationTask(clientTaskId, (task) =>
+            updateTaskFromEvent(task, event, {
+              queued: "代码生成任务已进入队列",
+              completed:
+                event.type === "completed" &&
+                "files" in event.snapshot &&
+                event.snapshot.generationMode === "continue" &&
+                event.snapshot.changedFileCount === 0
+                  ? "本次未产生文件变更"
+                  : "代码生成完成",
+              fileChanged: (path) => `已写入 ${path}`,
+            }),
+          );
+        }
+        if (!runController.isCurrentRun(runRequestId, "code")) {
           return;
         }
 
@@ -1744,7 +1405,7 @@ export function WorkspaceSessionProvider({
 
       const snapshot =
         (await repository.getCodeRunSnapshot(runId)) ?? lastCompletedSnapshot;
-      if (!snapshot || runRequestId !== runRequestIdRef.current) {
+      if (!snapshot || !runController.isCurrentRun(runRequestId, "code")) {
         return;
       }
 
@@ -1785,7 +1446,19 @@ export function WorkspaceSessionProvider({
         notifyGenerationResultStale();
       }
     } catch (error) {
-      if (runRequestId !== runRequestIdRef.current) {
+      const detail = error instanceof Error ? error.message : "代码生成失败";
+      if (clientTaskId) {
+        updateGenerationTask(clientTaskId, (task) => ({
+          ...task,
+          status: "failed",
+          progress: 100,
+          message: null,
+          errorMessage: detail,
+          finishedAt: new Date().toISOString(),
+          diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+        }));
+      }
+      if (!runController.isCurrentRun(runRequestId, "code")) {
         return;
       }
       if (runId && repository.getCodeRunSnapshot) {
@@ -1832,19 +1505,21 @@ export function WorkspaceSessionProvider({
     codeFiles,
     codeEditVersion,
     designModels,
+    designPlantUml,
     repository,
     requirementText,
+    runController,
     rules,
     saveHistorySnapshot,
   ]);
 
   const runDocumentGeneration = useCallback(
-    async (documentKind: DocumentKind) => {
-      const runRequestId = ++runRequestIdRef.current;
+    async (documentKind: DocumentKind, documentStyle?: DocumentStyleSettings) => {
       const startedAtMs = Date.now();
       let providerModel = "";
       let runId: string | null = null;
       let lastCompletedSnapshot: DocumentRunSnapshot | null = null;
+      let clientTaskId: string | null = null;
 
       try {
         if (
@@ -1875,16 +1550,11 @@ export function WorkspaceSessionProvider({
           (artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact),
         );
 
-        if (
-          documentKind === "requirementsSpec" &&
-          !requirementText.trim() &&
-          rules.length === 0 &&
-          requirementModels.length === 0
-        ) {
-          throw new Error("请先输入需求或生成需求模型，再导出需求规格说明书");
+        if (documentKind === "requirementsSpec" && requirementModels.length === 0) {
+          throw new Error("请先在需求页生成需求模型，再导出需求规格说明书");
         }
         if (documentKind === "softwareDesignSpec" && availableDesignModels.length === 0) {
-          throw new Error("请先生成设计模型，再导出软件设计说明书");
+          throw new Error("请先在设计页生成设计模型，再导出软件设计说明书");
         }
 
         const startInput = createStartDocumentRunInput(
@@ -1897,8 +1567,21 @@ export function WorkspaceSessionProvider({
           availableDesignModels,
           designPlantUmlList,
           designSvgArtifactList,
+          documentStyle,
         );
         providerModel = startInput.providerSettings.model;
+        const documentTitle =
+          documentKind === "requirementsSpec"
+            ? "需求规格说明书"
+            : "软件设计说明书";
+        clientTaskId = enqueueGenerationTask({
+          kind: "document",
+          documentKind,
+          title: documentTitle,
+          providerModel,
+          message: `${documentTitle}生成任务已进入队列`,
+          startedAtMs,
+        });
         setRunUiState({
           runStatus: "queued",
           runProgress: 5,
@@ -1915,6 +1598,9 @@ export function WorkspaceSessionProvider({
 
         const started = await repository.startDocumentRun(startInput);
         runId = started.runId;
+        updateGenerationTask(clientTaskId, (task) =>
+          assignTaskRunId(task, runId!, providerModel),
+        );
         setCurrentRunDiagnostics((current) => ({
           ...current,
           runId,
@@ -1922,12 +1608,17 @@ export function WorkspaceSessionProvider({
         }));
 
         await repository.subscribeToDocumentRun(runId, (event) => {
-          if (runRequestId !== runRequestIdRef.current) {
-            return;
-          }
           const progress = getProgressFromEvent(event);
           if (event.type === "completed" && "documentKind" in event.snapshot) {
             lastCompletedSnapshot = event.snapshot;
+          }
+          if (clientTaskId) {
+            updateGenerationTask(clientTaskId, (task) =>
+              updateTaskFromEvent(task, event, {
+                queued: `${documentTitle}生成任务已进入队列`,
+                completed: `${documentTitle}生成完成`,
+              }),
+            );
           }
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) => ({
@@ -1983,7 +1674,7 @@ export function WorkspaceSessionProvider({
 
         const snapshot =
           (await repository.getDocumentRunSnapshot(runId)) ?? lastCompletedSnapshot;
-        if (!snapshot || runRequestId !== runRequestIdRef.current) {
+        if (!snapshot) {
           return;
         }
 
@@ -1991,7 +1682,10 @@ export function WorkspaceSessionProvider({
           providerModel,
           durationMs: Date.now() - startedAtMs,
         });
-        const downloaded = await repository.downloadDocumentRun(runId);
+        const downloaded = await repository.downloadDocumentRun(
+          runId,
+          snapshot.fileName ?? `${documentTitle}.docx`,
+        );
         downloadBlobFile(downloaded.fileName, downloaded.blob);
         setRunUiState({
           runStatus: "completed",
@@ -2001,8 +1695,17 @@ export function WorkspaceSessionProvider({
         });
         toast.success(`${downloaded.fileName} 已生成`);
       } catch (error) {
-        if (runRequestId !== runRequestIdRef.current) {
-          return;
+        const detail = error instanceof Error ? error.message : "说明书生成失败";
+        if (clientTaskId) {
+          updateGenerationTask(clientTaskId, (task) => ({
+            ...task,
+            status: "failed",
+            progress: 100,
+            message: null,
+            errorMessage: detail,
+            finishedAt: new Date().toISOString(),
+            diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+          }));
         }
         if (runId && repository.getDocumentRunSnapshot) {
           try {
@@ -2049,18 +1752,19 @@ export function WorkspaceSessionProvider({
       plantUml,
       repository,
       requirementText,
+      runController,
       rules,
       saveHistorySnapshot,
       svgArtifacts,
     ],
   );
 
-  const generateRequirementsSpec = useCallback(async () => {
-    await runDocumentGeneration("requirementsSpec");
+  const generateRequirementsSpec = useCallback(async (documentStyle?: DocumentStyleSettings) => {
+    await runDocumentGeneration("requirementsSpec", documentStyle);
   }, [runDocumentGeneration]);
 
-  const generateSoftwareDesignSpec = useCallback(async () => {
-    await runDocumentGeneration("softwareDesignSpec");
+  const generateSoftwareDesignSpec = useCallback(async (documentStyle?: DocumentStyleSettings) => {
+    await runDocumentGeneration("softwareDesignSpec", documentStyle);
   }, [runDocumentGeneration]);
 
   const renderPlantUml = useCallback(
@@ -2146,8 +1850,25 @@ export function WorkspaceSessionProvider({
     (diagram) => (diagramVersions[diagram] ?? -1) !== rulesVersion,
   );
 
-  const generating =
-    runUiState.runStatus === "queued" || runUiState.runStatus === "running";
+  const visibleGenerationTask = useMemo(() => {
+    if (selectedGenerationTaskId) {
+      const selected = generationTasks.find(
+        (task) => task.clientTaskId === selectedGenerationTaskId,
+      );
+      if (selected) return selected;
+    }
+    return generationTasks.find(isTaskActive) ?? generationTasks[0] ?? null;
+  }, [generationTasks, selectedGenerationTaskId]);
+
+  const visibleRunStatus = visibleGenerationTask?.status ?? runUiState.runStatus;
+  const visibleRunProgress = visibleGenerationTask?.progress ?? runUiState.runProgress;
+  const visibleRunMessage = visibleGenerationTask?.message ?? runUiState.runMessage;
+  const visibleErrorMessage =
+    visibleGenerationTask?.errorMessage ?? runUiState.errorMessage;
+  const visibleRunDiagnostics =
+    visibleGenerationTask?.diagnostics ?? currentRunDiagnostics;
+
+  const generating = generationTasks.some(isTaskActive);
 
   const value = useMemo<WorkspaceSessionState>(
     () => ({
@@ -2186,10 +1907,14 @@ export function WorkspaceSessionProvider({
       generatedDesignDiagrams,
       generatedDiagrams,
       generating,
-      runStatus: runUiState.runStatus,
-      runProgress: runUiState.runProgress,
-      runMessage: runUiState.runMessage,
-      errorMessage: runUiState.errorMessage,
+      runStatus: visibleRunStatus,
+      runProgress: visibleRunProgress,
+      runMessage: visibleRunMessage,
+      errorMessage: visibleErrorMessage,
+      generationTasks,
+      selectedGenerationTaskId: visibleGenerationTask?.clientTaskId ?? null,
+      selectGenerationTask,
+      clearCompletedGenerationTasks,
       generateRules,
       generateDiagrams,
       generateDesignDiagrams,
@@ -2209,7 +1934,7 @@ export function WorkspaceSessionProvider({
       deleteRunHistory,
       clearRunHistory,
       renderPlantUml,
-      currentRunDiagnostics,
+      currentRunDiagnostics: visibleRunDiagnostics,
     }),
     [
       requirementText,
@@ -2246,6 +1971,14 @@ export function WorkspaceSessionProvider({
       generatedDiagrams,
       generating,
       runUiState,
+      visibleRunStatus,
+      visibleRunProgress,
+      visibleRunMessage,
+      visibleErrorMessage,
+      generationTasks,
+      visibleGenerationTask,
+      selectGenerationTask,
+      clearCompletedGenerationTasks,
       generateRules,
       generateDiagrams,
       generateDesignDiagrams,
@@ -2265,7 +1998,7 @@ export function WorkspaceSessionProvider({
       deleteRunHistory,
       clearRunHistory,
       renderPlantUml,
-      currentRunDiagnostics,
+      visibleRunDiagnostics,
     ],
   );
 

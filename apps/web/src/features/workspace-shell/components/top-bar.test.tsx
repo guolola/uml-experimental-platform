@@ -1,7 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodeRunSnapshot, DesignRunSnapshot } from "@uml-platform/contracts";
+import type {
+  CodeRunSnapshot,
+  DesignRunSnapshot,
+  DocumentRunSnapshot,
+} from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
   createRunSnapshot,
@@ -115,6 +119,15 @@ describe("TopBar", () => {
         writeText: vi.fn(async () => {}),
       },
     });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:document-export"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    HTMLAnchorElement.prototype.click = vi.fn();
   });
 
   it("opens history without unavailable placeholder feedback", async () => {
@@ -231,6 +244,134 @@ describe("TopBar", () => {
     expect(screen.getByRole("menuitem", { name: /运行报告/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /当前快照/i })).toBeInTheDocument();
     expect(screen.queryByText(/PlantUML|puml/i)).not.toBeInTheDocument();
+  });
+
+  it("guards document exports until the required models exist", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TopBarHarness />, repository));
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    await user.click(screen.getByRole("button", { name: /导出/i }));
+
+    expect(screen.getByRole("menuitem", { name: /需求规格说明书/i })).toHaveAttribute(
+      "data-disabled",
+    );
+    expect(screen.getByRole("menuitem", { name: /软件设计说明书/i })).toHaveAttribute(
+      "data-disabled",
+    );
+    expect(screen.getByRole("menuitem", { name: /需求规格说明书/i })).toHaveAttribute(
+      "title",
+      "请先在需求页生成需求模型，再导出需求规格说明书",
+    );
+    expect(screen.getByRole("menuitem", { name: /软件设计说明书/i })).toHaveAttribute(
+      "title",
+      "请先在设计页生成设计模型，再导出软件设计说明书",
+    );
+    expect(screen.queryByText(/请先在需求页生成需求模型/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/请先在设计页生成设计模型/)).not.toBeInTheDocument();
+  });
+
+  it("passes customized document style settings when exporting a requirements spec", async () => {
+    const requirementModel = {
+      diagramKind: "usecase",
+      title: "订单系统用例",
+      summary: "核心参与者和用例",
+      notes: [],
+      actors: [],
+      useCases: [],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const documentSnapshot: DocumentRunSnapshot = {
+      runId: "document-run",
+      documentKind: "requirementsSpec",
+      sections: [{ level: 1, title: "1 项目引言", body: ["正文"] }],
+      status: "completed",
+      currentStage: "render_document_file",
+      errorMessage: null,
+      missingArtifacts: [],
+      fileName: "需求规格说明书.docx",
+      byteLength: 8,
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          models: { usecase: requirementModel as never },
+          generatedDiagramTypes: ["usecase"],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      startDocumentRun: vi.fn(async () => ({ runId: "document-run" })),
+      subscribeToDocumentRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "completed", snapshot: documentSnapshot });
+      }),
+      getDocumentRunSnapshot: vi.fn(async () => documentSnapshot),
+      downloadDocumentRun: vi.fn(async () => ({
+        blob: new Blob(["docx"]),
+        fileName: "需求规格说明书.docx",
+      })),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async () => ({
+        id: "document-run",
+        createdAt: new Date().toISOString(),
+        title: "需求规格说明书",
+        providerModel: "gpt-5.5",
+        snapshot: documentSnapshot,
+      })),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TopBarHarness />, repository));
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    await user.click(screen.getByRole("button", { name: /导出/i }));
+    await user.click(screen.getByRole("menuitem", { name: /说明书样式/i }));
+    const sizeInputs = await screen.findAllByLabelText("字号 pt");
+    fireEvent.change(sizeInputs[0], { target: { value: "18" } });
+    await user.click(screen.getByRole("button", { name: "完成" }));
+
+    await user.click(screen.getByRole("button", { name: /导出/i }));
+    await user.click(screen.getByRole("menuitem", { name: /需求规格说明书/i }));
+
+    await waitFor(() => {
+      expect(repository.startDocumentRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          documentStyle: expect.objectContaining({
+            heading1: expect.objectContaining({ sizePt: 18 }),
+            includeTableOfContents: true,
+            autoNumberHeadings: true,
+          }),
+        }),
+      );
+    });
   });
 
   it("shows Chinese task stages and streamed details in the task drawer", async () => {

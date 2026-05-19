@@ -18,8 +18,10 @@ import {
   renderSvgResponseSchema,
   requirementTraceEntrySchema,
   requirementRulesResultSchema,
+  documentStyleSettingsSchema,
   runEventSchema,
   runSnapshotSchema,
+  startDocumentRunRequestSchema,
 } from "./index.js";
 
 test("contracts validate representative stage payloads", () => {
@@ -557,4 +559,48 @@ test("contracts reject invalid stage payloads", () => {
       ],
     });
   });
+});
+
+test("contracts accept optional document export style settings", () => {
+  const style = documentStyleSettingsSchema.parse({
+    includeTableOfContents: true,
+    autoNumberHeadings: true,
+    heading1: {
+      eastAsiaFont: "SimHei",
+      asciiFont: "Times New Roman",
+      sizePt: 16,
+      bold: true,
+      lineSpacing: { type: "multiple", value: 1.73 },
+      spacingBeforePt: 13,
+      spacingAfterPt: 13,
+    },
+    body: {
+      eastAsiaFont: "SimSun",
+      asciiFont: "Times New Roman",
+      sizePt: 10.5,
+      lineSpacing: { type: "single", value: 1 },
+      firstLineIndentChars: 2,
+    },
+  });
+
+  assert.equal(style.presetName, "courseDesign");
+  assert.equal(style.heading1?.sizePt, 16);
+
+  const request = startDocumentRunRequestSchema.parse({
+    documentKind: "requirementsSpec",
+    requirementText: "生成需求说明书。",
+    providerSettings: {
+      apiBaseUrl: "https://ai.comfly.org",
+      apiKey: "sk-test",
+      model: "gpt-5.5",
+    },
+    documentStyle: style,
+  });
+
+  assert.equal(request.documentStyle?.includeTableOfContents, true);
+  assert.throws(() =>
+    documentStyleSettingsSchema.parse({
+      body: { sizePt: 0 },
+    }),
+  );
 });

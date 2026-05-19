@@ -45,6 +45,11 @@ import {
   getSelectionKey,
   useWorkspaceShell,
 } from "../state";
+import {
+  buildDesignDiagramTraceBadge,
+  buildRequirementDiagramTraceBadge,
+  type RequirementTraceBadge,
+} from "../lib/sidebar-trace-badges";
 
 type Node = {
   key: string;
@@ -53,6 +58,8 @@ type Node = {
   children?: Node[];
   selectable?: boolean;
   badge?: string | number;
+  badgeTooltip?: string;
+  badges?: string[];
   onSelect?: () => void;
 };
 
@@ -82,6 +89,45 @@ const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
   table: <Database className="size-3.5 text-muted-foreground" />,
   "table-column": <TypeIcon className="size-3.5 text-muted-foreground" />,
 };
+
+function TraceBadge({
+  label,
+  tooltip,
+}: {
+  label: string | number;
+  tooltip?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const tooltipId = `sidebar-trace-${String(label).replace(/\W+/g, "-")}`;
+
+  return (
+    <span
+      className="relative shrink-0"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
+      <span
+        tabIndex={tooltip ? 0 : undefined}
+        aria-describedby={tooltip && open ? tooltipId : undefined}
+        className="block max-w-24 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground outline-none ring-ring focus-visible:ring-2"
+        title={tooltip ? undefined : String(label)}
+      >
+        {label}
+      </span>
+      {tooltip && open && (
+        <span
+          id={tooltipId}
+          role="tooltip"
+          className="absolute right-0 top-full z-30 mt-1 w-max max-w-64 rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium text-popover-foreground shadow-lg"
+        >
+          {tooltip}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function TreeItem({
   node,
@@ -158,10 +204,17 @@ function TreeItem({
           {node.label}
         </button>
         {node.badge !== undefined && (
-          <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-            {node.badge}
-          </span>
+          <TraceBadge label={node.badge} tooltip={node.badgeTooltip} />
         )}
+        {node.badges?.map((badge) => (
+          <span
+            key={badge}
+            className="max-w-20 shrink-0 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground"
+            title={badge}
+          >
+            {badge}
+          </span>
+        ))}
       </div>
       {hasChildren && open && (
         <div>
@@ -186,6 +239,7 @@ function buildDiagramNode(
   model: ReturnType<typeof useWorkspaceSession>["models"][DiagramType],
   stale: boolean,
   failed: boolean,
+  traceBadge: RequirementTraceBadge | undefined,
   openDiagram: (diagram: DiagramType) => void,
   openDiagramElement: (
     diagram: DiagramType,
@@ -209,6 +263,8 @@ function buildDiagramNode(
     })),
   }));
 
+  const badge = failed ? "失败" : traceBadge?.label || detail.items.length || undefined;
+
   return {
     key: `diagram:${diagram}`,
     label: DIAGRAM_META[diagram].label,
@@ -230,7 +286,8 @@ function buildDiagramNode(
       </span>
     ),
     children,
-    badge: failed ? "失败" : detail.items.length || undefined,
+    badge,
+    badgeTooltip: failed ? undefined : traceBadge?.fullLabel,
     onSelect: () => openDiagram(diagram),
   };
 }
@@ -239,6 +296,7 @@ function buildDesignDiagramNode(
   diagram: DesignDiagramType,
   model: ReturnType<typeof useWorkspaceSession>["designModels"][DesignDiagramType],
   failed: boolean,
+  traceBadges: string[],
   openDesignDiagram: (diagram: DesignDiagramType) => void,
   openDesignDiagramElement: (
     diagram: DesignDiagramType,
@@ -252,7 +310,6 @@ function buildDesignDiagramNode(
     key: `design-diagram-group:${diagram}:${group.kind}`,
     label: SEMANTIC_KIND_META[group.kind].label,
     selectable: false,
-    badge: group.items.length,
     children: group.items.map((element) => ({
       key: `design-diagram-element:${diagram}:${element.kind}:${element.id}`,
       label: element.label,
@@ -277,7 +334,8 @@ function buildDesignDiagramNode(
       </span>
     ),
     children,
-    badge: failed ? "失败" : detail.items.length || undefined,
+    badge: failed ? "失败" : undefined,
+    badges: failed ? undefined : traceBadges,
     onSelect: () => openDesignDiagram(diagram),
   };
 }
@@ -292,6 +350,7 @@ export function SidebarMenu() {
     generatedDesignDiagrams,
     designModels,
     designDiagramErrors,
+    rulesForDiagram,
   } =
     useWorkspaceSession();
   const {
@@ -341,6 +400,7 @@ export function SidebarMenu() {
             models[diagram],
             staleDiagrams.includes(diagram),
             Boolean(diagramErrors[diagram]),
+            buildRequirementDiagramTraceBadge(rulesForDiagram(diagram)),
             openDiagram,
             openDiagramElement,
           ),
@@ -358,6 +418,7 @@ export function SidebarMenu() {
             diagram,
             designModels[diagram],
             Boolean(designDiagramErrors[diagram]),
+            buildDesignDiagramTraceBadge(diagram),
             openDesignDiagram,
             openDesignDiagramElement,
           ),

@@ -14,6 +14,10 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+      '@uml-platform/contracts': path.resolve(
+        __dirname,
+        '../../packages/contracts/src/index.ts',
+      ),
     },
   },
 

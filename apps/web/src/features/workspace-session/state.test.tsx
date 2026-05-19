@@ -1,5 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type {
+  DesignDiagramModelSpec,
+  DiagramModelSpec,
+  DocumentRunSnapshot,
+} from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../services/workspace-repository";
 import {
   createRule,
@@ -188,6 +193,15 @@ describe("WorkspaceSessionProvider", () => {
       deleteRunHistory: vi.fn(async () => []),
       clearRunHistory: vi.fn(async () => {}),
     };
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:document-run"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     const { result } = renderHook(() => useWorkspaceSession(), {
       wrapper: ({ children }) => withWorkspaceProviders(children, repository),
@@ -296,5 +310,175 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.currentRunDiagnostics.streamText).toHaveLength(30_000);
     expect(result.current.currentRunDiagnostics.streamText.endsWith("TAIL")).toBe(true);
     expect(result.current.currentRunDiagnostics.chunkCount).toBe(2);
+  });
+
+  it("keeps concurrent document runs as separate tasks and downloads both files", async () => {
+    const requirementModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "用例图",
+      summary: "核心用例",
+      notes: [],
+      actors: [],
+      useCases: [],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const designModel: DesignDiagramModelSpec = {
+      diagramKind: "sequence",
+      title: "顺序图",
+      summary: "动态行为",
+      notes: [],
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const snapshots = new Map<string, DocumentRunSnapshot>([
+      [
+        "doc-req",
+        {
+          runId: "doc-req",
+          documentKind: "requirementsSpec",
+          requirementText: "订单系统需求",
+          sections: [{ level: 1, title: "1 需求规定", body: ["正文"] }],
+          fileName: "需求规格说明书.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          byteLength: 8,
+          missingArtifacts: [],
+          currentStage: "render_document_file",
+          status: "completed",
+          errorMessage: null,
+        },
+      ],
+      [
+        "doc-design",
+        {
+          runId: "doc-design",
+          documentKind: "softwareDesignSpec",
+          requirementText: "订单系统需求",
+          sections: [{ level: 1, title: "1 设计概述", body: ["正文"] }],
+          fileName: "软件设计说明书.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          byteLength: 8,
+          missingArtifacts: [],
+          currentStage: "render_document_file",
+          status: "completed",
+          errorMessage: null,
+        },
+      ],
+    ]);
+    const subscribers = new Map<
+      string,
+      {
+        onEvent: Parameters<NonNullable<WorkspaceRepository["subscribeToDocumentRun"]>>[1];
+        resolve: () => void;
+      }
+    >();
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          models: { usecase: requirementModel },
+          designModels: { sequence: designModel },
+          generatedDiagramTypes: ["usecase"],
+          generatedDesignDiagramTypes: ["sequence"],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDocumentRun: vi.fn(async (input) => ({
+        runId:
+          input.documentKind === "requirementsSpec" ? "doc-req" : "doc-design",
+      })),
+      subscribeToDocumentRun: vi.fn(
+        async (runId, onEvent) =>
+          new Promise<void>((resolve) => {
+            subscribers.set(runId, { onEvent, resolve });
+          }),
+      ),
+      getDocumentRunSnapshot: vi.fn(async (runId) => snapshots.get(runId)!),
+      downloadDocumentRun: vi.fn(async (runId, defaultFileName) => ({
+        blob: new Blob(["docx"]),
+        fileName: defaultFileName ?? snapshots.get(runId)?.fileName ?? "说明书.docx",
+      })),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async (snapshot) => ({
+        id: snapshot.runId,
+        createdAt: new Date().toISOString(),
+        title: "document",
+        snapshot,
+        providerModel: "gpt-5.5",
+      })),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let requirementsPromise!: Promise<void>;
+    act(() => {
+      requirementsPromise = result.current.generateRequirementsSpec();
+    });
+    await waitFor(() => {
+      expect(subscribers.has("doc-req")).toBe(true);
+    });
+    let designPromise!: Promise<void>;
+    act(() => {
+      designPromise = result.current.generateSoftwareDesignSpec();
+    });
+    await waitFor(() => {
+      expect(subscribers.has("doc-design")).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(result.current.generationTasks.map((task) => task.title)).toEqual([
+        "软件设计说明书",
+        "需求规格说明书",
+      ]);
+    });
+
+    for (const runId of ["doc-req", "doc-design"]) {
+      const subscriber = subscribers.get(runId)!;
+      act(() => {
+        subscriber.onEvent({ type: "queued" });
+        subscriber.onEvent({
+          type: "completed",
+          snapshot: snapshots.get(runId)!,
+        });
+        subscriber.resolve();
+      });
+    }
+
+    await act(async () => {
+      await requirementsPromise;
+      await designPromise;
+    });
+
+    expect(repository.downloadDocumentRun).toHaveBeenCalledWith(
+      "doc-req",
+      "需求规格说明书.docx",
+    );
+    expect(repository.downloadDocumentRun).toHaveBeenCalledWith(
+      "doc-design",
+      "软件设计说明书.docx",
+    );
+    await waitFor(() => {
+      expect(result.current.generationTasks).toHaveLength(2);
+      expect(result.current.generationTasks.every((task) => task.status === "completed")).toBe(
+        true,
+      );
+    });
   });
 });

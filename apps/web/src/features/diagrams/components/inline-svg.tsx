@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { sanitizeSvgMarkup } from "../lib/svg-sanitizer";
 
 function parseSvgLength(value: string | null) {
   if (!value) return null;
@@ -23,10 +24,7 @@ export function InlineSvg({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>("");
-  const sanitizedSvg = svg
-    .replace(/<\?xml[^?]*\?>/g, "")
-    .replace(/<!DOCTYPE[^>]*>/g, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "");
+  const sanitizedSvg = useMemo(() => sanitizeSvgMarkup(svg), [svg]);
 
   useEffect(() => {
     setError("");

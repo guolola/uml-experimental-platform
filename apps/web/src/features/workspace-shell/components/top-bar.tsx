@@ -26,6 +26,7 @@ import type {
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { SettingsDialog } from "../../settings/components/settings-dialog";
+import { DocumentStyleDialog } from "./document-style-dialog";
 import { useTheme } from "../../../app/providers/theme-provider";
 import {
   Dialog,
@@ -45,10 +46,16 @@ import {
 } from "../../../shared/ui/dropdown-menu";
 import { buildRunMarkdownReport } from "../../history";
 import { downloadTextFile } from "../../../shared/lib/download";
+import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../state";
+import {
+  SHELL_ROUTE_MODULES,
+  type ShellRoutePath,
+} from "../../../app/workspace-modules";
+import { cloneDefaultDocumentStyle } from "../lib/document-style";
 
-export type ShellRoutePath = "/" | "/exam" | "/tutorial" | "/about";
+export type { ShellRoutePath };
 
 type TopBarProps = {
   currentRoute: ShellRoutePath;
@@ -245,11 +252,14 @@ function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry | Cod
 export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const { theme, toggle } = useTheme();
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [documentStyleDialogOpen, setDocumentStyleDialogOpen] = useState(false);
+  const [documentStyle, setDocumentStyle] = useState(cloneDefaultDocumentStyle);
   const executionDetailRef = useRef<HTMLDivElement | null>(null);
   const {
     requirementText,
     rules,
     models,
+    designModels,
     svgArtifacts,
     diagramErrors,
     selectedDiagrams,
@@ -258,11 +268,18 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
     runMessage,
     errorMessage,
     currentRunDiagnostics,
+    generationTasks,
+    selectedGenerationTaskId,
+    selectGenerationTask,
+    clearCompletedGenerationTasks,
     generateRequirementsSpec,
     generateSoftwareDesignSpec,
   } =
     useWorkspaceSession();
   const { openHistoryDrawer } = useWorkspaceShell();
+  const activeTaskCount = generationTasks.filter(
+    (task) => task.status === "queued" || task.status === "running",
+  ).length;
   const taskIsActive = runStatus === "queued" || runStatus === "running";
   const recentEvents = useMemo(
     () => currentRunDiagnostics.events.slice(-6).reverse(),
@@ -284,6 +301,14 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
   const designTraceEntries = currentRunDiagnostics.designTrace;
   const codeTraceEntries = currentRunDiagnostics.codeTrace;
+  const hasRequirementModels = Object.values(models).some(Boolean);
+  const hasDesignModels = Object.values(designModels).some(Boolean);
+  const requirementsSpecDisabledReason = hasRequirementModels
+    ? null
+    : "请先在需求页生成需求模型，再导出需求规格说明书";
+  const designSpecDisabledReason = hasDesignModels
+    ? null
+    : "请先在设计页生成设计模型，再导出软件设计说明书";
 
   useEffect(() => {
     if (!taskDialogOpen) return;
@@ -345,31 +370,22 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   };
 
   const exportRequirementsSpec = () => {
-    void generateRequirementsSpec();
+    if (requirementsSpecDisabledReason) {
+      toast.error(requirementsSpecDisabledReason);
+      return;
+    }
+    void generateRequirementsSpec(documentStyle);
   };
 
   const exportSoftwareDesignSpec = () => {
-    void generateSoftwareDesignSpec();
+    if (designSpecDisabledReason) {
+      toast.error(designSpecDisabledReason);
+      return;
+    }
+    void generateSoftwareDesignSpec(documentStyle);
   };
 
-  const navItems = [
-    {
-      label: "首页",
-      route: "/" as const,
-    },
-    {
-      label: "考试",
-      route: "/exam" as const,
-    },
-    {
-      label: "教程",
-      route: "/tutorial" as const,
-    },
-    {
-      label: "关于",
-      route: "/about" as const,
-    },
-  ];
+  const navItems = SHELL_ROUTE_MODULES;
 
   return (
     <header className="flex h-16 shrink-0 flex-nowrap items-center gap-6 overflow-hidden border-b border-transparent bg-sidebar px-5 text-sidebar-foreground">
@@ -415,9 +431,11 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
               <Activity className="size-5" />
             )}
             <span className="hidden max-w-36 truncate text-sm font-semibold xl:inline">
-              {taskIsActive
-                ? `${RUN_STATUS_LABEL[runStatus]} ${runProgress}%`
-                : RUN_STATUS_LABEL[runStatus]}
+              {activeTaskCount > 1
+                ? `${activeTaskCount} 个任务`
+                : taskIsActive
+                  ? `${RUN_STATUS_LABEL[runStatus]} ${runProgress}%`
+                  : RUN_STATUS_LABEL[runStatus]}
             </span>
           </Button>
         </DialogTrigger>
@@ -434,10 +452,66 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
               生成任务
             </DialogTitle>
             <DialogDescription>
-              查看当前后台生成的阶段、进度和执行详情。
+              查看每个后台生成任务的阶段、进度和执行详情。
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 overflow-auto px-5 py-4">
+            {generationTasks.length > 0 && (
+              <div className="mb-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    任务列表
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={clearCompletedGenerationTasks}
+                  >
+                    清理已完成
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {generationTasks.map((task) => {
+                    const selected = task.clientTaskId === selectedGenerationTaskId;
+                    const active =
+                      task.status === "queued" || task.status === "running";
+                    return (
+                      <button
+                        key={task.clientTaskId}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
+                          selected && "border-primary bg-primary/5",
+                        )}
+                        onClick={() => selectGenerationTask(task.clientTaskId)}
+                      >
+                        {active ? (
+                          <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                        ) : task.status === "failed" ? (
+                          <AlertCircle className="size-4 shrink-0 text-destructive" />
+                        ) : (
+                          <CheckCircle2 className="size-4 shrink-0 text-success" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">
+                            {task.title}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {sanitizeTaskText(task.message ?? task.errorMessage ?? "") ||
+                              RUN_STATUS_LABEL[task.status]}
+                          </span>
+                        </span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {task.progress}%
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="grid gap-3 rounded-lg border border-border bg-card p-4 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">状态</span>
@@ -880,13 +954,25 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
             </span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={exportRequirementsSpec}>
+          <DropdownMenuItem onSelect={() => setDocumentStyleDialogOpen(true)}>
+            <Palette className="size-4" /> 说明书样式
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={Boolean(requirementsSpecDisabledReason)}
+            title={requirementsSpecDisabledReason ?? "导出需求规格说明书"}
+            onSelect={exportRequirementsSpec}
+          >
             <FileText className="size-4" /> 需求规格说明书
             <span className="ml-auto font-mono text-[10px] text-muted-foreground">
               .docx
             </span>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={exportSoftwareDesignSpec}>
+          <DropdownMenuItem
+            disabled={Boolean(designSpecDisabledReason)}
+            title={designSpecDisabledReason ?? "导出软件设计说明书"}
+            onSelect={exportSoftwareDesignSpec}
+          >
             <FileText className="size-4" /> 软件设计说明书
             <span className="ml-auto font-mono text-[10px] text-muted-foreground">
               .docx
@@ -926,6 +1012,12 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
         <Palette className="size-5" />
       </Button>
       <SettingsDialog />
+      <DocumentStyleDialog
+        open={documentStyleDialogOpen}
+        onOpenChange={setDocumentStyleDialogOpen}
+        value={documentStyle}
+        onChange={setDocumentStyle}
+      />
       <div className="hidden h-12 shrink-0 items-center gap-2 rounded-full bg-secondary px-2.5 pr-3 text-sm font-semibold text-secondary-foreground md:flex">
         <span className="inline-flex size-8 items-center justify-center rounded-full bg-primary text-sm text-primary-foreground">
           U
