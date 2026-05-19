@@ -25,6 +25,7 @@ import {
   diagramSvgKindsForDocument,
   ensureDocumentDiagramSections,
   fallbackDocumentSections,
+  mergeDocumentSectionsWithTemplate,
   sanitizeDocumentSections,
 } from "../../documents/context/document-context.js";
 import { renderDocumentBuffer } from "../../documents/render/document-renderer.js";
@@ -141,12 +142,13 @@ export async function runDocumentStagePipeline(
   updateStage("generate_document_text", "正在生成说明书正文");
   let sections = fallbackDocumentSections(input);
   if (input.useAiText) {
-    sections = await generateDocumentSectionsWithRepair(
+    const generatedSections = await generateDocumentSectionsWithRepair(
       record,
       input,
       providerSettings,
       llmTransport,
     );
+    sections = mergeDocumentSectionsWithTemplate(sections, generatedSections);
   }
   sections = ensureDocumentDiagramSections(input.documentKind, sections);
   sections = sanitizeDocumentSections(input, sections);

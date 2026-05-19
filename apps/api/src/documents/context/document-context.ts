@@ -1,6 +1,8 @@
 // Owns document context shaping and section normalization before DOCX rendering.
 import {
   documentContentResultSchema,
+  type DesignDiagramModelSpec,
+  type DiagramModelSpec,
   type DocumentKind,
   type DocumentSection,
   type StartDocumentRunRequest,
@@ -16,6 +18,167 @@ export function expectedDocumentDiagramKinds(documentKind: DocumentKind) {
   return documentKind === "requirementsSpec"
     ? ["usecase", "class", "deployment", "activity"]
     : ["sequence", "class", "activity", "deployment", "table"];
+}
+
+function unknown(value = "当前阶段未明确。") {
+  return value;
+}
+
+function compactJoin(values: Array<string | undefined>, fallback = "当前阶段未明确") {
+  const filtered = values.map((value) => value?.trim()).filter(Boolean);
+  return filtered.length > 0 ? filtered.join("；") : fallback;
+}
+
+function useCaseModels(input: StartDocumentRunRequest) {
+  return input.requirementModels.filter((model) => model.diagramKind === "usecase");
+}
+
+function requirementClassModel(input: StartDocumentRunRequest) {
+  return input.requirementModels.find(
+    (model): model is Extract<DiagramModelSpec, { diagramKind: "class" }> =>
+      model.diagramKind === "class",
+  );
+}
+
+function designClassModel(input: StartDocumentRunRequest) {
+  return input.designModels.find(
+    (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "class" }> =>
+      model.diagramKind === "class",
+  );
+}
+
+function designSequenceModel(input: StartDocumentRunRequest) {
+  return input.designModels.find(
+    (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }> =>
+      model.diagramKind === "sequence",
+  );
+}
+
+function designTableModel(input: StartDocumentRunRequest) {
+  return input.designModels.find(
+    (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "table" }> =>
+      model.diagramKind === "table",
+  );
+}
+
+function requirementUseCases(input: StartDocumentRunRequest) {
+  const useCases = useCaseModels(input).flatMap((model) => model.useCases);
+  return useCases.length > 0
+    ? useCases
+    : [
+        {
+          id: "UC-1",
+          name: "名称",
+          goal: "当前阶段未明确",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ];
+}
+
+function useCaseActorIds(useCase: ReturnType<typeof requirementUseCases>[number]) {
+  return [useCase.primaryActorId, ...useCase.supportingActorIds].filter(
+    (actorId): actorId is string => Boolean(actorId),
+  );
+}
+
+function requirementActors(input: StartDocumentRunRequest, actorIds: string[]) {
+  const actors = useCaseModels(input).flatMap((model) => model.actors);
+  const selected = actorIds
+    .map((actorId) => actors.find((actor) => actor.id === actorId)?.name)
+    .filter(Boolean);
+  return selected.length > 0 ? selected : actors.map((actor) => actor.name);
+}
+
+function requirementClasses(input: StartDocumentRunRequest) {
+  const model = requirementClassModel(input);
+  return model && "classes" in model ? model.classes : [];
+}
+
+function designClasses(input: StartDocumentRunRequest) {
+  const model = designClassModel(input);
+  return model && "classes" in model ? model.classes : [];
+}
+
+function designTables(input: StartDocumentRunRequest) {
+  const model = designTableModel(input);
+  return model && "tables" in model ? model.tables : [];
+}
+
+function requirementUseCaseClassRows(input: StartDocumentRunRequest) {
+  const classes = requirementClasses(input);
+  return requirementUseCases(input).map((useCase, index) => [
+    String(index + 1),
+    useCase.name,
+    compactJoin(requirementActors(input, useCaseActorIds(useCase)), "当前阶段未明确"),
+    compactJoin(classes.map((item) => item.name), "当前阶段未明确"),
+    compactJoin(
+      input.rules
+        .filter((rule) => rule.relatedDiagrams.includes("usecase"))
+        .map((rule) => rule.id),
+      "当前阶段未明确",
+    ),
+  ]);
+}
+
+function designUseCaseInterfaceRows(input: StartDocumentRunRequest) {
+  return requirementUseCases(input).map((useCase, index) => [
+    String(index + 1),
+    useCase.name,
+    "当前阶段未明确",
+    "当前阶段未明确",
+  ]);
+}
+
+function designUseCaseObjectClassRows(input: StartDocumentRunRequest) {
+  const participants = designSequenceModel(input)?.participants ?? [];
+  const classes = designClasses(input);
+  return requirementUseCases(input).map((useCase, index) => [
+    String(index + 1),
+    useCase.name,
+    compactJoin(participants.map((item) => item.name), "当前阶段未明确"),
+    compactJoin(classes.map((item) => item.name), "当前阶段未明确"),
+    "当前阶段未明确",
+  ]);
+}
+
+function classTableRows(input: StartDocumentRunRequest) {
+  const tables = designTables(input);
+  const classes = designClasses(input).filter((item) =>
+    ["entity", "aggregate"].includes(item.classKind ?? ""),
+  );
+  const persistentClasses = classes.length > 0 ? classes : designClasses(input);
+  return (persistentClasses.length > 0 ? persistentClasses : [{ name: "当前阶段未明确" }]).map(
+    (item, index) => [
+      String(index + 1),
+      item.name,
+      tables[index]?.name ?? "当前阶段未明确",
+      "当前阶段未明确",
+    ],
+  );
+}
+
+function tableDesignBody(input: StartDocumentRunRequest) {
+  const tables = designTables(input);
+  if (tables.length === 0) {
+    return ["当前阶段未明确。"];
+  }
+
+  return tables.flatMap((table) => [
+    `${table.name}：${table.description ?? "当前阶段未明确"}`,
+    ...table.columns.map((column) => {
+      const constraints = [
+        column.isPrimaryKey ? "主键" : undefined,
+        column.isForeignKey ? "外键" : undefined,
+        column.nullable ? "可空" : "非空",
+        column.references
+          ? `引用 ${column.references.tableId}.${column.references.columnId}`
+          : undefined,
+      ].filter(Boolean);
+      return `字段 ${column.name}，类型 ${column.dataType}，限制：${constraints.join("、") || "无"}。`;
+    }),
+  ]);
 }
 
 export function buildDocumentContext(input: StartDocumentRunRequest) {
@@ -41,14 +204,18 @@ export function buildDocumentContext(input: StartDocumentRunRequest) {
       diagramKind: artifact.diagramKind,
       hasSvg: Boolean(artifact.svg),
     })),
+    canonicalSections: fallbackDocumentSections(input).map((section) => ({
+      level: section.level,
+      title: section.title,
+      diagramKind: section.diagramKind,
+      tableHeaders: section.table?.headers,
+    })),
   };
 }
 
 export function fallbackDocumentSections(input: StartDocumentRunRequest): DocumentSection[] {
   if (input.documentKind === "requirementsSpec") {
-    const useCases = input.requirementModels
-      .filter((model) => model.diagramKind === "usecase")
-      .flatMap((model) => ("useCases" in model ? model.useCases : []));
+    const useCases = requirementUseCases(input);
     return documentContentResultSchema.parse({
       sections: [
         { level: 1, title: "1 项目引言", body: [] },
@@ -61,22 +228,38 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         { level: 2, title: "2.2 用户的特点", body: ["用户角色根据用例模型中的参与者识别，具体职责见功能需求小节。"] },
         { level: 2, title: "2.3 假定的约束", body: ["当前阶段未明确的外部约束在后续评审中补充。"] },
         { level: 1, title: "3 需求规定", body: [] },
-        { level: 2, title: "3.1 功能需求", body: ["总体功能需求由用例模型和需求规则共同描述。"], diagramKind: "usecase" },
-        ...useCases.slice(0, 8).map((useCase, index) => ({
+        { level: 2, title: "3.1 功能需求", body: ["总体功能需求说明。"], diagramKind: "usecase" },
+        ...useCases.map((useCase, index) => ({
           level: 3 as const,
           title: `3.1.${index + 1} 用例${index + 1}：${useCase.name}（${useCase.id}）`,
           body: [
             `简要描述：${useCase.goal}`,
+            `参与者：${compactJoin(requirementActors(input, useCaseActorIds(useCase)))}`,
             `前置条件：${useCase.preconditions.join("；") || "当前阶段未明确"}`,
+            `事件流：${useCase.description ?? "当前阶段未明确"}`,
             `后置条件：${useCase.postconditions.join("；") || "当前阶段未明确"}`,
+            `其它：${compactJoin(
+              input.rules
+                .filter((rule) => rule.relatedDiagrams.includes("usecase"))
+                .map((rule) => rule.id),
+              "当前阶段未明确",
+            )}`,
           ],
         })),
         { level: 2, title: "3.2 数据需求", body: ["数据需求由领域概念模型中的对象、类和关系描述。"], diagramKind: "class" },
-        { level: 3, title: "3.2.1 用例、对象与类的关系", body: ["用例与对象、类的关系依据用例模型和类模型追踪。"] },
+        {
+          level: 3,
+          title: "3.2.1 用例、对象与类的关系",
+          body: ["用例与对象、类的关系依据用例模型和领域概念模型追踪。"],
+          table: {
+            headers: ["编号", "用例名称", "对象", "类", "备注"],
+            rows: requirementUseCaseClassRows(input),
+          },
+        },
         { level: 3, title: "3.2.2 类的描述", body: ["类的属性、操作和职责见领域概念模型。"] },
         { level: 3, title: "3.2.3 类与类的关系", body: ["类之间的关联、继承、聚合或组合关系见领域概念模型。"] },
-        { level: 2, title: "3.3 运行需求", body: [], diagramKind: "deployment" },
-        { level: 3, title: "3.3.1 网络和设备需求", body: ["网络拓扑和设备需求依据部署模型描述。"] },
+        { level: 2, title: "3.3 运行需求", body: [] },
+        { level: 3, title: "3.3.1 网络和设备需求", body: ["网络拓扑和设备需求依据部署模型描述。"], diagramKind: "deployment" },
         { level: 3, title: "3.3.2 支持软件与部署需求", body: ["支持软件与部署约束依据部署节点和组件关系描述。"] },
         { level: 2, title: "3.4 界面需求", body: ["界面关系图描述主要界面状态和跳转关系。"], diagramKind: "activity" },
         { level: 2, title: "3.5 其它需求", body: [] },
@@ -100,12 +283,20 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 2, title: "1.3 定义与标识", body: ["设计对象、设计类、顺序图和数据库表均来自平台生成的设计阶段产物。"] },
       { level: 2, title: "1.4 参考资料", body: ["参考资料包括需求规格、需求模型、设计模型和 UML 图像产物。"] },
       { level: 1, title: "2 系统结构", body: [] },
-      { level: 2, title: "2.1 网络与硬件配置", body: ["网络与硬件配置依据部署设计模型描述。"], diagramKind: "deployment" },
+      { level: 2, title: "2.1 网络与硬件配置", body: ["网络与硬件配置依据部署设计模型描述。"] },
       { level: 2, title: "2.2 部署设计", body: ["部署设计描述组件、节点、数据库和外部系统之间的关系。"], diagramKind: "deployment" },
       { level: 2, title: "2.3 其它约束", body: ["当前阶段未明确。"] },
       { level: 1, title: "3 设计", body: [] },
-      { level: 2, title: "3.1 交互设计", body: ["交互设计通过顺序图描述参与者、对象和服务之间的时序消息。"], diagramKind: "sequence" },
-      { level: 3, title: "3.1.1 顺序图1：编号：名称", body: ["顺序图展示主要用例的对象协作和消息顺序。"], diagramKind: "sequence" },
+      { level: 2, title: "3.1 交互设计", body: ["交互设计通过顺序图描述对象与对象、参与者与对象之间的关系。"] },
+      ...requirementUseCases(input).map((useCase, index) => ({
+        level: 3 as const,
+        title: `3.1.${index + 1} 顺序图${index + 1}：${useCase.id}：${useCase.name}`,
+        body: [
+          `描述：${useCase.goal}`,
+          "顺序图（协作图）按时序说明消息内容、格式、目的，以及对发送对象与接收对象的影响。",
+        ],
+        diagramKind: index === 0 ? "sequence" : undefined,
+      })),
       { level: 2, title: "3.2 结构设计", body: ["结构设计通过设计类图描述对象、设计类及其关系。"], diagramKind: "class" },
       { level: 3, title: "3.2.1 对象与类的关系", body: ["对象与类的关系依据设计类图识别。"] },
       { level: 3, title: "3.2.2 类与类的关系", body: ["类与类之间的继承、关联、聚合、组合或依赖关系见设计类图。"] },
@@ -115,17 +306,85 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 3, title: "3.3.1 界面关系", body: ["界面关系图描述主要界面之间的跳转。"], diagramKind: "activity" },
       { level: 3, title: "3.3.2 界面详细设计", body: ["界面详细设计将在原型实现阶段补充。"] },
       { level: 2, title: "3.4 可追踪性设计", body: [] },
-      { level: 3, title: "3.4.1 用例与界面的关系", body: ["用例与界面的关系依据需求活动模型和设计交互模型追踪。"] },
-      { level: 3, title: "3.4.2 用例与对象、类的关系", body: ["用例与对象、类的关系依据顺序图和设计类图追踪。"] },
+      {
+        level: 3,
+        title: "3.4.1 用例与界面的关系",
+        body: ["用例与界面的关系依据需求界面关系模型和设计界面关系模型追踪。"],
+        table: {
+          headers: ["编号", "用例名称", "界面名称", "备注"],
+          rows: designUseCaseInterfaceRows(input),
+        },
+      },
+      {
+        level: 3,
+        title: "3.4.2 用例与对象、类的关系",
+        body: ["用例与对象、类的关系依据顺序图和设计类图追踪。"],
+        table: {
+          headers: ["编号", "用例名称", "对象名称", "设计类名称", "备注"],
+          rows: designUseCaseObjectClassRows(input),
+        },
+      },
       { level: 2, title: "3.5 数据库设计", body: ["数据库设计依据表关系模型描述。"], diagramKind: "table" },
-      { level: 3, title: "3.5.1 类与表的关系", body: ["持久类与表的映射关系见表关系图。"] },
-      { level: 3, title: "3.5.2 数据表设计", body: ["数据表字段、主键、外键和引用关系见表关系图。"], diagramKind: "table" },
+      {
+        level: 3,
+        title: "3.5.1 类与表的关系",
+        body: ["说明哪些类是持久类，以及这些类对应哪些表。"],
+        table: {
+          headers: ["编号", "类名（持久类）", "表名", "备注"],
+          rows: classTableRows(input),
+        },
+      },
+      { level: 3, title: "3.5.2 数据表设计", body: tableDesignBody(input), diagramKind: "table" },
       { level: 2, title: "3.6其它设计", body: [] },
       { level: 3, title: "3.6.1安全设计", body: ["当前阶段未明确。"] },
       { level: 3, title: "3.6.2性能设计", body: ["当前阶段未明确。"] },
       { level: 3, title: "3.6.3其它限制设计", body: ["当前阶段未明确。"] },
       { level: 1, title: "4 尚未设计的问题", body: ["当前阶段未明确。"] },
     ],
+  }).sections;
+}
+
+const LEADING_NUMBER_PATTERN =
+  /^\s*(?:第\s*)?\d+(?:\.\d+){0,2}(?:\s*[章节]\s*)?[\s.、：:-]*/;
+
+function sectionKey(title: string) {
+  return title
+    .replace(LEADING_NUMBER_PATTERN, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+export function mergeDocumentSectionsWithTemplate(
+  template: DocumentSection[],
+  generated: DocumentSection[],
+) {
+  const generatedByTitle = new Map(
+    generated.map((section) => [sectionKey(section.title), section]),
+  );
+
+  return documentContentResultSchema.parse({
+    sections: template.map((section) => {
+      const generatedSection = generatedByTitle.get(sectionKey(section.title));
+      if (!generatedSection) {
+        return section;
+      }
+
+      return {
+        ...section,
+        body:
+          generatedSection.body.length > 0 ? generatedSection.body : section.body,
+        table: section.table
+          ? {
+              headers: section.table.headers,
+              rows:
+                generatedSection.table?.rows &&
+                generatedSection.table.rows.length > 0
+                  ? generatedSection.table.rows
+                  : section.table.rows,
+            }
+          : generatedSection.table,
+      };
+    }),
   }).sections;
 }
 
@@ -161,16 +420,8 @@ export function ensureDocumentDiagramSections(
   documentKind: DocumentKind,
   sections: DocumentSection[],
 ) {
-  const existing = new Set(sections.map((section) => section.diagramKind).filter(Boolean));
-  const additions = expectedDocumentDiagramKinds(documentKind)
-    .filter((diagramKind) => !existing.has(diagramKind))
-    .map((diagramKind) => ({
-      level: 3 as const,
-      title: `图示：${diagramKind}`,
-      body: ["该图将在本小节展示。"],
-      diagramKind,
-    }));
-  return documentContentResultSchema.parse({ sections: [...sections, ...additions] }).sections;
+  void documentKind;
+  return documentContentResultSchema.parse({ sections }).sections;
 }
 
 function replaceUnprovidedInstitutionNames(text: string, allowedSource: string) {
