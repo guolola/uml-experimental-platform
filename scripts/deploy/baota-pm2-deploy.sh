@@ -64,7 +64,15 @@ fi
 echo "Installing production dependencies from $NPM_REGISTRY ..."
 (
   cd "$TMP_DIR"
-  npm ci --omit=dev --no-audit --no-fund --registry="$NPM_REGISTRY"
+  npm ci \
+    --omit=dev \
+    --no-audit \
+    --no-fund \
+    --ignore-scripts \
+    --workspace @uml-platform/api \
+    --workspace @uml-platform/render-service \
+    --include-workspace-root=false \
+    --registry="$NPM_REGISTRY"
 )
 
 mv "$TMP_DIR" "$RELEASE_DIR"

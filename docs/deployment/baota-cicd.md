@@ -110,7 +110,7 @@ VITE_APP_API_BASE_URL="" npm run build:web
 随后工作流会打包发布产物并上传到服务器，由 `scripts/deploy/baota-pm2-deploy.sh` 完成：
 
 - 解压到 `/www/wwwroot/uml-platform/releases/<commit-sha>`
-- 使用 `https://registry.npmmirror.com` 安装生产依赖，可通过 `NPM_REGISTRY` 覆盖
+- 使用 `https://registry.npmmirror.com` 安装 API 和 Render Service 生产依赖，可通过 `NPM_REGISTRY` 覆盖；Web 已提前构建为静态文件，不在服务器安装前端依赖
 - 检查 Web dist 和 PlantUML jar
 - 更新 `/www/wwwroot/uml-platform/current` 软链接
 - 使用 PM2 重启 `uml-api` 和 `uml-render-service`
