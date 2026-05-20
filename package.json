@@ -14,10 +14,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api:safe\" \"npm run dev:web:safe\"",
+    "dev": "npm run dev:office && concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api:safe\" \"npm run dev:web:safe\"",
     "dev:default": "concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:office": "node scripts/dev/ensure-onlyoffice.mjs",
     "dev:api": "npm run dev --workspace @uml-platform/api",
-    "dev:api:safe": "cross-env API_PORT=4101 npm run dev:api",
+    "dev:api:safe": "cross-env API_PORT=4101 ONLYOFFICE_DOCUMENT_SERVER_URL=http://127.0.0.1:8080 PUBLIC_API_BASE_URL=http://host.docker.internal:4101 ONLYOFFICE_JWT_SECRET=local-onlyoffice-jwt-secret ONLYOFFICE_ACCESS_TOKEN_SECRET=local-onlyoffice-access-secret UML_DOCUMENT_STORAGE_DIR=.local-documents npm run dev:api",
     "dev:render": "npm run dev --workspace @uml-platform/render-service",
     "build": "npm run build:packages && npm run build:apps",
     "build:packages": "npm run build:contracts && npm run build:prompts",

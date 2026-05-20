@@ -50,7 +50,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   },
   {
     id: "documents",
-    label: "文档",
+    label: "说明书",
     route: "/",
     tabId: "documents",
     artifactTypes: ["requirementsSpec", "softwareDesignSpec"],

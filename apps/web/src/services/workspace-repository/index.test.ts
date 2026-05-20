@@ -3,6 +3,8 @@ import type { CodeRunSnapshot } from "@uml-platform/contracts";
 import {
   buildApiUrl,
   createHttpWorkspaceRepository,
+  createMockWorkspaceRepository,
+  type StartDocumentRunInput,
   createStartCodeRunInput,
   createStartRunInput,
 } from "./index";
@@ -334,6 +336,136 @@ describe("createHttpWorkspaceRepository", () => {
     await expect(
       repository.subscribeToCodeRun!("missing-code-run", () => {}),
     ).rejects.toThrow("代码生成任务已丢失，可能是本地 API 服务重启，请重新生成");
+  });
+
+  it("adds anonymous workspace headers to document library requests", async () => {
+    localStorage.setItem(
+      "uml-lab-settings",
+      JSON.stringify({
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-demo",
+        defaultModel: "gpt-5.5",
+        imageModel: "nano-banana-pro",
+        fontSize: "md",
+        autoGenerate: false,
+        showStaleBanner: true,
+      }),
+    );
+    const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => {
+      if (url.endsWith("/api/document-runs")) {
+        return new Response(JSON.stringify({ runId: "document-run-1" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ documents: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository();
+    await repository.startDocumentRun!({
+      documentKind: "requirementsSpec",
+      requirementText: "生成说明书",
+      rules: [],
+      requirementModels: [],
+      requirementPlantUml: [],
+      requirementSvgArtifacts: [],
+      designModels: [],
+      designPlantUml: [],
+      designSvgArtifacts: [],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-demo",
+        model: "gpt-5.5",
+      },
+      useAiText: true,
+    });
+    await repository.listDocuments!();
+    await repository.getOnlyOfficeEditorConfig!(
+      "doc-requirements-1",
+      "theme-classic-light",
+    );
+
+    const firstHeaders = fetchMock.mock.calls[0]![1]!.headers as Record<
+      string,
+      string
+    >;
+    const secondHeaders = fetchMock.mock.calls[1]![1]!.headers as Record<
+      string,
+      string
+    >;
+    const thirdUrl = fetchMock.mock.calls[2]![0] as string;
+    const thirdHeaders = fetchMock.mock.calls[2]![1]!.headers as Record<
+      string,
+      string
+    >;
+    expect(firstHeaders["X-UML-Workspace-Id"]).toBeTruthy();
+    expect(firstHeaders["X-UML-Workspace-Secret"]).toBeTruthy();
+    expect(secondHeaders["X-UML-Workspace-Id"]).toBe(
+      firstHeaders["X-UML-Workspace-Id"],
+    );
+    expect(secondHeaders["X-UML-Workspace-Secret"]).toBe(
+      firstHeaders["X-UML-Workspace-Secret"],
+    );
+    expect(thirdHeaders["X-UML-Workspace-Id"]).toBe(
+      firstHeaders["X-UML-Workspace-Id"],
+    );
+    expect(thirdUrl).toContain(
+      "/api/documents/doc-requirements-1/editor-config?uiTheme=theme-classic-light",
+    );
+  });
+
+  it("keeps every mock document generation as a separate document", async () => {
+    const repository = createMockWorkspaceRepository();
+    const input: StartDocumentRunInput = {
+      documentKind: "requirementsSpec",
+      requirementText: "生成需求规格说明书",
+      rules: [],
+      requirementModels: [],
+      requirementPlantUml: [],
+      requirementSvgArtifacts: [],
+      designModels: [],
+      designPlantUml: [],
+      designSvgArtifacts: [],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-demo",
+        model: "gpt-5.5",
+      },
+      useAiText: true,
+    };
+
+    const first = await repository.startDocumentRun!(input);
+    const second = await repository.startDocumentRun!(input);
+    const firstSnapshot = await repository.getDocumentRunSnapshot!(first.runId);
+    const secondSnapshot = await repository.getDocumentRunSnapshot!(second.runId);
+    const documents = await repository.listDocuments!();
+    const requirementDocuments = documents.filter(
+      (document) => document.documentKind === "requirementsSpec",
+    );
+
+    expect(requirementDocuments).toHaveLength(2);
+    expect(firstSnapshot.documentId).toBeTruthy();
+    expect(secondSnapshot.documentId).toBeTruthy();
+    expect(firstSnapshot.documentId).not.toBe(secondSnapshot.documentId);
+    expect(new Set(requirementDocuments.map((document) => document.id)).size).toBe(
+      2,
+    );
+    expect(requirementDocuments.every((document) => document.version === 1)).toBe(
+      true,
+    );
+    const editorConfig = await repository.getOnlyOfficeEditorConfig!(
+      firstSnapshot.documentId!,
+      "theme-dark",
+    );
+    expect(editorConfig.config.editorConfig).toEqual(
+      expect.objectContaining({
+        customization: { uiTheme: "theme-dark" },
+      }),
+    );
   });
 
   it("stores run history in localStorage with the configured limit", async () => {

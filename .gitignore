@@ -56,6 +56,7 @@ frontend-prototype.sandpack.json
 apps/web/public/vendor/
 uml-run-snapshot.json
 uml-run-report.md
+data/
 需求规格说明书*.docx
 软件设计说明书*.docx
 

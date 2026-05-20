@@ -9,26 +9,42 @@ import {
   stageStartedRunEventSchema,
   type DesignDiagramKind,
   type DesignDiagramModelSpec,
+  type DesignModelTraceabilityEntry,
   type DesignPlantUmlArtifact,
   type DesignRunSnapshot,
   type DesignSvgArtifact,
   type DiagramError,
   type DiagramKind,
   type DiagramModelSpec,
+  type ModelElementRef,
   type ProviderSettings,
   type RequirementRule,
   type RunStage,
 } from "@uml-platform/contracts";
 import {
+  buildGenerateDesignTraceabilityPrompt,
   buildGenerateDesignModelsPrompt,
   buildGenerateDesignSequencePrompt,
+  buildRepairDesignTraceabilityPrompt,
   buildRepairDesignModelsPrompt,
 } from "@uml-platform/prompts";
 import { type LlmTransport } from "../../llm.js";
 import { type RenderClient } from "../../adapters/render/render-client.js";
-import { getGenerateDesignModelsResponseFormat } from "../../adapters/llm/response-formats/index.js";
+import {
+  getGenerateDesignModelsResponseFormat,
+  getGenerateDesignTraceabilityResponseFormat,
+} from "../../adapters/llm/response-formats/index.js";
 import { generateDesignPlantUmlArtifacts } from "../../plantuml.js";
-import { parseDesignDiagramModelsResult } from "../../normalizers/design/design-model-normalizer.js";
+import {
+  parseDesignDiagramModelsOnly,
+  parseDesignDiagramModelsResult,
+  parseDesignTraceabilityCoverageResult,
+} from "../../normalizers/design/design-model-normalizer.js";
+import {
+  formatTraceabilityMissingRefs,
+  mergeDesignTraceability,
+  normalizeDesignTraceabilityWithCoverage,
+} from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
@@ -39,6 +55,144 @@ import { appendDesignTrace } from "./shared/trace-events.js";
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
 
+async function generateDesignTraceabilityWithRepair(
+  record: RunRecord,
+  providerSettings: ProviderSettings,
+  llmTransport: LlmTransport,
+  requirementText: string,
+  rules: RequirementRule[],
+  requirementModels: DiagramModelSpec[],
+  designModels: DesignDiagramModelSpec[],
+  stage: RunStage,
+) {
+  const responseFormat = getGenerateDesignTraceabilityResponseFormat(
+    providerSettings.model,
+  );
+  let prompt = buildGenerateDesignTraceabilityPrompt(
+    requirementText,
+    rules,
+    requirementModels,
+    designModels,
+  );
+  let previousOutput = "";
+  let lastErrorMessage = "";
+  let accumulatedTraceability: DesignModelTraceabilityEntry[] = [];
+  let missingSources: ModelElementRef[] =
+    normalizeDesignTraceabilityWithCoverage([], designModels, requirementModels)
+      .missingSources;
+  const traceStage =
+    stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
+
+  for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
+    const content = await collectTextResult(
+      llmTransport,
+      providerSettings,
+      createMessages(prompt),
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage,
+            chunk,
+          }),
+        );
+      },
+      responseFormat,
+    );
+    previousOutput = content;
+    appendDesignTrace(record, {
+      stage: traceStage,
+      attempt: attempt + 1,
+      kind: "llm_output",
+      rawOutput: content,
+    });
+
+    try {
+      const parsed = parseDesignTraceabilityCoverageResult(
+        content,
+        designModels,
+        requirementModels,
+      );
+      accumulatedTraceability = mergeDesignTraceability(
+        accumulatedTraceability,
+        parsed.traceability,
+      );
+      const coverage = normalizeDesignTraceabilityWithCoverage(
+        accumulatedTraceability,
+        designModels,
+        requirementModels,
+      );
+      accumulatedTraceability = coverage.traceability;
+      missingSources = coverage.missingSources;
+      if (accumulatedTraceability.length === 0) {
+        throw new Error(
+          "generate_design_models must return non-empty designModelTraceability with valid design-to-requirement element references",
+        );
+      }
+      if (missingSources.length > 0) {
+        throw new Error(formatTraceabilityMissingRefs("design", missingSources));
+      }
+      appendDesignTrace(record, {
+        stage: traceStage,
+        attempt: attempt + 1,
+        kind: "parsed_model",
+        parsedData: {
+          models: designModels,
+          designModelTraceability: accumulatedTraceability,
+        },
+      });
+      return accumulatedTraceability;
+    } catch (error) {
+      logFailedStructuredOutput(
+        stage,
+        providerSettings.model,
+        error,
+        content,
+        attempt + 1,
+      );
+      lastErrorMessage = formatParseError(error);
+      appendDesignTrace(record, {
+        stage: traceStage,
+        attempt: attempt + 1,
+        kind: "parse_error",
+        rawOutput: content,
+        errorMessage: lastErrorMessage,
+      });
+
+      if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
+        throw new Error(
+          `design traceability structured output failed: ${lastErrorMessage}`,
+        );
+      }
+
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage,
+          progress: stageProgressValue(stage),
+          message: `设计模型元素映射不合法，正在单独修复可追踪关系（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
+        }),
+      );
+
+      prompt = buildRepairDesignTraceabilityPrompt(
+        requirementText,
+        rules,
+        requirementModels,
+        designModels,
+        previousOutput,
+        lastErrorMessage,
+        missingSources,
+      );
+    }
+  }
+
+  throw new Error(
+    `design traceability structured output failed: ${lastErrorMessage}`,
+  );
+}
+
 // LLM structured output repair retries malformed design models while preserving trace schema.
 export async function generateDesignModelsWithRepair(
   record: RunRecord,
@@ -46,6 +200,7 @@ export async function generateDesignModelsWithRepair(
   llmTransport: LlmTransport,
   requirementText: string,
   rules: RequirementRule[],
+  requirementModels: DiagramModelSpec[],
   selectedDiagrams: DesignDiagramKind[],
   initialPrompt: string,
   stage: RunStage,
@@ -83,20 +238,93 @@ export async function generateDesignModelsWithRepair(
     });
 
     try {
-      const parsed = parseDesignDiagramModelsResult(content);
+      const parsed = parseDesignDiagramModelsResult(content, requirementModels);
       const filteredModels = parsed.models.filter((model) =>
         selectedDiagrams.includes(model.diagramKind),
       );
+      const filteredDiagramKinds = new Set(filteredModels.map((model) => model.diagramKind));
+      let filteredTraceability = parsed.designModelTraceability.filter((entry) =>
+        filteredDiagramKinds.has(entry.source.diagramKind as DesignDiagramKind),
+      );
+      if (filteredModels.length > 0 && filteredTraceability.length === 0) {
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage,
+            progress: stageProgressValue(stage),
+            message: "设计模型元素映射缺失，正在单独生成可追踪关系",
+          }),
+        );
+        filteredTraceability = await generateDesignTraceabilityWithRepair(
+          record,
+          providerSettings,
+          llmTransport,
+          requirementText,
+          rules,
+          requirementModels,
+          filteredModels,
+          stage,
+        );
+      }
       appendDesignTrace(record, {
         stage: traceStage,
         attempt: attempt + 1,
         kind: "parsed_model",
-        parsedData: { models: filteredModels },
+        parsedData: {
+          models: filteredModels,
+          designModelTraceability: filteredTraceability,
+        },
       });
       return {
         models: filteredModels,
+        designModelTraceability: filteredTraceability,
       };
     } catch (error) {
+      const modelOnly = (() => {
+        try {
+          return parseDesignDiagramModelsOnly(content);
+        } catch {
+          return null;
+        }
+      })();
+      if (modelOnly) {
+        const filteredModels = modelOnly.models.filter((model) =>
+          selectedDiagrams.includes(model.diagramKind),
+        );
+        lastErrorMessage = formatParseError(error);
+        appendDesignTrace(record, {
+          stage: traceStage,
+          attempt: attempt + 1,
+          kind: "parse_error",
+          rawOutput: content,
+          errorMessage: lastErrorMessage,
+        });
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage,
+            progress: stageProgressValue(stage),
+            message: "设计模型元素映射缺失，正在单独生成可追踪关系",
+          }),
+        );
+        const designModelTraceability = await generateDesignTraceabilityWithRepair(
+          record,
+          providerSettings,
+          llmTransport,
+          requirementText,
+          rules,
+          requirementModels,
+          filteredModels,
+          stage,
+        );
+        return {
+          models: filteredModels,
+          designModelTraceability,
+        };
+      }
+
       logFailedStructuredOutput(
         stage,
         providerSettings.model,
@@ -189,6 +417,7 @@ export async function runDesignStagePipeline(
   };
 
   let models: DesignDiagramModelSpec[] = [];
+  let designModelTraceability: DesignRunSnapshot["designModelTraceability"] = [];
   let diagramErrors: Partial<Record<DesignDiagramKind, DiagramError>> = {};
   const useCaseModel = findRequirementModel(snapshot.requirementModels, "usecase");
   if (!useCaseModel) {
@@ -202,6 +431,7 @@ export async function runDesignStagePipeline(
     llmTransport,
     snapshot.requirementText,
     snapshot.rules,
+    [useCaseModel],
     ["sequence"],
     buildGenerateDesignSequencePrompt(
       snapshot.requirementText,
@@ -218,7 +448,9 @@ export async function runDesignStagePipeline(
     throw new Error("设计顺序图生成结果缺少 sequence 模型");
   }
   models = [sequenceModel];
+  designModelTraceability = [...sequenceResult.designModelTraceability];
   snapshot.models = models;
+  snapshot.designModelTraceability = designModelTraceability;
   emitEvent(
     record,
     artifactReadyRunEventSchema.parse({
@@ -261,6 +493,7 @@ export async function runDesignStagePipeline(
       llmTransport,
       snapshot.requirementText,
       snapshot.rules,
+      sourceModels,
       downstreamWithSources,
       buildGenerateDesignModelsPrompt(
         snapshot.requirementText,
@@ -272,7 +505,12 @@ export async function runDesignStagePipeline(
       "generate_design_models",
     );
     models = [...models, ...downstreamResult.models];
+    designModelTraceability = [
+      ...designModelTraceability,
+      ...downstreamResult.designModelTraceability,
+    ];
     snapshot.models = models;
+    snapshot.designModelTraceability = designModelTraceability;
     emitEvent(
       record,
       artifactReadyRunEventSchema.parse({

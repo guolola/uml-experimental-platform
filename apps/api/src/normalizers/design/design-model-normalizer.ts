@@ -1,11 +1,20 @@
 // Normalizes design LLM diagram models before validating the public contract.
-import { designDiagramModelsResultSchema } from "@uml-platform/contracts";
+import {
+  designDiagramModelsResultSchema,
+  designModelTraceabilityEntrySchema,
+  type DesignDiagramModelSpec,
+  type DiagramModelSpec,
+} from "@uml-platform/contracts";
 import {
   ensureArray,
   isPlainRecord,
   normalizeStringArray,
   parseJson,
 } from "../json/parse-json.js";
+import {
+  formatTraceabilityMissingRefs,
+  normalizeDesignTraceabilityWithCoverage,
+} from "../traceability/traceability-normalizer.js";
 
 function normalizeSequenceMessageType(value: unknown) {
   if (value === "async" || value === "return" || value === "create" || value === "destroy") {
@@ -131,13 +140,105 @@ function normalizeDesignDiagramModel(model: unknown) {
   return normalized;
 }
 
-export function parseDesignDiagramModelsResult(value: string) {
+export function parseDesignDiagramModelsResult(
+  value: string,
+  requirementModels: DiagramModelSpec[] = [],
+) {
   const parsed = parseJson<unknown>(value);
+  const result = parseDesignDiagramModelsOnlyFromParsed(parsed);
+  const { designModelTraceability } = assertCompleteDesignTraceability(
+    isPlainRecord(parsed) ? parsed.designModelTraceability : undefined,
+    result.models,
+    requirementModels,
+  );
+  if (designModelTraceability.length === 0) {
+    throw new Error(
+      "generate_design_models must return non-empty designModelTraceability with valid design-to-requirement element references",
+    );
+  }
+  return {
+    ...result,
+    designModelTraceability,
+  };
+}
+
+function assertCompleteDesignTraceability(
+  rawTraceability: unknown,
+  designModels: DesignDiagramModelSpec[],
+  requirementModels: DiagramModelSpec[],
+) {
+  const { traceability: designModelTraceability, missingSources } =
+    normalizeDesignTraceabilityWithCoverage(
+      rawTraceability,
+      designModels,
+      requirementModels,
+    );
+  if (designModelTraceability.length === 0) {
+    throw new Error(
+      "generate_design_models must return non-empty designModelTraceability with valid design-to-requirement element references",
+    );
+  }
+  if (missingSources.length > 0) {
+    throw new Error(formatTraceabilityMissingRefs("design", missingSources));
+  }
+  return { designModelTraceability };
+}
+
+function parseDesignDiagramModelsOnlyFromParsed(parsed: unknown) {
   const normalized = isPlainRecord(parsed)
     ? {
         ...parsed,
         models: ensureArray(parsed.models).map(normalizeDesignDiagramModel),
       }
     : parsed;
-  return designDiagramModelsResultSchema.parse(normalized);
+  const result = designDiagramModelsResultSchema
+    .omit({ designModelTraceability: true })
+    .parse(normalized);
+  if (result.models.length === 0) {
+    throw new Error("generate_design_models must return at least one model");
+  }
+  return result;
+}
+
+export function parseDesignDiagramModelsOnly(value: string) {
+  return parseDesignDiagramModelsOnlyFromParsed(parseJson<unknown>(value));
+}
+
+export function parseDesignTraceabilityResult(
+  value: string,
+  designModels: DesignDiagramModelSpec[],
+  requirementModels: DiagramModelSpec[],
+) {
+  const coverage = parseDesignTraceabilityCoverageResult(
+    value,
+    designModels,
+    requirementModels,
+  );
+  if (coverage.traceability.length === 0) {
+    throw new Error(
+      "generate_design_models must return non-empty designModelTraceability with valid design-to-requirement element references",
+    );
+  }
+  if (coverage.missingSources.length > 0) {
+    throw new Error(formatTraceabilityMissingRefs("design", coverage.missingSources));
+  }
+  return { designModelTraceability: coverage.traceability };
+}
+
+export function parseDesignTraceabilityCoverageResult(
+  value: string,
+  designModels: DesignDiagramModelSpec[],
+  requirementModels: DiagramModelSpec[],
+) {
+  const parsed = parseJson<unknown>(value);
+  const rawTraceability = isPlainRecord(parsed)
+    ? designModelTraceabilityEntrySchema
+        .array()
+        .parse(ensureArray(parsed.designModelTraceability))
+    : [];
+  return normalizeDesignTraceabilityWithCoverage(
+    rawTraceability,
+    designModels,
+    requirementModels,
+  );
 }

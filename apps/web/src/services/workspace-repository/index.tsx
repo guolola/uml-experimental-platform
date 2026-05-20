@@ -8,14 +8,19 @@ import type {
   DesignDiagramModelSpec,
   CodeRunSnapshot,
   DocumentKind,
+  DocumentLibraryItem,
+  DocumentLibraryListResponse,
   DocumentStyleSettings,
   DocumentRunSnapshot,
   DesignPlantUmlArtifact,
+  RequirementModelTraceabilityEntry,
   DesignRunSnapshot,
   DesignSvgArtifact,
   DiagramModelSpec,
   PlantUmlArtifact,
   ProviderSettings,
+  OnlyOfficeEditorConfigResponse,
+  OnlyOfficeUiTheme,
   RenderSvgResponse,
   RunEvent,
   RunSnapshot,
@@ -28,6 +33,7 @@ import {
   loadUserSettings,
   normalizeApiBaseUrl,
 } from "../../shared/lib/user-settings";
+import { documentWorkspaceHeaders } from "../../shared/lib/anonymous-workspace";
 import type { ModelCapability } from "../../shared/lib/model-catalog";
 import {
   ApiClientError,
@@ -64,6 +70,7 @@ export interface StartDesignRunInput {
   requirementText: string;
   rules: RequirementRule[];
   requirementModels: DiagramModelSpec[];
+  requirementModelTraceability: RequirementModelTraceabilityEntry[];
   selectedDiagrams: DesignDiagramType[];
   providerSettings: ProviderSettingsInput;
 }
@@ -121,8 +128,17 @@ export interface WorkspaceRepository {
   getDesignRunSnapshot?(runId: string): Promise<DesignRunSnapshot>;
   getCodeRunSnapshot?(runId: string): Promise<CodeRunSnapshot>;
   getDocumentRunSnapshot?(runId: string): Promise<DocumentRunSnapshot>;
+  listDocuments?(): Promise<DocumentLibraryItem[]>;
+  getOnlyOfficeEditorConfig?(
+    documentId: string,
+    uiTheme?: OnlyOfficeUiTheme,
+  ): Promise<OnlyOfficeEditorConfigResponse>;
   downloadDocumentRun?(
     runId: string,
+    defaultFileName?: string,
+  ): Promise<{ blob: Blob; fileName: string }>;
+  downloadDocument?(
+    documentId: string,
     defaultFileName?: string,
   ): Promise<{ blob: Blob; fileName: string }>;
   renderPlantUml(
@@ -154,12 +170,14 @@ function createEmptyWorkspace(): WorkspaceRecord {
     selectedDiagramTypes: [],
     rules: [],
     models: {},
+    requirementModelTraceability: [],
     generatedDiagramTypes: [],
     plantUml: {},
     svgArtifacts: {},
     diagramErrors: {},
     selectedDesignDiagramTypes: [],
     designModels: {},
+    designModelTraceability: [],
     generatedDesignDiagramTypes: [],
     designPlantUml: {},
     designSvgArtifacts: {},
@@ -215,6 +233,24 @@ function mapDesignSnapshotToRecords(snapshot: DesignRunSnapshot) {
   };
 }
 
+function documentTimestamp(date = new Date()) {
+  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
+  const datePart = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(
+    date.getDate(),
+  )}`;
+  const timePart = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(
+    date.getSeconds(),
+  )}`;
+  return `${datePart}-${timePart}-${pad(date.getMilliseconds(), 3)}`;
+}
+
+function documentFileName(documentKind: DocumentKind, date = new Date()) {
+  const timestamp = documentTimestamp(date);
+  return documentKind === "requirementsSpec"
+    ? `需求规格说明书-${timestamp}.docx`
+    : `软件设计说明书-${timestamp}.docx`;
+}
+
 async function readRunSnapshot(runId: string) {
   return requestJson<RunSnapshot>(`/api/runs/${runId}`, {
     errorMessage: "读取运行快照失败",
@@ -246,11 +282,56 @@ async function readDocumentRunSnapshot(runId: string) {
   });
 }
 
+function withDocumentWorkspaceHeaders<
+  T extends RequestInit & { errorMessage?: string; defaultFileName?: string },
+>(options: T): T {
+  return {
+    ...options,
+    headers: {
+      ...documentWorkspaceHeaders(),
+      ...options.headers,
+    },
+  } as T;
+}
+
 async function downloadDocumentRunFile(runId: string, defaultFileName?: string) {
   return downloadBlob(`/api/document-runs/${runId}/download`, {
     errorMessage: "下载说明书失败",
     defaultFileName: defaultFileName ?? "说明书.docx",
   });
+}
+
+async function listDocumentLibraryItems() {
+  const response = await requestJson<DocumentLibraryListResponse>(
+    "/api/documents",
+    withDocumentWorkspaceHeaders({
+      errorMessage: "读取说明书列表失败",
+    }),
+  );
+  return response.documents;
+}
+
+async function readOnlyOfficeEditorConfig(
+  documentId: string,
+  uiTheme?: OnlyOfficeUiTheme,
+) {
+  const query = uiTheme ? `?uiTheme=${encodeURIComponent(uiTheme)}` : "";
+  return requestJson<OnlyOfficeEditorConfigResponse>(
+    `/api/documents/${documentId}/editor-config${query}`,
+    withDocumentWorkspaceHeaders({
+      errorMessage: "读取 OnlyOffice 编辑器配置失败",
+    }),
+  );
+}
+
+async function downloadDocumentFile(documentId: string, defaultFileName?: string) {
+  return downloadBlob(
+    `/api/documents/${documentId}/download`,
+    withDocumentWorkspaceHeaders({
+      errorMessage: "下载说明书失败",
+      defaultFileName: defaultFileName ?? "说明书.docx",
+    }),
+  );
 }
 
 async function waitForCodeRunSnapshot(
@@ -342,9 +423,13 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async startDocumentRun(input: StartDocumentRunInput) {
-      return postJson<{ runId: string }>("/api/document-runs", input, {
-        errorMessage: "启动说明书生成失败",
-      });
+      return postJson<{ runId: string }>(
+        "/api/document-runs",
+        input,
+        withDocumentWorkspaceHeaders({
+          errorMessage: "启动说明书生成失败",
+        }),
+      );
     },
 
     async subscribeToRun(runId: string, onEvent: (event: RunEvent) => void) {
@@ -417,8 +502,23 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
       return readDocumentRunSnapshot(runId);
     },
 
+    async listDocuments() {
+      return listDocumentLibraryItems();
+    },
+
+    async getOnlyOfficeEditorConfig(
+      documentId: string,
+      uiTheme?: OnlyOfficeUiTheme,
+    ) {
+      return readOnlyOfficeEditorConfig(documentId, uiTheme);
+    },
+
     async downloadDocumentRun(runId: string, defaultFileName?: string) {
       return downloadDocumentRunFile(runId, defaultFileName);
+    },
+
+    async downloadDocument(documentId: string, defaultFileName?: string) {
+      return downloadDocumentFile(documentId, defaultFileName);
     },
 
     async renderPlantUml(diagramKind, plantUmlSource) {
@@ -482,6 +582,9 @@ export function createMockWorkspaceRepository(
     ...defaultWorkspace,
     ...seed,
     models: { ...defaultWorkspace.models, ...seed.models },
+    requirementModelTraceability: seed.requirementModelTraceability
+      ? [...seed.requirementModelTraceability]
+      : [],
     plantUml: { ...defaultWorkspace.plantUml, ...seed.plantUml },
     svgArtifacts: { ...defaultWorkspace.svgArtifacts, ...seed.svgArtifacts },
     diagramVersions: {
@@ -489,6 +592,9 @@ export function createMockWorkspaceRepository(
       ...seed.diagramVersions,
     },
     designModels: { ...defaultWorkspace.designModels, ...seed.designModels },
+    designModelTraceability: seed.designModelTraceability
+      ? [...seed.designModelTraceability]
+      : [],
     designPlantUml: {
       ...defaultWorkspace.designPlantUml,
       ...seed.designPlantUml,
@@ -527,6 +633,7 @@ export function createMockWorkspaceRepository(
   const codeSnapshots = new Map<string, CodeRunSnapshot>();
   const documentSnapshots = new Map<string, DocumentRunSnapshot>();
   const documentBuffers = new Map<string, Blob>();
+  const documents = new Map<string, DocumentLibraryItem>();
 
   return {
     async loadWorkspace() {
@@ -536,12 +643,14 @@ export function createMockWorkspaceRepository(
         selectedDiagramTypes: [...workspace.selectedDiagramTypes],
         generatedDiagramTypes: [...workspace.generatedDiagramTypes],
         models: { ...workspace.models },
+        requirementModelTraceability: [...workspace.requirementModelTraceability],
         plantUml: { ...workspace.plantUml },
         svgArtifacts: { ...workspace.svgArtifacts },
         diagramErrors: { ...workspace.diagramErrors },
         selectedDesignDiagramTypes: [...workspace.selectedDesignDiagramTypes],
         generatedDesignDiagramTypes: [...workspace.generatedDesignDiagramTypes],
         designModels: { ...workspace.designModels },
+        designModelTraceability: [...workspace.designModelTraceability],
         designPlantUml: { ...workspace.designPlantUml },
         designSvgArtifacts: { ...workspace.designSvgArtifacts },
         designDiagramErrors: { ...workspace.designDiagramErrors },
@@ -586,6 +695,7 @@ export function createMockWorkspaceRepository(
           selectedDiagrams: input.selectedDiagrams,
           rules: input.rules.length > 0 ? input.rules : (workspace.rules as RequirementRule[]),
           models: Object.values(workspace.models),
+          requirementModelTraceability: [...workspace.requirementModelTraceability],
           plantUml: Object.entries(workspace.plantUml).map(([diagramKind, source]) => ({
             diagramKind: diagramKind as DiagramType,
             source,
@@ -609,7 +719,9 @@ export function createMockWorkspaceRepository(
         selectedDiagrams: input.selectedDiagrams,
         rules: input.rules,
         requirementModels: input.requirementModels,
+        requirementModelTraceability: input.requirementModelTraceability,
         models: Object.values(workspace.designModels),
+        designModelTraceability: [...workspace.designModelTraceability],
         plantUml: Object.entries(workspace.designPlantUml).map(([diagramKind, source]) => ({
           diagramKind: diagramKind as DesignDiagramType,
           source,
@@ -686,14 +798,13 @@ export function createMockWorkspaceRepository(
 
     async startDocumentRun(input: StartDocumentRunInput) {
       const runId = `document-run-${Math.random().toString(36).slice(2, 10)}`;
-      const fileName =
-        input.documentKind === "requirementsSpec"
-          ? "需求规格说明书.docx"
-          : "软件设计说明书.docx";
+      const fileName = documentFileName(input.documentKind);
+      const documentId = `doc-${input.documentKind}-${Math.random().toString(36).slice(2, 10)}`;
       const snapshot: DocumentRunSnapshot = {
         runId,
         documentKind: input.documentKind,
         requirementText: input.requirementText,
+        documentId,
         sections: [
           { level: 1, title: "1 引言", body: ["Mock 说明书正文。"] },
           { level: 2, title: "1.1 编写目的", body: ["用于验证说明书生成流程。"] },
@@ -708,6 +819,23 @@ export function createMockWorkspaceRepository(
         status: "completed",
         errorMessage: null,
       };
+      const now = new Date().toISOString();
+      documents.set(documentId, {
+        id: documentId,
+        workspaceId: "mock-workspace",
+        documentKind: input.documentKind,
+        title:
+          input.documentKind === "requirementsSpec"
+            ? "需求规格说明书"
+            : "软件设计说明书",
+        fileName,
+        mimeType: snapshot.mimeType ?? "application/octet-stream",
+        byteLength: snapshot.byteLength,
+        version: 1,
+        sourceRunId: runId,
+        createdAt: now,
+        updatedAt: now,
+      });
       documentSnapshots.set(runId, snapshot);
       documentBuffers.set(
         runId,
@@ -859,6 +987,40 @@ export function createMockWorkspaceRepository(
       return snapshot;
     },
 
+    async listDocuments() {
+      return Array.from(documents.values()).sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt),
+      );
+    },
+
+    async getOnlyOfficeEditorConfig(documentId, uiTheme = "theme-dark") {
+      const document = documents.get(documentId);
+      if (!document) {
+        throw new Error("Mock document not found");
+      }
+      return {
+        document,
+        documentServerUrl: "http://127.0.0.1:8080",
+        config: {
+          documentType: "word",
+          document: {
+            fileType: "docx",
+            key: `${document.id}-v${document.version}`,
+            title: document.fileName,
+            url: `/api/documents/${document.id}/file`,
+          },
+          editorConfig: {
+            callbackUrl: `/api/documents/${document.id}/onlyoffice/callback`,
+            mode: "edit",
+            lang: "zh-CN",
+            customization: {
+              uiTheme,
+            },
+          },
+        },
+      };
+    },
+
     async downloadDocumentRun(runId, defaultFileName) {
       const snapshot = documentSnapshots.get(runId);
       const blob = documentBuffers.get(runId);
@@ -868,6 +1030,19 @@ export function createMockWorkspaceRepository(
       return {
         blob,
         fileName: snapshot.fileName ?? defaultFileName ?? "说明书.docx",
+      };
+    },
+
+    async downloadDocument(documentId, defaultFileName) {
+      const document = documents.get(documentId);
+      const runId = document?.sourceRunId;
+      const blob = runId ? documentBuffers.get(runId) : null;
+      if (!document || !blob) {
+        throw new Error("Mock document file not found");
+      }
+      return {
+        blob,
+        fileName: document.fileName ?? defaultFileName ?? "说明书.docx",
       };
     },
 
@@ -990,6 +1165,7 @@ export function createStartDesignRunInput(
   requirementText: string,
   rules: RequirementRule[],
   requirementModels: DiagramModelSpec[],
+  requirementModelTraceability: RequirementModelTraceabilityEntry[],
   selectedDiagrams: DesignDiagramType[],
 ): StartDesignRunInput {
   const base = createStartRunInput(requirementText, []);
@@ -997,6 +1173,7 @@ export function createStartDesignRunInput(
     requirementText,
     rules,
     requirementModels,
+    requirementModelTraceability,
     selectedDiagrams,
     providerSettings: base.providerSettings,
   };

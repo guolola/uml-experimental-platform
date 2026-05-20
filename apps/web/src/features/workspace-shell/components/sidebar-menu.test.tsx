@@ -153,6 +153,57 @@ describe("SidebarMenu", () => {
     expect(screen.getByText("用例模型")).toBeInTheDocument();
   });
 
+  it("shows traceability matrix entries after requirement and design models are generated", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDiagramTypes: ["usecase"],
+          generatedDesignDiagramTypes: ["sequence"],
+          designModels: {
+            sequence: {
+              diagramKind: "sequence",
+              title: "顺序图",
+              summary: "动态行为",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(
+      withWorkspaceProviders(
+        <div>
+          <SidebarMenu />
+          <WorkspaceTabsBar />
+        </div>,
+        repository,
+      ),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
+    await userEvent.click(screen.getByRole("button", { name: "需求跟踪矩阵" }));
+    expect(screen.getByRole("button", { name: "关闭 需求跟踪矩阵" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
+    await userEvent.click(screen.getByRole("button", { name: "设计跟踪矩阵" }));
+    expect(screen.getByRole("button", { name: "关闭 设计跟踪矩阵" })).toBeInTheDocument();
+  });
+
   it("shows multiple upstream badges for downstream design diagrams", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
@@ -462,14 +513,17 @@ describe("SidebarMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: "设计" }));
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
     await userEvent.click(screen.getByRole("button", { name: "顺序图" }));
+    await userEvent.click(screen.getByRole("button", { name: "说明书" }));
 
     expect(screen.getAllByText("需求").length).toBeGreaterThan(0);
     expect(screen.getAllByText("设计").length).toBeGreaterThan(0);
     expect(screen.getAllByText("顺序图").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("说明书").length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: "关闭 顺序图" }));
     expect(screen.queryByRole("button", { name: "关闭 顺序图" })).not.toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole("button", { name: "关闭 说明书" }));
     await userEvent.click(screen.getByRole("button", { name: "关闭 设计" }));
     await userEvent.click(screen.getByRole("button", { name: "关闭 需求" }));
     expect(screen.getByRole("button", { name: "关闭 需求" })).toBeInTheDocument();

@@ -2,6 +2,28 @@
 import { type ChatCompletionResponseFormat } from "../../../llm.js";
 import { getModelCapability } from "../../../model-capabilities.js";
 
+export const modelElementRefResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    diagramKind: {
+      type: "string",
+      enum: [
+        "usecase",
+        "class",
+        "activity",
+        "deployment",
+        "sequence",
+        "table",
+      ],
+    },
+    elementId: { type: "string" },
+    elementKind: { type: "string" },
+    label: { type: "string" },
+  },
+  required: ["diagramKind", "elementId", "elementKind", "label"],
+} as const;
+
 export const GENERATE_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
   json_schema: {
@@ -615,8 +637,20 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
             ],
           },
         },
+        requirementModelTraceability: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              ruleId: { type: "string" },
+              target: modelElementRefResponseSchema,
+            },
+            required: ["ruleId", "target"],
+          },
+        },
       },
-      required: ["models"],
+      required: ["models", "requirementModelTraceability"],
     },
   },
 };
@@ -629,9 +663,41 @@ export const requirementModelOneOf = (
   ).models.items.oneOf
 );
 
+export const GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "requirement_model_traceability_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        requirementModelTraceability: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              ruleId: { type: "string" },
+              target: modelElementRefResponseSchema,
+            },
+            required: ["ruleId", "target"],
+          },
+        },
+      },
+      required: ["requirementModelTraceability"],
+    },
+  },
+};
+
 export function getGenerateModelsResponseFormat(model: string) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_MODELS_RESPONSE_FORMAT
     : undefined;
 }
 
+export function getGenerateRequirementTraceabilityResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT
+    : undefined;
+}

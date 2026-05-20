@@ -1,5 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
+import { join } from "node:path";
 import { ZodError } from "zod";
 import { designDiagramKindSchema } from "@uml-platform/contracts";
 import {
@@ -14,8 +15,10 @@ import {
 } from "./server/cors.js";
 import { isMainModule, resolveRuntimeCwd } from "./server/runtime.js";
 import { registerHealthRoutes } from "./routes/health/register-health-routes.js";
+import { registerDocumentRoutes } from "./routes/documents/register-document-routes.js";
 import { registerRenderRoutes } from "./routes/render/register-render-routes.js";
 import { registerRunRoutes } from "./routes/runs/register-run-routes.js";
+import { createFileDocumentLibrary } from "./documents/library/document-library.js";
 import { createRunRecordStore } from "./runs/records/run-record-store.js";
 import {
   createRenderClient,
@@ -36,6 +39,9 @@ const DEFAULT_PORT = Number(process.env.API_PORT ?? 4001);
 const DEFAULT_HOST = process.env.API_HOST ?? "127.0.0.1";
 const DEFAULT_RENDER_SERVICE_BASE_URL =
   process.env.RENDER_SERVICE_BASE_URL ?? "http://127.0.0.1:4002";
+const DEFAULT_DOCUMENT_STORAGE_DIR =
+  process.env.UML_DOCUMENT_STORAGE_DIR ??
+  join(resolveRuntimeCwd(), "data", "documents");
 
 const RELEASE_STARTED_AT =
   process.env.UML_RELEASE_STARTED_AT ?? new Date().toISOString();
@@ -92,6 +98,7 @@ export async function createApiServer(options?: {
     ((artifact: AnyPlantUmlArtifact) =>
       createPngRenderClient(renderServiceBaseUrl, artifact));
   const runs = createRunRecordStore();
+  const documentLibrary = createFileDocumentLibrary(DEFAULT_DOCUMENT_STORAGE_DIR);
 
   const healthPayload = () => ({
     status: "ok",
@@ -108,14 +115,19 @@ export async function createApiServer(options?: {
     features: {
       supportsDesignTableDiagram:
         designDiagramKindSchema.safeParse("table").success,
+      onlyOfficeDocumentServerConfigured: Boolean(
+        process.env.ONLYOFFICE_DOCUMENT_SERVER_URL?.trim(),
+      ),
     },
     codeSkillStatus: getCodeSkillRuntimeStatus(),
   });
 
   registerHealthRoutes({ app, healthPayload, versionPayload });
+  registerDocumentRoutes({ app, documentLibrary });
   registerRunRoutes({
     app,
     runs,
+    documentLibrary,
     llmTransport,
     renderClient,
     pngRenderClient,

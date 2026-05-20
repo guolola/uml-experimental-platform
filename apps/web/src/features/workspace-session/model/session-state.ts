@@ -16,9 +16,8 @@ import type {
   DesignTraceEntry,
   RequirementTraceEntry,
   DocumentKind,
+  DocumentRunSnapshot,
   DocumentStyleSettings,
-  DesignDiagramModelSpec,
-  DiagramModelSpec,
   RunStage,
 } from "@uml-platform/contracts";
 import type { DesignDiagramType, DiagramType } from "../../../entities/diagram/model";
@@ -70,6 +69,9 @@ export interface GenerationTask {
   progress: number;
   message: string | null;
   errorMessage: string | null;
+  previewReady: boolean;
+  phaseSummary: string | null;
+  technicalDetailsCollapsed: boolean;
   diagnostics: RunDiagnostics;
   startedAt: string;
   finishedAt: string | null;
@@ -90,7 +92,9 @@ export interface WorkspaceSessionState {
     patch: Partial<RequirementRule>,
   ) => void;
   deleteRequirementRule: (id: string) => void;
+  clearRequirementRules: () => void;
   models: WorkspaceRecord["models"];
+  requirementModelTraceability: WorkspaceRecord["requirementModelTraceability"];
   selectedDiagrams: DiagramType[];
   setSelectedDiagrams: (value: DiagramType[]) => void;
   plantUml: Partial<Record<DiagramType, string>>;
@@ -99,6 +103,7 @@ export interface WorkspaceSessionState {
   selectedDesignDiagrams: DesignDiagramType[];
   setSelectedDesignDiagrams: (value: DesignDiagramType[]) => void;
   designModels: WorkspaceRecord["designModels"];
+  designModelTraceability: WorkspaceRecord["designModelTraceability"];
   designPlantUml: WorkspaceRecord["designPlantUml"];
   designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
   designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
@@ -130,8 +135,12 @@ export interface WorkspaceSessionState {
   generateDiagrams: (only?: DiagramType[]) => Promise<void>;
   generateDesignDiagrams: (only?: DesignDiagramType[]) => Promise<void>;
   generateCodePrototype: (mode?: "continue" | "regenerate") => Promise<void>;
-  generateRequirementsSpec: (documentStyle?: DocumentStyleSettings) => Promise<void>;
-  generateSoftwareDesignSpec: (documentStyle?: DocumentStyleSettings) => Promise<void>;
+  generateRequirementsSpec: (
+    documentStyle?: DocumentStyleSettings,
+  ) => Promise<DocumentRunSnapshot | null>;
+  generateSoftwareDesignSpec: (
+    documentStyle?: DocumentStyleSettings,
+  ) => Promise<DocumentRunSnapshot | null>;
   rulesForDiagram: (diagram: DiagramType) => RequirementRule[];
   textVersion: number;
   rulesVersion: number;
@@ -139,6 +148,9 @@ export interface WorkspaceSessionState {
   diagramVersions: Partial<Record<DiagramType, number>>;
   isRulesStale: boolean;
   staleDiagrams: DiagramType[];
+  requirementTraceabilityStale: boolean;
+  designTraceabilityStale: boolean;
+  designGenerationBlockedReason: string | null;
   historyItems: RunHistoryItem[];
   refreshHistory: () => Promise<void>;
   restoreRunHistory: (id: string) => Promise<void>;

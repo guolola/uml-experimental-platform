@@ -140,11 +140,30 @@ npm install
 npm run dev
 ```
 
-该命令会同时启动：
+该命令会先检查并启动本地 OnlyOffice Document Server Docker 容器，然后同时启动：
 
+- OnlyOffice Document Server: `http://127.0.0.1:8080`
 - Render Service: `http://127.0.0.1:4002`
 - API: `http://127.0.0.1:4101`
 - Web: Vite 输出地址，通常为 `http://127.0.0.1:5173`
+
+OnlyOffice 本地容器名为 `onlyoffice-documentserver`，开发 JWT 密钥固定为
+`local-onlyoffice-jwt-secret`。API 会自动使用
+`PUBLIC_API_BASE_URL=http://host.docker.internal:4101`，让 Docker 容器能够回连宿主机 API。
+
+本地检查：
+
+```powershell
+curl http://127.0.0.1:8080/healthcheck
+curl http://127.0.0.1:4101/api/version
+```
+
+`/api/version` 中的 `features.onlyOfficeDocumentServerConfigured` 应为 `true`。
+如果提示找不到 Docker CLI，请安装 Docker Desktop，或把
+`C:\Program Files\Docker\Docker\resources\bin` 加入 PATH 后重新打开 PowerShell。
+如果 Docker 命令存在但 daemon 不可用，请启动 Docker Desktop 并等待它就绪。
+如果提示 8080 端口被占用，请释放端口后重试。如果已有
+`onlyoffice-documentserver` 容器使用了不同 `JWT_SECRET`，按终端提示删除并重建该本地开发容器。
 
 也可以单独启动：
 
@@ -234,6 +253,12 @@ API_CORS_ORIGINS=https://your-domain.example.com
 RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com
 ```
 
+- 说明书在线编辑依赖 OnlyOffice Document Server。HTTP 站点可使用 HTTP
+  OnlyOffice 地址，例如 `ONLYOFFICE_DOCUMENT_SERVER_URL=http://office.example.com`
+  和 `PUBLIC_API_BASE_URL=http://platform.example.com`；公网真实数据建议升级 HTTPS。
+- 生产环境建议把说明书目录放到 release 外部：
+  `UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents`。
+  平台会按浏览器匿名工作区隔离文档，多个用户不会共用同一份说明书列表。
 - 部署后可访问 API 版本接口检查运行目录、release 信息和 schema 能力。
 - 宝塔/PM2 部署可参考 [docs/deployment/baota-cicd.md](docs/deployment/baota-cicd.md)。
 

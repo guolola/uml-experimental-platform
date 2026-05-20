@@ -58,5 +58,12 @@ describe("useRequirementsSlice", () => {
 
     expect(result.current.rulesForDiagram("activity")).toHaveLength(1);
     expect(repository.updateRequirementRules).toHaveBeenCalled();
+
+    act(() => {
+      result.current.clearRequirementRules();
+    });
+
+    expect(result.current.rules).toEqual([]);
+    expect(repository.updateRequirementRules).toHaveBeenLastCalledWith([]);
   });
 });

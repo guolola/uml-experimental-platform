@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { SandpackProvider } from "@codesandbox/sandpack-react";
-import { AlertTriangle, Code2, Download, FolderTree, Loader2, Play, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Code2,
+  Download,
+  FolderTree,
+  Info,
+  Loader2,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { ModelPicker } from "../../../shared/ui/model-picker";
@@ -114,6 +123,50 @@ export function CodeGenerationPage() {
   const modelCapability = getModelCapability(defaultModel);
   const designModelCount = Object.values(designModels).filter(Boolean).length;
   const canGenerate = designModelCount > 0 && requirementText.trim().length > 0;
+  const generatedFileCount = Object.keys(codeFiles).length;
+  const previewReady = generatedFileCount > 0 && Boolean(codeEntryFile || codeFiles["/src/main.tsx"]);
+  const isRepairingGeneratedPrototype =
+    generating &&
+    previewReady &&
+    /修复|覆盖检查|质量|验证|repair/i.test(runMessage ?? "");
+  const codeStatus = errorMessage && !generating
+    ? {
+        tone: "destructive" as const,
+        icon: AlertTriangle,
+        title: "代码生成失败",
+        message: errorMessage,
+      }
+    : isRepairingGeneratedPrototype
+      ? {
+          tone: "primary" as const,
+          icon: Loader2,
+          title: "预览已就绪，仍在完善输出",
+          message:
+            runMessage ??
+            "可先查看和编辑当前原型，后台仍在补齐质量检查发现的问题。",
+        }
+      : generating
+        ? {
+            tone: "primary" as const,
+            icon: Loader2,
+            title: "正在生成前端原型",
+            message: runMessage ?? "生成完成前，预览会在代码文件写入后自动刷新。",
+          }
+        : previewReady
+          ? {
+              tone: "success" as const,
+              icon: CheckCircle2,
+              title: "预览可用",
+              message: "当前原型已经生成，可以查看预览、继续生成、重新生成或导出。",
+            }
+          : canGenerate
+            ? {
+                tone: "muted" as const,
+                icon: Info,
+                title: "设计模型已就绪",
+                message: "点击“启动生成”后，代码区和预览区会随着文件生成自动更新。",
+              }
+            : null;
   const visibleDependencies = {
     react: "^18.3.1",
     "react-dom": "^18.3.1",
@@ -190,21 +243,21 @@ export function CodeGenerationPage() {
             className="h-8"
             onClick={() =>
               void generateCodePrototype(
-                Object.keys(codeFiles).length > 0 ? "continue" : "regenerate",
+            generatedFileCount > 0 ? "continue" : "regenerate",
               )
             }
             disabled={!canGenerate || generating}
           >
             {generating ? (
               <Loader2 className="size-3.5 animate-spin" />
-            ) : Object.keys(codeFiles).length > 0 ? (
+            ) : generatedFileCount > 0 ? (
               <RefreshCw className="size-3.5" />
             ) : (
               <Play className="size-3.5" />
             )}
-            {Object.keys(codeFiles).length > 0 ? "继续生成" : "启动生成"}
+            {generatedFileCount > 0 ? "继续生成" : "启动生成"}
           </Button>
-          {Object.keys(codeFiles).length > 0 && (
+          {generatedFileCount > 0 && (
             <Button
               variant="outline"
               size="sm"
@@ -243,9 +296,36 @@ export function CodeGenerationPage() {
           {modelCapability.warning}
         </div>
       )}
-      {errorMessage && !generating && (
-        <div className="border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {errorMessage}
+      {codeStatus && (
+        <div
+          className={cn(
+            "flex items-start gap-2 border-b px-3 py-2 text-xs",
+            codeStatus.tone === "destructive" &&
+              "border-destructive/40 bg-destructive/10 text-destructive",
+            codeStatus.tone === "success" &&
+              "border-success/30 bg-success/10 text-success",
+            codeStatus.tone === "primary" &&
+              "border-primary/30 bg-primary/10 text-primary",
+            codeStatus.tone === "muted" &&
+              "border-border bg-muted/30 text-muted-foreground",
+          )}
+        >
+          <codeStatus.icon
+            className={cn(
+              "mt-0.5 size-3.5 shrink-0",
+              codeStatus.icon === Loader2 && "animate-spin",
+            )}
+          />
+          <div className="min-w-0">
+            <span className="font-semibold">{codeStatus.title}</span>
+            <span className="mx-1 text-muted-foreground">·</span>
+            <span className="text-foreground/80">{codeStatus.message}</span>
+            {generating && (
+              <span className="ml-2 font-mono text-muted-foreground">
+                {runProgress}%
+              </span>
+            )}
+          </div>
         </div>
       )}
       <SandpackProvider

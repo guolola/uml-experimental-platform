@@ -238,6 +238,17 @@ describe("CodeGenerationPage", () => {
     expect(screen.queryByText("业务规则说明")).not.toBeInTheDocument();
   });
 
+  it("shows a clear preview-ready status once generated files exist", async () => {
+    render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
+
+    await screen.findByTestId("sandpack-provider");
+
+    expect(screen.getByText("预览可用")).toBeInTheDocument();
+    expect(
+      screen.getByText(/当前原型已经生成，可以查看预览、继续生成、重新生成或导出/),
+    ).toBeInTheDocument();
+  });
+
   it("opens the full preview from the preview title", async () => {
     render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
 

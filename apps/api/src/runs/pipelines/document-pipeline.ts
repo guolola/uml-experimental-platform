@@ -17,6 +17,7 @@ import {
   buildRepairDocumentContentPrompt,
 } from "@uml-platform/prompts";
 import { type LlmTransport } from "../../llm.js";
+import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import { type PngRenderClient } from "../../adapters/render/png-render-client.js";
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import {
@@ -119,6 +120,8 @@ async function generateDocumentSectionsWithRepair(
 export async function runDocumentStagePipeline(
   record: RunRecord,
   input: StartDocumentRunRequest,
+  documentLibrary: DocumentLibrary,
+  workspaceId: string,
   providerSettings: ProviderSettings,
   llmTransport: LlmTransport,
   pngRenderClient: PngRenderClient,
@@ -166,6 +169,17 @@ export async function runDocumentStagePipeline(
     input.documentStyle,
   );
   record.documentBuffer = buffer;
+  const document = await documentLibrary.saveGeneratedDocument({
+    workspaceId,
+    documentKind: input.documentKind,
+    sourceRunId: snapshot.runId,
+    fileName: snapshot.fileName ?? `${input.documentKind}.docx`,
+    mimeType: snapshot.mimeType,
+    buffer,
+  });
+  snapshot.documentId = document.id;
+  snapshot.fileName = document.fileName;
+  snapshot.mimeType = document.mimeType;
   snapshot.missingArtifacts = [...new Set(missingArtifacts)];
   snapshot.byteLength = buffer.byteLength;
   snapshot.status = "completed";

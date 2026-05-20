@@ -19,6 +19,24 @@ const corsEnv = {
     : {}),
 };
 
+const documentEnv = {
+  ...(process.env.ONLYOFFICE_DOCUMENT_SERVER_URL
+    ? { ONLYOFFICE_DOCUMENT_SERVER_URL: process.env.ONLYOFFICE_DOCUMENT_SERVER_URL }
+    : {}),
+  ...(process.env.PUBLIC_API_BASE_URL
+    ? { PUBLIC_API_BASE_URL: process.env.PUBLIC_API_BASE_URL }
+    : {}),
+  ...(process.env.ONLYOFFICE_JWT_SECRET
+    ? { ONLYOFFICE_JWT_SECRET: process.env.ONLYOFFICE_JWT_SECRET }
+    : {}),
+  ...(process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET
+    ? { ONLYOFFICE_ACCESS_TOKEN_SECRET: process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET }
+    : {}),
+  ...(process.env.UML_DOCUMENT_STORAGE_DIR
+    ? { UML_DOCUMENT_STORAGE_DIR: process.env.UML_DOCUMENT_STORAGE_DIR }
+    : {}),
+};
+
 const renderServiceEnv = {
   NODE_ENV: "production",
   RENDER_SERVICE_HOST: "127.0.0.1",
@@ -34,6 +52,7 @@ const apiEnv = {
   RENDER_SERVICE_BASE_URL: "http://127.0.0.1:4002",
   ...releaseEnv,
   ...corsEnv,
+  ...documentEnv,
 };
 
 module.exports = {

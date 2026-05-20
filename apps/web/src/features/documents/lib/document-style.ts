@@ -1,4 +1,4 @@
-// Provides the default document style settings used by the export controls.
+// Provides default DOCX style settings for generated instruction documents.
 import type { DocumentStyleSettings } from "@uml-platform/contracts";
 
 export const DEFAULT_DOCUMENT_STYLE: DocumentStyleSettings = {

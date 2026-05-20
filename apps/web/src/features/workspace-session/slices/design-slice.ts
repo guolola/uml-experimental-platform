@@ -10,6 +10,9 @@ export function useDesignSlice() {
   const [designModels, setDesignModels] = useState<WorkspaceRecord["designModels"]>(
     {},
   );
+  const [designModelTraceability, setDesignModelTraceability] = useState<
+    WorkspaceRecord["designModelTraceability"]
+  >([]);
   const [designPlantUml, setDesignPlantUml] = useState<
     WorkspaceRecord["designPlantUml"]
   >({});
@@ -28,6 +31,8 @@ export function useDesignSlice() {
     setSelectedDesignDiagrams,
     designModels,
     setDesignModels,
+    designModelTraceability,
+    setDesignModelTraceability,
     designPlantUml,
     setDesignPlantUml,
     designSvgArtifacts,

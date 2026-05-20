@@ -20,9 +20,13 @@ const DEFAULT_SELECTION: WorkspaceSelection = {
 
 export type WorkspaceSelection =
   | { kind: "requirements-text"; label: string }
+  | { kind: "requirement-trace-matrix"; label: string }
   | { kind: "diagram"; diagram: DiagramType; label: string }
   | { kind: "design-home"; label: string }
+  | { kind: "design-trace-matrix"; label: string }
   | { kind: "design-diagram"; diagram: DesignDiagramType; label: string }
+  | { kind: "documents-home"; label: string }
+  | { kind: "document-editor"; documentId: string; label: string }
   | {
       kind: "design-diagram-element";
       diagram: DesignDiagramType;
@@ -56,12 +60,18 @@ interface WorkspaceShellState {
   openWorkspaceTab: (selection: WorkspaceSelection) => void;
   activateWorkspaceTab: (tabId: string) => void;
   closeWorkspaceTab: (tabId: string) => void;
+  closeOtherWorkspaceTabs: (tabId: string) => void;
+  closeWorkspaceTabsByStage: (tabId: string) => void;
   openRequirementsText: () => void;
+  openRequirementTraceMatrix: () => void;
   openHistoryDrawer: () => void;
   closeHistoryDrawer: () => void;
   openDiagram: (diagram: DiagramType) => void;
   openDesignHome: () => void;
+  openDesignTraceMatrix: () => void;
   openDesignDiagram: (diagram: DesignDiagramType) => void;
+  openDocumentsHome: () => void;
+  openDocumentEditor: (documentId: string, label: string) => void;
   openDesignDiagramElement: (
     diagram: DesignDiagramType,
     elementKind: string,
@@ -86,14 +96,22 @@ function tabIdForSelection(selection: WorkspaceSelection) {
   switch (selection.kind) {
     case "requirements-text":
       return "requirements";
+    case "requirement-trace-matrix":
+      return "requirements:trace-matrix";
     case "diagram":
     case "diagram-element":
       return `diagram:${selection.diagram}`;
     case "design-home":
       return "design";
+    case "design-trace-matrix":
+      return "design:trace-matrix";
     case "design-diagram":
     case "design-diagram-element":
       return `design-diagram:${selection.diagram}`;
+    case "documents-home":
+      return "documents";
+    case "document-editor":
+      return `document:${selection.documentId}`;
     case "workspace-placeholder":
       return `workspace:${selection.workspaceId}`;
   }
@@ -103,14 +121,22 @@ function tabLabelForSelection(selection: WorkspaceSelection) {
   switch (selection.kind) {
     case "requirements-text":
       return "需求";
+    case "requirement-trace-matrix":
+      return "需求跟踪矩阵";
     case "diagram":
     case "diagram-element":
       return DIAGRAM_META[selection.diagram].label;
     case "design-home":
       return "设计";
+    case "design-trace-matrix":
+      return "设计跟踪矩阵";
     case "design-diagram":
     case "design-diagram-element":
       return DESIGN_DIAGRAM_META[selection.diagram].label;
+    case "documents-home":
+      return "说明书";
+    case "document-editor":
+      return selection.label;
     case "workspace-placeholder":
       return selection.label;
   }
@@ -122,6 +148,26 @@ function createWorkspaceTab(selection: WorkspaceSelection): WorkspaceTab {
     label: tabLabelForSelection(selection),
     selection,
   };
+}
+
+function stageForSelection(selection: WorkspaceSelection) {
+  switch (selection.kind) {
+    case "requirements-text":
+    case "requirement-trace-matrix":
+    case "diagram":
+    case "diagram-element":
+      return "requirements";
+    case "design-home":
+    case "design-trace-matrix":
+    case "design-diagram":
+    case "design-diagram-element":
+      return "design";
+    case "documents-home":
+    case "document-editor":
+      return "documents";
+    case "workspace-placeholder":
+      return selection.workspaceId;
+  }
 }
 
 export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
@@ -169,8 +215,45 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     [activeTabId, defaultTab],
   );
 
+  const closeOtherWorkspaceTabs = useCallback(
+    (tabId: string) => {
+      setOpenTabs((current) => {
+        const target = current.find((tab) => tab.id === tabId) ?? defaultTab;
+        setActiveTabId(target.id);
+        return [target];
+      });
+    },
+    [defaultTab],
+  );
+
+  const closeWorkspaceTabsByStage = useCallback(
+    (tabId: string) => {
+      setOpenTabs((current) => {
+        const target = current.find((tab) => tab.id === tabId);
+        if (!target) return current;
+        const targetStage = stageForSelection(target.selection);
+        const next = current.filter((tab) => {
+          if (tab.id === target.id) return true;
+          return stageForSelection(tab.selection) !== targetStage;
+        });
+        if (!next.some((tab) => tab.id === activeTabId)) {
+          setActiveTabId(target.id);
+        }
+        return next.length > 0 ? next : [defaultTab];
+      });
+    },
+    [activeTabId, defaultTab],
+  );
+
   const openRequirementsText = useCallback(() => {
     openWorkspaceTab({ kind: "requirements-text", label: "需求" });
+  }, [openWorkspaceTab]);
+
+  const openRequirementTraceMatrix = useCallback(() => {
+    openWorkspaceTab({
+      kind: "requirement-trace-matrix",
+      label: "需求跟踪矩阵",
+    });
   }, [openWorkspaceTab]);
 
   const openHistoryDrawer = useCallback(() => {
@@ -193,6 +276,13 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     openWorkspaceTab({ kind: "design-home", label: "设计" });
   }, [openWorkspaceTab]);
 
+  const openDesignTraceMatrix = useCallback(() => {
+    openWorkspaceTab({
+      kind: "design-trace-matrix",
+      label: "设计跟踪矩阵",
+    });
+  }, [openWorkspaceTab]);
+
   const openDesignDiagram = useCallback((diagram: DesignDiagramType) => {
     openWorkspaceTab({
       kind: "design-diagram",
@@ -200,6 +290,17 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       label: DESIGN_DIAGRAM_META[diagram].label,
     });
   }, [openWorkspaceTab]);
+
+  const openDocumentsHome = useCallback(() => {
+    openWorkspaceTab({ kind: "documents-home", label: "说明书" });
+  }, [openWorkspaceTab]);
+
+  const openDocumentEditor = useCallback(
+    (documentId: string, label: string) => {
+      openWorkspaceTab({ kind: "document-editor", documentId, label });
+    },
+    [openWorkspaceTab],
+  );
 
   const openDesignDiagramElement = useCallback(
     (
@@ -257,12 +358,18 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openWorkspaceTab,
       activateWorkspaceTab,
       closeWorkspaceTab,
+      closeOtherWorkspaceTabs,
+      closeWorkspaceTabsByStage,
       openRequirementsText,
+      openRequirementTraceMatrix,
       openHistoryDrawer,
       closeHistoryDrawer,
       openDiagram,
       openDesignHome,
+      openDesignTraceMatrix,
       openDesignDiagram,
+      openDocumentsHome,
+      openDocumentEditor,
       openDesignDiagramElement,
       openDiagramElement,
       openWorkspacePlaceholder,
@@ -271,14 +378,20 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       activeTabId,
       openTabs,
       openRequirementsText,
+      openRequirementTraceMatrix,
       openHistoryDrawer,
       closeHistoryDrawer,
       openWorkspaceTab,
       activateWorkspaceTab,
       closeWorkspaceTab,
+      closeOtherWorkspaceTabs,
+      closeWorkspaceTabsByStage,
       openDiagram,
       openDesignHome,
+      openDesignTraceMatrix,
       openDesignDiagram,
+      openDocumentsHome,
+      openDocumentEditor,
       openDesignDiagramElement,
       openDiagramElement,
       openWorkspacePlaceholder,
@@ -306,12 +419,20 @@ export function getSelectionKey(selection: WorkspaceSelection) {
   switch (selection.kind) {
     case "requirements-text":
       return "requirements";
+    case "requirement-trace-matrix":
+      return "requirements:trace-matrix";
     case "diagram":
       return `diagram:${selection.diagram}`;
     case "design-home":
       return "design";
+    case "design-trace-matrix":
+      return "design:trace-matrix";
     case "design-diagram":
       return `design-diagram:${selection.diagram}`;
+    case "documents-home":
+      return "documents";
+    case "document-editor":
+      return `document:${selection.documentId}`;
     case "design-diagram-element":
       return `design-diagram-element:${selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "diagram-element":

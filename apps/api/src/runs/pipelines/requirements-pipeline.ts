@@ -12,8 +12,10 @@ import {
   type DiagramError,
   type DiagramKind,
   type DiagramModelSpec,
+  type ModelElementRef,
   type PlantUmlArtifact,
   type ProviderSettings,
+  type RequirementModelTraceabilityEntry,
   type RequirementRule,
   type RunSnapshot,
   type RunStage,
@@ -21,14 +23,28 @@ import {
 } from "@uml-platform/contracts";
 import {
   buildExtractRulesPrompt,
+  buildGenerateRequirementTraceabilityPrompt,
   buildGenerateModelsPrompt,
+  buildRepairRequirementTraceabilityPrompt,
   buildRepairModelsPrompt,
 } from "@uml-platform/prompts";
 import { type LlmTransport } from "../../llm.js";
 import { type RenderClient } from "../../adapters/render/render-client.js";
-import { getGenerateModelsResponseFormat } from "../../adapters/llm/response-formats/index.js";
+import {
+  getGenerateModelsResponseFormat,
+  getGenerateRequirementTraceabilityResponseFormat,
+} from "../../adapters/llm/response-formats/index.js";
 import { generatePlantUmlArtifacts } from "../../plantuml.js";
-import { parseRequirementDiagramModelsResult } from "../../normalizers/requirements/requirement-model-normalizer.js";
+import {
+  parseRequirementDiagramModelsOnly,
+  parseRequirementDiagramModelsResult,
+  parseRequirementTraceabilityCoverageResult,
+} from "../../normalizers/requirements/requirement-model-normalizer.js";
+import {
+  formatTraceabilityMissingRefs,
+  mergeRequirementTraceability,
+  normalizeRequirementTraceabilityWithCoverage,
+} from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
@@ -42,6 +58,137 @@ import {
 import { appendRequirementTrace } from "./shared/trace-events.js";
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
+
+async function generateRequirementTraceabilityWithRepair(
+  record: RunRecord,
+  providerSettings: ProviderSettings,
+  llmTransport: LlmTransport,
+  requirementText: string,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+) {
+  const responseFormat = getGenerateRequirementTraceabilityResponseFormat(
+    providerSettings.model,
+  );
+  let prompt = buildGenerateRequirementTraceabilityPrompt(
+    requirementText,
+    rules,
+    models,
+  );
+  let previousOutput = "";
+  let lastErrorMessage = "";
+  let accumulatedTraceability: RequirementModelTraceabilityEntry[] = [];
+  let missingTargets: ModelElementRef[] =
+    normalizeRequirementTraceabilityWithCoverage([], rules, models).missingTargets;
+
+  for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
+    const content = await collectTextResult(
+      llmTransport,
+      providerSettings,
+      createMessages(prompt),
+      (chunk) => {
+        emitEvent(
+          record,
+          llmChunkRunEventSchema.parse({
+            type: "llm_chunk",
+            stage: "generate_models",
+            chunk,
+          }),
+        );
+      },
+      responseFormat,
+    );
+    previousOutput = content;
+    appendRequirementTrace(record, {
+      stage: "generate_models",
+      attempt: attempt + 1,
+      kind: "llm_output",
+      rawOutput: content,
+    });
+
+    try {
+      const parsed = parseRequirementTraceabilityCoverageResult(
+        content,
+        rules,
+        models,
+      );
+      accumulatedTraceability = mergeRequirementTraceability(
+        accumulatedTraceability,
+        parsed.traceability,
+      );
+      const coverage = normalizeRequirementTraceabilityWithCoverage(
+        accumulatedTraceability,
+        rules,
+        models,
+      );
+      accumulatedTraceability = coverage.traceability;
+      missingTargets = coverage.missingTargets;
+      if (accumulatedTraceability.length === 0) {
+        throw new Error(
+          "generate_models must return non-empty requirementModelTraceability with valid rule-to-element references",
+        );
+      }
+      if (missingTargets.length > 0) {
+        throw new Error(formatTraceabilityMissingRefs("requirement", missingTargets));
+      }
+      appendRequirementTrace(record, {
+        stage: "generate_models",
+        attempt: attempt + 1,
+        kind: "parsed_model",
+        parsedData: {
+          models,
+          requirementModelTraceability: accumulatedTraceability,
+        },
+      });
+      return accumulatedTraceability;
+    } catch (error) {
+      logFailedStructuredOutput(
+        "generate_models",
+        providerSettings.model,
+        error,
+        content,
+        attempt + 1,
+      );
+      lastErrorMessage = formatParseError(error);
+      appendRequirementTrace(record, {
+        stage: "generate_models",
+        attempt: attempt + 1,
+        kind: "parse_error",
+        rawOutput: content,
+        errorMessage: lastErrorMessage,
+      });
+
+      if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
+        throw new Error(
+          `requirement traceability structured output failed: ${lastErrorMessage}`,
+        );
+      }
+
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage: "generate_models",
+          progress: stageProgressValue("generate_models"),
+          message: `模型元素映射不合法，正在单独修复可追踪关系（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
+        }),
+      );
+
+      prompt = buildRepairRequirementTraceabilityPrompt(
+        requirementText,
+        rules,
+        models,
+        previousOutput,
+        lastErrorMessage,
+        missingTargets,
+      );
+    }
+  }
+
+  throw new Error(
+    `requirement traceability structured output failed: ${lastErrorMessage}`,
+  );
+}
 
 // LLM structured output repair retries malformed requirement models without changing the run event contract.
 export async function generateModelsWithRepair(
@@ -87,7 +234,7 @@ export async function generateModelsWithRepair(
     });
 
     try {
-      const parsed = parseRequirementDiagramModelsResult(content);
+      const parsed = parseRequirementDiagramModelsResult(content, rules);
       appendRequirementTrace(record, {
         stage: "generate_models",
         attempt: attempt + 1,
@@ -96,6 +243,46 @@ export async function generateModelsWithRepair(
       });
       return parsed;
     } catch (error) {
+      const modelOnly = (() => {
+        try {
+          return parseRequirementDiagramModelsOnly(content);
+        } catch {
+          return null;
+        }
+      })();
+      if (modelOnly) {
+        lastErrorMessage = formatParseError(error);
+        appendRequirementTrace(record, {
+          stage: "generate_models",
+          attempt: attempt + 1,
+          kind: "parse_error",
+          rawOutput: content,
+          errorMessage: lastErrorMessage,
+        });
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage: "generate_models",
+            progress: stageProgressValue("generate_models"),
+            message: "模型元素映射缺失，正在单独生成可追踪关系",
+          }),
+        );
+        const requirementModelTraceability =
+          await generateRequirementTraceabilityWithRepair(
+            record,
+            providerSettings,
+            llmTransport,
+            requirementText,
+            rules,
+            modelOnly.models,
+          );
+        return {
+          ...modelOnly,
+          requirementModelTraceability,
+        };
+      }
+
       logFailedStructuredOutput(
         "generate_models",
         providerSettings.model,
@@ -167,6 +354,7 @@ export async function runStagePipeline(
 
   let rules: RequirementRule[] = [...snapshot.rules];
   let models: DiagramModelSpec[] = [];
+  let requirementModelTraceability: RunSnapshot["requirementModelTraceability"] = [];
   let plantUml: PlantUmlArtifact[] = [];
   let diagramErrors: Partial<Record<DiagramKind, DiagramError>> = {};
 
@@ -212,8 +400,10 @@ export async function runStagePipeline(
       snapshot.selectedDiagrams,
     );
     models = modelResult.models;
+    requirementModelTraceability = modelResult.requirementModelTraceability;
   }
   snapshot.models = models;
+  snapshot.requirementModelTraceability = requirementModelTraceability;
   snapshot.diagramErrors = {};
   emitEvent(
     record,

@@ -13,6 +13,22 @@ import {
   summarizeEvent,
 } from "./diagnostics";
 
+function phaseSummaryFromEvent(event: RunEvent, fallback: string | null) {
+  if (event.type === "code_file_changed") {
+    return "已写入可预览文件，预览会自动刷新。";
+  }
+  if (event.type === "stage_progress" && event.message) {
+    return event.message;
+  }
+  if (event.type === "completed") {
+    return "生成完成，可以查看或导出结果。";
+  }
+  if (event.type === "failed") {
+    return event.message;
+  }
+  return fallback;
+}
+
 export function createClientTaskId(kind: GenerationTaskKind) {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -40,6 +56,9 @@ export function createGenerationTask(input: {
     progress: 5,
     message: input.message,
     errorMessage: null,
+    previewReady: false,
+    phaseSummary: input.message,
+    technicalDetailsCollapsed: true,
     diagnostics: {
       ...createEmptyDiagnostics(),
       runKind: input.kind,
@@ -160,6 +179,9 @@ export function updateTaskFromEvent(
     ...task,
     status: taskStatusFromEvent(event),
     progress: progress ?? task.progress,
+    previewReady:
+      task.previewReady || (task.kind === "code" && event.type === "code_file_changed"),
+    phaseSummary: phaseSummaryFromEvent(event, task.phaseSummary),
     message:
       event.type === "code_file_changed" && messages.fileChanged
         ? messages.fileChanged(event.path)

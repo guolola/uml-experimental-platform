@@ -356,11 +356,14 @@ export function SidebarMenu() {
   const {
     selection,
     openRequirementsText,
+    openRequirementTraceMatrix,
     openDiagram,
     openDesignHome,
+    openDesignTraceMatrix,
     openDesignDiagram,
     openDesignDiagramElement,
     openDiagramElement,
+    openDocumentsHome,
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
   const selectedKey = getSelectionKey(selection);
@@ -394,6 +397,16 @@ export function SidebarMenu() {
       icon: <FileText className="size-4 text-muted-foreground" />,
       onSelect: openRequirementsText,
       children: [
+        ...(generatedDiagrams.length > 0
+          ? [
+              {
+                key: "requirements:trace-matrix",
+                label: "需求跟踪矩阵",
+                icon: <GitBranch className="size-3.5 text-muted-foreground" />,
+                onSelect: openRequirementTraceMatrix,
+              },
+            ]
+          : []),
         ...generatedDiagrams.map((diagram) =>
           buildDiagramNode(
             diagram,
@@ -413,6 +426,16 @@ export function SidebarMenu() {
       icon: <Palette className="size-4 text-muted-foreground" />,
       onSelect: openDesignHome,
       children: [
+        ...(generatedDesignDiagrams.length > 0
+          ? [
+              {
+                key: "design:trace-matrix",
+                label: "设计跟踪矩阵",
+                icon: <GitBranch className="size-3.5 text-muted-foreground" />,
+                onSelect: openDesignTraceMatrix,
+              },
+            ]
+          : []),
         ...orderedDesignDiagrams.map((diagram) =>
           buildDesignDiagramNode(
             diagram,
@@ -430,6 +453,12 @@ export function SidebarMenu() {
       label: "代码",
       icon: <Code2 className="size-4 text-muted-foreground" />,
       onSelect: () => openWorkspacePlaceholder("code", "代码"),
+    },
+    {
+      key: "documents",
+      label: "说明书",
+      icon: <FileText className="size-4 text-muted-foreground" />,
+      onSelect: openDocumentsHome,
     },
   ];
 

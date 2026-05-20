@@ -1,4 +1,4 @@
-// Renders the export-time DOCX style controls for generated requirement/design documents.
+// Renders DOCX style controls for generated requirement/design instruction documents.
 import type {
   DocumentLineSpacing,
   DocumentParagraphStyle,
@@ -91,7 +91,7 @@ export function DocumentStyleDialog({
         <DialogHeader>
           <DialogTitle>说明书样式</DialogTitle>
           <DialogDescription>
-            默认使用课程设计规范，可在导出前调整目录、编号、标题、正文和表格样式。
+            默认使用课程设计规范，可在生成前调整目录、编号、标题、正文和表格样式。
           </DialogDescription>
         </DialogHeader>
 

@@ -13,12 +13,16 @@ import {
   buildGenerateCodeSpecPrompt,
   buildGenerateCodeUiBlueprintPrompt,
   buildGenerateCodeUiMockupPrompt,
+  buildGenerateDesignTraceabilityPrompt,
+  buildGenerateRequirementTraceabilityPrompt,
   buildGenerateDocumentContentPrompt,
   buildGenerateDesignModelsPrompt,
   buildGenerateModelsPrompt,
   buildRepairCodeFileOperationsPrompt,
   buildRepairDesignModelsPrompt,
+  buildRepairDesignTraceabilityPrompt,
   buildRepairModelsPrompt,
+  buildRepairRequirementTraceabilityPrompt,
   buildVerifyCodeUiFidelityPrompt,
 } from "./index.js";
 
@@ -55,6 +59,61 @@ test("requirement repair prompt preserves requirement-stage responsibilities", (
   assert.match(prompt, /deployment\.relationships\[\]\.port 必须是字符串/);
 });
 
+test("requirement traceability prompts only ask for element mappings", () => {
+  const model = {
+    diagramKind: "usecase" as const,
+    title: "用例模型",
+    summary: "系统边界",
+    notes: [],
+    actors: [{ id: "user", name: "用户", actorType: "human" as const, responsibilities: [] }],
+    useCases: [
+      {
+        id: "uc1",
+        name: "提交需求",
+        goal: "提交需求文本",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const prompt = buildGenerateRequirementTraceabilityPrompt(
+    "用户提交需求",
+    [{ id: "r1", category: "功能需求", text: "用户可以提交需求", relatedDiagrams: ["usecase"] }],
+    [model],
+  );
+
+  assert.match(prompt, /返回格式必须是 \{"requirementModelTraceability":\[\.\.\.\]\}/);
+  assert.match(prompt, /只输出能从规则文本和模型元素语义直接证明/);
+  assert.match(prompt, /target\.diagramKind 只能使用: usecase, class, activity, deployment/);
+  assert.match(prompt, /禁止把 requirements、requirement、design、model、traceability、page/);
+  assert.match(prompt, /每一个需求业务元素和 relationship 都必须至少映射到一条需求规则/);
+  assert.match(prompt, /不要为 system-boundary、swimlane、start\/end\/merge\/fork\/join/);
+  assert.doesNotMatch(prompt, /返回格式必须是 \{"models"/);
+
+  const repairPrompt = buildRepairRequirementTraceabilityPrompt(
+    "用户提交需求",
+    [],
+    [model],
+    "{}",
+    "requirementModelTraceability: Required",
+    [
+      {
+        diagramKind: "usecase",
+        elementId: "uc1",
+        elementKind: "usecase",
+        label: "提交需求",
+      },
+    ],
+  );
+  assert.match(repairPrompt, /不要修改模型；只修复映射数组/);
+  assert.match(repairPrompt, /必须补齐的缺失业务元素清单/);
+  assert.match(repairPrompt, /"elementId": "uc1"/);
+  assert.match(repairPrompt, /如果错误提示包含非法 diagramKind/);
+});
+
 test("design model prompt keeps design-stage activity semantics", () => {
   const prompt = buildGenerateDesignModelsPrompt(
     "用户登录后进入首页",
@@ -88,6 +147,84 @@ test("design model prompt keeps design-stage activity semantics", () => {
   );
   assert.match(repairPrompt, /按错误路径逐项修复/);
   assert.match(repairPrompt, /不要改变原有业务语义/);
+});
+
+test("design traceability prompts only ask for design-to-requirement mappings", () => {
+  const requirementModel = {
+    diagramKind: "usecase" as const,
+    title: "用例模型",
+    summary: "系统边界",
+    notes: [],
+    actors: [],
+    useCases: [
+      {
+        id: "uc1",
+        name: "提交需求",
+        goal: "提交需求文本",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const designModel = {
+    diagramKind: "sequence" as const,
+    title: "顺序图",
+    summary: "动态行为",
+    notes: [],
+    participants: [
+      { id: "user", name: "用户", participantType: "actor" as const },
+      { id: "system", name: "系统", participantType: "control" as const },
+    ],
+    messages: [
+      {
+        id: "m1",
+        type: "sync" as const,
+        sourceId: "user",
+        targetId: "system",
+        name: "submit",
+        parameters: [],
+      },
+    ],
+    fragments: [],
+  };
+  const prompt = buildGenerateDesignTraceabilityPrompt(
+    "用户提交需求",
+    [],
+    [requirementModel],
+    [designModel],
+  );
+
+  assert.match(prompt, /返回格式必须是 \{"designModelTraceability":\[\.\.\.\]\}/);
+  assert.match(prompt, /不要把整张需求模型套给每个设计元素/);
+  assert.match(prompt, /source\.diagramKind 只能使用: sequence, class, activity, deployment, table/);
+  assert.match(prompt, /targets\[\]\.diagramKind 只能使用: usecase, class, activity, deployment/);
+  assert.match(prompt, /每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);
+  assert.match(prompt, /不要为 swimlane、start\/end\/merge\/fork\/join/);
+  assert.doesNotMatch(prompt, /返回格式必须是 \{"models"/);
+
+  const repairPrompt = buildRepairDesignTraceabilityPrompt(
+    "用户提交需求",
+    [],
+    [requirementModel],
+    [designModel],
+    "{}",
+    "designModelTraceability: Required",
+    [
+      {
+        diagramKind: "sequence",
+        elementId: "m1",
+        elementKind: "message",
+        label: "submit",
+      },
+    ],
+  );
+  assert.match(repairPrompt, /不要修改模型；只修复映射数组/);
+  assert.match(repairPrompt, /必须补齐的缺失业务元素清单/);
+  assert.match(repairPrompt, /"elementId": "m1"/);
+  assert.match(repairPrompt, /禁止把 requirements、requirement、design、model、traceability、page/);
 });
 
 test("code generation prompts use business background theme and modular files", () => {

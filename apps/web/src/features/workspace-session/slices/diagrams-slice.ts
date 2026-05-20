@@ -5,6 +5,8 @@ import type { WorkspaceRecord } from "../../../entities/workspace/model";
 
 export function useDiagramsSlice() {
   const [models, setModels] = useState<WorkspaceRecord["models"]>({});
+  const [requirementModelTraceability, setRequirementModelTraceability] =
+    useState<WorkspaceRecord["requirementModelTraceability"]>([]);
   const [selectedDiagrams, setSelectedDiagrams] = useState<DiagramType[]>([]);
   const [plantUml, setPlantUml] = useState<WorkspaceRecord["plantUml"]>({});
   const [svgArtifacts, setSvgArtifacts] = useState<WorkspaceRecord["svgArtifacts"]>(
@@ -21,6 +23,8 @@ export function useDiagramsSlice() {
   return {
     models,
     setModels,
+    requirementModelTraceability,
+    setRequirementModelTraceability,
     selectedDiagrams,
     setSelectedDiagrams,
     plantUml,

@@ -22,6 +22,11 @@ import {
   type StartDocumentRunRequest,
 } from "@uml-platform/contracts";
 import type { LlmTransport } from "../../llm.js";
+import type { DocumentLibrary } from "../../documents/library/document-library.js";
+import {
+  isWorkspaceAuthError,
+  requireDocumentWorkspace,
+} from "../documents/document-workspace-auth.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
 import {
@@ -61,6 +66,8 @@ type CodePipeline = (
 type DocumentPipeline = (
   record: RunRecord,
   input: StartDocumentRunRequest,
+  documentLibrary: DocumentLibrary,
+  workspaceId: string,
   providerSettings: ProviderSettings,
   llmTransport: LlmTransport,
   pngRenderClient: PngRenderClient,
@@ -69,6 +76,7 @@ type DocumentPipeline = (
 export function registerRunRoutes({
   app,
   runs,
+  documentLibrary,
   llmTransport,
   renderClient,
   pngRenderClient,
@@ -81,6 +89,7 @@ export function registerRunRoutes({
 }: {
   app: FastifyInstance;
   runs: RunRecordStore;
+  documentLibrary: DocumentLibrary;
   llmTransport: LlmTransport;
   renderClient: RenderClient;
   pngRenderClient: PngRenderClient;
@@ -211,6 +220,13 @@ export function registerRunRoutes({
   });
 
   app.post(RUN_ROUTE_CONFIG.document.startPath, async (request, reply) => {
+    const workspace = await requireDocumentWorkspace(
+      request,
+      reply,
+      documentLibrary,
+    );
+    if (isWorkspaceAuthError(workspace)) return workspace;
+
     const input = startDocumentRunRequestSchema.parse(request.body);
     if (input.documentKind === "requirementsSpec" && input.requirementModels.length === 0) {
       reply.code(400);
@@ -235,6 +251,8 @@ export function registerRunRoutes({
     void runDocumentStagePipeline(
       record,
       input,
+      documentLibrary,
+      workspace.workspaceId,
       input.providerSettings,
       llmTransport,
       pngRenderClient,

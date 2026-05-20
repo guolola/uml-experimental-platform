@@ -19,6 +19,9 @@ import {
   requirementTraceEntrySchema,
   requirementRulesResultSchema,
   documentStyleSettingsSchema,
+  documentLibraryListResponseSchema,
+  documentRunSnapshotSchema,
+  onlyOfficeEditorConfigResponseSchema,
   runEventSchema,
   runSnapshotSchema,
   startDocumentRunRequestSchema,
@@ -71,6 +74,17 @@ test("contracts validate representative stage payloads", () => {
             type: "association",
           },
         ],
+      },
+    ],
+    requirementModelTraceability: [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "usecase",
+          elementId: "usecase_generate",
+          elementKind: "usecase",
+          label: "生成 UML 模型",
+        },
       },
     ],
   });
@@ -410,7 +424,9 @@ test("contracts validate representative stage payloads", () => {
     selectedDiagrams: ["sequence"],
     rules: [],
     requirementModels: [],
+    requirementModelTraceability: [],
     models: [],
+    designModelTraceability: [],
     plantUml: [],
     svgArtifacts: [],
     diagramErrors: {},
@@ -446,6 +462,7 @@ test("contracts validate representative stage payloads", () => {
     selectedDiagrams: ["usecase"],
     rules: [],
     models: [],
+    requirementModelTraceability: [],
     plantUml: [],
     svgArtifacts: [],
     diagramErrors: {},
@@ -541,9 +558,84 @@ test("contracts validate design table relationship diagrams", () => {
         ],
       },
     ],
+    designModelTraceability: [
+      {
+        source: {
+          diagramKind: "table",
+          elementId: "user",
+          elementKind: "table",
+          label: "user",
+        },
+        targets: [
+          {
+            diagramKind: "class",
+            elementId: "user",
+            elementKind: "class",
+            label: "用户",
+          },
+        ],
+      },
+    ],
   });
 
   assert.equal(result.models[0]?.diagramKind, "table");
+});
+
+test("contracts require element-level traceability for generated model results", () => {
+  assert.throws(() =>
+    diagramModelsResultSchema.parse({
+      models: [],
+    }),
+  );
+  const requirementModelsWithTrace = diagramModelsResultSchema.parse({
+    models: [],
+    requirementModelTraceability: [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "class",
+          elementId: "domain-user",
+          elementKind: "class",
+          label: "UserDomain",
+        },
+      },
+    ],
+  });
+  assert.equal(
+    requirementModelsWithTrace.requirementModelTraceability[0]?.target.elementId,
+    "domain-user",
+  );
+
+  assert.throws(() =>
+    designDiagramModelsResultSchema.parse({
+      models: [],
+    }),
+  );
+  const designModelsWithTrace = designDiagramModelsResultSchema.parse({
+    models: [],
+    designModelTraceability: [
+      {
+        source: {
+          diagramKind: "class",
+          elementId: "class-user-auth",
+          elementKind: "class",
+          label: "Class_UserAuth",
+        },
+        targets: [
+          {
+            diagramKind: "class",
+            elementId: "domain-user",
+            elementKind: "class",
+            label: "UserDomain",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(
+    designModelsWithTrace.designModelTraceability[0]?.targets[0]?.label,
+    "UserDomain",
+  );
 });
 
 test("contracts reject invalid stage payloads", () => {
@@ -603,4 +695,56 @@ test("contracts accept optional document export style settings", () => {
       body: { sizePt: 0 },
     }),
   );
+});
+
+test("contracts describe generated document library and editor config", () => {
+  const item = {
+    id: "doc-1",
+    workspaceId: "workspace-1",
+    documentKind: "requirementsSpec",
+    title: "需求规格说明书",
+    fileName: "需求规格说明书.docx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    byteLength: 1024,
+    version: 1,
+    sourceRunId: "run-1",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const list = documentLibraryListResponseSchema.parse({
+    documents: [item],
+  });
+  assert.equal(list.documents[0]?.id, "doc-1");
+
+  const editorConfig = onlyOfficeEditorConfigResponseSchema.parse({
+    document: item,
+    documentServerUrl: "http://127.0.0.1:8080",
+    config: {
+      documentType: "word",
+      document: {
+        fileType: "docx",
+        key: "doc-1-v1",
+        title: "需求规格说明书.docx",
+        url: "http://127.0.0.1:4001/api/documents/doc-1/file",
+      },
+    },
+  });
+  assert.equal(editorConfig.config.documentType, "word");
+
+  const snapshot = documentRunSnapshotSchema.parse({
+    runId: "run-1",
+    documentKind: "requirementsSpec",
+    requirementText: "生成需求说明书。",
+    documentId: "doc-1",
+    fileName: "需求规格说明书.docx",
+    mimeType: item.mimeType,
+    byteLength: 1024,
+    missingArtifacts: [],
+    currentStage: "render_document_file",
+    status: "completed",
+    errorMessage: null,
+  });
+  assert.equal(snapshot.documentId, "doc-1");
 });

@@ -8,6 +8,17 @@ import {
   ArrowUp,
   Plus,
   Trash2,
+  FileText,
+  ListChecks,
+  Network,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Bot,
+  SendHorizontal,
+  ShoppingCart,
+  MessageCircle,
+  Activity,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
@@ -21,7 +32,6 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { Input } from "../../../shared/ui/input";
-import { Section } from "../../../shared/ui/section";
 import { cn } from "../../../shared/ui/utils";
 import {
   DIAGRAM_META,
@@ -41,6 +51,33 @@ import {
 } from "../../../shared/lib/user-settings";
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
+const RULE_PAGE_SIZES = [4, 8, 12, 24] as const;
+const REQUIREMENT_TEMPLATE_CARDS = [
+  {
+    title: "电商系统",
+    english: "E-commerce System",
+    description: "完善的购物流程与库存规则。",
+    templateText:
+      "我们需要开发一个电商系统。用户可以注册和登录账号，浏览商品、搜索商品、查看商品详情，将商品加入购物车并提交订单。系统需要支持订单支付、订单状态查询、收货地址管理和售后退款申请。管理员可以维护商品信息、管理库存、处理订单和查看销售统计。系统应保证未登录用户只能浏览公开商品，支付成功后才生成有效订单，并在库存不足时阻止下单。",
+    Icon: ShoppingCart,
+  },
+  {
+    title: "社交应用",
+    english: "Social App",
+    description: "用户交互与即时通讯逻辑。",
+    templateText:
+      "我们需要开发一个社交应用。用户可以注册账号、完善个人资料、发布动态、上传图片、关注其他用户并查看关注流。系统需要支持点赞、评论、私信聊天、消息通知和内容举报。管理员可以审核举报内容、管理违规用户和维护社区规则。系统应保证用户只能修改自己的资料和动态，私信只允许在合法用户之间发送，违规内容需要进入审核流程。",
+    Icon: MessageCircle,
+  },
+  {
+    title: "健身追踪",
+    english: "Fitness Tracker",
+    description: "健康数据可视化与目标追踪。",
+    templateText:
+      "我们需要开发一个健身追踪系统。用户可以记录每日运动、步数、体重、饮食和睡眠数据，设置健身目标并查看进度趋势。系统需要支持训练计划推荐、运动提醒、历史数据统计和健康报告生成。用户可以绑定可穿戴设备同步数据，也可以手动补录记录。系统应保证健康数据仅本人可见，设备同步失败时给出提示，并在用户达到阶段目标时发送通知。",
+    Icon: Activity,
+  },
+] as const;
 
 export function TextRequirementView() {
   const {
@@ -50,6 +87,7 @@ export function TextRequirementView() {
     createRequirementRule,
     updateRequirementRule,
     deleteRequirementRule,
+    clearRequirementRules,
     selectedDiagrams,
     setSelectedDiagrams,
     generating,
@@ -76,6 +114,11 @@ export function TextRequirementView() {
   );
   const [newRuleText, setNewRuleText] = useState("");
   const [newRuleError, setNewRuleError] = useState<string | null>(null);
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [currentRulePage, setCurrentRulePage] = useState(1);
+  const [rulePageSize, setRulePageSize] = useState<(typeof RULE_PAGE_SIZES)[number]>(
+    8,
+  );
 
   useEffect(() => {
     const syncSettings = () => {
@@ -90,6 +133,8 @@ export function TextRequirementView() {
     };
   }, []);
 
+  const hasGeneratedRules = rules.length > 0;
+
   const runGenerateRules = () => {
     void generateRules();
   };
@@ -100,6 +145,13 @@ export function TextRequirementView() {
 
   const updateModel = (model: string) => {
     patchUserSettings({ defaultModel: model });
+  };
+
+  const confirmReturnToRequirementText = () => {
+    clearRequirementRules();
+    setReturnDialogOpen(false);
+    setQuery("");
+    setCurrentRulePage(1);
   };
 
   const selectableDiagramSet = useMemo(
@@ -174,8 +226,358 @@ export function TextRequirementView() {
     return rules.filter((rule) => rule.text.toLowerCase().includes(normalizedQuery));
   }, [rules, query]);
 
+  useEffect(() => {
+    setCurrentRulePage(1);
+  }, [query, rulePageSize]);
+
+  const totalRulePages = Math.max(1, Math.ceil(filteredRules.length / rulePageSize));
+  const safeRulePage = Math.min(currentRulePage, totalRulePages);
+  const firstRuleIndex =
+    filteredRules.length === 0 ? 0 : (safeRulePage - 1) * rulePageSize + 1;
+  const lastRuleIndex = Math.min(filteredRules.length, safeRulePage * rulePageSize);
+  const pagedRules = filteredRules.slice(firstRuleIndex - 1, lastRuleIndex);
+
+  useEffect(() => {
+    if (currentRulePage > totalRulePages) {
+      setCurrentRulePage(totalRulePages);
+    }
+  }, [currentRulePage, totalRulePages]);
+
+  const generateDiagramsButtonLabel = (() => {
+    const toAdd = selectedDiagrams.filter(
+      (diagram) => !generatedDiagrams.includes(diagram),
+    ).length;
+    const toRemove = generatedDiagrams.filter(
+      (diagram) => !selectedDiagrams.includes(diagram),
+    ).length;
+    const stale = staleDiagrams.filter((diagram) =>
+      selectedDiagrams.includes(diagram),
+    ).length;
+    if (generatedDiagrams.length === 0) return "生成模型";
+    const parts: string[] = [];
+    if (toAdd) parts.push(`新增${toAdd}`);
+    if (toRemove) parts.push(`移除${toRemove}`);
+    if (stale) parts.push(`更新${stale}`);
+    return parts.length ? `应用变更（${parts.join("·")}）` : "重新生成";
+  })();
+
+  const renderRequirementInput = (mode: "empty" | "generated") => (
+    <div
+      className={cn(
+        "relative",
+        mode === "empty" &&
+          "overflow-hidden rounded-xl border border-border bg-card p-6 shadow-sm",
+      )}
+    >
+      {mode === "empty" && (
+        <div className="absolute -right-20 -top-20 size-64 rounded-full bg-primary/5 blur-3xl" />
+      )}
+      <div className="relative flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <FileText className="size-5 text-primary" />
+          <h2 className="text-xl font-semibold tracking-normal text-foreground">
+            {mode === "empty" ? "项目需求描述" : "需求描述"}
+          </h2>
+        </div>
+      </div>
+      <textarea
+        id="requirement-text"
+        name="requirementText"
+        value={requirementText}
+        onChange={(event) => setRequirementText(event.target.value)}
+        placeholder="用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则"
+        className={cn(
+          "relative mt-3 w-full resize-y rounded-lg border border-input bg-background px-4 py-4 text-sm leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/15",
+          mode === "empty" ? "h-[clamp(360px,48vh,620px)] min-h-80" : "min-h-32",
+        )}
+      />
+      <div className="relative mt-6 flex flex-wrap items-center gap-2">
+        <ModelPicker value={defaultModel} onValueChange={updateModel} />
+        {isRulesStale && (
+          <span className="text-[11px] text-warning">需求已修改</span>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto h-10 rounded-full px-6"
+          onClick={() => setRequirementText("")}
+          disabled={!requirementText || generating}
+        >
+          清空
+        </Button>
+        <button
+          type="button"
+          onClick={runGenerateRules}
+          disabled={!requirementText.trim() || generating}
+          title={isRulesStale ? "更新需求规则" : "生成需求规则"}
+          className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {generating ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <ArrowUp className="size-4" />
+          )}
+          {isRulesStale ? "更新需求规则" : "开始分析提取"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderRequirementRules = () => (
+    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-muted/40 px-6 py-6">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <ListChecks className="size-5 text-primary" />
+            <h2 className="text-xl font-semibold tracking-normal text-foreground">
+              需求规则
+            </h2>
+          </div>
+          <Badge
+            variant="secondary"
+            className="rounded-full border-0 px-2.5 py-0.5 font-mono text-xs font-bold"
+          >
+            {rules.length}
+          </Badge>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-8 rounded-full px-3 text-primary"
+            onClick={() => setReturnDialogOpen(true)}
+          >
+            返回修改描述
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索规则..."
+              className="h-9 rounded-lg bg-background pl-9 text-sm"
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 rounded-lg bg-background px-4"
+            onClick={() => setNewRuleDialogOpen(true)}
+            disabled={generating}
+          >
+            <Plus className="size-3.5" /> 新增需求项
+          </Button>
+        </div>
+      </div>
+      {filteredRules.length === 0 ? (
+        <div className="border-b border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
+          没有匹配的规则。
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse bg-card text-sm">
+            <thead className="text-xs tracking-[0.02em] text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="w-[84px] px-6 py-4 text-left font-medium">编号</th>
+                <th className="w-36 px-6 py-4 text-left font-medium">类型</th>
+                <th className="px-6 py-4 text-left font-medium">需求文本内容</th>
+                <th className="w-28 px-6 py-4 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRules.map((rule) => (
+                <tr
+                  key={rule.id}
+                  id={`rule-${rule.id}`}
+                  className="border-b border-border transition-colors last:border-b-0 hover:bg-muted/30"
+                >
+                  <td className="px-6 py-4 align-top">
+                    <span className="font-mono text-xs uppercase text-muted-foreground">
+                      {rule.id}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 align-top">
+                    <Badge
+                      variant="outline"
+                      className="rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground"
+                    >
+                      {rule.category}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-3 align-top">
+                    <input
+                      type="text"
+                      value={rule.text}
+                      onChange={(event) =>
+                        updateRequirementRule(rule.id, {
+                          text: event.target.value,
+                        })
+                      }
+                      className="h-9 w-full rounded-md border border-transparent bg-transparent px-0 text-sm text-foreground outline-none transition-colors hover:border-border hover:bg-background focus:border-primary/60 focus:bg-background focus:px-2 focus:ring-2 focus:ring-primary/15"
+                      disabled={generating}
+                    />
+                  </td>
+                  <td className="px-6 py-4 text-right align-top">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => deleteRequirementRule(rule.id)}
+                      disabled={generating}
+                      aria-label={`删除需求项 ${rule.id}`}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <span>
+            {firstRuleIndex}-{lastRuleIndex} / {filteredRules.length}
+          </span>
+          <label className="flex items-center gap-2 text-xs font-normal">
+            每页
+            <select
+              value={rulePageSize}
+              onChange={(event) =>
+                setRulePageSize(
+                  Number(event.target.value) as (typeof RULE_PAGE_SIZES)[number],
+                )
+              }
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+              aria-label="每页需求规则数量"
+            >
+              {RULE_PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            条
+          </label>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-label="上一页"
+            onClick={() => setCurrentRulePage((page) => Math.max(1, page - 1))}
+            disabled={safeRulePage === 1}
+            className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          {Array.from({ length: totalRulePages }, (_, index) => index + 1).map(
+            (page) => (
+              <button
+                type="button"
+                key={page}
+                onClick={() => setCurrentRulePage(page)}
+                className={cn(
+                  "inline-flex size-8 items-center justify-center rounded-md border text-xs font-medium transition-colors",
+                  page === safeRulePage
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                {page}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            aria-label="下一页"
+            onClick={() =>
+              setCurrentRulePage((page) => Math.min(totalRulePages, page + 1))
+            }
+            disabled={safeRulePage === totalRulePages}
+            className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+
+  const renderAssistantPanel = () => (
+    <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-3">
+        <Bot className="size-4 text-primary" />
+        <h2 className="text-sm font-semibold text-foreground">AI 需求助手</h2>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+        <div className="rounded-bl-lg rounded-br-lg rounded-tr-lg bg-muted px-3 py-2 text-xs leading-5 text-foreground">
+          你好！我是您的需求分析助手。我可以帮助您细化功能点、完善业务规则或根据您的想法提供专业建议。请问有什么可以帮您的？
+        </div>
+        <div className="grid gap-2">
+            {REQUIREMENT_TEMPLATE_CARDS.map(
+              ({ title, english, description, templateText, Icon }) => (
+                <button
+                  type="button"
+                  key={title}
+                  onClick={() => setRequirementText(templateText)}
+                  className="group rounded-lg border border-border bg-background p-2 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary transition-transform duration-200 group-hover:-translate-y-0.5">
+                      <Icon className="size-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-semibold text-foreground">
+                        {title}
+                      </span>
+                      <span className="block truncate font-mono text-[9px] text-muted-foreground">
+                        {english}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="mt-1 block truncate text-[11px] leading-4 text-muted-foreground">
+                        {description}
+                  </span>
+                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                    <CircleCheck className="size-3" />
+                    应用模板
+                  </span>
+                </button>
+              ),
+            )}
+        </div>
+      </div>
+      <div className="border-t border-border p-3">
+        <div className="relative">
+          <Input
+            value=""
+            readOnly
+            disabled
+            placeholder="输入消息..."
+            className="h-9 rounded-full bg-muted pr-9 text-xs"
+            aria-label="AI 需求助手输入消息"
+          />
+          <button
+            type="button"
+            disabled
+            className="absolute right-1.5 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-primary opacity-70"
+            aria-label="发送消息"
+          >
+            <SendHorizontal className="size-3.5" />
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background">
       {showStaleBanner && isRulesStale && (
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 text-warning" />
@@ -211,281 +613,201 @@ export function TextRequirementView() {
         </div>
       )}
 
-      <Section title="需求描述">
-        <div className="rounded-2xl border border-border bg-card px-4 pb-2.5 pt-3 shadow-xs transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
-          <textarea
-            id="requirement-text"
-            name="requirementText"
-            value={requirementText}
-            onChange={(event) => setRequirementText(event.target.value)}
-            placeholder="用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则"
-            className="min-h-20 w-full resize-y bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
-          />
-          <div className="mt-1 flex items-center gap-1.5">
-            <ModelPicker value={defaultModel} onValueChange={updateModel} />
-
-            {isRulesStale && (
-              <span className="ml-1 text-[11px] text-warning">需求已修改</span>
-            )}
-
-            <button
-              type="button"
-              onClick={runGenerateRules}
-              disabled={!requirementText.trim() || generating}
-              title={isRulesStale ? "更新需求规则" : "生成需求规则"}
-              className="ml-auto inline-flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {generating ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <ArrowUp className="size-4" />
-              )}
-            </button>
+      <div className="w-full py-4 lg:py-5">
+        <div className="mx-auto flex w-[calc(100%-1.5rem)] max-w-none flex-col gap-5 sm:w-[calc(100%-2rem)] lg:w-[calc(100%-3rem)]">
+          <header className="flex flex-col gap-1.5">
+            <h1 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
+              需求分析提取
+            </h1>
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+              输入您的项目需求描述，系统将帮助您提取关键用例、参与者并生成初始的系统模型。
+            </p>
+          </header>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]">
+            {hasGeneratedRules ? renderRequirementRules() : renderRequirementInput("empty")}
+            {renderAssistantPanel()}
           </div>
-        </div>
-      </Section>
 
-      {errorMessage && runStatus === "failed" && (
-        <Section title="运行错误">
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            {errorMessage}
-          </div>
-        </Section>
-      )}
-
-      {rules.length > 0 && (
-        <Section title="需求规则">
-          <div className="mb-3 flex items-center gap-2">
-            <Badge variant="secondary" className="font-mono">
-              {filteredRules.length === rules.length
-                ? rules.length
-                : `${filteredRules.length}/${rules.length}`}
-            </Badge>
-            <div className="relative ml-auto w-56">
-              <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索规则…"
-                className="h-7 pl-7 text-xs"
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7"
-              onClick={() => setNewRuleDialogOpen(true)}
-              disabled={generating}
-            >
-              <Plus className="size-3.5" /> 新增需求项
-            </Button>
-          </div>
-          {filteredRules.length === 0 ? (
-            <div className="border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-xs text-muted-foreground">
-              没有匹配的规则。
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full min-w-[720px] border-collapse bg-card text-sm">
-                <thead className="bg-muted/40 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="w-24 border-b border-border px-3 py-2 text-left font-medium">
-                      编号
-                    </th>
-                    <th className="w-28 border-b border-border px-3 py-2 text-left font-medium">
-                      类型
-                    </th>
-                    <th className="border-b border-border px-3 py-2 text-left font-medium">
-                      需求文本内容
-                    </th>
-                    <th className="w-20 border-b border-border px-3 py-2 text-center font-medium">
-                      操作
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRules.map((rule) => (
-                    <tr
-                      key={rule.id}
-                      id={`rule-${rule.id}`}
-                      className="border-b border-border last:border-b-0 hover:bg-muted/20"
-                    >
-                      <td className="px-3 py-2 align-top">
-                        <span className="font-mono text-xs uppercase text-muted-foreground">
-                          {rule.id}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 align-top">
-                        <Badge variant="outline">{rule.category}</Badge>
-                      </td>
-                      <td className="px-3 py-2 align-top">
-                        <textarea
-                          value={rule.text}
-                          onChange={(event) =>
-                            updateRequirementRule(rule.id, { text: event.target.value })
-                          }
-                          className="min-h-12 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-                          disabled={generating}
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-center align-top">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteRequirementRule(rule.id)}
-                          disabled={generating}
-                          aria-label={`删除需求项 ${rule.id}`}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {errorMessage && runStatus === "failed" && (
+            <section className="rounded-xl border border-destructive/30 bg-card p-4 text-sm text-destructive shadow-sm">
+              {errorMessage}
+            </section>
           )}
-          <p className="mt-2 text-xs text-muted-foreground">
-            之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里已确认的需求项；原始需求文本只作为背景。
-          </p>
-        </Section>
-      )}
 
-      {rules.length > 0 && (
-        <Section title="目标模型">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">已选</span>
-            <Badge variant="secondary" className="font-mono">
-              {selectedDiagrams.length}/{DIAGRAM_ORDER.length}
-            </Badge>
-            <ModelPicker
-              value={defaultModel}
-              onValueChange={updateModel}
-              align="end"
-              triggerClassName="ml-auto bg-card"
-            />
-            <button
-              type="button"
-              onClick={() => runGenerateDiagrams()}
-              disabled={selectedDiagrams.length === 0 || generating}
-              className="inline-flex items-center gap-1.5 rounded-full border border-primary bg-primary px-2.5 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {generating ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Wand2 className="size-3.5" />
-              )}
-              {(() => {
-                const toAdd = selectedDiagrams.filter(
-                  (diagram) => !generatedDiagrams.includes(diagram),
-                ).length;
-                const toRemove = generatedDiagrams.filter(
-                  (diagram) => !selectedDiagrams.includes(diagram),
-                ).length;
-                const stale = staleDiagrams.filter((diagram) =>
-                  selectedDiagrams.includes(diagram),
-                ).length;
-                if (generatedDiagrams.length === 0) return "生成模型";
-                const parts: string[] = [];
-                if (toAdd) parts.push(`新增${toAdd}`);
-                if (toRemove) parts.push(`移除${toRemove}`);
-                if (stale) parts.push(`更新${stale}`);
-                return parts.length ? `应用变更（${parts.join("·")}）` : "重新生成";
-              })()}
-            </button>
-          </div>
-          <div className="grid grid-cols-1 gap-px bg-border sm:grid-cols-2">
-            {DIAGRAM_ORDER.map((diagram) => {
-              const meta = DIAGRAM_META[diagram];
-              const checked = selectedDiagrams.includes(diagram);
-              const linkedRules = rules.filter((rule) =>
-                rule.relatedDiagrams.includes(diagram),
-              );
-              const canSelectDiagram = linkedRules.length > 0;
-              return (
-                <div
-                  key={diagram}
-                  className={cn(
-                    "flex flex-col gap-2 px-3 py-2.5 transition-colors",
-                    checked ? "bg-primary/10" : "bg-card",
-                    !canSelectDiagram && "opacity-60",
-                  )}
+          <section className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <Network className="size-5 text-primary" />
+                <h2 className="text-xl font-semibold tracking-normal text-foreground">
+                  目标模型
+                </h2>
+              </div>
+              <Badge
+                variant="secondary"
+                className="rounded-md border-0 px-3 py-1 font-mono text-xs"
+              >
+                {selectedDiagrams.length}/{DIAGRAM_ORDER.length}
+              </Badge>
+              <div className="ml-auto flex items-center gap-2">
+                <ModelPicker
+                  value={defaultModel}
+                  onValueChange={updateModel}
+                  align="end"
+                  triggerClassName="bg-card"
+                />
+                <button
+                  type="button"
+                  onClick={() => runGenerateDiagrams()}
+                  disabled={selectedDiagrams.length === 0 || generating}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <label
+                  {generating ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="size-4" />
+                  )}
+                  {generateDiagramsButtonLabel}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {DIAGRAM_ORDER.map((diagram) => {
+                const meta = DIAGRAM_META[diagram];
+                const checked = selectedDiagrams.includes(diagram);
+                const linkedRules = rules.filter((rule) =>
+                  rule.relatedDiagrams.includes(diagram),
+                );
+                const canSelectDiagram = linkedRules.length > 0;
+                return (
+                  <div
+                    key={diagram}
                     className={cn(
-                      "flex items-start gap-2",
-                      canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
+                      "flex min-h-24 gap-3 rounded-xl border bg-card p-4 shadow-sm transition-colors",
+                      checked
+                        ? "border-primary/35 ring-2 ring-primary/10"
+                        : "border-border",
+                      !canSelectDiagram &&
+                        "border-dashed border-border bg-muted/30 opacity-80 shadow-none",
                     )}
                   >
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={(value) => toggleDiagram(diagram, !!value)}
-                      className="mt-0.5"
-                      disabled={!canSelectDiagram}
-                    />
-                    <div className="flex flex-1 flex-col gap-0.5">
-                      <span className="flex items-center gap-2">
-                        <span className="text-sm">{meta.label}</span>
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {meta.english}
-                        </span>
-                        <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+                    <label
+                      className={cn(
+                        "mt-1 flex shrink-0",
+                        canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
+                      )}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(value) => toggleDiagram(diagram, !!value)}
+                        disabled={!canSelectDiagram}
+                        aria-label={meta.label}
+                      />
+                    </label>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                            <h3
+                              className={cn(
+                                "text-sm font-semibold text-foreground",
+                                !canSelectDiagram && "text-muted-foreground",
+                              )}
+                            >
+                              {meta.label}
+                            </h3>
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {meta.english}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                            {meta.description}
+                          </p>
+                        </div>
+                        <span
+                          className={cn(
+                            "rounded-md px-2 py-0.5 font-mono text-lg font-bold",
+                            canSelectDiagram
+                              ? "bg-primary/5 text-primary"
+                              : "text-muted-foreground",
+                          )}
+                        >
                           {linkedRules.length}
                         </span>
-                      </span>
-                      <span className="text-xs leading-relaxed text-muted-foreground">
-                        {meta.description}
-                      </span>
-                    </div>
-                  </label>
-                  {!canSelectDiagram && (
-                    <div className="flex items-center gap-1.5 pl-6 text-[11px] text-destructive">
-                      <AlertTriangle className="size-3.5" />
-                      缺少对应需求规则
-                    </div>
-                  )}
-                  {linkedRules.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pl-6">
-                      {linkedRules.map((rule) => (
-                        <button
-                          type="button"
-                          key={rule.id}
-                          title={rule.text}
-                          onClick={() => {
-                            const element = document.getElementById(`rule-${rule.id}`);
-                            if (element) {
-                              element.scrollIntoView({
-                                behavior: "smooth",
-                                block: "center",
-                              });
-                              element.classList.add("ring-2", "ring-primary/40");
-                              setTimeout(() => {
-                                element.classList.remove(
-                                  "ring-2",
-                                  "ring-primary/40",
+                      </div>
+
+                      {!canSelectDiagram && (
+                          <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+                          <AlertTriangle className="size-3.5" />
+                          缺少对应需求规则
+                        </div>
+                      )}
+                      {linkedRules.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                          {linkedRules.map((rule) => (
+                            <button
+                              type="button"
+                              key={rule.id}
+                              title={rule.text}
+                              onClick={() => {
+                                const element = document.getElementById(
+                                  `rule-${rule.id}`,
                                 );
-                              }, 1200);
-                            }
-                          }}
-                          className="rounded-sm border border-border bg-card px-1.5 py-0 font-mono text-[10px] uppercase text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-                        >
-                          {rule.id}
-                        </button>
-                      ))}
+                                if (element) {
+                                  element.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "center",
+                                  });
+                                  element.classList.add("ring-2", "ring-primary/40");
+                                  setTimeout(() => {
+                                    element.classList.remove(
+                                      "ring-2",
+                                      "ring-primary/40",
+                                    );
+                                  }, 1200);
+                                }
+                              }}
+                              className="rounded border border-border bg-secondary px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
+                            >
+                              {rule.id}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。
-          </p>
-        </Section>
-      )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="pb-4 text-center text-xs text-muted-foreground">
+              勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里已确认的需求项。
+            </p>
+          </section>
+        </div>
+      </div>
+
+      <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>返回修改描述？</DialogTitle>
+            <DialogDescription>
+              返回项目需求描述会清空目前的需求规则，目标模型选择也会随规则失效而取消。此操作不会清空需求描述文本。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setReturnDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmReturnToRequirementText}>
+              确认回退
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={newRuleDialogOpen}

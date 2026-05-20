@@ -1,7 +1,10 @@
 // Defines JSON schema response formats for design model generation.
 import { type ChatCompletionResponseFormat } from "../../../llm.js";
 import { getModelCapability } from "../../../model-capabilities.js";
-import { requirementModelOneOf } from "./requirements-response-formats.js";
+import {
+  modelElementRefResponseSchema,
+  requirementModelOneOf,
+} from "./requirements-response-formats.js";
 
 export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
@@ -114,8 +117,53 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
             ],
           },
         },
+        designModelTraceability: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              source: modelElementRefResponseSchema,
+              targets: {
+                type: "array",
+                items: modelElementRefResponseSchema,
+              },
+            },
+            required: ["source", "targets"],
+          },
+        },
       },
-      required: ["models"],
+      required: ["models", "designModelTraceability"],
+    },
+  },
+};
+
+export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "design_model_traceability_result",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        designModelTraceability: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              source: modelElementRefResponseSchema,
+              targets: {
+                type: "array",
+                items: modelElementRefResponseSchema,
+              },
+            },
+            required: ["source", "targets"],
+          },
+        },
+      },
+      required: ["designModelTraceability"],
     },
   },
 };
@@ -123,5 +171,11 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
 export function getGenerateDesignModelsResponseFormat(model: string) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_DESIGN_MODELS_RESPONSE_FORMAT
+    : undefined;
+}
+
+export function getGenerateDesignTraceabilityResponseFormat(model: string) {
+  return getModelCapability(model).supportsJsonSchema
+    ? GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT
     : undefined;
 }

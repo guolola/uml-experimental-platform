@@ -1,7 +1,6 @@
 // Configures Monaco with lightweight React and runtime type declarations for prototypes.
 
 import type { Monaco } from "@monaco-editor/react";
-import { languageForPath } from "./file-paths";
 
 export const MONACO_REACT_TYPES = `
 declare namespace JSX {

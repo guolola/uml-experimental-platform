@@ -12,8 +12,10 @@ import {
 } from "../features/diagrams/components/diagram-detail-page";
 import { CodeGenerationPage } from "../features/code/components/code-generation-page";
 import { DesignModelPage } from "../features/design/components/design-model-page";
+import { InstructionDocumentsPage } from "../features/documents/components/instruction-documents-page";
 import { HistoryDrawer } from "../features/history/components/history-drawer";
 import { TextRequirementView } from "../features/requirements/components/text-requirement-page";
+import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
 import { SidebarMenu } from "../features/workspace-shell/components/sidebar-menu";
 import {
   TopBar,
@@ -79,6 +81,9 @@ export function Shell() {
     case "requirements-text":
       body = <TextRequirementView />;
       break;
+    case "requirement-trace-matrix":
+      body = <TraceabilityMatrixPage mode="requirements" />;
+      break;
     case "diagram-element":
       body = (
         <DiagramView
@@ -96,6 +101,9 @@ export function Shell() {
     case "design-home":
       body = <DesignModelPage />;
       break;
+    case "design-trace-matrix":
+      body = <TraceabilityMatrixPage mode="design" />;
+      break;
     case "design-diagram":
       body = <DesignDiagramView type={selection.diagram} highlightedElement={null} />;
       break;
@@ -109,6 +117,12 @@ export function Shell() {
           }}
         />
       );
+      break;
+    case "documents-home":
+      body = <InstructionDocumentsPage />;
+      break;
+    case "document-editor":
+      body = <InstructionDocumentsPage activeDocumentId={selection.documentId} />;
       break;
     case "workspace-placeholder":
       body =

@@ -312,7 +312,7 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.currentRunDiagnostics.chunkCount).toBe(2);
   });
 
-  it("keeps concurrent document runs as separate tasks and downloads both files", async () => {
+  it("keeps concurrent document runs as separate tasks without auto-downloading files", async () => {
     const requirementModel: DiagramModelSpec = {
       diagramKind: "usecase",
       title: "用例图",
@@ -339,6 +339,7 @@ describe("WorkspaceSessionProvider", () => {
           runId: "doc-req",
           documentKind: "requirementsSpec",
           requirementText: "订单系统需求",
+          documentId: "doc-requirementsSpec",
           sections: [{ level: 1, title: "1 需求规定", body: ["正文"] }],
           fileName: "需求规格说明书.docx",
           mimeType:
@@ -356,6 +357,7 @@ describe("WorkspaceSessionProvider", () => {
           runId: "doc-design",
           documentKind: "softwareDesignSpec",
           requirementText: "订单系统需求",
+          documentId: "doc-softwareDesignSpec",
           sections: [{ level: 1, title: "1 设计概述", body: ["正文"] }],
           fileName: "软件设计说明书.docx",
           mimeType:
@@ -381,8 +383,6 @@ describe("WorkspaceSessionProvider", () => {
           requirementText: "订单系统需求",
           models: { usecase: requirementModel },
           designModels: { sequence: designModel },
-          generatedDiagramTypes: ["usecase"],
-          generatedDesignDiagramTypes: ["sequence"],
         }),
       ),
       updateRequirementText: vi.fn(async () => {}),
@@ -427,14 +427,14 @@ describe("WorkspaceSessionProvider", () => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
     });
 
-    let requirementsPromise!: Promise<void>;
+    let requirementsPromise!: Promise<DocumentRunSnapshot | null>;
     act(() => {
       requirementsPromise = result.current.generateRequirementsSpec();
     });
     await waitFor(() => {
       expect(subscribers.has("doc-req")).toBe(true);
     });
-    let designPromise!: Promise<void>;
+    let designPromise!: Promise<DocumentRunSnapshot | null>;
     act(() => {
       designPromise = result.current.generateSoftwareDesignSpec();
     });
@@ -466,14 +466,7 @@ describe("WorkspaceSessionProvider", () => {
       await designPromise;
     });
 
-    expect(repository.downloadDocumentRun).toHaveBeenCalledWith(
-      "doc-req",
-      "需求规格说明书.docx",
-    );
-    expect(repository.downloadDocumentRun).toHaveBeenCalledWith(
-      "doc-design",
-      "软件设计说明书.docx",
-    );
+    expect(repository.downloadDocumentRun).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(result.current.generationTasks).toHaveLength(2);
       expect(result.current.generationTasks.every((task) => task.status === "completed")).toBe(

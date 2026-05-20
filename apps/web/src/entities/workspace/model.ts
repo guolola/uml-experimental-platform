@@ -5,9 +5,11 @@ import type {
   CodeRunSnapshot,
   CodeUiMockup,
   DesignRunSnapshot,
+  DesignModelTraceabilityEntry,
   DesignSvgArtifact,
   DiagramError,
   DiagramModelSpec,
+  RequirementModelTraceabilityEntry,
   RunSnapshot,
   RunStage,
   RunStatus as ContractRunStatus,
@@ -29,12 +31,14 @@ export interface WorkspaceRecord {
   selectedDiagramTypes: DiagramType[];
   rules: RequirementRule[];
   models: Partial<Record<DiagramType, DiagramModelSpec>>;
+  requirementModelTraceability: RequirementModelTraceabilityEntry[];
   generatedDiagramTypes: DiagramType[];
   plantUml: Partial<Record<DiagramType, string>>;
   svgArtifacts: Partial<Record<DiagramType, SvgArtifact>>;
   diagramErrors: Partial<Record<DiagramType, DiagramError>>;
   selectedDesignDiagramTypes: DesignDiagramType[];
   designModels: Partial<Record<DesignDiagramType, DesignDiagramModelSpec>>;
+  designModelTraceability: DesignModelTraceabilityEntry[];
   generatedDesignDiagramTypes: DesignDiagramType[];
   designPlantUml: Partial<Record<DesignDiagramType, string>>;
   designSvgArtifacts: Partial<Record<DesignDiagramType, DesignSvgArtifact>>;

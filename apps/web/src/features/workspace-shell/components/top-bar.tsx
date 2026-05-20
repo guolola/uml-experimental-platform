@@ -26,7 +26,6 @@ import type {
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { SettingsDialog } from "../../settings/components/settings-dialog";
-import { DocumentStyleDialog } from "./document-style-dialog";
 import { useTheme } from "../../../app/providers/theme-provider";
 import {
   Dialog,
@@ -53,7 +52,6 @@ import {
   SHELL_ROUTE_MODULES,
   type ShellRoutePath,
 } from "../../../app/workspace-modules";
-import { cloneDefaultDocumentStyle } from "../lib/document-style";
 
 export type { ShellRoutePath };
 
@@ -252,14 +250,11 @@ function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry | Cod
 export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const { theme, toggle } = useTheme();
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const [documentStyleDialogOpen, setDocumentStyleDialogOpen] = useState(false);
-  const [documentStyle, setDocumentStyle] = useState(cloneDefaultDocumentStyle);
   const executionDetailRef = useRef<HTMLDivElement | null>(null);
   const {
     requirementText,
     rules,
     models,
-    designModels,
     svgArtifacts,
     diagramErrors,
     selectedDiagrams,
@@ -272,8 +267,6 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
     selectedGenerationTaskId,
     selectGenerationTask,
     clearCompletedGenerationTasks,
-    generateRequirementsSpec,
-    generateSoftwareDesignSpec,
   } =
     useWorkspaceSession();
   const { openHistoryDrawer } = useWorkspaceShell();
@@ -301,14 +294,11 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
   const designTraceEntries = currentRunDiagnostics.designTrace;
   const codeTraceEntries = currentRunDiagnostics.codeTrace;
-  const hasRequirementModels = Object.values(models).some(Boolean);
-  const hasDesignModels = Object.values(designModels).some(Boolean);
-  const requirementsSpecDisabledReason = hasRequirementModels
-    ? null
-    : "请先在需求页生成需求模型，再导出需求规格说明书";
-  const designSpecDisabledReason = hasDesignModels
-    ? null
-    : "请先在设计页生成设计模型，再导出软件设计说明书";
+  const selectedTask =
+    generationTasks.find((task) => task.clientTaskId === selectedGenerationTaskId) ??
+    generationTasks.find((task) => task.status === "queued" || task.status === "running") ??
+    generationTasks[0] ??
+    null;
 
   useEffect(() => {
     if (!taskDialogOpen) return;
@@ -367,22 +357,6 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
       "application/json",
     );
     toast.success("已导出 uml-run-snapshot.json");
-  };
-
-  const exportRequirementsSpec = () => {
-    if (requirementsSpecDisabledReason) {
-      toast.error(requirementsSpecDisabledReason);
-      return;
-    }
-    void generateRequirementsSpec(documentStyle);
-  };
-
-  const exportSoftwareDesignSpec = () => {
-    if (designSpecDisabledReason) {
-      toast.error(designSpecDisabledReason);
-      return;
-    }
-    void generateSoftwareDesignSpec(documentStyle);
   };
 
   const navItems = SHELL_ROUTE_MODULES;
@@ -630,6 +604,17 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
               </div>
             )}
 
+            {(codeTraceEntries.length > 0 ||
+              requirementTraceEntries.length > 0 ||
+              designTraceEntries.length > 0) && (
+              <details
+                className="mt-5 rounded-lg border border-border bg-card p-3"
+                open={selectedTask?.technicalDetailsCollapsed === false}
+              >
+                <summary className="cursor-pointer list-none text-xs font-semibold text-muted-foreground">
+                  技术详情 · 原始追踪与解析日志
+                </summary>
+                <div className="mt-3">
             {codeTraceEntries.length > 0 && (
               <div className="mt-5">
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -819,6 +804,10 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
               </div>
             )}
 
+                </div>
+              </details>
+            )}
+
             <div className="mt-5">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Activity className="size-3.5" />
@@ -890,14 +879,15 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
               )}
             </div>
 
-            <div className="mt-5">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+            <details className="mt-5 rounded-lg border border-border bg-card p-3">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Activity className="size-3.5" />
-                执行详情
-              </div>
+                <span>执行详情</span>
+                <span className="text-muted-foreground/70">· 技术执行流</span>
+              </summary>
               <div
                 ref={executionDetailRef}
-                className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100 shadow-inner"
+                className="mt-3 max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-100 shadow-inner"
               >
                 {currentRunDiagnostics.streamText ? (
                   <pre className="whitespace-pre-wrap break-words">
@@ -921,7 +911,7 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
                   ))}
                 </div>
               )}
-            </div>
+            </details>
           </div>
         </DialogContent>
       </Dialog>
@@ -951,31 +941,6 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
             <FileCode2 className="size-4" /> 当前快照
             <span className="ml-auto font-mono text-[10px] text-muted-foreground">
               .json
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setDocumentStyleDialogOpen(true)}>
-            <Palette className="size-4" /> 说明书样式
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            disabled={Boolean(requirementsSpecDisabledReason)}
-            title={requirementsSpecDisabledReason ?? "导出需求规格说明书"}
-            onSelect={exportRequirementsSpec}
-          >
-            <FileText className="size-4" /> 需求规格说明书
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-              .docx
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={Boolean(designSpecDisabledReason)}
-            title={designSpecDisabledReason ?? "导出软件设计说明书"}
-            onSelect={exportSoftwareDesignSpec}
-          >
-            <FileText className="size-4" /> 软件设计说明书
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-              .docx
             </span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -1012,12 +977,6 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
         <Palette className="size-5" />
       </Button>
       <SettingsDialog />
-      <DocumentStyleDialog
-        open={documentStyleDialogOpen}
-        onOpenChange={setDocumentStyleDialogOpen}
-        value={documentStyle}
-        onChange={setDocumentStyle}
-      />
       <div className="hidden h-12 shrink-0 items-center gap-2 rounded-full bg-secondary px-2.5 pr-3 text-sm font-semibold text-secondary-foreground md:flex">
         <span className="inline-flex size-8 items-center justify-center rounded-full bg-primary text-sm text-primary-foreground">
           U

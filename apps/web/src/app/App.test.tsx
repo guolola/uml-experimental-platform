@@ -42,7 +42,7 @@ describe("App shell routes", () => {
   it("navigates top-level pages without opening workspace tabs", async () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<Shell />, createRepository()));
-    const banner = await screen.findByRole("banner");
+    const banner = (await screen.findAllByRole("banner"))[0];
 
     await user.click(within(banner).getByRole("button", { name: "考试" }));
 

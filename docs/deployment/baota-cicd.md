@@ -9,6 +9,7 @@
 - PlantUML 渲染服务：`uml-render-service` PM2 进程，监听 `127.0.0.1:4002`。
 - Nginx：公网只暴露站点域名；`/api` 反向代理到 API；render-service 不暴露公网。
 - PM2：使用 bash 启动 Node 产物，等价于线上已验证的 `cd current && node ...` 启动方式。
+- OnlyOffice：可选独立 HTTP 子域名，反向代理到 Document Server，用于在线编辑说明书。
 
 ## 服务器准备
 
@@ -227,6 +228,54 @@ proxy_pass http://127.0.0.1:4001;
 
 ```bash
 VITE_APP_API_BASE_URL="" npm run build:web
+```
+
+### OnlyOffice 说明书编辑器
+
+如果线上平台仍使用 HTTP，OnlyOffice 也应使用浏览器可访问的 HTTP 地址，例如：
+
+```env
+ONLYOFFICE_DOCUMENT_SERVER_URL=http://office.example.com
+PUBLIC_API_BASE_URL=http://platform.example.com
+ONLYOFFICE_JWT_SECRET=<与 Document Server 一致的强随机密钥>
+ONLYOFFICE_ACCESS_TOKEN_SECRET=<强随机密钥>
+UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents
+```
+
+`PUBLIC_API_BASE_URL` 必须是 OnlyOffice Document Server 能访问的平台地址，因为它需要读取
+`/api/documents/:documentId/file` 并回调
+`/api/documents/:documentId/onlyoffice/callback` 保存编辑结果。
+
+说明书文件物理上保存在同一个 `UML_DOCUMENT_STORAGE_DIR` 根目录下，但会按浏览器匿名工作区分目录：
+
+```text
+/www/wwwroot/uml-platform/shared/documents/<workspaceId>/<documentId>/
+```
+
+因此多个用户同时访问网站时，默认只会看到自己浏览器工作区生成的说明书，不会共享同一份文档列表。该匿名隔离不是正式登录系统；如果后续接入账号体系，可以把 `workspaceId` 绑定到真实用户或项目。
+
+HTTP 可以工作，但公网传输不加密，说明书内容和短期访问 token 仍可能被网络中间人看到。涉及真实隐私数据时，建议后续将平台域名和 OnlyOffice 域名一起升级到 HTTPS。
+
+OnlyOffice 子域名可在宝塔 Nginx 中反代到容器端口，例如：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
+```
+
+部署后检查：
+
+```bash
+curl http://office.example.com/healthcheck
+curl http://platform.example.com/api/health
 ```
 
 ### SVG 渲染失败

@@ -18,6 +18,10 @@ const VALID_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
 );
+const DOCUMENT_WORKSPACE_HEADERS = {
+  "x-uml-workspace-id": "api-test-workspace",
+  "x-uml-workspace-secret": "api-test-workspace-secret-value-123456",
+};
 
 const USECASE_MODEL_JSON = JSON.stringify({
   models: [
@@ -60,6 +64,44 @@ const USECASE_MODEL_JSON = JSON.stringify({
           label: "发起",
         },
       ],
+    },
+  ],
+  requirementModelTraceability: [
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "actor_researcher",
+        elementKind: "actor",
+        label: "研究人员",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "usecase_generate",
+        elementKind: "usecase",
+        label: "生成模型",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "boundary_platform",
+        elementKind: "system-boundary",
+        label: "实验平台",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "rel_association_1",
+        elementKind: "relationship",
+        label: "发起",
+      },
     },
   ],
 });
@@ -164,7 +206,206 @@ const CLASS_MODEL = {
 
 const MULTI_MODEL_JSON = JSON.stringify({
   models: [JSON.parse(USECASE_MODEL_JSON).models[0], ACTIVITY_MODEL],
+  requirementModelTraceability: [
+    ...JSON.parse(USECASE_MODEL_JSON).requirementModelTraceability,
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "lane_user",
+        elementKind: "swimlane",
+        label: "用户",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "lane_system",
+        elementKind: "swimlane",
+        label: "系统",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "start",
+        elementKind: "activity-node",
+        label: "开始",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "submit",
+        elementKind: "activity-node",
+        label: "提交需求",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "generate",
+        elementKind: "activity-node",
+        label: "生成模型",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "end",
+        elementKind: "activity-node",
+        label: "结束",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "flow_start",
+        elementKind: "relationship",
+        label: "start -> submit",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "flow_submit",
+        elementKind: "relationship",
+        label: "submit -> generate",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "activity",
+        elementId: "flow_generate",
+        elementKind: "relationship",
+        label: "generate -> end",
+      },
+    },
+  ],
 });
+
+const USECASE_REQUIREMENT_TRACEABILITY =
+  JSON.parse(USECASE_MODEL_JSON).requirementModelTraceability;
+const ACTIVITY_REQUIREMENT_TRACEABILITY = [
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "lane_user",
+      elementKind: "swimlane",
+      label: "用户",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "lane_system",
+      elementKind: "swimlane",
+      label: "系统",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "start",
+      elementKind: "activity-node",
+      label: "开始",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "submit",
+      elementKind: "activity-node",
+      label: "提交需求",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "generate",
+      elementKind: "activity-node",
+      label: "生成模型",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "end",
+      elementKind: "activity-node",
+      label: "结束",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "flow_start",
+      elementKind: "relationship",
+      label: "start -> submit",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "flow_submit",
+      elementKind: "relationship",
+      label: "submit -> generate",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "activity",
+      elementId: "flow_generate",
+      elementKind: "relationship",
+      label: "generate -> end",
+    },
+  },
+];
+const CLASS_REQUIREMENT_TRACEABILITY = [
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "class",
+      elementId: "user",
+      elementKind: "class",
+      label: "用户",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "class",
+      elementId: "order",
+      elementKind: "class",
+      label: "订单",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "class",
+      elementId: "rel_user_order",
+      elementKind: "relationship",
+      label: "下单",
+    },
+  },
+];
 
 const DESIGN_SEQUENCE_MODEL = {
   diagramKind: "sequence" as const,
@@ -870,6 +1111,88 @@ export const registrations: Registration[] = [{ id: 'r1', studentName: '李同�
 
 const DESIGN_SEQUENCE_JSON = JSON.stringify({
   models: [DESIGN_SEQUENCE_MODEL],
+  designModelTraceability: [
+    {
+      source: {
+        diagramKind: "sequence",
+        elementId: "actor_researcher",
+        elementKind: "participant",
+        label: "研究人员",
+      },
+      targets: [
+        {
+          diagramKind: "usecase",
+          elementId: "actor_researcher",
+          elementKind: "actor",
+          label: "研究人员",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "sequence",
+        elementId: "ui",
+        elementKind: "participant",
+        label: "Web 页面",
+      },
+      targets: [
+        {
+          diagramKind: "usecase",
+          elementId: "usecase_generate",
+          elementKind: "usecase",
+          label: "生成模型",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "sequence",
+        elementId: "api",
+        elementKind: "participant",
+        label: "编排 API",
+      },
+      targets: [
+        {
+          diagramKind: "usecase",
+          elementId: "usecase_generate",
+          elementKind: "usecase",
+          label: "生成模型",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "sequence",
+        elementId: "msg_submit",
+        elementKind: "message",
+        label: "submitRequirement",
+      },
+      targets: [
+        {
+          diagramKind: "usecase",
+          elementId: "usecase_generate",
+          elementKind: "usecase",
+          label: "生成模型",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "sequence",
+        elementId: "msg_start",
+        elementKind: "message",
+        label: "startRun",
+      },
+      targets: [
+        {
+          diagramKind: "usecase",
+          elementId: "usecase_generate",
+          elementKind: "usecase",
+          label: "生成模型",
+        },
+      ],
+    },
+  ],
 });
 
 const DESIGN_ACTIVITY_JSON = JSON.stringify({
@@ -879,6 +1202,30 @@ const DESIGN_ACTIVITY_JSON = JSON.stringify({
       title: "设计业务逻辑",
       summary: "设计阶段业务逻辑层",
       notes: ["由顺序图约束对象协作"],
+    },
+  ],
+  designModelTraceability: [
+    ...ACTIVITY_REQUIREMENT_TRACEABILITY.filter(
+      (entry) => entry.target.elementId !== "submit",
+    ).map((entry) => ({
+      source: entry.target,
+      targets: [entry.target],
+    })),
+    {
+      source: {
+        diagramKind: "activity",
+        elementId: "submit",
+        elementKind: "activity-node",
+        label: "提交需求",
+      },
+      targets: [
+        {
+          diagramKind: "activity",
+          elementId: "submit",
+          elementKind: "activity-node",
+          label: "提交需求",
+        },
+      ],
     },
   ],
 });
@@ -952,6 +1299,152 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
           sourceTableId: "user",
           targetTableId: "order",
           label: "1对多",
+        },
+      ],
+    },
+  ],
+  designModelTraceability: [
+    {
+      source: {
+        diagramKind: "class",
+        elementId: "user",
+        elementKind: "class",
+        label: "用户",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "user",
+          elementKind: "class",
+          label: "用户",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "class",
+        elementId: "order",
+        elementKind: "class",
+        label: "订单",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "order",
+          elementKind: "class",
+          label: "订单",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "class",
+        elementId: "rel_user_order",
+        elementKind: "relationship",
+        label: "下单",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "rel_user_order",
+          elementKind: "relationship",
+          label: "下单",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "table",
+        elementId: "user",
+        elementKind: "table",
+        label: "user",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "user",
+          elementKind: "class",
+          label: "用户",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "table",
+        elementId: "user.id",
+        elementKind: "table-column",
+        label: "user.id",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "user",
+          elementKind: "class",
+          label: "用户",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "table",
+        elementId: "order",
+        elementKind: "table",
+        label: "order",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "order",
+          elementKind: "class",
+          label: "订单",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "table",
+        elementId: "order.id",
+        elementKind: "table-column",
+        label: "order.id",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "order",
+          elementKind: "class",
+          label: "订单",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "table",
+        elementId: "order.user_id",
+        elementKind: "table-column",
+        label: "order.user_id",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "user",
+          elementKind: "class",
+          label: "用户",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "table",
+        elementId: "rel_user_order_table",
+        elementKind: "relationship",
+        label: "1对多",
+      },
+      targets: [
+        {
+          diagramKind: "class",
+          elementId: "rel_user_order",
+          elementKind: "relationship",
+          label: "下单",
         },
       ],
     },
@@ -1125,6 +1618,7 @@ test("api runs a design sequence pipeline from the requirement usecase model", a
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       rules: JSON.parse(RULES_JSON).rules,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -1216,6 +1710,7 @@ test("api records design PlantUML repair trace", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       rules: JSON.parse(RULES_JSON).rules,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -1292,6 +1787,7 @@ test("api records design model parse repair trace", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       rules: JSON.parse(RULES_JSON).rules,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -1369,6 +1865,56 @@ test("api normalizes common design model shape issues before validation", async 
               fragments: [],
             },
           ],
+          designModelTraceability: [
+            {
+              source: {
+                diagramKind: "sequence",
+                elementId: "user",
+                elementKind: "participant",
+                label: "用户",
+              },
+              targets: [
+                {
+                  diagramKind: "usecase",
+                  elementId: "actor_researcher",
+                  elementKind: "actor",
+                  label: "研究人员",
+                },
+              ],
+            },
+            {
+              source: {
+                diagramKind: "sequence",
+                elementId: "system",
+                elementKind: "participant",
+                label: "系统",
+              },
+              targets: [
+                {
+                  diagramKind: "usecase",
+                  elementId: "usecase_generate",
+                  elementKind: "usecase",
+                  label: "生成模型",
+                },
+              ],
+            },
+            {
+              source: {
+                diagramKind: "sequence",
+                elementId: "m1",
+                elementKind: "message",
+                label: "返回结果",
+              },
+              targets: [
+                {
+                  diagramKind: "usecase",
+                  elementId: "usecase_generate",
+                  elementKind: "usecase",
+                  label: "生成模型",
+                },
+              ],
+            },
+          ],
         });
       },
     },
@@ -1390,6 +1936,7 @@ test("api normalizes common design model shape issues before validation", async 
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       rules: JSON.parse(RULES_JSON).rules,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -1412,6 +1959,107 @@ test("api normalizes common design model shape issues before validation", async 
   assert.deepEqual(snapshot.models[0].notes, ["由用例推导"]);
   assert.equal(snapshot.models[0].messages[0].type, "return");
   assert.deepEqual(snapshot.models[0].messages[0].parameters, ["result"]);
+
+  await app.close();
+});
+
+test("api repairs design models by generating missing element traceability separately", async () => {
+  let modelAttempts = 0;
+  let traceabilityAttempts = 0;
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+        assert.equal(responseFormat?.type, "json_schema");
+        if (
+          prompt.includes("设计阶段 UML 模型补充元素级可追踪关系") ||
+          prompt.includes("修复设计模型元素级可追踪关系")
+        ) {
+          traceabilityAttempts += 1;
+          if (traceabilityAttempts === 1) {
+            const invalidTraceability = JSON.parse(DESIGN_SEQUENCE_JSON)
+              .designModelTraceability.map((entry: {
+                targets: Array<Record<string, unknown>>;
+              }, index: number) =>
+                index === 0
+                  ? {
+                      ...entry,
+                      targets: [
+                        {
+                          ...entry.targets[0],
+                          diagramKind: "requirements",
+                        },
+                      ],
+                    }
+                  : entry,
+              );
+            yield JSON.stringify({
+              designModelTraceability: invalidTraceability,
+            });
+            return;
+          }
+          yield JSON.stringify({
+            designModelTraceability: JSON.parse(DESIGN_SEQUENCE_JSON)
+              .designModelTraceability,
+          });
+          return;
+        }
+
+        modelAttempts += 1;
+        yield JSON.stringify({
+          models: JSON.parse(DESIGN_SEQUENCE_JSON).models,
+        });
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>sequence</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
+      selectedDiagrams: ["sequence"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const { runId } = startResponse.json();
+  await app.inject({ method: "GET", url: `/api/design-runs/${runId}/events` });
+  const snapshot = (
+    await app.inject({ method: "GET", url: `/api/design-runs/${runId}` })
+  ).json();
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(modelAttempts, 1);
+  assert.equal(traceabilityAttempts, 2);
+  assert.equal(
+    snapshot.designModelTraceability.length,
+    JSON.parse(DESIGN_SEQUENCE_JSON).designModelTraceability.length,
+  );
+  assert.ok(
+    snapshot.designTrace.some(
+      (entry: { kind: string; errorMessage?: string }) =>
+        entry.kind === "parse_error" &&
+        /requirements|designModelTraceability/.test(entry.errorMessage ?? ""),
+    ),
+  );
 
   await app.close();
 });
@@ -1449,6 +2097,10 @@ test("api auto-adds sequence dependency for downstream design diagrams", async (
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       rules: JSON.parse(RULES_JSON).rules,
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], ACTIVITY_MODEL],
+      requirementModelTraceability: [
+        ...USECASE_REQUIREMENT_TRACEABILITY,
+        ...ACTIVITY_REQUIREMENT_TRACEABILITY,
+      ],
       selectedDiagrams: ["activity"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -1509,6 +2161,10 @@ test("api auto-adds class dependency for design table diagrams", async () => {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       rules: JSON.parse(RULES_JSON).rules,
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], CLASS_MODEL],
+      requirementModelTraceability: [
+        ...USECASE_REQUIREMENT_TRACEABILITY,
+        ...CLASS_REQUIREMENT_TRACEABILITY,
+      ],
       selectedDiagrams: ["table"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -2520,6 +3176,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
   const startResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
@@ -2588,7 +3245,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
     entries.get("word/_rels/document.xml.rels")?.toString("utf8") ?? "";
   assert.match(
     download.headers["content-disposition"] ?? "",
-    /%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6\.docx/,
+    /%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6-\d{8}-\d{6}-\d{3}\.docx/,
   );
   assert.doesNotMatch(documentXml, /成都信息工程大学/);
   assert.doesNotMatch(documentXml, /软件工程学院/);
@@ -2633,6 +3290,7 @@ test("api software design document uses generic cover without school names", asy
   const startResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "softwareDesignSpec",
       requirementText: "根据设计产物生成软件设计说明书。",
@@ -2688,6 +3346,251 @@ test("api software design document uses generic cover without school names", asy
   await app.close();
 });
 
+test("api isolates document library items by anonymous workspace", async () => {
+  const originalDocumentServerUrl = process.env.ONLYOFFICE_DOCUMENT_SERVER_URL;
+  const originalAccessSecret = process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET;
+  process.env.ONLYOFFICE_DOCUMENT_SERVER_URL = "http://office.example.com";
+  process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET = "test-onlyoffice-access-secret";
+  const workspaceSuffix = Date.now().toString(36);
+  const workspaceAHeaders = {
+    "x-uml-workspace-id": `api-isolation-${workspaceSuffix}`,
+    "x-uml-workspace-secret": "api-isolation-secret-value-123456",
+  };
+  const workspaceBHeaders = {
+    "x-uml-workspace-id": `api-isolation-other-${workspaceSuffix}`,
+    "x-uml-workspace-secret": "api-isolation-secret-value-other",
+  };
+  const app = await createApiServer();
+
+  try {
+    const startA = await app.inject({
+      method: "POST",
+      url: "/api/document-runs",
+      headers: workspaceAHeaders,
+      payload: {
+        documentKind: "requirementsSpec",
+        requirementText: "A 工作区需求说明书。",
+        rules: [],
+        requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
+        requirementPlantUml: [],
+        requirementSvgArtifacts: [],
+        designModels: [],
+        designPlantUml: [],
+        designSvgArtifacts: [],
+        providerSettings: {
+          apiBaseUrl: "https://ai.comfly.org",
+          apiKey: "sk-test",
+          model: "gpt-5.5",
+        },
+        useAiText: false,
+      },
+    });
+    assert.equal(startA.statusCode, 202);
+    const runA = startA.json().runId;
+    await app.inject({ method: "GET", url: `/api/document-runs/${runA}/events` });
+    const snapshotA = (
+      await app.inject({ method: "GET", url: `/api/document-runs/${runA}` })
+    ).json();
+
+    const listA = await app.inject({
+      method: "GET",
+      url: "/api/documents",
+      headers: workspaceAHeaders,
+    });
+    assert.equal(listA.statusCode, 200);
+    assert.equal(listA.json().documents.length, 1);
+
+    const startASecond = await app.inject({
+      method: "POST",
+      url: "/api/document-runs",
+      headers: workspaceAHeaders,
+      payload: {
+        documentKind: "requirementsSpec",
+        requirementText: "A 工作区第二份需求说明书。",
+        rules: [],
+        requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
+        requirementPlantUml: [],
+        requirementSvgArtifacts: [],
+        designModels: [],
+        designPlantUml: [],
+        designSvgArtifacts: [],
+        providerSettings: {
+          apiBaseUrl: "https://ai.comfly.org",
+          apiKey: "sk-test",
+          model: "gpt-5.5",
+        },
+        useAiText: false,
+      },
+    });
+    assert.equal(startASecond.statusCode, 202);
+    const runASecond = startASecond.json().runId;
+    await app.inject({
+      method: "GET",
+      url: `/api/document-runs/${runASecond}/events`,
+    });
+    const snapshotASecond = (
+      await app.inject({ method: "GET", url: `/api/document-runs/${runASecond}` })
+    ).json();
+    const listAAfterSecond = await app.inject({
+      method: "GET",
+      url: "/api/documents",
+      headers: workspaceAHeaders,
+    });
+    assert.equal(listAAfterSecond.statusCode, 200);
+    assert.equal(listAAfterSecond.json().documents.length, 2);
+    assert.notEqual(snapshotASecond.documentId, snapshotA.documentId);
+
+    const listBBefore = await app.inject({
+      method: "GET",
+      url: "/api/documents",
+      headers: workspaceBHeaders,
+    });
+    assert.equal(listBBefore.statusCode, 200);
+    assert.equal(listBBefore.json().documents.length, 0);
+
+    const blockedDownload = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotA.documentId}/download`,
+      headers: workspaceBHeaders,
+    });
+    assert.equal(blockedDownload.statusCode, 404);
+
+    const editorConfig = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotA.documentId}/editor-config`,
+      headers: workspaceAHeaders,
+    });
+    assert.equal(editorConfig.statusCode, 200);
+    const config = editorConfig.json().config;
+    const fileUrl = new URL(config.document.url);
+    const callbackUrl = new URL(config.editorConfig.callbackUrl);
+    assert.ok(fileUrl.searchParams.get("accessToken"));
+    assert.ok(callbackUrl.searchParams.get("accessToken"));
+    assert.equal(config.editorConfig.customization.uiTheme, "theme-dark");
+    const lightEditorConfig = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotA.documentId}/editor-config?uiTheme=theme-classic-light`,
+      headers: workspaceAHeaders,
+    });
+    assert.equal(lightEditorConfig.statusCode, 200);
+    assert.equal(
+      lightEditorConfig.json().config.editorConfig.customization.uiTheme,
+      "theme-classic-light",
+    );
+    const invalidEditorConfig = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotA.documentId}/editor-config?uiTheme=theme-white`,
+      headers: workspaceAHeaders,
+    });
+    assert.equal(invalidEditorConfig.statusCode, 400);
+
+    const fileResponse = await app.inject({
+      method: "GET",
+      url: `${fileUrl.pathname}${fileUrl.search}`,
+    });
+    assert.equal(fileResponse.statusCode, 200);
+    const firstDownload = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotA.documentId}/download`,
+      headers: workspaceAHeaders,
+    });
+    const secondDownload = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotASecond.documentId}/download`,
+      headers: workspaceAHeaders,
+    });
+    assert.equal(firstDownload.statusCode, 200);
+    assert.equal(secondDownload.statusCode, 200);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(Buffer.from("edited first document"), {
+        status: 200,
+      })) as typeof fetch;
+    try {
+      const callbackResponse = await app.inject({
+        method: "POST",
+        url: `${callbackUrl.pathname}${callbackUrl.search}`,
+        payload: {
+          status: 2,
+          url: "http://office.example.com/cache/edited.docx",
+        },
+      });
+      assert.equal(callbackResponse.statusCode, 200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const firstConfigAfterEdit = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotA.documentId}/editor-config`,
+      headers: workspaceAHeaders,
+    });
+    const secondConfigAfterEdit = await app.inject({
+      method: "GET",
+      url: `/api/documents/${snapshotASecond.documentId}/editor-config`,
+      headers: workspaceAHeaders,
+    });
+    assert.equal(firstConfigAfterEdit.json().document.version, 2);
+    assert.equal(secondConfigAfterEdit.json().document.version, 1);
+
+    fileUrl.searchParams.set("accessToken", "tampered");
+    const tamperedFileResponse = await app.inject({
+      method: "GET",
+      url: `${fileUrl.pathname}${fileUrl.search}`,
+    });
+    assert.equal(tamperedFileResponse.statusCode, 403);
+
+    const startB = await app.inject({
+      method: "POST",
+      url: "/api/document-runs",
+      headers: workspaceBHeaders,
+      payload: {
+        documentKind: "requirementsSpec",
+        requirementText: "B 工作区需求说明书。",
+        rules: [],
+        requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
+        requirementPlantUml: [],
+        requirementSvgArtifacts: [],
+        designModels: [],
+        designPlantUml: [],
+        designSvgArtifacts: [],
+        providerSettings: {
+          apiBaseUrl: "https://ai.comfly.org",
+          apiKey: "sk-test",
+          model: "gpt-5.5",
+        },
+        useAiText: false,
+      },
+    });
+    assert.equal(startB.statusCode, 202);
+    const runB = startB.json().runId;
+    await app.inject({ method: "GET", url: `/api/document-runs/${runB}/events` });
+    const listBAfter = await app.inject({
+      method: "GET",
+      url: "/api/documents",
+      headers: workspaceBHeaders,
+    });
+    assert.equal(listBAfter.statusCode, 200);
+    assert.equal(listBAfter.json().documents.length, 1);
+    assert.notEqual(
+      listBAfter.json().documents[0].id,
+      listA.json().documents[0].id,
+    );
+  } finally {
+    if (originalDocumentServerUrl === undefined) {
+      delete process.env.ONLYOFFICE_DOCUMENT_SERVER_URL;
+    } else {
+      process.env.ONLYOFFICE_DOCUMENT_SERVER_URL = originalDocumentServerUrl;
+    }
+    if (originalAccessSecret === undefined) {
+      delete process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET;
+    } else {
+      process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET = originalAccessSecret;
+    }
+    await app.close();
+  }
+});
+
 test("api document run reports missing embeddable image source when only SVG exists", async () => {
   const app = await createApiServer({
     llmTransport: {
@@ -2709,6 +3612,7 @@ test("api document run reports missing embeddable image source when only SVG exi
   const startResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
@@ -2792,6 +3696,7 @@ test("api repairs document content JSON before rendering DOCX", async () => {
   const startResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
@@ -2846,6 +3751,7 @@ test("api fails document runs after document content repair attempts are exhaust
   const startResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
@@ -2886,6 +3792,7 @@ test("api document run rejects exports before the required models exist", async 
   const requirementsResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
@@ -2903,6 +3810,7 @@ test("api document run rejects exports before the required models exist", async 
   const designResponse = await app.inject({
     method: "POST",
     url: "/api/document-runs",
+    headers: DOCUMENT_WORKSPACE_HEADERS,
     payload: {
       documentKind: "softwareDesignSpec",
       requirementText: "根据设计产物生成软件设计说明书。",
@@ -3009,6 +3917,151 @@ test("api repairs generate_models output when the first model JSON is malformed"
         entry.attempt === 2 && entry.kind === "parsed_model",
     ),
   );
+
+  await app.close();
+});
+
+test("api repairs generate_models output when element traceability is missing", async () => {
+  let modelAttempts = 0;
+  let traceabilityAttempts = 0;
+  const modelsOnlyOutput = JSON.stringify({
+    models: JSON.parse(USECASE_MODEL_JSON).models,
+  });
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+        if (prompt.includes("抽取结构化需求规则")) {
+          yield RULES_JSON;
+          return;
+        }
+
+        assert.equal(responseFormat?.type, "json_schema");
+        if (prompt.includes("补充元素级可追踪关系")) {
+          traceabilityAttempts += 1;
+          yield JSON.stringify({
+            requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
+          });
+          return;
+        }
+
+        modelAttempts += 1;
+        yield modelsOnlyOutput;
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>ok</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  const { runId } = startResponse.json();
+  await app.inject({ method: "GET", url: `/api/runs/${runId}/events` });
+  const snapshot = (
+    await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+  ).json();
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(modelAttempts, 1);
+  assert.equal(traceabilityAttempts, 1);
+  assert.equal(snapshot.requirementModelTraceability.length, 3);
+  assert.ok(
+    snapshot.requirementModelTraceability.every(
+      (entry: { target: { elementId: string } }) =>
+        entry.target.elementId !== "boundary_platform",
+    ),
+  );
+  assert.ok(
+    snapshot.requirementTrace.some(
+      (entry: { attempt: number; kind: string; errorMessage?: string }) =>
+        entry.attempt === 1 &&
+        entry.kind === "parse_error" &&
+        /requirementModelTraceability/.test(entry.errorMessage ?? ""),
+    ),
+  );
+
+  await app.close();
+});
+
+test("api fails generate_models when element traceability stays empty", async () => {
+  const emptyTraceOutput = JSON.stringify({
+    models: JSON.parse(USECASE_MODEL_JSON).models,
+    requirementModelTraceability: [],
+  });
+  const app = await createApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages }) {
+        const prompt = lastPromptText(messages);
+        if (prompt.includes("抽取结构化需求规则")) {
+          yield RULES_JSON;
+          return;
+        }
+
+        yield emptyTraceOutput;
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>ok</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  const { runId } = startResponse.json();
+  const eventsResponse = await app.inject({
+    method: "GET",
+    url: `/api/runs/${runId}/events`,
+  });
+  assert.match(eventsResponse.body, /"type":"failed"/);
+
+  const snapshot = (
+    await app.inject({ method: "GET", url: `/api/runs/${runId}` })
+  ).json();
+  assert.equal(snapshot.status, "failed");
+  assert.match(
+    snapshot.errorMessage ?? "",
+    /requirement traceability structured output failed/,
+  );
+  assert.equal(snapshot.requirementTrace.filter(
+    (entry: { kind: string }) => entry.kind === "parse_error",
+  ).length, 4);
 
   await app.close();
 });
@@ -3123,6 +4176,62 @@ test("api normalizes requirement model relationship aliases and numeric deployme
                   label: "无法确定端点",
                 },
               ],
+            },
+          ],
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "deployment",
+                elementId: "node_api",
+                elementKind: "deployment-node",
+                label: "Node API",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "deployment",
+                elementId: "db_main",
+                elementKind: "database",
+                label: "主数据库",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "deployment",
+                elementId: "component_web",
+                elementKind: "component",
+                label: "Web 前端",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "deployment",
+                elementId: "mail_service",
+                elementKind: "external-system",
+                label: "邮件服务",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "deployment",
+                elementId: "rel_by_name",
+                elementKind: "relationship",
+                label: "Web 前端 -> Node API",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "deployment",
+                elementId: "rel_from_to",
+                elementKind: "relationship",
+                label: "Node API -> 主数据库",
+              },
             },
           ],
         });
@@ -3608,6 +4717,26 @@ test("api rejects invalid start requests with 400", async () => {
 
   assert.equal(response.statusCode, 400);
   assert.match(response.body, /providerSettings\.apiKey/i);
+
+  const designResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: [],
+      selectedDiagrams: ["sequence"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(designResponse.statusCode, 400);
+  assert.match(designResponse.body, /requirementModelTraceability/i);
 
   await app.close();
 });

@@ -31,6 +31,48 @@ describe("TextRequirementView", () => {
     };
   }
 
+  it("renders the empty state with input guidance and clears requirement text", async () => {
+    const updateRequirementText = vi.fn(async () => {});
+    const repository = createBaseRepository({ updateRequirementText });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const requirementInput = await screen.findByPlaceholderText(
+      "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+    );
+    expect(screen.getByText("需求分析提取")).toBeInTheDocument();
+    expect(screen.getByText("AI 需求助手")).toBeInTheDocument();
+    expect(screen.queryByText("AI 智能辅助")).not.toBeInTheDocument();
+    expect(screen.queryByText("探索与灵感")).not.toBeInTheDocument();
+    expect(screen.queryByText("帮我细化功能")).not.toBeInTheDocument();
+    expect(screen.queryByText("检查逻辑冲突")).not.toBeInTheDocument();
+    expect(screen.queryByText("生成业务规则")).not.toBeInTheDocument();
+    expect(screen.getByText("电商系统")).toBeInTheDocument();
+    expect(screen.getByText("社交应用")).toBeInTheDocument();
+    expect(screen.getByText("健身追踪")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText("目标模型")).toBeInTheDocument();
+    expect(screen.getAllByText("缺少对应需求规则").length).toBeGreaterThan(0);
+
+    await user.type(requirementInput, "创建一个订单系统");
+    expect(requirementInput).toHaveValue("创建一个订单系统");
+    await user.click(screen.getByRole("button", { name: "清空" }));
+
+    expect(requirementInput).toHaveValue("");
+    await waitFor(() => {
+      expect(updateRequirementText).toHaveBeenLastCalledWith("");
+    });
+
+    await user.click(screen.getAllByRole("button", { name: /应用模板/ })[0]);
+    expect((requirementInput as HTMLTextAreaElement).value).toContain("电商系统");
+    await waitFor(() => {
+      expect(updateRequirementText).toHaveBeenLastCalledWith(
+        expect.stringContaining("电商系统"),
+      );
+    });
+  });
+
   it("starts a rules-only run through session actions", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-rules" }));
     const subscribeToRun = vi.fn(
@@ -318,6 +360,13 @@ describe("TextRequirementView", () => {
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     const table = await screen.findByRole("table");
+    expect(screen.getByText("AI 需求助手")).toBeInTheDocument();
+    expect(screen.queryByText("探索与灵感")).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(
+        "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+      ),
+    ).not.toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "编号" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "类型" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "需求文本内容" })).toBeInTheDocument();
@@ -327,7 +376,11 @@ describe("TextRequirementView", () => {
     expect(within(table).queryByRole("combobox")).not.toBeInTheDocument();
     expect(within(table).queryByRole("checkbox")).not.toBeInTheDocument();
 
-    const textEditor = within(table).getByDisplayValue("用户必须登录后才能访问主要功能。");
+    const textEditor = within(table).getByDisplayValue(
+      "用户必须登录后才能访问主要功能。",
+    ) as HTMLInputElement;
+    expect(textEditor.tagName).toBe("INPUT");
+    expect(textEditor.type).toBe("text");
     await user.clear(textEditor);
     await user.type(textEditor, "游客可以查看公开活动列表。");
 
@@ -339,6 +392,123 @@ describe("TextRequirementView", () => {
         },
       ]);
     });
+  });
+
+  it("returns to requirement text after confirming generated rules will be cleared", async () => {
+    const updateRequirementText = vi.fn(async () => {});
+    const updateRequirementRules = vi.fn(async () => {});
+    const originalRule = createRule({
+      id: "r1",
+      text: "系统应提供订单提交能力。",
+      relatedDiagrams: ["usecase"],
+    });
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
+          rules: [originalRule],
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+          selectedDiagramTypes: ["usecase"],
+        }),
+      ),
+      updateRequirementText,
+      updateRequirementRules,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(
+        "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+      ),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回修改描述" }));
+    const dialog = await screen.findByRole("dialog", { name: "返回修改描述？" });
+    expect(
+      within(dialog).getByText(/返回项目需求描述会清空目前的需求规则/),
+    ).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回修改描述" }));
+    await user.click(
+      within(await screen.findByRole("dialog", { name: "返回修改描述？" })).getByRole(
+        "button",
+        { name: "确认回退" },
+      ),
+    );
+
+    await waitFor(() => {
+      expect(updateRequirementRules).toHaveBeenLastCalledWith([]);
+    });
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    const sourceText = screen.getByPlaceholderText(
+      "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+    );
+    expect(sourceText).toHaveValue("创建一个订单系统");
+
+    await user.type(sourceText, "，并支持退款");
+
+    await waitFor(() => {
+      expect(updateRequirementText).toHaveBeenLastCalledWith("创建一个订单系统，并支持退款");
+    });
+    expect(
+      screen.queryByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("paginates requirement rules and resets to a valid page after filtering", async () => {
+    const rules = Array.from({ length: 10 }, (_, index) =>
+      createRule({
+        id: `r${index + 1}`,
+        text: `规则 ${index + 1}`,
+        relatedDiagrams: ["usecase"],
+      }),
+    );
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules,
+          rulesVersion: 1,
+          selectedDiagramTypes: ["usecase"],
+        }),
+      ),
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByDisplayValue("规则 1")).toBeInTheDocument();
+    expect(within(table).getByDisplayValue("规则 8")).toBeInTheDocument();
+    expect(within(table).queryByDisplayValue("规则 9")).not.toBeInTheDocument();
+    expect(screen.getByText("1-8 / 10")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(within(table).queryByDisplayValue("规则 1")).not.toBeInTheDocument();
+    expect(within(table).getByDisplayValue("规则 9")).toBeInTheDocument();
+    expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
+    expect(screen.getByText("9-10 / 10")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "每页需求规则数量" }), "4");
+    expect(within(table).getByDisplayValue("规则 1")).toBeInTheDocument();
+    expect(within(table).getByDisplayValue("规则 4")).toBeInTheDocument();
+    expect(within(table).queryByDisplayValue("规则 5")).not.toBeInTheDocument();
+    expect(screen.getByText("1-4 / 10")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(within(table).getByDisplayValue("规则 5")).toBeInTheDocument();
+    expect(screen.getByText("5-8 / 10")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("搜索规则..."), "10");
+    expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
+    expect(within(table).queryByDisplayValue("规则 5")).not.toBeInTheDocument();
+    expect(screen.getByText("1-1 / 1")).toBeInTheDocument();
   });
 
   it("creates a requirement rule from the add-rule dialog", async () => {

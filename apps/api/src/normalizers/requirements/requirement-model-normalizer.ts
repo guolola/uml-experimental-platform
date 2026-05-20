@@ -1,11 +1,20 @@
 // Normalizes requirement LLM diagram models before validating the public contract.
-import { diagramModelsResultSchema } from "@uml-platform/contracts";
+import {
+  diagramModelsResultSchema,
+  requirementModelTraceabilityEntrySchema,
+  type DiagramModelSpec,
+  type RequirementRule,
+} from "@uml-platform/contracts";
 import {
   ensureArray,
   isPlainRecord,
   normalizeStringArray,
   parseJson,
 } from "../json/parse-json.js";
+import {
+  formatTraceabilityMissingRefs,
+  normalizeRequirementTraceabilityWithCoverage,
+} from "../traceability/traceability-normalizer.js";
 
 function normalizeRequirementModelElementMaps(model: Record<string, unknown>) {
   const candidates: unknown[] = [];
@@ -164,13 +173,93 @@ function normalizeRequirementDiagramModel(model: unknown) {
   return normalized;
 }
 
-export function parseRequirementDiagramModelsResult(value: string) {
+export function parseRequirementDiagramModelsResult(
+  value: string,
+  rules: RequirementRule[] = [],
+) {
   const parsed = parseJson<unknown>(value);
+  const result = parseRequirementDiagramModelsOnlyFromParsed(parsed);
+  const { requirementModelTraceability } = assertCompleteRequirementTraceability(
+    isPlainRecord(parsed) ? parsed.requirementModelTraceability : undefined,
+    rules,
+    result.models,
+  );
+  if (requirementModelTraceability.length === 0) {
+    throw new Error(
+      "generate_models must return non-empty requirementModelTraceability with valid rule-to-element references",
+    );
+  }
+  return {
+    ...result,
+    requirementModelTraceability,
+  };
+}
+
+function assertCompleteRequirementTraceability(
+  rawTraceability: unknown,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+) {
+  const { traceability: requirementModelTraceability, missingTargets } =
+    normalizeRequirementTraceabilityWithCoverage(rawTraceability, rules, models);
+  if (requirementModelTraceability.length === 0) {
+    throw new Error(
+      "generate_models must return non-empty requirementModelTraceability with valid rule-to-element references",
+    );
+  }
+  if (missingTargets.length > 0) {
+    throw new Error(formatTraceabilityMissingRefs("requirement", missingTargets));
+  }
+  return { requirementModelTraceability };
+}
+
+function parseRequirementDiagramModelsOnlyFromParsed(parsed: unknown) {
   const normalized = isPlainRecord(parsed)
     ? {
         ...parsed,
         models: ensureArray(parsed.models).map(normalizeRequirementDiagramModel),
       }
     : parsed;
-  return diagramModelsResultSchema.parse(normalized);
+  const result = diagramModelsResultSchema
+    .omit({ requirementModelTraceability: true })
+    .parse(normalized);
+  if (result.models.length === 0) {
+    throw new Error("generate_models must return at least one model");
+  }
+  return result;
+}
+
+export function parseRequirementDiagramModelsOnly(value: string) {
+  return parseRequirementDiagramModelsOnlyFromParsed(parseJson<unknown>(value));
+}
+
+export function parseRequirementTraceabilityResult(
+  value: string,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+) {
+  const coverage = parseRequirementTraceabilityCoverageResult(value, rules, models);
+  if (coverage.traceability.length === 0) {
+    throw new Error(
+      "generate_models must return non-empty requirementModelTraceability with valid rule-to-element references",
+    );
+  }
+  if (coverage.missingTargets.length > 0) {
+    throw new Error(formatTraceabilityMissingRefs("requirement", coverage.missingTargets));
+  }
+  return { requirementModelTraceability: coverage.traceability };
+}
+
+export function parseRequirementTraceabilityCoverageResult(
+  value: string,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+) {
+  const parsed = parseJson<unknown>(value);
+  const rawTraceability = isPlainRecord(parsed)
+    ? requirementModelTraceabilityEntrySchema
+        .array()
+        .parse(ensureArray(parsed.requirementModelTraceability))
+    : [];
+  return normalizeRequirementTraceabilityWithCoverage(rawTraceability, rules, models);
 }

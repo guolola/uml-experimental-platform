@@ -532,8 +532,33 @@ export const diagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
 ]);
 export type DiagramModelSpec = z.infer<typeof diagramModelSpecSchema>;
 
+export const modelElementRefSchema = z.object({
+  diagramKind: umlDiagramKindSchema,
+  elementId: z.string().min(1),
+  elementKind: z.string().min(1),
+  label: z.string().min(1),
+});
+export type ModelElementRef = z.infer<typeof modelElementRefSchema>;
+
+export const requirementModelTraceabilityEntrySchema = z.object({
+  ruleId: z.string().min(1),
+  target: modelElementRefSchema,
+});
+export type RequirementModelTraceabilityEntry = z.infer<
+  typeof requirementModelTraceabilityEntrySchema
+>;
+
+export const designModelTraceabilityEntrySchema = z.object({
+  source: modelElementRefSchema,
+  targets: z.array(modelElementRefSchema).min(1),
+});
+export type DesignModelTraceabilityEntry = z.infer<
+  typeof designModelTraceabilityEntrySchema
+>;
+
 export const diagramModelsResultSchema = z.object({
   models: z.array(diagramModelSpecSchema),
+  requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
 });
 export type DiagramModelsResult = z.infer<typeof diagramModelsResultSchema>;
 
@@ -548,6 +573,7 @@ export type DesignDiagramModelSpec = z.infer<typeof designDiagramModelSpecSchema
 
 export const designDiagramModelsResultSchema = z.object({
   models: z.array(designDiagramModelSpecSchema),
+  designModelTraceability: z.array(designModelTraceabilityEntrySchema),
 });
 export type DesignDiagramModelsResult = z.infer<typeof designDiagramModelsResultSchema>;
 
@@ -1264,6 +1290,7 @@ export const startDesignRunRequestSchema = z.object({
   requirementText: z.string().min(1),
   rules: z.array(requirementRuleSchema),
   requirementModels: z.array(diagramModelSpecSchema),
+  requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema).min(1),
   selectedDiagrams: z.array(designDiagramKindSchema).min(1),
   providerSettings: providerSettingsSchema,
 });
@@ -1283,6 +1310,43 @@ export type StartCodeRunRequest = z.infer<typeof startCodeRunRequestSchema>;
 
 export const documentKindSchema = z.enum(["requirementsSpec", "softwareDesignSpec"]);
 export type DocumentKind = z.infer<typeof documentKindSchema>;
+
+export const documentLibraryItemSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1),
+  documentKind: documentKindSchema,
+  title: z.string().min(1),
+  fileName: z.string().min(1),
+  mimeType: z.string().min(1),
+  byteLength: z.number().int().min(0),
+  version: z.number().int().min(1),
+  sourceRunId: z.string().min(1).nullable(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+export type DocumentLibraryItem = z.infer<typeof documentLibraryItemSchema>;
+
+export const documentLibraryListResponseSchema = z.object({
+  documents: z.array(documentLibraryItemSchema),
+});
+export type DocumentLibraryListResponse = z.infer<
+  typeof documentLibraryListResponseSchema
+>;
+
+export const onlyOfficeEditorConfigResponseSchema = z.object({
+  document: documentLibraryItemSchema,
+  documentServerUrl: z.string().min(1),
+  config: z.record(z.string(), z.unknown()),
+});
+export type OnlyOfficeEditorConfigResponse = z.infer<
+  typeof onlyOfficeEditorConfigResponseSchema
+>;
+
+export const onlyOfficeUiThemeSchema = z.enum([
+  "theme-classic-light",
+  "theme-dark",
+]);
+export type OnlyOfficeUiTheme = z.infer<typeof onlyOfficeUiThemeSchema>;
 
 export const documentStylePresetNameSchema = z.enum(["courseDesign"]);
 export type DocumentStylePresetName = z.infer<typeof documentStylePresetNameSchema>;
@@ -1495,6 +1559,7 @@ export const runSnapshotSchema = z.object({
   selectedDiagrams: z.array(diagramKindSchema),
   rules: z.array(requirementRuleSchema),
   models: z.array(diagramModelSpecSchema),
+  requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
   plantUml: z.array(plantUmlArtifactSchema),
   svgArtifacts: z.array(svgArtifactSchema),
   diagramErrors: z.record(diagramKindSchema, diagramErrorSchema).default({}),
@@ -1511,7 +1576,9 @@ export const designRunSnapshotSchema = z.object({
   selectedDiagrams: z.array(designDiagramKindSchema),
   rules: z.array(requirementRuleSchema),
   requirementModels: z.array(diagramModelSpecSchema),
+  requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
   models: z.array(designDiagramModelSpecSchema),
+  designModelTraceability: z.array(designModelTraceabilityEntrySchema),
   plantUml: z.array(designPlantUmlArtifactSchema),
   svgArtifacts: z.array(designSvgArtifactSchema),
   diagramErrors: z.record(designDiagramKindSchema, diagramErrorSchema).default({}),
@@ -1579,6 +1646,7 @@ export const documentRunSnapshotSchema = z.object({
   runId: z.string().min(1),
   documentKind: documentKindSchema,
   requirementText: z.string(),
+  documentId: z.string().min(1).nullable().default(null),
   sections: z.array(documentSectionSchema).default([]),
   fileName: z.string().min(1).nullable(),
   mimeType: z.string().min(1).nullable(),

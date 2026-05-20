@@ -107,6 +107,10 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
     [commitRequirementRules, rules],
   );
 
+  const clearRequirementRules = useCallback(() => {
+    commitRequirementRules([]);
+  }, [commitRequirementRules]);
+
   const rulesForDiagram = useCallback(
     (diagram: DiagramType) =>
       rules.filter((rule) => rule.relatedDiagrams.includes(diagram)),
@@ -130,6 +134,7 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
     createRequirementRule,
     updateRequirementRule,
     deleteRequirementRule,
+    clearRequirementRules,
     rulesForDiagram,
   };
 }

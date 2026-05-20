@@ -44,6 +44,17 @@ function normalizeSnapshotFilePath(path: string) {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function formatDocumentTimestamp(date = new Date()) {
+  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
+  const datePart = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(
+    date.getDate(),
+  )}`;
+  const timePart = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(
+    date.getSeconds(),
+  )}`;
+  return `${datePart}-${timePart}-${pad(date.getMilliseconds(), 3)}`;
+}
+
 export function createEmptySnapshot(
   runId: string,
   requirementText: string,
@@ -56,6 +67,7 @@ export function createEmptySnapshot(
     selectedDiagrams,
     rules,
     models: [],
+    requirementModelTraceability: [],
     plantUml: [],
     svgArtifacts: [],
     diagramErrors: {},
@@ -73,6 +85,7 @@ export function createEmptyDesignSnapshot(
     selectedDiagrams: DesignDiagramKind[];
     rules: RequirementRule[];
     requirementModels: DiagramModelSpec[];
+    requirementModelTraceability: RunSnapshot["requirementModelTraceability"];
   },
 ): DesignRunSnapshot {
   return designRunSnapshotSchema.parse({
@@ -81,7 +94,9 @@ export function createEmptyDesignSnapshot(
     selectedDiagrams: withDesignDependencies(input.selectedDiagrams),
     rules: input.rules,
     requirementModels: input.requirementModels,
+    requirementModelTraceability: input.requirementModelTraceability,
     models: [],
+    designModelTraceability: [],
     plantUml: [],
     svgArtifacts: [],
     diagramErrors: {},
@@ -156,14 +171,16 @@ export function createEmptyDocumentSnapshot(
     requirementText: string;
   },
 ): DocumentRunSnapshot {
+  const timestamp = formatDocumentTimestamp();
   const fileName =
     input.documentKind === "requirementsSpec"
-      ? "需求规格说明书.docx"
-      : "软件设计说明书.docx";
+      ? `需求规格说明书-${timestamp}.docx`
+      : `软件设计说明书-${timestamp}.docx`;
   return documentRunSnapshotSchema.parse({
     runId,
     documentKind: input.documentKind,
     requirementText: input.requirementText,
+    documentId: null,
     sections: [],
     fileName,
     mimeType:

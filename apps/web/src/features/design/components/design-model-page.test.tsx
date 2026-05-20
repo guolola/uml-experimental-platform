@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { DesignRunSnapshot } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
-import { createWorkspaceRecord, withWorkspaceProviders } from "../../../test/workspace-test-utils";
+import {
+  createRule,
+  createWorkspaceRecord,
+  withWorkspaceProviders,
+} from "../../../test/workspace-test-utils";
 import { DesignModelPage } from "./design-model-page";
 
 const useCaseModel = {
@@ -162,6 +166,7 @@ describe("DesignModelPage", () => {
     expect(classDiagramCheckbox).not.toBeChecked();
     expect(screen.getAllByText("缺少需求阶段领域概念模型").length).toBeGreaterThan(0);
     expect(screen.getByText("0/5")).toBeInTheDocument();
+    expect(screen.queryByText("0/1")).not.toBeInTheDocument();
   });
 
   it("blocks downstream design diagrams when the use case prerequisite is missing", async () => {
@@ -197,6 +202,120 @@ describe("DesignModelPage", () => {
     expect(sequenceCheckbox).toBeDisabled();
     expect(classDiagramCheckbox).toBeDisabled();
     expect(screen.getAllByText("缺少需求阶段用例模型").length).toBeGreaterThan(0);
+  });
+
+  it("blocks design generation when requirement model traceability is stale", async () => {
+    const startDesignRun = vi.fn();
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          rules: [createRule()],
+          rulesVersion: 2,
+          rulesBasedOnTextVersion: 1,
+          models: {
+            usecase: useCaseModel,
+          },
+          generatedDiagramTypes: ["usecase"],
+          diagramVersions: { usecase: 1 },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "actor",
+                elementKind: "actor",
+                label: "用户",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc",
+                elementKind: "usecase",
+                label: "生成模型",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "system",
+                elementKind: "system-boundary",
+                label: "平台",
+              },
+            },
+          ],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun,
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    expect(
+      await screen.findByText("需求模型基于旧需求规则，请先重新生成需求模型"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /生成设计模型/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
+    expect(startDesignRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps a view action on generated design diagram cards", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+          },
+          generatedDesignDiagramTypes: ["sequence"],
+          designModels: {
+            sequence: {
+              diagramKind: "sequence",
+              title: "顺序图",
+              summary: "动态行为",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    expect(await screen.findByRole("button", { name: /查看/ })).toBeInTheDocument();
   });
 
   it("auto-includes valid sequence and class dependencies when generating table diagrams", async () => {

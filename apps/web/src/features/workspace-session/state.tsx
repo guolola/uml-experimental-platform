@@ -10,32 +10,17 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type {
-  CodeBusinessLogic,
-  CodeGenerationSpec,
-  CodeRunSnapshot,
-  CodeSkillContext,
-  CodeSkillResourceDiscoveryPlan,
-  CodeSkillResourcePreviewResult,
-  CodeSkillResourcePlan,
-  CodeTraceEntry,
-  CodeVisualDirection,
-  CodeUiFidelityReport,
-  CodeUiMockup,
-  CodeUiReferenceSpec,
-  DesignTraceEntry,
-  RequirementTraceEntry,
   DocumentKind,
   DocumentStyleSettings,
   DocumentRunSnapshot,
+  DesignModelTraceabilityEntry,
   DesignDiagramModelSpec,
   DiagramModelSpec,
-  RunEvent,
-  RunStage,
+  ModelElementRef,
+  RequirementModelTraceabilityEntry,
 } from "@uml-platform/contracts";
 import type { DesignDiagramType, DiagramType } from "../../entities/diagram/model";
-import type { RequirementRule } from "../../entities/requirement-rule/model";
 import type {
-  RunStatus,
   WorkspaceRecord,
   WorkspaceCodeRunSnapshot,
   WorkspaceDesignRunSnapshot,
@@ -98,6 +83,159 @@ import { useRunDiagnosticsSlice } from "./slices/run-diagnostics-slice";
 
 const WorkspaceSessionContext = createContext<WorkspaceSessionState | null>(null);
 
+function refKey(diagramKind: string, elementId: string) {
+  return `${diagramKind}:${elementId}`.toLowerCase();
+}
+
+function compactRefValue(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+}
+
+function activityNodeTraceabilityKind(nodeType: unknown) {
+  switch (nodeType) {
+    case "activity":
+      return "activity";
+    case "decision":
+      return "decision";
+    case "start":
+      return "start-node";
+    case "end":
+      return "end-node";
+    case "merge":
+      return "merge-node";
+    case "fork":
+      return "fork-node";
+    case "join":
+      return "join-node";
+    default:
+      return "activity-node";
+  }
+}
+
+function isBusinessTraceabilityKind(kind: string) {
+  return ![
+    "system-boundary",
+    "swimlane",
+    "start-node",
+    "end-node",
+    "merge-node",
+    "fork-node",
+    "join-node",
+  ].includes(kind);
+}
+
+function collectTraceableRefKeys(
+  models: Array<DiagramModelSpec | DesignDiagramModelSpec>,
+) {
+  const keys = new Set<string>();
+  for (const model of models) {
+    const diagramKind = model.diagramKind;
+    const record = model as unknown as Record<string, unknown>;
+    const listKeys: Array<[string, string]> = [
+      ["actors", "actor"],
+      ["useCases", "usecase"],
+      ["systemBoundaries", "system-boundary"],
+      ["classes", "class"],
+      ["interfaces", "interface"],
+      ["enums", "enum"],
+      ["swimlanes", "swimlane"],
+      ["nodes", diagramKind === "deployment" ? "deployment-node" : "activity-node"],
+      ["databases", "database"],
+      ["components", "component"],
+      ["externalSystems", "external-system"],
+      ["artifacts", "artifact"],
+      ["participants", "participant"],
+      ["messages", "message"],
+      ["fragments", "fragment"],
+      ["tables", "table"],
+    ];
+    const businessElementIds = new Set<string>();
+
+    for (const [key, defaultKind] of listKeys) {
+      const items = Array.isArray(record[key]) ? record[key] : [];
+      for (const item of items) {
+        if (!item || typeof item !== "object") continue;
+        const itemRecord = item as Record<string, unknown>;
+        const id = compactRefValue(itemRecord.id);
+        const kind =
+          key === "nodes" && diagramKind === "activity"
+            ? activityNodeTraceabilityKind(itemRecord.type)
+            : defaultKind;
+        if (id && isBusinessTraceabilityKind(kind)) {
+          keys.add(refKey(diagramKind, id));
+          businessElementIds.add(id);
+        }
+        if (key === "tables") {
+          const columns = Array.isArray(itemRecord.columns) ? itemRecord.columns : [];
+          for (const column of columns) {
+            if (!column || typeof column !== "object") continue;
+            const columnId = compactRefValue((column as Record<string, unknown>).id);
+            if (id && columnId) {
+              keys.add(refKey(diagramKind, `${id}.${columnId}`));
+              businessElementIds.add(`${id}.${columnId}`);
+            }
+          }
+        }
+      }
+    }
+
+    const relationships = Array.isArray(record.relationships)
+      ? record.relationships
+      : [];
+    for (const relationship of relationships) {
+      if (!relationship || typeof relationship !== "object") continue;
+      const relationshipRecord = relationship as Record<string, unknown>;
+      if (
+        diagramKind === "activity" &&
+        (!businessElementIds.has(compactRefValue(relationshipRecord.sourceId)) ||
+          !businessElementIds.has(compactRefValue(relationshipRecord.targetId)))
+      ) {
+        continue;
+      }
+      const id = compactRefValue(relationshipRecord.id);
+      if (id) keys.add(refKey(diagramKind, id));
+    }
+  }
+  return keys;
+}
+
+function hasCompleteTraceabilityCoverage(
+  modelRefs: Set<string>,
+  refs: ModelElementRef[],
+) {
+  if (modelRefs.size === 0) return false;
+  const covered = new Set(refs.map((ref) => refKey(ref.diagramKind, ref.elementId)));
+  return Array.from(modelRefs).every((key) => covered.has(key));
+}
+
+function hasCompleteRequirementTraceability(
+  models: Array<DiagramModelSpec | undefined>,
+  traceability: RequirementModelTraceabilityEntry[],
+) {
+  const modelRefs = collectTraceableRefKeys(
+    models.filter((model): model is DiagramModelSpec => Boolean(model)),
+  );
+  return hasCompleteTraceabilityCoverage(
+    modelRefs,
+    traceability.map((entry) => entry.target),
+  );
+}
+
+function hasCompleteDesignTraceability(
+  models: Array<DesignDiagramModelSpec | undefined>,
+  traceability: DesignModelTraceabilityEntry[],
+) {
+  const modelRefs = collectTraceableRefKeys(
+    models.filter((model): model is DesignDiagramModelSpec => Boolean(model)),
+  );
+  return hasCompleteTraceabilityCoverage(
+    modelRefs,
+    traceability.map((entry) => entry.source),
+  );
+}
+
 
 
 
@@ -136,11 +274,14 @@ export function WorkspaceSessionProvider({
     createRequirementRule,
     updateRequirementRule,
     deleteRequirementRule,
+    clearRequirementRules,
     rulesForDiagram,
   } = useRequirementsSlice(repository);
   const {
     models,
     setModels,
+    requirementModelTraceability,
+    setRequirementModelTraceability,
     selectedDiagrams,
     setSelectedDiagrams,
     plantUml,
@@ -158,6 +299,8 @@ export function WorkspaceSessionProvider({
     selectedDesignDiagrams,
     setSelectedDesignDiagrams,
     designModels,
+    designModelTraceability,
+    setDesignModelTraceability,
     setDesignModels,
     designPlantUml,
     setDesignPlantUml,
@@ -210,7 +353,9 @@ export function WorkspaceSessionProvider({
     requirementText,
     rules,
     models,
+    requirementModelTraceability,
     designModels,
+    designModelTraceability,
     codeFiles,
     codeEditVersion,
   });
@@ -220,11 +365,22 @@ export function WorkspaceSessionProvider({
       requirementText,
       rules,
       models,
+      requirementModelTraceability,
       designModels,
+      designModelTraceability,
       codeFiles,
       codeEditVersion,
     };
-  }, [codeEditVersion, codeFiles, designModels, models, requirementText, rules]);
+  }, [
+    codeEditVersion,
+    codeFiles,
+    designModelTraceability,
+    designModels,
+    models,
+    requirementModelTraceability,
+    requirementText,
+    rules,
+  ]);
 
   const selectGenerationTask = useCallback((id: string) => {
     setSelectedGenerationTaskId(id);
@@ -291,12 +447,14 @@ export function WorkspaceSessionProvider({
       setRequirementTextRaw(workspace.requirementText);
       setRules(workspace.rules);
       setModels(workspace.models);
+      setRequirementModelTraceability(workspace.requirementModelTraceability ?? []);
       setSelectedDiagrams(workspace.selectedDiagramTypes);
       setPlantUml(workspace.plantUml);
       setSvgArtifacts(workspace.svgArtifacts);
       setDiagramErrors(workspace.diagramErrors);
       setSelectedDesignDiagrams(workspace.selectedDesignDiagramTypes);
       setDesignModels(workspace.designModels);
+      setDesignModelTraceability(workspace.designModelTraceability ?? []);
       setDesignPlantUml(workspace.designPlantUml);
       setDesignSvgArtifacts(workspace.designSvgArtifacts);
       setDesignDiagramErrors(workspace.designDiagramErrors);
@@ -387,6 +545,19 @@ export function WorkspaceSessionProvider({
         }
         return mapped.models;
       });
+      setRequirementModelTraceability((current) => {
+        const snapshotTraceability = snapshot.requirementModelTraceability ?? [];
+        if (mode.kind === "partial-diagrams") {
+          const affected = new Set(mode.diagrams);
+          return [
+            ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramType)),
+            ...snapshotTraceability.filter((entry) =>
+              affected.has(entry.target.diagramKind as DiagramType),
+            ),
+          ];
+        }
+        return snapshotTraceability;
+      });
 
       setPlantUml((current) => {
         if (mode.kind === "partial-diagrams") {
@@ -455,6 +626,14 @@ export function WorkspaceSessionProvider({
         ...current,
         ...mapped.models,
       }));
+      setDesignModelTraceability((current) => {
+        const affected = new Set(snapshot.selectedDiagrams);
+        const snapshotTraceability = snapshot.designModelTraceability ?? [];
+        return [
+          ...current.filter((entry) => !affected.has(entry.source.diagramKind as DesignDiagramType)),
+          ...snapshotTraceability,
+        ];
+      });
       setDesignPlantUml((current) => ({
         ...current,
         ...mapped.plantUml,
@@ -515,6 +694,7 @@ export function WorkspaceSessionProvider({
       );
 
       setModels({});
+      setRequirementModelTraceability([]);
       setSelectedDiagrams([]);
       setPlantUml({});
       setSvgArtifacts({});
@@ -523,6 +703,7 @@ export function WorkspaceSessionProvider({
       setDiagramVersions({});
       setSelectedDesignDiagrams(restoredDesignDiagrams);
       setDesignModels(restoredDesignModels);
+      setDesignModelTraceability([]);
       setDesignPlantUml({});
       setDesignSvgArtifacts({});
       setDesignDiagramErrors({});
@@ -538,6 +719,7 @@ export function WorkspaceSessionProvider({
       );
 
       setModels(restoredRequirementModels);
+      setRequirementModelTraceability(snapshot.requirementModelTraceability ?? []);
       setSelectedDiagrams(restoredRequirementDiagrams);
       setPlantUml({});
       setSvgArtifacts({});
@@ -553,6 +735,7 @@ export function WorkspaceSessionProvider({
       );
       setSelectedDesignDiagrams([...snapshot.selectedDiagrams]);
       setDesignModels(mapped.models);
+      setDesignModelTraceability(snapshot.designModelTraceability ?? []);
       setDesignPlantUml(mapped.plantUml);
       setDesignSvgArtifacts(mapped.svgArtifacts);
       setDesignDiagramErrors(snapshot.diagramErrors);
@@ -571,6 +754,7 @@ export function WorkspaceSessionProvider({
     } else {
       const mapped = snapshotToMaps(snapshot);
       setModels(mapped.models);
+      setRequirementModelTraceability(snapshot.requirementModelTraceability ?? []);
       setSelectedDiagrams([...snapshot.selectedDiagrams]);
       setPlantUml(mapped.plantUml);
       setSvgArtifacts(mapped.svgArtifacts);
@@ -586,6 +770,7 @@ export function WorkspaceSessionProvider({
       );
       setSelectedDesignDiagrams([]);
       setDesignModels({});
+      setDesignModelTraceability([]);
       setDesignPlantUml({});
       setDesignSvgArtifacts({});
       setDesignDiagramErrors({});
@@ -938,6 +1123,7 @@ export function WorkspaceSessionProvider({
         requirementText,
         rules,
         models,
+        requirementModelTraceability,
       });
       let runId: string | null = null;
       const startedAtMs = Date.now();
@@ -945,6 +1131,23 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
+        const currentRulesStale =
+          rules.length > 0 &&
+          rulesBasedOnTextVersion !== null &&
+          rulesBasedOnTextVersion !== textVersion;
+        const currentStaleDiagrams = generatedDiagrams.filter(
+          (diagram) => (diagramVersions[diagram] ?? -1) !== rulesVersion,
+        );
+        const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
+          Object.values(models),
+          requirementModelTraceability,
+        );
+        if (currentRulesStale || currentStaleDiagrams.length > 0) {
+          throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
+        }
+        if (generatedDiagrams.length > 0 && !requirementTraceabilityComplete) {
+          throw new Error("需求模型缺少完整元素级映射，请先重新生成需求模型");
+        }
         if (
           !repository.startDesignRun ||
           !repository.subscribeToDesignRun ||
@@ -958,6 +1161,7 @@ export function WorkspaceSessionProvider({
           Object.values(models).filter(
             (model): model is DiagramModelSpec => Boolean(model),
           ),
+          requirementModelTraceability,
           diagrams,
         );
         providerModel = startInput.providerSettings.model;
@@ -1097,6 +1301,8 @@ export function WorkspaceSessionProvider({
             requirementText: latestInputRef.current.requirementText,
             rules: latestInputRef.current.rules,
             models: latestInputRef.current.models,
+            requirementModelTraceability:
+              latestInputRef.current.requirementModelTraceability,
           })
         ) {
           notifyGenerationResultStale();
@@ -1159,12 +1365,18 @@ export function WorkspaceSessionProvider({
     },
     [
       applyDesignRunSnapshot,
+      diagramVersions,
+      generatedDiagrams,
       models,
       repository,
+      requirementModelTraceability,
       requirementText,
       runController,
       rules,
+      rulesBasedOnTextVersion,
+      rulesVersion,
       saveHistorySnapshot,
+      textVersion,
     ],
   );
 
@@ -1176,6 +1388,7 @@ export function WorkspaceSessionProvider({
       requirementText,
       rules,
       designModels,
+      designModelTraceability,
     });
     const baseCodeEditVersion = codeEditVersion;
     let lastCompletedSnapshot: WorkspaceCodeRunSnapshot | null = null;
@@ -1197,6 +1410,30 @@ export function WorkspaceSessionProvider({
       );
       if (availableDesignModels.length === 0) {
         throw new Error("请先生成设计模型，再生成前端原型代码");
+      }
+      const currentRulesStale =
+        rules.length > 0 &&
+        rulesBasedOnTextVersion !== null &&
+        rulesBasedOnTextVersion !== textVersion;
+      const currentStaleDiagrams = generatedDiagrams.filter(
+        (diagram) => (diagramVersions[diagram] ?? -1) !== rulesVersion,
+      );
+      const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
+        Object.values(models),
+        requirementModelTraceability,
+      );
+      const designTraceabilityComplete = hasCompleteDesignTraceability(
+        Object.values(designModels),
+        designModelTraceability,
+      );
+      if (currentRulesStale || currentStaleDiagrams.length > 0) {
+        throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
+      }
+      if (generatedDiagrams.length > 0 && !requirementTraceabilityComplete) {
+        throw new Error("需求模型缺少完整元素级映射，请先重新生成需求模型");
+      }
+      if (generatedDesignDiagrams.length > 0 && !designTraceabilityComplete) {
+        throw new Error("设计模型缺少完整元素级映射，请先重新生成设计模型");
       }
       const availableDesignPlantUml = Object.entries(designPlantUml)
         .filter(([, source]) => source.trim().length > 0)
@@ -1437,10 +1674,11 @@ export function WorkspaceSessionProvider({
       if (
         baseInputFingerprint !==
         snapshotInputFingerprint({
-          requirementText: latestInputRef.current.requirementText,
-          rules: latestInputRef.current.rules,
-          designModels: latestInputRef.current.designModels,
-        }) ||
+            requirementText: latestInputRef.current.requirementText,
+            rules: latestInputRef.current.rules,
+            designModels: latestInputRef.current.designModels,
+            designModelTraceability: latestInputRef.current.designModelTraceability,
+          }) ||
           baseCodeEditVersion !== latestInputRef.current.codeEditVersion
       ) {
         notifyGenerationResultStale();
@@ -1504,13 +1742,22 @@ export function WorkspaceSessionProvider({
     applyCodeRunSnapshot,
     codeFiles,
     codeEditVersion,
+    designModelTraceability,
     designModels,
     designPlantUml,
+    diagramVersions,
+    generatedDesignDiagrams,
+    generatedDiagrams,
+    models,
     repository,
+    requirementModelTraceability,
     requirementText,
     runController,
     rules,
+    rulesBasedOnTextVersion,
+    rulesVersion,
     saveHistorySnapshot,
+    textVersion,
   ]);
 
   const runDocumentGeneration = useCallback(
@@ -1525,8 +1772,7 @@ export function WorkspaceSessionProvider({
         if (
           !repository.startDocumentRun ||
           !repository.subscribeToDocumentRun ||
-          !repository.getDocumentRunSnapshot ||
-          !repository.downloadDocumentRun
+          !repository.getDocumentRunSnapshot
         ) {
           throw new Error("当前仓储未实现说明书生成能力");
         }
@@ -1555,6 +1801,38 @@ export function WorkspaceSessionProvider({
         }
         if (documentKind === "softwareDesignSpec" && availableDesignModels.length === 0) {
           throw new Error("请先在设计页生成设计模型，再导出软件设计说明书");
+        }
+        const currentRulesStale =
+          rules.length > 0 &&
+          rulesBasedOnTextVersion !== null &&
+          rulesBasedOnTextVersion !== textVersion;
+        const currentStaleDiagrams = generatedDiagrams.filter(
+          (diagram) => (diagramVersions[diagram] ?? -1) !== rulesVersion,
+        );
+        const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
+          Object.values(models),
+          requirementModelTraceability,
+        );
+        const designTraceabilityComplete = hasCompleteDesignTraceability(
+          Object.values(designModels),
+          designModelTraceability,
+        );
+        if (
+          documentKind === "requirementsSpec" &&
+          (currentRulesStale ||
+            currentStaleDiagrams.length > 0 ||
+            (generatedDiagrams.length > 0 && !requirementTraceabilityComplete))
+        ) {
+          throw new Error("需求模型或元素级映射已过期，请先重新生成需求模型");
+        }
+        if (
+          documentKind === "softwareDesignSpec" &&
+          (currentRulesStale ||
+            currentStaleDiagrams.length > 0 ||
+            (generatedDiagrams.length > 0 && !requirementTraceabilityComplete) ||
+            (generatedDesignDiagrams.length > 0 && !designTraceabilityComplete))
+        ) {
+          throw new Error("设计链路或元素级映射已过期，请先重新生成需求模型和设计模型");
         }
 
         const startInput = createStartDocumentRunInput(
@@ -1675,25 +1953,21 @@ export function WorkspaceSessionProvider({
         const snapshot =
           (await repository.getDocumentRunSnapshot(runId)) ?? lastCompletedSnapshot;
         if (!snapshot) {
-          return;
+          return null;
         }
 
         await saveHistorySnapshot(snapshot, {
           providerModel,
           durationMs: Date.now() - startedAtMs,
         });
-        const downloaded = await repository.downloadDocumentRun(
-          runId,
-          snapshot.fileName ?? `${documentTitle}.docx`,
-        );
-        downloadBlobFile(downloaded.fileName, downloaded.blob);
         setRunUiState({
           runStatus: "completed",
           runProgress: 100,
           runMessage: "说明书生成完成",
           errorMessage: null,
         });
-        toast.success(`${downloaded.fileName} 已生成`);
+        toast.success(`${snapshot.fileName ?? `${documentTitle}.docx`} 已生成`);
+        return snapshot;
       } catch (error) {
         const detail = error instanceof Error ? error.message : "说明书生成失败";
         if (clientTaskId) {
@@ -1742,29 +2016,38 @@ export function WorkspaceSessionProvider({
             ? `说明书生成失败：${error.message}`
             : "说明书生成失败",
         );
+        return null;
       }
     },
     [
+      designModelTraceability,
       designModels,
       designPlantUml,
       designSvgArtifacts,
+      diagramVersions,
+      generatedDesignDiagrams,
+      generatedDiagrams,
       models,
       plantUml,
       repository,
+      requirementModelTraceability,
       requirementText,
       runController,
       rules,
+      rulesBasedOnTextVersion,
+      rulesVersion,
       saveHistorySnapshot,
       svgArtifacts,
+      textVersion,
     ],
   );
 
   const generateRequirementsSpec = useCallback(async (documentStyle?: DocumentStyleSettings) => {
-    await runDocumentGeneration("requirementsSpec", documentStyle);
+    return runDocumentGeneration("requirementsSpec", documentStyle);
   }, [runDocumentGeneration]);
 
   const generateSoftwareDesignSpec = useCallback(async (documentStyle?: DocumentStyleSettings) => {
-    await runDocumentGeneration("softwareDesignSpec", documentStyle);
+    return runDocumentGeneration("softwareDesignSpec", documentStyle);
   }, [runDocumentGeneration]);
 
   const renderPlantUml = useCallback(
@@ -1849,6 +2132,26 @@ export function WorkspaceSessionProvider({
   const staleDiagrams = generatedDiagrams.filter(
     (diagram) => (diagramVersions[diagram] ?? -1) !== rulesVersion,
   );
+  const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
+    Object.values(models),
+    requirementModelTraceability,
+  );
+  const designTraceabilityComplete = hasCompleteDesignTraceability(
+    Object.values(designModels),
+    designModelTraceability,
+  );
+  const requirementTraceabilityStale =
+    generatedDiagrams.length > 0 &&
+    (isRulesStale || staleDiagrams.length > 0 || !requirementTraceabilityComplete);
+  const designTraceabilityStale =
+    generatedDesignDiagrams.length > 0 &&
+    (requirementTraceabilityStale || !designTraceabilityComplete);
+  const designGenerationBlockedReason =
+    isRulesStale || staleDiagrams.length > 0
+      ? "需求模型基于旧需求规则，请先重新生成需求模型"
+      : generatedDiagrams.length > 0 && !requirementTraceabilityComplete
+        ? "需求模型缺少完整元素级映射，请先重新生成需求模型"
+        : null;
 
   const visibleGenerationTask = useMemo(() => {
     if (selectedGenerationTaskId) {
@@ -1879,7 +2182,9 @@ export function WorkspaceSessionProvider({
       createRequirementRule,
       updateRequirementRule,
       deleteRequirementRule,
+      clearRequirementRules,
       models,
+      requirementModelTraceability,
       selectedDiagrams,
       setSelectedDiagrams,
       plantUml,
@@ -1888,6 +2193,7 @@ export function WorkspaceSessionProvider({
       selectedDesignDiagrams,
       setSelectedDesignDiagrams,
       designModels,
+      designModelTraceability,
       designPlantUml,
       designSvgArtifacts,
       designDiagramErrors,
@@ -1928,6 +2234,9 @@ export function WorkspaceSessionProvider({
       diagramVersions,
       isRulesStale,
       staleDiagrams,
+      requirementTraceabilityStale,
+      designTraceabilityStale,
+      designGenerationBlockedReason,
       historyItems,
       refreshHistory,
       restoreRunHistory,
@@ -1944,13 +2253,16 @@ export function WorkspaceSessionProvider({
       createRequirementRule,
       updateRequirementRule,
       deleteRequirementRule,
+      clearRequirementRules,
       models,
+      requirementModelTraceability,
       selectedDiagrams,
       plantUml,
       svgArtifacts,
       diagramErrors,
       selectedDesignDiagrams,
       designModels,
+      designModelTraceability,
       designPlantUml,
       designSvgArtifacts,
       designDiagramErrors,
@@ -1992,6 +2304,9 @@ export function WorkspaceSessionProvider({
       diagramVersions,
       isRulesStale,
       staleDiagrams,
+      requirementTraceabilityStale,
+      designTraceabilityStale,
+      designGenerationBlockedReason,
       historyItems,
       refreshHistory,
       restoreRunHistory,

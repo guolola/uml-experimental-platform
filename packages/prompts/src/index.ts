@@ -4,6 +4,7 @@ import type {
   DiagramKind,
   DiagramModelSpec,
   DocumentKind,
+  ModelElementRef,
   RequirementRule,
   CodeAppBlueprint,
   CodeBusinessLogic,
@@ -90,6 +91,35 @@ const REQUIREMENT_STAGE_SEMANTICS = [
   "- 部署模型(deployment): 描述物理架构、网络拓扑、服务器节点及通信协议。",
 ].join("\n");
 
+const REQUIREMENT_TRACEABILITY_RULES = [
+  "需求 traceability 约束：",
+  "- target.diagramKind 只能使用: usecase, class, activity, deployment。",
+  "- 禁止把 requirements、requirement、design、model、traceability、page 等阶段名或页面名作为 diagramKind。",
+  "- target.elementId 必须引用本次需求模型中真实存在的元素 id 或 relationship id；表字段类元素使用 tableId.columnId 形式。",
+  "- 矩阵会展示的每一个需求业务元素和 relationship 都必须至少映射到一条需求规则，不能遗漏。",
+  "- 业务元素范围：用例图的角色/用例/关系；类图的类/接口/枚举/关系；活动图的 activity/decision 节点及这些节点之间的关系；部署图的节点/数据库/组件/外部系统/制品/关系。",
+  "- 不要为 system-boundary、swimlane、start/end/merge/fork/join 等结构元素补映射。",
+  "- 如果错误提示包含非法 diagramKind，必须改成该元素实际所属的具体图类型，不允许继续返回阶段名。",
+].join("\n");
+
+const DESIGN_TRACEABILITY_RULES = [
+  "设计 traceability 约束：",
+  "- source.diagramKind 只能使用: sequence, class, activity, deployment, table。",
+  "- targets[].diagramKind 只能使用: usecase, class, activity, deployment。",
+  "- 禁止把 requirements、requirement、design、model、traceability、page 等阶段名或页面名作为 diagramKind。",
+  "- source.elementId 必须引用本次设计模型中真实存在的元素 id 或 relationship id；表字段类元素使用 tableId.columnId 形式。",
+  "- targets[].elementId 必须引用输入需求模型中真实存在的元素 id 或 relationship id。",
+  "- 矩阵会展示的每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素，不能遗漏。",
+  "- 业务元素范围：顺序图的参与对象/消息/组合片段；类图的类/接口/枚举/关系；活动图的 activity/decision 节点及这些节点之间的关系；部署图的节点/数据库/组件/外部系统/制品/关系；表关系图的表/字段/关系。",
+  "- 不要为 swimlane、start/end/merge/fork/join 等结构元素补映射。",
+  "- 如果错误提示包含非法 diagramKind，必须改成该元素实际所属的具体图类型，不允许继续返回阶段名。",
+].join("\n");
+
+function formatMissingRefsForPrompt(refs: ModelElementRef[]) {
+  if (refs.length === 0) return "[]";
+  return stringifyForPrompt(refs, 12000);
+}
+
 export function buildExtractRulesPrompt(requirementText: string) {
   return [
     "请从下面的实验平台需求中抽取结构化需求规则。",
@@ -111,10 +141,13 @@ export function buildGenerateModelsPrompt(
 ) {
   return [
     "请根据已确认的需求项生成 UML 结构化模型；原始需求只作为背景，不得覆盖需求项。",
-    "返回 JSON 对象，格式必须是 {\"models\":[...]}。",
+    "返回 JSON 对象，格式必须是 {\"models\":[...],\"requirementModelTraceability\":[...]}。",
+    "必须返回非空 requirementModelTraceability 数组，记录每条需求规则映射到哪些需求模型元素或关系。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     "JSON 必须完整合法，字符串必须正确转义，不能出现未闭合字符串、未闭合数组/对象或裸换行。",
     "每个 model 必须包含：diagramKind, title, summary, notes，以及对应图类型要求的强类型字段。",
+    "requirementModelTraceability[].字段：ruleId, target；target 字段为 diagramKind, elementId, elementKind, label。",
+    REQUIREMENT_TRACEABILITY_RULES,
     "notes 必须是字符串数组，不能是对象数组。",
     "所有 relationships[] 必须显式包含 sourceId 和 targetId；如果无法确定端点，不要输出该 relationship。",
     "deployment.relationships[].port 如需填写，必须是字符串，例如 \"8080\"，不能是数字。",
@@ -175,14 +208,16 @@ export function buildRepairModelsPrompt(
   return [
     "请修复下面不符合要求的 UML 结构化模型 JSON 输出。",
     "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
-    "返回格式必须是 {\"models\":[...]}。",
+    "返回格式必须是 {\"models\":[...],\"requirementModelTraceability\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何额外文字。",
     "JSON 必须完整合法，字符串必须正确转义，不能出现未闭合字符串、未闭合数组/对象或裸换行。",
     "只修复 JSON 结构问题，不要改变原有业务语义。",
     "已确认需求项是唯一权威基线；原始需求只作为背景，不得覆盖需求项。",
     REQUIREMENT_STAGE_SEMANTICS,
     "notes 必须是字符串数组，不能是对象数组。",
+    "requirementModelTraceability 必须是非空数组；每一项必须包含 ruleId 和 target，target.elementId 必须引用模型内真实存在的元素或 relationship。",
     "diagramKind 只能使用: usecase, class, activity, deployment。",
+    REQUIREMENT_TRACEABILITY_RULES,
     "relationships[] 必须显式包含 sourceId 和 targetId；如果无法确定端点，删除该 relationship。",
     "deployment.relationships[].port 必须是字符串，例如 \"8080\"，不能是数字。",
     "必须按 diagramKind 输出对应的强类型字段：",
@@ -201,6 +236,71 @@ export function buildRepairModelsPrompt(
     JSON.stringify(rules, null, 2),
     "",
     "上一次模型输出：",
+    previousOutput,
+    "",
+    "解析或校验错误：",
+    parseError,
+  ].join("\n");
+}
+
+export function buildGenerateRequirementTraceabilityPrompt(
+  requirementText: string,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+) {
+  return [
+    "请为已经生成成功的需求阶段 UML 模型补充元素级可追踪关系。",
+    "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
+    "返回格式必须是 {\"requirementModelTraceability\":[...]}。",
+    "requirementModelTraceability 必须是非空数组；每一项必须包含 ruleId 和 target。",
+    "ruleId 必须引用已确认需求项中的真实 id。",
+    "target 必须包含 diagramKind, elementId, elementKind, label；target.elementId 必须引用已生成模型内真实存在的元素 id 或 relationship id。",
+    REQUIREMENT_TRACEABILITY_RULES,
+    "不要把所有规则粗暴映射到所有元素；只输出能从规则文本和模型元素语义直接证明的覆盖来源。",
+    "若一个规则对应多个模型元素，可以输出多条记录；若一个元素由多个规则支撑，也可以输出多条记录。",
+    "",
+    "原始需求：",
+    requirementText,
+    "",
+    "已确认需求项：",
+    JSON.stringify(rules, null, 2),
+    "",
+    "已生成需求模型：",
+    JSON.stringify(models, null, 2),
+  ].join("\n");
+}
+
+export function buildRepairRequirementTraceabilityPrompt(
+  requirementText: string,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+  previousOutput: string,
+  parseError: string,
+  missingTargets: ModelElementRef[] = [],
+) {
+  return [
+    "请修复需求模型元素级可追踪关系 JSON。",
+    "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
+    "返回格式必须是 {\"requirementModelTraceability\":[...]}。",
+    "requirementModelTraceability 必须是非空数组；每一项必须包含 ruleId 和 target。",
+    "ruleId 必须引用已确认需求项中的真实 id；target.elementId 必须引用已生成模型内真实存在的元素 id 或 relationship id。",
+    REQUIREMENT_TRACEABILITY_RULES,
+    "不要修改模型；只修复映射数组。",
+    "如果缺失清单非空，只需要为缺失清单中的每一项补充映射；可以保留上一轮已经有效的映射，不要重写模型。",
+    "",
+    "原始需求：",
+    requirementText,
+    "",
+    "已确认需求项：",
+    JSON.stringify(rules, null, 2),
+    "",
+    "已生成需求模型：",
+    JSON.stringify(models, null, 2),
+    "",
+    "必须补齐的缺失业务元素清单：",
+    formatMissingRefsForPrompt(missingTargets),
+    "",
+    "上一次映射输出：",
     previousOutput,
     "",
     "解析或校验错误：",
@@ -245,12 +345,16 @@ export function buildGenerateDesignSequencePrompt(
 ) {
   return [
     "请根据已确认需求项和需求阶段用例模型生成设计阶段顺序图结构化模型。",
-    "返回 JSON 对象，格式必须是 {\"models\":[...]}，且只包含一个 diagramKind 为 sequence 的模型。",
+    "返回 JSON 对象，格式必须是 {\"models\":[...],\"designModelTraceability\":[...]}，且 models 只包含一个 diagramKind 为 sequence 的模型。",
+    "必须返回非空 designModelTraceability 数组，记录设计顺序图元素映射到哪些需求用例模型元素。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     DESIGN_STAGE_SEMANTICS,
     DESIGN_MODEL_SCHEMA_INSTRUCTIONS,
     "已确认需求项是设计阶段的权威基线；原始需求只作为背景，不得覆盖需求项。",
     "顺序图必须把用例中的角色、系统边界和关键用例转化为对象间方法调用时序。",
+    "designModelTraceability[].字段：source, targets；source 是设计元素引用，targets 是需求模型元素引用数组。",
+    "source/targets 字段都必须包含 diagramKind, elementId, elementKind, label；elementId 必须引用输入/输出模型中真实存在的元素 id 或 relationship id。",
+    DESIGN_TRACEABILITY_RULES,
     "必须包含主要正常流程；如已确认需求项中存在异常处理或扩展条件，也要用消息或片段表达。",
     "",
     "原始需求：",
@@ -273,11 +377,15 @@ export function buildGenerateDesignModelsPrompt(
 ) {
   return [
     "请根据已确认需求项、需求阶段模型和设计阶段顺序图生成设计阶段 UML 结构化模型。",
-    "返回 JSON 对象，格式必须是 {\"models\":[...]}。",
+    "返回 JSON 对象，格式必须是 {\"models\":[...],\"designModelTraceability\":[...]}。",
+    "必须返回非空 designModelTraceability 数组，记录每个设计模型元素映射到哪些需求模型元素。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     DESIGN_STAGE_SEMANTICS,
     DESIGN_MODEL_SCHEMA_INSTRUCTIONS,
     "已确认需求项是设计阶段的权威基线；原始需求只作为背景，不得覆盖需求项。",
+    "designModelTraceability[].字段：source, targets；source 是设计元素引用，targets 是需求模型元素引用数组。",
+    "source/targets 字段都必须包含 diagramKind, elementId, elementKind, label；elementId 必须引用输入/输出模型中真实存在的元素 id 或 relationship id；表字段类元素使用 tableId.columnId 形式。",
+    DESIGN_TRACEABILITY_RULES,
     "只生成以下设计图类型：",
     selectedDiagrams.join(", "),
     "",
@@ -311,12 +419,14 @@ export function buildRepairDesignModelsPrompt(
   return [
     "请修复下面不符合要求的设计阶段 UML 结构化模型 JSON 输出。",
     "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
-    "返回格式必须是 {\"models\":[...]}。",
+    "返回格式必须是 {\"models\":[...],\"designModelTraceability\":[...]}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何额外文字。",
     "请严格按错误路径逐项修复 JSON 结构问题，不要改变原有业务语义。",
     "已确认需求项是设计阶段的权威基线；原始需求只作为背景，不得覆盖需求项。",
     DESIGN_STAGE_SEMANTICS,
     DESIGN_MODEL_SCHEMA_INSTRUCTIONS,
+    "designModelTraceability 必须是非空数组；每一项必须包含 source 和 targets，引用的 elementId 必须真实存在。",
+    DESIGN_TRACEABILITY_RULES,
     "只生成以下设计图类型：",
     selectedDiagrams.join(", "),
     "",
@@ -327,6 +437,79 @@ export function buildRepairDesignModelsPrompt(
     JSON.stringify(rules, null, 2),
     "",
     "上一次模型输出：",
+    previousOutput,
+    "",
+    "解析或校验错误：",
+    parseError,
+  ].join("\n");
+}
+
+export function buildGenerateDesignTraceabilityPrompt(
+  requirementText: string,
+  rules: RequirementRule[],
+  requirementModels: DiagramModelSpec[],
+  designModels: DesignDiagramModelSpec[],
+) {
+  return [
+    "请为已经生成成功的设计阶段 UML 模型补充元素级可追踪关系。",
+    "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
+    "返回格式必须是 {\"designModelTraceability\":[...]}。",
+    "designModelTraceability 必须是非空数组；每一项必须包含 source 和 targets。",
+    "source 是设计模型元素引用，targets 是需求模型元素引用数组。",
+    "source/targets 都必须包含 diagramKind, elementId, elementKind, label；elementId 必须引用输入模型中真实存在的元素 id 或 relationship id。",
+    DESIGN_TRACEABILITY_RULES,
+    "不要把整张需求模型套给每个设计元素；只输出能从设计元素语义、需求模型元素和已确认需求项直接推导的映射。",
+    "表字段类元素使用 tableId.columnId 形式。",
+    "",
+    "原始需求：",
+    requirementText,
+    "",
+    "已确认需求项：",
+    JSON.stringify(rules, null, 2),
+    "",
+    "需求阶段来源模型：",
+    JSON.stringify(requirementModels, null, 2),
+    "",
+    "已生成设计模型：",
+    JSON.stringify(designModels, null, 2),
+  ].join("\n");
+}
+
+export function buildRepairDesignTraceabilityPrompt(
+  requirementText: string,
+  rules: RequirementRule[],
+  requirementModels: DiagramModelSpec[],
+  designModels: DesignDiagramModelSpec[],
+  previousOutput: string,
+  parseError: string,
+  missingSources: ModelElementRef[] = [],
+) {
+  return [
+    "请修复设计模型元素级可追踪关系 JSON。",
+    "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
+    "返回格式必须是 {\"designModelTraceability\":[...]}。",
+    "designModelTraceability 必须是非空数组；每一项必须包含 source 和 targets。",
+    "source.elementId 必须引用设计模型中真实存在的元素 id 或 relationship id；targets[].elementId 必须引用需求模型中真实存在的元素 id 或 relationship id。",
+    DESIGN_TRACEABILITY_RULES,
+    "不要修改模型；只修复映射数组。",
+    "如果缺失清单非空，只需要为缺失清单中的每一项补充映射；可以保留上一轮已经有效的映射，不要重写模型。",
+    "",
+    "原始需求：",
+    requirementText,
+    "",
+    "已确认需求项：",
+    JSON.stringify(rules, null, 2),
+    "",
+    "需求阶段来源模型：",
+    JSON.stringify(requirementModels, null, 2),
+    "",
+    "已生成设计模型：",
+    JSON.stringify(designModels, null, 2),
+    "",
+    "必须补齐的缺失业务元素清单：",
+    formatMissingRefsForPrompt(missingSources),
+    "",
+    "上一次映射输出：",
     previousOutput,
     "",
     "解析或校验错误：",
