@@ -34,6 +34,18 @@
 
 ---
 
+# 🖼️ 项目截图
+
+## 需求分析工作台
+
+![需求分析工作台](./docs/images/readme-requirements-workbench.png)
+
+## 前端原型代码与预览
+
+![前端原型代码与预览](./docs/images/readme-code-prototype.png)
+
+---
+
 # 🌟 项目简介
 
 软件工程实验平台以“需求到设计再到代码”的实验链路为核心，帮助用户从自然语言需求生成结构化需求规则、需求阶段 UML、设计阶段 UML、可运行 React 原型和 Word 说明书。
