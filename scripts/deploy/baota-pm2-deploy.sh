@@ -5,6 +5,7 @@ DEPLOY_PATH="${DEPLOY_PATH:-/www/wwwroot/uml-platform}"
 RELEASE_SHA="${RELEASE_SHA:-$(date +%Y%m%d%H%M%S)}"
 RELEASE_ARCHIVE="${RELEASE_ARCHIVE:-}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 
 if [[ -z "$RELEASE_ARCHIVE" ]]; then
   echo "RELEASE_ARCHIVE is required" >&2
@@ -60,10 +61,10 @@ if [[ ! -f "$TMP_DIR/plantuml/build/libs/plantuml-1.2026.3beta8.jar" ]]; then
   exit 1
 fi
 
-echo "Installing production dependencies ..."
+echo "Installing production dependencies from $NPM_REGISTRY ..."
 (
   cd "$TMP_DIR"
-  npm ci --omit=dev
+  npm ci --omit=dev --no-audit --no-fund --registry="$NPM_REGISTRY"
 )
 
 mv "$TMP_DIR" "$RELEASE_DIR"
