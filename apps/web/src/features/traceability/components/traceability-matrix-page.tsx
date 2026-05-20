@@ -41,6 +41,7 @@ type ElementRow = {
   groupKey: string;
   groupLabel: string;
   status: RowStatus;
+  mappingNote: string | null;
   requirementRules: RequirementRule[];
   requirementElements: ModelElementRef[];
   detailLines: string[];
@@ -193,6 +194,7 @@ function buildRequirementRows(
       groupKey: ref.diagramKind,
       groupLabel: requirementGroupLabel(ref.diagramKind),
       status: mappedRules.length > 0 ? "mapped" : "unmapped",
+      mappingNote: null,
       requirementRules: mappedRules,
       requirementElements: [],
       detailLines: mappedRules.map(
@@ -220,14 +222,18 @@ function buildDesignRows(
     const key = refKey(entry.target);
     rulesByRequirementRef.set(key, [...(rulesByRequirementRef.get(key) ?? []), rule]);
   }
-  const traceBySource = new Map<string, ModelElementRef[]>();
+  const traceBySource = new Map<
+    string,
+    ReturnType<typeof useWorkspaceSession>["designModelTraceability"][number]
+  >();
   for (const entry of designTraceability) {
-    traceBySource.set(entry.source.elementId ? refKey(entry.source) : "", entry.targets);
+    traceBySource.set(entry.source.elementId ? refKey(entry.source) : "", entry);
   }
 
   return refsForDesignModels(designModels).map(({ ref, typeLabel, description }) => {
+    const traceEntry = traceBySource.get(refKey(ref));
     const targets = uniqueBy<ModelElementRef>(
-      (traceBySource.get(refKey(ref)) ?? [])
+      (traceEntry?.targets ?? [])
         .map((target) => requirementRefMap.get(refKey(target)) ?? target),
       refKey,
     );
@@ -243,9 +249,16 @@ function buildDesignRows(
       groupKey: ref.diagramKind,
       groupLabel: designGroupLabel(ref.diagramKind),
       status: targets.length > 0 ? "mapped" : "unmapped",
+      mappingNote:
+        traceEntry?.mappingSource === "derived-from-endpoints"
+          ? traceEntry.rationale ?? "由端点映射推导"
+          : null,
       requirementRules: mappedRules,
       requirementElements: targets,
       detailLines: [
+        ...(traceEntry?.mappingSource === "derived-from-endpoints"
+          ? [`映射说明：${traceEntry.rationale ?? "由端点映射推导"}`]
+          : []),
         ...targets.map(
           (target) =>
             `需求元素：${requirementGroupLabel(target.diagramKind)} / ${target.label}`,
@@ -693,6 +706,11 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                       </div>
                     </div>
                     <StatusBadge status={selectedRow.status} />
+                    {selectedRow.mappingNote && (
+                      <p className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm leading-6 text-primary">
+                        {selectedRow.mappingNote}
+                      </p>
+                    )}
                     <div className="space-y-2 text-sm leading-6 text-muted-foreground">
                       {selectedRow.detailLines.length > 0 ? (
                         selectedRow.detailLines.map((line) => (

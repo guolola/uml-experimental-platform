@@ -38,11 +38,13 @@ import { generateDesignPlantUmlArtifacts } from "../../plantuml.js";
 import {
   parseDesignDiagramModelsOnly,
   parseDesignDiagramModelsResult,
-  parseDesignTraceabilityCoverageResult,
+  parseDesignTraceabilityCoverageForSources,
 } from "../../normalizers/design/design-model-normalizer.js";
 import {
+  deriveDesignRelationshipTraceability,
   formatTraceabilityMissingRefs,
   mergeDesignTraceability,
+  normalizeDesignTraceabilityForSources,
   normalizeDesignTraceabilityWithCoverage,
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError } from "../../normalizers/json/parse-json.js";
@@ -54,6 +56,15 @@ import { collectTextResult, logFailedStructuredOutput } from "./shared/structure
 import { appendDesignTrace } from "./shared/trace-events.js";
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
+const DESIGN_TRACEABILITY_BATCH_SIZE = 24;
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 
 async function generateDesignTraceabilityWithRepair(
   record: RunRecord,
@@ -65,6 +76,133 @@ async function generateDesignTraceabilityWithRepair(
   designModels: DesignDiagramModelSpec[],
   stage: RunStage,
 ) {
+  const allRequiredSources =
+    normalizeDesignTraceabilityWithCoverage([], designModels, requirementModels)
+      .missingSources;
+  const directSources = allRequiredSources.filter(
+    (source) => source.elementKind !== "relationship",
+  );
+  const relationshipSources = allRequiredSources.filter(
+    (source) => source.elementKind === "relationship",
+  );
+  let accumulatedTraceability: DesignModelTraceabilityEntry[] = [];
+  const directBatches = chunkArray(directSources, DESIGN_TRACEABILITY_BATCH_SIZE);
+
+  for (const [batchIndex, batchSources] of directBatches.entries()) {
+    const batchTraceability = await generateDesignTraceabilityBatchWithRepair(
+      record,
+      providerSettings,
+      llmTransport,
+      requirementText,
+      rules,
+      requirementModels,
+      designModels,
+      batchSources,
+      stage,
+      batchIndex + 1,
+      directBatches.length,
+    );
+    accumulatedTraceability = mergeDesignTraceability(
+      accumulatedTraceability,
+      batchTraceability,
+    );
+  }
+
+  accumulatedTraceability = deriveDesignRelationshipTraceability(
+    accumulatedTraceability,
+    designModels,
+  );
+
+  const afterDerivedCoverage = normalizeDesignTraceabilityWithCoverage(
+    accumulatedTraceability,
+    designModels,
+    requirementModels,
+  );
+  accumulatedTraceability = afterDerivedCoverage.traceability;
+  const remainingRelationshipSources = afterDerivedCoverage.missingSources.filter(
+    (source) =>
+      source.elementKind === "relationship" ||
+      relationshipSources.some(
+        (relationship) =>
+          relationship.diagramKind === source.diagramKind &&
+          relationship.elementId === source.elementId,
+      ),
+  );
+
+  const relationshipBatches = chunkArray(
+    remainingRelationshipSources,
+    DESIGN_TRACEABILITY_BATCH_SIZE,
+  );
+  for (const [batchIndex, batchSources] of relationshipBatches.entries()) {
+    const batchTraceability = await generateDesignTraceabilityBatchWithRepair(
+      record,
+      providerSettings,
+      llmTransport,
+      requirementText,
+      rules,
+      requirementModels,
+      designModels,
+      batchSources,
+      stage,
+      batchIndex + 1,
+      relationshipBatches.length,
+    );
+    accumulatedTraceability = mergeDesignTraceability(
+      accumulatedTraceability,
+      batchTraceability,
+    );
+  }
+
+  accumulatedTraceability = deriveDesignRelationshipTraceability(
+    accumulatedTraceability,
+    designModels,
+  );
+  const finalCoverage = normalizeDesignTraceabilityWithCoverage(
+    accumulatedTraceability,
+    designModels,
+    requirementModels,
+  );
+  if (finalCoverage.traceability.length === 0) {
+    throw new Error(
+      "design traceability structured output failed: generate_design_models must return non-empty designModelTraceability with valid design-to-requirement element references",
+    );
+  }
+  if (finalCoverage.missingSources.length > 0) {
+    throw new Error(
+      `design traceability structured output failed: ${formatTraceabilityMissingRefs(
+        "design",
+        finalCoverage.missingSources,
+      )}`,
+    );
+  }
+
+  appendDesignTrace(record, {
+    stage:
+      stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models",
+    attempt: 1,
+    kind: "parsed_model",
+    parsedData: {
+      models: designModels,
+      designModelTraceability: finalCoverage.traceability,
+    },
+  });
+  return finalCoverage.traceability;
+}
+
+async function generateDesignTraceabilityBatchWithRepair(
+  record: RunRecord,
+  providerSettings: ProviderSettings,
+  llmTransport: LlmTransport,
+  requirementText: string,
+  rules: RequirementRule[],
+  requirementModels: DiagramModelSpec[],
+  designModels: DesignDiagramModelSpec[],
+  requiredSources: ModelElementRef[],
+  stage: RunStage,
+  batchIndex: number,
+  totalBatches: number,
+) {
+  if (requiredSources.length === 0) return [];
   const responseFormat = getGenerateDesignTraceabilityResponseFormat(
     providerSettings.model,
   );
@@ -73,13 +211,12 @@ async function generateDesignTraceabilityWithRepair(
     rules,
     requirementModels,
     designModels,
+    requiredSources,
   );
   let previousOutput = "";
   let lastErrorMessage = "";
   let accumulatedTraceability: DesignModelTraceabilityEntry[] = [];
-  let missingSources: ModelElementRef[] =
-    normalizeDesignTraceabilityWithCoverage([], designModels, requirementModels)
-      .missingSources;
+  let missingSources: ModelElementRef[] = requiredSources;
   const traceStage =
     stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
@@ -109,18 +246,18 @@ async function generateDesignTraceabilityWithRepair(
     });
 
     try {
-      const parsed = parseDesignTraceabilityCoverageResult(
+      const parsed = parseDesignTraceabilityCoverageForSources(
         content,
-        designModels,
+        missingSources,
         requirementModels,
       );
       accumulatedTraceability = mergeDesignTraceability(
         accumulatedTraceability,
         parsed.traceability,
       );
-      const coverage = normalizeDesignTraceabilityWithCoverage(
+      const coverage = normalizeDesignTraceabilityForSources(
         accumulatedTraceability,
-        designModels,
+        requiredSources,
         requirementModels,
       );
       accumulatedTraceability = coverage.traceability;
@@ -131,7 +268,12 @@ async function generateDesignTraceabilityWithRepair(
         );
       }
       if (missingSources.length > 0) {
-        throw new Error(formatTraceabilityMissingRefs("design", missingSources));
+        throw new Error(
+          `第 ${batchIndex}/${totalBatches} 批${formatTraceabilityMissingRefs(
+            "design",
+            missingSources,
+          )}`,
+        );
       }
       appendDesignTrace(record, {
         stage: traceStage,
@@ -172,7 +314,7 @@ async function generateDesignTraceabilityWithRepair(
           type: "stage_progress",
           stage,
           progress: stageProgressValue(stage),
-          message: `设计模型元素映射不合法，正在单独修复可追踪关系（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
+          message: `设计模型元素映射不合法，正在修复第 ${batchIndex}/${totalBatches} 批可追踪关系（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
         }),
       );
 

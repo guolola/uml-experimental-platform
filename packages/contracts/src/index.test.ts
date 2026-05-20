@@ -629,12 +629,18 @@ test("contracts require element-level traceability for generated model results",
             label: "UserDomain",
           },
         ],
+        mappingSource: "derived-from-endpoints",
+        rationale: "由关系两端设计元素的需求映射合并推导",
       },
     ],
   });
   assert.equal(
     designModelsWithTrace.designModelTraceability[0]?.targets[0]?.label,
     "UserDomain",
+  );
+  assert.equal(
+    designModelsWithTrace.designModelTraceability[0]?.mappingSource,
+    "derived-from-endpoints",
   );
 });
 

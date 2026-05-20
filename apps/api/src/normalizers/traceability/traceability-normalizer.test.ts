@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  deriveDesignRelationshipTraceability,
   formatTraceabilityMissingRefs,
   normalizeDesignTraceability,
   normalizeDesignTraceabilityWithCoverage,
@@ -227,5 +228,74 @@ test("design traceability rejects stage names as diagramKind and reports missing
   assert.deepEqual(
     normalized.missingSources.map((source) => source.elementId),
     ["class-user-auth"],
+  );
+});
+
+test("design traceability can derive relationship mappings from endpoint mappings", () => {
+  const activityDesignModel = {
+    diagramKind: "activity" as const,
+    title: "设计活动图",
+    summary: "页面流程",
+    notes: [],
+    swimlanes: [],
+    nodes: [
+      { id: "open", type: "activity" as const, name: "打开页面" },
+      { id: "submit", type: "activity" as const, name: "提交表单" },
+    ],
+    relationships: [
+      {
+        id: "flow-open-submit",
+        type: "control_flow" as const,
+        sourceId: "open",
+        targetId: "submit",
+      },
+    ],
+  };
+  const current = [
+    {
+      source: {
+        diagramKind: "activity" as const,
+        elementId: "open",
+        elementKind: "activity",
+        label: "打开页面",
+      },
+      targets: [
+        {
+          diagramKind: "usecase" as const,
+          elementId: "usecase_generate",
+          elementKind: "usecase",
+          label: "生成模型",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "activity" as const,
+        elementId: "submit",
+        elementKind: "activity",
+        label: "提交表单",
+      },
+      targets: [
+        {
+          diagramKind: "usecase" as const,
+          elementId: "actor_researcher",
+          elementKind: "actor",
+          label: "研究人员",
+        },
+      ],
+    },
+  ];
+
+  const derived = deriveDesignRelationshipTraceability(current, [
+    activityDesignModel,
+  ]);
+  const relationship = derived.find(
+    (entry) => entry.source.elementId === "flow-open-submit",
+  );
+
+  assert.equal(relationship?.mappingSource, "derived-from-endpoints");
+  assert.deepEqual(
+    relationship?.targets.map((target) => target.elementId).sort(),
+    ["actor_researcher", "usecase_generate"],
   );
 });

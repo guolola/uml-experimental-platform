@@ -449,7 +449,19 @@ export function buildGenerateDesignTraceabilityPrompt(
   rules: RequirementRule[],
   requirementModels: DiagramModelSpec[],
   designModels: DesignDiagramModelSpec[],
+  requiredSources: ModelElementRef[] = [],
 ) {
+  const requiredSourceRules =
+    requiredSources.length > 0
+      ? [
+          "本次只为 requiredSources 中列出的设计元素生成映射。",
+          "返回的 designModelTraceability.length 必须等于 requiredSources.length。",
+          "requiredSources 中每一个 source.diagramKind + source.elementId 都必须在返回数组中逐项出现一次。",
+          "禁止返回 requiredSources 之外的 source；禁止遗漏 requiredSources 中的任何 source。",
+        ]
+      : [
+          "本次为已生成设计模型中的全部设计业务元素生成映射。",
+        ];
   return [
     "请为已经生成成功的设计阶段 UML 模型补充元素级可追踪关系。",
     "只返回 JSON，不要输出 Markdown、解释或代码围栏。",
@@ -457,9 +469,15 @@ export function buildGenerateDesignTraceabilityPrompt(
     "designModelTraceability 必须是非空数组；每一项必须包含 source 和 targets。",
     "source 是设计模型元素引用，targets 是需求模型元素引用数组。",
     "source/targets 都必须包含 diagramKind, elementId, elementKind, label；elementId 必须引用输入模型中真实存在的元素 id 或 relationship id。",
+    ...requiredSourceRules,
     DESIGN_TRACEABILITY_RULES,
     "不要把整张需求模型套给每个设计元素；只输出能从设计元素语义、需求模型元素和已确认需求项直接推导的映射。",
+    "允许派生映射：技术参与者、数据库参与者、关系边、字段等如果不是直接需求元素，也必须映射到最近的上游领域元素、用例、活动节点或关系。",
+    "关系边优先映射到其 source/target 端点已映射需求元素的并集；这属于可解释链路继承，不是凭空猜测。",
     "表字段类元素使用 tableId.columnId 形式。",
+    "",
+    "本批必须映射的 requiredSources：",
+    formatMissingRefsForPrompt(requiredSources),
     "",
     "原始需求：",
     requirementText,
@@ -492,7 +510,9 @@ export function buildRepairDesignTraceabilityPrompt(
     "source.elementId 必须引用设计模型中真实存在的元素 id 或 relationship id；targets[].elementId 必须引用需求模型中真实存在的元素 id 或 relationship id。",
     DESIGN_TRACEABILITY_RULES,
     "不要修改模型；只修复映射数组。",
-    "如果缺失清单非空，只需要为缺失清单中的每一项补充映射；可以保留上一轮已经有效的映射，不要重写模型。",
+    "如果缺失清单非空，只需要为缺失清单中的每一项补充映射；不要重写模型，也不要返回缺失清单之外的 source。",
+    "返回的 designModelTraceability.length 必须等于缺失清单长度，且每一个缺失 source 都必须逐项出现一次。",
+    "允许派生映射：技术参与者、数据库参与者、关系边、字段等如果不是直接需求元素，也必须映射到最近的上游领域元素、用例、活动节点或关系。",
     "",
     "原始需求：",
     requirementText,

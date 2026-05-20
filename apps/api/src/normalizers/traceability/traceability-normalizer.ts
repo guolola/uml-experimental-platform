@@ -31,8 +31,18 @@ function compactString(value: unknown) {
     : "";
 }
 
+function normalizeMappingSource(
+  value: unknown,
+): DesignModelTraceabilityEntry["mappingSource"] {
+  return value === "derived-from-endpoints" || value === "llm" ? value : undefined;
+}
+
 function refKey(diagramKind: string, elementId: string) {
   return `${diagramKind}:${elementId}`.toLowerCase();
+}
+
+function refEntryKey(ref: Pick<ModelElementRef, "diagramKind" | "elementId">) {
+  return refKey(ref.diagramKind, ref.elementId);
 }
 
 function addRef(
@@ -173,6 +183,42 @@ export function collectModelRefs(
   return { refs: Array.from(byKey.values()), byKey, byId };
 }
 
+function relationshipEndpointIds(
+  relationship: Record<string, unknown>,
+) {
+  return [
+    compactString(relationship.sourceId || relationship.sourceTableId),
+    compactString(relationship.targetId || relationship.targetTableId),
+  ].filter(Boolean);
+}
+
+function collectRelationshipEndpointRefs(
+  models: Array<DiagramModelSpec | DesignDiagramModelSpec>,
+) {
+  const refs = collectModelRefs(models);
+  const endpointsByRelationship = new Map<string, ModelElementRef[]>();
+
+  for (const model of models) {
+    const diagramKind = model.diagramKind;
+    const record = model as unknown as Record<string, unknown>;
+    for (const relationship of ensureArray(record.relationships)) {
+      if (!isPlainRecord(relationship)) continue;
+      const relationshipId = compactString(relationship.id);
+      if (!relationshipId) continue;
+      const relationshipRef = refs.byKey.get(refKey(diagramKind, relationshipId));
+      if (!relationshipRef) continue;
+      const endpoints = relationshipEndpointIds(relationship)
+        .map((id) => refs.byKey.get(refKey(diagramKind, id)))
+        .filter((ref): ref is ModelElementRef => Boolean(ref));
+      if (endpoints.length > 0) {
+        endpointsByRelationship.set(refEntryKey(relationshipRef), endpoints);
+      }
+    }
+  }
+
+  return endpointsByRelationship;
+}
+
 function resolveRef(raw: unknown, maps: RefMaps) {
   if (!isPlainRecord(raw)) return null;
   const diagramKind = compactString(raw.diagramKind);
@@ -251,6 +297,19 @@ export function normalizeDesignTraceabilityWithCoverage(
   requirementModels: DiagramModelSpec[],
 ): DesignTraceabilityCoverageResult {
   const designRefs = collectModelRefs(designModels);
+  return normalizeDesignTraceabilityForSources(
+    raw,
+    designRefs.refs,
+    requirementModels,
+  );
+}
+
+export function normalizeDesignTraceabilityForSources(
+  raw: unknown,
+  requiredSources: ModelElementRef[],
+  requirementModels: DiagramModelSpec[],
+): DesignTraceabilityCoverageResult {
+  const designRefs = mapsForRefs(requiredSources);
   const requirementRefs = collectModelRefs(requirementModels);
   const traceability = ensureArray(raw).flatMap((entry) => {
     if (!isPlainRecord(entry)) return [];
@@ -259,13 +318,67 @@ export function normalizeDesignTraceabilityWithCoverage(
     const targets = ensureArray(entry.targets)
       .map((target) => resolveRef(target, requirementRefs))
       .filter((target): target is ModelElementRef => Boolean(target));
-    return targets.length > 0 ? [{ source, targets }] : [];
+    return targets.length > 0
+      ? [
+          {
+            source,
+            targets,
+            mappingSource: normalizeMappingSource(entry.mappingSource),
+            rationale: compactString(entry.rationale) || undefined,
+          },
+        ]
+      : [];
   });
   const missingSources = missingRefsForTargets(
-    designRefs.refs,
+    requiredSources,
     traceability.map((entry) => entry.source),
   );
   return { traceability, missingSources };
+}
+
+function mapsForRefs(refs: ModelElementRef[]): RefMaps {
+  const byKey = new Map<string, ModelElementRef>();
+  const byId = new Map<string, ModelElementRef>();
+  for (const ref of refs) {
+    byKey.set(refEntryKey(ref), ref);
+    byId.set(ref.elementId.toLowerCase(), ref);
+  }
+  return { refs: Array.from(byKey.values()), byKey, byId };
+}
+
+export function deriveDesignRelationshipTraceability(
+  current: DesignModelTraceabilityEntry[],
+  designModels: DesignDiagramModelSpec[],
+) {
+  const endpointRefs = collectRelationshipEndpointRefs(designModels);
+  const designRefs = collectModelRefs(designModels);
+  const bySource = new Map<string, DesignModelTraceabilityEntry>();
+  for (const entry of current) {
+    bySource.set(refEntryKey(entry.source), entry);
+  }
+
+  const derived: DesignModelTraceabilityEntry[] = [];
+  for (const [relationshipKey, endpoints] of endpointRefs) {
+    if (bySource.has(relationshipKey)) continue;
+    const targets = new Map<string, ModelElementRef>();
+    for (const endpoint of endpoints) {
+      const endpointTrace = bySource.get(refEntryKey(endpoint));
+      for (const target of endpointTrace?.targets ?? []) {
+        targets.set(refEntryKey(target), target);
+      }
+    }
+    if (targets.size === 0) continue;
+    const relationshipRef = designRefs.byKey.get(relationshipKey);
+    if (!relationshipRef) continue;
+    derived.push({
+      source: relationshipRef,
+      targets: Array.from(targets.values()),
+      mappingSource: "derived-from-endpoints",
+      rationale: "由关系两端设计元素的需求映射合并推导",
+    });
+  }
+
+  return mergeDesignTraceability(current, derived);
 }
 
 export function mergeRequirementTraceability(
@@ -298,7 +411,12 @@ export function mergeDesignTraceability(
     for (const target of [...existing.targets, ...entry.targets]) {
       targets.set(refKey(target.diagramKind, target.elementId), target);
     }
-    merged.set(key, { source: existing.source, targets: Array.from(targets.values()) });
+    merged.set(key, {
+      source: existing.source,
+      targets: Array.from(targets.values()),
+      mappingSource: existing.mappingSource ?? entry.mappingSource,
+      rationale: existing.rationale ?? entry.rationale,
+    });
   }
   return Array.from(merged.values());
 }

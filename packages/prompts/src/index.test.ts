@@ -195,10 +195,22 @@ test("design traceability prompts only ask for design-to-requirement mappings", 
     [],
     [requirementModel],
     [designModel],
+    [
+      {
+        diagramKind: "sequence",
+        elementId: "m1",
+        elementKind: "message",
+        label: "submit",
+      },
+    ],
   );
 
   assert.match(prompt, /返回格式必须是 \{"designModelTraceability":\[\.\.\.\]\}/);
+  assert.match(prompt, /requiredSources/);
+  assert.match(prompt, /designModelTraceability\.length 必须等于 requiredSources\.length/);
+  assert.match(prompt, /"elementId": "m1"/);
   assert.match(prompt, /不要把整张需求模型套给每个设计元素/);
+  assert.match(prompt, /允许派生映射/);
   assert.match(prompt, /source\.diagramKind 只能使用: sequence, class, activity, deployment, table/);
   assert.match(prompt, /targets\[\]\.diagramKind 只能使用: usecase, class, activity, deployment/);
   assert.match(prompt, /每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);

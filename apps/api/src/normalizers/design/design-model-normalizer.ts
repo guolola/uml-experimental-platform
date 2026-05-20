@@ -4,6 +4,7 @@ import {
   designModelTraceabilityEntrySchema,
   type DesignDiagramModelSpec,
   type DiagramModelSpec,
+  type ModelElementRef,
 } from "@uml-platform/contracts";
 import {
   ensureArray,
@@ -12,7 +13,9 @@ import {
   parseJson,
 } from "../json/parse-json.js";
 import {
+  deriveDesignRelationshipTraceability,
   formatTraceabilityMissingRefs,
+  normalizeDesignTraceabilityForSources,
   normalizeDesignTraceabilityWithCoverage,
 } from "../traceability/traceability-normalizer.js";
 
@@ -168,7 +171,7 @@ function assertCompleteDesignTraceability(
   requirementModels: DiagramModelSpec[],
 ) {
   const { traceability: designModelTraceability, missingSources } =
-    normalizeDesignTraceabilityWithCoverage(
+    normalizeCompleteDesignTraceability(
       rawTraceability,
       designModels,
       requirementModels,
@@ -236,8 +239,47 @@ export function parseDesignTraceabilityCoverageResult(
         .array()
         .parse(ensureArray(parsed.designModelTraceability))
     : [];
-  return normalizeDesignTraceabilityWithCoverage(
+  return normalizeCompleteDesignTraceability(
     rawTraceability,
+    designModels,
+    requirementModels,
+  );
+}
+
+export function parseDesignTraceabilityCoverageForSources(
+  value: string,
+  requiredSources: ModelElementRef[],
+  requirementModels: DiagramModelSpec[],
+) {
+  const parsed = parseJson<unknown>(value);
+  const rawTraceability = isPlainRecord(parsed)
+    ? designModelTraceabilityEntrySchema
+        .array()
+        .parse(ensureArray(parsed.designModelTraceability))
+    : [];
+  return normalizeDesignTraceabilityForSources(
+    rawTraceability,
+    requiredSources,
+    requirementModels,
+  );
+}
+
+function normalizeCompleteDesignTraceability(
+  rawTraceability: unknown,
+  designModels: DesignDiagramModelSpec[],
+  requirementModels: DiagramModelSpec[],
+) {
+  const normalized = normalizeDesignTraceabilityWithCoverage(
+    rawTraceability,
+    designModels,
+    requirementModels,
+  );
+  const withDerivedRelationships = deriveDesignRelationshipTraceability(
+    normalized.traceability,
+    designModels,
+  );
+  return normalizeDesignTraceabilityWithCoverage(
+    withDerivedRelationships,
     designModels,
     requirementModels,
   );

@@ -551,6 +551,8 @@ export type RequirementModelTraceabilityEntry = z.infer<
 export const designModelTraceabilityEntrySchema = z.object({
   source: modelElementRefSchema,
   targets: z.array(modelElementRefSchema).min(1),
+  mappingSource: z.enum(["llm", "derived-from-endpoints"]).optional(),
+  rationale: z.string().min(1).optional(),
 });
 export type DesignModelTraceabilityEntry = z.infer<
   typeof designModelTraceabilityEntrySchema
