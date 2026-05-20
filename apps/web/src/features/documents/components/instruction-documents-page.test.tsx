@@ -2,10 +2,18 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DocumentKind, DocumentLibraryItem } from "@uml-platform/contracts";
+import type {
+  DocumentKind,
+  DocumentLibraryItem,
+  DocumentRunSnapshot,
+} from "@uml-platform/contracts";
 import { useTheme } from "../../../app/providers/theme-provider";
-import { createMockWorkspaceRepository } from "../../../services/workspace-repository";
+import {
+  createMockWorkspaceRepository,
+  type WorkspaceRepository,
+} from "../../../services/workspace-repository";
 import { withWorkspaceProviders } from "../../../test/workspace-test-utils";
+import { useWorkspaceShell } from "../../workspace-shell/state";
 import { InstructionDocumentsPage } from "./instruction-documents-page";
 
 const { onlyOfficeEditorHostMock } = vi.hoisted(() => ({
@@ -69,6 +77,111 @@ function ThemeToggleButton() {
       切换主题
     </button>
   );
+}
+
+function ActiveSelectionProbe() {
+  const { selection } = useWorkspaceShell();
+  return (
+    <div data-testid="active-selection">
+      {selection.kind === "document-editor" ? selection.documentId : selection.kind}
+    </div>
+  );
+}
+
+function createControlledDocumentRepository() {
+  const documents = new Map<string, DocumentLibraryItem>();
+  const snapshots = new Map<string, DocumentRunSnapshot>([
+    [
+      "run-requirements",
+      {
+        runId: "run-requirements",
+        documentKind: "requirementsSpec" as const,
+        requirementText: "订单系统需求",
+        documentId: "doc-requirements",
+        sections: [{ level: 1, title: "1 需求规定", body: ["正文"] }],
+        fileName: "需求规格说明书-20260520-160501.docx",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        byteLength: 128,
+        missingArtifacts: [],
+        currentStage: "render_document_file" as const,
+        status: "completed" as const,
+        errorMessage: null,
+      },
+    ],
+    [
+      "run-design",
+      {
+        runId: "run-design",
+        documentKind: "softwareDesignSpec" as const,
+        requirementText: "订单系统需求",
+        documentId: "doc-design",
+        sections: [{ level: 1, title: "1 设计概述", body: ["正文"] }],
+        fileName: "软件设计说明书-20260520-160502.docx",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        byteLength: 128,
+        missingArtifacts: [],
+        currentStage: "render_document_file" as const,
+        status: "completed" as const,
+        errorMessage: null,
+      },
+    ],
+  ]);
+  const subscribers = new Map<
+    string,
+    {
+      onEvent: Parameters<NonNullable<WorkspaceRepository["subscribeToDocumentRun"]>>[1];
+      resolve: () => void;
+    }
+  >();
+  const repository = createMockWorkspaceRepository({
+    requirementText: "订单系统需求",
+    models: { usecase: requirementModel as never },
+    designModels: { sequence: designModel as never },
+  });
+  repository.listDocuments = vi.fn(async () =>
+    Array.from(documents.values()).sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    ),
+  );
+  repository.startDocumentRun = vi.fn(async (input) => ({
+    runId:
+      input.documentKind === "requirementsSpec"
+        ? "run-requirements"
+        : "run-design",
+  }));
+  repository.subscribeToDocumentRun = vi.fn(
+    async (runId, onEvent) =>
+      new Promise<void>((resolve) => {
+        subscribers.set(runId, { onEvent, resolve });
+      }),
+  );
+  repository.getDocumentRunSnapshot = vi.fn(async (runId) => {
+    const snapshot = snapshots.get(runId);
+    if (!snapshot) throw new Error("Missing document snapshot");
+    return snapshot;
+  });
+
+  const complete = (runId: "run-requirements" | "run-design") => {
+    const snapshot = snapshots.get(runId)!;
+    const now = new Date().toISOString();
+    documents.set(
+      snapshot.documentId,
+      createDocument(
+        snapshot.documentId,
+        snapshot.documentKind,
+        snapshot.fileName,
+        now,
+      ),
+    );
+    const subscriber = subscribers.get(runId)!;
+    subscriber.onEvent({ type: "queued" });
+    subscriber.onEvent({ type: "completed", snapshot });
+    subscriber.resolve();
+  };
+
+  return { repository, subscribers, complete };
 }
 
 describe("InstructionDocumentsPage", () => {
@@ -216,6 +329,56 @@ describe("InstructionDocumentsPage", () => {
     });
     expect(startDocumentRun.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ documentKind: "requirementsSpec" }),
+    );
+  });
+
+  it("keeps document template buttons independent and opens only the first completed document", async () => {
+    const { repository, subscribers, complete } =
+      createControlledDocumentRepository();
+    const user = userEvent.setup();
+
+    render(
+      withWorkspaceProviders(
+        <>
+          <ActiveSelectionProbe />
+          <InstructionDocumentsPage />
+        </>,
+        repository,
+      ),
+    );
+
+    await screen.findByRole("heading", { name: "已生成说明书" });
+    const generateButtons = screen.getAllByRole("button", {
+      name: /生成并打开/i,
+    });
+
+    await user.click(generateButtons[0]);
+    await waitFor(() => {
+      expect(subscribers.has("run-requirements")).toBe(true);
+    });
+    expect(generateButtons[0]).toBeDisabled();
+    expect(generateButtons[1]).not.toBeDisabled();
+
+    await user.click(generateButtons[1]);
+    await waitFor(() => {
+      expect(subscribers.has("run-design")).toBe(true);
+    });
+    expect(generateButtons[0]).toBeDisabled();
+    expect(generateButtons[1]).toBeDisabled();
+
+    complete("run-design");
+    await waitFor(() => {
+      expect(screen.getByTestId("active-selection")).toHaveTextContent(
+        "doc-design",
+      );
+    });
+
+    complete("run-requirements");
+    await waitFor(() => {
+      expect(repository.listDocuments).toHaveBeenCalledTimes(3);
+    });
+    expect(screen.getByTestId("active-selection")).toHaveTextContent(
+      "doc-design",
     );
   });
 

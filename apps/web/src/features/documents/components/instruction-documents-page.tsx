@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type {
@@ -61,6 +62,11 @@ const DOCUMENT_DEFINITIONS = [
   fileName: string;
   source: string;
 }>;
+
+const IDLE_DOCUMENT_GENERATION_STATE: Record<DocumentKind, boolean> = {
+  requirementsSpec: false,
+  softwareDesignSpec: false,
+};
 
 function formatUpdatedAt(value: string | null | undefined) {
   if (!value) return "尚未生成";
@@ -325,7 +331,6 @@ export function InstructionDocumentsPage({
   const {
     models,
     designModels,
-    generating,
     generateRequirementsSpec,
     generateSoftwareDesignSpec,
   } = useWorkspaceSession();
@@ -341,6 +346,12 @@ export function InstructionDocumentsPage({
   const [editorError, setEditorError] = useState<string | null>(null);
   const [documentStyleDialogOpen, setDocumentStyleDialogOpen] = useState(false);
   const [documentStyle, setDocumentStyle] = useState(cloneDefaultDocumentStyle);
+  const [documentGeneratingByKind, setDocumentGeneratingByKind] = useState(
+    IDLE_DOCUMENT_GENERATION_STATE,
+  );
+  const activeDocumentGenerationsRef = useRef(IDLE_DOCUMENT_GENERATION_STATE);
+  const activeDocumentGenerationCountRef = useRef(0);
+  const autoOpenClaimedRef = useRef(false);
   const hasRequirementModels = Object.values(models).some(Boolean);
   const hasDesignModels = Object.values(designModels).some(Boolean);
   const onlyOfficeUiTheme = onlyOfficeUiThemeForProjectTheme(theme);
@@ -426,16 +437,44 @@ export function InstructionDocumentsPage({
 
   const generateDocument = useCallback(
     async (kind: DocumentKind) => {
-      const snapshot =
-        kind === "requirementsSpec"
-          ? await generateRequirementsSpec(documentStyle)
-          : await generateSoftwareDesignSpec(documentStyle);
-      const nextDocuments = await loadDocuments();
-      const document =
-        nextDocuments.find((item) => item.id === snapshot?.documentId) ??
-        nextDocuments.find((item) => item.documentKind === kind);
-      if (document) {
-        openDocument(document);
+      if (activeDocumentGenerationsRef.current[kind]) return;
+
+      if (activeDocumentGenerationCountRef.current === 0) {
+        autoOpenClaimedRef.current = false;
+      }
+      activeDocumentGenerationCountRef.current += 1;
+      activeDocumentGenerationsRef.current = {
+        ...activeDocumentGenerationsRef.current,
+        [kind]: true,
+      };
+      setDocumentGeneratingByKind(activeDocumentGenerationsRef.current);
+      try {
+        const snapshot =
+          kind === "requirementsSpec"
+            ? await generateRequirementsSpec(documentStyle)
+            : await generateSoftwareDesignSpec(documentStyle);
+
+        const nextDocuments = await loadDocuments();
+        const document =
+          nextDocuments.find((item) => item.id === snapshot?.documentId) ??
+          nextDocuments.find((item) => item.documentKind === kind);
+        if (document && !autoOpenClaimedRef.current) {
+          autoOpenClaimedRef.current = true;
+          openDocument(document);
+        }
+      } finally {
+        activeDocumentGenerationCountRef.current = Math.max(
+          0,
+          activeDocumentGenerationCountRef.current - 1,
+        );
+        activeDocumentGenerationsRef.current = {
+          ...activeDocumentGenerationsRef.current,
+          [kind]: false,
+        };
+        setDocumentGeneratingByKind(activeDocumentGenerationsRef.current);
+        if (activeDocumentGenerationCountRef.current === 0) {
+          autoOpenClaimedRef.current = false;
+        }
       }
     },
     [
@@ -647,17 +686,20 @@ export function InstructionDocumentsPage({
         ) : (
           <>
             <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {DOCUMENT_DEFINITIONS.map((definition) => (
-                <TemplateDocumentCard
-                  key={definition.kind}
-                  definition={definition}
-                  disabledReason={disabledReasonByKind[definition.kind]}
-                  generating={generating}
-                  documentStyle={documentStyle}
-                  onOpenStyle={() => setDocumentStyleDialogOpen(true)}
-                  onGenerate={() => void generateDocument(definition.kind)}
-                />
-              ))}
+              {DOCUMENT_DEFINITIONS.map((definition) => {
+                const generating = documentGeneratingByKind[definition.kind];
+                return (
+                  <TemplateDocumentCard
+                    key={definition.kind}
+                    definition={definition}
+                    disabledReason={disabledReasonByKind[definition.kind]}
+                    generating={generating}
+                    documentStyle={documentStyle}
+                    onOpenStyle={() => setDocumentStyleDialogOpen(true)}
+                    onGenerate={() => void generateDocument(definition.kind)}
+                  />
+                );
+              })}
             </section>
 
             <section className="flex flex-col gap-4">

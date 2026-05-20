@@ -15,6 +15,44 @@ import {
 import { useWorkspaceSession } from "./state";
 
 describe("WorkspaceSessionProvider", () => {
+  it("keeps global generating true for active model runs", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-rules" })),
+      subscribeToRun: vi.fn(
+        async (_runId, _onEvent) => new Promise<void>(() => {}),
+      ),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    act(() => {
+      void result.current.generateRules();
+    });
+
+    await waitFor(() => {
+      expect(result.current.generating).toBe(true);
+    });
+  });
+
   it("drives runs through the repository and tracks stale diagrams after rules refresh", async () => {
     const snapshots = new Map([
       [
@@ -448,6 +486,10 @@ describe("WorkspaceSessionProvider", () => {
         "需求规格说明书",
       ]);
     });
+    expect(result.current.generationTasks.some((task) => task.status === "queued")).toBe(
+      true,
+    );
+    expect(result.current.generating).toBe(false);
 
     for (const runId of ["doc-req", "doc-design"]) {
       const subscriber = subscribers.get(runId)!;

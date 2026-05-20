@@ -2171,7 +2171,9 @@ export function WorkspaceSessionProvider({
   const visibleRunDiagnostics =
     visibleGenerationTask?.diagnostics ?? currentRunDiagnostics;
 
-  const generating = generationTasks.some(isTaskActive);
+  const generating = generationTasks.some(
+    (task) => task.kind !== "document" && isTaskActive(task),
+  );
 
   const value = useMemo<WorkspaceSessionState>(
     () => ({
