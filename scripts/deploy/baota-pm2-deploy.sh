@@ -34,11 +34,12 @@ command -v java >/dev/null || {
   exit 1
 }
 
-mkdir -p "$DEPLOY_PATH/releases" "$DEPLOY_PATH/incoming"
+mkdir -p "$DEPLOY_PATH/releases" "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/shared"
 
 RELEASE_DIR="$DEPLOY_PATH/releases/$RELEASE_SHA"
 TMP_DIR="$DEPLOY_PATH/incoming/$RELEASE_SHA"
 RELEASE_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+PRODUCTION_ENV_FILE="$DEPLOY_PATH/shared/production.env"
 
 rm -rf "$TMP_DIR" "$RELEASE_DIR"
 mkdir -p "$TMP_DIR"
@@ -81,6 +82,16 @@ ln -sfnT "$RELEASE_DIR" "$DEPLOY_PATH/current"
 echo "Reloading PM2 processes ..."
 (
   cd "$DEPLOY_PATH/current"
+  if [[ -f "$PRODUCTION_ENV_FILE" ]]; then
+    echo "Loading production environment: $PRODUCTION_ENV_FILE"
+    set -a
+    # shellcheck disable=SC1090
+    . "$PRODUCTION_ENV_FILE"
+    set +a
+  else
+    echo "Warning: production environment file not found: $PRODUCTION_ENV_FILE" >&2
+    echo "OnlyOffice and other optional production integrations may be unavailable." >&2
+  fi
   export UML_RELEASE_SHA="$RELEASE_SHA"
   export UML_RELEASE_DIR="$RELEASE_DIR"
   export UML_RELEASE_STARTED_AT="$RELEASE_STARTED_AT"

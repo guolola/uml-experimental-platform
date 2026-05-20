@@ -33,7 +33,22 @@ pm2 -v
 创建部署目录：
 
 ```bash
-mkdir -p /www/wwwroot/uml-platform
+mkdir -p /www/wwwroot/uml-platform/shared
+chmod 700 /www/wwwroot/uml-platform/shared
+```
+
+生产环境变量放在部署目录外的 shared 文件中，避免每次 release 覆盖，也避免把密钥提交进仓库：
+
+```bash
+cat > /www/wwwroot/uml-platform/shared/production.env <<'EOF'
+ONLYOFFICE_DOCUMENT_SERVER_URL=http://office.example.com
+PUBLIC_API_BASE_URL=http://platform.example.com
+ONLYOFFICE_JWT_SECRET=<与 Document Server 一致的强随机密钥>
+ONLYOFFICE_ACCESS_TOKEN_SECRET=<强随机密钥>
+UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents
+EOF
+
+chmod 600 /www/wwwroot/uml-platform/shared/production.env
 ```
 
 ## GitHub Secrets
@@ -113,6 +128,7 @@ VITE_APP_API_BASE_URL="" npm run build:web
 - 使用 `https://registry.npmmirror.com` 安装 API 和 Render Service 生产依赖，可通过 `NPM_REGISTRY` 覆盖；Web 已提前构建为静态文件，不在服务器安装前端依赖
 - 检查 Web dist 和 PlantUML jar
 - 更新 `/www/wwwroot/uml-platform/current` 软链接
+- 自动加载 `/www/wwwroot/uml-platform/shared/production.env` 后再启动 PM2，确保 OnlyOffice 等生产配置在每次发布后仍然存在
 - 使用 PM2 重启 `uml-api` 和 `uml-render-service`
 - 自动检查 `http://127.0.0.1:4001/api/health` 和 `http://127.0.0.1:4002/health`，失败时直接让 GitHub Actions 失败并输出 PM2 日志
 - 清理旧版本，只保留最近 5 个 release
@@ -127,7 +143,10 @@ ss -lntp | grep -E '4001|4002'
 curl http://127.0.0.1:4001/api/health
 curl http://127.0.0.1:4002/health
 curl http://服务器IP/api/health
+curl -s http://服务器IP/api/version | grep -o '"onlyOfficeDocumentServerConfigured":[^,}]*'
 ```
+
+如果启用了 OnlyOffice，最后一条命令应输出 `"onlyOfficeDocumentServerConfigured":true`。
 
 render-service 的 health 返回中应包含：
 
@@ -170,6 +189,9 @@ ls -1 /www/wwwroot/uml-platform/releases
 ```bash
 ln -sfnT /www/wwwroot/uml-platform/releases/<release-sha> /www/wwwroot/uml-platform/current
 cd /www/wwwroot/uml-platform/current
+set -a
+. /www/wwwroot/uml-platform/shared/production.env
+set +a
 pm2 startOrReload ecosystem.config.cjs --env production
 pm2 save
 ```
@@ -190,6 +212,9 @@ done
 
 ln -sfnT /www/wwwroot/uml-platform/releases/<release-sha> /www/wwwroot/uml-platform/current
 cd /www/wwwroot/uml-platform/current
+set -a
+. /www/wwwroot/uml-platform/shared/production.env
+set +a
 pm2 startOrReload ecosystem.config.cjs --env production
 pm2 save
 ```
@@ -242,6 +267,8 @@ ONLYOFFICE_ACCESS_TOKEN_SECRET=<强随机密钥>
 UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents
 ```
 
+这些变量必须写入 `/www/wwwroot/uml-platform/shared/production.env`。不要只在 SSH 里临时 `export`，因为发布脚本会删除并重建 PM2 进程，临时环境变量不会自动进入下一次发布。
+
 `PUBLIC_API_BASE_URL` 必须是 OnlyOffice Document Server 能访问的平台地址，因为它需要读取
 `/api/documents/:documentId/file` 并回调
 `/api/documents/:documentId/onlyoffice/callback` 保存编辑结果。
@@ -276,6 +303,7 @@ location / {
 ```bash
 curl http://office.example.com/healthcheck
 curl http://platform.example.com/api/health
+curl -s http://platform.example.com/api/version | grep -o '"onlyOfficeDocumentServerConfigured":[^,}]*'
 ```
 
 ### SVG 渲染失败
