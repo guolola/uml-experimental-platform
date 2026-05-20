@@ -99,6 +99,7 @@ export function OnlyOfficeEditorHost({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const elementIdRef = useRef<string | null>(null);
+  const onLoadErrorRef = useRef(onLoadError);
 
   if (!elementIdRef.current) {
     const id =
@@ -107,6 +108,10 @@ export function OnlyOfficeEditorHost({
         : Math.random().toString(36).slice(2);
     elementIdRef.current = `onlyoffice-editor-${id}`;
   }
+
+  useEffect(() => {
+    onLoadErrorRef.current = onLoadError;
+  }, [onLoadError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +138,7 @@ export function OnlyOfficeEditorHost({
       })
       .catch((error) => {
         if (cancelled) return;
-        onLoadError?.(
+        onLoadErrorRef.current?.(
           error instanceof Error ? error.message : "OnlyOffice 编辑器加载失败",
         );
       });
@@ -150,7 +155,7 @@ export function OnlyOfficeEditorHost({
       }
       host.replaceChildren();
     };
-  }, [config, documentServerUrl, onLoadError]);
+  }, [config, documentServerUrl]);
 
   return (
     <div

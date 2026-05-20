@@ -77,4 +77,40 @@ describe("OnlyOfficeEditorHost", () => {
     expect(() => unmount()).not.toThrow();
     expect(destroyEditor).toHaveBeenCalledTimes(1);
   });
+
+  it("does not recreate the editor when only the load-error callback changes", async () => {
+    const destroyEditor = vi.fn();
+    const docEditor = vi.fn().mockReturnValue({ destroyEditor });
+    window.DocsAPI = { DocEditor: docEditor };
+    const config = { documentType: "word" };
+
+    const { rerender, unmount } = render(
+      <OnlyOfficeEditorHost
+        documentServerUrl="http://127.0.0.1:8080"
+        config={config}
+        onLoadError={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(docEditor).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <OnlyOfficeEditorHost
+        documentServerUrl="http://127.0.0.1:8080"
+        config={config}
+        onLoadError={vi.fn()}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(docEditor).toHaveBeenCalledTimes(1);
+    expect(destroyEditor).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(destroyEditor).toHaveBeenCalledTimes(1);
+  });
 });

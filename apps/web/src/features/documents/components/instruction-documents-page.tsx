@@ -428,6 +428,11 @@ export function InstructionDocumentsPage({
     };
   }, [activeDocumentId, onlyOfficeUiTheme, repository]);
 
+  const handleOnlyOfficeLoadError = useCallback((description: string) => {
+    setEditorError(description);
+    setEditorConfig(null);
+  }, []);
+
   const openDocument = useCallback(
     (document: DocumentLibraryItem) => {
       openDocumentEditor(document.id, document.fileName);
@@ -581,10 +586,7 @@ export function InstructionDocumentsPage({
               config={editorConfig.config}
               width="100%"
               height="100%"
-              onLoadError={(description) => {
-                setEditorError(description);
-                setEditorConfig(null);
-              }}
+              onLoadError={handleOnlyOfficeLoadError}
             />
           )}
           {!editorLoading && !editorConfig && (
