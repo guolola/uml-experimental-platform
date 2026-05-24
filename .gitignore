@@ -39,7 +39,13 @@ vite.config.ts.timestamp-*
 vite.config.*.timestamp-*
 
 # local codex/dev artifacts
+.codex-artifacts/
 .codex-logs/
+.codex-test-logs/
+.superpowers/
+.codex-*.log
+.codex-*.png
+.local-*.log
 current-page*.png
 tmp-*.png
 tmp-code-page-validation*.png
@@ -54,6 +60,7 @@ trace*.json
 trace*.json.gz
 frontend-prototype.sandpack.json
 apps/web/public/vendor/
+apps/api/.local-documents/
 uml-run-snapshot.json
 uml-run-report.md
 data/

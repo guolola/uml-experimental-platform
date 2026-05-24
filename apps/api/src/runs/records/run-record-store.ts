@@ -13,12 +13,63 @@ export interface RunRecord {
   listeners: Set<(event: RunEvent) => void>;
   terminal: boolean;
   documentBuffer?: Buffer;
+  metadata?: RunRecordMetadata;
+  persist?: (record: RunRecord, event?: RunEvent) => void | Promise<void>;
 }
 
 export type RunRecordStore = Map<string, RunRecord>;
 
-export function createRunRecordStore(): RunRecordStore {
-  return new Map<string, RunRecord>();
+export interface RunRecordMetadata {
+  userId?: string;
+  projectId?: string;
+  createdAt: string;
+}
+
+export interface SerializedRunRecord {
+  snapshot: RunRecord["snapshot"];
+  events: RunEvent[];
+  terminal: boolean;
+  metadata?: RunRecordMetadata;
+  documentBufferBase64?: string;
+}
+
+export interface SerializedRunRecordStore {
+  version: 1;
+  records: SerializedRunRecord[];
+}
+
+export function createRunRecordStore(
+  initialState?: SerializedRunRecordStore,
+): RunRecordStore {
+  const store = new Map<string, RunRecord>();
+  for (const record of initialState?.records ?? []) {
+    store.set(record.snapshot.runId, {
+      snapshot: record.snapshot,
+      events: record.events,
+      listeners: new Set(),
+      terminal: record.terminal,
+      metadata: record.metadata,
+      documentBuffer: record.documentBufferBase64
+        ? Buffer.from(record.documentBufferBase64, "base64")
+        : undefined,
+    });
+  }
+  return store;
+}
+
+export function serializeRunRecordStore(
+  runs: RunRecordStore,
+): SerializedRunRecordStore {
+  return {
+    version: 1,
+    records: Array.from(runs.values(), (record) => ({
+      snapshot: record.snapshot,
+      events: record.events,
+      terminal: record.terminal,
+      metadata: record.metadata,
+      documentBufferBase64: record.documentBuffer?.toString("base64"),
+    })),
+  };
 }
 
 export function emitEvent(record: RunRecord, event: RunEvent) {
@@ -27,8 +78,10 @@ export function emitEvent(record: RunRecord, event: RunEvent) {
     listener(event);
   }
 
-  // completed/failed are terminal events; SSE subscribers can close after them.
-  if (event.type === "completed" || event.type === "failed") {
+  // completed/failed/cancelled are terminal events; SSE subscribers can close after them.
+  if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
     record.terminal = true;
   }
+
+  void record.persist?.(record, event);
 }

@@ -16,6 +16,7 @@ import { InstructionDocumentsPage } from "../features/documents/components/instr
 import { HistoryDrawer } from "../features/history/components/history-drawer";
 import { TextRequirementView } from "../features/requirements/components/text-requirement-page";
 import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
+import { MarketingHomePage } from "../features/marketing-site/components/marketing-home-page";
 import { SidebarMenu } from "../features/workspace-shell/components/sidebar-menu";
 import {
   TopBar,
@@ -24,21 +25,24 @@ import {
   findShellRouteModule,
   type ShellRoutePath,
 } from "./workspace-modules";
+import { matchAppRoute, type AppRoute } from "./app-routes";
 import { WorkspaceTabsBar } from "../features/workspace-shell/components/workspace-tabs-bar";
 import { Workspace } from "../features/workspace-shell/components/workspace-placeholder";
 import { WorkspaceRepositoryProvider } from "../services/workspace-repository";
 import { WorkspaceShellProvider, useWorkspaceShell } from "../features/workspace-shell/state";
 import { WorkspaceSessionProvider } from "../features/workspace-session/state";
+import {
+  AuthenticatedRoute,
+  AuthPage,
+  ProjectNewPage,
+  ProjectWorkspaceDrawer,
+  type ProjectDrawerKind,
+  ProjectWorkspaceAccessBoundary,
+  ProjectsIndexPage,
+  ProjectWorkspaceBanner,
+} from "../features/user-platform/components/user-platform-pages";
 
-function normalizeRoute(pathname: string): ShellRoutePath {
-  const route = findShellRouteModule(pathname as ShellRoutePath);
-  if (route.route === pathname) {
-    return route.route;
-  }
-  return "/";
-}
-
-function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/"> }) {
+function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
   const meta = findShellRouteModule(route);
 
   return (
@@ -53,15 +57,31 @@ function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/"> })
   );
 }
 
+function getProtectedRoutePath(route: AppRoute) {
+  if (
+    route.kind === "shell" ||
+    route.kind === "projects-index" ||
+    route.kind === "projects-new" ||
+    route.kind === "project-workspace" ||
+    route.kind === "legacy-account" ||
+    route.kind === "legacy-settings"
+  ) {
+    return route.path;
+  }
+  return null;
+}
+
 export function Shell() {
   const { selection, historyDrawerOpen, closeHistoryDrawer } = useWorkspaceShell();
-  const [route, setRoute] = useState<ShellRoutePath>(() =>
-    typeof window === "undefined" ? "/" : normalizeRoute(window.location.pathname),
+  const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
+  const [route, setRoute] = useState<AppRoute>(() =>
+    typeof window === "undefined" ? { kind: "marketing-home", path: "/" } : matchAppRoute(window.location.pathname),
   );
 
   useEffect(() => {
     const handlePopState = () => {
-      setRoute(normalizeRoute(window.location.pathname));
+      setActiveProjectDrawer(null);
+      setRoute(matchAppRoute(window.location.pathname));
     };
     window.addEventListener("popstate", handlePopState);
     return () => {
@@ -69,11 +89,15 @@ export function Shell() {
     };
   }, []);
 
-  const navigate = useCallback((nextRoute: ShellRoutePath) => {
-    if (normalizeRoute(window.location.pathname) !== nextRoute) {
-      window.history.pushState({}, "", nextRoute);
+  const navigate = useCallback((nextPath: string) => {
+    const nextUrl = new URL(nextPath, window.location.origin);
+    const nextLocation = `${nextUrl.pathname}${nextUrl.search}`;
+    setActiveProjectDrawer(null);
+    if (`${window.location.pathname}${window.location.search}` !== nextLocation) {
+      window.history.pushState({}, "", nextLocation);
+      window.dispatchEvent(new Event("uml-route-change"));
     }
-    setRoute(nextRoute);
+    setRoute(matchAppRoute(nextUrl.pathname));
   }, []);
 
   let body: ReactNode;
@@ -105,12 +129,19 @@ export function Shell() {
       body = <TraceabilityMatrixPage mode="design" />;
       break;
     case "design-diagram":
-      body = <DesignDiagramView type={selection.diagram} highlightedElement={null} />;
+      body = (
+        <DesignDiagramView
+          type={selection.diagram}
+          modelId={selection.modelId}
+          highlightedElement={null}
+        />
+      );
       break;
     case "design-diagram-element":
       body = (
         <DesignDiagramView
           type={selection.diagram}
+          modelId={selection.modelId}
           highlightedElement={{
             kind: selection.elementKind,
             id: selection.elementId,
@@ -134,38 +165,133 @@ export function Shell() {
       break;
   }
 
+  const renderWorkspace = (projectId: string | null, routeDrawer: ProjectDrawerKind | null = null) => {
+    const activeDrawer = routeDrawer ?? activeProjectDrawer;
+    const closeDrawer = () => {
+      setActiveProjectDrawer(null);
+      if (routeDrawer && projectId) {
+        navigate(`/projects/${encodeURIComponent(projectId)}`);
+      }
+    };
+
+    return (
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
+        <ResizablePanel
+          data-testid="workspace-sidebar-panel"
+          data-default-size="10"
+          data-min-size="8"
+          data-max-size="14"
+          defaultSize={10}
+          minSize={8}
+          maxSize={14}
+        >
+          <aside className="h-full w-full border-r border-sidebar-border bg-sidebar">
+            <SidebarMenu />
+          </aside>
+        </ResizablePanel>
+        <ResizableHandle withHandle className="bg-border/70" />
+        <ResizablePanel defaultSize={90}>
+          <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
+            {projectId && (
+              <ProjectWorkspaceBanner
+                projectId={projectId}
+                onOpenDrawer={setActiveProjectDrawer}
+              />
+            )}
+            <WorkspaceTabsBar />
+            <div className="min-h-0 flex-1">{body}</div>
+            {projectId && (
+              <ProjectWorkspaceDrawer
+                projectId={projectId}
+                activeDrawer={activeDrawer}
+                onNavigate={navigate}
+                onClose={closeDrawer}
+              />
+            )}
+          </main>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    );
+  };
+
+  const renderRoute = () => {
+    if (route.kind === "marketing-home") {
+      return <MarketingHomePage path={route.path} onNavigate={navigate} />;
+    }
+    if (route.kind === "shell") {
+      return route.path === "/workspace" ? (
+        <RedirectRoute to="/projects" onNavigate={navigate} />
+      ) : (
+        <StandaloneRoutePage route={route.path as Exclude<ShellRoutePath, "/workspace">} />
+      );
+    }
+    if (route.kind === "auth") {
+      return <AuthPage key={route.path} path={route.path} onNavigate={navigate} />;
+    }
+    if (route.kind === "projects-index") {
+      return <ProjectsIndexPage onNavigate={navigate} />;
+    }
+    if (route.kind === "projects-new") {
+      return <ProjectNewPage onNavigate={navigate} />;
+    }
+    if (route.kind === "legacy-account" || route.kind === "legacy-settings") {
+      return <RedirectRoute to="/projects" onNavigate={navigate} />;
+    }
+    if (route.kind === "project-workspace") {
+      return (
+        <ProjectWorkspaceAccessBoundary projectId={route.projectId} onNavigate={navigate}>
+          {renderWorkspace(route.projectId, route.drawer ?? null)}
+        </ProjectWorkspaceAccessBoundary>
+      );
+    }
+    return <MarketingHomePage path="/" onNavigate={navigate} />;
+  };
+
+  const protectedRoutePath = getProtectedRoutePath(route);
+  const routeContent = renderRoute();
+  const showWorkspaceTopBar = route.kind !== "marketing-home" && route.kind !== "auth";
+  const guardedRouteContent = (
+    <>
+      {showWorkspaceTopBar && (
+        <TopBar
+          currentRoute={route.path}
+          onNavigate={navigate}
+        />
+      )}
+      {routeContent}
+    </>
+  );
+
   return (
     <div className="flex h-screen w-full flex-col bg-background text-foreground">
-      <TopBar currentRoute={route} onNavigate={navigate} />
-      {route === "/" ? (
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel
-            data-testid="workspace-sidebar-panel"
-            data-default-size="12"
-            data-min-size="10"
-            data-max-size="22"
-            defaultSize={12}
-            minSize={10}
-            maxSize={22}
-          >
-            <aside className="h-full border-r border-sidebar-border bg-sidebar">
-              <SidebarMenu />
-            </aside>
-          </ResizablePanel>
-          <ResizableHandle withHandle className="bg-border/70" />
-          <ResizablePanel defaultSize={88}>
-            <main className="flex h-full flex-col bg-background">
-              <WorkspaceTabsBar />
-              <div className="min-h-0 flex-1">{body}</div>
-            </main>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+      {protectedRoutePath ? (
+        <AuthenticatedRoute routeKey={protectedRoutePath} onNavigate={navigate}>
+          {guardedRouteContent}
+        </AuthenticatedRoute>
       ) : (
-        <StandaloneRoutePage route={route} />
+        guardedRouteContent
       )}
       <HistoryDrawer open={historyDrawerOpen} onClose={closeHistoryDrawer} />
       <Toaster position="bottom-right" />
     </div>
+  );
+}
+
+function RedirectRoute({
+  to,
+  onNavigate,
+}: {
+  to: string;
+  onNavigate: (route: string) => void;
+}) {
+  useEffect(() => {
+    onNavigate(to);
+  }, [onNavigate, to]);
+
+  return (
+    <main className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+      正在进入项目...
+    </main>
   );
 }
 

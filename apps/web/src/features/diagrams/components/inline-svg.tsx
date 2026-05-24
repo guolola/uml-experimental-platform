@@ -11,6 +11,10 @@ function parseSvgLength(value: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function isScopedHighlightGroup(group: Element) {
+  return group.querySelectorAll("text").length <= 1;
+}
+
 export function InlineSvg({
   svg,
   highlightLabel,
@@ -71,7 +75,7 @@ export function InlineSvg({
     for (const t of matches) {
       highlightNodes.add(t);
       const g = t.closest("g");
-      if (g) highlightNodes.add(g);
+      if (g && isScopedHighlightGroup(g)) highlightNodes.add(g);
       const prev = t.previousElementSibling;
       if (
         prev &&

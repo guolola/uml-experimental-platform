@@ -31,6 +31,7 @@ import {
 } from "../../documents/context/document-context.js";
 import { renderDocumentBuffer } from "../../documents/render/document-renderer.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
 import {
@@ -171,6 +172,8 @@ export async function runDocumentStagePipeline(
   record.documentBuffer = buffer;
   const document = await documentLibrary.saveGeneratedDocument({
     workspaceId,
+    projectId: record.metadata?.projectId ?? null,
+    createdByUserId: record.metadata?.userId ?? null,
     documentKind: input.documentKind,
     sourceRunId: snapshot.runId,
     fileName: snapshot.fileName ?? `${input.documentKind}.docx`,
@@ -182,6 +185,7 @@ export async function runDocumentStagePipeline(
   snapshot.mimeType = document.mimeType;
   snapshot.missingArtifacts = [...new Set(missingArtifacts)];
   snapshot.byteLength = buffer.byteLength;
+  const evidencePackage = attachEvidencePackage(snapshot);
   snapshot.status = "completed";
   snapshot.errorMessage = null;
   emitEvent(
@@ -190,6 +194,15 @@ export async function runDocumentStagePipeline(
       type: "artifact_ready",
       stage: "render_document_file",
       artifactKind: "document",
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "render_document_file",
+      artifactKind: "evidencePackage",
+      evidencePackage,
     }),
   );
   emitEvent(

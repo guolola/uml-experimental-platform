@@ -1,11 +1,21 @@
 # @uml-platform/harness-e2e
 
-Browser and integration smoke-test scaffold for the UML experimental platform.
+Browser-level acceptance checks for the UML experimental platform.
 
-The first production-ready evaluation entrypoint is `@uml-platform/harness-eval`.
-This package is reserved for later browser-level checks such as:
+This package verifies that trusted-chain evidence is visible, reviewable,
+exportable, and tied to representative generated workflows. It complements the
+API-level regression tests by exercising browser-visible evidence and business
+constraints.
 
-- opening the Vite app
-- creating a run through the UI
-- verifying history restore
-- editing PlantUML and re-rendering SVG
+Current coverage includes:
+
+- EvidencePackage visibility, review actions, export, and blocking reasons.
+- Browser evidence display for screenshots, DOM, console, and network records.
+- A representative generated workflow covering permissions, required fields,
+  state transitions, boundary checks, exception feedback, and idempotency.
+
+Run from the repository root:
+
+```powershell
+npm run test:harness-e2e
+```

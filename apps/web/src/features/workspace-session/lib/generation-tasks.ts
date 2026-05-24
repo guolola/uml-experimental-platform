@@ -3,6 +3,7 @@ import type { RunEvent } from "@uml-platform/contracts";
 import type {
   GenerationTask,
   GenerationTaskKind,
+  GenerationSubtask,
   RunDiagnostics,
 } from "../model/session-state";
 import type { RunStatus } from "../../../entities/workspace/model";
@@ -12,6 +13,10 @@ import {
   getProgressFromEvent,
   summarizeEvent,
 } from "./diagnostics";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 function phaseSummaryFromEvent(event: RunEvent, fallback: string | null) {
   if (event.type === "code_file_changed") {
@@ -45,6 +50,7 @@ export function createGenerationTask(input: {
   startedAt: string;
   documentKind?: GenerationTask["documentKind"];
   message: string;
+  subtasks?: GenerationSubtask[];
 }): GenerationTask {
   return {
     clientTaskId: input.clientTaskId,
@@ -65,9 +71,191 @@ export function createGenerationTask(input: {
       providerModel: input.providerModel,
       startedAt: input.startedAt,
     },
+    subtasks: input.subtasks ?? [],
     startedAt: input.startedAt,
     finishedAt: null,
   };
+}
+
+function subtaskStatusFromEvent(event: RunEvent): GenerationSubtask["status"] {
+  if ("subtaskStatus" in event && event.subtaskStatus) return event.subtaskStatus;
+  if (event.type === "failed") return "failed";
+  if (event.type === "artifact_ready" && event.artifactKind === "svg") return "completed";
+  if (event.type === "artifact_ready") return "running";
+  if (event.type === "stage_progress" && event.message?.includes("修复")) {
+    return "repairing";
+  }
+  if (event.type === "stage_progress" && event.stage === "render_svg") {
+    return "rendering";
+  }
+  return "running";
+}
+
+function subtaskIdFromEvent(event: RunEvent) {
+  if ("subtaskId" in event && event.subtaskId) return event.subtaskId;
+  if ("modelId" in event && event.modelId) return event.modelId;
+  if ("diagramKind" in event && event.diagramKind) return event.diagramKind;
+  if (event.type !== "stage_progress" || !event.message) return null;
+  const match = event.message.match(/(?:正在生成|正在渲染|正在修复)：([a-z]+)/i);
+  return match?.[1] ?? null;
+}
+
+function updateSubtasksFromEvent(
+  subtasks: GenerationSubtask[],
+  event: RunEvent,
+): GenerationSubtask[] {
+  const subtaskId = subtaskIdFromEvent(event);
+  if (!subtaskId) return subtasks;
+  let matched = false;
+  const next = subtasks.map((subtask) => {
+    if (subtask.id !== subtaskId) return subtask;
+    matched = true;
+    return {
+      ...subtask,
+      label:
+        "subtaskLabel" in event && event.subtaskLabel
+          ? event.subtaskLabel
+          : subtask.label,
+      status: subtaskStatusFromEvent(event),
+      message:
+        event.type === "stage_progress" ? event.message ?? subtask.message : subtask.message,
+      errorMessage: event.type === "failed" ? event.message : subtask.errorMessage,
+      queuePosition:
+        "queuePosition" in event ? event.queuePosition ?? subtask.queuePosition : subtask.queuePosition,
+      queueAhead:
+        "queueAhead" in event ? event.queueAhead ?? subtask.queueAhead : subtask.queueAhead,
+      waitMs: "waitMs" in event ? event.waitMs ?? subtask.waitMs : subtask.waitMs,
+      estimatedWaitMs:
+        "estimatedWaitMs" in event
+          ? event.estimatedWaitMs ?? subtask.estimatedWaitMs
+          : subtask.estimatedWaitMs,
+      queueReason:
+        "queueReason" in event ? event.queueReason ?? subtask.queueReason : subtask.queueReason,
+    };
+  });
+  if (matched) return next;
+  return [
+    ...next,
+    {
+      id: subtaskId,
+      label: "subtaskLabel" in event && event.subtaskLabel ? event.subtaskLabel : subtaskId,
+      status: subtaskStatusFromEvent(event),
+      message: event.type === "stage_progress" ? event.message ?? null : null,
+      errorMessage: event.type === "failed" ? event.message : null,
+      queuePosition: "queuePosition" in event ? event.queuePosition : undefined,
+      queueAhead: "queueAhead" in event ? event.queueAhead : undefined,
+      waitMs: "waitMs" in event ? event.waitMs : undefined,
+      estimatedWaitMs:
+        "estimatedWaitMs" in event ? event.estimatedWaitMs : undefined,
+      queueReason: "queueReason" in event ? event.queueReason : undefined,
+    },
+  ];
+}
+
+function collectCompletedSubtaskIds(snapshot: unknown) {
+  const ids = new Set<string>();
+  if (!isRecord(snapshot)) return ids;
+  if (Array.isArray(snapshot.models)) {
+    for (const model of snapshot.models as Array<{ diagramKind?: string; modelId?: string }>) {
+      if (model.diagramKind) ids.add(model.diagramKind);
+      if (model.modelId) ids.add(model.modelId);
+    }
+  }
+  if (Array.isArray(snapshot.svgArtifacts)) {
+    for (const artifact of snapshot.svgArtifacts as Array<{
+      diagramKind?: string;
+      modelId?: string;
+    }>) {
+      if (artifact.diagramKind) ids.add(artifact.diagramKind);
+      if (artifact.modelId) ids.add(artifact.modelId);
+    }
+  }
+  return ids;
+}
+
+function updateSubtasksFromCompletedSnapshot(
+  subtasks: GenerationSubtask[],
+  event: RunEvent,
+): GenerationSubtask[] {
+  if (event.type !== "completed") return subtasks;
+  const snapshot: unknown = event.snapshot;
+  if (!isRecord(snapshot) || !isRecord(snapshot.diagramErrors)) return subtasks;
+  const errors = snapshot.diagramErrors as Record<string, { message?: string; stage?: string }>;
+  const completedIds = collectCompletedSubtaskIds(snapshot);
+  const pendingReviewByDiagram = new Map<string, number>();
+  if (Array.isArray(snapshot.designModelTraceability)) {
+    for (const entry of snapshot.designModelTraceability as Array<{
+      source?: { diagramKind?: string; modelId?: string };
+      mappingSource?: string;
+      reviewStatus?: string;
+    }>) {
+      if (
+        entry.mappingSource !== "auto-filled-pending-review" &&
+        entry.reviewStatus !== "pending"
+      ) {
+        continue;
+      }
+      const diagramKind = entry.source?.diagramKind;
+      const modelId = entry.source?.modelId;
+      for (const id of [modelId, diagramKind]) {
+        if (!id) continue;
+        pendingReviewByDiagram.set(id, (pendingReviewByDiagram.get(id) ?? 0) + 1);
+      }
+    }
+  }
+  const existingIds = new Set(subtasks.map((subtask) => subtask.id));
+  const next = subtasks.map((subtask) => {
+    const error = errors[subtask.id];
+    if (error) {
+      return {
+        ...subtask,
+        status: "failed" as const,
+        errorMessage: error.message ?? subtask.errorMessage,
+      };
+    }
+    if (completedIds.has(subtask.id) && subtask.status !== "failed") {
+      const pendingReviewCount = pendingReviewByDiagram.get(subtask.id) ?? 0;
+      return {
+        ...subtask,
+        status:
+          pendingReviewCount > 0 ? ("pending_review" as const) : ("completed" as const),
+        pendingReviewCount: pendingReviewCount || undefined,
+      };
+    }
+    return subtask;
+  });
+
+  for (const [id, error] of Object.entries(errors)) {
+    if (existingIds.has(id)) continue;
+    next.push({
+      id,
+      label: id,
+      status: "failed",
+      message: error.stage ? `阶段失败：${error.stage}` : null,
+      errorMessage: error.message ?? null,
+    });
+  }
+  return next;
+}
+
+function titleWithSubtaskSummary(task: GenerationTask, subtasks: GenerationSubtask[]) {
+  if (subtasks.length === 0) return task.title;
+  const baseTitle = task.title.split("：")[0] ?? task.title;
+  const completed = subtasks.filter((subtask) => subtask.status === "completed").length;
+  const failed = subtasks.filter((subtask) => subtask.status === "failed").length;
+  const pendingReview = subtasks.filter(
+    (subtask) => subtask.status === "pending_review",
+  ).length;
+  if (failed > 0) {
+    return `${baseTitle}：${completed}/${subtasks.length} 完成，${failed} 个失败`;
+  }
+  if (pendingReview > 0) {
+    return `${baseTitle}：${completed + pendingReview}/${subtasks.length} 完成，${pendingReview} 个待确认`;
+  }
+  if (completed > 0 && completed < subtasks.length) {
+    return `${baseTitle}：${completed}/${subtasks.length} 完成`;
+  }
+  return baseTitle;
 }
 
 export function taskStatusFromEvent(event: RunEvent): RunStatus {
@@ -175,8 +363,13 @@ export function updateTaskFromEvent(
   },
 ): GenerationTask {
   const progress = getProgressFromEvent(event);
+  const subtasks = updateSubtasksFromCompletedSnapshot(
+    updateSubtasksFromEvent(task.subtasks, event),
+    event,
+  );
   return {
     ...task,
+    title: titleWithSubtaskSummary(task, subtasks),
     status: taskStatusFromEvent(event),
     progress: progress ?? task.progress,
     previewReady:
@@ -200,6 +393,7 @@ export function updateTaskFromEvent(
         ? new Date().toISOString()
         : task.finishedAt,
     diagnostics: updateDiagnosticsFromEvent(task.diagnostics, event),
+    subtasks,
   };
 }
 

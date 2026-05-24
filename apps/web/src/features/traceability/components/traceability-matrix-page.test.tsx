@@ -9,6 +9,15 @@ import {
 } from "../../../test/workspace-test-utils";
 import { TraceabilityMatrixPage } from "./traceability-matrix-page";
 
+async function chooseSelectOption(
+  user: ReturnType<typeof userEvent.setup>,
+  combobox: HTMLElement,
+  optionName: string,
+) {
+  await user.click(combobox);
+  await user.click(await screen.findByRole("option", { name: optionName }));
+}
+
 function createRepository(
   workspace = createWorkspaceRecord(),
 ): WorkspaceRepository {
@@ -156,6 +165,20 @@ describe("TraceabilityMatrixPage", () => {
         ],
         generatedDesignDiagramTypes: ["class"],
         designModels: {
+          "sequence:submit-order": {
+            diagramKind: "sequence",
+            modelId: "sequence:submit-order",
+            sourceUseCaseId: "submit-order",
+            sourceUseCaseName: "提交订单",
+            title: "提交订单顺序图",
+            summary: "订单提交时序",
+            notes: [],
+            participants: [
+              { id: "auth-service", name: "认证服务", participantType: "control" },
+            ],
+            messages: [],
+            fragments: [],
+          },
           class: {
             diagramKind: "class",
             title: "设计类图",
@@ -190,6 +213,15 @@ describe("TraceabilityMatrixPage", () => {
                 label: "UserDomain",
               },
             ],
+            upstreamDesignRefs: [
+              {
+                modelId: "sequence:submit-order",
+                diagramKind: "sequence",
+                elementId: "auth-service",
+                elementKind: "participant",
+                label: "认证服务",
+              },
+            ],
           },
         ],
       }),
@@ -206,8 +238,11 @@ describe("TraceabilityMatrixPage", () => {
     const row = within(table).getByText("Class_UserAuth").closest("tr");
     expect(row).not.toBeNull();
     expect(within(row!).getByText("UserDomain")).toBeInTheDocument();
+    expect(within(row!).getByText("submit-order · 认证服务")).toBeInTheDocument();
     expect(within(row!).getByText("R2")).toBeInTheDocument();
     expect(within(row!).getByText("已映射")).toBeInTheDocument();
+    await userEvent.click(row!);
+    expect(screen.getByText("来源顺序图：sequence:submit-order / 认证服务")).toBeInTheDocument();
     expect(screen.getByText("需求元素：领域概念模型 / UserDomain")).toBeInTheDocument();
   });
 
@@ -231,9 +266,10 @@ describe("TraceabilityMatrixPage", () => {
     expect(within(table).getByText("提交订单")).toBeInTheDocument();
     expect(within(table).getByText("UserDomain")).toBeInTheDocument();
 
-    await user.selectOptions(
+    await chooseSelectOption(
+      user,
       screen.getByRole("combobox", { name: "按需求模型类型筛选" }),
-      "class",
+      "领域概念模型",
     );
 
     expect(within(table).queryByText("提交订单")).not.toBeInTheDocument();
@@ -286,9 +322,10 @@ describe("TraceabilityMatrixPage", () => {
     expect(within(table).getByText("Class_UserAuth")).toBeInTheDocument();
     expect(within(table).getByText("用户")).toBeInTheDocument();
 
-    await user.selectOptions(
+    await chooseSelectOption(
+      user,
       screen.getByRole("combobox", { name: "按设计模型类型筛选" }),
-      "class",
+      "设计类图",
     );
 
     expect(within(table).getByText("Class_UserAuth")).toBeInTheDocument();
@@ -334,7 +371,8 @@ describe("TraceabilityMatrixPage", () => {
     expect(within(table).getByText("用例 9")).toBeInTheDocument();
     expect(screen.getByText("9-9 / 9")).toBeInTheDocument();
 
-    await user.selectOptions(
+    await chooseSelectOption(
+      user,
       screen.getByRole("combobox", { name: "每页矩阵项数量" }),
       "12",
     );

@@ -8,7 +8,7 @@ import { WorkspaceSessionProvider } from "../features/workspace-session/state";
 import { WorkspaceRepositoryProvider } from "../services/workspace-repository";
 import type { WorkspaceRepository } from "../services/workspace-repository";
 import type { DiagramType } from "../entities/diagram/model";
-import { USER_SETTINGS_STORAGE_KEY } from "../shared/lib/user-settings";
+import { DEFAULT_USER_SETTINGS, USER_SETTINGS_STORAGE_KEY } from "../shared/lib/user-settings";
 
 export function createWorkspaceRecord(
   overrides: Partial<WorkspaceRecord> = {},
@@ -19,6 +19,8 @@ export function createWorkspaceRecord(
     requirementText: "",
     selectedDiagramTypes: [],
     rules: [],
+    requirementBaseline: null,
+    requirementQualityReport: null,
     models: {},
     requirementModelTraceability: [],
     generatedDiagramTypes: [],
@@ -96,12 +98,9 @@ export function withWorkspaceProviders(
     localStorage.setItem(
       USER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
+        ...DEFAULT_USER_SETTINGS,
         apiBaseUrl: "https://ai.comfly.org",
         apiKey: "test-api-key",
-        defaultModel: "gpt-5.5",
-        fontSize: "md",
-        autoGenerate: false,
-        showStaleBanner: true,
       }),
     );
   }

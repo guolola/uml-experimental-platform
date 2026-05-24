@@ -1,5 +1,5 @@
 // Declares top-level workspace modules, routes, tabs, and artifact ownership.
-export type ShellRoutePath = "/" | "/exam" | "/tutorial" | "/about";
+export type ShellRoutePath = "/workspace" | "/exam" | "/tutorial" | "/about";
 
 export interface WorkspaceModuleDefinition {
   id: string;
@@ -15,7 +15,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   {
     id: "requirements",
     label: "需求",
-    route: "/",
+    route: "/workspace",
     tabId: "requirements",
     artifactTypes: ["requirementText", "requirementRule", "requirementModel"],
     prerequisiteStepIds: [],
@@ -24,7 +24,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   {
     id: "diagrams",
     label: "图",
-    route: "/",
+    route: "/workspace",
     tabId: "diagram",
     artifactTypes: ["plantUml", "svg"],
     prerequisiteStepIds: ["requirements"],
@@ -33,7 +33,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   {
     id: "design",
     label: "设计",
-    route: "/",
+    route: "/workspace",
     tabId: "design",
     artifactTypes: ["designModel", "designPlantUml", "designSvg"],
     prerequisiteStepIds: ["diagrams"],
@@ -42,7 +42,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   {
     id: "code",
     label: "代码",
-    route: "/",
+    route: "/workspace",
     tabId: "workspace:code",
     artifactTypes: ["codeFile", "codeSpec", "uiMockup"],
     prerequisiteStepIds: ["design"],
@@ -51,7 +51,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   {
     id: "documents",
     label: "说明书",
-    route: "/",
+    route: "/workspace",
     tabId: "documents",
     artifactTypes: ["requirementsSpec", "softwareDesignSpec"],
     prerequisiteStepIds: ["requirements"],
@@ -61,8 +61,8 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
 
 export const SHELL_ROUTE_MODULES = [
   {
-    label: "首页",
-    route: "/" as const,
+    label: "工作台",
+    route: "/workspace" as const,
     description: "进入 UML 实验平台工作区。",
   },
   {

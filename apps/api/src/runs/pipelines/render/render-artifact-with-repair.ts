@@ -79,6 +79,7 @@ export async function renderArtifactWithRepair(
         status: "success",
         artifact: currentArtifact,
         svgArtifact: {
+          modelId: "modelId" in currentArtifact ? currentArtifact.modelId : undefined,
           diagramKind: currentArtifact.diagramKind,
           svg: rendered.svg,
           renderMeta: rendered.renderMeta,
@@ -216,4 +217,3 @@ export async function renderArtifactWithRepair(
     errorMessage: `PlantUML repair failed for ${artifact.diagramKind}: ${lastErrorMessage}`,
   };
 }
-

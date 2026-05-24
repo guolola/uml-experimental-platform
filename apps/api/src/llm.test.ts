@@ -160,3 +160,67 @@ test("createRealLlmTransport forwards json_schema response_format when provided"
     globalThis.fetch = originalFetch;
   }
 });
+
+test("createRealLlmTransport times out a stalled streaming response", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      new ReadableStream({
+        start() {
+          // Keep the provider stream open without yielding chunks to simulate a stalled SSE response.
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream",
+        },
+      },
+    )) as typeof fetch;
+
+  try {
+    const transport = createRealLlmTransport({
+      responseTimeoutMs: 10,
+    });
+
+    await assert.rejects(
+      async () => {
+        for await (const _chunk of transport.streamChatCompletion({
+          providerSettings: {
+            apiBaseUrl: "https://ai.comfly.org",
+            apiKey: "sk-test",
+            model: "gpt-5.5",
+          },
+          messages: [{ role: "user", content: "test" }],
+        })) {
+          // noop
+        }
+      },
+      /LLM request timed out after 10ms/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createRealLlmTransport rejects provider URLs outside the allowlist", async () => {
+  const transport = createRealLlmTransport({
+    baseUrlAllowlist: ["https://api.openai.com"],
+  });
+
+  await assert.rejects(
+    async () => {
+      for await (const _chunk of transport.streamChatCompletion({
+        providerSettings: {
+          apiBaseUrl: "http://127.0.0.1:9000",
+          apiKey: "sk-test",
+          model: "gpt-5.5",
+        },
+        messages: [{ role: "user", content: "test" }],
+      })) {
+        // noop
+      }
+    },
+    /not in the provider allowlist/,
+  );
+});

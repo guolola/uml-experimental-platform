@@ -16,7 +16,7 @@ export function subscribeToRunEvents(
   endpoint: string,
   handlers: RunEventHandlers,
 ): RunEventSubscription {
-  const source = new EventSource(buildApiUrl(endpoint));
+  const source = new EventSource(buildApiUrl(endpoint), { withCredentials: true });
   let settled = false;
 
   const closed = new Promise<void>((resolve, reject) => {

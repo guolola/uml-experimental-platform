@@ -13,8 +13,13 @@ import {
   type DocumentKind,
   type DocumentRunSnapshot,
   type RequirementRule,
+  type RequirementBaseline,
   type RunSnapshot,
 } from "@uml-platform/contracts";
+import {
+  buildEmptyRequirementBaseline,
+  buildRequirementBaseline,
+} from "../baselines/requirement-baseline.js";
 
 const DESIGN_DIAGRAM_ORDER: DesignDiagramKind[] = [
   "sequence",
@@ -61,11 +66,18 @@ export function createEmptySnapshot(
   selectedDiagrams: DiagramKind[],
   rules: RequirementRule[] = [],
 ): RunSnapshot {
+  const requirementBaseline = rules.length > 0
+    ? buildRequirementBaseline({ runId, requirementText, rules })
+    : buildEmptyRequirementBaseline({ runId });
   return runSnapshotSchema.parse({
     runId,
     requirementText,
     selectedDiagrams,
     rules,
+    requirementBaseline,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
     models: [],
     requirementModelTraceability: [],
     plantUml: [],
@@ -84,21 +96,38 @@ export function createEmptyDesignSnapshot(
     requirementText: string;
     selectedDiagrams: DesignDiagramKind[];
     rules: RequirementRule[];
+    requirementBaseline?: RequirementBaseline | null;
     requirementModels: DiagramModelSpec[];
     requirementModelTraceability: RunSnapshot["requirementModelTraceability"];
+    existingDesignModels?: DesignRunSnapshot["models"];
+    existingDesignModelTraceability?: DesignRunSnapshot["designModelTraceability"];
+    existingDesignPlantUml?: DesignRunSnapshot["plantUml"];
+    existingDesignSvgArtifacts?: DesignRunSnapshot["svgArtifacts"];
   },
 ): DesignRunSnapshot {
+  const requirementBaseline = input.requirementBaseline ??
+    (input.rules.length > 0
+      ? buildRequirementBaseline({
+          runId,
+          requirementText: input.requirementText,
+          rules: input.rules,
+        })
+      : buildEmptyRequirementBaseline({ runId }));
   return designRunSnapshotSchema.parse({
     runId,
     requirementText: input.requirementText,
     selectedDiagrams: withDesignDependencies(input.selectedDiagrams),
     rules: input.rules,
+    requirementBaseline,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
     requirementModels: input.requirementModels,
     requirementModelTraceability: input.requirementModelTraceability,
-    models: [],
-    designModelTraceability: [],
-    plantUml: [],
-    svgArtifacts: [],
+    models: input.existingDesignModels ?? [],
+    designModelTraceability: input.existingDesignModelTraceability ?? [],
+    plantUml: input.existingDesignPlantUml ?? [],
+    svgArtifacts: input.existingDesignSvgArtifacts ?? [],
     diagramErrors: {},
     currentStage: null,
     status: "queued",
@@ -111,6 +140,7 @@ export function createEmptyCodeSnapshot(
   input: {
     requirementText: string;
     rules: RequirementRule[];
+    requirementBaseline?: RequirementBaseline | null;
     designModels: DesignDiagramModelSpec[];
     designPlantUml?: Array<{ diagramKind: DesignDiagramKind; source: string }>;
     existingFiles?: Record<string, string>;
@@ -118,6 +148,14 @@ export function createEmptyCodeSnapshot(
   },
 ): CodeRunSnapshot {
   const generationMode = input.generationMode ?? "continue";
+  const requirementBaseline = input.requirementBaseline ??
+    (input.rules.length > 0
+      ? buildRequirementBaseline({
+          runId,
+          requirementText: input.requirementText,
+          rules: input.rules,
+        })
+      : buildEmptyRequirementBaseline({ runId }));
   const existingFiles = Object.fromEntries(
     Object.entries(input.existingFiles ?? {}).filter(
       ([path]) => !normalizeSnapshotFilePath(path).startsWith("/src/docs/"),
@@ -127,6 +165,10 @@ export function createEmptyCodeSnapshot(
     runId,
     requirementText: input.requirementText,
     rules: input.rules,
+    requirementBaseline,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
     designModels: input.designModels,
     designPlantUml: input.designPlantUml ?? [],
     spec: null,
@@ -146,6 +188,7 @@ export function createEmptyCodeSnapshot(
     componentRegistry: null,
     uiIr: null,
     visualDiffReport: null,
+    businessAssertionResults: null,
     repairLoopSummary: null,
     selectedCodeSkills: [],
     skillDiagnostics: [],
@@ -169,8 +212,11 @@ export function createEmptyDocumentSnapshot(
   input: {
     documentKind: DocumentKind;
     requirementText: string;
+    requirementBaseline?: RequirementBaseline | null;
   },
 ): DocumentRunSnapshot {
+  const requirementBaseline =
+    input.requirementBaseline ?? buildEmptyRequirementBaseline({ runId });
   const timestamp = formatDocumentTimestamp();
   const fileName =
     input.documentKind === "requirementsSpec"
@@ -180,6 +226,10 @@ export function createEmptyDocumentSnapshot(
     runId,
     documentKind: input.documentKind,
     requirementText: input.requirementText,
+    requirementBaseline,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
     documentId: null,
     sections: [],
     fileName,

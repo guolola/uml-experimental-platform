@@ -1,0 +1,78 @@
+import type { ShellRoutePath } from "./workspace-modules";
+
+export type AuthRoutePath =
+  | "/login"
+  | "/register"
+  | "/verify-email"
+  | "/forgot-password"
+  | "/reset-password";
+
+export type MarketingRoutePath = "/" | "/features" | "/workflow" | "/cases" | "/pricing";
+export type ProjectRouteDrawer = "settings" | "members" | "history" | "documents";
+
+export type AppRoute =
+  | { kind: "marketing-home"; path: MarketingRoutePath }
+  | { kind: "shell"; path: ShellRoutePath }
+  | { kind: "auth"; path: AuthRoutePath }
+  | { kind: "legacy-account"; path: "/account" | "/account/security" }
+  | { kind: "legacy-settings"; path: "/settings/models" }
+  | { kind: "projects-index"; path: "/projects" }
+  | { kind: "projects-new"; path: "/projects/new" }
+  | {
+      kind: "project-workspace";
+      path: string;
+      projectId: string;
+      drawer?: ProjectRouteDrawer;
+    };
+
+const SHELL_PATHS = new Set<ShellRoutePath>(["/workspace", "/exam", "/tutorial", "/about"]);
+const MARKETING_PATHS = new Set<MarketingRoutePath>([
+  "/",
+  "/features",
+  "/workflow",
+  "/cases",
+  "/pricing",
+]);
+const AUTH_PATHS = new Set<AuthRoutePath>([
+  "/login",
+  "/register",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
+]);
+
+export function matchAppRoute(pathname: string): AppRoute {
+  if (MARKETING_PATHS.has(pathname as MarketingRoutePath)) {
+    return { kind: "marketing-home", path: pathname as MarketingRoutePath };
+  }
+
+  if (SHELL_PATHS.has(pathname as ShellRoutePath)) {
+    return { kind: "shell", path: pathname as ShellRoutePath };
+  }
+
+  if (AUTH_PATHS.has(pathname as AuthRoutePath)) {
+    return { kind: "auth", path: pathname as AuthRoutePath };
+  }
+
+  if (pathname === "/account" || pathname === "/account/security") {
+    return { kind: "legacy-account", path: pathname };
+  }
+  if (pathname === "/settings/models") {
+    return { kind: "legacy-settings", path: "/settings/models" };
+  }
+
+  if (pathname === "/projects") return { kind: "projects-index", path: "/projects" };
+  if (pathname === "/projects/new") return { kind: "projects-new", path: "/projects/new" };
+  const projectMatch = pathname.match(
+    /^\/projects\/([^/]+)(?:\/(settings|members|history|documents))?$/u,
+  );
+  if (projectMatch) {
+    const projectId = decodeURIComponent(projectMatch[1]);
+    const drawer = projectMatch[2] as ProjectRouteDrawer | undefined;
+    return drawer
+      ? { kind: "project-workspace", path: pathname, projectId, drawer }
+      : { kind: "project-workspace", path: pathname, projectId };
+  }
+
+  return { kind: "marketing-home", path: "/" };
+}

@@ -3,6 +3,13 @@ import { type ProviderSettings, type RunStage } from "@uml-platform/contracts";
 import { type ChatCompletionResponseFormat, type ChatMessage, type LlmTransport } from "../../../llm.js";
 import { formatParseError } from "../../../normalizers/json/parse-json.js";
 
+const RAW_OUTPUT_LOG_LIMIT = 8000;
+
+function truncateForLog(rawText: string) {
+  if (rawText.length <= RAW_OUTPUT_LOG_LIMIT) return rawText;
+  return `${rawText.slice(0, RAW_OUTPUT_LOG_LIMIT)}\n...[truncated ${rawText.length - RAW_OUTPUT_LOG_LIMIT} chars]`;
+}
+
 export function logFailedStructuredOutput(
   stage: RunStage,
   model: string,
@@ -21,7 +28,7 @@ export function logFailedStructuredOutput(
     .join(" ");
 
   console.error(
-    `${header}\n--- begin raw output ---\n${rawText}\n--- end raw output ---`,
+    `${header}\n--- begin raw output ---\n${truncateForLog(rawText)}\n--- end raw output ---`,
   );
 }
 

@@ -24,6 +24,9 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
                 additionalProperties: false,
                 properties: {
                   diagramKind: { type: "string", enum: ["sequence"] },
+                  modelId: { type: "string" },
+                  sourceUseCaseId: { type: "string" },
+                  sourceUseCaseName: { type: "string" },
                   title: { type: "string" },
                   summary: { type: "string" },
                   notes: { type: "array", items: { type: "string" } },
@@ -100,6 +103,9 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
                 },
                 required: [
                   "diagramKind",
+                  "modelId",
+                  "sourceUseCaseId",
+                  "sourceUseCaseName",
                   "title",
                   "summary",
                   "notes",
@@ -125,6 +131,10 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
             properties: {
               source: modelElementRefResponseSchema,
               targets: {
+                type: "array",
+                items: modelElementRefResponseSchema,
+              },
+              upstreamDesignRefs: {
                 type: "array",
                 items: modelElementRefResponseSchema,
               },
@@ -155,6 +165,10 @@ export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRespons
             properties: {
               source: modelElementRefResponseSchema,
               targets: {
+                type: "array",
+                items: modelElementRefResponseSchema,
+              },
+              upstreamDesignRefs: {
                 type: "array",
                 items: modelElementRefResponseSchema,
               },

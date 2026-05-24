@@ -34,15 +34,36 @@ function compactString(value: unknown) {
 function normalizeMappingSource(
   value: unknown,
 ): DesignModelTraceabilityEntry["mappingSource"] {
-  return value === "derived-from-endpoints" || value === "llm" ? value : undefined;
+  return value === "derived-from-endpoints" ||
+    value === "llm" ||
+    value === "auto-filled-pending-review"
+    ? value
+    : undefined;
 }
 
-function refKey(diagramKind: string, elementId: string) {
-  return `${diagramKind}:${elementId}`.toLowerCase();
+function normalizeReviewStatus(
+  value: unknown,
+): DesignModelTraceabilityEntry["reviewStatus"] {
+  return value === "confirmed" || value === "pending" ? value : undefined;
 }
 
-function refEntryKey(ref: Pick<ModelElementRef, "diagramKind" | "elementId">) {
-  return refKey(ref.diagramKind, ref.elementId);
+function normalizeConfidence(
+  value: unknown,
+): DesignModelTraceabilityEntry["confidence"] {
+  return value === "high" || value === "medium" || value === "low"
+    ? value
+    : undefined;
+}
+
+function refKey(diagramKind: string, elementId: string, modelId?: string) {
+  const scope = compactString(modelId) || diagramKind;
+  return `${scope}:${diagramKind}:${elementId}`.toLowerCase();
+}
+
+function refEntryKey(
+  ref: Pick<ModelElementRef, "diagramKind" | "elementId" | "modelId">,
+) {
+  return refKey(ref.diagramKind, ref.elementId, "modelId" in ref ? ref.modelId : undefined);
 }
 
 function addRef(
@@ -51,10 +72,12 @@ function addRef(
   elementId: unknown,
   elementKind: string,
   label: unknown,
+  modelId?: string,
 ) {
   const id = compactString(elementId);
   if (!id) return;
   refs.push({
+    modelId: compactString(modelId) || undefined,
     diagramKind: diagramKind as ModelElementRef["diagramKind"],
     elementId: id,
     elementKind,
@@ -101,6 +124,7 @@ export function collectModelRefs(
   const refs: ModelElementRef[] = [];
   for (const model of models) {
     const diagramKind = model.diagramKind;
+    const modelId = compactString((model as unknown as Record<string, unknown>).modelId);
     const record = model as unknown as Record<string, unknown>;
     const listKeys: Array<[string, string]> = [
       ["actors", "actor"],
@@ -131,7 +155,7 @@ export function collectModelRefs(
             : defaultKind;
         const beforeCount = refs.length;
         if (isBusinessElementKind(kind)) {
-          addRef(refs, diagramKind, item.id, kind, item.name ?? item.label);
+          addRef(refs, diagramKind, item.id, kind, item.name ?? item.label, modelId);
         }
         if (refs.length > beforeCount) {
           businessElementIds.add(refs.at(-1)!.elementId);
@@ -148,6 +172,7 @@ export function collectModelRefs(
               `${tableId}.${columnId}`,
               "table-column",
               `${compactString(item.name) || tableId}.${compactString(column.name) || columnId}`,
+              modelId,
             );
             businessElementIds.add(`${tableId}.${columnId}`);
           }
@@ -170,6 +195,7 @@ export function collectModelRefs(
         relationship.id,
         "relationship",
         relationship.label ?? `${compactString(relationship.sourceId)} -> ${compactString(relationship.targetId)}`,
+        modelId,
       );
     }
   }
@@ -177,7 +203,7 @@ export function collectModelRefs(
   const byKey = new Map<string, ModelElementRef>();
   const byId = new Map<string, ModelElementRef>();
   for (const ref of refs) {
-    byKey.set(refKey(ref.diagramKind, ref.elementId), ref);
+    byKey.set(refEntryKey(ref), ref);
     byId.set(ref.elementId.toLowerCase(), ref);
   }
   return { refs: Array.from(byKey.values()), byKey, byId };
@@ -223,8 +249,17 @@ function resolveRef(raw: unknown, maps: RefMaps) {
   if (!isPlainRecord(raw)) return null;
   const diagramKind = compactString(raw.diagramKind);
   const elementId = compactString(raw.elementId ?? raw.id);
+  const modelId = compactString(raw.modelId);
   if (!diagramKind || !elementId) return null;
-  return maps.byKey.get(refKey(diagramKind, elementId)) ?? null;
+  const direct = maps.byKey.get(refKey(diagramKind, elementId, modelId || undefined));
+  if (direct) return direct;
+  if (modelId) return null;
+  const candidates = maps.refs.filter(
+    (ref) =>
+      ref.diagramKind === diagramKind &&
+      ref.elementId.toLowerCase() === elementId.toLowerCase(),
+  );
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 function missingRefsForTargets(
@@ -232,9 +267,9 @@ function missingRefsForTargets(
   coveredRefs: Iterable<ModelElementRef>,
 ) {
   const coveredKeys = new Set(
-    Array.from(coveredRefs, (ref) => refKey(ref.diagramKind, ref.elementId)),
+    Array.from(coveredRefs, (ref) => refEntryKey(ref)),
   );
-  return refs.filter((ref) => !coveredKeys.has(refKey(ref.diagramKind, ref.elementId)));
+  return refs.filter((ref) => !coveredKeys.has(refEntryKey(ref)));
 }
 
 export function formatTraceabilityMissingRefs(
@@ -318,12 +353,34 @@ export function normalizeDesignTraceabilityForSources(
     const targets = ensureArray(entry.targets)
       .map((target) => resolveRef(target, requirementRefs))
       .filter((target): target is ModelElementRef => Boolean(target));
+    const upstreamDesignRefs = ensureArray(entry.upstreamDesignRefs)
+      .filter(isPlainRecord)
+      .flatMap((ref): ModelElementRef[] => {
+        const diagramKind = compactString(ref.diagramKind);
+        const elementId = compactString(ref.elementId ?? ref.id);
+        const elementKind = compactString(ref.elementKind);
+        const label = compactString(ref.label);
+        if (!diagramKind || !elementId || !elementKind || !label) return [];
+        return [
+          {
+            modelId: compactString(ref.modelId) || undefined,
+            diagramKind: diagramKind as ModelElementRef["diagramKind"],
+            elementId,
+            elementKind,
+            label,
+          },
+        ];
+      });
     return targets.length > 0
       ? [
           {
             source,
             targets,
+            upstreamDesignRefs:
+              upstreamDesignRefs.length > 0 ? upstreamDesignRefs : undefined,
             mappingSource: normalizeMappingSource(entry.mappingSource),
+            reviewStatus: normalizeReviewStatus(entry.reviewStatus),
+            confidence: normalizeConfidence(entry.confidence),
             rationale: compactString(entry.rationale) || undefined,
           },
         ]
@@ -388,7 +445,7 @@ export function mergeRequirementTraceability(
   const merged = new Map<string, RequirementModelTraceabilityEntry>();
   for (const entry of [...current, ...patch]) {
     merged.set(
-      `${entry.ruleId.toLowerCase()}:${refKey(entry.target.diagramKind, entry.target.elementId)}`,
+      `${entry.ruleId.toLowerCase()}:${refEntryKey(entry.target)}`,
       entry,
     );
   }
@@ -401,7 +458,7 @@ export function mergeDesignTraceability(
 ) {
   const merged = new Map<string, DesignModelTraceabilityEntry>();
   for (const entry of [...current, ...patch]) {
-    const key = refKey(entry.source.diagramKind, entry.source.elementId);
+    const key = refEntryKey(entry.source);
     const existing = merged.get(key);
     if (!existing) {
       merged.set(key, entry);
@@ -409,12 +466,25 @@ export function mergeDesignTraceability(
     }
     const targets = new Map<string, ModelElementRef>();
     for (const target of [...existing.targets, ...entry.targets]) {
-      targets.set(refKey(target.diagramKind, target.elementId), target);
+      targets.set(refEntryKey(target), target);
+    }
+    const upstreamDesignRefs = new Map<string, ModelElementRef>();
+    for (const ref of [
+      ...(existing.upstreamDesignRefs ?? []),
+      ...(entry.upstreamDesignRefs ?? []),
+    ]) {
+      upstreamDesignRefs.set(refEntryKey(ref), ref);
     }
     merged.set(key, {
       source: existing.source,
       targets: Array.from(targets.values()),
+      upstreamDesignRefs:
+        upstreamDesignRefs.size > 0
+          ? Array.from(upstreamDesignRefs.values())
+          : undefined,
       mappingSource: existing.mappingSource ?? entry.mappingSource,
+      reviewStatus: existing.reviewStatus ?? entry.reviewStatus,
+      confidence: existing.confidence ?? entry.confidence,
       rationale: existing.rationale ?? entry.rationale,
     });
   }

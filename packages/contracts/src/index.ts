@@ -48,6 +48,280 @@ export const requirementRulesResultSchema = z.object({
 });
 export type RequirementRulesResult = z.infer<typeof requirementRulesResultSchema>;
 
+export const atomicRequirementTypeSchema = z.enum([
+  "functional",
+  "non-functional",
+  "data",
+  "role",
+  "constraint",
+  "exception",
+  "business-rule",
+  "interface",
+  "assumption",
+]);
+export type AtomicRequirementType = z.infer<typeof atomicRequirementTypeSchema>;
+
+export const atomicRequirementStatusSchema = z.enum([
+  "accepted",
+  "ambiguous",
+  "conflict",
+  "pending-review",
+  "rejected",
+  "derived",
+]);
+export type AtomicRequirementStatus = z.infer<typeof atomicRequirementStatusSchema>;
+
+export const requirementCriticalitySchema = z.enum([
+  "critical",
+  "high",
+  "medium",
+  "low",
+]);
+export type RequirementCriticality = z.infer<typeof requirementCriticalitySchema>;
+
+export const requirementPrioritySchema = z.enum(["must", "should", "could"]);
+export type RequirementPriority = z.infer<typeof requirementPrioritySchema>;
+
+export const requirementSourceLocationSchema = z.object({
+  startOffset: z.number().int().min(0).optional(),
+  endOffset: z.number().int().min(0).optional(),
+  section: z.string().min(1).optional(),
+});
+export type RequirementSourceLocation = z.infer<
+  typeof requirementSourceLocationSchema
+>;
+
+export const atomicRequirementFieldSchema = z.enum([
+  "actor",
+  "subject",
+  "action",
+  "object",
+  "condition",
+  "outcome",
+  "acceptanceCriteria",
+]);
+export type AtomicRequirementField = z.infer<typeof atomicRequirementFieldSchema>;
+
+export const requirementFieldProvenanceSourceSchema = z.enum([
+  "source-text",
+  "ai-suggested",
+  "heuristic",
+  "manual",
+]);
+export type RequirementFieldProvenanceSource = z.infer<
+  typeof requirementFieldProvenanceSourceSchema
+>;
+
+export const requirementFieldReviewStatusSchema = z.enum([
+  "accepted",
+  "pending-review",
+  "rejected",
+]);
+export type RequirementFieldReviewStatus = z.infer<
+  typeof requirementFieldReviewStatusSchema
+>;
+
+export const requirementFieldProvenanceEntrySchema = z.object({
+  source: requirementFieldProvenanceSourceSchema,
+  status: requirementFieldReviewStatusSchema,
+  value: z.string().min(1).nullable().optional(),
+  originalValue: z.string().min(1).nullable().optional(),
+  rationale: z.string().min(1).optional(),
+  issueIds: z.array(z.string().min(1)).optional(),
+});
+export type RequirementFieldProvenanceEntry = z.infer<
+  typeof requirementFieldProvenanceEntrySchema
+>;
+
+export const requirementFieldProvenanceSchema = z
+  .object({
+    actor: requirementFieldProvenanceEntrySchema.optional(),
+    subject: requirementFieldProvenanceEntrySchema.optional(),
+    action: requirementFieldProvenanceEntrySchema.optional(),
+    object: requirementFieldProvenanceEntrySchema.optional(),
+    condition: requirementFieldProvenanceEntrySchema.optional(),
+    outcome: requirementFieldProvenanceEntrySchema.optional(),
+    acceptanceCriteria: requirementFieldProvenanceEntrySchema.optional(),
+  })
+  .default({});
+export type RequirementFieldProvenance = z.infer<
+  typeof requirementFieldProvenanceSchema
+>;
+
+export const atomicRequirementSchema = z.object({
+  id: z.string().min(1),
+  sourceFragment: z.string().min(1),
+  sourceLocation: requirementSourceLocationSchema.optional(),
+  type: atomicRequirementTypeSchema,
+  actor: z.string().min(1).nullable(),
+  subject: z.string().min(1).nullable(),
+  action: z.string().min(1).nullable(),
+  object: z.string().min(1).nullable(),
+  condition: z.string().min(1).nullable(),
+  outcome: z.string().min(1).nullable(),
+  confidence: z.number().min(0).max(1),
+  status: atomicRequirementStatusSchema,
+  criticality: requirementCriticalitySchema,
+  acceptanceCriteria: z.array(z.string().min(1)),
+  fieldProvenance: requirementFieldProvenanceSchema,
+  priority: requirementPrioritySchema.optional(),
+  sourceRuleId: z.string().min(1).optional(),
+});
+export type AtomicRequirement = z.infer<typeof atomicRequirementSchema>;
+
+export const requirementAssumptionSchema = z.object({
+  id: z.string().min(1),
+  requirementId: z.string().min(1).optional(),
+  text: z.string().min(1),
+  rationale: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  status: z.enum(["accepted", "pending-review", "rejected", "derived"]),
+});
+export type RequirementAssumption = z.infer<typeof requirementAssumptionSchema>;
+
+export const requirementConflictSchema = z.object({
+  id: z.string().min(1),
+  requirementIds: z.array(z.string().min(1)).min(2),
+  description: z.string().min(1),
+  severity: requirementCriticalitySchema,
+  status: z.enum(["conflict", "pending-review", "resolved"]),
+});
+export type RequirementConflict = z.infer<typeof requirementConflictSchema>;
+
+export const requirementQualityIssueSchema = z.object({
+  id: z.string().min(1),
+  requirementId: z.string().min(1).optional(),
+  severity: z.enum(["info", "warning", "error", "critical"]),
+  code: z.enum([
+    "ambiguity",
+    "conflict",
+    "missing-actor",
+    "missing-object",
+    "missing-boundary",
+    "non-verifiable",
+    "low-confidence",
+    "derived-assumption",
+  ]),
+  message: z.string().min(1),
+  blocksDownstream: z.boolean(),
+});
+export type RequirementQualityIssue = z.infer<
+  typeof requirementQualityIssueSchema
+>;
+
+export const requirementQualityReportSchema = z.object({
+  runId: z.string().min(1),
+  status: z.enum(["passed", "pending-review", "blocked"]),
+  summary: z.string().min(1),
+  issues: z.array(requirementQualityIssueSchema),
+  blockingIssueIds: z.array(z.string().min(1)),
+  reviewRequiredRequirementIds: z.array(z.string().min(1)),
+});
+export type RequirementQualityReport = z.infer<
+  typeof requirementQualityReportSchema
+>;
+
+export const requirementBaselineSchema = z.object({
+  runId: z.string().min(1),
+  sourceDocumentId: z.string().min(1),
+  requirements: z.array(atomicRequirementSchema),
+  assumptions: z.array(requirementAssumptionSchema),
+  conflicts: z.array(requirementConflictSchema),
+  qualityReport: requirementQualityReportSchema,
+  createdAt: z.string().min(1),
+});
+export type RequirementBaseline = z.infer<typeof requirementBaselineSchema>;
+
+export const coverageStatusSchema = z.enum([
+  "covered",
+  "partially-covered",
+  "not-modelable",
+  "pending-review",
+  "conflict",
+]);
+export type CoverageStatus = z.infer<typeof coverageStatusSchema>;
+
+export const coverageMatrixRowSchema = z.object({
+  requirementId: z.string().min(1),
+  status: coverageStatusSchema,
+  rationale: z.string().min(1),
+  modelElements: z.array(z.string().min(1)),
+  designElements: z.array(z.string().min(1)),
+  codeArtifacts: z.array(z.string().min(1)),
+  tests: z.array(z.string().min(1)),
+  reviewItems: z.array(z.string().min(1)),
+});
+export type CoverageMatrixRow = z.infer<typeof coverageMatrixRowSchema>;
+
+export const coverageMatrixSchema = z.object({
+  runId: z.string().min(1),
+  rows: z.array(coverageMatrixRowSchema),
+});
+export type CoverageMatrix = z.infer<typeof coverageMatrixSchema>;
+
+export const traceabilityArtifactTypeSchema = z.enum([
+  "requirement",
+  "requirements-model",
+  "design-model",
+  "code",
+  "test",
+  "evidence",
+]);
+export type TraceabilityArtifactType = z.infer<
+  typeof traceabilityArtifactTypeSchema
+>;
+
+export const traceabilityLinkTypeSchema = z.enum([
+  "satisfies",
+  "refines",
+  "implements",
+  "verifies",
+  "derives-from",
+  "blocks",
+]);
+export type TraceabilityLinkType = z.infer<typeof traceabilityLinkTypeSchema>;
+
+export const traceabilityLinkSchema = z.object({
+  fromArtifactType: traceabilityArtifactTypeSchema,
+  fromArtifactId: z.string().min(1),
+  toArtifactType: traceabilityArtifactTypeSchema,
+  toArtifactId: z.string().min(1),
+  linkType: traceabilityLinkTypeSchema,
+  confidence: z.number().min(0).max(1),
+  rationale: z.string().min(1),
+});
+export type TraceabilityLink = z.infer<typeof traceabilityLinkSchema>;
+
+export const traceabilityDiagnosticSchema = z.object({
+  id: z.string().min(1),
+  severity: z.enum(["info", "warning", "error", "critical"]),
+  code: z.enum([
+    "uncovered-requirement",
+    "orphan-artifact",
+    "shallow-trace",
+    "fake-trace",
+    "semantic-model-gap",
+    "business-assertion-gap",
+    "pending-review",
+    "conflict",
+  ]),
+  message: z.string().min(1),
+  artifactType: traceabilityArtifactTypeSchema.optional(),
+  artifactId: z.string().min(1).optional(),
+  requirementId: z.string().min(1).optional(),
+  blocksCompletion: z.boolean(),
+});
+export type TraceabilityDiagnostic = z.infer<
+  typeof traceabilityDiagnosticSchema
+>;
+
+export const traceabilityMatrixSchema = z.object({
+  runId: z.string().min(1),
+  links: z.array(traceabilityLinkSchema),
+  diagnostics: z.array(traceabilityDiagnosticSchema).default([]),
+});
+export type TraceabilityMatrix = z.infer<typeof traceabilityMatrixSchema>;
+
 export const visibilitySchema = z.enum(["public", "protected", "private", "package"]);
 export type Visibility = z.infer<typeof visibilitySchema>;
 
@@ -199,6 +473,7 @@ export type ClassRelationship = z.infer<typeof classRelationshipSchema>;
 
 export const classDiagramSpecSchema = z.object({
   diagramKind: z.literal("class"),
+  modelId: z.string().min(1).optional(),
   title: z.string().min(1),
   summary: z.string().min(1),
   notes: noteListSchema,
@@ -306,6 +581,7 @@ export type ActivityRelationship = z.infer<typeof activityRelationshipSchema>;
 
 export const activityDiagramSpecSchema = z.object({
   diagramKind: z.literal("activity"),
+  modelId: z.string().min(1).optional(),
   title: z.string().min(1),
   summary: z.string().min(1),
   notes: noteListSchema,
@@ -387,6 +663,7 @@ export type DeploymentRelationship = z.infer<typeof deploymentRelationshipSchema
 
 export const deploymentDiagramSpecSchema = z.object({
   diagramKind: z.literal("deployment"),
+  modelId: z.string().min(1).optional(),
   title: z.string().min(1),
   summary: z.string().min(1),
   notes: noteListSchema,
@@ -460,6 +737,9 @@ export type SequenceFragment = z.infer<typeof sequenceFragmentSchema>;
 
 export const sequenceDiagramSpecSchema = z.object({
   diagramKind: z.literal("sequence"),
+  modelId: z.string().min(1).optional(),
+  sourceUseCaseId: z.string().min(1).optional(),
+  sourceUseCaseName: z.string().min(1).optional(),
   title: z.string().min(1),
   summary: z.string().min(1),
   notes: noteListSchema,
@@ -516,6 +796,7 @@ export type TableRelationship = z.infer<typeof tableRelationshipSchema>;
 
 export const tableDiagramSpecSchema = z.object({
   diagramKind: z.literal("table"),
+  modelId: z.string().min(1).optional(),
   title: z.string().min(1),
   summary: z.string().min(1),
   notes: noteListSchema,
@@ -533,6 +814,7 @@ export const diagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
 export type DiagramModelSpec = z.infer<typeof diagramModelSpecSchema>;
 
 export const modelElementRefSchema = z.object({
+  modelId: z.string().min(1).optional(),
   diagramKind: umlDiagramKindSchema,
   elementId: z.string().min(1),
   elementKind: z.string().min(1),
@@ -551,7 +833,12 @@ export type RequirementModelTraceabilityEntry = z.infer<
 export const designModelTraceabilityEntrySchema = z.object({
   source: modelElementRefSchema,
   targets: z.array(modelElementRefSchema).min(1),
-  mappingSource: z.enum(["llm", "derived-from-endpoints"]).optional(),
+  upstreamDesignRefs: z.array(modelElementRefSchema).optional(),
+  mappingSource: z
+    .enum(["llm", "derived-from-endpoints", "auto-filled-pending-review"])
+    .optional(),
+  reviewStatus: z.enum(["confirmed", "pending"]).optional(),
+  confidence: z.enum(["high", "medium", "low"]).optional(),
   rationale: z.string().min(1).optional(),
 });
 export type DesignModelTraceabilityEntry = z.infer<
@@ -586,6 +873,7 @@ export const plantUmlArtifactSchema = z.object({
 export type PlantUmlArtifact = z.infer<typeof plantUmlArtifactSchema>;
 
 export const designPlantUmlArtifactSchema = z.object({
+  modelId: z.string().min(1).optional(),
   diagramKind: designDiagramKindSchema,
   source: z.string().min(1),
 });
@@ -609,18 +897,31 @@ export const svgArtifactSchema = z.object({
 export type SvgArtifact = z.infer<typeof svgArtifactSchema>;
 
 export const designSvgArtifactSchema = svgArtifactSchema.extend({
+  modelId: z.string().min(1).optional(),
   diagramKind: designDiagramKindSchema,
 });
 export type DesignSvgArtifact = z.infer<typeof designSvgArtifactSchema>;
 
-export const providerSettingsSchema = z.object({
+export const resolvedProviderSettingsSchema = z.object({
   apiBaseUrl: z.string().url(),
   apiKey: z.string().min(1),
   model: z.string().min(1),
 });
-export type ProviderSettings = z.infer<typeof providerSettingsSchema>;
+export type ProviderSettings = z.infer<typeof resolvedProviderSettingsSchema>;
 
-export const imageProviderSettingsSchema = providerSettingsSchema.extend({
+export const managedProviderSettingsSchema = z.object({
+  providerConfigId: z.string().min(1),
+  model: z.string().min(1),
+});
+export type ManagedProviderSettings = z.infer<typeof managedProviderSettingsSchema>;
+
+export const providerSettingsSchema = z.union([
+  resolvedProviderSettingsSchema,
+  managedProviderSettingsSchema,
+]);
+export type ProviderSettingsInput = z.infer<typeof providerSettingsSchema>;
+
+export const imageProviderSettingsSchema = resolvedProviderSettingsSchema.extend({
   model: z.enum([
     "gpt-image-2",
     "gemini-3.1-flash-image-preview-2k",
@@ -628,6 +929,1260 @@ export const imageProviderSettingsSchema = providerSettingsSchema.extend({
   ]),
 });
 export type ImageProviderSettings = z.infer<typeof imageProviderSettingsSchema>;
+
+const isoTimestampSchema = z.string().datetime({ offset: true });
+const optionalNullableTimestampSchema = isoTimestampSchema.nullable();
+export const providerConfigStatusSchema = z.enum([
+  "active",
+  "disabled",
+  "revoked",
+]);
+export type ProviderConfigStatus = z.infer<typeof providerConfigStatusSchema>;
+
+export const providerRiskStateSchema = z.enum([
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+export type ProviderRiskState = z.infer<typeof providerRiskStateSchema>;
+
+export const providerBreakerStateSchema = z.enum(["closed", "open"]);
+export type ProviderBreakerState = z.infer<typeof providerBreakerStateSchema>;
+
+export const providerConfigScopeTypeSchema = z.enum([
+  "system",
+  "user",
+  "project",
+]);
+export type ProviderConfigScopeType = z.infer<
+  typeof providerConfigScopeTypeSchema
+>;
+
+export const providerConfigDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().trim().min(1),
+    provider: z.string().trim().min(1),
+    baseUrl: z.string().url(),
+    defaultModel: z.string().trim().min(1),
+    allowedModels: z.array(z.string().trim().min(1)),
+    maskedKey: z.string().trim().min(1),
+    status: providerConfigStatusSchema,
+    riskState: providerRiskStateSchema,
+    quota: z.string().trim().min(1),
+    lastUsedAt: optionalNullableTimestampSchema,
+    scopeType: providerConfigScopeTypeSchema,
+    scopeId: z.string().min(1).nullable(),
+    breakerState: providerBreakerStateSchema,
+  })
+  .strict();
+export type ProviderConfigDto = z.infer<typeof providerConfigDtoSchema>;
+
+export const providerConfigListResponseSchema = z
+  .object({
+    providerConfigs: z.array(providerConfigDtoSchema),
+  })
+  .strict();
+export type ProviderConfigListResponse = z.infer<
+  typeof providerConfigListResponseSchema
+>;
+
+export const providerConfigTestRequestSchema = z
+  .object({
+    model: z.string().trim().min(1).optional(),
+  })
+  .strict();
+export type ProviderConfigTestRequest = z.infer<
+  typeof providerConfigTestRequestSchema
+>;
+
+export const providerConfigTestResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    message: z.string().min(1),
+    capability: z.unknown().optional(),
+    breaker: z
+      .object({
+        state: providerBreakerStateSchema,
+        failureCount: z.number().int().min(0),
+        openedAt: optionalNullableTimestampSchema,
+        lastFailureAt: optionalNullableTimestampSchema,
+      })
+      .optional(),
+  })
+  .strict();
+export type ProviderConfigTestResponse = z.infer<
+  typeof providerConfigTestResponseSchema
+>;
+
+const emailAddressSchema = z
+  .string()
+  .trim()
+  .email()
+  .transform((value) => value.toLowerCase());
+const publicNameSchema = z.string().trim().min(1).max(120);
+const optionalDescriptionSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  },
+  z.string().min(1).max(2000).nullable(),
+);
+const passwordSchema = z.string().min(8).max(128);
+
+export const userStatusSchema = z.enum([
+  "pending_email_verification",
+  "active",
+  "disabled",
+  "locked",
+]);
+export type UserStatus = z.infer<typeof userStatusSchema>;
+
+export const adminRoleSchema = z.enum([
+  "super_admin",
+  "system_operator",
+  "course_admin",
+  "project_admin",
+  "auditor",
+  "security_admin",
+  "model_admin",
+  "teacher_assistant",
+]);
+export type AdminRole = z.infer<typeof adminRoleSchema>;
+
+export const adminPermissionSchema = z.enum([
+  "admin.metrics.read",
+  "admin.roles.write",
+  "admin.users.read",
+  "admin.users.write",
+  "admin.projects.read",
+  "admin.projects.write",
+  "admin.runs.read",
+  "admin.runs.write",
+  "admin.documents.read",
+  "admin.documents.write",
+  "admin.provider_configs.read",
+  "admin.provider_configs.write",
+  "admin.audit_logs.read",
+  "admin.risk_events.read",
+  "admin.rate_limits.read",
+  "admin.rate_limits.write",
+  "admin.system_health.read",
+  "admin.prompt_runtime.write",
+]);
+export type AdminPermission = z.infer<typeof adminPermissionSchema>;
+
+export const adminDataScopeSchema = z.enum([
+  "all_projects",
+  "all_users",
+  "system",
+  "assigned_courses",
+  "assigned_projects",
+  "audit_logs",
+  "provider_configs",
+]);
+export type AdminDataScope = z.infer<typeof adminDataScopeSchema>;
+
+export const adminCapabilitySchema = z.enum([
+  "viewDashboard",
+  "viewUsers",
+  "manageUsers",
+  "viewProjects",
+  "manageProjects",
+  "viewRuns",
+  "manageRuns",
+  "viewDocuments",
+  "manageDocuments",
+  "viewProviderConfigs",
+  "manageProviderConfigs",
+  "viewAuditLogs",
+  "viewRiskEvents",
+  "viewRateLimits",
+  "viewSystemHealth",
+]);
+export type AdminCapability = z.infer<typeof adminCapabilitySchema>;
+
+const allAdminPermissions = adminPermissionSchema.options;
+const allAdminCapabilities = adminCapabilitySchema.options;
+
+export const adminRolePermissions = {
+  super_admin: allAdminPermissions,
+  system_operator: [
+    "admin.metrics.read",
+    "admin.projects.read",
+    "admin.projects.write",
+    "admin.runs.read",
+    "admin.runs.write",
+    "admin.documents.read",
+    "admin.rate_limits.read",
+    "admin.system_health.read",
+    "admin.prompt_runtime.write",
+  ],
+  course_admin: [
+    "admin.metrics.read",
+    "admin.users.read",
+    "admin.projects.read",
+    "admin.projects.write",
+    "admin.runs.read",
+    "admin.documents.read",
+  ],
+  project_admin: [
+    "admin.projects.read",
+    "admin.projects.write",
+    "admin.runs.read",
+    "admin.runs.write",
+    "admin.documents.read",
+    "admin.documents.write",
+  ],
+  auditor: [
+    "admin.metrics.read",
+    "admin.users.read",
+    "admin.projects.read",
+    "admin.runs.read",
+    "admin.documents.read",
+    "admin.audit_logs.read",
+    "admin.risk_events.read",
+    "admin.system_health.read",
+  ],
+  security_admin: [
+    "admin.metrics.read",
+    "admin.roles.write",
+    "admin.users.read",
+    "admin.users.write",
+    "admin.audit_logs.read",
+    "admin.risk_events.read",
+    "admin.rate_limits.read",
+    "admin.rate_limits.write",
+    "admin.system_health.read",
+  ],
+  model_admin: [
+    "admin.metrics.read",
+    "admin.provider_configs.read",
+    "admin.provider_configs.write",
+    "admin.rate_limits.read",
+    "admin.system_health.read",
+  ],
+  teacher_assistant: [
+    "admin.projects.read",
+    "admin.runs.read",
+    "admin.documents.read",
+  ],
+} as const satisfies Record<AdminRole, readonly AdminPermission[]>;
+
+export const adminRoleDataScopes = {
+  super_admin: ["all_projects", "all_users", "system"],
+  system_operator: ["all_projects", "system"],
+  course_admin: ["assigned_courses"],
+  project_admin: ["assigned_projects"],
+  auditor: ["audit_logs", "all_projects"],
+  security_admin: ["all_users", "audit_logs", "system"],
+  model_admin: ["provider_configs", "system"],
+  teacher_assistant: ["assigned_courses"],
+} as const satisfies Record<AdminRole, readonly AdminDataScope[]>;
+
+export const adminRoleCapabilities = {
+  super_admin: allAdminCapabilities,
+  system_operator: [
+    "viewDashboard",
+    "viewProjects",
+    "manageProjects",
+    "viewRuns",
+    "manageRuns",
+    "viewDocuments",
+    "viewRateLimits",
+    "viewSystemHealth",
+  ],
+  course_admin: [
+    "viewDashboard",
+    "viewUsers",
+    "viewProjects",
+    "manageProjects",
+    "viewRuns",
+    "viewDocuments",
+  ],
+  project_admin: [
+    "viewProjects",
+    "manageProjects",
+    "viewRuns",
+    "manageRuns",
+    "viewDocuments",
+    "manageDocuments",
+  ],
+  auditor: [
+    "viewDashboard",
+    "viewUsers",
+    "viewProjects",
+    "viewRuns",
+    "viewDocuments",
+    "viewAuditLogs",
+    "viewRiskEvents",
+    "viewSystemHealth",
+  ],
+  security_admin: [
+    "viewDashboard",
+    "viewUsers",
+    "manageUsers",
+    "viewAuditLogs",
+    "viewRiskEvents",
+    "viewRateLimits",
+    "viewSystemHealth",
+  ],
+  model_admin: [
+    "viewDashboard",
+    "viewProviderConfigs",
+    "manageProviderConfigs",
+    "viewRateLimits",
+    "viewSystemHealth",
+  ],
+  teacher_assistant: ["viewProjects", "viewRuns", "viewDocuments"],
+} as const satisfies Record<AdminRole, readonly AdminCapability[]>;
+
+export const userDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    email: emailAddressSchema,
+    displayName: publicNameSchema,
+    avatarUrl: z.string().url().nullable(),
+    status: userStatusSchema,
+    emailVerified: z.boolean(),
+    mfaEnabled: z.boolean().default(false),
+    systemRoles: z.array(adminRoleSchema).default([]),
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+    lastLoginAt: optionalNullableTimestampSchema,
+  })
+  .strict();
+export type UserDto = z.infer<typeof userDtoSchema>;
+
+export const sessionDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    userId: z.string().min(1),
+    createdAt: isoTimestampSchema,
+    expiresAt: isoTimestampSchema,
+    lastSeenAt: isoTimestampSchema,
+    ipAddress: z.string().min(1).nullable(),
+    userAgent: z.string().min(1).nullable(),
+  })
+  .strict();
+export type SessionDto = z.infer<typeof sessionDtoSchema>;
+
+export const authRegisterRequestSchema = z.object({
+  email: emailAddressSchema,
+  password: passwordSchema,
+  displayName: publicNameSchema,
+});
+export type AuthRegisterRequest = z.infer<typeof authRegisterRequestSchema>;
+
+export const authLoginRequestSchema = z.object({
+  email: emailAddressSchema,
+  password: z.string().min(1).max(128),
+});
+export type AuthLoginRequest = z.infer<typeof authLoginRequestSchema>;
+
+export const authMfaChallengeResponseSchema = z
+  .object({
+    mfa: z.object({
+      required: z.literal(true),
+      challengeId: z.string().min(16).max(256),
+      expiresAt: isoTimestampSchema,
+      method: z.literal("totp"),
+    }),
+  })
+  .strict();
+export type AuthMfaChallengeResponse = z.infer<
+  typeof authMfaChallengeResponseSchema
+>;
+
+export const authMfaVerifyRequestSchema = z
+  .object({
+    challengeId: z.string().trim().min(16).max(256),
+    code: z.string().trim().regex(/^\d{6}$/u),
+  })
+  .strict();
+export type AuthMfaVerifyRequest = z.infer<typeof authMfaVerifyRequestSchema>;
+
+export const authVerifyEmailRequestSchema = z.object({
+  token: z.string().trim().min(16).max(256),
+});
+export type AuthVerifyEmailRequest = z.infer<
+  typeof authVerifyEmailRequestSchema
+>;
+
+export const authResendVerificationRequestSchema = z.object({
+  email: emailAddressSchema,
+});
+export type AuthResendVerificationRequest = z.infer<
+  typeof authResendVerificationRequestSchema
+>;
+
+export const authForgotPasswordRequestSchema = z.object({
+  email: emailAddressSchema,
+});
+export type AuthForgotPasswordRequest = z.infer<
+  typeof authForgotPasswordRequestSchema
+>;
+
+export const authResetPasswordRequestSchema = z.object({
+  token: z.string().trim().min(16).max(256),
+  newPassword: passwordSchema,
+});
+export type AuthResetPasswordRequest = z.infer<
+  typeof authResetPasswordRequestSchema
+>;
+
+export const authSessionResponseSchema = z.object({
+  user: userDtoSchema,
+  session: sessionDtoSchema,
+});
+export type AuthSessionResponse = z.infer<typeof authSessionResponseSchema>;
+
+export const accountProfileResponseSchema = authSessionResponseSchema.extend({
+  mfa: z.object({
+    enabled: z.boolean(),
+    enforcement: z.literal("totp"),
+  }),
+});
+export type AccountProfileResponse = z.infer<
+  typeof accountProfileResponseSchema
+>;
+
+export const adminSessionResponseSchema = z
+  .object({
+    user: userDtoSchema,
+    roles: z.array(adminRoleSchema),
+    permissions: z.array(adminPermissionSchema),
+    dataScopes: z.array(adminDataScopeSchema),
+    mfaRequired: z.boolean(),
+    capabilities: z.array(adminCapabilitySchema),
+  })
+  .strict();
+export type AdminSessionResponse = z.infer<typeof adminSessionResponseSchema>;
+
+export const accountSessionsResponseSchema = z.object({
+  sessions: z.array(sessionDtoSchema),
+});
+export type AccountSessionsResponse = z.infer<
+  typeof accountSessionsResponseSchema
+>;
+
+export const accountRevokeSessionsResponseSchema = z.object({
+  revokedCount: z.number().int().nonnegative(),
+});
+export type AccountRevokeSessionsResponse = z.infer<
+  typeof accountRevokeSessionsResponseSchema
+>;
+
+export const loginEventDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    userId: z.string().min(1).nullable(),
+    email: emailAddressSchema.nullable(),
+    outcome: z.enum(["success", "failure"]),
+    ipAddress: z.string().min(1).nullable(),
+    userAgent: z.string().min(1).nullable(),
+    message: z.string().min(1).nullable(),
+    createdAt: isoTimestampSchema,
+  })
+  .strict();
+export type LoginEventDto = z.infer<typeof loginEventDtoSchema>;
+
+export const accountLoginEventsResponseSchema = z.object({
+  events: z.array(loginEventDtoSchema),
+});
+export type AccountLoginEventsResponse = z.infer<
+  typeof accountLoginEventsResponseSchema
+>;
+
+export const accountMfaUpdateRequestSchema = z.object({
+  enabled: z.boolean(),
+  code: z.string().trim().regex(/^\d{6}$/u).optional(),
+});
+export type AccountMfaUpdateRequest = z.infer<
+  typeof accountMfaUpdateRequestSchema
+>;
+
+export const accountMfaResponseSchema = z.object({
+  mfa: z.object({
+    enabled: z.boolean(),
+    enforcement: z.literal("totp"),
+  }),
+});
+export type AccountMfaResponse = z.infer<typeof accountMfaResponseSchema>;
+
+export const accountMfaSetupResponseSchema = z
+  .object({
+    secret: z.string().min(16).max(128),
+    otpauthUri: z.string().min(1),
+    expiresAt: isoTimestampSchema,
+  })
+  .strict();
+export type AccountMfaSetupResponse = z.infer<
+  typeof accountMfaSetupResponseSchema
+>;
+
+export const accountMfaConfirmRequestSchema = z
+  .object({
+    code: z.string().trim().regex(/^\d{6}$/u),
+  })
+  .strict();
+export type AccountMfaConfirmRequest = z.infer<
+  typeof accountMfaConfirmRequestSchema
+>;
+
+export const accountProfileUpdateRequestSchema = z.object({
+  displayName: publicNameSchema.optional(),
+  avatarUrl: z.string().url().nullable().optional(),
+});
+export type AccountProfileUpdateRequest = z.infer<
+  typeof accountProfileUpdateRequestSchema
+>;
+
+export const accountSecurityUpdateRequestSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(128),
+    newPassword: passwordSchema,
+  })
+  .refine((input) => input.currentPassword !== input.newPassword, {
+    message: "New password must differ from current password",
+    path: ["newPassword"],
+  });
+export type AccountSecurityUpdateRequest = z.infer<
+  typeof accountSecurityUpdateRequestSchema
+>;
+
+export const projectVisibilitySchema = z.enum(["private", "team", "public"]);
+export type ProjectVisibility = z.infer<typeof projectVisibilitySchema>;
+
+export const projectStatusSchema = z.enum(["active", "archived", "deleted"]);
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+
+export const projectRetentionPolicySchema = z.enum([
+  "manual",
+  "semester_180_days",
+  "one_year_365_days",
+]);
+export type ProjectRetentionPolicy = z.infer<typeof projectRetentionPolicySchema>;
+
+export const projectMemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
+export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
+
+export const projectMemberStatusSchema = z.enum(["invited", "active"]);
+export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
+
+const nullableProjectBindingIdSchema = z.string().trim().min(1).nullable();
+const optionalProjectBindingIdSchema = z
+  .preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    nullableProjectBindingIdSchema,
+  )
+  .optional();
+
+export const projectDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    name: publicNameSchema,
+    description: optionalDescriptionSchema,
+    visibility: projectVisibilitySchema,
+    status: projectStatusSchema,
+    ownerUserId: z.string().min(1),
+    ownerDisplayName: publicNameSchema.nullable().optional(),
+    ownerAvatarUrl: z.string().url().nullable().optional(),
+    memberCount: z.number().int().min(0).optional(),
+    memberPreviews: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            userId: z.string().min(1).nullable(),
+            displayName: publicNameSchema.nullable(),
+            avatarUrl: z.string().url().nullable().optional(),
+            role: projectMemberRoleSchema,
+            status: projectMemberStatusSchema,
+          })
+          .strict(),
+      )
+      .optional(),
+    organizationId: nullableProjectBindingIdSchema.default(null),
+    courseId: nullableProjectBindingIdSchema.default(null),
+    classId: nullableProjectBindingIdSchema.default(null),
+    teamId: nullableProjectBindingIdSchema.default(null),
+    defaultProviderConfigId: nullableProjectBindingIdSchema.default(null),
+    retentionPolicy: projectRetentionPolicySchema.default("manual"),
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type ProjectDto = z.infer<typeof projectDtoSchema>;
+
+export const projectCreateRequestSchema = z.object({
+  name: publicNameSchema,
+  description: optionalDescriptionSchema.default(null),
+  visibility: projectVisibilitySchema.default("private"),
+  organizationId: optionalProjectBindingIdSchema,
+  courseId: optionalProjectBindingIdSchema,
+  classId: optionalProjectBindingIdSchema,
+  teamId: optionalProjectBindingIdSchema,
+  defaultProviderConfigId: optionalProjectBindingIdSchema,
+  retentionPolicy: projectRetentionPolicySchema.default("manual").optional(),
+});
+export type ProjectCreateRequest = z.infer<typeof projectCreateRequestSchema>;
+
+export const projectUpdateRequestSchema = z
+  .object({
+    name: publicNameSchema.optional(),
+    description: optionalDescriptionSchema.optional(),
+    visibility: projectVisibilitySchema.optional(),
+    status: z.enum(["active", "archived"]).optional(),
+    organizationId: optionalProjectBindingIdSchema,
+    courseId: optionalProjectBindingIdSchema,
+    classId: optionalProjectBindingIdSchema,
+    teamId: optionalProjectBindingIdSchema,
+    defaultProviderConfigId: optionalProjectBindingIdSchema,
+    retentionPolicy: projectRetentionPolicySchema.optional(),
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: "At least one project field must be provided",
+  });
+export type ProjectUpdateRequest = z.infer<typeof projectUpdateRequestSchema>;
+
+export const projectTransferOwnerRequestSchema = z
+  .object({
+    newOwnerUserId: z.string().trim().min(1),
+  })
+  .strict();
+export type ProjectTransferOwnerRequest = z.infer<
+  typeof projectTransferOwnerRequestSchema
+>;
+
+export const projectRetentionPolicyUpdateRequestSchema = z
+  .object({
+    retentionPolicy: projectRetentionPolicySchema,
+  })
+  .strict();
+export type ProjectRetentionPolicyUpdateRequest = z.infer<
+  typeof projectRetentionPolicyUpdateRequestSchema
+>;
+
+export const projectPermissionSchema = z.enum([
+  "view_project",
+  "update_project",
+  "delete_project",
+  "manage_members",
+  "invite_members",
+  "remove_members",
+  "view_runs",
+  "start_runs",
+  "view_documents",
+  "manage_documents",
+  "manage_project_settings",
+]);
+export type ProjectPermission = z.infer<typeof projectPermissionSchema>;
+
+export const projectMemberRolePermissions = {
+  owner: projectPermissionSchema.options,
+  editor: [
+    "view_project",
+    "update_project",
+    "view_runs",
+    "start_runs",
+    "view_documents",
+    "manage_documents",
+  ],
+  viewer: ["view_project", "view_runs", "view_documents"],
+} as const satisfies Record<ProjectMemberRole, readonly ProjectPermission[]>;
+
+export const projectMemberDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    projectId: z.string().min(1),
+    userId: z.string().min(1).nullable(),
+    email: emailAddressSchema,
+    displayName: publicNameSchema.nullable(),
+    avatarUrl: z.string().url().nullable().optional(),
+    role: projectMemberRoleSchema,
+    status: projectMemberStatusSchema,
+    invitedByUserId: z.string().min(1).nullable(),
+    invitedAt: optionalNullableTimestampSchema,
+    joinedAt: optionalNullableTimestampSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type ProjectMemberDto = z.infer<typeof projectMemberDtoSchema>;
+
+export const projectMemberInviteRequestSchema = z
+  .object({
+    email: emailAddressSchema,
+    role: z.enum(["editor", "viewer"]).default("viewer"),
+  })
+  .strict();
+export type ProjectMemberInviteRequest = z.infer<
+  typeof projectMemberInviteRequestSchema
+>;
+
+export const projectMemberUpdateRequestSchema = z
+  .object({
+    role: projectMemberRoleSchema,
+  })
+  .strict();
+export type ProjectMemberUpdateRequest = z.infer<
+  typeof projectMemberUpdateRequestSchema
+>;
+
+export const projectListResponseSchema = z.object({
+  projects: z.array(projectDtoSchema),
+});
+export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;
+
+export const projectResponseSchema = z.object({
+  project: projectDtoSchema,
+  membership: projectMemberDtoSchema.optional(),
+  currentUserRole: projectMemberRoleSchema.optional(),
+  capabilities: z.array(projectPermissionSchema).optional(),
+});
+export type ProjectResponse = z.infer<typeof projectResponseSchema>;
+
+export const projectMembersResponseSchema = z.object({
+  members: z.array(projectMemberDtoSchema),
+});
+export type ProjectMembersResponse = z.infer<typeof projectMembersResponseSchema>;
+
+export const projectMemberResponseSchema = z.object({
+  member: projectMemberDtoSchema,
+});
+export type ProjectMemberResponse = z.infer<typeof projectMemberResponseSchema>;
+
+export const projectInvitationCreateRequestSchema = z
+  .object({
+    email: emailAddressSchema,
+    role: z.enum(["editor", "viewer"]).default("viewer"),
+  })
+  .strict();
+export type ProjectInvitationCreateRequest = z.infer<
+  typeof projectInvitationCreateRequestSchema
+>;
+
+export const projectInvitationDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    projectId: z.string().min(1),
+    email: emailAddressSchema,
+    role: projectMemberRoleSchema,
+    status: projectMemberStatusSchema,
+    invitedByUserId: z.string().min(1).nullable(),
+    invitedAt: optionalNullableTimestampSchema,
+    expiresAt: isoTimestampSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+    project: projectDtoSchema.optional(),
+  })
+  .strict();
+export type ProjectInvitationDto = z.infer<typeof projectInvitationDtoSchema>;
+
+export const projectInvitationResponseSchema = z
+  .object({
+    invitation: projectInvitationDtoSchema,
+    expiresAt: isoTimestampSchema,
+    devToken: z.string().min(1).optional(),
+  })
+  .strict();
+export type ProjectInvitationResponse = z.infer<
+  typeof projectInvitationResponseSchema
+>;
+
+export const projectInvitationAcceptResponseSchema = z.object({
+  member: projectMemberDtoSchema,
+});
+export type ProjectInvitationAcceptResponse = z.infer<
+  typeof projectInvitationAcceptResponseSchema
+>;
+
+export const adminUserDtoSchema = z
+  .object({
+    user: userDtoSchema,
+    projectCount: z.number().int().min(0),
+    activeSessionCount: z.number().int().min(0),
+    lastAuditEventAt: optionalNullableTimestampSchema,
+  })
+  .strict();
+export type AdminUserDto = z.infer<typeof adminUserDtoSchema>;
+
+export const adminRateLimitPolicyScopeTypeSchema = z.enum([
+  "global",
+  "user",
+  "project",
+  "organization",
+  "provider",
+  "ip",
+]);
+export type AdminRateLimitPolicyScopeType = z.infer<
+  typeof adminRateLimitPolicyScopeTypeSchema
+>;
+
+const adminRateLimitTaskTypeSchema = z.string().trim().min(1).max(96);
+const adminRateLimitCountSchema = z.number().int().min(1);
+const adminRateLimitWindowSecondsSchema = z.number().int().min(1);
+
+export const adminRateLimitPolicyCreateRequestSchema = z
+  .object({
+    scopeType: adminRateLimitPolicyScopeTypeSchema,
+    scopeId: z.string().trim().min(1).nullable().optional(),
+    providerConfigId: z.string().trim().min(1).nullable().optional(),
+    taskType: adminRateLimitTaskTypeSchema.optional(),
+    limit: adminRateLimitCountSchema,
+    windowSeconds: adminRateLimitWindowSecondsSchema,
+    enabled: z.boolean().default(true),
+  })
+  .strict();
+export type AdminRateLimitPolicyCreateRequest = z.infer<
+  typeof adminRateLimitPolicyCreateRequestSchema
+>;
+
+export const adminRateLimitPolicyUpdateRequestSchema = z
+  .object({
+    scopeId: z.string().trim().min(1).nullable().optional(),
+    providerConfigId: z.string().trim().min(1).nullable().optional(),
+    taskType: adminRateLimitTaskTypeSchema.nullable().optional(),
+    limit: adminRateLimitCountSchema.optional(),
+    windowSeconds: adminRateLimitWindowSecondsSchema.optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+export type AdminRateLimitPolicyUpdateRequest = z.infer<
+  typeof adminRateLimitPolicyUpdateRequestSchema
+>;
+
+export const adminRateLimitPolicyDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    scopeType: adminRateLimitPolicyScopeTypeSchema,
+    scopeId: z.string().min(1).nullable(),
+    providerConfigId: z.string().min(1).nullable(),
+    taskType: adminRateLimitTaskTypeSchema.nullable(),
+    limit: adminRateLimitCountSchema,
+    windowSeconds: adminRateLimitWindowSecondsSchema,
+    enabled: z.boolean(),
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminRateLimitPolicyDto = z.infer<typeof adminRateLimitPolicyDtoSchema>;
+
+export const adminRateLimitFallbackPolicySchema = z
+  .object({
+    limit: adminRateLimitCountSchema,
+    windowSeconds: adminRateLimitWindowSecondsSchema,
+    source: z.enum(["default", "environment", "admin_policy"]),
+  })
+  .strict();
+export type AdminRateLimitFallbackPolicy = z.infer<
+  typeof adminRateLimitFallbackPolicySchema
+>;
+
+export const adminRateLimitPolicyListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    rateLimits: z.array(adminRateLimitPolicyDtoSchema),
+    fallbackPolicy: adminRateLimitFallbackPolicySchema,
+  })
+  .strict();
+export type AdminRateLimitPolicyListResponse = z.infer<
+  typeof adminRateLimitPolicyListResponseSchema
+>;
+
+export const adminProviderCostEstimateSchema = z
+  .object({
+    enabled: z.literal(false),
+    amount: z.null(),
+    currency: z.null(),
+    externalBillingSource: z.literal("external_provider"),
+    note: z.string().trim().min(1),
+  })
+  .strict();
+export type AdminProviderCostEstimate = z.infer<
+  typeof adminProviderCostEstimateSchema
+>;
+
+export const adminProviderTokenUsageSchema = z
+  .object({
+    inputTokens: z.number().int().min(0).nullable(),
+    outputTokens: z.number().int().min(0).nullable(),
+    totalTokens: z.number().int().min(0).nullable(),
+  })
+  .strict();
+export type AdminProviderTokenUsage = z.infer<
+  typeof adminProviderTokenUsageSchema
+>;
+
+export const adminProviderUsageDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    userId: z.string().min(1).nullable(),
+    projectId: z.string().min(1).nullable(),
+    courseId: z.string().min(1).nullable(),
+    classId: z.string().min(1).nullable(),
+    providerConfigId: z.string().min(1),
+    provider: z.string().trim().min(1),
+    model: z.string().trim().min(1).nullable(),
+    taskType: adminRateLimitTaskTypeSchema,
+    outcome: z.enum(["success", "failed", "blocked"]),
+    units: z.number().int().min(1),
+    tokenUsage: adminProviderTokenUsageSchema.nullable(),
+    createdAt: isoTimestampSchema,
+    costEstimate: adminProviderCostEstimateSchema,
+  })
+  .strict();
+export type AdminProviderUsageDto = z.infer<
+  typeof adminProviderUsageDtoSchema
+>;
+
+export const adminProviderUsageListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    usage: z.array(adminProviderUsageDtoSchema),
+  })
+  .strict();
+export type AdminProviderUsageListResponse = z.infer<
+  typeof adminProviderUsageListResponseSchema
+>;
+
+export const adminProviderQuotaDtoSchema = z
+  .object({
+    providerConfigId: z.string().min(1),
+    provider: z.string().trim().min(1),
+    model: z.string().trim().min(1).nullable(),
+    taskType: adminRateLimitTaskTypeSchema.nullable(),
+    scopeType: adminRateLimitPolicyScopeTypeSchema,
+    scopeId: z.string().min(1).nullable(),
+    limit: adminRateLimitCountSchema,
+    windowSeconds: adminRateLimitWindowSecondsSchema,
+    usedUnits: z.number().int().min(0),
+    remainingUnits: z.number().int().min(0),
+    resetAt: optionalNullableTimestampSchema,
+    costEstimate: adminProviderCostEstimateSchema,
+  })
+  .strict();
+export type AdminProviderQuotaDto = z.infer<
+  typeof adminProviderQuotaDtoSchema
+>;
+
+export const adminProviderQuotaListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    quotas: z.array(adminProviderQuotaDtoSchema),
+  })
+  .strict();
+export type AdminProviderQuotaListResponse = z.infer<
+  typeof adminProviderQuotaListResponseSchema
+>;
+
+const adminNullableCodeSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  },
+  z.string().min(1).max(64).nullable(),
+);
+
+const adminEntityStatusSchema = z.enum(["active", "archived"]);
+export type AdminEntityStatus = z.infer<typeof adminEntityStatusSchema>;
+
+export const adminOrganizationTypeSchema = z.enum([
+  "school",
+  "department",
+  "other",
+]);
+export type AdminOrganizationType = z.infer<typeof adminOrganizationTypeSchema>;
+
+export const adminOrganizationDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema,
+    type: adminOrganizationTypeSchema,
+    status: adminEntityStatusSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminOrganizationDto = z.infer<typeof adminOrganizationDtoSchema>;
+
+export const adminOrganizationCreateRequestSchema = z
+  .object({
+    name: publicNameSchema,
+    code: adminNullableCodeSchema.default(null),
+    type: adminOrganizationTypeSchema.default("school"),
+    status: adminEntityStatusSchema.default("active"),
+  })
+  .strict();
+export type AdminOrganizationCreateRequest = z.infer<
+  typeof adminOrganizationCreateRequestSchema
+>;
+
+export const adminOrganizationListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    organizations: z.array(adminOrganizationDtoSchema),
+  })
+  .strict();
+export type AdminOrganizationListResponse = z.infer<
+  typeof adminOrganizationListResponseSchema
+>;
+
+export const adminCourseDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    organizationId: z.string().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema,
+    term: adminNullableCodeSchema,
+    status: adminEntityStatusSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminCourseDto = z.infer<typeof adminCourseDtoSchema>;
+
+export const adminCourseCreateRequestSchema = z
+  .object({
+    organizationId: z.string().trim().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema.default(null),
+    term: adminNullableCodeSchema.default(null),
+    status: adminEntityStatusSchema.default("active"),
+  })
+  .strict();
+export type AdminCourseCreateRequest = z.infer<
+  typeof adminCourseCreateRequestSchema
+>;
+
+export const adminCourseListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    courses: z.array(adminCourseDtoSchema),
+  })
+  .strict();
+export type AdminCourseListResponse = z.infer<
+  typeof adminCourseListResponseSchema
+>;
+
+export const adminClassDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    courseId: z.string().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema,
+    status: adminEntityStatusSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminClassDto = z.infer<typeof adminClassDtoSchema>;
+
+export const adminClassCreateRequestSchema = z
+  .object({
+    courseId: z.string().trim().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema.default(null),
+    status: adminEntityStatusSchema.default("active"),
+  })
+  .strict();
+export type AdminClassCreateRequest = z.infer<
+  typeof adminClassCreateRequestSchema
+>;
+
+export const adminClassListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    classes: z.array(adminClassDtoSchema),
+  })
+  .strict();
+export type AdminClassListResponse = z.infer<
+  typeof adminClassListResponseSchema
+>;
+
+export const adminTeamDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    classId: z.string().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema,
+    status: adminEntityStatusSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminTeamDto = z.infer<typeof adminTeamDtoSchema>;
+
+export const adminTeamCreateRequestSchema = z
+  .object({
+    classId: z.string().trim().min(1),
+    name: publicNameSchema,
+    code: adminNullableCodeSchema.default(null),
+    status: adminEntityStatusSchema.default("active"),
+  })
+  .strict();
+export type AdminTeamCreateRequest = z.infer<
+  typeof adminTeamCreateRequestSchema
+>;
+
+export const adminTeamListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    teams: z.array(adminTeamDtoSchema),
+  })
+  .strict();
+export type AdminTeamListResponse = z.infer<typeof adminTeamListResponseSchema>;
+
+export const adminOrganizationMembershipTargetTypeSchema = z.enum([
+  "organization",
+  "course",
+  "class",
+  "team",
+]);
+export type AdminOrganizationMembershipTargetType = z.infer<
+  typeof adminOrganizationMembershipTargetTypeSchema
+>;
+
+export const adminOrganizationMembershipRoleSchema = z.enum([
+  "owner",
+  "course_admin",
+  "teacher",
+  "assistant",
+  "student",
+  "member",
+]);
+export type AdminOrganizationMembershipRole = z.infer<
+  typeof adminOrganizationMembershipRoleSchema
+>;
+
+export const adminOrganizationMembershipStatusSchema = z.enum([
+  "active",
+  "invited",
+]);
+export type AdminOrganizationMembershipStatus = z.infer<
+  typeof adminOrganizationMembershipStatusSchema
+>;
+
+export const adminOrganizationMembershipDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    targetType: adminOrganizationMembershipTargetTypeSchema,
+    targetId: z.string().min(1),
+    userId: z.string().min(1).nullable(),
+    email: emailAddressSchema.nullable(),
+    displayName: publicNameSchema.nullable(),
+    role: adminOrganizationMembershipRoleSchema,
+    status: adminOrganizationMembershipStatusSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminOrganizationMembershipDto = z.infer<
+  typeof adminOrganizationMembershipDtoSchema
+>;
+
+export const adminOrganizationMembershipCreateRequestSchema = z
+  .object({
+    targetType: adminOrganizationMembershipTargetTypeSchema,
+    targetId: z.string().trim().min(1),
+    userId: z.string().trim().min(1).nullable().optional(),
+    email: emailAddressSchema.nullable().optional(),
+    displayName: publicNameSchema.nullable().optional(),
+    role: adminOrganizationMembershipRoleSchema,
+    status: adminOrganizationMembershipStatusSchema.default("active"),
+  })
+  .refine((input) => input.userId || input.email, {
+    message: "Either userId or email is required",
+    path: ["userId"],
+  });
+export type AdminOrganizationMembershipCreateRequest = z.infer<
+  typeof adminOrganizationMembershipCreateRequestSchema
+>;
+
+export const adminOrganizationMembershipListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    memberships: z.array(adminOrganizationMembershipDtoSchema),
+  })
+  .strict();
+export type AdminOrganizationMembershipListResponse = z.infer<
+  typeof adminOrganizationMembershipListResponseSchema
+>;
+
+export const adminQuotaScopeTypeSchema = z.enum([
+  "organization",
+  "course",
+  "class",
+  "team",
+]);
+export type AdminQuotaScopeType = z.infer<typeof adminQuotaScopeTypeSchema>;
+
+export const adminQuotaResourceSchema = z.enum([
+  "runs",
+  "documents",
+  "storage_bytes",
+  "provider_tokens",
+]);
+export type AdminQuotaResource = z.infer<typeof adminQuotaResourceSchema>;
+
+export const adminQuotaResetPeriodSchema = z.enum(["none", "daily", "monthly"]);
+export type AdminQuotaResetPeriod = z.infer<typeof adminQuotaResetPeriodSchema>;
+
+export const adminQuotaDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    scopeType: adminQuotaScopeTypeSchema,
+    scopeId: z.string().min(1),
+    resource: adminQuotaResourceSchema,
+    limit: z.number().int().min(0),
+    used: z.number().int().min(0),
+    resetPeriod: adminQuotaResetPeriodSchema,
+    createdAt: isoTimestampSchema,
+    updatedAt: isoTimestampSchema,
+  })
+  .strict();
+export type AdminQuotaDto = z.infer<typeof adminQuotaDtoSchema>;
+
+export const adminQuotaCreateRequestSchema = z
+  .object({
+    scopeType: adminQuotaScopeTypeSchema,
+    scopeId: z.string().trim().min(1),
+    resource: adminQuotaResourceSchema,
+    limit: z.number().int().min(0),
+    used: z.number().int().min(0).default(0),
+    resetPeriod: adminQuotaResetPeriodSchema.default("none"),
+  })
+  .strict();
+export type AdminQuotaCreateRequest = z.infer<
+  typeof adminQuotaCreateRequestSchema
+>;
+
+export const adminQuotaListResponseSchema = z
+  .object({
+    generatedAt: isoTimestampSchema,
+    quotas: z.array(adminQuotaDtoSchema),
+  })
+  .strict();
+export type AdminQuotaListResponse = z.infer<typeof adminQuotaListResponseSchema>;
+
+export const auditLogDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    actorUserId: z.string().min(1).nullable(),
+    action: z.string().min(1),
+    targetType: z.string().min(1),
+    targetId: z.string().min(1).nullable(),
+    outcome: z.enum(["success", "failure"]),
+    message: z.string().min(1).nullable(),
+    createdAt: isoTimestampSchema,
+  })
+  .strict();
+export type AuditLogDto = z.infer<typeof auditLogDtoSchema>;
 
 export const codeThemeSchema = z.object({
   name: z.string().min(1),
@@ -890,6 +2445,148 @@ export const codeBusinessLogicResultSchema = z.object({
   businessLogic: codeBusinessLogicSchema,
 });
 export type CodeBusinessLogicResult = z.infer<typeof codeBusinessLogicResultSchema>;
+
+export const codeBusinessAssertionCategorySchema = z.enum([
+  "permission",
+  "role",
+  "state-machine",
+  "data-consistency",
+  "boundary-condition",
+  "exception-feedback",
+  "idempotency",
+  "business-behavior",
+]);
+export type CodeBusinessAssertionCategory = z.infer<
+  typeof codeBusinessAssertionCategorySchema
+>;
+
+export const codeBusinessAssertionSchema = z.object({
+  id: z.string().min(1),
+  requirementId: z.string().min(1),
+  category: codeBusinessAssertionCategorySchema,
+  description: z.string().min(1),
+  expectedBehavior: z.string().min(1),
+  verificationMethod: z.enum(["static-code-scan", "generated-test", "manual-review"]),
+  evidenceArtifacts: z.array(z.string().min(1)),
+  status: z.enum(["passed", "failed", "pending-review"]),
+  severity: z.enum(["info", "warning", "error", "critical"]),
+  message: z.string().min(1),
+});
+export type CodeBusinessAssertion = z.infer<typeof codeBusinessAssertionSchema>;
+
+export const codeBusinessAssertionResultSchema = z.object({
+  runId: z.string().min(1),
+  generatedAt: z.string().min(1),
+  assertions: z.array(codeBusinessAssertionSchema),
+  passed: z.boolean(),
+  blockingFailureIds: z.array(z.string().min(1)),
+});
+export type CodeBusinessAssertionResult = z.infer<
+  typeof codeBusinessAssertionResultSchema
+>;
+
+export const evidenceReviewDecisionSchema = z.object({
+  id: z.string().min(1),
+  reviewItemId: z.string().min(1),
+  decision: z.enum(["approved", "rejected", "needs-repair", "accepted-risk"]),
+  reviewerId: z.string().min(1).optional(),
+  reviewerName: z.string().min(1).optional(),
+  comment: z.string().min(1),
+  decidedAt: z.string().min(1),
+});
+export type EvidenceReviewDecision = z.infer<
+  typeof evidenceReviewDecisionSchema
+>;
+
+export const evidenceReviewItemSchema = z.object({
+  id: z.string().min(1),
+  source: z.enum([
+    "requirement-quality",
+    "coverage",
+    "traceability",
+    "business-assertion",
+    "assumption",
+    "conflict",
+    "artifact",
+  ]),
+  status: z.enum(["pending", "resolved"]),
+  severity: z.enum(["info", "warning", "error", "critical"]),
+  requirementId: z.string().min(1).optional(),
+  artifactType: traceabilityArtifactTypeSchema.optional(),
+  artifactId: z.string().min(1).optional(),
+  reason: z.string().min(1),
+  decision: evidenceReviewDecisionSchema.optional(),
+});
+export type EvidenceReviewItem = z.infer<typeof evidenceReviewItemSchema>;
+
+export const evidenceArtifactSummarySchema = z.object({
+  artifactType: z.enum([
+    "requirements-model",
+    "design-model",
+    "plantuml",
+    "svg",
+    "code",
+    "test",
+    "document",
+    "browser",
+  ]),
+  artifactId: z.string().min(1),
+  label: z.string().min(1).optional(),
+  requirementIds: z.array(z.string().min(1)).default([]),
+});
+export type EvidenceArtifactSummary = z.infer<
+  typeof evidenceArtifactSummarySchema
+>;
+
+export const evidenceFailureRecordSchema = z.object({
+  id: z.string().min(1),
+  stage: z.string().min(1).optional(),
+  message: z.string().min(1),
+  requirementId: z.string().min(1).optional(),
+  artifactId: z.string().min(1).optional(),
+  createdAt: z.string().min(1),
+});
+export type EvidenceFailureRecord = z.infer<typeof evidenceFailureRecordSchema>;
+
+export const evidenceRepairRecordSchema = z.object({
+  id: z.string().min(1),
+  stage: z.string().min(1).optional(),
+  attempt: z.number().int().min(1).optional(),
+  kind: z.string().min(1),
+  artifactId: z.string().min(1).optional(),
+  message: z.string().min(1).optional(),
+  createdAt: z.string().min(1),
+});
+export type EvidenceRepairRecord = z.infer<typeof evidenceRepairRecordSchema>;
+
+export const browserEvidenceRecordSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(["screenshot", "dom", "console", "network", "assertion"]),
+  label: z.string().min(1),
+  artifactId: z.string().min(1).optional(),
+  status: z.enum(["passed", "failed", "pending-review"]),
+  capturedAt: z.string().min(1),
+});
+export type BrowserEvidenceRecord = z.infer<typeof browserEvidenceRecordSchema>;
+
+export const evidencePackageSchema = z.object({
+  runId: z.string().min(1),
+  generatedAt: z.string().min(1),
+  status: z.enum(["complete", "blocked", "failed"]),
+  requirementBaseline: requirementBaselineSchema.nullable(),
+  qualityReport: requirementQualityReportSchema.nullable(),
+  coverageMatrix: coverageMatrixSchema.nullable(),
+  traceabilityMatrix: traceabilityMatrixSchema.nullable(),
+  modelArtifacts: z.array(evidenceArtifactSummarySchema),
+  codeArtifacts: z.array(evidenceArtifactSummarySchema),
+  businessAssertionResults: codeBusinessAssertionResultSchema.nullable(),
+  browserEvidence: z.array(browserEvidenceRecordSchema),
+  reviewItems: z.array(evidenceReviewItemSchema),
+  reviewDecisions: z.array(evidenceReviewDecisionSchema),
+  failureRecords: z.array(evidenceFailureRecordSchema),
+  repairRecords: z.array(evidenceRepairRecordSchema),
+});
+export type EvidencePackage = z.infer<typeof evidencePackageSchema>;
 
 export const codeVisualDiffReportSchema = z.object({
   passed: z.boolean(),
@@ -1281,31 +2978,83 @@ export const codeFileOperationsResultSchema = z.object({
 export type CodeFileOperationsResult = z.infer<typeof codeFileOperationsResultSchema>;
 
 export const startRunRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
   selectedDiagrams: z.array(diagramKindSchema),
   rules: z.array(requirementRuleSchema).default([]),
-  providerSettings: providerSettingsSchema,
+  providerSettings: providerSettingsSchema.optional(),
 });
 export type StartRunRequest = z.infer<typeof startRunRequestSchema>;
 
+export const requirementRuleRepairSuggestionSchema = z.object({
+  fields: z
+    .object({
+      actor: requirementFieldProvenanceEntrySchema.optional(),
+      subject: requirementFieldProvenanceEntrySchema.optional(),
+      action: requirementFieldProvenanceEntrySchema.optional(),
+      object: requirementFieldProvenanceEntrySchema.optional(),
+      condition: requirementFieldProvenanceEntrySchema.optional(),
+      outcome: requirementFieldProvenanceEntrySchema.optional(),
+      acceptanceCriteria: requirementFieldProvenanceEntrySchema.optional(),
+    })
+    .default({}),
+  confidence: z.number().min(0).max(1).optional(),
+  status: atomicRequirementStatusSchema.optional(),
+  rationale: z.string().min(1).optional(),
+});
+export type RequirementRuleRepairSuggestion = z.infer<
+  typeof requirementRuleRepairSuggestionSchema
+>;
+
+export const repairRequirementRuleRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
+  requirementText: z.string().min(1),
+  rule: requirementRuleSchema,
+  baseline: requirementBaselineSchema,
+  providerSettings: providerSettingsSchema.optional(),
+});
+export type RepairRequirementRuleRequest = z.infer<
+  typeof repairRequirementRuleRequestSchema
+>;
+
+export const repairRequirementRuleResponseSchema = z.object({
+  requirement: atomicRequirementSchema,
+  qualityReport: requirementQualityReportSchema,
+  repairRationale: z.string().min(1),
+  blockingReasons: z.array(z.string().min(1)),
+});
+export type RepairRequirementRuleResponse = z.infer<
+  typeof repairRequirementRuleResponseSchema
+>;
+
 export const startDesignRunRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
   rules: z.array(requirementRuleSchema),
+  requirementBaseline: requirementBaselineSchema.nullable().optional(),
+  evidencePackage: evidencePackageSchema.nullable().optional(),
   requirementModels: z.array(diagramModelSpecSchema),
   requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema).min(1),
   selectedDiagrams: z.array(designDiagramKindSchema).min(1),
-  providerSettings: providerSettingsSchema,
+  existingDesignModels: z.array(designDiagramModelSpecSchema).default([]),
+  existingDesignModelTraceability: z.array(designModelTraceabilityEntrySchema).default([]),
+  existingDesignPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
+  existingDesignSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
+  providerSettings: providerSettingsSchema.optional(),
 });
 export type StartDesignRunRequest = z.infer<typeof startDesignRunRequestSchema>;
 
 export const startCodeRunRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
   rules: z.array(requirementRuleSchema),
+  requirementBaseline: requirementBaselineSchema.nullable().optional(),
+  evidencePackage: evidencePackageSchema.nullable().optional(),
   designModels: z.array(designDiagramModelSpecSchema).min(1),
   designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
   existingFiles: z.record(z.string().min(1), z.string()).default({}),
   generationMode: z.enum(["continue", "regenerate"]).default("continue"),
-  providerSettings: providerSettingsSchema,
+  providerSettings: providerSettingsSchema.optional(),
   imageProviderSettings: imageProviderSettingsSchema.optional(),
 });
 export type StartCodeRunRequest = z.infer<typeof startCodeRunRequestSchema>;
@@ -1313,15 +3062,21 @@ export type StartCodeRunRequest = z.infer<typeof startCodeRunRequestSchema>;
 export const documentKindSchema = z.enum(["requirementsSpec", "softwareDesignSpec"]);
 export type DocumentKind = z.infer<typeof documentKindSchema>;
 
+export const documentStatusSchema = z.enum(["active", "deleted"]);
+export type DocumentStatus = z.infer<typeof documentStatusSchema>;
+
 export const documentLibraryItemSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1),
+  projectId: z.string().min(1).nullable().optional(),
+  createdByUserId: z.string().min(1).nullable().optional(),
   documentKind: documentKindSchema,
   title: z.string().min(1),
   fileName: z.string().min(1),
   mimeType: z.string().min(1),
   byteLength: z.number().int().min(0),
   version: z.number().int().min(1),
+  status: documentStatusSchema.default("active"),
   sourceRunId: z.string().min(1).nullable(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
@@ -1333,6 +3088,29 @@ export const documentLibraryListResponseSchema = z.object({
 });
 export type DocumentLibraryListResponse = z.infer<
   typeof documentLibraryListResponseSchema
+>;
+
+export const documentLibraryVersionItemSchema = z.object({
+  documentId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
+  createdByUserId: z.string().min(1).nullable(),
+  version: z.number().int().min(1),
+  fileName: z.string().min(1),
+  mimeType: z.string().min(1),
+  byteLength: z.number().int().min(0),
+  sourceRunId: z.string().min(1).nullable(),
+  createdAt: z.string().min(1),
+});
+export type DocumentLibraryVersionItem = z.infer<
+  typeof documentLibraryVersionItemSchema
+>;
+
+export const documentLibraryVersionsResponseSchema = z.object({
+  versions: z.array(documentLibraryVersionItemSchema),
+});
+export type DocumentLibraryVersionsResponse = z.infer<
+  typeof documentLibraryVersionsResponseSchema
 >;
 
 export const onlyOfficeEditorConfigResponseSchema = z.object({
@@ -1420,16 +3198,20 @@ export const documentContentResultSchema = z.object({
 export type DocumentContentResult = z.infer<typeof documentContentResultSchema>;
 
 export const startDocumentRunRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
   documentKind: documentKindSchema,
   requirementText: z.string().min(1),
+  requirementBaseline: requirementBaselineSchema.nullable().optional(),
+  evidencePackage: evidencePackageSchema.nullable().optional(),
   rules: z.array(requirementRuleSchema).default([]),
   requirementModels: z.array(diagramModelSpecSchema).default([]),
   requirementPlantUml: z.array(plantUmlArtifactSchema).default([]),
   requirementSvgArtifacts: z.array(svgArtifactSchema).default([]),
   designModels: z.array(designDiagramModelSpecSchema).default([]),
+  designModelTraceability: z.array(designModelTraceabilityEntrySchema).default([]),
   designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
   designSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
-  providerSettings: providerSettingsSchema,
+  providerSettings: providerSettingsSchema.optional(),
   useAiText: z.boolean().default(true),
   documentStyle: documentStyleSettingsSchema.optional(),
 });
@@ -1456,6 +3238,7 @@ export const runStageSchema = z.enum([
   "audit_code_quality",
   "verify_code_ui_fidelity",
   "verify_code_rendered_preview",
+  "verify_code_business_assertions",
   "verify_code_preview",
   "repair_code_files",
   "generate_document_text",
@@ -1470,6 +3253,7 @@ export const runStatusSchema = z.enum([
   "running",
   "completed",
   "failed",
+  "cancelled",
 ]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
@@ -1560,6 +3344,10 @@ export const runSnapshotSchema = z.object({
   requirementText: z.string(),
   selectedDiagrams: z.array(diagramKindSchema),
   rules: z.array(requirementRuleSchema),
+  requirementBaseline: requirementBaselineSchema.nullable().default(null),
+  coverageMatrix: coverageMatrixSchema.nullable().default(null),
+  traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
+  evidencePackage: evidencePackageSchema.nullable().default(null),
   models: z.array(diagramModelSpecSchema),
   requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
   plantUml: z.array(plantUmlArtifactSchema),
@@ -1577,6 +3365,10 @@ export const designRunSnapshotSchema = z.object({
   requirementText: z.string(),
   selectedDiagrams: z.array(designDiagramKindSchema),
   rules: z.array(requirementRuleSchema),
+  requirementBaseline: requirementBaselineSchema.nullable().default(null),
+  coverageMatrix: coverageMatrixSchema.nullable().default(null),
+  traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
+  evidencePackage: evidencePackageSchema.nullable().default(null),
   requirementModels: z.array(diagramModelSpecSchema),
   requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
   models: z.array(designDiagramModelSpecSchema),
@@ -1595,6 +3387,10 @@ export const codeRunSnapshotSchema = z.object({
   runId: z.string().min(1),
   requirementText: z.string(),
   rules: z.array(requirementRuleSchema),
+  requirementBaseline: requirementBaselineSchema.nullable().default(null),
+  coverageMatrix: coverageMatrixSchema.nullable().default(null),
+  traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
+  evidencePackage: evidencePackageSchema.nullable().default(null),
   designModels: z.array(designDiagramModelSpecSchema),
   designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
   spec: codeGenerationSpecSchema.nullable(),
@@ -1614,6 +3410,7 @@ export const codeRunSnapshotSchema = z.object({
   componentRegistry: codeComponentRegistrySchema.nullable().default(null),
   uiIr: codeUiIrSchema.nullable().default(null),
   visualDiffReport: codeVisualDiffReportSchema.nullable().default(null),
+  businessAssertionResults: codeBusinessAssertionResultSchema.nullable().default(null),
   repairLoopSummary: codeRepairLoopSummarySchema.nullable().default(null),
   selectedCodeSkills: z.array(codeSkillSelectionSchema).default([]),
   skillDiagnostics: z.array(codeSkillDiagnosticsSchema).default([]),
@@ -1648,6 +3445,10 @@ export const documentRunSnapshotSchema = z.object({
   runId: z.string().min(1),
   documentKind: documentKindSchema,
   requirementText: z.string(),
+  requirementBaseline: requirementBaselineSchema.nullable().default(null),
+  coverageMatrix: coverageMatrixSchema.nullable().default(null),
+  traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
+  evidencePackage: evidencePackageSchema.nullable().default(null),
   documentId: z.string().min(1).nullable().default(null),
   sections: z.array(documentSectionSchema).default([]),
   fileName: z.string().min(1).nullable(),
@@ -1662,6 +3463,11 @@ export type DocumentRunSnapshot = z.infer<typeof documentRunSnapshotSchema>;
 
 export const queuedRunEventSchema = z.object({
   type: z.literal("queued"),
+  queuePosition: z.number().int().min(0).optional(),
+  queueAhead: z.number().int().min(0).optional(),
+  waitMs: z.number().int().min(0).optional(),
+  estimatedWaitMs: z.number().int().min(0).optional(),
+  queueReason: z.enum(["global", "provider", "project", "user", "run"]).optional(),
 });
 
 export const stageStartedRunEventSchema = z.object({
@@ -1680,12 +3486,37 @@ export const stageProgressRunEventSchema = z.object({
   stage: runStageSchema,
   progress: z.number().min(0).max(100),
   message: z.string().optional(),
+  diagramKind: umlDiagramKindSchema.optional(),
+  modelId: z.string().min(1).optional(),
+  subtaskId: z.string().min(1).optional(),
+  subtaskLabel: z.string().min(1).optional(),
+  subtaskStatus: z
+    .enum([
+      "queued",
+      "running",
+      "repairing",
+      "rendering",
+      "completed",
+      "failed",
+      "pending_review",
+    ])
+    .optional(),
+  parallelGroup: z.string().min(1).optional(),
+  queuePosition: z.number().int().min(0).optional(),
+  queueAhead: z.number().int().min(0).optional(),
+  waitMs: z.number().int().min(0).optional(),
+  estimatedWaitMs: z.number().int().min(0).optional(),
+  queueReason: z.enum(["global", "provider", "project", "user", "run"]).optional(),
 });
 
 export const artifactReadyRunEventSchema = z.object({
   type: z.literal("artifact_ready"),
   stage: runStageSchema,
   artifactKind: z.enum([
+    "requirementBaseline",
+    "coverageMatrix",
+    "traceabilityMatrix",
+    "evidencePackage",
     "rules",
     "model",
     "plantuml",
@@ -1707,9 +3538,25 @@ export const artifactReadyRunEventSchema = z.object({
     "skillResourcePlan",
     "codeSkillContext",
     "visualDiffReport",
+    "businessAssertionResults",
     "document",
   ]),
   diagramKind: umlDiagramKindSchema.optional(),
+  modelId: z.string().min(1).optional(),
+  subtaskId: z.string().min(1).optional(),
+  subtaskLabel: z.string().min(1).optional(),
+  subtaskStatus: z
+    .enum([
+      "queued",
+      "running",
+      "repairing",
+      "rendering",
+      "completed",
+      "failed",
+      "pending_review",
+    ])
+    .optional(),
+  parallelGroup: z.string().min(1).optional(),
   businessLogic: codeBusinessLogicSchema.optional(),
   loadedCodeSkill: loadedCodeSkillSchema.optional(),
   visualDirection: codeVisualDirectionSchema.optional(),
@@ -1726,6 +3573,10 @@ export const artifactReadyRunEventSchema = z.object({
   codeSkills: z.array(codeSkillSelectionSchema).optional(),
   skillDiagnostics: z.array(codeSkillDiagnosticsSchema).optional(),
   visualDiffReport: codeVisualDiffReportSchema.optional(),
+  businessAssertionResults: codeBusinessAssertionResultSchema.optional(),
+  coverageMatrix: coverageMatrixSchema.optional(),
+  traceabilityMatrix: traceabilityMatrixSchema.optional(),
+  evidencePackage: evidencePackageSchema.optional(),
 });
 
 export const codeFileChangedRunEventSchema = z.object({
@@ -1751,7 +3602,37 @@ export const failedRunEventSchema = z.object({
   message: z.string().min(1),
 });
 
-export const runEventSchema = z.discriminatedUnion("type", [
+export const cancelledRunEventSchema = z.object({
+  type: z.literal("cancelled"),
+  stage: runStageSchema.optional(),
+  message: z.string().min(1),
+});
+
+export const runActionSchema = z.enum(["cancel", "retry", "rerun"]);
+export type RunAction = z.infer<typeof runActionSchema>;
+
+export const runActionRunEventSchema = z.object({
+  type: z.literal("run_action"),
+  action: runActionSchema,
+  sourceRunId: z.string().min(1),
+  newRunId: z.string().min(1).optional(),
+  actorUserId: z.string().min(1).optional(),
+  createdAt: z.string().min(1),
+});
+
+export type RunEvent =
+  | z.infer<typeof queuedRunEventSchema>
+  | z.infer<typeof stageStartedRunEventSchema>
+  | z.infer<typeof llmChunkRunEventSchema>
+  | z.infer<typeof stageProgressRunEventSchema>
+  | z.infer<typeof artifactReadyRunEventSchema>
+  | z.infer<typeof codeFileChangedRunEventSchema>
+  | z.infer<typeof completedRunEventSchema>
+  | z.infer<typeof failedRunEventSchema>
+  | z.infer<typeof cancelledRunEventSchema>
+  | z.infer<typeof runActionRunEventSchema>;
+
+export const runEventSchema: z.ZodType<RunEvent, z.ZodTypeDef, unknown> = z.discriminatedUnion("type", [
   queuedRunEventSchema,
   stageStartedRunEventSchema,
   llmChunkRunEventSchema,
@@ -1760,8 +3641,17 @@ export const runEventSchema = z.discriminatedUnion("type", [
   codeFileChangedRunEventSchema,
   completedRunEventSchema,
   failedRunEventSchema,
+  cancelledRunEventSchema,
+  runActionRunEventSchema,
 ]);
-export type RunEvent = z.infer<typeof runEventSchema>;
+
+export const runActionResultSchema = z.object({
+  action: runActionSchema,
+  sourceRunId: z.string().min(1),
+  runId: z.string().min(1),
+  status: runStatusSchema,
+});
+export type RunActionResult = z.infer<typeof runActionResultSchema>;
 
 export const startRunResponseSchema = z.object({
   runId: z.string().min(1),

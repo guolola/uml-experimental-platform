@@ -32,6 +32,7 @@ import {
   DESIGN_DIAGRAM_ORDER,
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
+  getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -170,8 +171,8 @@ function TreeItem({
     <div>
       <div
         className={cn(
-          "mx-3 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-xl py-1.5 pr-2 text-left text-sm font-medium text-sidebar-foreground/82 transition-colors hover:bg-muted hover:text-sidebar-foreground [&_svg]:transition-colors",
-          depth === 0 && "min-h-11 text-[15px] font-semibold",
+          "mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-xl py-1.5 pr-2 text-left text-sm font-medium text-sidebar-foreground/82 transition-colors hover:bg-muted hover:text-sidebar-foreground [&_svg]:transition-colors",
+          depth === 0 && "min-h-11",
           depth > 0 && "min-h-10",
           selected &&
             "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm [&_svg]:text-sidebar-accent-foreground",
@@ -294,34 +295,50 @@ function buildDiagramNode(
 
 function buildDesignDiagramNode(
   diagram: DesignDiagramType,
-  model: ReturnType<typeof useWorkspaceSession>["designModels"][DesignDiagramType],
+  model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
   failed: boolean,
   traceBadges: string[],
-  openDesignDiagram: (diagram: DesignDiagramType) => void,
+  openDesignDiagram: (
+    diagram: DesignDiagramType,
+    modelId?: string,
+    label?: string,
+  ) => void,
   openDesignDiagramElement: (
     diagram: DesignDiagramType,
     elementKind: string,
     elementId: string,
     label: string,
+    modelId?: string,
   ) => void,
 ): Node {
+  const modelId = model ? getDesignModelId(model) : diagram;
+  const label =
+    diagram === "sequence" && model
+      ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
+      : DESIGN_DIAGRAM_META[diagram].label;
   const detail = buildDiagramDetailModel(model);
   const children: Node[] = detail.groups.map((group) => ({
-    key: `design-diagram-group:${diagram}:${group.kind}`,
+    key: `design-diagram-group:${modelId}:${group.kind}`,
     label: SEMANTIC_KIND_META[group.kind].label,
     selectable: false,
     children: group.items.map((element) => ({
-      key: `design-diagram-element:${diagram}:${element.kind}:${element.id}`,
+      key: `design-diagram-element:${modelId}:${element.kind}:${element.id}`,
       label: element.label,
       icon: KIND_ICON[element.kind],
       onSelect: () =>
-        openDesignDiagramElement(diagram, element.kind, element.id, element.label),
+        openDesignDiagramElement(
+          diagram,
+          element.kind,
+          element.id,
+          element.label,
+          modelId,
+        ),
     })),
   }));
 
   return {
-    key: `design-diagram:${diagram}`,
-    label: DESIGN_DIAGRAM_META[diagram].label,
+    key: `design-diagram:${modelId}`,
+    label,
     icon: (
       <span className="relative inline-flex">
         <Network className="size-4 text-muted-foreground" />
@@ -336,7 +353,7 @@ function buildDesignDiagramNode(
     children,
     badge: failed ? "失败" : undefined,
     badges: failed ? undefined : traceBadges,
-    onSelect: () => openDesignDiagram(diagram),
+    onSelect: () => openDesignDiagram(diagram, modelId, label),
   };
 }
 
@@ -367,6 +384,15 @@ export function SidebarMenu() {
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
   const selectedKey = getSelectionKey(selection);
+  const designModelsByDiagram = DESIGN_DIAGRAM_ORDER.reduce(
+    (acc, diagram) => {
+      acc[diagram] = Object.values(designModels).filter(
+        (model) => model.diagramKind === diagram,
+      );
+      return acc;
+    },
+    {} as Record<DesignDiagramType, Array<ReturnType<typeof useWorkspaceSession>["designModels"][string]>>,
+  );
   const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter((diagram) =>
     generatedDesignDiagrams.includes(diagram),
   );
@@ -436,16 +462,35 @@ export function SidebarMenu() {
               },
             ]
           : []),
-        ...orderedDesignDiagrams.map((diagram) =>
-          buildDesignDiagramNode(
+        ...orderedDesignDiagrams.map((diagram) => {
+          const diagramModels = designModelsByDiagram[diagram];
+          if (diagram === "sequence" && diagramModels.length > 1) {
+            return {
+              key: "design-diagram-group:sequence",
+              label: `${DESIGN_DIAGRAM_META.sequence.label}（${diagramModels.length}）`,
+              icon: <MessageSquare className="size-4 text-muted-foreground" />,
+              selectable: false,
+              children: diagramModels.map((model) =>
+                buildDesignDiagramNode(
+                  diagram,
+                  model,
+                  Boolean(designDiagramErrors[diagram]),
+                  buildDesignDiagramTraceBadge(diagram),
+                  openDesignDiagram,
+                  openDesignDiagramElement,
+                ),
+              ),
+            };
+          }
+          return buildDesignDiagramNode(
             diagram,
-            designModels[diagram],
+            diagramModels[0],
             Boolean(designDiagramErrors[diagram]),
             buildDesignDiagramTraceBadge(diagram),
             openDesignDiagram,
             openDesignDiagramElement,
-          ),
-        ),
+          );
+        }),
       ],
     },
     {
@@ -463,11 +508,14 @@ export function SidebarMenu() {
   ];
 
   return (
-    <nav className="flex h-full flex-col overflow-hidden py-4 text-sidebar-foreground">
+    <nav
+      aria-label="项目导航"
+      className="flex h-full w-full flex-col overflow-hidden py-6 text-sidebar-foreground"
+    >
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-button]:hidden [&::-webkit-scrollbar-button]:size-0 [&::-webkit-scrollbar-track]:bg-transparent">
-        <div className="mb-2 flex items-center gap-2 px-5 py-2">
+        <div className="mb-3 flex items-center gap-2 px-4 py-2">
           <Layers className="size-4 text-muted-foreground" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-semibold uppercase tracking-[0.88px] text-muted-foreground">
             项目导航
           </span>
         </div>

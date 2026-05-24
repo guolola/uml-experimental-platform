@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type {
   DocumentKind,
@@ -18,8 +19,19 @@ import type {
   DiagramModelSpec,
   ModelElementRef,
   RequirementModelTraceabilityEntry,
+  RequirementBaseline,
+  AtomicRequirement,
+  AtomicRequirementField,
+  RequirementQualityReport,
+  RequirementQualityIssue,
 } from "@uml-platform/contracts";
-import type { DesignDiagramType, DiagramType } from "../../entities/diagram/model";
+import {
+  DESIGN_DIAGRAM_META,
+  DIAGRAM_META,
+  getDesignModelId,
+  type DesignDiagramType,
+  type DiagramType,
+} from "../../entities/diagram/model";
 import type {
   WorkspaceRecord,
   WorkspaceCodeRunSnapshot,
@@ -33,7 +45,6 @@ import {
   createStartRunInput,
   useWorkspaceRepository,
 } from "../../services/workspace-repository";
-import { downloadBlobFile } from "../../shared/lib/download";
 import {
   isCodeRunSnapshot,
   isDesignRunSnapshot,
@@ -76,6 +87,16 @@ import { useDiagramsSlice } from "./slices/diagrams-slice";
 import { useDesignSlice } from "./slices/design-slice";
 import { useCodeSlice } from "./slices/code-slice";
 import { useRunDiagnosticsSlice } from "./slices/run-diagnostics-slice";
+import { Button } from "../../shared/ui/button";
+import { cn } from "../../shared/ui/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../shared/ui/dialog";
 
 
 
@@ -83,8 +104,196 @@ import { useRunDiagnosticsSlice } from "./slices/run-diagnostics-slice";
 
 const WorkspaceSessionContext = createContext<WorkspaceSessionState | null>(null);
 
-function refKey(diagramKind: string, elementId: string) {
-  return `${diagramKind}:${elementId}`.toLowerCase();
+type GenerationResultDialogState = {
+  title: string;
+  message: string;
+  tone: "success" | "warning" | "destructive";
+  details?: string[];
+  runId?: string | null;
+  requirementId?: string | null;
+  ruleId?: string | null;
+  stageLabel?: string;
+  targetLabel?: string | null;
+};
+
+function uniqueIssueMessages(issues: RequirementQualityIssue[]) {
+  return Array.from(
+    new Set(
+      issues
+        .map((issue) => issue.message?.trim())
+        .filter((message): message is string => Boolean(message)),
+    ),
+  );
+}
+
+function isRequirementBlocking(issue: RequirementQualityIssue) {
+  return issue.blocksDownstream || issue.severity === "critical";
+}
+
+const REVIEWABLE_REQUIREMENT_FIELDS: AtomicRequirementField[] = [
+  "actor",
+  "subject",
+  "action",
+  "object",
+  "condition",
+  "outcome",
+  "acceptanceCriteria",
+];
+
+function requirementFieldHasReviewedValue(
+  requirement: AtomicRequirement,
+  field: AtomicRequirementField,
+) {
+  const provenance = requirement.fieldProvenance[field];
+  if (
+    provenance?.status === "accepted" &&
+    typeof provenance.value === "string" &&
+    provenance.value.trim()
+  ) {
+    return true;
+  }
+  if (field === "acceptanceCriteria") {
+    return requirement.acceptanceCriteria.length > 0;
+  }
+  return Boolean(requirement[field]?.trim());
+}
+
+function requirementConditionIsVerifiable(requirement: AtomicRequirement) {
+  const provenance = requirement.fieldProvenance.condition;
+  const condition = provenance?.value ?? requirement.condition ?? "";
+  return provenance?.status === "accepted" || /\d/.test(condition);
+}
+
+function rebuildRequirementReviewQualityReport(
+  baseline: RequirementBaseline,
+): RequirementQualityReport {
+  const issues = baseline.qualityReport.issues.filter((issue) => {
+    const requirement = issue.requirementId
+      ? baseline.requirements.find((item) => item.id === issue.requirementId)
+      : null;
+    if (!requirement) return true;
+    if (issue.code === "missing-actor") {
+      return !requirementFieldHasReviewedValue(requirement, "actor");
+    }
+    if (issue.code === "missing-object") {
+      return !requirementFieldHasReviewedValue(requirement, "object");
+    }
+    if (issue.code === "missing-boundary") {
+      return !requirementConditionIsVerifiable(requirement);
+    }
+    if (issue.code === "low-confidence") {
+      return requirement.confidence < 0.7 && requirement.status !== "accepted";
+    }
+    if (issue.code === "derived-assumption") {
+      return Object.values(requirement.fieldProvenance).some(
+        (item) => item?.source === "ai-suggested" && item.status !== "accepted",
+      );
+    }
+    return true;
+  });
+  return rebuildRequirementQualityReport({
+    ...baseline,
+    qualityReport: {
+      ...baseline.qualityReport,
+      issues,
+    },
+  });
+}
+
+function sanitizeResultDialogCopy(text: string) {
+  const cleaned = text
+    .replace(/\bREQ-\d+\b/giu, "这条需求")
+    .replace(/\bR\d+\b/giu, "这条规则")
+    .replace(/\brun[-_a-z0-9]+\b/giu, "本次运行")
+    .replace(/\b(runId|requirementId|ruleId|EvidencePackage)\b/giu, "")
+    .replace(/\.docx\b/giu, "")
+    .replace(/\bAI\b/giu, "智能修复")
+    .replace(/\b[A-Za-z][A-Za-z0-9_.:/-]*\b/gu, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([，。；：！？])/g, "$1")
+    .replace(/[:：]\s*$/g, "")
+    .trim();
+  return cleaned || "技术细节已隐藏，请在当前阶段的问题列表查看详情。";
+}
+
+function resultDialogMessage(result: GenerationResultDialogState) {
+  if (result.tone === "destructive" && /[A-Za-z]/u.test(result.message)) {
+    return "生成过程中出现问题，请在当前阶段的问题列表查看详情。";
+  }
+  return sanitizeResultDialogCopy(result.message);
+}
+
+function GenerationResultDialog({
+  result,
+  onClose,
+}: {
+  result: GenerationResultDialogState | null;
+  onClose: () => void;
+}) {
+  const displayTitle = result ? sanitizeResultDialogCopy(result.title) : "生成结果";
+  const displayMessage = result ? resultDialogMessage(result) : "";
+  const isFailure = result?.tone === "destructive";
+  const Icon = isFailure ? XCircle : CheckCircle2;
+  const iconLabel = isFailure ? "操作失败" : "操作成功";
+
+  return (
+    <Dialog open={Boolean(result)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-[calc(100%-2rem)] gap-0 overflow-hidden rounded-[12px] border-[rgba(199,196,214,0.5)] bg-white p-[33px] text-center shadow-[0px_8px_30px_0px_rgba(0,0,0,0.06)] sm:max-w-[448px] [&_[data-slot=dialog-close]]:hidden">
+        <DialogHeader className="items-center gap-0 space-y-0 text-center sm:text-center">
+          <div className="mb-6 h-[80px] w-[80px]">
+            <div
+              aria-label={iconLabel}
+              className={cn(
+                "relative flex size-[80px] items-center justify-center rounded-full",
+                isFailure
+                  ? "bg-[rgba(186,26,26,0.1)] text-[#BA1A1A]"
+                  : "bg-[rgba(74,222,128,0.1)] text-[#4ADE80]",
+              )}
+            >
+              <Icon className="size-10" strokeWidth={3} />
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute inset-0 rounded-full border opacity-20",
+                  isFailure
+                    ? "border-[rgba(186,26,26,0.2)]"
+                    : "border-[rgba(74,222,128,0.2)]",
+                )}
+              />
+            </div>
+          </div>
+          <DialogTitle className="text-center text-[20px] font-semibold leading-[28px] text-[#0B1C30]">
+            {displayTitle}
+          </DialogTitle>
+          <DialogDescription className="mx-auto mt-2 max-w-[280px] text-center text-[14px] leading-[20px] text-[#464554]">
+            {displayMessage}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="mt-6 flex-row justify-center gap-3 sm:justify-center">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-[#464554] hover:bg-muted/60"
+            onClick={onClose}
+          >
+            取消
+          </Button>
+          <Button
+            type="button"
+            className="h-10 rounded-[8px] bg-[#2B23AD] px-6 text-[14px] font-normal text-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] hover:bg-[#241d96]"
+            onClick={onClose}
+          >
+            确认
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function refKey(diagramKind: string, elementId: string, modelId?: string) {
+  const scope = compactRefValue(modelId) || diagramKind;
+  return `${scope}:${diagramKind}:${elementId}`.toLowerCase();
 }
 
 function compactRefValue(value: unknown) {
@@ -126,12 +335,44 @@ function isBusinessTraceabilityKind(kind: string) {
   ].includes(kind);
 }
 
+function rebuildRequirementQualityReport(
+  baseline: RequirementBaseline,
+): RequirementQualityReport {
+  const blockingIssueIds = baseline.qualityReport.issues
+    .filter((issue) => issue.blocksDownstream)
+    .map((issue) => issue.id);
+  const reviewRequiredRequirementIds = Array.from(
+    new Set(
+      baseline.requirements
+        .filter((requirement) => requirement.status !== "accepted")
+        .map((requirement) => requirement.id),
+    ),
+  );
+  const status =
+    blockingIssueIds.length > 0
+      ? "blocked"
+      : reviewRequiredRequirementIds.length > 0 || baseline.qualityReport.issues.length > 0
+        ? "pending-review"
+        : "passed";
+  return {
+    ...baseline.qualityReport,
+    status,
+    summary:
+      status === "passed"
+        ? `已建立 ${baseline.requirements.length} 条原子需求基线。`
+        : `发现 ${baseline.qualityReport.issues.length} 个需求质量提示，可继续生成并在当前页面查看。`,
+    blockingIssueIds,
+    reviewRequiredRequirementIds,
+  };
+}
+
 function collectTraceableRefKeys(
   models: Array<DiagramModelSpec | DesignDiagramModelSpec>,
 ) {
   const keys = new Set<string>();
   for (const model of models) {
     const diagramKind = model.diagramKind;
+    const modelId = compactRefValue((model as unknown as Record<string, unknown>).modelId);
     const record = model as unknown as Record<string, unknown>;
     const listKeys: Array<[string, string]> = [
       ["actors", "actor"],
@@ -164,7 +405,7 @@ function collectTraceableRefKeys(
             ? activityNodeTraceabilityKind(itemRecord.type)
             : defaultKind;
         if (id && isBusinessTraceabilityKind(kind)) {
-          keys.add(refKey(diagramKind, id));
+          keys.add(refKey(diagramKind, id, modelId || undefined));
           businessElementIds.add(id);
         }
         if (key === "tables") {
@@ -173,7 +414,7 @@ function collectTraceableRefKeys(
             if (!column || typeof column !== "object") continue;
             const columnId = compactRefValue((column as Record<string, unknown>).id);
             if (id && columnId) {
-              keys.add(refKey(diagramKind, `${id}.${columnId}`));
+              keys.add(refKey(diagramKind, `${id}.${columnId}`, modelId || undefined));
               businessElementIds.add(`${id}.${columnId}`);
             }
           }
@@ -195,7 +436,7 @@ function collectTraceableRefKeys(
         continue;
       }
       const id = compactRefValue(relationshipRecord.id);
-      if (id) keys.add(refKey(diagramKind, id));
+      if (id) keys.add(refKey(diagramKind, id, modelId || undefined));
     }
   }
   return keys;
@@ -206,7 +447,9 @@ function hasCompleteTraceabilityCoverage(
   refs: ModelElementRef[],
 ) {
   if (modelRefs.size === 0) return false;
-  const covered = new Set(refs.map((ref) => refKey(ref.diagramKind, ref.elementId)));
+  const covered = new Set(
+    refs.map((ref) => refKey(ref.diagramKind, ref.elementId, ref.modelId)),
+  );
   return Array.from(modelRefs).every((key) => covered.has(key));
 }
 
@@ -347,6 +590,285 @@ export function WorkspaceSessionProvider({
   const [selectedGenerationTaskId, setSelectedGenerationTaskId] =
     useState<string | null>(null);
   const [historyItems, setHistoryItems] = useState<RunHistoryItem[]>([]);
+  const [requirementBaseline, setRequirementBaseline] =
+    useState<RequirementBaseline | null>(null);
+  const [requirementQualityReport, setRequirementQualityReport] =
+    useState<RequirementQualityReport | null>(null);
+  const [generationResultDialog, setGenerationResultDialog] =
+    useState<GenerationResultDialogState | null>(null);
+
+  const openGenerationResultDialog = useCallback(
+    (input: GenerationResultDialogState) => {
+      setGenerationResultDialog(input);
+    },
+    [],
+  );
+
+  const persistRequirementBaseline = useCallback(
+    async (next: RequirementBaseline) => {
+      if (!repository.updateRequirementBaseline) {
+        throw new Error("当前环境不支持保存需求复核结果");
+      }
+      await repository.updateRequirementBaseline(next);
+      setRequirementBaseline(next);
+      setRequirementQualityReport(next.qualityReport);
+    },
+    [repository],
+  );
+
+  const showRequirementReviewSaveFailure = useCallback(
+    (error: unknown, ruleId: string) => {
+      openGenerationResultDialog({
+        title: "保存失败",
+        tone: "destructive",
+        message: "复核结果没有保存，请稍后重试。",
+        details: [
+          error instanceof Error ? error.message : "项目工作台保存失败。",
+        ],
+        ruleId,
+        stageLabel: "需求规则",
+        targetLabel: rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+      });
+    },
+    [openGenerationResultDialog, rules],
+  );
+
+  const updateRequirementAiSuggestionReview = useCallback(
+    async (
+      ruleId: string,
+      decision: "accept-ai" | "accept-manual" | "reject",
+      fieldValues: Partial<Record<AtomicRequirementField, string>> = {},
+    ) => {
+      if (!requirementBaseline) return;
+      const next = structuredClone(requirementBaseline) as RequirementBaseline;
+      const requirement = next.requirements.find(
+        (item) => item.sourceRuleId === ruleId,
+      );
+      if (!requirement) return;
+      const targetLabel = rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则";
+
+      if (decision === "accept-manual") {
+        for (const field of REVIEWABLE_REQUIREMENT_FIELDS) {
+          const rawValue = fieldValues[field];
+          if (rawValue === undefined) continue;
+          const value = rawValue.trim();
+          if (field === "acceptanceCriteria") {
+            requirement.acceptanceCriteria = value
+              .split(/[；;\n]/)
+              .map((item) => item.trim())
+              .filter(Boolean);
+          } else {
+            requirement[field] = value || null;
+          }
+          requirement.fieldProvenance[field] = {
+            source: "manual",
+            status: value ? "accepted" : "pending-review",
+            value: value || null,
+            originalValue:
+              requirement.fieldProvenance[field]?.originalValue ??
+              requirement.fieldProvenance[field]?.value ??
+              null,
+            rationale: "用户编辑后保存，并重新运行需求质量检查。",
+          };
+        }
+      } else {
+        for (const [field, provenance] of Object.entries(requirement.fieldProvenance)) {
+          if (
+            provenance?.source !== "ai-suggested" ||
+            provenance.status !== "pending-review"
+          ) {
+            continue;
+          }
+          requirement.fieldProvenance[
+            field as keyof typeof requirement.fieldProvenance
+          ] = {
+            ...provenance,
+            status: decision === "reject" ? "rejected" : "accepted",
+            rationale:
+              decision === "reject"
+                ? "用户已拒绝本次智能修复建议。"
+                : "用户已采纳本次智能修复建议。",
+          };
+        }
+      }
+
+      if (decision === "reject") {
+        requirement.status = "pending-review";
+      } else if (requirement.status !== "conflict") {
+        requirement.confidence = Math.max(requirement.confidence, 0.72);
+        requirement.status = Object.values(requirement.fieldProvenance).some(
+          (item) => item?.status === "pending-review" || item?.status === "rejected",
+        )
+          ? "pending-review"
+          : "accepted";
+      }
+
+      next.qualityReport = rebuildRequirementReviewQualityReport(next);
+      const relatedIssues = next.qualityReport.issues.filter(
+        (issue) => issue.requirementId === requirement.id,
+      );
+      const stillBlocked = relatedIssues.some(isRequirementBlocking);
+      if (stillBlocked && decision === "accept-manual") {
+        for (const field of Object.keys(fieldValues) as AtomicRequirementField[]) {
+          const provenance = requirement.fieldProvenance[field];
+          if (provenance?.source === "manual") {
+            requirement.fieldProvenance[field] = {
+              ...provenance,
+              status: "pending-review",
+              rationale: "编辑稿已保存，但质量检查仍未通过。",
+            };
+          }
+        }
+        requirement.status = "pending-review";
+        next.qualityReport = rebuildRequirementReviewQualityReport(next);
+      }
+
+      try {
+        await persistRequirementBaseline(next);
+      } catch (error) {
+        showRequirementReviewSaveFailure(error, ruleId);
+        return;
+      }
+
+      if (decision === "reject") {
+        openGenerationResultDialog({
+          title: "字段建议已拒绝",
+          tone: "warning",
+          message: "智能修复补齐建议已标记为拒绝，需求仍保留待确认提示。",
+          details: uniqueIssueMessages(relatedIssues),
+          requirementId: requirement.id,
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel,
+        });
+      } else if (stillBlocked) {
+        openGenerationResultDialog({
+          title: "字段仍需确认",
+          tone: "warning",
+          message: "编辑稿已保存，当前需求仍保留质量提示。",
+          details: uniqueIssueMessages(relatedIssues),
+          requirementId: requirement.id,
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel,
+        });
+      } else {
+        openGenerationResultDialog({
+          title: "字段已保存",
+          tone: "success",
+          message:
+            decision === "accept-manual"
+              ? "手动编辑后的字段已保存。"
+              : "智能修复补齐字段已采纳并保存。",
+          requirementId: requirement.id,
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel,
+        });
+      }
+    },
+    [
+      openGenerationResultDialog,
+      persistRequirementBaseline,
+      requirementBaseline,
+      rules,
+      showRequirementReviewSaveFailure,
+    ],
+  );
+
+  const acceptRequirementAiSuggestions = useCallback(
+    async (
+      ruleId: string,
+      mode: "ai-accepted" | "manual-edited" = "ai-accepted",
+      fieldValues?: Partial<Record<AtomicRequirementField, string>>,
+    ) => {
+      await updateRequirementAiSuggestionReview(
+        ruleId,
+        mode === "manual-edited" ? "accept-manual" : "accept-ai",
+        fieldValues,
+      );
+    },
+    [updateRequirementAiSuggestionReview],
+  );
+
+  const rejectRequirementAiSuggestions = useCallback(
+    async (ruleId: string) => {
+      await updateRequirementAiSuggestionReview(ruleId, "reject");
+    },
+    [updateRequirementAiSuggestionReview],
+  );
+
+  const repairRequirementRule = useCallback(
+    async (ruleId: string) => {
+      if (!requirementBaseline) return;
+      if (!repository.repairRequirementRule) {
+        openGenerationResultDialog({
+          title: "智能修复失败",
+          tone: "destructive",
+          message: "当前环境不支持单项智能修复。",
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel: rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+        });
+        return;
+      }
+      const rule = rules.find((item) => item.id === ruleId);
+      const requirement = requirementBaseline.requirements.find(
+        (item) => item.sourceRuleId === ruleId,
+      );
+      if (!rule || !requirement) return;
+      try {
+        const runInput = createStartRunInput(requirementText, selectedDiagrams, rules);
+        const repairResult = await repository.repairRequirementRule({
+          requirementText,
+          rule,
+          baseline: requirementBaseline,
+          providerSettings: runInput.providerSettings,
+        });
+        const next = structuredClone(requirementBaseline) as RequirementBaseline;
+        next.requirements = next.requirements.map((item) =>
+          item.id === repairResult.requirement.id ? repairResult.requirement : item,
+        );
+        next.qualityReport = repairResult.qualityReport;
+        await persistRequirementBaseline(next);
+        const stillBlocked = repairResult.blockingReasons.length > 0;
+        openGenerationResultDialog({
+          title: stillBlocked ? "智能修复已保存" : "单项智能修复完成",
+          tone: stillBlocked ? "warning" : "success",
+          message: stillBlocked
+            ? "已只修复当前需求规则，当前规则仍保留质量提示。"
+            : "已只修复当前需求规则，并保存结构化结果。",
+          details: repairResult.blockingReasons,
+          requirementId: repairResult.requirement.id,
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel: rule.text,
+        });
+      } catch (error) {
+        openGenerationResultDialog({
+          title: "智能修复失败",
+          tone: "destructive",
+          message: "当前规则没有完成智能修复，原有内容保持不变。",
+          details: [
+            error instanceof Error ? error.message : "模型返回内容无法解析。",
+          ],
+          requirementId: requirement.id,
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel: rule.text,
+        });
+      }
+    },
+    [
+      openGenerationResultDialog,
+      persistRequirementBaseline,
+      repository,
+      requirementBaseline,
+      requirementText,
+      rules,
+      selectedDiagrams,
+    ],
+  );
 
   const runController = useRunController();
   const latestInputRef = useRef({
@@ -406,6 +928,7 @@ export function WorkspaceSessionProvider({
       documentKind?: DocumentKind;
       message: string;
       startedAtMs: number;
+      subtasks?: GenerationTask["subtasks"];
     }) => {
       const clientTaskId = createClientTaskId(input.kind);
       const startedAt = new Date(input.startedAtMs).toISOString();
@@ -416,6 +939,7 @@ export function WorkspaceSessionProvider({
         providerModel: input.providerModel,
         documentKind: input.documentKind,
         message: input.message,
+        subtasks: input.subtasks,
         startedAt,
       });
       setGenerationTasks((current) => [task, ...current].slice(0, 30));
@@ -446,6 +970,8 @@ export function WorkspaceSessionProvider({
       if (!active) return;
       setRequirementTextRaw(workspace.requirementText);
       setRules(workspace.rules);
+      setRequirementBaseline(workspace.requirementBaseline ?? null);
+      setRequirementQualityReport(workspace.requirementQualityReport ?? null);
       setModels(workspace.models);
       setRequirementModelTraceability(workspace.requirementModelTraceability ?? []);
       setSelectedDiagrams(workspace.selectedDiagramTypes);
@@ -486,7 +1012,20 @@ export function WorkspaceSessionProvider({
         if (active) {
           setHistoryItems(items);
         }
+      }).catch((error) => {
+        if (!active) return;
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage:
+            error instanceof Error ? error.message : "读取运行历史失败",
+        }));
       });
+    }).catch((error) => {
+      if (!active) return;
+      setRunUiState((current) => ({
+        ...current,
+        errorMessage: error instanceof Error ? error.message : "加载工作台失败",
+      }));
     });
 
     return () => {
@@ -512,6 +1051,10 @@ export function WorkspaceSessionProvider({
       const mapped = snapshotToMaps(snapshot);
 
       setRules(snapshot.rules);
+      setRequirementBaseline(snapshot.requirementBaseline ?? null);
+      setRequirementQualityReport(
+        snapshot.requirementBaseline?.qualityReport ?? null,
+      );
       setRulesVersion(nextRulesVersion);
       setRulesBasedOnTextVersion(baseTextVersion);
       setDiagramErrors((current) => {
@@ -642,10 +1185,16 @@ export function WorkspaceSessionProvider({
         ...current,
         ...mapped.svgArtifacts,
       }));
-      setDesignDiagramErrors((current) => ({
-        ...current,
-        ...snapshot.diagramErrors,
-      }));
+      setDesignDiagramErrors((current) => {
+        const next = { ...current };
+        for (const diagram of requestedDiagrams) {
+          delete next[diagram];
+        }
+        return {
+          ...next,
+          ...snapshot.diagramErrors,
+        };
+      });
       setGeneratedDesignDiagrams((current) =>
         Array.from(new Set([...current, ...snapshot.selectedDiagrams])),
       );
@@ -687,7 +1236,7 @@ export function WorkspaceSessionProvider({
 
     if (isCodeRunSnapshot(snapshot)) {
       const restoredDesignModels = Object.fromEntries(
-        snapshot.designModels.map((model) => [model.diagramKind, model]),
+        snapshot.designModels.map((model) => [getDesignModelId(model), model]),
       ) as WorkspaceRecord["designModels"];
       const restoredDesignDiagrams = snapshot.designModels.map(
         (model) => model.diagramKind,
@@ -924,6 +1473,16 @@ export function WorkspaceSessionProvider({
           providerModel,
           message: "任务已进入队列",
           startedAtMs,
+          subtasks:
+            mode.kind === "rules-only"
+              ? []
+              : diagrams.map((diagram) => ({
+                  id: diagram,
+                  label: DIAGRAM_META[diagram].label,
+                  status: "queued",
+                  message: null,
+                  errorMessage: null,
+                })),
         });
         setRunUiState({
           runStatus: "queued",
@@ -1049,6 +1608,19 @@ export function WorkspaceSessionProvider({
           runMessage: "生成完成",
           errorMessage: null,
         });
+        const qualityHintCount =
+          snapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
+        openGenerationResultDialog({
+          title: mode.kind === "rules-only" ? "需求规则已生成" : "需求模型已生成",
+          tone: qualityHintCount > 0 ? "warning" : "success",
+          message:
+            qualityHintCount > 0
+              ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
+              : "生成完成。",
+          runId: snapshot.runId,
+          stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+          targetLabel: mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
+        });
         notifyGenerationCompleted("requirements");
         if (
           baseInputFingerprint !==
@@ -1078,6 +1650,7 @@ export function WorkspaceSessionProvider({
         if (runId) {
           try {
             const failedSnapshot = await repository.getRunSnapshot(runId);
+            applyRunSnapshot(failedSnapshot, baseTextVersion, mode);
             setCurrentRunDiagnostics((current) => ({
               ...current,
               requirementTrace: failedSnapshot.requirementTrace ?? current.requirementTrace,
@@ -1096,6 +1669,14 @@ export function WorkspaceSessionProvider({
           runMessage: null,
           errorMessage: error instanceof Error ? error.message : "生成失败",
         });
+        openGenerationResultDialog({
+          title: "生成失败",
+          tone: "destructive",
+          message: detail,
+          details: ["请在当前页面查看问题并重新处理。"],
+          runId,
+          stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+        });
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt: new Date().toISOString(),
@@ -1112,7 +1693,16 @@ export function WorkspaceSessionProvider({
         notifyGenerationFailed(error instanceof Error ? `生成失败：${error.message}` : "生成失败");
       }
     },
-    [applyRunSnapshot, repository, requirementText, rules, runController, saveHistorySnapshot, textVersion],
+    [
+      applyRunSnapshot,
+      openGenerationResultDialog,
+      repository,
+      requirementText,
+      rules,
+      runController,
+      saveHistorySnapshot,
+      textVersion,
+    ],
   );
 
   const runDesignGeneration = useCallback(
@@ -1163,6 +1753,17 @@ export function WorkspaceSessionProvider({
           ),
           requirementModelTraceability,
           diagrams,
+          Object.values(designModels),
+          designModelTraceability,
+          Object.entries(designPlantUml).map(([artifactId, source]) => {
+            const model = designModels[artifactId];
+            return {
+              diagramKind: model?.diagramKind ?? (artifactId as DesignDiagramType),
+              modelId: model?.modelId,
+              source,
+            };
+          }),
+          Object.values(designSvgArtifacts),
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -1171,6 +1772,13 @@ export function WorkspaceSessionProvider({
           providerModel,
           message: "设计生成任务已进入队列",
           startedAtMs,
+          subtasks: diagrams.map((diagram) => ({
+            id: diagram,
+            label: DESIGN_DIAGRAM_META[diagram].label,
+            status: "queued",
+            message: null,
+            errorMessage: null,
+          })),
         });
         setRunUiState({
           runStatus: "queued",
@@ -1294,6 +1902,19 @@ export function WorkspaceSessionProvider({
           runMessage: "设计生成完成",
           errorMessage: null,
         });
+        const qualityHintCount =
+          snapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
+        openGenerationResultDialog({
+          title: "设计模型已生成",
+          tone: qualityHintCount > 0 ? "warning" : "success",
+          message:
+            qualityHintCount > 0
+              ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
+              : "生成完成。",
+          runId: snapshot.runId,
+          stageLabel: "设计模型",
+          targetLabel: "已选设计图",
+        });
         notifyGenerationCompleted("design");
         if (
           baseInputFingerprint !==
@@ -1345,6 +1966,14 @@ export function WorkspaceSessionProvider({
           runMessage: null,
           errorMessage: error instanceof Error ? error.message : "设计生成失败",
         });
+        openGenerationResultDialog({
+          title: "生成失败",
+          tone: "destructive",
+          message: detail,
+          details: ["设计生成未通过，请在设计模型页面查看问题并重新处理。"],
+          runId,
+          stageLabel: "设计模型",
+        });
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt: new Date().toISOString(),
@@ -1368,6 +1997,7 @@ export function WorkspaceSessionProvider({
       diagramVersions,
       generatedDiagrams,
       models,
+      openGenerationResultDialog,
       repository,
       requirementModelTraceability,
       requirementText,
@@ -1437,10 +2067,18 @@ export function WorkspaceSessionProvider({
       }
       const availableDesignPlantUml = Object.entries(designPlantUml)
         .filter(([, source]) => source.trim().length > 0)
-        .map(([diagramKind, source]) => ({
-          diagramKind: diagramKind as DesignDiagramType,
-          source,
-        }));
+        .map(([artifactId, source]) => {
+          const model = designModels[artifactId];
+          const svgArtifact = designSvgArtifacts[artifactId];
+          return {
+            diagramKind:
+              model?.diagramKind ??
+              svgArtifact?.diagramKind ??
+              (artifactId as DesignDiagramType),
+            modelId: model?.modelId ?? svgArtifact?.modelId,
+            source,
+          };
+        });
 
       const startInput = createStartCodeRunInput(
         requirementText,
@@ -1664,13 +2302,19 @@ export function WorkspaceSessionProvider({
             : "代码生成完成",
         errorMessage: null,
       });
-      if (snapshot.generationMode === "continue" && snapshot.changedFileCount === 0) {
-        toast.message("本次未产生文件变更");
-      } else {
-        toast.success(
-          snapshot.generationMode === "regenerate" ? "代码重新生成完成" : "代码生成完成",
-        );
-      }
+      openGenerationResultDialog({
+        title: "代码原型已生成",
+        tone: "success",
+        message:
+          snapshot.generationMode === "continue" && snapshot.changedFileCount === 0
+            ? "本次未产生文件变更。"
+            : snapshot.generationMode === "regenerate"
+              ? "代码重新生成完成。"
+              : "代码生成完成。",
+        runId: snapshot.runId,
+        stageLabel: "代码原型",
+        targetLabel: "当前代码原型",
+      });
       if (
         baseInputFingerprint !==
         snapshotInputFingerprint({
@@ -1721,6 +2365,14 @@ export function WorkspaceSessionProvider({
         runMessage: null,
         errorMessage: error instanceof Error ? error.message : "代码生成失败",
       });
+      openGenerationResultDialog({
+        title: "生成失败",
+        tone: "destructive",
+        message: detail,
+        details: ["请在代码页面查看问题并重新处理。"],
+        runId,
+        stageLabel: "代码原型",
+      });
       setCurrentRunDiagnostics((current) => ({
         ...current,
         finishedAt: new Date().toISOString(),
@@ -1749,6 +2401,7 @@ export function WorkspaceSessionProvider({
     generatedDesignDiagrams,
     generatedDiagrams,
     models,
+    openGenerationResultDialog,
     repository,
     requirementModelTraceability,
     requirementText,
@@ -1790,8 +2443,19 @@ export function WorkspaceSessionProvider({
           (model): model is DesignDiagramModelSpec => Boolean(model),
         );
         const designPlantUmlList = Object.entries(designPlantUml)
-          .filter((entry): entry is [DesignDiagramType, string] => Boolean(entry[1]))
-          .map(([diagramKind, source]) => ({ diagramKind, source }));
+          .filter((entry): entry is [string, string] => Boolean(entry[1]))
+          .map(([artifactId, source]) => {
+            const model = designModels[artifactId];
+            const svgArtifact = designSvgArtifacts[artifactId];
+            return {
+              diagramKind:
+                model?.diagramKind ??
+                svgArtifact?.diagramKind ??
+                (artifactId as DesignDiagramType),
+              modelId: model?.modelId ?? svgArtifact?.modelId,
+              source,
+            };
+          });
         const designSvgArtifactList = Object.values(designSvgArtifacts).filter(
           (artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact),
         );
@@ -1966,7 +2630,14 @@ export function WorkspaceSessionProvider({
           runMessage: "说明书生成完成",
           errorMessage: null,
         });
-        toast.success(`${snapshot.fileName ?? `${documentTitle}.docx`} 已生成`);
+        openGenerationResultDialog({
+          title: "说明书已生成",
+          tone: "success",
+          message: `${documentTitle}已生成。`,
+          runId: snapshot.runId,
+          stageLabel: "说明书",
+          targetLabel: documentTitle,
+        });
         return snapshot;
       } catch (error) {
         const detail = error instanceof Error ? error.message : "说明书生成失败";
@@ -1998,6 +2669,14 @@ export function WorkspaceSessionProvider({
           runMessage: null,
           errorMessage: error instanceof Error ? error.message : "说明书生成失败",
         });
+        openGenerationResultDialog({
+          title: "生成失败",
+          tone: "destructive",
+          message: detail,
+          details: ["说明书生成未通过，请在说明书页面查看问题并重新处理。"],
+          runId,
+          stageLabel: "说明书",
+        });
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt: new Date().toISOString(),
@@ -2028,6 +2707,7 @@ export function WorkspaceSessionProvider({
       generatedDesignDiagrams,
       generatedDiagrams,
       models,
+      openGenerationResultDialog,
       plantUml,
       repository,
       requirementModelTraceability,
@@ -2180,6 +2860,11 @@ export function WorkspaceSessionProvider({
       requirementText,
       setRequirementText,
       rules,
+      requirementBaseline,
+      requirementQualityReport,
+      acceptRequirementAiSuggestions,
+      rejectRequirementAiSuggestions,
+      repairRequirementRule,
       addRequirementRule,
       createRequirementRule,
       updateRequirementRule,
@@ -2211,6 +2896,7 @@ export function WorkspaceSessionProvider({
       codeSkillResourcePlan,
       codeSkillContext,
       codeDiagnostics,
+      codeEditVersion,
       updateCodeFile,
       generatedDesignDiagrams,
       generatedDiagrams,
@@ -2220,6 +2906,7 @@ export function WorkspaceSessionProvider({
       runMessage: visibleRunMessage,
       errorMessage: visibleErrorMessage,
       generationTasks,
+      visibleGenerationTask,
       selectedGenerationTaskId: visibleGenerationTask?.clientTaskId ?? null,
       selectGenerationTask,
       clearCompletedGenerationTasks,
@@ -2251,6 +2938,11 @@ export function WorkspaceSessionProvider({
       requirementText,
       setRequirementText,
       rules,
+      requirementBaseline,
+      requirementQualityReport,
+      acceptRequirementAiSuggestions,
+      rejectRequirementAiSuggestions,
+      repairRequirementRule,
       addRequirementRule,
       createRequirementRule,
       updateRequirementRule,
@@ -2280,6 +2972,7 @@ export function WorkspaceSessionProvider({
       codeSkillResourcePlan,
       codeSkillContext,
       codeDiagnostics,
+      codeEditVersion,
       updateCodeFile,
       generatedDesignDiagrams,
       generatedDiagrams,
@@ -2322,6 +3015,10 @@ export function WorkspaceSessionProvider({
   return (
     <WorkspaceSessionContext.Provider value={value}>
       {children}
+      <GenerationResultDialog
+        result={generationResultDialog}
+        onClose={() => setGenerationResultDialog(null)}
+      />
     </WorkspaceSessionContext.Provider>
   );
 }

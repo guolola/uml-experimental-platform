@@ -1,7 +1,14 @@
 // Registers shared Server-Sent Events endpoints for all run kinds.
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RunEvent } from "@uml-platform/contracts";
 import type { RunRecord } from "../runs/records/run-record-store.js";
+import { DEFAULT_LOCAL_CORS_ORIGINS, readCorsOrigins } from "../server/cors.js";
+
+type CanReadRunRecord = (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  record: RunRecord,
+) => Promise<boolean>;
 
 export function registerRunEventsRoute({
   app,
@@ -9,6 +16,7 @@ export function registerRunEventsRoute({
   path,
   notFoundMessage,
   defaultAllowOrigin,
+  canReadRunRecord,
   heartbeatMs = 15000,
 }: {
   app: FastifyInstance;
@@ -16,8 +24,13 @@ export function registerRunEventsRoute({
   path: string;
   notFoundMessage: string;
   defaultAllowOrigin: string;
+  canReadRunRecord?: CanReadRunRecord;
   heartbeatMs?: number;
 }) {
+  const allowedOrigins = new Set(
+    readCorsOrigins("API_CORS_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS),
+  );
+
   app.get(path, async (request, reply) => {
     const { runId } = request.params as { runId: string };
     const record = runs.get(runId);
@@ -25,19 +38,31 @@ export function registerRunEventsRoute({
       reply.code(404);
       return { message: notFoundMessage };
     }
+    if (canReadRunRecord && !(await canReadRunRecord(request, reply, record))) {
+      return reply;
+    }
 
     const requestOrigin =
       typeof request.headers.origin === "string" ? request.headers.origin : null;
-    const allowOrigin = requestOrigin ?? defaultAllowOrigin;
-
-    reply.hijack();
-    reply.raw.writeHead(200, {
+    const allowOrigin =
+      requestOrigin && allowedOrigins.has(requestOrigin)
+        ? requestOrigin
+        : requestOrigin
+          ? null
+          : defaultAllowOrigin;
+    const headers: Record<string, string> = {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
-      "Access-Control-Allow-Origin": allowOrigin,
       Vary: "Origin",
-    });
+    };
+    if (allowOrigin) {
+      headers["Access-Control-Allow-Origin"] = allowOrigin;
+      headers["Access-Control-Allow-Credentials"] = "true";
+    }
+
+    reply.hijack();
+    reply.raw.writeHead(200, headers);
 
     const send = (event: RunEvent) => {
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);

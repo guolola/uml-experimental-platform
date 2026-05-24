@@ -41,9 +41,9 @@ Provider 配置约定：
 - `ONLYOFFICE_ACCESS_TOKEN_SECRET`：说明书 file/callback 短期访问 token 密钥，未配置时回退到 `ONLYOFFICE_JWT_SECRET`。
 - `UML_DOCUMENT_STORAGE_DIR`：说明书持久化目录，生产环境建议放到 release 目录之外。
 
-说明书编辑器使用匿名工作区隔离：前端会为每个浏览器生成 `X-UML-Workspace-Id`
-和 `X-UML-Workspace-Secret`，API 只返回当前工作区下的说明书。OnlyOffice
-访问 DOCX 文件和保存回调时使用短期签名 URL，不依赖浏览器 header。
+说明书编辑器使用登录后的项目作用域隔离：前端只发送项目上下文，API 通过
+项目成员权限返回当前项目下的说明书。OnlyOffice 访问 DOCX 文件和保存回调时
+使用短期签名 URL，不依赖浏览器 header。
 
 如果 `4001` 端口被本机其他程序占用，可临时改端口启动：
 

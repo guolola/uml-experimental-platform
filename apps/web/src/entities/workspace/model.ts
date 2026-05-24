@@ -10,6 +10,8 @@ import type {
   DiagramError,
   DiagramModelSpec,
   RequirementModelTraceabilityEntry,
+  RequirementBaseline,
+  RequirementQualityReport,
   RunSnapshot,
   RunStage,
   RunStatus as ContractRunStatus,
@@ -30,6 +32,8 @@ export interface WorkspaceRecord {
   requirementText: string;
   selectedDiagramTypes: DiagramType[];
   rules: RequirementRule[];
+  requirementBaseline: RequirementBaseline | null;
+  requirementQualityReport: RequirementQualityReport | null;
   models: Partial<Record<DiagramType, DiagramModelSpec>>;
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
   generatedDiagramTypes: DiagramType[];
@@ -37,11 +41,11 @@ export interface WorkspaceRecord {
   svgArtifacts: Partial<Record<DiagramType, SvgArtifact>>;
   diagramErrors: Partial<Record<DiagramType, DiagramError>>;
   selectedDesignDiagramTypes: DesignDiagramType[];
-  designModels: Partial<Record<DesignDiagramType, DesignDiagramModelSpec>>;
+  designModels: Record<string, DesignDiagramModelSpec>;
   designModelTraceability: DesignModelTraceabilityEntry[];
   generatedDesignDiagramTypes: DesignDiagramType[];
-  designPlantUml: Partial<Record<DesignDiagramType, string>>;
-  designSvgArtifacts: Partial<Record<DesignDiagramType, DesignSvgArtifact>>;
+  designPlantUml: Record<string, string>;
+  designSvgArtifacts: Record<string, DesignSvgArtifact>;
   designDiagramErrors: Partial<Record<DesignDiagramType, DiagramError>>;
   codeSpec: CodeGenerationSpec | null;
   codeBusinessLogic: CodeBusinessLogic | null;

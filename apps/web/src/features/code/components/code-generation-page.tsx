@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SandpackProvider } from "@codesandbox/sandpack-react";
 import {
   AlertTriangle,
@@ -71,12 +71,12 @@ export function CodeGenerationPage() {
     designModels,
     codeSpec,
     codeFiles,
+    codeEditVersion,
     codeEntryFile,
     codeDependencies,
     generating,
     runProgress,
     runMessage,
-    errorMessage,
     generateCodePrototype,
     updateCodeFile,
   } = useWorkspaceSession();
@@ -90,7 +90,6 @@ export function CodeGenerationPage() {
     expandedDirs,
     sortedFiles,
     fileTree,
-    sandpackFiles,
     updateFile,
     toggleDirectory,
   } = usePrototypeFiles({
@@ -100,6 +99,25 @@ export function CodeGenerationPage() {
     onFileChange: updateCodeFile,
   });
   const previewRef = useRef<LocalPrototypePreviewHandle | null>(null);
+  const previewEditVersionRef = useRef(codeEditVersion);
+  const manualPreviewEditPendingRef = useRef(false);
+  const [previewFiles, setPreviewFiles] = useState<Record<string, string>>(() => ({ ...files }));
+  const [previewState, setPreviewState] = useState<"success" | "pending" | "building" | "error">(
+    () => (Object.keys(codeFiles).length > 0 ? "success" : "pending"),
+  );
+  const previewSandpackFiles = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(previewFiles).map(([path, code]) => [
+          path,
+          {
+            code,
+            active: path === activeFile,
+          },
+        ]),
+      ),
+    [activeFile, previewFiles],
+  );
 
   useEffect(() => {
     const syncSettings = () => {
@@ -125,18 +143,12 @@ export function CodeGenerationPage() {
   const canGenerate = designModelCount > 0 && requirementText.trim().length > 0;
   const generatedFileCount = Object.keys(codeFiles).length;
   const previewReady = generatedFileCount > 0 && Boolean(codeEntryFile || codeFiles["/src/main.tsx"]);
+  const hasPreviewFiles = Object.keys(previewFiles).length > 0;
   const isRepairingGeneratedPrototype =
     generating &&
     previewReady &&
     /修复|覆盖检查|质量|验证|repair/i.test(runMessage ?? "");
-  const codeStatus = errorMessage && !generating
-    ? {
-        tone: "destructive" as const,
-        icon: AlertTriangle,
-        title: "代码生成失败",
-        message: errorMessage,
-      }
-    : isRepairingGeneratedPrototype
+  const codeStatus = isRepairingGeneratedPrototype
       ? {
           tone: "primary" as const,
           icon: Loader2,
@@ -152,19 +164,40 @@ export function CodeGenerationPage() {
             title: "正在生成前端原型",
             message: runMessage ?? "生成完成前，预览会在代码文件写入后自动刷新。",
           }
-        : previewReady
+        : previewState === "pending" && previewReady
           ? {
-              tone: "success" as const,
-              icon: CheckCircle2,
-              title: "预览可用",
-              message: "当前原型已经生成，可以查看预览、继续生成、重新生成或导出。",
+              tone: "primary" as const,
+              icon: Info,
+              title: "有未运行的修改",
+              message: "当前编辑内容尚未构建到预览，点击“运行预览”后再查看最新效果。",
             }
-          : canGenerate
+          : previewState === "building" && hasPreviewFiles
             ? {
-                tone: "muted" as const,
-                icon: Info,
-                title: "设计模型已就绪",
-                message: "点击“启动生成”后，代码区和预览区会随着文件生成自动更新。",
+                tone: "primary" as const,
+                icon: Loader2,
+                title: "正在构建预览",
+                message: "正在把当前编辑内容构建到右侧预览。",
+              }
+            : previewState === "error" && hasPreviewFiles
+              ? {
+                  tone: "destructive" as const,
+                  icon: AlertTriangle,
+                  title: "预览构建失败",
+                  message: "请根据预览区域的错误修复代码，然后再次运行预览。",
+                }
+              : previewReady
+                ? {
+                    tone: "success" as const,
+                    icon: CheckCircle2,
+                    title: "预览已更新",
+                    message: "当前预览已经使用最新生成结果完成构建，可以查看、继续生成、重新生成或导出。",
+                  }
+                : canGenerate
+                  ? {
+                      tone: "muted" as const,
+                      icon: Info,
+                      title: "设计模型已就绪",
+                      message: "点击“启动生成”后，代码区和预览区会随着文件生成自动更新。",
               }
             : null;
   const visibleDependencies = {
@@ -193,6 +226,44 @@ export function CodeGenerationPage() {
     setDefaultModel(model);
     patchUserSettings({ defaultModel: model });
   };
+
+  useEffect(() => {
+    if (!previewReady) return;
+    if (manualPreviewEditPendingRef.current) return;
+    if (codeEditVersion !== previewEditVersionRef.current) return;
+
+    setPreviewFiles({ ...files });
+    setPreviewState("success");
+  }, [codeEditVersion, files, previewReady]);
+
+  const handleFileChange = (path: string, value: string) => {
+    manualPreviewEditPendingRef.current = true;
+    updateFile(path, value);
+    if (previewReady) {
+      setPreviewState("pending");
+    }
+  };
+
+  const runPreview = () => {
+    manualPreviewEditPendingRef.current = false;
+    previewEditVersionRef.current = codeEditVersion;
+    setPreviewFiles({ ...files });
+    setPreviewState("building");
+  };
+
+  const handlePreviewBuildStart = useCallback(() => {
+    setPreviewState((current) => (current === "pending" ? current : "building"));
+  }, []);
+
+  const handlePreviewBuildReady = useCallback(() => {
+    if (manualPreviewEditPendingRef.current) return;
+    setPreviewState("success");
+  }, []);
+
+  const handlePreviewBuildError = useCallback(() => {
+    if (manualPreviewEditPendingRef.current) return;
+    setPreviewState("error");
+  }, []);
 
   const exportBundle = () => {
     downloadTextFile(
@@ -337,7 +408,7 @@ export function CodeGenerationPage() {
           overflow: "hidden",
         }}
         template="vite-react-ts"
-        files={sandpackFiles}
+        files={previewSandpackFiles}
         customSetup={{
           entry: "/src/main.tsx",
           dependencies: visibleDependencies,
@@ -352,7 +423,7 @@ export function CodeGenerationPage() {
         }}
       >
         <MonacoFileModelSync files={files} />
-        <SandpackFileSync files={files} />
+        <SandpackFileSync files={previewFiles} />
         <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
           <ResizablePanel defaultSize={58} minSize={34}>
             <div className="grid h-full min-h-0 grid-cols-[210px_minmax(0,1fr)] border-r border-border">
@@ -393,7 +464,7 @@ export function CodeGenerationPage() {
                   <EditorBridge
                     activeFile={activeFile}
                     files={files}
-                    onChange={updateFile}
+                    onChange={handleFileChange}
                   />
                 </div>
               </section>
@@ -418,15 +489,34 @@ export function CodeGenerationPage() {
                     </span>
                   )}
                 </button>
-                <Badge variant="secondary" className="font-mono">
-                  Local TSX
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7"
+                    onClick={runPreview}
+                    disabled={!previewReady || previewState === "building"}
+                  >
+                    {previewState === "building" ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Play className="size-3.5" />
+                    )}
+                    运行预览
+                  </Button>
+                  <Badge variant="secondary" className="font-mono">
+                    Local TSX
+                  </Badge>
+                </div>
               </div>
               <div className="relative min-h-0 flex-1 bg-muted/40 p-2">
                 <LocalPrototypePreview
                   ref={previewRef}
-                  files={files}
+                  files={previewFiles}
                   entryFile="/src/main.tsx"
+                  onBuildError={handlePreviewBuildError}
+                  onBuildReady={handlePreviewBuildReady}
+                  onBuildStart={handlePreviewBuildStart}
                 />
               </div>
             </section>

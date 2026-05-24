@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import { toast } from "sonner";
 import {
   ExternalLink,
@@ -23,6 +24,7 @@ import { downloadTextFile } from "../../../shared/lib/download";
 import {
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
+  getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -54,15 +56,18 @@ export function DiagramView({
 
 export function DesignDiagramView({
   type,
+  modelId,
   highlightedElement,
 }: {
   type: DesignDiagramType;
+  modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
 }) {
   return (
     <DiagramDetailView
       stage="design"
       type={type}
+      modelId={modelId}
       highlightedElement={highlightedElement}
     />
   );
@@ -148,10 +153,12 @@ function getRelationAccentClass(index: number) {
 function DiagramDetailView({
   stage,
   type,
+  modelId,
   highlightedElement,
 }: {
   stage: "requirements" | "design";
   type: DiagramType | DesignDiagramType;
+  modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
 }) {
   const {
@@ -179,26 +186,102 @@ function DiagramDetailView({
   const designType = type as DesignDiagramType;
   const isStale = !isDesign && staleDiagrams.includes(requirementType);
   const meta = isDesign ? DESIGN_DIAGRAM_META[designType] : DIAGRAM_META[requirementType];
+  const designModel = isDesign
+    ? modelId
+      ? designModels[modelId]
+      : Object.values(designModels).find((entry) => entry.diagramKind === designType)
+    : undefined;
+  const designArtifactId = designModel ? getDesignModelId(designModel) : modelId ?? designType;
   const source = isDesign
-    ? designPlantUml[designType] ?? ""
+    ? designPlantUml[designArtifactId] ?? ""
     : plantUml[requirementType] ?? "";
-  const model = isDesign ? designModels[designType] : models[requirementType];
+  const model = isDesign ? designModel : models[requirementType];
   const svgMarkup = isDesign
-    ? designSvgArtifacts[designType]?.svg ?? ""
+    ? designSvgArtifacts[designArtifactId]?.svg ?? ""
     : svgArtifacts[requirementType]?.svg ?? "";
   const diagramError = isDesign
     ? designDiagramErrors[designType] ?? null
     : diagramErrors[requirementType] ?? null;
   const [svgUrl, setSvgUrl] = useState("");
   const [svgScale, setSvgScale] = useState(1);
+  const svgScaleRef = useRef(svgScale);
+  const svgCanvasRef = useRef<HTMLDivElement | null>(null);
+  const panStateRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  }>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
+  const [isPanning, setIsPanning] = useState(false);
   const [elementSearch, setElementSearch] = useState("");
   const [elementKindFilter, setElementKindFilter] = useState<"all" | SemanticElementKind>(
     "all",
   );
   const [relationsOnlyFocus, setRelationsOnlyFocus] = useState(false);
-  const updateSvgScale = (next: number) => {
+  const updateSvgScale = useCallback((next: number) => {
     setSvgScale(Math.min(3, Math.max(0.25, Math.round(next * 100) / 100)));
-  };
+  }, []);
+  useEffect(() => {
+    svgScaleRef.current = svgScale;
+  }, [svgScale]);
+  useEffect(() => {
+    const canvas = svgCanvasRef.current;
+    if (!canvas || !svgMarkup) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      updateSvgScale(svgScaleRef.current + (event.deltaY < 0 ? 0.1 : -0.1));
+    };
+
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", handleWheel);
+    };
+  }, [svgMarkup, updateSvgScale]);
+  useEffect(() => {
+    panStateRef.current.active = false;
+    setIsPanning(false);
+  }, [svgMarkup]);
+  const startCanvasPan = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if ((typeof event.button === "number" && event.button !== 0) || !svgMarkup) return;
+
+    const canvas = svgCanvasRef.current;
+    if (!canvas) return;
+
+    panStateRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: canvas.scrollLeft,
+      scrollTop: canvas.scrollTop,
+    };
+    setIsPanning(true);
+  }, [svgMarkup]);
+  const moveCanvasPan = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    const panState = panStateRef.current;
+    if (!panState.active) return;
+
+    event.preventDefault();
+    const canvas = svgCanvasRef.current;
+    if (!canvas) return;
+
+    canvas.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
+    canvas.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+  }, []);
+  const stopCanvasPan = useCallback(() => {
+    if (!panStateRef.current.active) return;
+
+    panStateRef.current.active = false;
+    setIsPanning(false);
+  }, []);
   useEffect(() => {
     if (!svgMarkup || typeof URL.createObjectURL !== "function") {
       setSvgUrl("");
@@ -479,14 +562,16 @@ function DiagramDetailView({
                     {diagramActions}
                   </div>
                   <div
-                    className="min-h-[420px] flex-1 overflow-auto"
-                    onWheel={(event) => {
-                      if (!event.ctrlKey || !svgMarkup) {
-                        return;
-                      }
-                      event.preventDefault();
-                      updateSvgScale(svgScale + (event.deltaY < 0 ? 0.1 : -0.1));
-                    }}
+                    ref={svgCanvasRef}
+                    data-testid="svg-preview-canvas"
+                    className={cn(
+                      "min-h-[420px] flex-1 overflow-auto",
+                      svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
+                    )}
+                    onMouseDown={startCanvasPan}
+                    onMouseMove={moveCanvasPan}
+                    onMouseUp={stopCanvasPan}
+                    onMouseLeave={stopCanvasPan}
                   >
                       {svgMarkup ? (
                         <div className="flex min-h-full min-w-full items-center justify-center">
@@ -536,7 +621,13 @@ function DiagramDetailView({
                             size="sm"
                             className="h-8"
                             onClick={() =>
-                              isDesign ? openDesignDiagram(designType) : openDiagram(requirementType)
+                              isDesign
+                                ? openDesignDiagram(
+                                    designType,
+                                    designArtifactId,
+                                    getModelText(model, "title", meta.label),
+                                  )
+                                : openDiagram(requirementType)
                             }
                           >
                             清除高亮
@@ -755,6 +846,7 @@ function DiagramDetailView({
                                         el.kind,
                                         el.id,
                                         el.label,
+                                        designArtifactId,
                                       )
                                     : openDiagramElement(
                                         requirementType,

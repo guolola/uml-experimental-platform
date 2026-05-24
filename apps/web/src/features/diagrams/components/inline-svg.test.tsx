@@ -59,6 +59,28 @@ describe("InlineSvg", () => {
     });
   });
 
+  it("does not highlight a coarse PlantUML group that contains the whole diagram", async () => {
+    const { container } = render(
+      <InlineSvg
+        svg={
+          '<svg width="260" height="120"><g id="diagram-root"><rect id="shape-a" width="80" height="36"></rect><text x="10" y="22">借书</text><rect id="shape-b" x="120" width="80" height="36"></rect><text x="130" y="22">还书</text></g></svg>'
+        }
+        highlightLabel="借书"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("text.pum-highlight")?.textContent).toBe("借书");
+    });
+
+    expect(container.querySelector("g#diagram-root")?.classList.contains("pum-highlight")).toBe(
+      false,
+    );
+    expect(container.querySelector("#shape-b")?.classList.contains("pum-highlight")).toBe(
+      false,
+    );
+  });
+
   it("uses the dedicated light blue highlight style instead of the primary token", () => {
     render(<InlineSvg svg="<svg><text>ok</text></svg>" />);
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -17,12 +17,21 @@ import {
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Checkbox } from "../../../shared/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
 import { ModelPicker } from "../../../shared/ui/model-picker";
 import { cn } from "../../../shared/ui/utils";
 import {
   DESIGN_DIAGRAM_META,
   DESIGN_DIAGRAM_ORDER,
   DIAGRAM_META,
+  getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -99,6 +108,10 @@ function getDesignDiagramBlockReason(
   return null;
 }
 
+function stageRepairCopy(text: string) {
+  return text.replace(/\bAI\b\s*/gu, "系统");
+}
+
 export function DesignModelPage() {
   const {
     models,
@@ -106,15 +119,19 @@ export function DesignModelPage() {
     selectedDesignDiagrams,
     setSelectedDesignDiagrams,
     generatedDesignDiagrams,
+    designModels,
+    designModelTraceability,
     designDiagramErrors,
     generating,
-    errorMessage,
     generateDesignDiagrams,
     designGenerationBlockedReason,
   } = useWorkspaceSession();
   const { openDesignDiagram } = useWorkspaceShell();
   const [defaultModel, setDefaultModel] = useState(
     () => loadUserSettings().defaultModel,
+  );
+  const [repairResult, setRepairResult] = useState<{ targetLabel: string } | null>(
+    null,
   );
 
   useEffect(() => {
@@ -178,6 +195,29 @@ export function DesignModelPage() {
       const source = DESIGN_SOURCE_MAP[diagram];
       return source === "sequence" || sourceStatus[source];
     });
+  const designRepairRecords = useMemo(
+    () =>
+      designModelTraceability
+        .filter(
+          (entry) =>
+            entry.mappingSource === "auto-filled-pending-review" ||
+            entry.mappingSource === "derived-from-endpoints" ||
+            Boolean(entry.rationale),
+        )
+        .slice(0, 6)
+        .map((entry) => ({
+          id: `${entry.source.modelId ?? entry.source.diagramKind}:${entry.source.elementId}`,
+          reason:
+            entry.rationale ??
+            "设计元素缺少完整上游来源，系统自动补充设计模型到需求模型的追踪关系。",
+          repair: `补齐 ${entry.source.label} -> ${entry.targets
+            .map((target) => target.label)
+            .join("、")} 追踪关系`,
+          targetLabel: entry.source.label,
+          status: entry.reviewStatus === "pending" ? "仍依赖上游待确认" : "追踪已补齐",
+        })),
+    [designModelTraceability],
+  );
 
   const updateModel = (model: string) => {
     setDefaultModel(model);
@@ -195,6 +235,24 @@ export function DesignModelPage() {
           )
         : selectedDesignDiagrams.filter((item) => item !== diagram),
     );
+  };
+
+  const toggleDiagramFromCard = (
+    diagram: DesignDiagramType,
+    checked: boolean,
+  ) => {
+    toggleDiagram(diagram, !checked);
+  };
+
+  const handleDiagramCardKeyDown = (
+    event: KeyboardEvent<HTMLElement>,
+    diagram: DesignDiagramType,
+    checked: boolean,
+    enabled: boolean,
+  ) => {
+    if (!enabled || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    toggleDiagramFromCard(diagram, checked);
   };
 
   const runGenerate = () => {
@@ -265,14 +323,40 @@ export function DesignModelPage() {
                     sourceStatus,
                   );
                   const generated = generatedDesignDiagrams.includes(diagram);
+                  const generatedModels = Object.values(designModels).filter(
+                    (model) => model.diagramKind === diagram,
+                  );
+                  const firstGeneratedModel = generatedModels[0];
+                  const generatedLabel =
+                    diagram === "sequence" && generatedModels.length > 0
+                      ? `${generatedModels.length} 个用例顺序图`
+                      : "已生成设计模型";
                   const error = designDiagramErrors[diagram];
                   const DiagramIcon = DESIGN_DIAGRAM_ICON[diagram];
                   return (
                     <article
                       key={diagram}
+                      role="button"
+                      tabIndex={blockReason ? -1 : 0}
+                      aria-disabled={Boolean(blockReason)}
+                      aria-label={`${checked ? "取消选择" : "选择"}${meta.label}`}
+                      onClick={() => {
+                        if (!blockReason) {
+                          toggleDiagramFromCard(diagram, checked);
+                        }
+                      }}
+                      onKeyDown={(event) =>
+                        handleDiagramCardKeyDown(
+                          event,
+                          diagram,
+                          checked,
+                          !blockReason,
+                        )
+                      }
                       className={cn(
-                        "flex min-h-[168px] flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors",
+                        "flex min-h-[168px] flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                         checked && "border-primary/35 ring-2 ring-primary/10",
+                        blockReason ? "cursor-not-allowed" : "cursor-pointer",
                         blockReason && "border-dashed bg-muted/30 opacity-90 shadow-none",
                         diagram === "table" && "xl:col-span-2",
                       )}
@@ -306,6 +390,8 @@ export function DesignModelPage() {
                           onCheckedChange={(value) =>
                             toggleDiagram(diagram, !!value)
                           }
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                           className="mt-1 shrink-0"
                           disabled={Boolean(blockReason)}
                           aria-label={meta.label}
@@ -314,7 +400,7 @@ export function DesignModelPage() {
 
                       <div
                         className={cn(
-                            "flex min-h-[78px] flex-1 flex-col items-center justify-center rounded-lg border px-3 py-3 text-center",
+                          "flex min-h-[78px] flex-1 flex-col items-center justify-center rounded-lg border px-3 py-3 text-center",
                           blockReason
                             ? "border-dashed border-border bg-muted/40"
                             : "border-border bg-muted/30",
@@ -324,11 +410,21 @@ export function DesignModelPage() {
                           <>
                             <CheckCircle2 className="size-5 text-primary" />
                             <div className="mt-2 text-xs text-muted-foreground">
-                              已生成设计模型
+                              {generatedLabel}
                             </div>
                             <button
                               type="button"
-                              onClick={() => openDesignDiagram(diagram)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openDesignDiagram(
+                                  diagram,
+                                  firstGeneratedModel
+                                    ? getDesignModelId(firstGeneratedModel)
+                                    : undefined,
+                                  firstGeneratedModel?.title,
+                                );
+                              }}
+                              onKeyDown={(event) => event.stopPropagation()}
                               className="mt-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
                             >
                               <Eye className="size-3" />
@@ -414,6 +510,63 @@ export function DesignModelPage() {
                   设计生成会同时使用原始需求文本、{rules.length} 条需求规则和上方需求阶段模型。
                 </div>
               </section>
+
+              {designRepairRecords.length > 0 && (
+                <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        设计模型追踪证明
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        需求规则和需求模型不在这里改动；这里只补齐设计元素到上游模型的来源证明。
+                      </p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="border-success/35 bg-success/10 text-success"
+                    >
+                      追踪已补齐
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {designRepairRecords.map((record) => (
+                      <div
+                        key={record.id}
+                        className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
+                      >
+                        <div className="text-muted-foreground">
+                          原因：{stageRepairCopy(record.reason)}
+                        </div>
+                        <div className="mt-1 text-foreground">
+                          补齐：{stageRepairCopy(record.repair)}
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-1 font-medium",
+                            record.status === "追踪已补齐"
+                              ? "text-success"
+                              : "text-warning",
+                          )}
+                        >
+                          状态：{record.status}
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-2 h-8"
+                          onClick={() =>
+                            setRepairResult({ targetLabel: record.targetLabel })
+                          }
+                        >
+                          重新补齐证明
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
             </main>
 
             <aside className="flex min-w-0 flex-col gap-3">
@@ -479,12 +632,35 @@ export function DesignModelPage() {
           </div>
         </div>
       </div>
-
-      {errorMessage && !generating && (
-        <div className="mx-4 mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:mx-6 lg:mx-8">
-          {errorMessage}
-        </div>
-      )}
+      <Dialog
+        open={Boolean(repairResult)}
+        onOpenChange={(open) => {
+          if (!open) setRepairResult(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>单项证明补齐完成</DialogTitle>
+            <DialogDescription>
+              已只重新检查当前设计模型追踪证明，没有重新生成全部设计模型。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+            <div>
+              <span className="font-medium">阶段：</span>设计模型
+            </div>
+            <div>
+              <span className="font-medium">对象：</span>
+              {repairResult?.targetLabel}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setRepairResult(null)}>
+              我知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

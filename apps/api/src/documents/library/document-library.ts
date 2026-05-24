@@ -4,9 +4,11 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   documentLibraryItemSchema,
+  documentLibraryVersionItemSchema,
   onlyOfficeEditorConfigResponseSchema,
   type DocumentKind,
   type DocumentLibraryItem,
+  type DocumentLibraryVersionItem,
   type OnlyOfficeEditorConfigResponse,
   type OnlyOfficeUiTheme,
 } from "@uml-platform/contracts";
@@ -16,6 +18,7 @@ const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const DOCUMENT_FILE_NAME = "document.docx";
 const METADATA_FILE_NAME = "metadata.json";
+const VERSIONS_FOLDER_NAME = "versions";
 const WORKSPACE_SECRET_FILE_NAME = "workspace-secret.json";
 
 function fileNameWithDuplicateSuffix(fileName: string, suffix: number) {
@@ -25,7 +28,7 @@ function fileNameWithDuplicateSuffix(fileName: string, suffix: number) {
     extensionIndex,
   )}`;
 }
-const ONLYOFFICE_ACCESS_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const ONLYOFFICE_ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 
 export type OnlyOfficeDocumentAccessPurpose = "file" | "callback";
 
@@ -38,14 +41,24 @@ export interface DocumentLibrary {
   authenticateWorkspace(
     credentials: DocumentWorkspaceCredentials,
   ): Promise<{ workspaceId: string }>;
-  listDocuments(workspaceId: string): Promise<DocumentLibraryItem[]>;
+  listDocuments(
+    workspaceId: string,
+    options?: { projectId?: string | null; includeDeleted?: boolean },
+  ): Promise<DocumentLibraryItem[]>;
+  listAllDocuments(options?: {
+    projectId?: string | null;
+    includeDeleted?: boolean;
+  }): Promise<DocumentLibraryItem[]>;
   getDocument(
     workspaceId: string,
     documentId: string,
+    options?: { includeDeleted?: boolean },
   ): Promise<DocumentLibraryItem | null>;
   getDocumentBuffer(workspaceId: string, documentId: string): Promise<Buffer | null>;
   saveGeneratedDocument(input: {
     workspaceId: string;
+    projectId?: string | null;
+    createdByUserId?: string | null;
     documentKind: DocumentKind;
     sourceRunId: string;
     fileName: string;
@@ -57,11 +70,26 @@ export interface DocumentLibrary {
     documentId: string,
     buffer: Buffer,
   ): Promise<DocumentLibraryItem | null>;
+  renameDocument(
+    workspaceId: string,
+    documentId: string,
+    fileName: string,
+  ): Promise<DocumentLibraryItem | null>;
+  deleteDocument(workspaceId: string, documentId: string): Promise<boolean>;
+  restoreDocument(
+    workspaceId: string,
+    documentId: string,
+  ): Promise<DocumentLibraryItem | null>;
+  listDocumentVersions(
+    workspaceId: string,
+    documentId: string,
+  ): Promise<DocumentLibraryVersionItem[]>;
   createOnlyOfficeConfig(input: {
     document: DocumentLibraryItem;
     publicBaseUrl: string;
     documentServerUrl: string;
     accessTokenSecret: string;
+    userId?: string | null;
     uiTheme?: OnlyOfficeUiTheme;
     jwtSecret?: string;
   }): OnlyOfficeEditorConfigResponse;
@@ -70,7 +98,7 @@ export interface DocumentLibrary {
     purpose: OnlyOfficeDocumentAccessPurpose;
     token: string | null | undefined;
     accessTokenSecret: string;
-  }): { workspaceId: string } | null;
+  }): { workspaceId: string; projectId: string | null; userId: string | null } | null;
 }
 
 function normalizeBaseUrl(url: string) {
@@ -82,6 +110,10 @@ function safePathSegment(value: string) {
     return null;
   }
   return value;
+}
+
+function safeContextId(value: string) {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value);
 }
 
 function workspaceFolder(rootDir: string, workspaceId: string) {
@@ -110,6 +142,25 @@ function metadataPath(rootDir: string, workspaceId: string, documentId: string) 
 
 function contentPath(rootDir: string, workspaceId: string, documentId: string) {
   return join(documentFolder(rootDir, workspaceId, documentId), DOCUMENT_FILE_NAME);
+}
+
+function versionsFolder(rootDir: string, workspaceId: string, documentId: string) {
+  return join(
+    documentFolder(rootDir, workspaceId, documentId),
+    VERSIONS_FOLDER_NAME,
+  );
+}
+
+function versionMetadataPath(
+  rootDir: string,
+  workspaceId: string,
+  documentId: string,
+  version: number,
+) {
+  return join(
+    versionsFolder(rootDir, workspaceId, documentId),
+    `${version}.json`,
+  );
 }
 
 function base64Url(input: Buffer | string) {
@@ -154,22 +205,77 @@ function workspaceSecretHash(workspaceId: string, workspaceSecret: string) {
   return hmac(workspaceSecret, `uml-workspace:${workspaceId}`);
 }
 
-function createOnlyOfficeAccessToken(input: {
+export function createSignedDocumentAccessToken(input: {
   workspaceId: string;
   documentId: string;
   purpose: OnlyOfficeDocumentAccessPurpose;
   secret: string;
+  projectId?: string | null;
+  userId?: string | null;
+  expiresAt?: number;
 }) {
   const payload = {
     workspaceId: input.workspaceId,
     documentId: input.documentId,
     purpose: input.purpose,
-    expiresAt: Date.now() + ONLYOFFICE_ACCESS_TOKEN_TTL_MS,
+    projectId: input.projectId ?? null,
+    userId: input.userId ?? null,
+    expiresAt: input.expiresAt ?? Date.now() + ONLYOFFICE_ACCESS_TOKEN_TTL_MS,
     nonce: base64Url(randomBytes(12)),
   };
   const body = base64Url(JSON.stringify(payload));
   const signature = hmac(body, input.secret);
   return `${body}.${signature}`;
+}
+
+export function verifySignedDocumentAccessToken(input: {
+  documentId: string;
+  purpose: OnlyOfficeDocumentAccessPurpose;
+  token: string | null | undefined;
+  secret: string;
+}) {
+  if (!input.token) return null;
+  const [body, signature] = input.token.split(".");
+  if (!body || !signature) return null;
+  if (!constantTimeEqual(hmac(body, input.secret), signature)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(body)) as {
+      workspaceId?: unknown;
+      documentId?: unknown;
+      purpose?: unknown;
+      projectId?: unknown;
+      userId?: unknown;
+      expiresAt?: unknown;
+    };
+    const projectId = payload.projectId ?? null;
+    const userId = payload.userId ?? null;
+    if (
+      typeof payload.workspaceId !== "string" ||
+      typeof payload.documentId !== "string" ||
+      typeof payload.purpose !== "string" ||
+      typeof payload.expiresAt !== "number" ||
+      (projectId !== null && typeof projectId !== "string") ||
+      (userId !== null && typeof userId !== "string") ||
+      payload.documentId !== input.documentId ||
+      payload.purpose !== input.purpose ||
+      payload.expiresAt < Date.now() ||
+      !safePathSegment(payload.workspaceId) ||
+      (typeof projectId === "string" && !safeContextId(projectId)) ||
+      (typeof userId === "string" && !safeContextId(userId))
+    ) {
+      return null;
+    }
+    return {
+      workspaceId: payload.workspaceId,
+      projectId: typeof projectId === "string" ? projectId : null,
+      userId: typeof userId === "string" ? userId : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function appendAccessToken(url: string, token: string) {
@@ -181,27 +287,66 @@ async function readDocumentMetadata(
   rootDir: string,
   workspaceId: string,
   documentId: string,
+  options?: { includeDeleted?: boolean },
 ) {
   try {
     const raw = await readFile(metadataPath(rootDir, workspaceId, documentId), "utf8");
-    return documentLibraryItemSchema.parse(JSON.parse(raw));
+    const item = documentLibraryItemSchema.parse(JSON.parse(raw));
+    if (!options?.includeDeleted && item.status === "deleted") return null;
+    return item;
   } catch {
     return null;
   }
+}
+
+function versionItemFromDocument(
+  item: DocumentLibraryItem,
+): DocumentLibraryVersionItem {
+  return documentLibraryVersionItemSchema.parse({
+    documentId: item.id,
+    workspaceId: item.workspaceId,
+    projectId: item.projectId ?? null,
+    createdByUserId: item.createdByUserId ?? null,
+    version: item.version,
+    fileName: item.fileName,
+    mimeType: item.mimeType,
+    byteLength: item.byteLength,
+    sourceRunId: item.sourceRunId,
+    createdAt: item.updatedAt,
+  });
+}
+
+async function writeDocumentMetadata(rootDir: string, item: DocumentLibraryItem) {
+  const folder = documentFolder(rootDir, item.workspaceId, item.id);
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    metadataPath(rootDir, item.workspaceId, item.id),
+    JSON.stringify(item, null, 2),
+  );
+}
+
+async function writeDocumentVersion(rootDir: string, item: DocumentLibraryItem) {
+  const folder = versionsFolder(rootDir, item.workspaceId, item.id);
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    versionMetadataPath(rootDir, item.workspaceId, item.id, item.version),
+    JSON.stringify(versionItemFromDocument(item), null, 2),
+  );
 }
 
 async function writeDocument(
   rootDir: string,
   item: DocumentLibraryItem,
   buffer: Buffer,
+  options?: { recordVersion?: boolean },
 ) {
   const folder = documentFolder(rootDir, item.workspaceId, item.id);
   await mkdir(folder, { recursive: true });
   await writeFile(contentPath(rootDir, item.workspaceId, item.id), buffer);
-  await writeFile(
-    metadataPath(rootDir, item.workspaceId, item.id),
-    JSON.stringify(item, null, 2),
-  );
+  await writeDocumentMetadata(rootDir, item);
+  if (options?.recordVersion !== false) {
+    await writeDocumentVersion(rootDir, item);
+  }
 }
 
 export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
@@ -241,22 +386,55 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
     return { workspaceId };
   }
 
-  async function listDocuments(workspaceId: string) {
+  async function listDocuments(
+    workspaceId: string,
+    options?: { projectId?: string | null; includeDeleted?: boolean },
+  ) {
     const folder = workspaceFolder(rootDir, workspaceId);
     await mkdir(folder, { recursive: true });
     const entries = await readdir(folder, { withFileTypes: true });
     const documents = await Promise.all(
       entries
         .filter((entry) => entry.isDirectory())
-        .map((entry) => readDocumentMetadata(rootDir, workspaceId, entry.name)),
+        .map((entry) =>
+          readDocumentMetadata(rootDir, workspaceId, entry.name, {
+            includeDeleted: options?.includeDeleted,
+          }),
+        ),
     );
     return documents
       .filter((item): item is DocumentLibraryItem => Boolean(item))
+      .filter(
+        (item) =>
+          !options ||
+          options.projectId === undefined ||
+          (item.projectId ?? null) === options.projectId,
+      )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
-  async function getDocument(workspaceId: string, documentId: string) {
-    return readDocumentMetadata(rootDir, workspaceId, documentId);
+  async function listAllDocuments(options?: {
+    projectId?: string | null;
+    includeDeleted?: boolean;
+  }) {
+    await mkdir(rootDir, { recursive: true });
+    const workspaces = await readdir(rootDir, { withFileTypes: true });
+    const nested = await Promise.all(
+      workspaces
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => listDocuments(entry.name, options).catch(() => [])),
+    );
+    return nested
+      .flat()
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async function getDocument(
+    workspaceId: string,
+    documentId: string,
+    options?: { includeDeleted?: boolean },
+  ) {
+    return readDocumentMetadata(rootDir, workspaceId, documentId, options);
   }
 
   async function getDocumentBuffer(workspaceId: string, documentId: string) {
@@ -271,6 +449,8 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
 
   async function saveGeneratedDocument(input: {
     workspaceId: string;
+    projectId?: string | null;
+    createdByUserId?: string | null;
     documentKind: DocumentKind;
     sourceRunId: string;
     fileName: string;
@@ -288,12 +468,15 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
     const item = documentLibraryItemSchema.parse({
       id: randomUUID(),
       workspaceId: input.workspaceId,
+      projectId: input.projectId ?? null,
+      createdByUserId: input.createdByUserId ?? null,
       documentKind: input.documentKind,
       title: documentTitle(input.documentKind),
       fileName,
       mimeType: input.mimeType ?? DOCX_MIME_TYPE,
       byteLength: input.buffer.byteLength,
       version: 1,
+      status: "active",
       sourceRunId: input.sourceRunId,
       createdAt: now,
       updatedAt: now,
@@ -313,10 +496,91 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
       ...existing,
       byteLength: buffer.byteLength,
       version: existing.version + 1,
+      status: "active",
       updatedAt: new Date().toISOString(),
     });
     await writeDocument(rootDir, item, buffer);
     return item;
+  }
+
+  async function renameDocument(
+    workspaceId: string,
+    documentId: string,
+    fileName: string,
+  ) {
+    const existing = await getDocument(workspaceId, documentId);
+    if (!existing) return null;
+    const item = documentLibraryItemSchema.parse({
+      ...existing,
+      fileName,
+      updatedAt: new Date().toISOString(),
+    });
+    const buffer = await getDocumentBuffer(workspaceId, documentId);
+    if (!buffer) return null;
+    await writeDocument(rootDir, item, buffer, { recordVersion: false });
+    return item;
+  }
+
+  async function deleteDocument(workspaceId: string, documentId: string) {
+    const existing = await getDocument(workspaceId, documentId);
+    if (!existing) return false;
+    const item = documentLibraryItemSchema.parse({
+      ...existing,
+      status: "deleted",
+      updatedAt: new Date().toISOString(),
+    });
+    await writeDocumentMetadata(rootDir, item);
+    return true;
+  }
+
+  async function restoreDocument(workspaceId: string, documentId: string) {
+    const existing = await getDocument(workspaceId, documentId, {
+      includeDeleted: true,
+    });
+    if (!existing) return null;
+    const item = documentLibraryItemSchema.parse({
+      ...existing,
+      status: "active",
+      updatedAt: new Date().toISOString(),
+    });
+    await writeDocumentMetadata(rootDir, item);
+    return item;
+  }
+
+  async function listDocumentVersions(workspaceId: string, documentId: string) {
+    const document = await getDocument(workspaceId, documentId, {
+      includeDeleted: true,
+    });
+    if (!document) return [];
+    try {
+      const entries = await readdir(versionsFolder(rootDir, workspaceId, documentId), {
+        withFileTypes: true,
+      });
+      const versions = await Promise.all(
+        entries
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+          .map(async (entry) => {
+            try {
+              const raw = await readFile(
+                join(versionsFolder(rootDir, workspaceId, documentId), entry.name),
+                "utf8",
+              );
+              return documentLibraryVersionItemSchema.parse(JSON.parse(raw));
+            } catch {
+              return null;
+            }
+          }),
+      );
+      const parsed = versions.filter(
+        (version): version is DocumentLibraryVersionItem => Boolean(version),
+      );
+      if (parsed.length > 0) {
+        return parsed.sort((left, right) => right.version - left.version);
+      }
+    } catch {
+      // Older metadata has no version folder; expose its current state as v1.
+    }
+    return [versionItemFromDocument(document)];
   }
 
   function verifyOnlyOfficeAccessToken(input: {
@@ -325,36 +589,12 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
     token: string | null | undefined;
     accessTokenSecret: string;
   }) {
-    if (!input.token) return null;
-    const [body, signature] = input.token.split(".");
-    if (!body || !signature) return null;
-    if (!constantTimeEqual(hmac(body, input.accessTokenSecret), signature)) {
-      return null;
-    }
-
-    try {
-      const payload = JSON.parse(base64UrlDecode(body)) as {
-        workspaceId?: unknown;
-        documentId?: unknown;
-        purpose?: unknown;
-        expiresAt?: unknown;
-      };
-      if (
-        typeof payload.workspaceId !== "string" ||
-        typeof payload.documentId !== "string" ||
-        typeof payload.purpose !== "string" ||
-        typeof payload.expiresAt !== "number" ||
-        payload.documentId !== input.documentId ||
-        payload.purpose !== input.purpose ||
-        payload.expiresAt < Date.now() ||
-        !safePathSegment(payload.workspaceId)
-      ) {
-        return null;
-      }
-      return { workspaceId: payload.workspaceId };
-    } catch {
-      return null;
-    }
+    return verifySignedDocumentAccessToken({
+      documentId: input.documentId,
+      purpose: input.purpose,
+      token: input.token,
+      secret: input.accessTokenSecret,
+    });
   }
 
   function createOnlyOfficeConfig(input: {
@@ -362,6 +602,7 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
     publicBaseUrl: string;
     documentServerUrl: string;
     accessTokenSecret: string;
+    userId?: string | null;
     uiTheme?: OnlyOfficeUiTheme;
     jwtSecret?: string;
   }) {
@@ -376,10 +617,12 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
         title: input.document.fileName,
         url: appendAccessToken(
           fileUrl,
-          createOnlyOfficeAccessToken({
+          createSignedDocumentAccessToken({
             workspaceId: input.document.workspaceId,
             documentId: input.document.id,
             purpose: "file",
+            projectId: input.document.projectId ?? null,
+            userId: input.userId ?? input.document.createdByUserId ?? null,
             secret: input.accessTokenSecret,
           }),
         ),
@@ -392,10 +635,12 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
       editorConfig: {
         callbackUrl: appendAccessToken(
           callbackUrl,
-          createOnlyOfficeAccessToken({
+          createSignedDocumentAccessToken({
             workspaceId: input.document.workspaceId,
             documentId: input.document.id,
             purpose: "callback",
+            projectId: input.document.projectId ?? null,
+            userId: input.userId ?? input.document.createdByUserId ?? null,
             secret: input.accessTokenSecret,
           }),
         ),
@@ -423,10 +668,15 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
   return {
     authenticateWorkspace,
     listDocuments,
+    listAllDocuments,
     getDocument,
     getDocumentBuffer,
     saveGeneratedDocument,
     updateDocumentBuffer,
+    renameDocument,
+    deleteDocument,
+    restoreDocument,
+    listDocumentVersions,
     createOnlyOfficeConfig,
     verifyOnlyOfficeAccessToken,
   };

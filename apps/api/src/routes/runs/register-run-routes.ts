@@ -1,13 +1,19 @@
 // Registers run endpoints and delegates lifecycle work to pipelines and record stores.
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   codeRunSnapshotSchema,
   documentRunSnapshotSchema,
   designRunSnapshotSchema,
+  evidenceReviewDecisionSchema,
+  artifactReadyRunEventSchema,
   failedRunEventSchema,
   queuedRunEventSchema,
+  stageProgressRunEventSchema,
   runSnapshotSchema,
+  repairRequirementRuleRequestSchema,
+  repairRequirementRuleResponseSchema,
+  requirementRuleRepairSuggestionSchema,
   startCodeRunRequestSchema,
   startCodeRunResponseSchema,
   startDesignRunRequestSchema,
@@ -17,18 +23,29 @@ import {
   startRunRequestSchema,
   startRunResponseSchema,
   type CodeRunSnapshot,
+  type DiagramKind,
+  type EvidencePackage,
+  type AtomicRequirement,
+  type AtomicRequirementField,
+  type ProjectPermission,
   type ProviderSettings,
+  type ProviderSettingsInput,
+  type RepairRequirementRuleRequest,
+  type RequirementFieldProvenance,
+  type RequirementQualityIssue,
+  type RunAction,
   type RunStage,
   type StartDocumentRunRequest,
 } from "@uml-platform/contracts";
-import type { LlmTransport } from "../../llm.js";
+import type { ChatMessage, LlmTransport, StreamChatCompletionInput } from "../../llm.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
-import {
-  isWorkspaceAuthError,
-  requireDocumentWorkspace,
-} from "../documents/document-workspace-auth.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
+import {
+  createScheduledLlmTransport,
+  type LlmScheduler,
+  type LlmScheduleStatus,
+} from "../../adapters/llm/llm-scheduler.js";
 import {
   createEmptyCodeSnapshot,
   createEmptyDesignSnapshot,
@@ -38,10 +55,31 @@ import {
 import {
   emitEvent,
   type RunRecord,
+  type RunRecordMetadata,
   type RunRecordStore,
 } from "../../runs/records/run-record-store.js";
+import {
+  cancelRunRecord,
+  createQueuedRunFromSource,
+  isRetryableRun,
+} from "../../runs/records/run-actions.js";
 import { registerRunEventsRoute } from "../../runs/records/run-events.js";
+import {
+  assertEvidencePackageAllowsDownstream,
+  buildEvidencePackage,
+} from "../../runs/evidence/evidence-package.js";
+import { stageProgressValue } from "../../runs/pipelines/shared/pipeline-events.js";
+import type { ProviderConfigStore } from "../../provider-configs/provider-config-store.js";
+import type {
+  ProviderTaskType,
+  ProviderRateLimitPolicy,
+  ProviderUsageTracker,
+} from "../../provider-configs/provider-usage-tracker.js";
+import { resolveProviderRateLimitPolicy } from "../../provider-configs/provider-usage-tracker.js";
 import { RUN_ROUTE_CONFIG } from "./run-route-config.js";
+import { parseJson } from "../../normalizers/json/parse-json.js";
+import { rebuildRequirementBaselineQualityReport } from "../../runs/baselines/requirement-baseline.js";
+import { collectTextResult } from "../../runs/pipelines/shared/structured-output.js";
 
 type RequirementPipeline = (
   record: RunRecord,
@@ -73,6 +111,731 @@ type DocumentPipeline = (
   pngRenderClient: PngRenderClient,
 ) => Promise<void>;
 
+const LLM_SUBTASK_LABELS: Record<string, string> = {
+  usecase: "用例模型",
+  class: "类模型",
+  activity: "界面关系",
+  deployment: "部署模型",
+  sequence: "顺序图",
+  table: "表关系图",
+};
+
+const KNOWN_LLM_DIAGRAM_KINDS = new Set([
+  "usecase",
+  "class",
+  "activity",
+  "deployment",
+  "sequence",
+  "table",
+]);
+
+function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
+  const prompt = String(input.messages.at(-1)?.content ?? "");
+  const match =
+    prompt.match(/只生成以下设计图类型：\s*\n?([^\n]+)/) ??
+    prompt.match(/只生成以下图类型：\s*\n?([^\n]+)/);
+  const selected = match?.[1]
+    ?.split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const diagramKind =
+    selected?.length === 1 && KNOWN_LLM_DIAGRAM_KINDS.has(selected[0]!)
+      ? selected[0]!
+      : prompt.includes("生成设计阶段顺序图结构化模型")
+        ? "sequence"
+        : null;
+  if (!diagramKind) return {};
+  return {
+    diagramKind: diagramKind as DiagramKind,
+    subtaskId: diagramKind,
+    subtaskLabel: LLM_SUBTASK_LABELS[diagramKind] ?? diagramKind,
+  };
+}
+
+export interface RunAccessContext {
+  userId?: string;
+  projectId?: string;
+}
+
+export interface RunAccessGuard {
+  resolveRunAccess(request: FastifyRequest): Promise<RunAccessContext>;
+  canAccessProject(input: {
+    request: FastifyRequest;
+    userId: string;
+    projectId: string;
+    permission: ProjectPermission;
+    access: RunAccessContext;
+  }): Promise<boolean>;
+}
+
+function stringHeader(request: FastifyRequest, name: string) {
+  const value = request.headers[name];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+const defaultRunAccessGuard: RunAccessGuard = {
+  async resolveRunAccess(request) {
+    return {
+      userId: stringHeader(request, "x-uml-user-id"),
+      projectId: stringHeader(request, "x-uml-project-id"),
+    };
+  },
+  async canAccessProject({ projectId, access }) {
+    // Placeholder project guard until the real auth/project membership layer lands.
+    return access.projectId === projectId;
+  },
+};
+
+function projectIdFromRequestBody(body: unknown) {
+  if (!body || typeof body !== "object" || !("projectId" in body)) {
+    return undefined;
+  }
+  const projectId = (body as { projectId?: unknown }).projectId;
+  return typeof projectId === "string" && projectId.trim()
+    ? projectId.trim()
+    : undefined;
+}
+
+function organizationIdFromRequest(request: FastifyRequest) {
+  return stringHeader(request, "x-uml-organization-id") ?? null;
+}
+
+function ipAddressFromRequest(request: FastifyRequest) {
+  return stringHeader(request, "x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.ip ??
+    null;
+}
+
+function runAccessDeniedMessage(reply: FastifyReply) {
+  return {
+    message:
+      reply.statusCode === 401
+        ? "Authentication required"
+        : "Project access denied",
+  };
+}
+
+async function canReadProjectRuns(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  projectId: string,
+  runAccessGuard: RunAccessGuard,
+) {
+  const access = await runAccessGuard.resolveRunAccess(request);
+  if (!access.userId) {
+    reply.code(401);
+    return false;
+  }
+  const allowed = await runAccessGuard.canAccessProject({
+    request,
+    userId: access.userId,
+    projectId,
+    permission: "view_runs",
+    access,
+  });
+  if (!allowed) {
+    reply.code(403);
+    return false;
+  }
+  return true;
+}
+
+async function resolveProjectRunPermission(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  projectId: string,
+  permission: ProjectPermission,
+  runAccessGuard: RunAccessGuard,
+) {
+  const access = await runAccessGuard.resolveRunAccess(request);
+  if (!access.userId) {
+    reply.code(401);
+    return null;
+  }
+  const allowed = await runAccessGuard.canAccessProject({
+    request,
+    userId: access.userId,
+    projectId,
+    permission,
+    access,
+  });
+  if (!allowed) {
+    reply.code(403);
+    return null;
+  }
+  return access;
+}
+
+async function metadataForStartedRun(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  runAccessGuard: RunAccessGuard,
+  permission: ProjectPermission,
+): Promise<RunRecordMetadata | null | undefined> {
+  const access = await runAccessGuard.resolveRunAccess(request);
+  const projectId = projectIdFromRequestBody(request.body) ?? access.projectId;
+  const userId = access.userId;
+
+  if (projectId) {
+    if (!userId) {
+      reply.code(401);
+      return null;
+    }
+    if (
+      !(await runAccessGuard.canAccessProject({
+        request,
+        userId,
+        projectId,
+        permission,
+        access,
+      }))
+    ) {
+      reply.code(403);
+      return null;
+    }
+  }
+
+  if (!userId && !projectId) {
+    reply.code(401);
+    return null;
+  }
+  return {
+    userId,
+    projectId,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function isManagedProviderSettings(
+  providerSettings: ProviderSettingsInput | undefined,
+): providerSettings is Extract<ProviderSettingsInput, { providerConfigId: string }> {
+  return Boolean(providerSettings && "providerConfigId" in providerSettings);
+}
+
+async function resolveProviderSettingsForRun({
+  providerSettings,
+  metadata,
+  providerConfigs,
+  resolveProjectDefaultProviderConfig,
+  allowLegacyProjectProviderSettings,
+  request,
+  reply,
+}: {
+  providerSettings: ProviderSettingsInput | undefined;
+  metadata: RunRecordMetadata | undefined;
+  providerConfigs?: ProviderConfigStore;
+  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
+  allowLegacyProjectProviderSettings: boolean;
+  request: FastifyRequest;
+  reply: FastifyReply;
+}): Promise<ProviderSettings | null> {
+  const isProjectRun = Boolean(metadata?.projectId);
+
+  if (!providerSettings) {
+    if (!isProjectRun || !metadata?.projectId || !providerConfigs || !resolveProjectDefaultProviderConfig) {
+      reply.code(400);
+      return null;
+    }
+    const providerConfigId = await resolveProjectDefaultProviderConfig(metadata.projectId);
+    if (!providerConfigId) {
+      reply.code(400);
+      return null;
+    }
+    const providerConfig = await providerConfigs.get(providerConfigId);
+    if (!providerConfig) {
+      reply.code(400);
+      return null;
+    }
+    providerSettings = {
+      providerConfigId,
+      model: providerConfig.defaultModel,
+    };
+  }
+
+  if (isManagedProviderSettings(providerSettings)) {
+    if (!isProjectRun) {
+      reply.code(401);
+      return null;
+    }
+    if (!providerConfigs) {
+      reply.code(500);
+      return null;
+    }
+    const providerConfig = await providerConfigs.get(providerSettings.providerConfigId);
+    if (!providerConfig) {
+      reply.code(400);
+      return null;
+    }
+    if (!providerConfig.allowlisted) {
+      reply.code(400);
+      return null;
+    }
+    if (providerConfig.status !== "active") {
+      reply.code(400);
+      return null;
+    }
+    if (providerConfig.breakerState === "open") {
+      reply.code(503);
+      return null;
+    }
+    if (!providerConfig.allowedModels.includes(providerSettings.model)) {
+      reply.code(400);
+      return null;
+    }
+    const apiKey = await providerConfigs.getSecret(providerSettings.providerConfigId);
+    if (!apiKey) {
+      reply.code(400);
+      return null;
+    }
+    return {
+      apiBaseUrl: providerConfig.baseUrl,
+      apiKey,
+      model: providerSettings.model,
+    };
+  }
+
+  if (!allowLegacyProjectProviderSettings) {
+    reply.code(400);
+    return null;
+  }
+
+  return providerSettings;
+}
+
+function providerConfigIdFromSettings(providerSettings: ProviderSettingsInput | undefined) {
+  return isManagedProviderSettings(providerSettings)
+    ? providerSettings.providerConfigId
+    : null;
+}
+
+async function recordProviderUsage({
+  usageTracker,
+  providerConfigId,
+  metadata,
+  request,
+  taskType,
+}: {
+  usageTracker?: ProviderUsageTracker;
+  providerConfigId: string | null;
+  metadata?: RunRecordMetadata;
+  request: FastifyRequest;
+  taskType: ProviderTaskType;
+}) {
+  if (!usageTracker || !providerConfigId) return;
+  await usageTracker.recordUsage({
+    userId: metadata?.userId ?? null,
+    projectId: metadata?.projectId ?? null,
+    organizationId: organizationIdFromRequest(request),
+    ipAddress: ipAddressFromRequest(request),
+    providerConfigId,
+    taskType,
+    outcome: "success",
+  });
+}
+
+async function checkProviderUsageLimit({
+  usageTracker,
+  providerConfigId,
+  metadata,
+  request,
+  taskType,
+  policy,
+  reply,
+}: {
+  usageTracker?: ProviderUsageTracker;
+  providerConfigId: string | null;
+  metadata?: RunRecordMetadata;
+  request: FastifyRequest;
+  taskType: ProviderTaskType;
+  policy: ProviderRateLimitPolicy;
+  reply: FastifyReply;
+}) {
+  if (!usageTracker || !providerConfigId) return true;
+
+  const decision = await usageTracker.checkLimit({
+    userId: metadata?.userId ?? null,
+    projectId: metadata?.projectId ?? null,
+    organizationId: organizationIdFromRequest(request),
+    ipAddress: ipAddressFromRequest(request),
+    providerConfigId,
+    taskType,
+    limit: policy.limit,
+    windowSeconds: policy.windowSeconds,
+  });
+  if (decision.allowed) return true;
+
+  reply.code(429);
+  return {
+    message: "Provider rate limit exceeded",
+    rateLimit: decision,
+  };
+}
+
+async function canReadRunRecord(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  record: RunRecord,
+  runAccessGuard: RunAccessGuard,
+  permission: ProjectPermission,
+) {
+  const metadata = record.metadata;
+  if (!metadata?.userId && !metadata?.projectId) {
+    reply.code(401).send({ message: "Authentication required" });
+    return false;
+  }
+
+  const access = await runAccessGuard.resolveRunAccess(request);
+  if (!access.userId) {
+    reply.code(401).send({ message: "Authentication required" });
+    return false;
+  }
+
+  if (metadata.projectId) {
+    const allowed = await runAccessGuard.canAccessProject({
+      request,
+      userId: access.userId,
+      projectId: metadata.projectId,
+      permission,
+      access,
+    });
+    if (!allowed) {
+      reply.code(403).send({ message: "Project access denied" });
+      return false;
+    }
+    return true;
+  }
+
+  if (metadata.userId !== access.userId) {
+    reply.code(403).send({ message: "Run access denied" });
+    return false;
+  }
+  return true;
+}
+
+function queryValue(query: unknown, key: string) {
+  if (!query || typeof query !== "object" || !(key in query)) return undefined;
+  const value = (query as Record<string, unknown>)[key];
+  if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : undefined;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readSnapshotModel(snapshot: RunRecord["snapshot"]) {
+  const settings = "providerSettings" in snapshot ? snapshot.providerSettings : undefined;
+  if (!settings || typeof settings !== "object" || !("model" in settings)) return undefined;
+  const model = (settings as { model?: unknown }).model;
+  return typeof model === "string" ? model : undefined;
+}
+
+function displayRunStatus(record: RunRecord) {
+  if (
+    record.terminal &&
+    (record.snapshot.status === "running" || record.snapshot.status === "queued")
+  ) {
+    return "interrupted";
+  }
+  return record.snapshot.status;
+}
+
+function inferRunKind(snapshot: RunRecord["snapshot"]) {
+  if ("documentKind" in snapshot) return "document";
+  if ("files" in snapshot) return "code";
+  if ("designModelTraceability" in snapshot) return "design";
+  return "requirements";
+}
+
+function evidenceArtifactStage(record: RunRecord): RunStage {
+  if (record.snapshot.currentStage) return record.snapshot.currentStage;
+  if ("files" in record.snapshot) return "write_code_files";
+  if ("documentKind" in record.snapshot) return "render_document_file";
+  return "render_svg";
+}
+
+function buildAndStoreEvidencePackage(record: RunRecord) {
+  const evidencePackage = buildEvidencePackage({
+    snapshot: record.snapshot,
+    reviewDecisions: record.snapshot.evidencePackage?.reviewDecisions ?? [],
+  });
+  record.snapshot.evidencePackage = evidencePackage;
+  return evidencePackage;
+}
+
+function rejectBlockedEvidencePackage(
+  reply: FastifyReply,
+  evidencePackage: EvidencePackage | null | undefined,
+) {
+  if (evidencePackage === undefined) return null;
+  try {
+    assertEvidencePackageAllowsDownstream(evidencePackage);
+    return null;
+  } catch (error) {
+    reply.code(409);
+    return {
+      message: `EvidencePackage review is unresolved: ${
+        error instanceof Error ? error.message : "unknown review gate failure"
+      }`,
+    };
+  }
+}
+
+function projectDocumentWorkspaceId(projectId: string) {
+  return `project-${projectId}`;
+}
+
+function summarizeRunRecord(record: RunRecord) {
+  const createdAt = record.metadata?.createdAt ?? new Date().toISOString();
+  const status = displayRunStatus(record);
+  const stage = record.snapshot.currentStage ?? status;
+  const isActive = !record.terminal && (status === "running" || status === "queued");
+  const snapshotAvailable = Boolean(record.snapshot);
+  const documentDownloadAvailable =
+    "documentKind" in record.snapshot &&
+    typeof record.snapshot.documentId === "string" &&
+    record.snapshot.documentId.trim().length > 0;
+  return {
+    runId: record.snapshot.runId,
+    projectId: record.metadata?.projectId ?? null,
+    status,
+    stage,
+    currentStage: record.snapshot.currentStage,
+    errorMessage: record.snapshot.errorMessage,
+    model: readSnapshotModel(record.snapshot) ?? null,
+    runKind: inferRunKind(record.snapshot),
+    documentKind:
+      "documentKind" in record.snapshot ? record.snapshot.documentKind : null,
+    createdByUserId: record.metadata?.userId ?? null,
+    startedAt: createdAt,
+    updatedAt: createdAt,
+    completedAt: record.terminal ? createdAt : null,
+    metadata: record.metadata ?? null,
+    eventCount: record.events.length,
+    terminal: record.terminal,
+    snapshotAvailable,
+    canRestore: snapshotAvailable && !isActive,
+    documentDownloadAvailable,
+  };
+}
+
+const REPAIRABLE_REQUIREMENT_FIELDS: AtomicRequirementField[] = [
+  "actor",
+  "subject",
+  "action",
+  "object",
+  "condition",
+  "outcome",
+  "acceptanceCriteria",
+];
+
+const REQUIREMENT_FIELD_LABELS: Record<AtomicRequirementField, string> = {
+  actor: "角色/执行者",
+  subject: "主体",
+  action: "动作",
+  object: "对象",
+  condition: "条件",
+  outcome: "结果",
+  acceptanceCriteria: "验收标准",
+};
+
+function currentRequirementFieldValue(
+  requirement: AtomicRequirement,
+  field: AtomicRequirementField,
+) {
+  if (field === "acceptanceCriteria") {
+    return requirement.acceptanceCriteria.join("；");
+  }
+  return requirement[field] ?? "";
+}
+
+function nonEmptyOrNull(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readableFieldText(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return normalized ? normalized : null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const text = value
+      .map((item) => readableFieldText(item))
+      .filter((item): item is string => typeof item === "string" && item.length > 0)
+      .join("；");
+    return text || null;
+  }
+  return null;
+}
+
+function normalizeRequirementRepairSuggestionOutput(raw: unknown) {
+  if (!isPlainRecord(raw) || !isPlainRecord(raw.fields)) {
+    return raw;
+  }
+  const fields = { ...raw.fields };
+  for (const field of REPAIRABLE_REQUIREMENT_FIELDS) {
+    const entry = fields[field];
+    if (!isPlainRecord(entry)) continue;
+    fields[field] = {
+      ...entry,
+      value: readableFieldText(entry.value),
+      originalValue: readableFieldText(entry.originalValue),
+    };
+  }
+  return {
+    ...raw,
+    fields,
+  };
+}
+
+function applyRequirementRepairSuggestion(
+  input: RepairRequirementRuleRequest,
+  rawOutput: string,
+) {
+  const suggestion = requirementRuleRepairSuggestionSchema.parse(
+    normalizeRequirementRepairSuggestionOutput(parseJson(rawOutput)),
+  );
+  const baseline = structuredClone(input.baseline) as RepairRequirementRuleRequest["baseline"];
+  const requirement = baseline.requirements.find(
+    (item) => item.sourceRuleId === input.rule.id,
+  );
+  if (!requirement) {
+    throw new Error("当前规则没有对应的需求基线，无法单项修复");
+  }
+
+  const existingProvenance = requirement.fieldProvenance ?? {};
+  const nextProvenance: RequirementFieldProvenance = { ...existingProvenance };
+  for (const field of REPAIRABLE_REQUIREMENT_FIELDS) {
+    const repaired = suggestion.fields[field];
+    if (!repaired) continue;
+    const value = repaired.value?.trim() ?? "";
+    nextProvenance[field] = {
+      ...repaired,
+      value: value || repaired.value,
+      originalValue: nonEmptyOrNull(
+        repaired.originalValue ??
+          existingProvenance[field]?.originalValue ??
+          currentRequirementFieldValue(requirement, field),
+      ),
+    };
+    if (!value) continue;
+    if (field === "acceptanceCriteria") {
+      requirement.acceptanceCriteria = value
+        .split(/[；;\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    } else {
+      requirement[field] = value;
+    }
+  }
+  requirement.fieldProvenance = nextProvenance;
+  if (typeof suggestion.confidence === "number") {
+    requirement.confidence = suggestion.confidence;
+  }
+  if (suggestion.status) {
+    requirement.status = suggestion.status;
+  } else if (
+    Object.values(nextProvenance).some(
+      (item) => item?.source === "ai-suggested" && item.status === "pending-review",
+    )
+  ) {
+    requirement.status = "pending-review";
+  }
+
+  const rebuiltBaseline = rebuildRequirementBaselineQualityReport(baseline);
+  const repairedRequirement =
+    rebuiltBaseline.requirements.find((item) => item.id === requirement.id) ??
+    requirement;
+  const blockingReasons = rebuiltBaseline.qualityReport.issues
+    .filter(
+      (issue): issue is RequirementQualityIssue & { requirementId: string } =>
+        issue.requirementId === repairedRequirement.id && issue.blocksDownstream,
+    )
+    .map((issue) => issue.message);
+
+  return repairRequirementRuleResponseSchema.parse({
+    requirement: repairedRequirement,
+    qualityReport: rebuiltBaseline.qualityReport,
+    repairRationale:
+      suggestion.rationale ??
+      "已仅针对当前需求规则补齐结构化字段，并重新运行需求质量检查。",
+    blockingReasons,
+  });
+}
+
+function buildRequirementRuleRepairMessages(
+  input: RepairRequirementRuleRequest,
+): ChatMessage[] {
+  const requirement = input.baseline.requirements.find(
+    (item) => item.sourceRuleId === input.rule.id,
+  );
+  const issues = input.baseline.qualityReport.issues.filter(
+    (issue) => !requirement || issue.requirementId === requirement.id,
+  );
+  return [
+    {
+      role: "system",
+      content:
+        "你是需求规则字段级修复助手。只修复当前一条需求规则的结构化字段，不改写原始需求文本，不重新生成全部规则。输出必须是 JSON。",
+    },
+    {
+      role: "user",
+      content: JSON.stringify(
+        {
+          task:
+            "根据原始需求文本、当前规则和质量问题，为当前 AtomicRequirement 生成字段级补齐建议。能从原文明确推出的字段可以 accepted；原文没有给出关键业务事实（例如预定值具体是多少）只能 pending-review，不能伪装为已确认。",
+          outputRules: [
+            "所有字段值必须是中文字符串或 null，不能返回数组或对象。",
+            "originalValue 必须是字符串或 null；验收标准有多条时合并为一段中文文本。",
+            "acceptanceCriteria.value 如需表达多条验收标准，请用中文分号分隔成一个字符串。",
+          ],
+          outputShape: {
+            fields: Object.fromEntries(
+              REPAIRABLE_REQUIREMENT_FIELDS.map((field) => [
+                field,
+                {
+                  source: "ai-suggested",
+                  status: "accepted 或 pending-review",
+                  value: `${REQUIREMENT_FIELD_LABELS[field]}的中文建议值`,
+                  originalValue: "原始值；没有提取到则为 null",
+                  rationale: "中文修复原因",
+                },
+              ]),
+            ),
+            confidence: "0 到 1",
+            status: "accepted 或 pending-review 或 conflict",
+            rationale: "中文总体修复原因",
+          },
+          originalRequirementText: input.requirementText,
+          currentRule: input.rule,
+          currentRequirement: requirement,
+          qualityIssues: issues,
+        },
+        null,
+        2,
+      ),
+    },
+  ];
+}
+
+function projectRecordMatchesFilters(record: RunRecord, query: unknown) {
+  const status = queryValue(query, "status");
+  if (status && record.snapshot.status !== status) return false;
+  const stage = queryValue(query, "stage");
+  if (stage && record.snapshot.currentStage !== stage) return false;
+  const userId = queryValue(query, "userId");
+  if (userId && record.metadata?.userId !== userId) return false;
+  const model = queryValue(query, "model");
+  if (model && readSnapshotModel(record.snapshot) !== model) return false;
+  return true;
+}
+
 export function registerRunRoutes({
   app,
   runs,
@@ -86,6 +849,15 @@ export function registerRunRoutes({
   runCodeStagePipeline,
   runDocumentStagePipeline,
   addCodeDiagnostic,
+  runAccessGuard = defaultRunAccessGuard,
+  providerConfigs,
+  resolveProjectDefaultProviderConfig,
+  providerUsageTracker,
+  providerRateLimitPolicy = resolveProviderRateLimitPolicy(),
+  llmScheduler,
+  allowLegacyProjectProviderSettings =
+    process.env.NODE_ENV !== "production" &&
+    process.env.UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS === "true",
 }: {
   app: FastifyInstance;
   runs: RunRecordStore;
@@ -103,9 +875,189 @@ export function registerRunRoutes({
     stage: RunStage,
     message: string,
   ) => void;
+  runAccessGuard?: RunAccessGuard;
+  providerConfigs?: ProviderConfigStore;
+  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
+  providerUsageTracker?: ProviderUsageTracker;
+  providerRateLimitPolicy?: ProviderRateLimitPolicy;
+  llmScheduler?: LlmScheduler;
+  allowLegacyProjectProviderSettings?: boolean;
 }) {
+  const createRunLlmTransport = ({
+    record,
+    providerSettings,
+    providerConfigId,
+    taskType,
+  }: {
+    record: RunRecord;
+    providerSettings: ProviderSettings;
+    providerConfigId: string | null;
+    taskType: ProviderTaskType;
+  }) => {
+    if (!llmScheduler) return llmTransport;
+    const emitQueueStatus = (status: LlmScheduleStatus, context: {
+      diagramKind?: string | null;
+      subtaskId?: string | null;
+      subtaskLabel?: string | null;
+    }) => {
+      const stage = record.snapshot.currentStage ?? "generate_models";
+      if (record.terminal || record.snapshot.status === "cancelled") return;
+      const queueText =
+        status.status === "queued"
+          ? `模型调用排队中：前方 ${status.queueAhead ?? 0} 个模型调用`
+          : status.status === "running"
+            ? "模型调用开始执行"
+            : status.status === "cancelled"
+              ? "模型调用已取消"
+              : "模型调用完成";
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage,
+          progress: stageProgressValue(stage),
+          message: queueText,
+          subtaskStatus:
+            status.status === "queued"
+              ? "queued"
+              : status.status === "running" || status.status === "completed"
+                ? "running"
+                : "failed",
+          diagramKind: context.diagramKind,
+          subtaskId: context.subtaskId,
+          subtaskLabel: context.subtaskLabel,
+          queuePosition: status.queuePosition,
+          queueAhead: status.queueAhead,
+          waitMs: status.waitMs,
+          estimatedWaitMs: status.estimatedWaitMs,
+          queueReason: status.queueReason,
+        }),
+      );
+    };
+    return createScheduledLlmTransport({
+      transport: llmTransport,
+      scheduler: llmScheduler,
+      context: {
+        runId: record.snapshot.runId,
+        projectId: record.metadata?.projectId,
+        userId: record.metadata?.userId,
+        providerConfigId,
+        model: providerSettings.model,
+        taskType,
+      },
+      deriveContext: deriveLlmSubtaskContext,
+      onStatus: emitQueueStatus,
+    });
+  };
+
+  app.post("/api/runs/requirement-rule-repair", async (request, reply) => {
+    const metadata = await metadataForStartedRun(
+      request,
+      reply,
+      runAccessGuard,
+      "start_runs",
+    );
+    if (metadata === null) return runAccessDeniedMessage(reply);
+    const input = repairRequirementRuleRequestSchema.parse(request.body);
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "requirements_to_uml",
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+
+    let rawOutput = "";
+    try {
+      rawOutput = await collectTextResult(
+        llmTransport,
+        providerSettings,
+        buildRequirementRuleRepairMessages(input),
+        () => undefined,
+        { type: "json_object" },
+      );
+      const result = applyRequirementRepairSuggestion(input, rawOutput);
+      await recordProviderUsage({
+        usageTracker: providerUsageTracker,
+        providerConfigId,
+        metadata,
+        request,
+        taskType: "requirements_to_uml",
+      });
+      return result;
+    } catch (error) {
+      reply.code(422);
+      return {
+        message:
+          error instanceof Error
+            ? `智能修复失败：${error.message}`
+            : "智能修复失败：模型返回内容无法解析",
+        rawOutput,
+      };
+    }
+  });
+
   app.post(RUN_ROUTE_CONFIG.requirements.startPath, async (request, reply) => {
+    const metadata = await metadataForStartedRun(
+      request,
+      reply,
+      runAccessGuard,
+      "start_runs",
+    );
+    if (metadata === null) return runAccessDeniedMessage(reply);
     const input = startRunRequestSchema.parse(request.body);
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "requirements_to_uml",
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+    await recordProviderUsage({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "requirements_to_uml",
+    });
     const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptySnapshot(
@@ -117,13 +1069,24 @@ export function registerRunRoutes({
       events: [],
       listeners: new Set(),
       terminal: false,
+      metadata,
     };
     runs.set(runId, record);
 
     // Routes create queued records; pipelines advance them to running/completed/failed.
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    void runStagePipeline(record, input.providerSettings, llmTransport, renderClient).catch(
+    void runStagePipeline(
+      record,
+      providerSettings,
+      createRunLlmTransport({
+        record,
+        providerSettings,
+        providerConfigId,
+        taskType: "requirements_to_uml",
+      }),
+      renderClient,
+    ).catch(
       (error) => {
         record.snapshot.status = "failed";
         record.snapshot.errorMessage =
@@ -144,13 +1107,59 @@ export function registerRunRoutes({
   });
 
   app.post(RUN_ROUTE_CONFIG.design.startPath, async (request, reply) => {
+    const metadata = await metadataForStartedRun(
+      request,
+      reply,
+      runAccessGuard,
+      "start_runs",
+    );
+    if (metadata === null) return runAccessDeniedMessage(reply);
     const input = startDesignRunRequestSchema.parse(request.body);
+    const blockedEvidence = rejectBlockedEvidencePackage(
+      reply,
+      input.evidencePackage,
+    );
+    if (blockedEvidence) return blockedEvidence;
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "design_modeling",
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+    await recordProviderUsage({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "design_modeling",
+    });
     const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptyDesignSnapshot(runId, input),
       events: [],
       listeners: new Set(),
       terminal: false,
+      metadata,
     };
     runs.set(runId, record);
 
@@ -158,8 +1167,13 @@ export function registerRunRoutes({
 
     void runDesignStagePipeline(
       record,
-      input.providerSettings,
-      llmTransport,
+      providerSettings,
+      createRunLlmTransport({
+        record,
+        providerSettings,
+        providerConfigId,
+        taskType: "design_modeling",
+      }),
       renderClient,
     ).catch((error) => {
       record.snapshot.status = "failed";
@@ -180,13 +1194,59 @@ export function registerRunRoutes({
   });
 
   app.post(RUN_ROUTE_CONFIG.code.startPath, async (request, reply) => {
+    const metadata = await metadataForStartedRun(
+      request,
+      reply,
+      runAccessGuard,
+      "start_runs",
+    );
+    if (metadata === null) return runAccessDeniedMessage(reply);
     const input = startCodeRunRequestSchema.parse(request.body);
+    const blockedEvidence = rejectBlockedEvidencePackage(
+      reply,
+      input.evidencePackage,
+    );
+    if (blockedEvidence) return blockedEvidence;
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "code_generation",
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+    await recordProviderUsage({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "code_generation",
+    });
     const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptyCodeSnapshot(runId, input),
       events: [],
       listeners: new Set(),
       terminal: false,
+      metadata,
     };
     runs.set(runId, record);
 
@@ -194,8 +1254,13 @@ export function registerRunRoutes({
 
     void runCodeStagePipeline(
       record,
-      input.providerSettings,
-      llmTransport,
+      providerSettings,
+      createRunLlmTransport({
+        record,
+        providerSettings,
+        providerConfigId,
+        taskType: "code_generation",
+      }),
     ).catch((error) => {
       record.snapshot.status = "failed";
       record.snapshot.errorMessage =
@@ -220,14 +1285,58 @@ export function registerRunRoutes({
   });
 
   app.post(RUN_ROUTE_CONFIG.document.startPath, async (request, reply) => {
-    const workspace = await requireDocumentWorkspace(
+    const metadata = await metadataForStartedRun(
       request,
       reply,
-      documentLibrary,
+      runAccessGuard,
+      "manage_documents",
     );
-    if (isWorkspaceAuthError(workspace)) return workspace;
+    if (metadata === null) return runAccessDeniedMessage(reply);
+    if (!metadata?.projectId) {
+      reply.code(401);
+      return { error: { message: "请先登录并进入项目" } };
+    }
+    const workspaceId = projectDocumentWorkspaceId(metadata.projectId);
 
     const input = startDocumentRunRequestSchema.parse(request.body);
+    const blockedEvidence = rejectBlockedEvidencePackage(
+      reply,
+      input.evidencePackage,
+    );
+    if (blockedEvidence) return blockedEvidence;
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "document_generation",
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+    await recordProviderUsage({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "document_generation",
+    });
     if (input.documentKind === "requirementsSpec" && input.requirementModels.length === 0) {
       reply.code(400);
       return { message: "请先在需求页生成需求模型，再导出需求规格说明书" };
@@ -243,6 +1352,7 @@ export function registerRunRoutes({
       events: [],
       listeners: new Set(),
       terminal: false,
+      metadata,
     };
     runs.set(runId, record);
 
@@ -252,9 +1362,14 @@ export function registerRunRoutes({
       record,
       input,
       documentLibrary,
-      workspace.workspaceId,
-      input.providerSettings,
-      llmTransport,
+      workspaceId,
+      providerSettings,
+      createRunLlmTransport({
+        record,
+        providerSettings,
+        providerConfigId,
+        taskType: "document_generation",
+      }),
       pngRenderClient,
     ).catch((error) => {
       record.snapshot.status = "failed";
@@ -274,12 +1389,251 @@ export function registerRunRoutes({
     return startDocumentRunResponseSchema.parse({ runId });
   });
 
+  app.get("/api/projects/:projectId/runs", async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    if (!(await canReadProjectRuns(request, reply, projectId, runAccessGuard))) {
+      return runAccessDeniedMessage(reply);
+    }
+
+    const projectRuns = Array.from(runs.values())
+      .filter((record) => record.metadata?.projectId === projectId)
+      .filter((record) => projectRecordMatchesFilters(record, request.query))
+      .sort((left, right) =>
+        (right.metadata?.createdAt ?? "").localeCompare(
+          left.metadata?.createdAt ?? "",
+        ),
+      )
+      .map(summarizeRunRecord);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      projectId,
+      runs: projectRuns,
+    };
+  });
+
+  app.get("/api/projects/:projectId/runs/:runId", async (request, reply) => {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    if (!(await canReadProjectRuns(request, reply, projectId, runAccessGuard))) {
+      return runAccessDeniedMessage(reply);
+    }
+
+    const record = runs.get(runId);
+    if (!record || record.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+
+    return {
+      projectId,
+      run: summarizeRunRecord(record),
+      snapshot: record.snapshot,
+      events: record.events,
+    };
+  });
+
+  app.get("/api/projects/:projectId/runs/:runId/evidence", async (request, reply) => {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    if (!(await canReadProjectRuns(request, reply, projectId, runAccessGuard))) {
+      return runAccessDeniedMessage(reply);
+    }
+
+    const record = runs.get(runId);
+    if (!record || record.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+
+    return {
+      projectId,
+      evidencePackage: buildAndStoreEvidencePackage(record),
+    };
+  });
+
+  app.post("/api/projects/:projectId/runs/:runId/review-decisions", async (request, reply) => {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    const access = await resolveProjectRunPermission(
+      request,
+      reply,
+      projectId,
+      "start_runs",
+      runAccessGuard,
+    );
+    if (!access) return runAccessDeniedMessage(reply);
+
+    const record = runs.get(runId);
+    if (!record || record.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+
+    const body = request.body as {
+      reviewItemId?: unknown;
+      decision?: unknown;
+      reviewerId?: unknown;
+      reviewerName?: unknown;
+      comment?: unknown;
+    };
+    const decision = evidenceReviewDecisionSchema.parse({
+      id: `DEC-${randomUUID()}`,
+      reviewItemId: body.reviewItemId,
+      decision: body.decision,
+      reviewerId: typeof body.reviewerId === "string" ? body.reviewerId : access.userId,
+      reviewerName: body.reviewerName,
+      comment: body.comment,
+      decidedAt: new Date().toISOString(),
+    });
+    const existingDecisions =
+      record.snapshot.evidencePackage?.reviewDecisions.filter(
+        (existing) => existing.reviewItemId !== decision.reviewItemId,
+      ) ?? [];
+    const evidencePackage = buildEvidencePackage({
+      snapshot: record.snapshot,
+      reviewDecisions: [...existingDecisions, decision],
+    });
+    record.snapshot.evidencePackage = evidencePackage;
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: evidenceArtifactStage(record),
+        artifactKind: "evidencePackage",
+        evidencePackage,
+      }),
+    );
+
+    return { projectId, evidencePackage };
+  });
+
+  app.delete("/api/projects/:projectId/runs/:runId", async (request, reply) => {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    const access = await resolveProjectRunPermission(
+      request,
+      reply,
+      projectId,
+      "start_runs",
+      runAccessGuard,
+    );
+    if (!access) return runAccessDeniedMessage(reply);
+
+    const record = runs.get(runId);
+    if (!record || record.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+    if (!record.terminal && (record.snapshot.status === "running" || record.snapshot.status === "queued")) {
+      reply.code(409);
+      return { message: "Active runs cannot be deleted" };
+    }
+
+    runs.delete(runId);
+    reply.code(204);
+    return reply.send();
+  });
+
+  app.post("/api/projects/:projectId/runs/:runId/cancel", async (request, reply) => {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    const access = await resolveProjectRunPermission(
+      request,
+      reply,
+      projectId,
+      "start_runs",
+      runAccessGuard,
+    );
+    if (!access) return runAccessDeniedMessage(reply);
+
+    const record = runs.get(runId);
+    if (!record || record.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+    if (record.terminal) {
+      reply.code(409);
+      return { message: "Terminal runs cannot be cancelled again" };
+    }
+
+    llmScheduler?.cancelRun(runId);
+    return cancelRunRecord(record, runId);
+  });
+
+  async function createProjectRunAction(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    action: Extract<RunAction, "retry" | "rerun">,
+  ) {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    const access = await resolveProjectRunPermission(
+      request,
+      reply,
+      projectId,
+      "start_runs",
+      runAccessGuard,
+    );
+    if (!access) return runAccessDeniedMessage(reply);
+
+    const source = runs.get(runId);
+    if (!source || source.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+    if (action === "retry" && !isRetryableRun(source)) {
+      reply.code(409);
+      return { message: "Only failed or cancelled runs can be retried" };
+    }
+
+    const metadata: RunRecordMetadata = {
+      userId: access.userId,
+      projectId,
+      createdAt: new Date().toISOString(),
+    };
+    const result = createQueuedRunFromSource({
+      runs,
+      source,
+      metadata,
+      action,
+      sourceRunId: runId,
+      actorUserId: access.userId,
+    });
+
+    reply.code(202);
+    return result;
+  }
+
+  app.post("/api/projects/:projectId/runs/:runId/retry", (request, reply) =>
+    createProjectRunAction(request, reply, "retry"),
+  );
+
+  app.post("/api/projects/:projectId/runs/:runId/rerun", (request, reply) =>
+    createProjectRunAction(request, reply, "rerun"),
+  );
+
   app.get(RUN_ROUTE_CONFIG.requirements.snapshotPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
     const record = runs.get(runId);
     if (!record) {
       reply.code(404);
       return { message: RUN_ROUTE_CONFIG.requirements.notFoundMessage };
+    }
+    if (!(await canReadRunRecord(request, reply, record, runAccessGuard, "view_runs"))) {
+      return reply;
     }
     return runSnapshotSchema.parse(record.snapshot);
   });
@@ -290,6 +1644,9 @@ export function registerRunRoutes({
     if (!record) {
       reply.code(404);
       return { message: RUN_ROUTE_CONFIG.design.notFoundMessage };
+    }
+    if (!(await canReadRunRecord(request, reply, record, runAccessGuard, "view_runs"))) {
+      return reply;
     }
     return designRunSnapshotSchema.parse(record.snapshot);
   });
@@ -303,6 +1660,9 @@ export function registerRunRoutes({
         message: RUN_ROUTE_CONFIG.code.lostSnapshotMessage,
       };
     }
+    if (!(await canReadRunRecord(request, reply, record, runAccessGuard, "view_runs"))) {
+      return reply;
+    }
     return codeRunSnapshotSchema.parse(record.snapshot);
   });
 
@@ -313,17 +1673,34 @@ export function registerRunRoutes({
       reply.code(404);
       return { message: RUN_ROUTE_CONFIG.document.notFoundMessage };
     }
+    if (!(await canReadRunRecord(request, reply, record, runAccessGuard, "view_runs"))) {
+      return reply;
+    }
     return documentRunSnapshotSchema.parse(record.snapshot);
   });
 
   app.get(RUN_ROUTE_CONFIG.document.downloadPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
     const record = runs.get(runId);
-    if (!record || !record.documentBuffer) {
+    if (!record) {
       reply.code(404);
       return { message: "Document file not found" };
     }
+    if (!(await canReadRunRecord(request, reply, record, runAccessGuard, "view_documents"))) {
+      return reply;
+    }
     const snapshot = documentRunSnapshotSchema.parse(record.snapshot);
+    let documentBuffer = record.documentBuffer;
+    if (!documentBuffer && record.metadata?.projectId && snapshot.documentId) {
+      documentBuffer = await documentLibrary.getDocumentBuffer(
+        projectDocumentWorkspaceId(record.metadata.projectId),
+        snapshot.documentId,
+      ) ?? undefined;
+    }
+    if (!documentBuffer) {
+      reply.code(404);
+      return { message: "Document file not found" };
+    }
     reply.header(
       "Content-Type",
       snapshot.mimeType ??
@@ -333,7 +1710,7 @@ export function registerRunRoutes({
       "Content-Disposition",
       `attachment; filename*=UTF-8''${encodeURIComponent(snapshot.fileName ?? "说明书.docx")}`,
     );
-    return record.documentBuffer;
+    return documentBuffer;
   });
 
   for (const route of [
@@ -348,6 +1725,8 @@ export function registerRunRoutes({
       path: route.eventsPath,
       notFoundMessage: route.notFoundMessage,
       defaultAllowOrigin: defaultSseAllowOrigin,
+      canReadRunRecord: (request, reply, record) =>
+        canReadRunRecord(request, reply, record, runAccessGuard, "view_runs"),
     });
   }
 }

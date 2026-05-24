@@ -14,6 +14,7 @@ import {
   buildGenerateCodeUiBlueprintPrompt,
   buildGenerateCodeUiMockupPrompt,
   buildGenerateDesignTraceabilityPrompt,
+  buildGenerateDesignSequencePrompt,
   buildGenerateRequirementTraceabilityPrompt,
   buildGenerateDocumentContentPrompt,
   buildGenerateDesignModelsPrompt,
@@ -42,6 +43,8 @@ test("requirement model prompts include requirement-stage responsibilities", () 
   assert.match(prompt, /JSON 必须完整合法/);
   assert.match(prompt, /sourceId 和 targetId/);
   assert.match(prompt, /port.*字符串/);
+  assert.match(prompt, /requirementModelTraceability 可以返回空数组/);
+  assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
 });
 
 test("requirement repair prompt preserves requirement-stage responsibilities", () => {
@@ -119,15 +122,20 @@ test("design model prompt keeps design-stage activity semantics", () => {
     "用户登录后进入首页",
     [],
     [],
-    {
-      diagramKind: "sequence",
-      title: "顺序图",
-      summary: "动态行为",
-      notes: [],
-      participants: [],
-      messages: [],
-      fragments: [],
-    },
+    [
+      {
+        diagramKind: "sequence",
+        modelId: "sequence:uc_login",
+        sourceUseCaseId: "uc_login",
+        sourceUseCaseName: "登录",
+        title: "登录顺序图",
+        summary: "动态行为",
+        notes: [],
+        participants: [],
+        messages: [],
+        fragments: [],
+      },
+    ],
     ["activity"],
   );
 
@@ -137,6 +145,12 @@ test("design model prompt keeps design-stage activity semantics", () => {
   assert.match(prompt, /notes 永远是字符串数组/);
   assert.match(prompt, /response\/reply\/result 必须写 return/);
   assert.match(prompt, /classKind 只能使用 entity\|aggregate\|valueObject\|service\|other/);
+  assert.match(prompt, /全部设计阶段顺序图/);
+  assert.match(prompt, /modelId/);
+  assert.match(prompt, /sourceUseCaseId/);
+  assert.match(prompt, /下游聚合设计模型/);
+  assert.match(prompt, /designModelTraceability 可以返回空数组/);
+  assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
 
   const repairPrompt = buildRepairDesignModelsPrompt(
     "用户登录后进入首页",
@@ -147,6 +161,47 @@ test("design model prompt keeps design-stage activity semantics", () => {
   );
   assert.match(repairPrompt, /按错误路径逐项修复/);
   assert.match(repairPrompt, /不要改变原有业务语义/);
+});
+
+test("design sequence prompt requires one sequence per use case", () => {
+  const useCaseModel = {
+    diagramKind: "usecase" as const,
+    title: "用例模型",
+    summary: "系统边界",
+    notes: [],
+    actors: [],
+    useCases: [
+      {
+        id: "uc_view",
+        name: "查看活动",
+        goal: "查看活动",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+      {
+        id: "uc_create",
+        name: "创建活动",
+        goal: "创建活动",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const prompt = buildGenerateDesignSequencePrompt("活动日历", [], useCaseModel);
+
+  assert.match(prompt, /每个 useCase 必须生成一个独立顺序图/);
+  assert.match(prompt, /models\.length 必须等于 useCases\.length/);
+  assert.match(prompt, /modelId = sequence:<useCaseId>/);
+  assert.match(prompt, /sourceUseCaseId/);
+  assert.match(prompt, /sourceUseCaseName/);
+  assert.match(prompt, /designModelTraceability 可以返回空数组/);
+  assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
+  assert.match(prompt, /"id": "uc_view"/);
+  assert.match(prompt, /"id": "uc_create"/);
 });
 
 test("design traceability prompts only ask for design-to-requirement mappings", () => {

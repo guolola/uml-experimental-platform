@@ -1,0 +1,148 @@
+// Verifies the PostgreSQL-backed run record store contract used by API wiring.
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { RunEvent } from "@uml-platform/contracts";
+import type { Queryable } from "../../db/transactions.js";
+import { createEmptySnapshot } from "./snapshots.js";
+import {
+  createPostgresRunRecordStore,
+} from "./postgres-run-record-store.js";
+import { emitEvent, type RunRecord } from "./run-record-store.js";
+
+interface FakeRunRow {
+  id: string;
+  user_id?: string | null;
+  project_id?: string | null;
+  snapshot: RunRecord["snapshot"];
+  status: string;
+  stage: string;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+}
+
+interface FakeRunEventRow {
+  run_id: string;
+  sequence: number;
+  payload: RunEvent;
+}
+
+class FakeRunDb implements Queryable {
+  readonly calls: { sql: string; params: readonly unknown[] }[] = [];
+  readonly runRows = new Map<string, FakeRunRow>();
+  readonly eventRows: FakeRunEventRow[] = [];
+
+  async query<T = Record<string, unknown>>(
+    sql: string,
+    params: readonly unknown[] = [],
+  ) {
+    this.calls.push({ sql, params });
+    const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
+
+    if (normalized.startsWith("select id, user_id, project_id")) {
+      return {
+        rows: Array.from(this.runRows.values()) as T[],
+        rowCount: this.runRows.size,
+      };
+    }
+
+    if (normalized.startsWith("select run_id, sequence, payload")) {
+      return {
+        rows: this.eventRows
+          .slice()
+          .sort((left, right) => left.sequence - right.sequence) as T[],
+        rowCount: this.eventRows.length,
+      };
+    }
+
+    if (normalized.startsWith("insert into run_records")) {
+      const [
+        id,
+        userId,
+        projectId,
+        stage,
+        status,
+        model,
+        providerConfigId,
+        snapshot,
+        errorMessage,
+        completedAt,
+        createdAt,
+      ] = params;
+      const parsedSnapshot =
+        typeof snapshot === "string"
+          ? (JSON.parse(snapshot) as RunRecord["snapshot"])
+          : (snapshot as RunRecord["snapshot"]);
+      this.runRows.set(String(id), {
+        id: String(id),
+        user_id: typeof userId === "string" ? userId : null,
+        project_id: typeof projectId === "string" ? projectId : null,
+        stage: String(stage),
+        status: String(status),
+        snapshot: parsedSnapshot,
+        error_message: typeof errorMessage === "string" ? errorMessage : null,
+        created_at: String(createdAt),
+        updated_at: new Date().toISOString(),
+        completed_at: typeof completedAt === "string" ? completedAt : null,
+      });
+      assert.equal(model, "gpt-5.5");
+      assert.equal(providerConfigId, null);
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("insert into run_events")) {
+      const [runId, sequence, eventType, payload] = params;
+      const parsedPayload =
+        typeof payload === "string" ? (JSON.parse(payload) as RunEvent) : (payload as RunEvent);
+      assert.equal(eventType, parsedPayload.type);
+      this.eventRows.push({
+        run_id: String(runId),
+        sequence: Number(sequence),
+        payload: parsedPayload,
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    return { rows: [], rowCount: 0 };
+  }
+}
+
+test("postgres run store persists records and emitted events", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-1", "需求文本", ["class"], []);
+  snapshot.providerSettings = {
+    apiBaseUrl: "https://ai.comfly.org",
+    apiKey: "redacted",
+    model: "gpt-5.5",
+  };
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      userId: "user-1",
+      projectId: "project-1",
+      createdAt: "2026-05-22T00:00:00.000Z",
+    },
+  };
+
+  runs.set("run-1", record);
+  emitEvent(record, { type: "queued" });
+  snapshot.status = "completed";
+  emitEvent(record, { type: "completed", snapshot } as RunEvent);
+  await runs.flush();
+
+  assert.equal(db.runRows.get("run-1")?.project_id, "project-1");
+  assert.equal(db.runRows.get("run-1")?.status, "completed");
+  assert.equal(db.eventRows.length, 2);
+  assert.equal(db.eventRows[1]?.sequence, 2);
+
+  const restored = await createPostgresRunRecordStore(db);
+  const restoredRecord = restored.get("run-1");
+  assert.equal(restoredRecord?.snapshot.status, "completed");
+  assert.equal(restoredRecord?.events.length, 2);
+  assert.equal(restoredRecord?.metadata?.userId, "user-1");
+});

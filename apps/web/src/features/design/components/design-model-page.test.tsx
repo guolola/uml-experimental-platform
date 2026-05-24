@@ -118,7 +118,7 @@ describe("DesignModelPage", () => {
 
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
-    await userEvent.click(await screen.findByRole("checkbox", { name: /界面关系/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "选择界面关系" }));
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
 
     await waitFor(() => {
@@ -157,12 +157,15 @@ describe("DesignModelPage", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
+    const user = userEvent.setup();
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await screen.findByText("设计模型");
     const [sequenceCheckbox, classDiagramCheckbox] = screen.getAllByRole("checkbox");
     expect(sequenceCheckbox).toBeEnabled();
     expect(classDiagramCheckbox).toBeDisabled();
+    expect(classDiagramCheckbox).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "选择设计类图" }));
     expect(classDiagramCheckbox).not.toBeChecked();
     expect(screen.getAllByText("缺少需求阶段领域概念模型").length).toBeGreaterThan(0);
     expect(screen.getByText("0/5")).toBeInTheDocument();
@@ -283,12 +286,28 @@ describe("DesignModelPage", () => {
           models: {
             usecase: useCaseModel,
           },
+          selectedDesignDiagramTypes: ["sequence"],
           generatedDesignDiagramTypes: ["sequence"],
           designModels: {
-            sequence: {
+            "sequence:uc_view": {
               diagramKind: "sequence",
-              title: "顺序图",
-              summary: "动态行为",
+              modelId: "sequence:uc_view",
+              sourceUseCaseId: "uc_view",
+              sourceUseCaseName: "查看活动",
+              title: "查看活动顺序图",
+              summary: "查看活动动态行为",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
+            "sequence:uc_create": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_create",
+              sourceUseCaseId: "uc_create",
+              sourceUseCaseName: "创建活动",
+              title: "创建活动顺序图",
+              summary: "创建活动动态行为",
               notes: [],
               participants: [],
               messages: [],
@@ -313,9 +332,99 @@ describe("DesignModelPage", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
+    const user = userEvent.setup();
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
-    expect(await screen.findByRole("button", { name: /查看/ })).toBeInTheDocument();
+    const sequenceCheckbox = await screen.findByRole("checkbox", {
+      name: /顺序图/,
+    });
+    expect(sequenceCheckbox).toBeChecked();
+    expect(screen.getByText("2 个用例顺序图")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /查看/ }));
+
+    expect(sequenceCheckbox).toBeChecked();
+  });
+
+  it("shows design-model AI repair records on the design stage", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+          },
+          selectedDesignDiagramTypes: ["sequence"],
+          generatedDesignDiagramTypes: ["sequence"],
+          designModels: {
+            "sequence:uc": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc",
+              sourceUseCaseId: "uc",
+              sourceUseCaseName: "生成模型",
+              title: "生成模型顺序图",
+              summary: "动态行为",
+              notes: [],
+              participants: [
+                {
+                  id: "api",
+                  name: "编排 API",
+                  participantType: "service",
+                },
+              ],
+              messages: [],
+              fragments: [],
+            },
+          },
+          designModelTraceability: [
+            {
+              source: {
+                modelId: "sequence:uc",
+                diagramKind: "sequence",
+                elementId: "api",
+                elementKind: "participant",
+                label: "编排 API",
+              },
+              targets: [
+                {
+                  diagramKind: "usecase",
+                  elementId: "uc",
+                  elementKind: "usecase",
+                  label: "生成模型",
+                },
+              ],
+              mappingSource: "auto-filled-pending-review",
+              reviewStatus: "confirmed",
+              rationale: "设计元素缺少上游来源，AI 自动补齐到需求用例。",
+            },
+          ],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    expect(await screen.findByText("设计模型追踪证明")).toBeInTheDocument();
+    expect(screen.queryByText("设计模型 AI 修复记录")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/设计元素缺少上游来源，系统自动补齐到需求用例/u),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/补齐 编排 API -> 生成模型 追踪关系/u)).toBeInTheDocument();
+    expect(screen.getAllByText("追踪已补齐").length).toBeGreaterThan(0);
   });
 
   it("auto-includes valid sequence and class dependencies when generating table diagrams", async () => {

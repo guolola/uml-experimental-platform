@@ -1,7 +1,16 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type {
   DesignDiagramModelSpec,
+  DesignRunSnapshot,
   DiagramModelSpec,
   DocumentRunSnapshot,
 } from "@uml-platform/contracts";
@@ -14,7 +23,106 @@ import {
 } from "../../test/workspace-test-utils";
 import { useWorkspaceSession } from "./state";
 
+function GenerateRulesHarness() {
+  const { generateRules } = useWorkspaceSession();
+  return (
+    <button type="button" onClick={() => void generateRules()}>
+      生成需求规则
+    </button>
+  );
+}
+
 describe("WorkspaceSessionProvider", () => {
+  it("shows Figma-style generation result dialogs with cancel and confirm close actions", async () => {
+    const successSnapshot = createRunSnapshot({
+      runId: "run-success-dialog",
+      requirementText: "订单系统需求",
+      rules: [createRule()],
+    });
+    const successRepository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({ requirementText: "订单系统需求" }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-success-dialog" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "completed", snapshot: successSnapshot });
+      }),
+      getRunSnapshot: vi.fn(async () => successSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const user = userEvent.setup();
+
+    render(withWorkspaceProviders(<GenerateRulesHarness />, successRepository));
+    await user.click(await screen.findByRole("button", { name: "生成需求规则" }));
+
+    const successDialog = await screen.findByRole("dialog", {
+      name: "需求规则已生成",
+    });
+    expect(successDialog).toHaveClass("sm:max-w-[448px]", "rounded-[12px]");
+    expect(
+      within(successDialog).getByLabelText("操作成功"),
+    ).toHaveClass("bg-[rgba(74,222,128,0.1)]");
+    expect(within(successDialog).getByText("生成完成。")).toBeInTheDocument();
+    await user.click(within(successDialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "需求规则已生成" })).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "生成需求规则" }));
+    const successDialogAgain = await screen.findByRole("dialog", {
+      name: "需求规则已生成",
+    });
+    await user.click(within(successDialogAgain).getByRole("button", { name: "确认" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "需求规则已生成" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows generation failures without raw technical details", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({ requirementText: "订单系统需求" }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-failed-dialog" })),
+      subscribeToRun: vi.fn(async () => {
+        throw new Error("Trusted chain traceability gate failed: runId=abc123");
+      }),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const user = userEvent.setup();
+
+    render(withWorkspaceProviders(<GenerateRulesHarness />, repository));
+    await user.click(await screen.findByRole("button", { name: "生成需求规则" }));
+
+    const failedDialog = await screen.findByRole("dialog", { name: "生成失败" });
+    expect(failedDialog).toHaveClass("sm:max-w-[448px]", "rounded-[12px]");
+    expect(within(failedDialog).getByLabelText("操作失败")).toHaveClass(
+      "bg-[rgba(186,26,26,0.1)]",
+    );
+    expect(
+      within(failedDialog).getByText("生成过程中出现问题，请在当前阶段的问题列表查看详情。"),
+    ).toBeInTheDocument();
+    expect(within(failedDialog).getByRole("button", { name: "取消" })).toBeInTheDocument();
+    expect(within(failedDialog).getByRole("button", { name: "确认" })).toBeInTheDocument();
+    expect(screen.queryByText(/Trusted chain/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/runId/u)).not.toBeInTheDocument();
+  });
+
   it("keeps global generating true for active model runs", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
@@ -24,9 +132,7 @@ describe("WorkspaceSessionProvider", () => {
       ),
       updateRequirementText: vi.fn(async () => {}),
       startRun: vi.fn(async () => ({ runId: "run-rules" })),
-      subscribeToRun: vi.fn(
-        async (_runId, _onEvent) => new Promise<void>(() => {}),
-      ),
+      subscribeToRun: vi.fn(async () => new Promise<void>(() => {})),
       getRunSnapshot: vi.fn(),
       renderPlantUml: vi.fn(),
       testProviderSettings: vi.fn(),
@@ -515,5 +621,291 @@ describe("WorkspaceSessionProvider", () => {
         true,
       );
     });
+  });
+
+  it("passes existing design artifacts when incrementally generating only a table diagram", async () => {
+    const usecaseModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "图书馆用例模型",
+      summary: "管理员与读者的核心用例",
+      notes: [],
+      actors: [
+        {
+          id: "actor_librarian",
+          name: "图书管理员",
+          actorType: "human",
+          responsibilities: ["借书"],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_borrow",
+          name: "借书",
+          goal: "登记图书借阅",
+          preconditions: ["图书未借出"],
+          postconditions: ["图书被借出"],
+          primaryActorId: "actor_librarian",
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [{ id: "boundary_library", name: "图书馆管理系统" }],
+      relationships: [],
+    };
+    const classRequirementModel: DiagramModelSpec = {
+      diagramKind: "class",
+      title: "领域概念模型",
+      summary: "图书实体",
+      notes: [],
+      classes: [
+        {
+          id: "class_book",
+          name: "图书",
+          classKind: "entity",
+          attributes: [{ name: "id", type: "string", visibility: "private" }],
+          operations: [],
+        },
+      ],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const sequenceModel: DesignDiagramModelSpec = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc_borrow",
+      sourceUseCaseId: "uc_borrow",
+      sourceUseCaseName: "借书",
+      title: "借书顺序图",
+      summary: "借书交互",
+      notes: [],
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const designClassModel: DesignDiagramModelSpec = {
+      diagramKind: "class",
+      title: "设计类图",
+      summary: "图书设计类",
+      notes: [],
+      classes: [
+        {
+          id: "class_book",
+          name: "图书",
+          classKind: "entity",
+          attributes: [{ name: "id", type: "string", visibility: "private" }],
+          operations: [],
+        },
+      ],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const tableModel: DesignDiagramModelSpec = {
+      diagramKind: "table",
+      title: "表关系图",
+      summary: "图书表",
+      notes: [],
+      tables: [
+        {
+          id: "book",
+          name: "book",
+          columns: [
+            {
+              id: "id",
+              name: "id",
+              dataType: "VARCHAR",
+              isPrimaryKey: true,
+              isForeignKey: false,
+              nullable: false,
+            },
+          ],
+        },
+      ],
+      relationships: [],
+    };
+    const snapshot: DesignRunSnapshot = {
+      runId: "design-table-run",
+      requirementText: "图书馆管理系统",
+      selectedDiagrams: ["table"],
+      rules: [
+        createRule({
+          id: "r1",
+          text: "图书管理员可以借书。",
+          relatedDiagrams: ["usecase"],
+        }),
+        createRule({
+          id: "r2",
+          text: "系统需要记录图书。",
+          relatedDiagrams: ["class"],
+        }),
+      ],
+      requirementModels: [usecaseModel, classRequirementModel],
+      requirementModelTraceability: [
+        {
+          ruleId: "r1",
+          target: {
+            diagramKind: "usecase",
+            elementId: "actor_librarian",
+            elementKind: "actor",
+            label: "图书管理员",
+          },
+        },
+        {
+          ruleId: "r1",
+          target: {
+            diagramKind: "usecase",
+            elementId: "uc_borrow",
+            elementKind: "usecase",
+            label: "借书",
+          },
+        },
+        {
+          ruleId: "r2",
+          target: {
+            diagramKind: "class",
+            elementId: "class_book",
+            elementKind: "class",
+            label: "图书",
+          },
+        },
+      ],
+      models: [tableModel],
+      designModelTraceability: [
+        {
+          source: {
+            diagramKind: "table",
+            elementId: "book",
+            elementKind: "table",
+            label: "book",
+          },
+          targets: [
+            {
+              diagramKind: "class",
+              elementId: "class_book",
+              elementKind: "class",
+              label: "图书",
+            },
+          ],
+        },
+      ],
+      plantUml: [{ diagramKind: "table", source: "@startuml\n@enduml" }],
+      svgArtifacts: [
+        {
+          diagramKind: "table",
+          svg: "<svg></svg>",
+          renderMeta: {
+            engine: "test",
+            generatedAt: new Date().toISOString(),
+            sourceLength: 18,
+            durationMs: 1,
+          },
+        },
+      ],
+      diagramErrors: {},
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      errorMessage: null,
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "图书馆管理系统",
+          rules: snapshot.rules,
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+          diagramVersions: { usecase: 1, class: 1 },
+          generatedDiagramTypes: ["usecase", "class"],
+          models: { usecase: usecaseModel, class: classRequirementModel },
+          requirementModelTraceability: [...snapshot.requirementModelTraceability],
+          selectedDesignDiagramTypes: ["table"],
+          generatedDesignDiagramTypes: ["sequence", "class"],
+          designModels: {
+            "sequence:uc_borrow": sequenceModel,
+            class: designClassModel,
+          },
+          designModelTraceability: [],
+          designPlantUml: {
+            "sequence:uc_borrow": "@startuml\n@enduml",
+            class: "@startuml\n@enduml",
+          },
+          designSvgArtifacts: {
+            "sequence:uc_borrow": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_borrow",
+              svg: "<svg></svg>",
+              renderMeta: {
+                engine: "test",
+                generatedAt: new Date().toISOString(),
+                sourceLength: 18,
+                durationMs: 1,
+              },
+            },
+            class: {
+              diagramKind: "class",
+              svg: "<svg></svg>",
+              renderMeta: {
+                engine: "test",
+                generatedAt: new Date().toISOString(),
+                sourceLength: 18,
+                durationMs: 1,
+              },
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(async () => ({ runId: "design-table-run" })),
+      subscribeToDesignRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({ type: "completed", snapshot });
+      }),
+      getDesignRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateDesignDiagrams(["table"]);
+    });
+
+    expect(repository.startDesignRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedDiagrams: ["table"],
+        existingDesignModels: expect.arrayContaining([
+          expect.objectContaining({ diagramKind: "sequence" }),
+          expect.objectContaining({ diagramKind: "class" }),
+        ]),
+        existingDesignPlantUml: expect.arrayContaining([
+          expect.objectContaining({ diagramKind: "sequence" }),
+          expect.objectContaining({ diagramKind: "class" }),
+        ]),
+      }),
+    );
+    expect(Object.keys(result.current.designModels).sort()).toEqual([
+      "class",
+      "sequence:uc_borrow",
+      "table",
+    ]);
+    expect(result.current.generatedDesignDiagrams.sort()).toEqual([
+      "class",
+      "sequence",
+      "table",
+    ]);
   });
 });

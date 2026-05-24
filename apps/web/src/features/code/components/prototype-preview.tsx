@@ -46,10 +46,16 @@ export type LocalPrototypePreviewHandle = {
 export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
   files: Record<string, string>;
   entryFile: string;
+  onBuildError?: (message: string) => void;
+  onBuildReady?: () => void;
+  onBuildStart?: () => void;
 }>(function LocalPrototypePreview(
   {
     files,
     entryFile,
+    onBuildError,
+    onBuildReady,
+    onBuildStart,
   },
   ref,
 ) {
@@ -80,6 +86,7 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
       runtimeError: null,
       ready: false,
     });
+    onBuildStart?.();
 
     void buildLocalPreviewDocument(files, entryFile, buildId)
       .then((result) => {
@@ -96,15 +103,18 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
           runtimeError: null,
           ready: false,
         });
+        onBuildReady?.();
       })
       .catch((error) => {
         if (disposed) return;
+        const message = previewErrorMessage(error);
         setPreviewState({
           srcDoc: "",
-          buildError: previewErrorMessage(error),
+          buildError: message,
           runtimeError: null,
           ready: false,
         });
+        onBuildError?.(message);
       });
 
     return () => {
@@ -113,7 +123,7 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
         URL.revokeObjectURL(url);
       }
     };
-  }, [entryFile, files]);
+  }, [entryFile, files, onBuildError, onBuildReady, onBuildStart]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -141,17 +151,19 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
       }
 
       if (data.type === "error") {
+        const message = data.message ?? "预览运行出错";
         setPreviewState((current) => ({
           ...current,
           ready: false,
-          runtimeError: data.message ?? "预览运行出错",
+          runtimeError: message,
         }));
+        onBuildError?.(message);
       }
     };
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [onBuildError]);
 
   const previewMessage =
     previewState.buildError ??

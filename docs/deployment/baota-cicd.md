@@ -9,7 +9,7 @@
 - PlantUML 渲染服务：`uml-render-service` PM2 进程，监听 `127.0.0.1:4002`。
 - Nginx：公网只暴露站点域名；`/api` 反向代理到 API；render-service 不暴露公网。
 - PM2：使用 bash 启动 Node 产物，等价于线上已验证的 `cd current && node ...` 启动方式。
-- OnlyOffice：可选独立 HTTP 子域名，反向代理到 Document Server，用于在线编辑说明书。
+- OnlyOffice：需要独立 Document Server，建议使用单独子域名反向代理，用于在线编辑说明书。
 
 ## 服务器准备
 
@@ -30,6 +30,136 @@ pm2 -v
 - PM2 最新稳定版
 - 宝塔 Nginx
 
+## 已有宝塔环境增量核对
+
+如果线上站点、PM2、Nginx 反向代理之前已经配置好，不需要重建服务器或删除现有站点。按下面清单补齐这次新增的生产依赖即可。
+
+1. **保留现有站点和 PM2 进程名**
+   - 主站根目录仍指向 `/www/wwwroot/uml-platform/current/apps/web/dist`。
+   - API 仍使用 `uml-api`，Render Service 仍使用 `uml-render-service`。
+   - 不需要手动改 release 软链接，发布脚本会自动切换。
+
+2. **核对 PostgreSQL 是否已可用**
+   ```bash
+   psql "$DATABASE_URL" -c "select 1;"
+   ```
+   如果线上还在用本地文件或临时数据目录，需要在 `/www/wwwroot/uml-platform/shared/production.env` 补上正式 `DATABASE_URL`。API 启动时会自动执行 migrations。
+
+3. **核对 OnlyOffice 是否已可用**
+   ```bash
+   curl http://127.0.0.1:8080/healthcheck
+   curl http://office.example.com/healthcheck
+   ```
+   如果容器已经存在，只要确认 `JWT_SECRET` 和 `production.env` 里的 `ONLYOFFICE_JWT_SECRET` 一致，不需要重建容器。
+
+4. **只补缺失的生产变量**
+   重点检查这些变量是否存在且是生产值：
+   - `NODE_ENV=production`
+   - `DATABASE_URL`
+   - `API_CORS_ORIGINS`
+   - `RENDER_SERVICE_CORS_ORIGINS`
+   - `PUBLIC_API_BASE_URL`
+   - `ONLYOFFICE_DOCUMENT_SERVER_URL`
+   - `ONLYOFFICE_JWT_SECRET`
+   - `ONLYOFFICE_ACCESS_TOKEN_SECRET`
+   - `UML_DOCUMENT_STORAGE_DIR`
+   - `UML_PROVIDER_SECRET_KEY`
+   - `UML_PROVIDER_BASE_URL_ALLOWLIST`
+
+5. **核对 GitHub Secrets**
+   只要 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_PORT`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH` 已经正确，就不需要新增数据库密码到 GitHub Secrets；数据库和 OnlyOffice 生产密钥保留在服务器的 `production.env`。
+
+6. **发布后只做验证**
+   ```bash
+   pm2 status
+   curl http://127.0.0.1:4001/api/health
+   curl http://127.0.0.1:4002/health
+   curl -s http://platform.example.com/api/version
+   ```
+   `/api/version` 里应显示生产模式，并且文档编辑器配置为已启用。
+
+## 宝塔上线操作步骤
+
+按下面顺序做，能减少“代码已发布但数据库/文档编辑器没连上”的情况。
+
+1. **准备域名和端口**
+   - 主站域名指向宝塔站点，例如 `platform.example.com`。
+   - OnlyOffice 建议使用独立子域名，例如 `office.example.com`。
+   - 服务器内网端口规划：API `4001`，Render Service `4002`，OnlyOffice 容器 `8080`，PostgreSQL `5432`。
+
+2. **安装 PostgreSQL 并创建库**
+   ```bash
+   sudo -u postgres psql
+   ```
+   ```sql
+   create user uml_user with encrypted password '<强密码>';
+   create database uml_platform owner uml_user;
+   grant all privileges on database uml_platform to uml_user;
+   \q
+   ```
+   然后验证：
+   ```bash
+   psql "postgres://uml_user:<强密码>@127.0.0.1:5432/uml_platform" -c "select 1;"
+   ```
+   `DATABASE_URL` 必须写入 `/www/wwwroot/uml-platform/shared/production.env`。API 启动时会自动执行内置 migrations。
+
+3. **准备 OnlyOffice Document Server**
+   如果用 Docker：
+   ```bash
+   docker run -d \
+     --name onlyoffice-documentserver \
+     --restart always \
+     -p 8080:80 \
+     -e JWT_ENABLED=true \
+     -e JWT_SECRET='<与 production.env 一致的强随机密钥>' \
+     onlyoffice/documentserver
+   ```
+   验证：
+   ```bash
+   curl http://127.0.0.1:8080/healthcheck
+   ```
+   正常应返回 `true`。
+
+4. **配置宝塔站点和反向代理**
+   - 主站根目录：`/www/wwwroot/uml-platform/current/apps/web/dist`
+   - 主站 `/api/` 反代到 `http://127.0.0.1:4001`
+   - 主站 `/` 使用 `try_files $uri $uri/ /index.html;`
+   - OnlyOffice 子域名反代到 `http://127.0.0.1:8080`
+
+5. **写入生产环境变量**
+   在 `/www/wwwroot/uml-platform/shared/production.env` 写入 PostgreSQL、SMTP、Provider 加密密钥、CORS、OnlyOffice 和文档存储目录。发布脚本每次启动 PM2 前都会加载这个文件。
+
+6. **配置 GitHub Secrets**
+   在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 配置 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_PORT`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH`。
+
+7. **推送 main 触发部署**
+   GitHub Actions 会先跑 PostgreSQL + OnlyOffice smoke，再测试、构建、打包并上传到宝塔服务器。CI 通过后再看服务器 PM2 和 `/api/version`。
+
+8. **首次创建后台管理员**
+   发布成功后只临时打开 bootstrap 变量，执行一次：
+   ```bash
+   cd /www/wwwroot/uml-platform/current
+   set -a
+   . /www/wwwroot/uml-platform/shared/production.env
+   set +a
+   UML_ENABLE_ADMIN_BOOTSTRAP=true \
+   UML_BOOTSTRAP_ADMIN_EMAIL=admin@example.edu \
+   UML_BOOTSTRAP_ADMIN_PASSWORD='<一次性强密码>' \
+   UML_BOOTSTRAP_ADMIN_DISPLAY_NAME='平台管理员' \
+   npm run bootstrap:admin --workspace @uml-platform/api
+   ```
+   创建完成后不要把 `UML_ENABLE_ADMIN_BOOTSTRAP=true` 长期留在 `production.env`。
+
+9. **部署后验收**
+   ```bash
+   pm2 status
+   curl http://127.0.0.1:4001/api/health
+   curl http://127.0.0.1:4002/health
+   curl http://office.example.com/healthcheck
+   curl -s http://platform.example.com/api/version
+   ```
+   `/api/version` 中应看到 `nodeEnv` 为 `production`，且 `onlyOfficeDocumentServerConfigured` 为 `true`。
+
 创建部署目录：
 
 ```bash
@@ -41,15 +171,32 @@ chmod 700 /www/wwwroot/uml-platform/shared
 
 ```bash
 cat > /www/wwwroot/uml-platform/shared/production.env <<'EOF'
+NODE_ENV=production
+DATABASE_URL='postgres://uml_user:<password>@127.0.0.1:5432/uml_platform'
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=mailer@example.com
+SMTP_PASS='<SMTP 密码或应用专用密钥>'
+SMTP_FROM='UML Platform <mailer@example.com>'
+SMTP_SECURE=false
+UML_PROVIDER_SECRET_KEY='<供应商密钥加密主密钥>'
+UML_PROVIDER_CONFIG_SECRET='<与 UML_PROVIDER_SECRET_KEY 相同的兼容值>'
+UML_PROVIDER_BASE_URL_ALLOWLIST=https://api.openai.com,https://llm.example.edu
+UML_ALLOW_LEGACY_PROVIDER_TEST=false
+UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS=false
+API_CORS_ORIGINS=https://platform.example.com,https://admin.example.com
+RENDER_SERVICE_CORS_ORIGINS=https://platform.example.com
 ONLYOFFICE_DOCUMENT_SERVER_URL=http://office.example.com
 PUBLIC_API_BASE_URL=http://platform.example.com
-ONLYOFFICE_JWT_SECRET=<与 Document Server 一致的强随机密钥>
-ONLYOFFICE_ACCESS_TOKEN_SECRET=<强随机密钥>
+ONLYOFFICE_JWT_SECRET='<与 Document Server 一致的强随机密钥>'
+ONLYOFFICE_ACCESS_TOKEN_SECRET='<强随机密钥>'
 UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents
 EOF
 
 chmod 600 /www/wwwroot/uml-platform/shared/production.env
 ```
+
+完整变量说明见 [production-env.md](./production-env.md)。生产环境必须关闭 mock/legacy fallback；模型供应商费用展示只作为 usage/quota/token 和可选估算，真实账单以外部供应商账单为准。
 
 ## GitHub Secrets
 
@@ -111,8 +258,10 @@ location / {
 
 ```bash
 npm ci
+docker run -d --name onlyoffice-documentserver -p 8080:80 -e JWT_ENABLED=true -e JWT_SECRET=... onlyoffice/documentserver
 npm run build:contracts
 npm run build:prompts
+DATABASE_URL=postgres://... NODE_ENV=production npx tsx -e 'createApiServer smoke'
 npm run test:contracts
 npm run test:api
 npm run test:render
@@ -124,6 +273,8 @@ VITE_APP_API_BASE_URL="" npm run build:web
 
 随后工作流会打包发布产物并上传到服务器，由 `scripts/deploy/baota-pm2-deploy.sh` 完成：
 
+- 在 GitHub Actions 内启动 PostgreSQL service，并用生产模式创建 API server，真实执行 migrations。
+- 在 GitHub Actions 内启动 OnlyOffice Document Server 容器，并检查 `/healthcheck`。
 - 解压到 `/www/wwwroot/uml-platform/releases/<commit-sha>`
 - 使用 `https://registry.npmmirror.com` 安装 API 和 Render Service 生产依赖，可通过 `NPM_REGISTRY` 覆盖；Web 已提前构建为静态文件，不在服务器安装前端依赖
 - 检查 Web dist 和 PlantUML jar
@@ -160,7 +311,7 @@ render-service 的 health 返回中应包含：
 浏览器验证：
 
 - 访问站点首页。
-- 刷新 `/exam`、`/tutorial`、`/about` 不应 404。
+- 未登录访问业务页应回到官网首页；登录后刷新 `/projects`、`/exam`、`/tutorial`、`/about` 不应 404。
 - 发起一次需求生成，SSE 进度应正常滚动。
 - SVG 预览应能正常渲染。
 
@@ -273,13 +424,13 @@ UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents
 `/api/documents/:documentId/file` 并回调
 `/api/documents/:documentId/onlyoffice/callback` 保存编辑结果。
 
-说明书文件物理上保存在同一个 `UML_DOCUMENT_STORAGE_DIR` 根目录下，但会按浏览器匿名工作区分目录：
+说明书文件物理上保存在同一个 `UML_DOCUMENT_STORAGE_DIR` 根目录下，但生产功能必须登录后使用，文档元数据、下载、OnlyOffice 编辑和回调都要绑定实名用户、实名项目和项目权限。run、SSE、Provider 托管配置也必须走同一套实名项目权限链路，不能依赖浏览器本地工作区作为安全边界。
 
 ```text
-/www/wwwroot/uml-platform/shared/documents/<workspaceId>/<documentId>/
+/www/wwwroot/uml-platform/shared/documents/<projectId>/<documentId>/
 ```
 
-因此多个用户同时访问网站时，默认只会看到自己浏览器工作区生成的说明书，不会共享同一份文档列表。该匿名隔离不是正式登录系统；如果后续接入账号体系，可以把 `workspaceId` 绑定到真实用户或项目。
+legacy document workspace 仅允许 dev/test 或底层兼容场景保留，不是生产产品入口。线上不得把本地工作区密钥、localStorage history 或明文 Provider fallback 当作登录态项目数据路径。
 
 HTTP 可以工作，但公网传输不加密，说明书内容和短期访问 token 仍可能被网络中间人看到。涉及真实隐私数据时，建议后续将平台域名和 OnlyOffice 域名一起升级到 HTTPS。
 

@@ -1,0 +1,2102 @@
+// Verifies first-pass admin API security and provider configuration contracts.
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import Fastify from "fastify";
+import { createApiServer } from "../../index.js";
+import { createInMemoryAuthStore } from "../../auth/in-memory-auth-store.js";
+import { hashPassword } from "../../security/password-hashing.js";
+import { createFileDocumentLibrary } from "../../documents/library/document-library.js";
+import type { DocumentLibrary } from "../../documents/library/document-library.js";
+import { createProviderConfigStore } from "../../provider-configs/provider-config-store.js";
+import type {
+  ProviderRateLimitPolicyRecord,
+  ProviderUsageTracker,
+} from "../../provider-configs/provider-usage-tracker.js";
+import {
+  createRunRecordStore,
+  type RunRecord,
+  type RunRecordStore,
+} from "../../runs/records/run-record-store.js";
+import { createEmptySnapshot } from "../../runs/records/snapshots.js";
+import { createInMemoryAcademicAdminRepository } from "../../db/academic-admin-repository.js";
+import { registerAdminRoutes } from "./register-admin-routes.js";
+import type { AdminRiskEvent } from "./register-admin-routes.js";
+
+const ADMIN_HEADERS = {
+  "x-uml-admin-role": "super-admin",
+};
+
+async function createSessionCookie(
+  authStore: ReturnType<typeof createInMemoryAuthStore>,
+  userId: string,
+) {
+  const session = await authStore.createSession({
+    userId,
+    ipAddress: "127.0.0.1",
+    userAgent: "admin-routes-test",
+  });
+  return `uml_session=${encodeURIComponent(session.id)}`;
+}
+
+async function createAdminSessionCookie(
+  authStore: ReturnType<typeof createInMemoryAuthStore>,
+  userId: string,
+) {
+  const session = await authStore.createSession({
+    userId,
+    ipAddress: "127.0.0.1",
+    userAgent: "admin-routes-test",
+  });
+  return `uml_admin_session=${encodeURIComponent(session.id)}`;
+}
+
+async function createAdminSessionApp(
+  options?: Parameters<typeof createApiServer>[0],
+) {
+  const authStore = createInMemoryAuthStore();
+  const admin = authStore.createUser({
+    email: "admin@example.com",
+    displayName: "Admin User",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["super_admin"],
+  });
+  assert.ok(admin);
+  authStore.updateUser(admin.id, { mfaEnabled: true, mfaSecret: "TESTADMINMFASECRET" });
+  const app = await createApiServer({ ...options, authStore });
+
+  return { app, authStore, cookie: await createAdminSessionCookie(authStore, admin.id) };
+}
+
+function putRunRecord(
+  runs: RunRecordStore,
+  input: {
+    runId: string;
+    projectId: string;
+    status: RunRecord["snapshot"]["status"];
+    terminal?: boolean;
+  },
+) {
+  const snapshot = createEmptySnapshot(
+    input.runId,
+    `需求 ${input.runId}`,
+    ["usecase"],
+  );
+  snapshot.status = input.status;
+  snapshot.currentStage = input.status === "queued" ? null : "generate_models";
+  snapshot.errorMessage = input.status === "failed" ? "LLM failed" : null;
+  runs.set(input.runId, {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: input.terminal ?? (input.status === "failed" || input.status === "cancelled"),
+    metadata: {
+      projectId: input.projectId,
+      userId: "source-user",
+      createdAt: "2026-05-22T00:00:00.000Z",
+    },
+  });
+}
+
+async function createAdminRouteTestApp({
+  providerUsageTracker,
+  riskEvents,
+}: {
+  providerUsageTracker?: ProviderUsageTracker;
+  riskEvents?: () => AdminRiskEvent[];
+} = {}) {
+  const app = Fastify({ logger: false });
+  const authStore = createInMemoryAuthStore();
+  const admin = authStore.createUser({
+    email: "admin@example.com",
+    displayName: "Admin User",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["super_admin"],
+  });
+  assert.ok(admin);
+  authStore.updateUser(admin.id, { mfaEnabled: true, mfaSecret: "TESTADMINMFASECRET" });
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+  registerAdminRoutes({
+    app,
+    authStore,
+    runs: createRunRecordStore(),
+    documentLibrary: {} as DocumentLibrary,
+    providerConfigs,
+    providerUsageTracker,
+    riskEvents,
+  });
+  return {
+    app,
+    authStore,
+    providerConfigs,
+    cookie: await createAdminSessionCookie(authStore, admin.id),
+  };
+}
+
+test("admin risk events endpoint exposes recorded document security events", async () => {
+  const { app, cookie } = await createAdminRouteTestApp({
+    riskEvents: () => [
+      {
+        id: "risk-1",
+        eventType: "document.onlyoffice_callback_oversized",
+        severity: "high",
+        actorUserId: "user-alpha",
+        projectId: "project-alpha",
+        targetType: "document",
+        targetId: "doc-1",
+        message: "OnlyOffice save download exceeded 4 bytes",
+        metadata: { maxBytes: 4 },
+        createdAt: "2026-05-22T00:00:00.000Z",
+      },
+    ],
+  });
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/admin/risk-events",
+      headers: { Cookie: cookie },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(
+      response.json().riskEvents[0].eventType,
+      "document.onlyoffice_callback_oversized",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+function createPolicyAwareUsageTracker(options?: {
+  checkAllowed?: boolean;
+  onCheck?: (input: {
+    userId: string | null;
+    projectId: string | null;
+    providerConfigId: string;
+    taskType: string;
+    limit: number;
+    windowSeconds: number;
+  }) => void;
+}): ProviderUsageTracker {
+  const policies: ProviderRateLimitPolicyRecord[] = [];
+  return {
+    async recordUsage() {
+      return undefined;
+    },
+    async checkLimit(input) {
+      options?.onCheck?.(input);
+      return {
+        allowed: options?.checkAllowed ?? true,
+        usedUnits: options?.checkAllowed === false ? input.limit : 0,
+        remainingUnits: options?.checkAllowed === false ? 0 : input.limit,
+        limit: input.limit,
+        windowSeconds: input.windowSeconds,
+      };
+    },
+    async listRateLimitPolicies() {
+      return [...policies];
+    },
+    async createRateLimitPolicy(input) {
+      const now = "2026-05-22T00:00:00.000Z";
+      const policy = {
+        id: `policy-${policies.length + 1}`,
+        createdAt: now,
+        updatedAt: now,
+        ...input,
+        scopeId: input.scopeId ?? null,
+        providerConfigId: input.providerConfigId ?? null,
+        taskType: input.taskType ?? null,
+        enabled: input.enabled ?? true,
+      };
+      policies.push(policy);
+      return policy;
+    },
+    async updateRateLimitPolicy(id, input) {
+      const policy = policies.find((item) => item.id === id);
+      if (!policy) return null;
+      Object.assign(policy, input, {
+        updatedAt: "2026-05-22T00:01:00.000Z",
+      });
+      return policy;
+    },
+  };
+}
+
+test("admin endpoints require an authenticated user with a system admin role", async () => {
+  const { app, cookie } = await createAdminSessionApp();
+
+  const blocked = await app.inject({
+    method: "GET",
+    url: "/api/admin/metrics",
+  });
+  const allowed = await app.inject({
+    method: "GET",
+    url: "/api/admin/metrics",
+    headers: { cookie },
+  });
+
+  assert.equal(blocked.statusCode, 403);
+  assert.match(blocked.body, /admin/i);
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(typeof allowed.json().generatedAt, "string");
+
+  await app.close();
+});
+
+test("admin header bootstrap is disabled unless explicitly allowed", async () => {
+  const originalAllowHeader = process.env.UML_ALLOW_ADMIN_HEADER;
+  delete process.env.UML_ALLOW_ADMIN_HEADER;
+  const app = await createApiServer();
+
+  try {
+    const blocked = await app.inject({
+      method: "GET",
+      url: "/api/admin/metrics",
+      headers: ADMIN_HEADERS,
+    });
+
+    assert.equal(blocked.statusCode, 403);
+    assert.match(blocked.body, /admin/i);
+  } finally {
+    await app.close();
+    if (originalAllowHeader === undefined) {
+      delete process.env.UML_ALLOW_ADMIN_HEADER;
+    } else {
+      process.env.UML_ALLOW_ADMIN_HEADER = originalAllowHeader;
+    }
+  }
+});
+
+test("admin header bootstrap remains available behind the explicit local switch", async () => {
+  const originalAllowHeader = process.env.UML_ALLOW_ADMIN_HEADER;
+  process.env.UML_ALLOW_ADMIN_HEADER = "true";
+  const app = await createApiServer();
+
+  try {
+    const allowed = await app.inject({
+      method: "GET",
+      url: "/api/admin/metrics",
+      headers: ADMIN_HEADERS,
+    });
+
+    assert.equal(allowed.statusCode, 200);
+  } finally {
+    await app.close();
+    if (originalAllowHeader === undefined) {
+      delete process.env.UML_ALLOW_ADMIN_HEADER;
+    } else {
+      process.env.UML_ALLOW_ADMIN_HEADER = originalAllowHeader;
+    }
+  }
+});
+
+test("admin session endpoint returns RBAC context only for authenticated admins", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const regular = authStore.createUser({
+    email: "regular@example.com",
+    displayName: "Regular User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(regular);
+  const regularCookie = await createSessionCookie(authStore, regular.id);
+
+  const anonymous = await app.inject({
+    method: "GET",
+    url: "/api/admin/session",
+  });
+  const blocked = await app.inject({
+    method: "GET",
+    url: "/api/admin/session",
+    headers: { cookie: regularCookie },
+  });
+  const allowed = await app.inject({
+    method: "GET",
+    url: "/api/admin/session",
+    headers: { cookie },
+  });
+
+  assert.equal(anonymous.statusCode, 401);
+  assert.equal(blocked.statusCode, 401);
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.json().user.email, "admin@example.com");
+  assert.deepEqual(allowed.json().roles, ["super_admin"]);
+  assert.ok(allowed.json().permissions.includes("admin.users.write"));
+  assert.ok(allowed.json().capabilities.includes("manageUsers"));
+  assert.ok(allowed.json().dataScopes.includes("all_projects"));
+  assert.equal(allowed.json().mfaRequired, true);
+  assert.doesNotMatch(allowed.body, /passwordHash/i);
+
+  await app.close();
+});
+
+test("admin endpoints ignore ordinary frontend sessions", async () => {
+  const { app, authStore } = await createAdminSessionApp();
+  const admin = await authStore.findUserByEmail("admin@example.com");
+  assert.ok(admin);
+  const frontendCookie = await createSessionCookie(authStore, admin.id);
+  const adminCookie = await createAdminSessionCookie(authStore, admin.id);
+
+  const blocked = await app.inject({
+    method: "GET",
+    url: "/api/admin/session",
+    headers: { cookie: frontendCookie },
+  });
+  const allowed = await app.inject({
+    method: "GET",
+    url: "/api/admin/session",
+    headers: { cookie: adminCookie },
+  });
+
+  assert.equal(blocked.statusCode, 401);
+  assert.equal(allowed.statusCode, 200);
+
+  await app.close();
+});
+
+test("admin role users must enable MFA before accessing admin endpoints", async () => {
+  const app = Fastify({ logger: false });
+  const authStore = createInMemoryAuthStore();
+  const admin = authStore.createUser({
+    email: "no-mfa-admin@example.com",
+    displayName: "No MFA Admin",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["super_admin"],
+  });
+  assert.ok(admin);
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+  registerAdminRoutes({
+    app,
+    authStore,
+    runs: createRunRecordStore(),
+    documentLibrary: {} as DocumentLibrary,
+    providerConfigs,
+  });
+  const cookie = await createAdminSessionCookie(authStore, admin.id);
+
+  const session = await app.inject({
+    method: "GET",
+    url: "/api/admin/session",
+    headers: { cookie },
+  });
+  const metrics = await app.inject({
+    method: "GET",
+    url: "/api/admin/metrics",
+    headers: { cookie },
+  });
+
+  assert.equal(session.statusCode, 403);
+  assert.match(session.body, /MFA/i);
+  assert.equal(metrics.statusCode, 403);
+  assert.match(metrics.body, /MFA/i);
+
+  await app.close();
+});
+
+test("admin endpoints expose real users, projects, and audit logs from the platform store", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const owner = authStore.createUser({
+    email: "owner@example.com",
+    displayName: "Project Owner",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(owner);
+  const { project } = authStore.createProject({
+    ownerUserId: owner.id,
+    name: "真实项目",
+    description: "后台应能看到这个项目",
+    visibility: "private",
+  });
+  authStore.recordAuditLog({
+    actorUserId: owner.id,
+    action: "project.create",
+    targetType: "project",
+    targetId: project.id,
+    outcome: "success",
+  });
+
+  const users = await app.inject({
+    method: "GET",
+    url: "/api/admin/users",
+    headers: { cookie },
+  });
+  const projects = await app.inject({
+    method: "GET",
+    url: "/api/admin/projects",
+    headers: { cookie },
+  });
+  const auditLogs = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+
+  assert.equal(users.statusCode, 200);
+  assert.deepEqual(
+    users.json().users.map((user: { email: string }) => user.email).sort(),
+    ["admin@example.com", "owner@example.com"],
+  );
+  assert.doesNotMatch(users.body, /passwordHash/i);
+  assert.equal(projects.statusCode, 200);
+  assert.equal(projects.json().projects[0].name, "真实项目");
+  assert.equal(auditLogs.statusCode, 200);
+  assert.match(auditLogs.body, /project\.create/);
+
+  await app.close();
+});
+
+test("admin organization endpoints create, read, and list v1 school/course/class/team data", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const regular = authStore.createUser({
+    email: "regular@example.com",
+    displayName: "Regular User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(regular);
+  const regularCookie = await createSessionCookie(authStore, regular.id);
+
+  const blocked = await app.inject({
+    method: "GET",
+    url: "/api/admin/organizations",
+    headers: { cookie: regularCookie },
+  });
+  assert.equal(blocked.statusCode, 401);
+  assert.match(blocked.body, /Authentication/i);
+
+  const organization = await app.inject({
+    method: "POST",
+    url: "/api/admin/organizations",
+    headers: { cookie },
+    payload: {
+      name: "工程学院",
+      code: "ENG",
+      type: "school",
+    },
+  });
+  assert.equal(organization.statusCode, 201);
+  assert.equal(organization.json().organization.name, "工程学院");
+
+  const course = await app.inject({
+    method: "POST",
+    url: "/api/admin/courses",
+    headers: { cookie },
+    payload: {
+      organizationId: organization.json().organization.id,
+      name: "软件工程",
+      code: "SE101",
+      term: "2026 Spring",
+    },
+  });
+  assert.equal(course.statusCode, 201);
+  assert.equal(course.json().course.organizationId, organization.json().organization.id);
+
+  const classRecord = await app.inject({
+    method: "POST",
+    url: "/api/admin/classes",
+    headers: { cookie },
+    payload: {
+      courseId: course.json().course.id,
+      name: "一班",
+    },
+  });
+  assert.equal(classRecord.statusCode, 201);
+  assert.equal(classRecord.json().class.courseId, course.json().course.id);
+
+  const team = await app.inject({
+    method: "POST",
+    url: "/api/admin/teams",
+    headers: { cookie },
+    payload: {
+      classId: classRecord.json().class.id,
+      name: "建模小组 A",
+    },
+  });
+  assert.equal(team.statusCode, 201);
+  assert.equal(team.json().team.classId, classRecord.json().class.id);
+
+  const member = await app.inject({
+    method: "POST",
+    url: "/api/admin/organization-members",
+    headers: { cookie },
+    payload: {
+      targetType: "course",
+      targetId: course.json().course.id,
+      userId: regular.id,
+      email: regular.email,
+      displayName: regular.displayName,
+      role: "student",
+    },
+  });
+  assert.equal(member.statusCode, 201);
+  assert.equal(member.json().membership.targetId, course.json().course.id);
+
+  const quota = await app.inject({
+    method: "POST",
+    url: "/api/admin/quotas",
+    headers: { cookie },
+    payload: {
+      scopeType: "course",
+      scopeId: course.json().course.id,
+      resource: "runs",
+      limit: 120,
+      resetPeriod: "monthly",
+    },
+  });
+  assert.equal(quota.statusCode, 201);
+  assert.equal(quota.json().quota.limit, 120);
+
+  const organizations = await app.inject({
+    method: "GET",
+    url: "/api/admin/organizations",
+    headers: { cookie },
+  });
+  const courses = await app.inject({
+    method: "GET",
+    url: "/api/admin/courses",
+    headers: { cookie },
+  });
+  const classes = await app.inject({
+    method: "GET",
+    url: "/api/admin/classes",
+    headers: { cookie },
+  });
+  const teams = await app.inject({
+    method: "GET",
+    url: "/api/admin/teams",
+    headers: { cookie },
+  });
+  const members = await app.inject({
+    method: "GET",
+    url: "/api/admin/organization-members",
+    headers: { cookie },
+  });
+  const quotas = await app.inject({
+    method: "GET",
+    url: "/api/admin/quotas",
+    headers: { cookie },
+  });
+  const organizationById = await app.inject({
+    method: "GET",
+    url: `/api/admin/organizations/${organization.json().organization.id}`,
+    headers: { cookie },
+  });
+
+  assert.equal(organizations.statusCode, 200);
+  assert.equal(organizations.json().organizations[0].name, "工程学院");
+  assert.equal(courses.statusCode, 200);
+  assert.equal(courses.json().courses[0].name, "软件工程");
+  assert.equal(classes.statusCode, 200);
+  assert.equal(classes.json().classes[0].name, "一班");
+  assert.equal(teams.statusCode, 200);
+  assert.equal(teams.json().teams[0].name, "建模小组 A");
+  assert.equal(members.statusCode, 200);
+  assert.equal(members.json().memberships[0].role, "student");
+  assert.equal(quotas.statusCode, 200);
+  assert.equal(quotas.json().quotas[0].resource, "runs");
+  assert.equal(organizationById.statusCode, 200);
+  assert.equal(organizationById.json().organization.code, "ENG");
+
+  await app.close();
+});
+
+test("course admins only list organization data in their membership scope", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const scopedAdmin = authStore.createUser({
+    email: "course-admin@example.com",
+    displayName: "Course Admin",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["course_admin"],
+  });
+  assert.ok(scopedAdmin);
+  authStore.updateUser(scopedAdmin.id, {
+    mfaEnabled: true,
+    mfaSecret: "TESTCOURSEADMINMFASECRET",
+  });
+  const scopedCookie = await createAdminSessionCookie(authStore, scopedAdmin.id);
+
+  const orgA = await app.inject({
+    method: "POST",
+    url: "/api/admin/organizations",
+    headers: { cookie },
+    payload: { name: "工程学院", code: "ENG" },
+  });
+  const orgB = await app.inject({
+    method: "POST",
+    url: "/api/admin/organizations",
+    headers: { cookie },
+    payload: { name: "商学院", code: "BUS" },
+  });
+  const courseA = await app.inject({
+    method: "POST",
+    url: "/api/admin/courses",
+    headers: { cookie },
+    payload: {
+      organizationId: orgA.json().organization.id,
+      name: "软件工程",
+    },
+  });
+  const courseB = await app.inject({
+    method: "POST",
+    url: "/api/admin/courses",
+    headers: { cookie },
+    payload: {
+      organizationId: orgB.json().organization.id,
+      name: "会计学",
+    },
+  });
+  await app.inject({
+    method: "POST",
+    url: "/api/admin/classes",
+    headers: { cookie },
+    payload: {
+      courseId: courseA.json().course.id,
+      name: "一班",
+    },
+  });
+  await app.inject({
+    method: "POST",
+    url: "/api/admin/classes",
+    headers: { cookie },
+    payload: {
+      courseId: courseB.json().course.id,
+      name: "二班",
+    },
+  });
+  const membership = await app.inject({
+    method: "POST",
+    url: "/api/admin/organization-members",
+    headers: { cookie },
+    payload: {
+      targetType: "course",
+      targetId: courseA.json().course.id,
+      userId: scopedAdmin.id,
+      email: scopedAdmin.email,
+      displayName: scopedAdmin.displayName,
+      role: "course_admin",
+    },
+  });
+  assert.equal(membership.statusCode, 201);
+
+  const organizations = await app.inject({
+    method: "GET",
+    url: "/api/admin/organizations",
+    headers: { cookie: scopedCookie },
+  });
+  const courses = await app.inject({
+    method: "GET",
+    url: "/api/admin/courses",
+    headers: { cookie: scopedCookie },
+  });
+  const classes = await app.inject({
+    method: "GET",
+    url: "/api/admin/classes",
+    headers: { cookie: scopedCookie },
+  });
+
+  assert.equal(organizations.statusCode, 200);
+  assert.deepEqual(
+    organizations.json().organizations.map((item: { name: string }) => item.name),
+    ["工程学院"],
+  );
+  assert.equal(courses.statusCode, 200);
+  assert.deepEqual(
+    courses.json().courses.map((item: { name: string }) => item.name),
+    ["软件工程"],
+  );
+  assert.equal(classes.statusCode, 200);
+  assert.deepEqual(
+    classes.json().classes.map((item: { name: string }) => item.name),
+    ["一班"],
+  );
+
+  await app.close();
+});
+
+test("read-only admin gap endpoints require admin role and expose v1 admin data", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const regular = authStore.createUser({
+    email: "regular@example.com",
+    displayName: "Regular User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(regular);
+  const regularCookie = await createSessionCookie(authStore, regular.id);
+  const endpoints = [
+    { url: "/api/admin/roles", key: "roles" },
+    { url: "/api/admin/prompt-runtime", key: "promptRuntimeItems" },
+    { url: "/api/admin/system/config", key: "systemConfig" },
+  ] as const;
+
+  for (const endpoint of endpoints) {
+    const blocked = await app.inject({
+      method: "GET",
+      url: endpoint.url,
+      headers: { cookie: regularCookie },
+    });
+    assert.equal(blocked.statusCode, 403);
+    assert.match(blocked.body, /admin/i);
+  }
+
+  const roles = await app.inject({
+    method: "GET",
+    url: "/api/admin/roles",
+    headers: { cookie },
+  });
+  const promptRuntime = await app.inject({
+    method: "GET",
+    url: "/api/admin/prompt-runtime",
+    headers: { cookie },
+  });
+  const systemConfig = await app.inject({
+    method: "GET",
+    url: "/api/admin/system/config",
+    headers: { cookie },
+  });
+
+  assert.equal(roles.statusCode, 200);
+  assert.ok(
+    roles
+      .json()
+      .roles.some(
+        (role: { id: string; permissions: string[]; highRisk: boolean }) =>
+          role.id === "super_admin" &&
+          role.permissions.includes("admin.users.write") &&
+          role.highRisk,
+      ),
+  );
+  assert.equal(promptRuntime.statusCode, 200);
+  assert.ok(
+    promptRuntime
+      .json()
+      .promptRuntimeItems.some(
+        (item: { id: string; kind: string; status: string }) =>
+          item.id === "requirements-modeling-prompt" &&
+          item.kind === "prompt" &&
+          item.status === "stable",
+      ),
+  );
+  assert.equal(systemConfig.statusCode, 200);
+  assert.ok(
+    systemConfig
+      .json()
+      .systemConfig.some(
+        (item: { id: string; name: string; auditRequired: boolean }) =>
+          item.id === "admin-api" &&
+          /API/.test(item.name) &&
+          item.auditRequired === false,
+      ),
+  );
+  assert.doesNotMatch(systemConfig.body, /secret|apiKey|passwordHash/i);
+
+  await app.close();
+});
+
+test("admin prompt runtime governance actions update state and write audit logs", async () => {
+  const { app, cookie } = await createAdminSessionApp();
+  const before = await app.inject({
+    method: "GET",
+    url: "/api/admin/prompt-runtime",
+    headers: { cookie },
+  });
+  assert.equal(before.statusCode, 200);
+  const itemId = before.json().promptRuntimeItems[0].id;
+
+  const submitted = await app.inject({
+    method: "POST",
+    url: `/api/admin/prompt-runtime/${itemId}/submit`,
+    headers: { cookie },
+  });
+  assert.equal(submitted.statusCode, 200);
+  assert.equal(submitted.json().promptRuntimeItem.status, "canary");
+  assert.equal(submitted.json().auditLog.action, "admin.prompt_runtime.submit");
+
+  const approved = await app.inject({
+    method: "POST",
+    url: `/api/admin/prompt-runtime/${itemId}/approve`,
+    headers: { cookie },
+  });
+  assert.equal(approved.statusCode, 200);
+  assert.equal(approved.json().promptRuntimeItem.status, "stable");
+
+  const rolledBack = await app.inject({
+    method: "POST",
+    url: `/api/admin/prompt-runtime/${itemId}/rollback`,
+    headers: { cookie },
+  });
+  assert.equal(rolledBack.statusCode, 200);
+  assert.equal(rolledBack.json().promptRuntimeItem.status, "rollback-ready");
+
+  const disabled = await app.inject({
+    method: "POST",
+    url: `/api/admin/prompt-runtime/${itemId}/disable`,
+    headers: { cookie },
+  });
+  assert.equal(disabled.statusCode, 200);
+  assert.equal(disabled.json().promptRuntimeItem.status, "disabled");
+
+  const audit = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+  assert.match(audit.body, /admin\.prompt_runtime\.disable/);
+
+  await app.close();
+});
+
+test("admin role high-risk permission review writes audit logs and requires role write permission", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const roles = await app.inject({
+    method: "GET",
+    url: "/api/admin/roles",
+    headers: { cookie },
+  });
+  assert.equal(roles.statusCode, 200);
+  const roleId = roles.json().roles.find((role: { highRisk: boolean }) => role.highRisk).id as string;
+
+  const reviewed = await app.inject({
+    method: "POST",
+    url: `/api/admin/roles/${roleId}/high-risk-permissions/review`,
+    headers: { cookie },
+  });
+  assert.equal(reviewed.statusCode, 200);
+  assert.equal(reviewed.json().role.id, roleId);
+  assert.equal(reviewed.json().auditLog.action, "admin.role_permissions.review");
+
+  const auditor = authStore.createUser({
+    email: "role-auditor@example.com",
+    displayName: "Role Auditor",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["auditor"],
+  });
+  assert.ok(auditor);
+  authStore.updateUser(auditor.id, {
+    mfaEnabled: true,
+    mfaSecret: "TESTROLEAUDITORMFA",
+  });
+  const auditorCookie = await createAdminSessionCookie(authStore, auditor.id);
+
+  const forbidden = await app.inject({
+    method: "POST",
+    url: `/api/admin/roles/${roleId}/high-risk-permissions/review`,
+    headers: { cookie: auditorCookie },
+  });
+  assert.equal(forbidden.statusCode, 403);
+  assert.match(forbidden.body, /admin\.roles\.write/);
+
+  await app.close();
+});
+
+test("admin prompt runtime governance actions require write permission", async () => {
+  const { app, authStore } = await createAdminSessionApp();
+  const auditor = authStore.createUser({
+    email: "auditor@example.com",
+    displayName: "Auditor",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["auditor"],
+  });
+  assert.ok(auditor);
+  authStore.updateUser(auditor.id, {
+    mfaEnabled: true,
+    mfaSecret: "TESTAUDITORMFASECRET",
+  });
+  const auditorCookie = await createAdminSessionCookie(authStore, auditor.id);
+
+  const readable = await app.inject({
+    method: "GET",
+    url: "/api/admin/prompt-runtime",
+    headers: { cookie: auditorCookie },
+  });
+  assert.equal(readable.statusCode, 200);
+  const itemId = readable.json().promptRuntimeItems[0].id;
+
+  const submitted = await app.inject({
+    method: "POST",
+    url: `/api/admin/prompt-runtime/${itemId}/submit`,
+    headers: { cookie: auditorCookie },
+  });
+  assert.equal(submitted.statusCode, 403);
+  assert.match(submitted.body, /admin\.prompt_runtime\.write/);
+
+  await app.close();
+});
+
+test("admin project and user lists are filtered by course data scope", async () => {
+  const app = Fastify({ logger: false });
+  const authStore = createInMemoryAuthStore();
+  const academicStore = createInMemoryAcademicAdminRepository();
+  const runs = createRunRecordStore();
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+  registerAdminRoutes({
+    app,
+    authStore,
+    runs,
+    documentLibrary: {} as DocumentLibrary,
+    providerConfigs,
+    academicStore,
+  });
+
+  const courseAdmin = authStore.createUser({
+    email: "course-admin@example.com",
+    displayName: "Course Admin",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["course_admin"],
+  });
+  const ownerA = authStore.createUser({
+    email: "owner-a@example.com",
+    displayName: "Owner A",
+    passwordHash: "hash",
+  });
+  const ownerB = authStore.createUser({
+    email: "owner-b@example.com",
+    displayName: "Owner B",
+    passwordHash: "hash",
+  });
+  assert.ok(courseAdmin);
+  assert.ok(ownerA);
+  assert.ok(ownerB);
+  authStore.updateUser(courseAdmin.id, { mfaEnabled: true, mfaSecret: "COURSEADMINMFA" });
+
+  const org = await academicStore.createOrganization({
+    name: "软件学院",
+    code: null,
+    type: "school",
+    status: "active",
+  });
+  const courseA = await academicStore.createCourse({
+    organizationId: org.id,
+    name: "软件工程 A",
+    code: null,
+    term: null,
+    status: "active",
+  });
+  const courseB = await academicStore.createCourse({
+    organizationId: org.id,
+    name: "软件工程 B",
+    code: null,
+    term: null,
+    status: "active",
+  });
+  await academicStore.createMembership({
+    targetType: "course",
+    targetId: courseA.id,
+    userId: courseAdmin.id,
+    email: courseAdmin.email,
+    displayName: courseAdmin.displayName,
+    role: "course_admin",
+    status: "active",
+  });
+  const projectA = authStore.createProject({
+    ownerUserId: ownerA.id,
+    name: "课程 A 项目",
+    description: null,
+    visibility: "team",
+    organizationId: org.id,
+    courseId: courseA.id,
+  }).project;
+  const projectB = authStore.createProject({
+    ownerUserId: ownerB.id,
+    name: "课程 B 项目",
+    description: null,
+    visibility: "team",
+    organizationId: org.id,
+    courseId: courseB.id,
+  }).project;
+  const cookie = await createAdminSessionCookie(authStore, courseAdmin.id);
+
+  const projects = await app.inject({
+    method: "GET",
+    url: "/api/admin/projects",
+    headers: { cookie },
+  });
+  const users = await app.inject({
+    method: "GET",
+    url: "/api/admin/users",
+    headers: { cookie },
+  });
+
+  assert.equal(projects.statusCode, 200);
+  assert.deepEqual(
+    projects.json().projects.map((project: { id: string }) => project.id),
+    [projectA.id],
+  );
+  assert.equal(users.statusCode, 200);
+  assert.ok(users.json().users.some((user: { id: string }) => user.id === ownerA.id));
+  assert.equal(
+    users.json().users.some((user: { id: string }) => user.id === ownerB.id),
+    false,
+  );
+  assert.equal(projectB.courseId, courseB.id);
+
+  await app.close();
+});
+
+test("admin documents endpoint exposes real document library records", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-admin-documents-"));
+  const documentLibrary = createFileDocumentLibrary(rootDir);
+  await documentLibrary.authenticateWorkspace({
+    workspaceId: "workspace_123456",
+    workspaceSecret: "workspace-secret-value-1234567890",
+  });
+  await documentLibrary.saveGeneratedDocument({
+    workspaceId: "workspace_123456",
+    projectId: "project-1",
+    createdByUserId: "user-1",
+    documentKind: "requirementsSpec",
+    sourceRunId: "run-1",
+    fileName: "需求规格说明书.docx",
+    buffer: Buffer.from("docx"),
+  });
+
+  try {
+    const { app, cookie } = await createAdminSessionApp({ documentLibrary });
+    const documents = await app.inject({
+      method: "GET",
+      url: "/api/admin/documents",
+      headers: { cookie },
+    });
+
+    assert.equal(documents.statusCode, 200);
+    assert.equal(documents.json().documents[0].projectId, "project-1");
+    assert.equal(documents.json().documents[0].fileName, "需求规格说明书.docx");
+
+    await app.close();
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("admin rate limits endpoint returns stored policies and the fallback provider policy", async () => {
+  const { app, cookie } = await createAdminSessionApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/admin/rate-limits",
+    headers: { cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().rateLimits, []);
+  assert.deepEqual(response.json().fallbackPolicy, {
+    limit: 60,
+    windowSeconds: 60 * 60,
+    source: "default",
+  });
+
+  await app.close();
+});
+
+test("admin provider usage and quotas expose telemetry with billing disabled", async () => {
+  let providerConfigId = "provider-1";
+  const providerUsageTracker = {
+    async recordUsage() {
+      return undefined;
+    },
+    async checkLimit(input: {
+      limit: number;
+      windowSeconds: number;
+    }) {
+      return {
+        allowed: true,
+        usedUnits: 1,
+        remainingUnits: input.limit - 1,
+        limit: input.limit,
+        windowSeconds: input.windowSeconds,
+      };
+    },
+    async listUsageEvents() {
+      return [
+        {
+          id: "usage-1",
+          userId: "user-1",
+          projectId: "project-1",
+          courseId: "course-1",
+          classId: "class-1",
+          providerConfigId,
+          provider: "openai",
+          model: "gpt-4.1",
+          taskType: "requirements_to_uml",
+          outcome: "success",
+          units: 1,
+          tokenUsage: null,
+          createdAt: "2026-05-22T00:00:00.000Z",
+        },
+      ];
+    },
+    async listQuotaSnapshots() {
+      return [
+        {
+          providerConfigId,
+          provider: "openai",
+          model: "gpt-4.1",
+          taskType: "requirements_to_uml",
+          scopeType: "project",
+          scopeId: "project-1",
+          limit: 12,
+          windowSeconds: 3600,
+          usedUnits: 2,
+          remainingUnits: 10,
+          resetAt: null,
+        },
+      ];
+    },
+  } as ProviderUsageTracker & {
+    listUsageEvents(): Promise<unknown[]>;
+    listQuotaSnapshots(): Promise<unknown[]>;
+  };
+  const { app, cookie, providerConfigs } = await createAdminRouteTestApp({
+    providerUsageTracker,
+  });
+  const provider = await providerConfigs.create({
+    name: "OpenAI production gateway",
+    provider: "openai",
+    baseUrl: "https://api.openai.com",
+    apiKey: "sk-live-secret-a91f",
+    defaultModel: "gpt-4.1",
+    createdBy: "admin",
+  });
+  providerConfigId = provider.id;
+
+  const usage = await app.inject({
+    method: "GET",
+    url: "/api/admin/provider-usage",
+    headers: { cookie },
+  });
+  const quotas = await app.inject({
+    method: "GET",
+    url: "/api/admin/provider-quotas",
+    headers: { cookie },
+  });
+
+  assert.equal(usage.statusCode, 200);
+  assert.equal(usage.json().usage[0].providerConfigId, provider.id);
+  assert.equal(usage.json().usage[0].courseId, "course-1");
+  assert.equal(usage.json().usage[0].classId, "class-1");
+  assert.equal(usage.json().usage[0].model, "gpt-4.1");
+  assert.equal(usage.json().usage[0].tokenUsage, null);
+  assert.equal(usage.json().usage[0].costEstimate.enabled, false);
+  assert.equal(
+    usage.json().usage[0].costEstimate.externalBillingSource,
+    "external_provider",
+  );
+  assert.doesNotMatch(usage.body, /invoice|charged|real bill/i);
+
+  assert.equal(quotas.statusCode, 200);
+  assert.equal(quotas.json().quotas[0].providerConfigId, provider.id);
+  assert.equal(quotas.json().quotas[0].remainingUnits, 10);
+  assert.equal(quotas.json().quotas[0].costEstimate.amount, null);
+  assert.equal(
+    quotas.json().quotas[0].costEstimate.externalBillingSource,
+    "external_provider",
+  );
+
+  await app.close();
+});
+
+test("admin can create and patch rate limit policies with audit logs", async () => {
+  const providerUsageTracker = createPolicyAwareUsageTracker();
+  const { app, cookie } = await createAdminRouteTestApp({ providerUsageTracker });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/admin/rate-limits",
+    headers: { cookie },
+    payload: {
+      scopeType: "project",
+      scopeId: "project-1",
+      providerConfigId: "provider-1",
+      taskType: "requirements_to_uml",
+      limit: 8,
+      windowSeconds: 600,
+      enabled: true,
+    },
+  });
+  const id = created.json().rateLimit.id as string;
+  const patched = await app.inject({
+    method: "PATCH",
+    url: `/api/admin/rate-limits/${id}`,
+    headers: { cookie },
+    payload: {
+      limit: 5,
+      enabled: false,
+    },
+  });
+  const listed = await app.inject({
+    method: "GET",
+    url: "/api/admin/rate-limits",
+    headers: { cookie },
+  });
+  const auditLogs = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().rateLimit.scopeType, "project");
+  assert.equal(patched.statusCode, 200);
+  assert.equal(patched.json().rateLimit.limit, 5);
+  assert.equal(patched.json().rateLimit.enabled, false);
+  assert.equal(listed.json().rateLimits[0].id, id);
+  assert.ok(
+    auditLogs.json().auditLogs.some(
+      (log: { action: string; targetId: string | null; outcome: string }) =>
+        log.action === "admin.rate_limit.update" &&
+        log.targetId === id &&
+        log.outcome === "success",
+    ),
+  );
+
+  await app.close();
+});
+
+test("admin rate limit mutations require write permission", async () => {
+  const { app, authStore } = await createAdminSessionApp();
+  const operator = authStore.createUser({
+    email: "operator@example.com",
+    displayName: "System Operator",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["system_operator"],
+  });
+  assert.ok(operator);
+  authStore.updateUser(operator.id, {
+    mfaEnabled: true,
+    mfaSecret: "TESTOPERATORMFASECRET",
+  });
+  const operatorCookie = await createAdminSessionCookie(authStore, operator.id);
+
+  const list = await app.inject({
+    method: "GET",
+    url: "/api/admin/rate-limits",
+    headers: { cookie: operatorCookie },
+  });
+  assert.equal(list.statusCode, 200);
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/admin/rate-limits",
+    headers: { cookie: operatorCookie },
+    payload: {
+      scopeType: "ip",
+      limit: 20,
+      windowSeconds: 60,
+      enabled: true,
+    },
+  });
+  assert.equal(created.statusCode, 403);
+  assert.match(created.body, /admin\.rate_limits\.write/);
+
+  await app.close();
+});
+
+test("non-admin users cannot execute dangerous admin actions or receive admin data", async () => {
+  const { app, authStore } = await createAdminSessionApp();
+  const target = authStore.createUser({
+    email: "target@example.com",
+    displayName: "Target User",
+    passwordHash: hashPassword("password-123"),
+  });
+  const regular = authStore.createUser({
+    email: "regular@example.com",
+    displayName: "Regular User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(target);
+  assert.ok(regular);
+  const regularCookie = await createSessionCookie(authStore, regular.id);
+
+  const blocked = await app.inject({
+    method: "POST",
+    url: `/api/admin/users/${target.id}/disable`,
+    headers: { cookie: regularCookie },
+  });
+
+  assert.equal(blocked.statusCode, 403);
+  assert.match(blocked.body, /admin/i);
+  assert.doesNotMatch(blocked.body, /target@example\.com/);
+
+  await app.close();
+});
+
+test("admin can disable a user, revoke sessions, and audit the action", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const target = authStore.createUser({
+    email: "target@example.com",
+    displayName: "Target User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(target);
+  const targetCookie = await createSessionCookie(authStore, target.id);
+
+  const disabled = await app.inject({
+    method: "POST",
+    url: `/api/admin/users/${target.id}/disable`,
+    headers: { cookie },
+  });
+  const loginAfterDisable = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: {
+      email: "target@example.com",
+      password: "password-123",
+    },
+  });
+  const sessionAfterDisable = await app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { cookie: targetCookie },
+  });
+  const auditLogs = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+
+  assert.equal(disabled.statusCode, 200);
+  assert.equal(disabled.json().user.status, "disabled");
+  assert.equal(disabled.json().revokedSessions, 1);
+  assert.equal(loginAfterDisable.statusCode, 403);
+  assert.equal(sessionAfterDisable.statusCode, 401);
+  assert.ok(
+    auditLogs.json().auditLogs.some(
+      (log: { action: string; actorUserId: string | null; targetId: string | null; outcome: string; message: string | null }) =>
+        log.action === "admin.user.disable" &&
+        log.actorUserId &&
+        log.targetId === target.id &&
+        log.outcome === "success" &&
+        /Admin User/.test(log.message ?? "") &&
+        /Target User/.test(log.message ?? ""),
+    ),
+  );
+
+  await app.close();
+});
+
+test("admin force logout and MFA reset write audit logs", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const target = authStore.createUser({
+    email: "target@example.com",
+    displayName: "Target User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(target);
+  const targetCookie = await createSessionCookie(authStore, target.id);
+
+  const loggedOut = await app.inject({
+    method: "POST",
+    url: `/api/admin/users/${target.id}/force-logout`,
+    headers: { cookie },
+  });
+  const revokedSession = await app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { cookie: targetCookie },
+  });
+  const mfaReset = await app.inject({
+    method: "POST",
+    url: `/api/admin/users/${target.id}/reset-mfa`,
+    headers: { cookie },
+  });
+  const auditLogs = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+  const actions = auditLogs.json().auditLogs.map((log: { action: string }) => log.action);
+
+  assert.equal(loggedOut.statusCode, 200);
+  assert.equal(loggedOut.json().revokedSessions, 1);
+  assert.equal(revokedSession.statusCode, 401);
+  assert.equal(mfaReset.statusCode, 200);
+  assert.match(mfaReset.json().message, /MFA/i);
+  assert.ok(actions.includes("admin.user.force_logout"));
+  assert.ok(actions.includes("admin.user.reset_mfa"));
+
+  await app.close();
+});
+
+test("admin can freeze projects and audit the archived permission state", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const owner = authStore.createUser({
+    email: "owner@example.com",
+    displayName: "Project Owner",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(owner);
+  const { project } = authStore.createProject({
+    ownerUserId: owner.id,
+    name: "Freeze Me",
+    description: null,
+    visibility: "private",
+  });
+
+  const frozen = await app.inject({
+    method: "POST",
+    url: `/api/admin/projects/${project.id}/freeze`,
+    headers: { cookie },
+  });
+  const auditLogs = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+
+  assert.equal(frozen.statusCode, 200);
+  assert.equal(frozen.json().project.status, "archived");
+  assert.ok(
+    auditLogs.json().auditLogs.some(
+      (log: { action: string; targetId: string | null; outcome: string; message: string | null }) =>
+        log.action === "admin.project.freeze" &&
+        log.targetId === project.id &&
+        log.outcome === "success" &&
+        /archived/.test(log.message ?? ""),
+    ),
+  );
+
+  await app.close();
+});
+
+test("admin can cancel and retry runs through write-scoped admin endpoints", async () => {
+  const runs = createRunRecordStore();
+  putRunRecord(runs, {
+    runId: "run-active",
+    projectId: "project-a",
+    status: "running",
+  });
+  putRunRecord(runs, {
+    runId: "run-failed",
+    projectId: "project-a",
+    status: "failed",
+  });
+  const { app, authStore, cookie } = await createAdminSessionApp({
+    runRecordStore: runs,
+  });
+  const auditor = authStore.createUser({
+    email: "auditor@example.com",
+    displayName: "Auditor",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["auditor"],
+  });
+  assert.ok(auditor);
+  authStore.updateUser(auditor.id, {
+    mfaEnabled: true,
+    mfaSecret: "TESTAUDITORMFASECRET",
+  });
+  const auditorCookie = await createAdminSessionCookie(authStore, auditor.id);
+
+  const readOnlyCancel = await app.inject({
+    method: "POST",
+    url: "/api/admin/runs/run-active/cancel",
+    headers: { cookie: auditorCookie },
+  });
+  const cancel = await app.inject({
+    method: "POST",
+    url: "/api/admin/runs/run-active/cancel",
+    headers: { cookie },
+  });
+  const retry = await app.inject({
+    method: "POST",
+    url: "/api/admin/runs/run-failed/retry",
+    headers: { cookie },
+  });
+  const auditLogs = await app.inject({
+    method: "GET",
+    url: "/api/admin/audit-logs",
+    headers: { cookie },
+  });
+
+  assert.equal(readOnlyCancel.statusCode, 403);
+  assert.equal(cancel.statusCode, 200);
+  assert.equal(cancel.json().action, "cancel");
+  assert.equal(cancel.json().status, "cancelled");
+  assert.equal(runs.get("run-active")?.snapshot.status, "cancelled");
+  assert.equal(runs.get("run-active")?.events.at(-1)?.type, "cancelled");
+  assert.equal(retry.statusCode, 202);
+  assert.equal(retry.json().action, "retry");
+  assert.notEqual(retry.json().runId, "run-failed");
+  assert.equal(runs.get(retry.json().runId)?.snapshot.status, "queued");
+  assert.equal(runs.get("run-failed")?.events.at(-1)?.type, "run_action");
+  assert.ok(
+    auditLogs.json().auditLogs.some(
+      (log: { action: string; targetId: string | null; outcome: string }) =>
+        log.action === "admin.run.cancel" &&
+        log.targetId === "run-active" &&
+        log.outcome === "success",
+    ),
+  );
+  assert.ok(
+    auditLogs.json().auditLogs.some(
+      (log: { action: string; targetId: string | null; outcome: string }) =>
+        log.action === "admin.run.retry" &&
+        log.targetId === "run-failed" &&
+        log.outcome === "success",
+    ),
+  );
+
+  await app.close();
+});
+
+test("admin run detail endpoint exposes diagnostic snapshot and events with read scope", async () => {
+  const runs = createRunRecordStore();
+  putRunRecord(runs, {
+    runId: "run-diagnostic",
+    projectId: "project-a",
+    status: "failed",
+  });
+  const record = runs.get("run-diagnostic");
+  assert.ok(record);
+  record.events.push(
+    { type: "queued" },
+    { type: "stage_started", stage: "generate_models" },
+    { type: "failed", stage: "generate_models", message: "LLM failed" },
+  );
+
+  const { app, authStore, cookie } = await createAdminSessionApp({
+    runRecordStore: runs,
+  });
+  const auditor = authStore.createUser({
+    email: "run-auditor@example.com",
+    displayName: "Run Auditor",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["auditor"],
+  });
+  assert.ok(auditor);
+  authStore.updateUser(auditor.id, {
+    mfaEnabled: true,
+    mfaSecret: "TESTRUNAUDITORMFA",
+  });
+  const auditorCookie = await createAdminSessionCookie(authStore, auditor.id);
+
+  const detail = await app.inject({
+    method: "GET",
+    url: "/api/admin/runs/run-diagnostic",
+    headers: { cookie },
+  });
+  const auditorDetail = await app.inject({
+    method: "GET",
+    url: "/api/admin/runs/run-diagnostic",
+    headers: { cookie: auditorCookie },
+  });
+
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().run.id, "run-diagnostic");
+  assert.equal(detail.json().run.diagnostics.eventCount, 3);
+  assert.equal(detail.json().run.diagnostics.errorMessage, "LLM failed");
+  assert.equal(detail.json().run.snapshot.requirementText, "需求 run-diagnostic");
+  assert.equal(detail.json().run.events.at(-1).type, "failed");
+  assert.equal(auditorDetail.statusCode, 200);
+
+  await app.close();
+});
+
+test("admin can restore deleted documents through the document library and audit the action", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-admin-document-restore-"));
+  const documentLibrary = createFileDocumentLibrary(rootDir);
+  await documentLibrary.authenticateWorkspace({
+    workspaceId: "workspace_123456",
+    workspaceSecret: "workspace-secret-value-1234567890",
+  });
+  const document = await documentLibrary.saveGeneratedDocument({
+    workspaceId: "workspace_123456",
+    projectId: "project-1",
+    createdByUserId: "user-1",
+    documentKind: "requirementsSpec",
+    sourceRunId: "run-1",
+    fileName: "需求规格说明书.docx",
+    buffer: Buffer.from("docx"),
+  });
+  await documentLibrary.deleteDocument(document.workspaceId, document.id);
+
+  try {
+    const { app, cookie } = await createAdminSessionApp({ documentLibrary });
+    const restored = await app.inject({
+      method: "POST",
+      url: `/api/admin/documents/${document.id}/restore`,
+      headers: { cookie },
+    });
+    const auditLogs = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit-logs",
+      headers: { cookie },
+    });
+
+    assert.equal(restored.statusCode, 200);
+    assert.equal(restored.json().document.id, document.id);
+    assert.equal(restored.json().document.status, "active");
+    assert.ok(
+      auditLogs.json().auditLogs.some(
+        (log: { action: string; targetId: string | null; outcome: string; message: string | null }) =>
+          log.action === "admin.document.restore" &&
+          log.targetId === document.id &&
+          log.outcome === "success" &&
+          /restored document/i.test(log.message ?? ""),
+      ),
+    );
+
+    await app.close();
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("admin can download visible documents through the admin document endpoint", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-admin-document-download-"));
+  const documentLibrary = createFileDocumentLibrary(rootDir);
+  await documentLibrary.authenticateWorkspace({
+    workspaceId: "workspace_123456",
+    workspaceSecret: "workspace-secret-value-1234567890",
+  });
+  const document = await documentLibrary.saveGeneratedDocument({
+    workspaceId: "workspace_123456",
+    projectId: "project-1",
+    createdByUserId: "user-1",
+    documentKind: "requirementsSpec",
+    sourceRunId: "run-1",
+    fileName: "需求规格说明书.docx",
+    buffer: Buffer.from("admin docx"),
+  });
+
+  try {
+    const { app, cookie } = await createAdminSessionApp({ documentLibrary });
+    const downloaded = await app.inject({
+      method: "GET",
+      url: `/api/admin/documents/${document.id}/download`,
+      headers: { cookie },
+    });
+    const auditLogs = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit-logs",
+      headers: { cookie },
+    });
+
+    assert.equal(downloaded.statusCode, 200);
+    assert.equal(downloaded.body, "admin docx");
+    assert.match(String(downloaded.headers["content-disposition"]), /filename\*/);
+    assert.ok(
+      auditLogs.json().auditLogs.some(
+        (log: { action: string; targetId: string | null; outcome: string }) =>
+          log.action === "admin.document.download" &&
+          log.targetId === document.id &&
+          log.outcome === "success",
+      ),
+    );
+
+    await app.close();
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provider config create rejects base URLs outside the allowlist", async () => {
+  const { app, cookie } = await createAdminSessionApp({
+    adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: {
+      name: "Untrusted model gateway",
+      provider: "untrusted",
+      baseUrl: "https://evil.example.com",
+      apiKey: "sk-secret-should-not-pass",
+      defaultModel: "gpt-4.1",
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.body, /allowlist/i);
+
+  await app.close();
+});
+
+test("provider configs mask keys and never read back plaintext secrets", async () => {
+  const { app, cookie } = await createAdminSessionApp({
+    adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
+  });
+
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: {
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+    },
+  });
+  const listed = await app.inject({
+    method: "GET",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+  });
+
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().maskedKey, "sk-...a91f");
+  assert.doesNotMatch(created.body, /sk-live-secret-a91f/);
+  assert.doesNotMatch(listed.body, /sk-live-secret-a91f/);
+  assert.equal(listed.json().providerConfigs[0].maskedKey, "sk-...a91f");
+
+  await app.close();
+});
+
+test("provider config create requires scope ids for user and project ownership", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp({
+    adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
+  });
+  const owner = authStore.createUser({
+    email: "owner@example.com",
+    displayName: "Project Owner",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(owner);
+  const { project } = authStore.createProject({
+    ownerUserId: owner.id,
+    name: "Scoped Provider Project",
+    description: null,
+    visibility: "team",
+  });
+  const basePayload = {
+    name: "OpenAI scoped gateway",
+    provider: "openai",
+    baseUrl: "https://api.openai.com",
+    apiKey: "sk-live-secret-a91f",
+    defaultModel: "gpt-4.1",
+  };
+
+  const missingUserScope = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: { ...basePayload, scopeType: "user" },
+  });
+  const userScoped = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: { ...basePayload, name: "OpenAI user gateway", scopeType: "user", scopeId: owner.id },
+  });
+  const missingProjectScope = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: { ...basePayload, scopeType: "project" },
+  });
+  const projectScoped = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: {
+      ...basePayload,
+      name: "OpenAI project gateway",
+      scopeType: "project",
+      scopeId: project.id,
+    },
+  });
+
+  assert.equal(missingUserScope.statusCode, 400);
+  assert.match(missingUserScope.body, /scopeId/i);
+  assert.equal(userScoped.statusCode, 201);
+  assert.equal(userScoped.json().scopeType, "user");
+  assert.equal(userScoped.json().scopeId, owner.id);
+  assert.equal(missingProjectScope.statusCode, 400);
+  assert.match(missingProjectScope.body, /scopeId/i);
+  assert.equal(projectScoped.statusCode, 201);
+  assert.equal(projectScoped.json().scopeType, "project");
+  assert.equal(projectScoped.json().scopeId, project.id);
+
+  await app.close();
+});
+
+test("provider configs can rotate, revoke, and test allowlisted connections", async () => {
+  const originalFetch = globalThis.fetch;
+  let testedAuthorization: string | undefined;
+  globalThis.fetch = (async (_url, init) => {
+    testedAuthorization = (init?.headers as Record<string, string>)?.Authorization;
+    return new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+      const { app, cookie } = await createAdminSessionApp({
+        adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
+      });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs",
+      headers: { cookie },
+      payload: {
+        name: "OpenAI production gateway",
+        provider: "openai",
+        baseUrl: "https://api.openai.com",
+        apiKey: "sk-live-secret-a91f",
+        defaultModel: "gpt-4.1",
+      },
+    });
+    const id = created.json().id as string;
+
+    const rotated = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/rotate`,
+      headers: { cookie },
+      payload: {
+        apiKey: "sk-rotated-secret-77c2",
+      },
+    });
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/test`,
+      headers: { cookie },
+    });
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/revoke`,
+      headers: { cookie },
+    });
+    const retested = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/test`,
+      headers: { cookie },
+    });
+
+    assert.equal(rotated.statusCode, 200);
+    assert.equal(rotated.json().maskedKey, "sk-...77c2");
+    assert.doesNotMatch(rotated.body, /sk-rotated-secret-77c2/);
+    assert.equal(tested.statusCode, 200);
+    assert.equal(tested.json().ok, true);
+    assert.equal(testedAuthorization, "Bearer sk-rotated-secret-77c2");
+    assert.equal(revoked.statusCode, 200);
+    assert.equal(revoked.json().status, "revoked");
+    assert.equal(retested.statusCode, 400);
+    assert.match(retested.body, /revoked/i);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider config test returns 429 and does not call provider when quota is exhausted", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  const providerUsageTracker: ProviderUsageTracker = {
+    async recordUsage() {
+      throw new Error("usage should not be recorded when quota blocks the call");
+    },
+    async checkLimit(input) {
+      return {
+        allowed: false,
+        usedUnits: input.limit,
+        remainingUnits: 0,
+        limit: input.limit,
+        windowSeconds: input.windowSeconds,
+      };
+    },
+  };
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("provider fetch should not be called when quota blocks");
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp({
+      providerUsageTracker,
+    });
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      createdBy: "admin",
+    });
+
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+
+    assert.equal(tested.statusCode, 429);
+    assert.match(tested.body, /rate limit/i);
+    assert.equal(fetchCalls, 0);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider config test rejects disabled configs and unapproved models before fetch", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("provider fetch should not be called");
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp();
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
+      createdBy: "admin",
+    });
+    providerConfigs.disable?.(provider.id, "admin");
+
+    const disabledTest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    providerConfigs.enable?.(provider.id, "admin");
+    const modelTest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+      payload: {
+        model: "gpt-6-unapproved",
+      },
+    });
+
+    assert.equal(disabledTest.statusCode, 400);
+    assert.match(disabledTest.body, /disabled|inactive/i);
+    assert.equal(modelTest.statusCode, 400);
+    assert.match(modelTest.body, /model/i);
+    assert.equal(fetchCalls, 0);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider config test opens the breaker after repeated provider failures", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response("bad gateway", { status: 502 });
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp();
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      createdBy: "admin",
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    const thirdFailure = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    const breakerBlocked = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+
+    assert.equal(thirdFailure.statusCode, 502);
+    assert.equal(breakerBlocked.statusCode, 503);
+    assert.match(breakerBlocked.body, /breaker|circuit/i);
+    assert.equal(fetchCalls, 3);
+    assert.equal((await providerConfigs.get(provider.id))?.breakerState, "open");
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider config test uses the most specific enabled rate limit policy", async () => {
+  const originalFetch = globalThis.fetch;
+  const checks: Array<{ limit: number; windowSeconds: number }> = [];
+  const providerUsageTracker = createPolicyAwareUsageTracker({
+    onCheck(input) {
+      checks.push({
+        limit: input.limit,
+        windowSeconds: input.windowSeconds,
+      });
+    },
+  });
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp({
+      providerUsageTracker,
+    });
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      createdBy: "admin",
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/admin/rate-limits",
+      headers: { cookie },
+      payload: {
+        scopeType: "provider",
+        providerConfigId: provider.id,
+        taskType: "provider_test",
+        limit: 3,
+        windowSeconds: 120,
+        enabled: true,
+      },
+    });
+
+    const tested = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+
+    assert.equal(tested.statusCode, 200);
+    assert.deepEqual(checks, [{ limit: 3, windowSeconds: 120 }]);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

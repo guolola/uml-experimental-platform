@@ -1,0 +1,407 @@
+/* Shared motion primitives for the public website and authentication pages. */
+
+@keyframes motion-rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes motion-soft-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+}
+
+@keyframes motion-layer-main-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 22px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes motion-layer-main-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -8px, 0);
+  }
+}
+
+@keyframes motion-layer-secondary-in {
+  from {
+    opacity: 0;
+    transform: rotate(-2deg) translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-2deg) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes motion-layer-secondary-float {
+  0%,
+  100% {
+    transform: rotate(-2deg) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: rotate(-2deg) translate3d(0, -10px, 0);
+  }
+}
+
+@keyframes motion-layer-tertiary-in {
+  from {
+    opacity: 0;
+    transform: rotate(3deg) translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(3deg) translate3d(0, 0, 0);
+  }
+}
+
+@keyframes motion-layer-tertiary-float {
+  0%,
+  100% {
+    transform: rotate(3deg) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: rotate(3deg) translate3d(0, -9px, 0);
+  }
+}
+
+@keyframes motion-progress-sheen {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(210%);
+  }
+}
+
+@keyframes motion-soft-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes motion-node-pulse {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+@keyframes motion-grid-drift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 40px 40px, 40px 40px;
+  }
+}
+
+@keyframes motion-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes motion-shimmer {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(210%);
+  }
+}
+
+.motion-header {
+  transition: background-color 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.motion-header:hover {
+  box-shadow: 0 14px 40px rgba(11, 28, 48, 0.06);
+}
+
+.motion-brand,
+.motion-nav-link,
+.motion-action,
+.motion-card,
+.motion-auth-card,
+.motion-auth-input {
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    color 220ms ease,
+    background-color 220ms ease,
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.motion-brand:hover,
+.motion-action:hover {
+  transform: translateY(-1px);
+}
+
+.motion-nav-link {
+  position: relative;
+}
+
+.motion-nav-link::after {
+  position: absolute;
+  right: 0;
+  bottom: -0.2rem;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: #4441c4;
+  content: "";
+  opacity: 0;
+  transform: scaleX(0.5);
+  transform-origin: center;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.motion-nav-link:hover::after,
+.motion-nav-link[aria-current="page"]::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.motion-rise {
+  animation: motion-rise-in 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.motion-delay-1 {
+  --motion-delay: 80ms;
+}
+
+.motion-delay-2 {
+  --motion-delay: 160ms;
+}
+
+.motion-delay-3 {
+  --motion-delay: 240ms;
+}
+
+.motion-delay-4 {
+  --motion-delay: 320ms;
+}
+
+.motion-delay-5 {
+  --motion-delay: 400ms;
+}
+
+.motion-float {
+  animation:
+    motion-rise-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both,
+    motion-soft-float 6.5s ease-in-out 900ms infinite;
+}
+
+.motion-layer-main {
+  animation:
+    motion-layer-main-in 720ms cubic-bezier(0.16, 1, 0.3, 1) both,
+    motion-layer-main-float 7.2s ease-in-out 920ms infinite;
+}
+
+.motion-layer-secondary {
+  animation:
+    motion-layer-secondary-in 700ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both,
+    motion-layer-secondary-float 7.6s ease-in-out 980ms infinite;
+}
+
+.motion-layer-tertiary {
+  animation:
+    motion-layer-tertiary-in 700ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both,
+    motion-layer-tertiary-float 7s ease-in-out 1040ms infinite;
+}
+
+.motion-card {
+  animation: motion-rise-in 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.motion-card:hover {
+  border-color: rgba(93, 92, 222, 0.55);
+  box-shadow: 0 22px 54px rgba(11, 28, 48, 0.11);
+  transform: translateY(-4px);
+}
+
+.motion-card:hover .motion-icon {
+  transform: translateY(-2px);
+}
+
+.motion-standard-anchor {
+  animation: motion-rise-in 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    background-color 220ms ease,
+    transform 220ms ease;
+}
+
+.motion-standard-anchor:hover {
+  border-color: rgba(93, 92, 222, 0.55);
+  background-color: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 42px rgba(11, 28, 48, 0.1);
+  transform: translateY(-4px);
+}
+
+.motion-icon {
+  transition: transform 220ms ease, background-color 220ms ease, color 220ms ease;
+}
+
+.motion-progress-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.motion-progress-bar::after {
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
+  content: "";
+  animation: motion-progress-sheen 2.8s ease-in-out 850ms infinite;
+}
+
+.motion-glyph span:not(.col-span-3) {
+  animation: motion-soft-pulse 2.4s ease-in-out infinite;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.motion-workflow-node {
+  animation: motion-node-pulse 3.2s ease-in-out infinite;
+}
+
+.motion-footer {
+  animation: motion-rise-in 560ms cubic-bezier(0.16, 1, 0.3, 1) 260ms both;
+}
+
+.motion-auth-form-panel {
+  animation: motion-rise-in 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.motion-auth-brand,
+.motion-auth-title,
+.motion-auth-form > * {
+  animation: motion-rise-in 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.motion-auth-form > *:nth-child(1) {
+  --motion-delay: 140ms;
+}
+
+.motion-auth-form > *:nth-child(2) {
+  --motion-delay: 200ms;
+}
+
+.motion-auth-form > *:nth-child(3) {
+  --motion-delay: 260ms;
+}
+
+.motion-auth-form > *:nth-child(4) {
+  --motion-delay: 320ms;
+}
+
+.motion-auth-form > *:nth-child(5) {
+  --motion-delay: 380ms;
+}
+
+.motion-auth-input:focus,
+.motion-auth-input:focus-visible {
+  border-color: rgba(93, 92, 222, 0.68);
+  box-shadow: 0 0 0 4px rgba(93, 92, 222, 0.12);
+}
+
+.motion-auth-shell-card {
+  animation: motion-rise-in 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.motion-auth-grid {
+  animation: motion-grid-drift 18s linear infinite;
+}
+
+.motion-auth-card {
+  animation: motion-rise-in 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.motion-auth-card:hover {
+  border-color: rgba(68, 65, 196, 0.22);
+  box-shadow: 0 18px 48px rgba(11, 28, 48, 0.1);
+}
+
+.progress-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-shimmer::after {
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
+  content: "";
+  animation: motion-shimmer 2s ease-in-out infinite;
+}
+
+.motion-auth-pulse {
+  animation: motion-soft-pulse 2.4s ease-in-out infinite;
+}
+
+.motion-status {
+  animation: motion-rise-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .motion-brand:hover,
+  .motion-action:hover,
+  .motion-card:hover,
+  .motion-standard-anchor:hover,
+  .motion-auth-card:hover {
+    transform: none;
+  }
+}

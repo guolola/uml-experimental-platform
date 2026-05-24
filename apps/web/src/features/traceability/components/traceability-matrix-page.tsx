@@ -15,9 +15,9 @@ import type {
 } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_META,
-  DESIGN_DIAGRAM_ORDER,
   DIAGRAM_META,
   DIAGRAM_ORDER,
+  getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -27,6 +27,7 @@ import {
 } from "../../../entities/diagram/lib/model-details";
 import { Badge } from "../../../shared/ui/badge";
 import { Input } from "../../../shared/ui/input";
+import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
 
@@ -44,14 +45,16 @@ type ElementRow = {
   mappingNote: string | null;
   requirementRules: RequirementRule[];
   requirementElements: ModelElementRef[];
+  upstreamDesignElements: ModelElementRef[];
   detailLines: string[];
 };
 
 const PAGE_SIZE_OPTIONS = [8, 12, 24] as const;
 const ALL_GROUPS = "__all__";
 
-function refKey(ref: Pick<ModelElementRef, "diagramKind" | "elementId">) {
-  return `${ref.diagramKind}:${ref.elementId}`.toLowerCase();
+function refKey(ref: Pick<ModelElementRef, "diagramKind" | "elementId" | "modelId">) {
+  const scope = ref.modelId?.trim() || ref.diagramKind;
+  return `${scope}:${ref.diagramKind}:${ref.elementId}`.toLowerCase();
 }
 
 function formatRuleId(id: string) {
@@ -125,8 +128,10 @@ function refsForRequirementModels(
 function refsForDesignModels(
   models: ReturnType<typeof useWorkspaceSession>["designModels"],
 ) {
-  return DESIGN_DIAGRAM_ORDER.flatMap((diagram) => {
-    const detail = buildDiagramDetailModel(models[diagram]);
+  return Object.values(models).flatMap((model) => {
+    const diagram = model.diagramKind;
+    const modelId = getDesignModelId(model);
+    const detail = buildDiagramDetailModel(model);
     const items = detail.items.filter((item) =>
       isBusinessTraceabilityKind(item.kind),
     );
@@ -141,6 +146,7 @@ function refsForDesignModels(
       ...items.map((item) => ({
         ref: {
           diagramKind: diagram as DesignDiagramKind,
+          modelId,
           elementId: item.id,
           elementKind: item.kind,
           label: item.label,
@@ -151,6 +157,7 @@ function refsForDesignModels(
       ...relationships.map((relationship) => ({
         ref: {
           diagramKind: diagram as DesignDiagramKind,
+          modelId,
           elementId: relationship.id,
           elementKind: "relationship",
           label: relationship.label,
@@ -197,6 +204,7 @@ function buildRequirementRows(
       mappingNote: null,
       requirementRules: mappedRules,
       requirementElements: [],
+      upstreamDesignElements: [],
       detailLines: mappedRules.map(
         (rule) => `${formatRuleId(rule.id)} [${rule.category}] ${rule.text}`,
       ),
@@ -241,6 +249,10 @@ function buildDesignRows(
       targets.flatMap((target) => rulesByRequirementRef.get(refKey(target)) ?? []),
       (rule) => rule.id,
     );
+    const upstreamDesignElements = uniqueBy<ModelElementRef>(
+      traceEntry?.upstreamDesignRefs ?? [],
+      refKey,
+    );
     return {
       id: refKey(ref),
       label: ref.label,
@@ -250,15 +262,27 @@ function buildDesignRows(
       groupLabel: designGroupLabel(ref.diagramKind),
       status: targets.length > 0 ? "mapped" : "unmapped",
       mappingNote:
-        traceEntry?.mappingSource === "derived-from-endpoints"
-          ? traceEntry.rationale ?? "由端点映射推导"
-          : null,
+        traceEntry?.mappingSource === "auto-filled-pending-review" ||
+        traceEntry?.reviewStatus === "pending"
+          ? traceEntry.rationale ?? "系统自动补齐，需复核确认"
+          : traceEntry?.mappingSource === "derived-from-endpoints"
+            ? traceEntry.rationale ?? "由端点映射推导"
+            : null,
       requirementRules: mappedRules,
       requirementElements: targets,
+      upstreamDesignElements,
       detailLines: [
+        ...(traceEntry?.mappingSource === "auto-filled-pending-review" ||
+        traceEntry?.reviewStatus === "pending"
+          ? [`待确认：${traceEntry.rationale ?? "系统自动补齐，需复核确认"}`]
+          : []),
         ...(traceEntry?.mappingSource === "derived-from-endpoints"
           ? [`映射说明：${traceEntry.rationale ?? "由端点映射推导"}`]
           : []),
+        ...upstreamDesignElements.map(
+          (target) =>
+            `来源顺序图：${target.modelId ?? designGroupLabel(target.diagramKind)} / ${target.label}`,
+        ),
         ...targets.map(
           (target) =>
             `需求元素：${requirementGroupLabel(target.diagramKind)} / ${target.label}`,
@@ -279,6 +303,7 @@ function includesQuery(row: ElementRow, query: string) {
     row.subtitle,
     row.typeLabel,
     row.groupLabel,
+    ...row.upstreamDesignElements.map((ref) => ref.label),
     ...row.requirementElements.map((ref) => ref.label),
     ...row.requirementRules.flatMap((rule) => [
       formatRuleId(rule.id),
@@ -499,19 +524,20 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                 </div>
                 <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                   分类
-                  <select
+                  <SelectControl
                     aria-label={groupFilterLabel}
                     value={groupFilter}
-                    onChange={(event) => setGroupFilter(event.target.value)}
-                    className="h-8 min-w-32 rounded-md border border-border bg-card px-2 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  >
-                    <option value={ALL_GROUPS}>{isDesign ? "全部模型" : "全部模型"}</option>
-                    {groupOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={setGroupFilter}
+                    className="h-8 min-w-32 text-sm"
+                    size="sm"
+                    options={[
+                      { value: ALL_GROUPS, label: isDesign ? "全部模型" : "全部模型" },
+                      ...groupOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      })),
+                    ]}
+                  />
                 </label>
               </div>
 
@@ -539,7 +565,7 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                         </th>
                         {isDesign && (
                           <th className="w-[22%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                            映射需求元素
+                            来源顺序图 / 映射需求元素
                           </th>
                         )}
                         <th className="w-[20%] border-b border-r border-border px-4 py-4 text-left font-medium">
@@ -592,10 +618,20 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                             </td>
                             {isDesign && (
                               <td className="border-r border-border px-4 py-3 align-middle">
-                                <ChipList
-                                  items={row.requirementElements.map((ref) => ref.label)}
-                                  emptyText="未关联需求元素"
-                                />
+                                <div className="flex flex-col gap-2">
+                                  <ChipList
+                                    items={row.upstreamDesignElements.map((ref) =>
+                                      ref.modelId
+                                        ? `${ref.modelId.replace(/^sequence:/, "")} · ${ref.label}`
+                                        : ref.label,
+                                    )}
+                                    emptyText="未记录来源顺序图"
+                                  />
+                                  <ChipList
+                                    items={row.requirementElements.map((ref) => ref.label)}
+                                    emptyText="未关联需求元素"
+                                  />
+                                </div>
                               </td>
                             )}
                             <td className="border-r border-border px-4 py-3 align-middle">
@@ -619,20 +655,19 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                       </span>
                       <label className="inline-flex items-center gap-2">
                         每页
-                        <select
+                        <SelectControl
                           aria-label="每页矩阵项数量"
-                          value={pageSize}
-                          onChange={(event) =>
-                            setPageSize(Number(event.target.value) as typeof pageSize)
+                          value={String(pageSize)}
+                          onValueChange={(value) =>
+                            setPageSize(Number(value) as typeof pageSize)
                           }
-                          className="h-8 rounded-md border border-border bg-card px-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        >
-                          {PAGE_SIZE_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
+                          className="h-8 w-20 text-sm"
+                          size="sm"
+                          options={PAGE_SIZE_OPTIONS.map((option) => ({
+                            value: String(option),
+                            label: option,
+                          }))}
+                        />
                         条
                       </label>
                     </div>

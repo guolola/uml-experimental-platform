@@ -55,6 +55,7 @@ export function formatStageForDiagnostics(stage: RunStage | null) {
     audit_code_quality: "检查原型质量",
     verify_code_ui_fidelity: "检查业务/界面覆盖",
     verify_code_rendered_preview: "验证渲染预览",
+    verify_code_business_assertions: "验证业务断言",
     verify_code_preview: "检查预览入口",
     repair_code_files: "修复代码输出",
     generate_document_text: "生成说明书正文",
@@ -87,6 +88,7 @@ export function sanitizeDiagnosticText(text: string) {
     ["audit_code_quality", "检查原型质量"],
     ["verify_code_ui_fidelity", "检查设计图还原度"],
     ["verify_code_rendered_preview", "验证渲染预览"],
+    ["verify_code_business_assertions", "验证业务断言"],
     ["verify_code_preview", "检查预览入口"],
     ["repair_code_files", "修复代码输出"],
     ["generate_document_text", "生成说明书正文"],
@@ -239,6 +241,8 @@ export function getProgressFromEvent(event: RunEvent) {
           return 74;
         case "audit_code_quality":
           return 88;
+        case "verify_code_business_assertions":
+          return 96;
         case "verify_code_preview":
           return 92;
         case "repair_code_files":

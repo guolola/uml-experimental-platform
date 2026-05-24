@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import {
   Wand2,
   Loader2,
@@ -32,7 +32,12 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { Input } from "../../../shared/ui/input";
+import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
+import type {
+  AtomicRequirement,
+  RequirementQualityIssue,
+} from "@uml-platform/contracts";
 import {
   DIAGRAM_META,
   DIAGRAM_ORDER,
@@ -51,7 +56,57 @@ import {
 } from "../../../shared/lib/user-settings";
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
-const RULE_PAGE_SIZES = [4, 8, 12, 24] as const;
+const RULES_PER_PAGE = 8;
+const RULE_ROW_CLASS = "h-[60px]";
+const ALL_RULE_CATEGORIES = "";
+
+function stageRepairCopy(text: string) {
+  return text.replace(/\bAI\b\s*/gu, "系统");
+}
+
+function requirementHintCount(requirement: AtomicRequirement | undefined) {
+  if (!requirement) return 0;
+  return Object.values(requirement.fieldProvenance).filter(
+    (item) => item?.source === "ai-suggested" || item?.status === "pending-review",
+  ).length;
+}
+
+function requirementRowState(
+  requirement: AtomicRequirement | undefined,
+  qualityIssues: RequirementQualityIssue[] = [],
+) {
+  if (!requirement) return null;
+  if (requirement.status === "conflict") return "存在冲突提示";
+  const pendingAi = Object.values(requirement.fieldProvenance).some(
+    (item) => item?.source === "ai-suggested" && item.status === "pending-review",
+  );
+  const rejectedOrManualPending = Object.values(requirement.fieldProvenance).some(
+    (item) => item?.status === "rejected" || item?.status === "pending-review",
+  );
+  if (
+    pendingAi ||
+    rejectedOrManualPending ||
+    qualityIssues.length > 0 ||
+    requirement.status === "pending-review" ||
+    requirement.status === "ambiguous"
+  ) {
+    return "有待确认提示";
+  }
+  const acceptedAi = Object.values(requirement.fieldProvenance).some(
+    (item) => item?.source === "ai-suggested" && item.status === "accepted",
+  );
+  if (acceptedAi) return "AI已补齐";
+  return "已生成";
+}
+
+function requirementStateTone(state: string | null) {
+  if (state === "已生成") return "border-success/40 bg-success/10 text-success";
+  if (state === "AI已补齐") return "border-success/40 bg-success/10 text-success";
+  if (state === "有待确认提示") return "border-warning/40 bg-warning/10 text-warning";
+  if (state === "存在冲突提示") return "border-destructive/40 bg-destructive/10 text-destructive";
+  return "border-border bg-muted/40 text-muted-foreground";
+}
+
 const REQUIREMENT_TEMPLATE_CARDS = [
   {
     title: "电商系统",
@@ -91,13 +146,13 @@ export function TextRequirementView() {
     selectedDiagrams,
     setSelectedDiagrams,
     generating,
-    runStatus,
-    errorMessage,
     generateRules,
     generateDiagrams,
     isRulesStale,
     staleDiagrams,
     generatedDiagrams,
+    requirementModelTraceability,
+    requirementBaseline,
   } = useWorkspaceSession();
   const [query, setQuery] = useState("");
   const [defaultModel, setDefaultModel] = useState(
@@ -115,10 +170,13 @@ export function TextRequirementView() {
   const [newRuleText, setNewRuleText] = useState("");
   const [newRuleError, setNewRuleError] = useState<string | null>(null);
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [modelRepairResult, setModelRepairResult] = useState<{
+    targetLabel: string;
+  } | null>(null);
   const [currentRulePage, setCurrentRulePage] = useState(1);
-  const [rulePageSize, setRulePageSize] = useState<(typeof RULE_PAGE_SIZES)[number]>(
-    8,
-  );
+  const [ruleCategoryFilter, setRuleCategoryFilter] = useState<
+    RequirementRule["category"] | typeof ALL_RULE_CATEGORIES
+  >(ALL_RULE_CATEGORIES);
 
   useEffect(() => {
     const syncSettings = () => {
@@ -151,6 +209,7 @@ export function TextRequirementView() {
     clearRequirementRules();
     setReturnDialogOpen(false);
     setQuery("");
+    setRuleCategoryFilter(ALL_RULE_CATEGORIES);
     setCurrentRulePage(1);
   };
 
@@ -173,6 +232,21 @@ export function TextRequirementView() {
         ? Array.from(new Set([...selectedDiagrams, diagram]))
         : selectedDiagrams.filter((value) => value !== diagram),
     );
+  };
+
+  const toggleDiagramFromCard = (diagram: DiagramType, checked: boolean) => {
+    toggleDiagram(diagram, !checked);
+  };
+
+  const handleDiagramCardKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    diagram: DiagramType,
+    checked: boolean,
+    enabled: boolean,
+  ) => {
+    if (!enabled || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    toggleDiagramFromCard(diagram, checked);
   };
 
   useEffect(() => {
@@ -222,21 +296,45 @@ export function TextRequirementView() {
 
   const filteredRules = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return rules;
-    return rules.filter((rule) => rule.text.toLowerCase().includes(normalizedQuery));
-  }, [rules, query]);
+    return rules.filter((rule) => {
+      const matchesQuery =
+        !normalizedQuery || rule.text.toLowerCase().includes(normalizedQuery);
+      const matchesCategory =
+        ruleCategoryFilter === ALL_RULE_CATEGORIES ||
+        rule.category === ruleCategoryFilter;
+      return matchesQuery && matchesCategory;
+    });
+  }, [rules, query, ruleCategoryFilter]);
 
   useEffect(() => {
     setCurrentRulePage(1);
-  }, [query, rulePageSize]);
+  }, [query, ruleCategoryFilter]);
 
-  const totalRulePages = Math.max(1, Math.ceil(filteredRules.length / rulePageSize));
+  const totalRulePages = Math.max(1, Math.ceil(filteredRules.length / RULES_PER_PAGE));
   const safeRulePage = Math.min(currentRulePage, totalRulePages);
   const firstRuleIndex =
-    filteredRules.length === 0 ? 0 : (safeRulePage - 1) * rulePageSize + 1;
-  const lastRuleIndex = Math.min(filteredRules.length, safeRulePage * rulePageSize);
+    filteredRules.length === 0 ? 0 : (safeRulePage - 1) * RULES_PER_PAGE + 1;
+  const lastRuleIndex = Math.min(filteredRules.length, safeRulePage * RULES_PER_PAGE);
   const pagedRules = filteredRules.slice(firstRuleIndex - 1, lastRuleIndex);
-
+  const emptyRuleSlots = Math.max(0, RULES_PER_PAGE - pagedRules.length);
+  const requirementByRuleId = useMemo(() => {
+    const entries =
+      requirementBaseline?.requirements
+        .filter((requirement) => requirement.sourceRuleId)
+        .map((requirement) => [requirement.sourceRuleId!, requirement] as const) ?? [];
+    return new Map(entries);
+  }, [requirementBaseline]);
+  const qualityIssuesByRequirementId = useMemo(() => {
+    const map = new Map<string, RequirementQualityIssue[]>();
+    for (const issue of requirementBaseline?.qualityReport.issues ?? []) {
+      if (!issue.requirementId) continue;
+      map.set(issue.requirementId, [
+        ...(map.get(issue.requirementId) ?? []),
+        issue,
+      ]);
+    }
+    return map;
+  }, [requirementBaseline]);
   useEffect(() => {
     if (currentRulePage > totalRulePages) {
       setCurrentRulePage(totalRulePages);
@@ -260,6 +358,27 @@ export function TextRequirementView() {
     if (stale) parts.push(`更新${stale}`);
     return parts.length ? `应用变更（${parts.join("·")}）` : "重新生成";
   })();
+  const requirementModelRepairRecords = useMemo(() => {
+    if (generatedDiagrams.length === 0 || requirementModelTraceability.length === 0) {
+      return [];
+    }
+    return requirementModelTraceability.slice(0, 6).map((entry) => {
+      const linkedRule = rules.find((rule) => rule.id === entry.ruleId);
+      const targetDiagramLabel =
+        entry.target.diagramKind in DIAGRAM_META
+          ? DIAGRAM_META[entry.target.diagramKind as DiagramType].label
+          : "需求模型";
+      return {
+        id: `${entry.ruleId}:${entry.target.diagramKind}:${entry.target.elementId}`,
+        reason: linkedRule
+          ? `需求规则 ${entry.ruleId} 需要解释其在${targetDiagramLabel}中的覆盖关系。`
+          : `需求规则 ${entry.ruleId} 缺少可审查的模型覆盖解释。`,
+        repair: `补齐 ${entry.ruleId} -> ${entry.target.label} 的追踪关系和覆盖说明`,
+        targetLabel: `${targetDiagramLabel}：${entry.target.label}`,
+        status: "证明已补齐",
+      };
+    });
+  }, [generatedDiagrams.length, requirementModelTraceability, rules]);
 
   const renderRequirementInput = (mode: "empty" | "generated") => (
     <div
@@ -360,6 +479,23 @@ export function TextRequirementView() {
               className="h-9 rounded-lg bg-background pl-9 text-sm"
             />
           </div>
+          <SelectControl
+            value={ruleCategoryFilter}
+            onValueChange={(value) =>
+              setRuleCategoryFilter(
+                value as RequirementRule["category"] | typeof ALL_RULE_CATEGORIES,
+              )
+            }
+            className="h-9 w-36 rounded-lg bg-background text-sm"
+            aria-label="需求类型筛选"
+            options={[
+              { value: ALL_RULE_CATEGORIES, label: "全部类型" },
+              ...RULE_CATEGORY_ORDER.map((category) => ({
+                value: category,
+                label: category,
+              })),
+            ]}
+          />
           <Button
             type="button"
             size="sm"
@@ -372,100 +508,173 @@ export function TextRequirementView() {
           </Button>
         </div>
       </div>
-      {filteredRules.length === 0 ? (
-        <div className="border-b border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
-          没有匹配的规则。
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse bg-card text-sm">
-            <thead className="text-xs tracking-[0.02em] text-muted-foreground">
-              <tr className="border-b border-border">
-                <th className="w-[84px] px-6 py-4 text-left font-medium">编号</th>
-                <th className="w-36 px-6 py-4 text-left font-medium">类型</th>
-                <th className="px-6 py-4 text-left font-medium">需求文本内容</th>
-                <th className="w-28 px-6 py-4 text-right font-medium">操作</th>
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed border-collapse bg-card text-sm">
+          <thead className="text-xs tracking-[0.02em] text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="w-[84px] px-6 py-4 text-left font-medium">编号</th>
+              <th className="w-36 px-6 py-4 text-left font-medium">类型</th>
+              <th className="w-52 px-4 py-4 text-left font-medium">状态</th>
+              <th className="px-6 py-4 text-left font-medium">需求文本内容</th>
+              <th className="w-56 px-4 py-4 text-left font-medium">相关图</th>
+              <th className="w-28 px-6 py-4 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRules.length === 0 ? (
+              <tr
+                data-testid="requirement-rule-row-slot"
+                className={cn(RULE_ROW_CLASS, "border-b border-border")}
+              >
+                <td
+                  colSpan={6}
+                  className="px-6 py-3 text-center align-middle text-sm text-muted-foreground"
+                >
+                  没有匹配的规则。
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {pagedRules.map((rule) => (
+            ) : (
+              pagedRules.map((rule) => {
+              const requirement = requirementByRuleId.get(rule.id);
+              const qualityIssues = requirement
+                ? qualityIssuesByRequirementId.get(requirement.id) ?? []
+                : [];
+              const rowState = requirementRowState(requirement, qualityIssues);
+              const hintCount = requirementHintCount(requirement) + qualityIssues.length;
+              const visibleRelatedDiagrams = rule.relatedDiagrams.slice(0, 2);
+              const hiddenRelatedDiagramCount =
+                rule.relatedDiagrams.length - visibleRelatedDiagrams.length;
+              const relatedDiagramTitle = rule.relatedDiagrams
+                .map((diagram) => DIAGRAM_META[diagram].label)
+                .join("、");
+              return (
                 <tr
                   key={rule.id}
                   id={`rule-${rule.id}`}
-                  className="border-b border-border transition-colors last:border-b-0 hover:bg-muted/30"
+                  data-testid="requirement-rule-row-slot"
+                  className={cn(
+                    RULE_ROW_CLASS,
+                    "border-b border-border transition-colors hover:bg-muted/30",
+                  )}
                 >
-                  <td className="px-6 py-4 align-top">
-                    <span className="font-mono text-xs uppercase text-muted-foreground">
-                      {rule.id}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 align-top">
-                    <Badge
-                      variant="outline"
-                      className="rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground"
+                    <td className="px-6 py-3 align-middle">
+                      <span className="font-mono text-xs uppercase text-muted-foreground">
+                        {rule.id}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 align-middle">
+                      <Badge
+                        variant="outline"
+                        className="max-w-full rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground"
+                      >
+                        <span className="truncate">{rule.category}</span>
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 align-middle">
+                      {rowState && (
+                        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "max-w-[112px] rounded-md px-2 py-1 text-xs",
+                              requirementStateTone(rowState),
+                            )}
+                          >
+                            <span className="truncate">{rowState}</span>
+                          </Badge>
+                          {hintCount > 0 && (
+                            <span
+                              className="shrink-0 rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
+                              title={`共有 ${hintCount} 项质量提示，仅用于审计，不阻断后续生成`}
+                            >
+                              {hintCount}项
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="min-w-0 px-6 py-3 align-middle">
+                      <input
+                        type="text"
+                        value={rule.text}
+                        title={rule.text}
+                        onChange={(event) =>
+                          updateRequirementRule(rule.id, {
+                            text: event.target.value,
+                          })
+                        }
+                        className="h-8 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-0 text-sm text-foreground outline-none transition-colors hover:border-border hover:bg-background focus:border-primary/60 focus:bg-background focus:px-2 focus:ring-2 focus:ring-primary/15"
+                        disabled={generating}
+                      />
+                    </td>
+                    <td
+                      className="min-w-0 px-4 py-3 align-middle"
+                      title={relatedDiagramTitle}
                     >
-                      {rule.category}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-3 align-top">
-                    <input
-                      type="text"
-                      value={rule.text}
-                      onChange={(event) =>
-                        updateRequirementRule(rule.id, {
-                          text: event.target.value,
-                        })
-                      }
-                      className="h-9 w-full rounded-md border border-transparent bg-transparent px-0 text-sm text-foreground outline-none transition-colors hover:border-border hover:bg-background focus:border-primary/60 focus:bg-background focus:px-2 focus:ring-2 focus:ring-primary/15"
-                      disabled={generating}
-                    />
-                  </td>
-                  <td className="px-6 py-4 text-right align-top">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => deleteRequirementRule(rule.id)}
-                      disabled={generating}
-                      aria-label={`删除需求项 ${rule.id}`}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      <div className="flex min-w-0 flex-nowrap gap-1 overflow-hidden whitespace-nowrap">
+                        {visibleRelatedDiagrams.map((diagram) => (
+                          <Badge
+                            key={`${rule.id}:${diagram}`}
+                            variant="outline"
+                            className="max-w-[72px] shrink-0 rounded-md border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                            title={DIAGRAM_META[diagram].label}
+                          >
+                            <span className="truncate">{DIAGRAM_META[diagram].label}</span>
+                          </Badge>
+                        ))}
+                        {hiddenRelatedDiagramCount > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-md border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                            title={relatedDiagramTitle}
+                          >
+                            +{hiddenRelatedDiagramCount}
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right align-middle">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => deleteRequirementRule(rule.id)}
+                        disabled={generating}
+                        aria-label={`删除需求项 ${rule.id}`}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+            {Array.from({
+              length:
+                filteredRules.length === 0
+                  ? Math.max(0, RULES_PER_PAGE - 1)
+                  : emptyRuleSlots,
+            }).map((_, index) => (
+              <tr
+                key={`empty-rule-slot:${safeRulePage}:${index}`}
+                data-testid="requirement-rule-row-slot"
+                aria-hidden="true"
+                className={cn(RULE_ROW_CLASS, "border-b border-border")}
+              >
+                <td colSpan={6} className="px-6 py-3">
+                  &nbsp;
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4 text-xs text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span>
-            {firstRuleIndex}-{lastRuleIndex} / {filteredRules.length}
-          </span>
-          <label className="flex items-center gap-2 text-xs font-normal">
-            每页
-            <select
-              value={rulePageSize}
-              onChange={(event) =>
-                setRulePageSize(
-                  Number(event.target.value) as (typeof RULE_PAGE_SIZES)[number],
-                )
-              }
-              className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/20"
-              aria-label="每页需求规则数量"
-            >
-              {RULE_PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-            条
-          </label>
-        </div>
+        <span>
+          {firstRuleIndex}-{lastRuleIndex} / {filteredRules.length}
+        </span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -628,12 +837,6 @@ export function TextRequirementView() {
             {renderAssistantPanel()}
           </div>
 
-          {errorMessage && runStatus === "failed" && (
-            <section className="rounded-xl border border-destructive/30 bg-card p-4 text-sm text-destructive shadow-sm">
-              {errorMessage}
-            </section>
-          )}
-
           <section className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-2">
@@ -682,16 +885,36 @@ export function TextRequirementView() {
                 return (
                   <div
                     key={diagram}
+                    role="button"
+                    tabIndex={canSelectDiagram ? 0 : -1}
+                    aria-disabled={!canSelectDiagram}
+                    aria-label={`${checked ? "取消选择" : "选择"}${meta.label}`}
+                    onClick={() => {
+                      if (canSelectDiagram) {
+                        toggleDiagramFromCard(diagram, checked);
+                      }
+                    }}
+                    onKeyDown={(event) =>
+                      handleDiagramCardKeyDown(
+                        event,
+                        diagram,
+                        checked,
+                        canSelectDiagram,
+                      )
+                    }
                     className={cn(
-                      "flex min-h-24 gap-3 rounded-xl border bg-card p-4 shadow-sm transition-colors",
+                      "flex min-h-24 gap-3 rounded-xl border bg-card p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                       checked
                         ? "border-primary/35 ring-2 ring-primary/10"
                         : "border-border",
+                      canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
                       !canSelectDiagram &&
                         "border-dashed border-border bg-muted/30 opacity-80 shadow-none",
                     )}
                   >
                     <label
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
                       className={cn(
                         "mt-1 flex shrink-0",
                         canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
@@ -737,19 +960,20 @@ export function TextRequirementView() {
                       </div>
 
                       {!canSelectDiagram && (
-                          <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+                        <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
                           <AlertTriangle className="size-3.5" />
                           缺少对应需求规则
                         </div>
                       )}
                       {linkedRules.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
+                        <div className="mt-2 flex flex-wrap gap-1.5">
                           {linkedRules.map((rule) => (
                             <button
                               type="button"
                               key={rule.id}
                               title={rule.text}
-                              onClick={() => {
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 const element = document.getElementById(
                                   `rule-${rule.id}`,
                                 );
@@ -767,6 +991,7 @@ export function TextRequirementView() {
                                   }, 1200);
                                 }
                               }}
+                              onKeyDown={(event) => event.stopPropagation()}
                               className="rounded border border-border bg-secondary px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
                             >
                               {rule.id}
@@ -779,12 +1004,91 @@ export function TextRequirementView() {
                 );
               })}
             </div>
+            {requirementModelRepairRecords.length > 0 && (
+              <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      需求模型覆盖/追踪证明
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      这里检查并补齐模型是否按规则提供覆盖解释和追踪关系。
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="border-success/35 bg-success/10 text-success"
+                  >
+                    证明已补齐
+                  </Badge>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {requirementModelRepairRecords.map((record) => (
+                    <div
+                      key={record.id}
+                      className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
+                    >
+                      <div className="text-muted-foreground">
+                        问题原因：{stageRepairCopy(record.reason)}
+                      </div>
+                      <div className="mt-1 text-foreground">
+                        补齐方式：{stageRepairCopy(record.repair)}
+                      </div>
+                      <div className="mt-1 font-medium text-success">
+                        证明状态：{record.status}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 h-8"
+                        onClick={() =>
+                          setModelRepairResult({ targetLabel: record.targetLabel })
+                        }
+                      >
+                        重新补齐证明
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
             <p className="pb-4 text-center text-xs text-muted-foreground">
-              勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里已确认的需求项。
+              勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里选择的需求项。
             </p>
           </section>
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(modelRepairResult)}
+        onOpenChange={(open) => {
+          if (!open) setModelRepairResult(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>单项证明补齐完成</DialogTitle>
+            <DialogDescription>
+              已只重新检查当前需求模型覆盖证明，没有重新生成全部需求模型。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+            <div>
+              <span className="font-medium">阶段：</span>需求模型
+            </div>
+            <div>
+              <span className="font-medium">对象：</span>
+              {modelRepairResult?.targetLabel}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setModelRepairResult(null)}>
+              我知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
         <DialogContent className="sm:max-w-md">
@@ -827,21 +1131,19 @@ export function TextRequirementView() {
           <div className="space-y-4">
             <label className="grid gap-1.5 text-sm">
               <span className="font-medium">需求类型</span>
-              <select
+              <SelectControl
                 value={newRuleCategory}
-                onChange={(event) => {
-                  setNewRuleCategory(event.target.value as RequirementRule["category"]);
+                onValueChange={(value) => {
+                  setNewRuleCategory(value as RequirementRule["category"]);
                   setNewRuleError(null);
                 }}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="h-9"
                 disabled={generating}
-              >
-                {RULE_CATEGORY_ORDER.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
+                options={RULE_CATEGORY_ORDER.map((category) => ({
+                  value: category,
+                  label: category,
+                }))}
+              />
             </label>
 
             <div className="grid gap-2 text-sm">

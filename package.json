@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "dev": "npm run dev:office && concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api:safe\" \"npm run dev:web:safe\"",
+    "dev:postgres": "cross-env DATABASE_URL=postgres://uml_user:uml_dev_password_123@127.0.0.1:5432/uml_platform npm run dev",
     "dev:default": "concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api\" \"npm run dev:web\"",
     "dev:office": "node scripts/dev/ensure-onlyoffice.mjs",
     "dev:api": "npm run dev --workspace @uml-platform/api",
@@ -28,7 +29,7 @@
     "build:api": "npm run build --workspace @uml-platform/api",
     "build:render": "npm run build --workspace @uml-platform/render-service",
     "dev:web": "npm run dev --workspace @uml-platform/web",
-    "dev:web:safe": "cross-env VITE_APP_API_BASE_URL=http://127.0.0.1:4101 npm run dev:web",
+    "dev:web:safe": "cross-env VITE_APP_API_BASE_URL=http://localhost:4101 npm run dev:web",
     "build:web": "npm run build --workspace @uml-platform/web",
     "typecheck:web": "npm run typecheck --workspace @uml-platform/web",
     "preview:web": "npm run preview --workspace @uml-platform/web",
@@ -37,6 +38,7 @@
     "test:contracts": "npm run test --workspace @uml-platform/contracts",
     "test:api": "npm run test --workspace @uml-platform/api",
     "test:render": "npm run test --workspace @uml-platform/render-service",
+    "test:harness-e2e": "npm run test --workspace @uml-platform/harness-e2e",
     "test:harness-eval": "npm run test --workspace @uml-platform/harness-eval",
     "eval:harness": "npm run eval --workspace @uml-platform/harness-eval"
   }

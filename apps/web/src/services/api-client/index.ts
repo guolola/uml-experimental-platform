@@ -78,7 +78,10 @@ export async function requestJson<T>(
   options: RequestInit & { errorMessage?: string } = {},
 ): Promise<T> {
   const { errorMessage, ...requestOptions } = options;
-  const response = await fetch(buildApiUrl(path), requestOptions);
+  const response = await fetch(buildApiUrl(path), {
+    credentials: "include",
+    ...requestOptions,
+  });
   if (!response.ok) {
     const payload = await parseErrorPayload(response);
     throw new ApiClientError(
@@ -112,7 +115,10 @@ export async function downloadBlob(
   options: RequestInit & { errorMessage?: string; defaultFileName?: string } = {},
 ) {
   const { errorMessage, defaultFileName = "download", ...requestOptions } = options;
-  const response = await fetch(buildApiUrl(path), requestOptions);
+  const response = await fetch(buildApiUrl(path), {
+    credentials: "include",
+    ...requestOptions,
+  });
   if (!response.ok) {
     const payload = await parseErrorPayload(response);
     throw new ApiClientError(

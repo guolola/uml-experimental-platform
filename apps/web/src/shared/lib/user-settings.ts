@@ -3,6 +3,7 @@ export const USER_SETTINGS_CHANGED_EVENT = "uml-user-settings-changed";
 import { DEFAULT_MODEL_ID, normalizeModelId } from "./model-catalog";
 
 export type UserSettings = {
+  providerConfigId: string;
   apiBaseUrl: string;
   apiKey: string;
   defaultModel: string;
@@ -13,6 +14,7 @@ export type UserSettings = {
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
+  providerConfigId: "",
   apiBaseUrl: "https://ai.comfly.org",
   apiKey: "",
   defaultModel: DEFAULT_MODEL_ID,

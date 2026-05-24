@@ -16,7 +16,7 @@ describe("workspaceModules", () => {
 
   it("keeps standalone route metadata discoverable", () => {
     expect(SHELL_ROUTE_MODULES.map((module) => module.route)).toEqual([
-      "/",
+      "/workspace",
       "/exam",
       "/tutorial",
       "/about",

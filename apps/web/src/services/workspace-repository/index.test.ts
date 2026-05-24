@@ -87,7 +87,7 @@ describe("createStartRunInput", () => {
     );
 
     expect(() => createStartRunInput("生成 UML", ["usecase"])).toThrow(
-      "请先在设置中填写 API Key",
+      "请先在设置中选择托管供应商配置，或在显式 legacy/dev 备选中填写 API Key",
     );
   });
 
@@ -161,7 +161,7 @@ describe("createHttpWorkspaceRepository", () => {
     localStorage.clear();
   });
 
-  it("preserves the server failure message when the stream closes afterwards", async () => {
+  it("rejects run subscriptions when no project scope is available", async () => {
     class MockEventSource {
       onmessage: ((event: MessageEvent<string>) => void) | null = null;
       onerror: (() => void) | null = null;
@@ -188,10 +188,10 @@ describe("createHttpWorkspaceRepository", () => {
 
     await expect(
       repository.subscribeToRun("run-1", () => {}),
-    ).rejects.toThrow("LLM request failed with HTTP 401");
+    ).rejects.toThrow("请先登录并进入项目");
   });
 
-  it("falls back to the terminal snapshot when EventSource errors before messages arrive", async () => {
+  it("rejects run snapshot fallback when no project scope is available", async () => {
     class MockEventSource {
       onmessage: ((event: MessageEvent<string>) => void) | null = null;
       onerror: (() => void) | null = null;
@@ -237,10 +237,10 @@ describe("createHttpWorkspaceRepository", () => {
 
     await expect(
       repository.subscribeToRun("run-2", () => {}),
-    ).rejects.toThrow("LLM request failed with HTTP 401");
+    ).rejects.toThrow("请先登录并进入项目");
   });
 
-  it("streams code file changes from the code agent subscription", async () => {
+  it("rejects code subscriptions when no project scope is available", async () => {
     class MockEventSource {
       onmessage: ((event: MessageEvent<string>) => void) | null = null;
       onerror: (() => void) | null = null;
@@ -289,16 +289,18 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository();
     const events: string[] = [];
 
-    await repository.subscribeToCodeRun!("code-run-1", (event) => {
-      if (event.type === "code_file_changed") {
-        events.push(event.path);
-      }
-    });
+    await expect(
+      repository.subscribeToCodeRun!("code-run-1", (event) => {
+        if (event.type === "code_file_changed") {
+          events.push(event.path);
+        }
+      }),
+    ).rejects.toThrow("请先登录并进入项目");
 
-    expect(events).toEqual(["/src/App.tsx"]);
+    expect(events).toEqual([]);
   });
 
-  it("reports lost code runs clearly when the local API restarted", async () => {
+  it("rejects lost-code polling when no project scope is available", async () => {
     class MockEventSource {
       onmessage: ((event: MessageEvent<string>) => void) | null = null;
       onerror: (() => void) | null = null;
@@ -335,10 +337,10 @@ describe("createHttpWorkspaceRepository", () => {
 
     await expect(
       repository.subscribeToCodeRun!("missing-code-run", () => {}),
-    ).rejects.toThrow("代码生成任务已丢失，可能是本地 API 服务重启，请重新生成");
+    ).rejects.toThrow("请先登录并进入项目");
   });
 
-  it("adds anonymous workspace headers to document library requests", async () => {
+  it("rejects document operations when no project scope is available", async () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -351,21 +353,139 @@ describe("createHttpWorkspaceRepository", () => {
         showStaleBanner: true,
       }),
     );
-    const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository();
+    await expect(repository.listDocuments!()).rejects.toThrow(
+      "请先登录并进入项目",
+    );
+    await expect(
+      repository.getOnlyOfficeEditorConfig!(
+        "doc-requirements-1",
+        "theme-classic-light",
+      ),
+    ).rejects.toThrow("请先登录并进入项目");
+    await expect(
+      repository.startDocumentRun!({
+        documentKind: "requirementsSpec",
+        requirementText: "生成说明书",
+        rules: [],
+        requirementModels: [],
+        requirementPlantUml: [],
+        requirementSvgArtifacts: [],
+        designModels: [],
+        designPlantUml: [],
+        designSvgArtifacts: [],
+        providerSettings: {
+          apiBaseUrl: "https://ai.comfly.org",
+          apiKey: "sk-demo",
+          model: "gpt-5.5",
+        },
+        useAiText: true,
+      }),
+    ).rejects.toThrow("请先登录并进入项目");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("adds project headers to project workspace run and document requests", async () => {
+    localStorage.setItem(
+      "uml-lab-settings",
+      JSON.stringify({
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-demo",
+        defaultModel: "gpt-5.5",
+        imageModel: "nano-banana-pro",
+        fontSize: "md",
+        autoGenerate: false,
+        showStaleBanner: true,
+      }),
+    );
+
+    class MockEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      close() {}
+
+      constructor(url: string) {
+        void url;
+        queueMicrotask(() => {
+          this.onerror?.();
+        });
+      }
+    }
+
+    vi.stubGlobal("EventSource", MockEventSource);
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      void options;
+      if (url.endsWith("/api/runs")) {
+        return new Response(JSON.stringify({ runId: "run-project-1" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/runs/run-project-1")) {
+        return new Response(
+          JSON.stringify({
+            runId: "run-project-1",
+            requirementText: "生成 UML",
+            selectedDiagrams: ["usecase"],
+            rules: [],
+            models: [],
+            requirementModelTraceability: [],
+            plantUml: [],
+            svgArtifacts: [],
+            diagramErrors: {},
+            requirementTrace: [],
+            currentStage: "render_svg",
+            status: "completed",
+            errorMessage: null,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
       if (url.endsWith("/api/document-runs")) {
         return new Response(JSON.stringify({ runId: "document-run-1" }), {
           status: 202,
           headers: { "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ documents: [] }), {
+      if (url.endsWith("/api/projects/library-booking/documents")) {
+        return new Response(JSON.stringify({ documents: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/projects/library-booking/documents/doc-1/editor-config")) {
+        return new Response(
+          JSON.stringify({
+            documentServerUrl: "http://127.0.0.1:8080",
+            document: { id: "doc-1", fileName: "doc.docx" },
+            config: { editorConfig: { customization: { uiTheme: "theme-dark" } } },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      return new Response(new Blob(["docx"]), {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/octet-stream" },
       });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository();
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+
+    await repository.startRun(createStartRunInput("生成 UML", ["usecase"]));
+    await repository.subscribeToRun("run-project-1", () => {});
     await repository.startDocumentRun!({
       documentKind: "requirementsSpec",
       requirementText: "生成说明书",
@@ -384,38 +504,346 @@ describe("createHttpWorkspaceRepository", () => {
       useAiText: true,
     });
     await repository.listDocuments!();
-    await repository.getOnlyOfficeEditorConfig!(
-      "doc-requirements-1",
-      "theme-classic-light",
-    );
+    await repository.getOnlyOfficeEditorConfig!("doc-1", "theme-dark");
+    await repository.downloadDocument!("doc-1");
 
-    const firstHeaders = fetchMock.mock.calls[0]![1]!.headers as Record<
-      string,
-      string
-    >;
-    const secondHeaders = fetchMock.mock.calls[1]![1]!.headers as Record<
-      string,
-      string
-    >;
-    const thirdUrl = fetchMock.mock.calls[2]![0] as string;
-    const thirdHeaders = fetchMock.mock.calls[2]![1]!.headers as Record<
-      string,
-      string
-    >;
-    expect(firstHeaders["X-UML-Workspace-Id"]).toBeTruthy();
-    expect(firstHeaders["X-UML-Workspace-Secret"]).toBeTruthy();
-    expect(secondHeaders["X-UML-Workspace-Id"]).toBe(
-      firstHeaders["X-UML-Workspace-Id"],
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/projects/library-booking/documents"),
+      expect.anything(),
     );
-    expect(secondHeaders["X-UML-Workspace-Secret"]).toBe(
-      firstHeaders["X-UML-Workspace-Secret"],
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/projects/library-booking/documents/doc-1/editor-config?uiTheme=theme-dark"),
+      expect.anything(),
     );
-    expect(thirdHeaders["X-UML-Workspace-Id"]).toBe(
-      firstHeaders["X-UML-Workspace-Id"],
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/projects/library-booking/documents/doc-1/download"),
+      expect.anything(),
     );
-    expect(thirdUrl).toContain(
-      "/api/documents/doc-requirements-1/editor-config?uiTheme=theme-classic-light",
+    const projectRunEventsCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/api/runs/run-project-1/events"),
     );
+    expect(projectRunEventsCall?.[1]?.credentials).toBe("include");
+
+    for (const [, options] of fetchMock.mock.calls) {
+      const headers = options?.headers as Record<string, string>;
+      expect(headers["X-UML-Project-Id"]).toBe("library-booking");
+      expect(headers["X-UML-Workspace-Id"]).toBeUndefined();
+      expect(headers["X-UML-Workspace-Secret"]).toBeUndefined();
+    }
+  });
+
+  it("loads and saves the shared project workspace with an optimistic version", async () => {
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 2,
+            updatedAt: "2026-05-22T02:00:00.000Z",
+            updatedByUserId: "teacher-1",
+            state: {
+              requirementText: "已保存的项目需求",
+              rules: [
+                {
+                  id: "FR1",
+                  text: "日历仅供公众使用。",
+                  category: "业务规则",
+                  relatedDiagrams: ["usecase"],
+                },
+              ],
+              selectedDiagramTypes: ["usecase"],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 3,
+            updatedAt: "2026-05-22T02:05:00.000Z",
+            updatedByUserId: "teacher-1",
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const workspace = await repository.loadWorkspace();
+    expect(workspace.requirementText).toBe("已保存的项目需求");
+    expect(workspace.rules[0]?.id).toBe("FR1");
+    expect(workspace.selectedDiagramTypes).toEqual(["usecase"]);
+
+    await repository.updateRequirementText("团队成员更新的需求");
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    expect(saveCall).toBeTruthy();
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.baseVersion).toBe(2);
+    expect(body.state.requirementText).toBe("团队成员更新的需求");
+  });
+
+  it("restores project run snapshots by fetching run detail and saving a project workspace version", async () => {
+    const snapshot = createRunSnapshot({
+      runId: "run-restore",
+      requirementText: "恢复后的项目需求",
+      selectedDiagrams: ["usecase"],
+    });
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 4,
+            updatedAt: "2026-05-22T02:00:00.000Z",
+            state: { requirementText: "旧需求" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/runs/run-restore")) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            run: {
+              runId: "run-restore",
+              status: "completed",
+              stage: "render_svg",
+              snapshotAvailable: true,
+              canRestore: true,
+            },
+            snapshot,
+            events: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/runs")) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            runs: [
+              {
+                runId: "run-restore",
+                status: "completed",
+                stage: "render_svg",
+                createdAt: "2026-05-22T01:00:00.000Z",
+                model: "gpt-5.5",
+                snapshotAvailable: true,
+                canRestore: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 5,
+            updatedAt: "2026-05-22T02:05:00.000Z",
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const item = await repository.restoreRunHistory("run-restore");
+
+    expect(item?.snapshot.requirementText).toBe("恢复后的项目需求");
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    expect(saveCall).toBeTruthy();
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.baseVersion).toBe(4);
+    expect(body.sourceRunId).toBe("run-restore");
+    expect(body.state.requirementText).toBe("恢复后的项目需求");
+  });
+
+  it("persists requirement run snapshots incrementally with diagram versions", async () => {
+    const existingUseCase = {
+      diagramKind: "usecase",
+      modelId: "req-usecase",
+      actors: [],
+      useCases: [],
+      relationships: [],
+    };
+    const generatedClass = {
+      diagramKind: "class",
+      modelId: "req-class",
+      classes: [],
+      relationships: [],
+    };
+    const snapshot = createRunSnapshot({
+      runId: "run-class",
+      requirementText: "图书馆需求",
+      selectedDiagrams: ["class"],
+      rules: [
+        {
+          id: "R1",
+          category: "功能需求",
+          text: "系统应支持借书。",
+          relatedDiagrams: ["class"],
+        },
+      ],
+      models: [generatedClass as never],
+      plantUml: [{ diagramKind: "class", source: "@startuml\n@enduml" }],
+      svgArtifacts: [
+        {
+          diagramKind: "class",
+          svg: "<svg />",
+          renderMeta: {
+            generatedAt: "2026-05-24T00:00:00.000Z",
+          },
+        },
+      ],
+    });
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 7,
+            state: {
+              requirementText: "图书馆需求",
+              rulesVersion: 1,
+              rulesBasedOnTextVersion: 0,
+              diagramVersions: { usecase: 1 },
+              generatedDiagramTypes: ["usecase"],
+              models: { usecase: existingUseCase },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 8,
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.4",
+      durationMs: 100,
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.state.rulesVersion).toBe(2);
+    expect(body.state.diagramVersions).toEqual({ usecase: 1, class: 2 });
+    expect(body.state.generatedDiagramTypes).toEqual(["usecase", "class"]);
+    expect(body.state.models.usecase).toEqual(existingUseCase);
+    expect(body.state.models.class).toEqual(generatedClass);
+  });
+
+  it("persists design run snapshots incrementally without deleting existing diagrams", async () => {
+    const existingClass = { diagramKind: "class", modelId: "class", classes: [] };
+    const generatedTable = { diagramKind: "table", modelId: "table", tables: [] };
+    const snapshot = {
+      runId: "design-table",
+      requirementText: "图书馆需求",
+      rules: [],
+      selectedDiagrams: ["table"],
+      requirementModels: [],
+      requirementModelTraceability: [],
+      models: [generatedTable],
+      designModelTraceability: [],
+      plantUml: [{ diagramKind: "table", source: "@startuml\n@enduml" }],
+      svgArtifacts: [
+        {
+          diagramKind: "table",
+          svg: "<svg />",
+          generatedAt: "2026-05-24T00:00:00.000Z",
+        },
+      ],
+      diagramErrors: {},
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      errorMessage: null,
+    };
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 9,
+            state: {
+              requirementText: "图书馆需求",
+              generatedDesignDiagramTypes: ["class"],
+              designModels: { class: existingClass },
+              designPlantUml: { class: "@startuml\n@enduml" },
+              designSvgArtifacts: {
+                class: {
+                  diagramKind: "class",
+                  svg: "<svg />",
+                  generatedAt: "2026-05-24T00:00:00.000Z",
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 10,
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.saveRunHistory(snapshot as never, {
+      providerModel: "gpt-5.4",
+      durationMs: 100,
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.state.generatedDesignDiagramTypes).toEqual(["class", "table"]);
+    expect(body.state.designModels.class).toEqual(existingClass);
+    expect(body.state.designModels.table).toEqual(generatedTable);
   });
 
   it("keeps every mock document generation as a separate document", async () => {
@@ -468,8 +896,8 @@ describe("createHttpWorkspaceRepository", () => {
     );
   });
 
-  it("stores run history in localStorage with the configured limit", async () => {
-    const repository = createHttpWorkspaceRepository();
+  it("stores mock run history in localStorage with the configured limit", async () => {
+    const repository = createMockWorkspaceRepository();
     for (let index = 0; index < RUN_HISTORY_LIMIT + 2; index += 1) {
       await repository.saveRunHistory(
         createRunSnapshot({
@@ -486,8 +914,8 @@ describe("createHttpWorkspaceRepository", () => {
     expect(localStorage.getItem(RUN_HISTORY_STORAGE_KEY)).toContain("gpt-5.5");
   });
 
-  it("compacts large code history debug fields while preserving generated files", async () => {
-    const repository = createHttpWorkspaceRepository();
+  it("compacts mock code history debug fields while preserving generated files", async () => {
+    const repository = createMockWorkspaceRepository();
     const rawOutput = `RAW_OUTPUT_${"x".repeat(5_000)}`;
     const skillOutput = `SKILL_OUTPUT_${"y".repeat(5_000)}`;
 
@@ -578,7 +1006,7 @@ describe("createHttpWorkspaceRepository", () => {
     expect(restored.skillResourcePreviews?.previews[0]?.sampleRows).toEqual([]);
   });
 
-  it("prunes older history items when localStorage quota is exceeded", async () => {
+  it("prunes older mock history items when localStorage quota is exceeded", async () => {
     const originalSetItem = Storage.prototype.setItem;
     const setItemSpy = vi
       .spyOn(Storage.prototype, "setItem")
@@ -593,7 +1021,7 @@ describe("createHttpWorkspaceRepository", () => {
         return originalSetItem.call(this, key, value);
       });
 
-    const repository = createHttpWorkspaceRepository();
+    const repository = createMockWorkspaceRepository();
     for (let index = 0; index < 6; index += 1) {
       await repository.saveRunHistory(
         createCodeRunSnapshot({
@@ -636,7 +1064,9 @@ describe("createHttpWorkspaceRepository", () => {
       ),
     );
 
-    const repository = createHttpWorkspaceRepository();
+    const repository = createHttpWorkspaceRepository({
+      projectId: "render-project",
+    });
     const rendered = await repository.renderPlantUml(
       "class",
       "@startuml\nclass User\n@enduml",
@@ -646,6 +1076,9 @@ describe("createHttpWorkspaceRepository", () => {
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4001/api/render/svg",
       expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-UML-Project-Id": "render-project",
+        }),
         method: "POST",
       }),
     );

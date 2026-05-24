@@ -1,7 +1,11 @@
 // Calls the render service for SVG output; pipelines handle repair decisions.
 import type { UmlDiagramKind } from "@uml-platform/contracts";
 
-export type AnyPlantUmlArtifact = { diagramKind: UmlDiagramKind; source: string };
+export type AnyPlantUmlArtifact = {
+  modelId?: string;
+  diagramKind: UmlDiagramKind;
+  source: string;
+};
 
 export type RenderClient = (artifact: AnyPlantUmlArtifact) => Promise<{
   svg: string;

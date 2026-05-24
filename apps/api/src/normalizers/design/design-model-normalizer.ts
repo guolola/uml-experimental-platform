@@ -60,8 +60,30 @@ function normalizeDesignDiagramModel(model: unknown) {
   const normalized: Record<string, unknown> = { ...model };
   normalized.notes = normalizeStringArray(normalized.notes);
   const diagramKind = normalized.diagramKind;
+  if (
+    typeof diagramKind === "string" &&
+    diagramKind !== "sequence" &&
+    typeof normalized.modelId !== "string"
+  ) {
+    normalized.modelId = diagramKind;
+  }
 
   if (diagramKind === "sequence") {
+    const sourceUseCaseId =
+      typeof normalized.sourceUseCaseId === "string"
+        ? normalized.sourceUseCaseId.trim()
+        : "";
+    if (sourceUseCaseId && typeof normalized.modelId !== "string") {
+      normalized.modelId = `sequence:${sourceUseCaseId}`;
+    }
+    if (typeof normalized.summary !== "string" || !normalized.summary.trim()) {
+      const title = typeof normalized.title === "string" ? normalized.title.trim() : "";
+      const sourceUseCaseName =
+        typeof normalized.sourceUseCaseName === "string"
+          ? normalized.sourceUseCaseName.trim()
+          : "";
+      normalized.summary = `${title || sourceUseCaseName || sourceUseCaseId || "该用例"}的对象交互流程。`;
+    }
     normalized.participants = ensureArray(normalized.participants);
     normalized.messages = ensureArray(normalized.messages).map((message) => {
       if (!isPlainRecord(message)) return message;

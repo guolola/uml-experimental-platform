@@ -13,6 +13,20 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: uml_user
+          POSTGRES_PASSWORD: uml_ci_password
+          POSTGRES_DB: uml_platform_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U uml_user -d uml_platform_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -36,12 +50,81 @@ jobs:
       - name: Verify PlantUML jar
         run: test -f plantuml/build/libs/plantuml-1.2026.3beta8.jar
 
+      - name: Start OnlyOffice Document Server for smoke tests
+        run: |
+          set -euo pipefail
+          docker run -d \
+            --name onlyoffice-documentserver \
+            -p 8080:80 \
+            -e JWT_ENABLED=true \
+            -e JWT_SECRET=ci-onlyoffice-jwt-secret \
+            onlyoffice/documentserver
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/healthcheck | grep -q true; then
+              echo "OnlyOffice Document Server is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs onlyoffice-documentserver --tail 200
+          exit 1
+
       - name: Build shared packages for tests
         run: |
           npm run build:contracts
           npm run build:prompts
 
+      - name: Production PostgreSQL and OnlyOffice smoke
+        env:
+          NODE_ENV: production
+          DATABASE_URL: postgres://uml_user:uml_ci_password@127.0.0.1:5432/uml_platform_ci
+          API_HOST: 127.0.0.1
+          API_PORT: 4191
+          API_CORS_ORIGINS: http://127.0.0.1:4175
+          RENDER_SERVICE_BASE_URL: http://127.0.0.1:4002
+          RENDER_SERVICE_CORS_ORIGINS: http://127.0.0.1:4175
+          ONLYOFFICE_DOCUMENT_SERVER_URL: http://127.0.0.1:8080
+          PUBLIC_API_BASE_URL: http://127.0.0.1:4191
+          ONLYOFFICE_JWT_SECRET: ci-onlyoffice-jwt-secret
+          ONLYOFFICE_ACCESS_TOKEN_SECRET: ci-onlyoffice-access-secret
+          UML_DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/uml-documents
+          UML_PROVIDER_CONFIG_SECRET: ci-provider-secret
+          UML_PROVIDER_SECRET_KEY: ci-provider-secret
+          UML_PROVIDER_BASE_URL_ALLOWLIST: https://api.openai.com,https://ai.comfly.org
+          UML_ALLOW_LEGACY_PROVIDER_TEST: "false"
+          UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS: "false"
+          SMTP_HOST: smtp.example.test
+          SMTP_PORT: "587"
+          SMTP_USER: ci@example.test
+          SMTP_PASS: ci-smtp-password
+          SMTP_FROM: UML Platform CI <ci@example.test>
+        run: |
+          set -euo pipefail
+          mkdir -p "$UML_DOCUMENT_STORAGE_DIR"
+          npx tsx -e "
+            const { createApiServer } = await import('./apps/api/src/index.ts');
+            const app = await createApiServer();
+            const version = await app.inject({ method: 'GET', url: '/api/version' });
+            if (version.statusCode !== 200) {
+              throw new Error('Version endpoint failed: ' + version.statusCode + ' ' + version.body);
+            }
+            const payload = JSON.parse(version.body);
+            if (payload.nodeEnv !== 'production') {
+              throw new Error('Expected production nodeEnv, got ' + payload.nodeEnv);
+            }
+            if (!payload.features?.onlyOfficeDocumentServerConfigured) {
+              throw new Error('OnlyOffice should be configured in production smoke');
+            }
+            await app.close();
+          "
+
       - name: Test
+        env:
+          ONLYOFFICE_DOCUMENT_SERVER_URL: http://127.0.0.1:8080
+          PUBLIC_API_BASE_URL: http://127.0.0.1:4191
+          ONLYOFFICE_JWT_SECRET: ci-onlyoffice-jwt-secret
+          ONLYOFFICE_ACCESS_TOKEN_SECRET: ci-onlyoffice-access-secret
+          UML_DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/uml-documents
         run: |
           npm run test:contracts
           npm run test:api

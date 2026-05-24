@@ -15,6 +15,9 @@ import type {
   CodeUiReferenceSpec,
   DesignTraceEntry,
   RequirementTraceEntry,
+  RequirementBaseline,
+  AtomicRequirementField,
+  RequirementQualityReport,
   DocumentKind,
   DocumentRunSnapshot,
   DocumentStyleSettings,
@@ -59,6 +62,27 @@ export interface RunDiagnostics {
 
 export type GenerationTaskKind = "requirements" | "design" | "code" | "document";
 
+export interface GenerationSubtask {
+  id: string;
+  label: string;
+  status:
+    | "queued"
+    | "running"
+    | "repairing"
+    | "rendering"
+    | "completed"
+    | "failed"
+    | "pending_review";
+  message: string | null;
+  errorMessage: string | null;
+  queuePosition?: number;
+  queueAhead?: number;
+  waitMs?: number;
+  estimatedWaitMs?: number;
+  queueReason?: "global" | "provider" | "project" | "user" | "run";
+  pendingReviewCount?: number;
+}
+
 export interface GenerationTask {
   clientTaskId: string;
   runId: string | null;
@@ -73,6 +97,7 @@ export interface GenerationTask {
   phaseSummary: string | null;
   technicalDetailsCollapsed: boolean;
   diagnostics: RunDiagnostics;
+  subtasks: GenerationSubtask[];
   startedAt: string;
   finishedAt: string | null;
 }
@@ -81,6 +106,14 @@ export interface WorkspaceSessionState {
   requirementText: string;
   setRequirementText: (value: string) => void;
   rules: RequirementRule[];
+  requirementBaseline: RequirementBaseline | null;
+  requirementQualityReport: RequirementQualityReport | null;
+  acceptRequirementAiSuggestions: (
+    ruleId: string,
+    mode?: "ai-accepted" | "manual-edited",
+    fieldValues?: Partial<Record<AtomicRequirementField, string>>,
+  ) => Promise<void>;
+  rejectRequirementAiSuggestions: (ruleId: string) => Promise<void>;
   addRequirementRule: () => void;
   createRequirementRule: (input: {
     category: RequirementRule["category"];
@@ -119,6 +152,7 @@ export interface WorkspaceSessionState {
   codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
   codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
+  codeEditVersion: number;
   updateCodeFile: (path: string, value: string) => void;
   generatedDesignDiagrams: DesignDiagramType[];
   generatedDiagrams: DiagramType[];
@@ -128,10 +162,12 @@ export interface WorkspaceSessionState {
   runMessage: string | null;
   errorMessage: string | null;
   generationTasks: GenerationTask[];
+  visibleGenerationTask: GenerationTask | null;
   selectedGenerationTaskId: string | null;
   selectGenerationTask: (id: string) => void;
   clearCompletedGenerationTasks: () => void;
   generateRules: () => Promise<void>;
+  repairRequirementRule: (ruleId: string) => Promise<void>;
   generateDiagrams: (only?: DiagramType[]) => Promise<void>;
   generateDesignDiagrams: (only?: DesignDiagramType[]) => Promise<void>;
   generateCodePrototype: (mode?: "continue" | "regenerate") => Promise<void>;

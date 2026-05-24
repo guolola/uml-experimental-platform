@@ -61,6 +61,22 @@ function designTableModel(input: StartDocumentRunRequest) {
   );
 }
 
+function pendingDesignTraceabilityRows(input: StartDocumentRunRequest) {
+  return input.designModelTraceability
+    .filter(
+      (entry) =>
+        entry.mappingSource === "auto-filled-pending-review" ||
+        entry.reviewStatus === "pending",
+    )
+    .map((entry, index) => [
+      String(index + 1),
+      entry.source.modelId ?? entry.source.diagramKind,
+      entry.source.label,
+      entry.targets.map((target) => target.label).join("、"),
+      entry.rationale ?? "系统自动补齐，需复核确认",
+    ]);
+}
+
 function requirementUseCases(input: StartDocumentRunRequest) {
   const useCases = useCaseModels(input).flatMap((model) => model.useCases);
   return useCases.length > 0
@@ -306,6 +322,21 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 3, title: "3.3.1 界面关系", body: ["界面关系图描述主要界面之间的跳转。"], diagramKind: "activity" },
       { level: 3, title: "3.3.2 界面详细设计", body: ["界面详细设计将在原型实现阶段补充。"] },
       { level: 2, title: "3.4 可追踪性设计", body: [] },
+      ...(pendingDesignTraceabilityRows(input).length > 0
+        ? [
+            {
+              level: 3 as const,
+              title: "3.4.0 需复核追踪关系",
+              body: [
+                "以下追踪关系由系统在 LLM 修复后自动补齐，仅用于保持链路完整，需人工复核后再视为确认结果。",
+              ],
+              table: {
+                headers: ["编号", "设计模型", "设计元素", "关联需求元素", "备注"],
+                rows: pendingDesignTraceabilityRows(input),
+              },
+            },
+          ]
+        : []),
       {
         level: 3,
         title: "3.4.1 用例与界面的关系",

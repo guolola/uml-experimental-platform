@@ -52,10 +52,32 @@ export interface ImageGenerationClient {
   generateImage(input: GenerateImageInput): Promise<GeneratedImageResult>;
 }
 
+export interface RealProviderClientOptions {
+  baseUrlAllowlist?: string[];
+  responseTimeoutMs?: number;
+}
+
 const IMAGE_PROMPT_CHAR_LIMIT = 24000;
+const DEFAULT_LLM_RESPONSE_TIMEOUT_MS = 300_000;
 
 function resolveChatCompletionsUrl(baseUrl: string) {
   return new URL("/v1/chat/completions", baseUrl).toString();
+}
+
+function normalizeOrigin(url: string) {
+  return new URL(url).origin;
+}
+
+function assertProviderBaseUrlAllowed(
+  baseUrl: string,
+  baseUrlAllowlist: string[] | undefined,
+) {
+  if (!baseUrlAllowlist || baseUrlAllowlist.length === 0) return;
+  const allowedOrigins = new Set(baseUrlAllowlist.map(normalizeOrigin));
+  const origin = normalizeOrigin(baseUrl);
+  if (!allowedOrigins.has(origin)) {
+    throw new Error("Provider Base URL is not in the provider allowlist");
+  }
 }
 
 function clampImagePrompt(prompt: string) {
@@ -98,6 +120,61 @@ async function readErrorDetail(response: Response) {
   }
 
   return textSummary;
+}
+
+function timeoutError(timeoutMs: number) {
+  return new Error(`LLM request timed out after ${timeoutMs}ms`);
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const timer = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      onTimeout();
+      reject(timeoutError(timeoutMs));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timer]);
+  } catch (error) {
+    if (timedOut) {
+      throw timeoutError(timeoutMs);
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function* withIdleTimeout<T>(
+  source: AsyncIterable<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+) {
+  const iterator = source[Symbol.asyncIterator]();
+  let timedOut = false;
+
+  try {
+    while (true) {
+      const result = await withTimeout(iterator.next(), timeoutMs, () => {
+        timedOut = true;
+        onTimeout();
+      });
+      if (result.done) return;
+      yield result.value;
+    }
+  } finally {
+    if (timedOut) {
+      void iterator.return?.().catch(() => undefined);
+    }
+  }
 }
 
 export async function* parseChatCompletionSse(response: Response) {
@@ -149,43 +226,67 @@ export async function* parseChatCompletionSse(response: Response) {
   }
 }
 
-export function createRealLlmTransport(): LlmTransport {
+export function createRealLlmTransport(
+  options: RealProviderClientOptions = {},
+): LlmTransport {
   return {
     async *streamChatCompletion({
       providerSettings,
       messages,
       responseFormat,
     }: StreamChatCompletionInput) {
-      const response = await fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-          Authorization: `Bearer ${providerSettings.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: providerSettings.model,
-          messages,
-          stream: true,
-          temperature: 0.2,
-          ...(responseFormat === null
-            ? {}
-            : { response_format: responseFormat ?? { type: "json_object" } }),
-          tools: [],
-          tool_choice: "none",
+      assertProviderBaseUrlAllowed(
+        providerSettings.apiBaseUrl,
+        options.baseUrlAllowlist,
+      );
+      const responseTimeoutMs =
+        options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
+      const abortController = new AbortController();
+      const response = await withTimeout(
+        fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
+          method: "POST",
+          signal: abortController.signal,
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${providerSettings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: providerSettings.model,
+            messages,
+            stream: true,
+            temperature: 0.2,
+            ...(responseFormat === null
+              ? {}
+              : { response_format: responseFormat ?? { type: "json_object" } }),
+            tools: [],
+            tool_choice: "none",
+          }),
         }),
-      });
+        responseTimeoutMs,
+        () => abortController.abort(),
+      );
 
-      for await (const text of parseChatCompletionSse(response)) {
+      for await (const text of withIdleTimeout(
+        parseChatCompletionSse(response),
+        responseTimeoutMs,
+        () => abortController.abort(),
+      )) {
         yield text;
       }
     },
   };
 }
 
-export function createRealImageGenerationClient(): ImageGenerationClient {
+export function createRealImageGenerationClient(
+  options: RealProviderClientOptions = {},
+): ImageGenerationClient {
   return {
     async generateImage({ providerSettings, prompt }: GenerateImageInput) {
+      assertProviderBaseUrlAllowed(
+        providerSettings.apiBaseUrl,
+        options.baseUrlAllowlist,
+      );
       const safePrompt = clampImagePrompt(prompt);
       const response = await fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
         method: "POST",

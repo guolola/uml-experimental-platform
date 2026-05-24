@@ -43,6 +43,8 @@ export function stageProgressValue(stage: RunStage) {
       return 91;
     case "verify_code_rendered_preview":
       return 93;
+    case "verify_code_business_assertions":
+      return 96;
     case "verify_code_preview":
       return 98;
     case "repair_code_files":

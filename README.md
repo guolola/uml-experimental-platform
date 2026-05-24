@@ -14,11 +14,11 @@
 
 <p align="center">
   <b>
-    AI 辅助 UML 建模与前端原型生成工作台
+    AI 辅助 UML 建模、可信追踪与前端原型生成工作台
     <br />
-    从需求规则、UML 模型到 React 原型和说明书导出
+    从需求基线、UML 模型到 React 原型、证据包和说明书导出
     <br />
-    PlantUML 渲染 × 生成追踪 × 通用 Skill Runtime
+    PlantUML 渲染 × 可信链路 × 通用 Skill Runtime
   </b>
 </p>
 
@@ -28,13 +28,21 @@
   <img src="https://img.shields.io/badge/UML-PlantUML-f59e0b?style=for-the-badge" alt="PlantUML Badge" />
 </p>
 
-> 一套面向软件工程课程、实验和原型验证的 AI 工作台：把需求、规则、UML、设计模型、前端原型、质量检查和说明书统一沉淀为可追踪产物。
+> 一套面向软件工程课程、实验和原型验证的 AI 工作台：把需求、规则、UML、设计模型、前端原型、质量检查、可信证据和说明书统一沉淀为可追踪产物。
 
 </div>
 
 ---
 
 # 🖼️ 项目截图
+
+## 官网首页
+
+![官网首页](./docs/images/readme-homepage.png)
+
+## 项目首页
+
+![项目首页](./docs/images/readme-project-home.png)
 
 ## 需求分析工作台
 
@@ -48,18 +56,22 @@
 
 # 🌟 项目简介
 
-软件工程实验平台以“需求到设计再到代码”的实验链路为核心，帮助用户从自然语言需求生成结构化需求规则、需求阶段 UML、设计阶段 UML、可运行 React 原型和 Word 说明书。
+软件工程实验平台以“需求到设计再到代码”的实验链路为核心，帮助用户从自然语言需求生成结构化需求基线、需求阶段 UML、设计阶段 UML、可运行 React 原型、可信证据包和 Word 说明书。
 
 它不是一次性模型调用器，而是强调阶段化、可追溯和可修复的实验工作台：
 
 - ✅ **需求阶段建模**
   从需求文本抽取需求规则，并生成用例图、类图、活动图、部署图等结构化模型。
+- ✅ **可信需求基线**
+  将抽取出的规则沉淀为 `RequirementBaseline`，保留来源片段、原子需求、参与者、动作、对象、条件、验收准则和质量诊断，作为下游生成的共同依据。
 - ✅ **设计阶段建模**
   基于需求模型继续生成顺序图、设计类图、设计活动图、部署图和表关系图。
 - ✅ **PlantUML 本地渲染**
   将结构化模型转换为 PlantUML 源码，通过本地渲染服务输出 SVG 预览和 DOCX 可嵌入 PNG。
-- ✅ **生成追踪与修复记录**
-  记录模型原始返回、解析错误、修复返回、PlantUML 源码、渲染错误和修复后源码，方便定位第一次失败原因。
+- ✅ **覆盖矩阵与追踪矩阵**
+  生成 `CoverageMatrix` 和 `TraceabilityMatrix`，追踪每条已接受需求在需求模型、设计模型、代码断言、测试与证据中的覆盖状态。
+- ✅ **生成追踪、修复与证据包**
+  记录模型原始返回、解析错误、修复返回、PlantUML 源码、渲染错误、业务断言、浏览器证据和人工复核项，形成 `EvidencePackage` 便于审阅。
 - ✅ **代码页 Agent 生成**
   当前链路为 `businessLogic + 通用 Skill Runtime + React 原型`：平台先抽取业务逻辑，再由前端设计执行器读取设计知识和 React 栈建议，生成可预览前端原型。
 - ✅ **说明书导出**
@@ -73,8 +85,12 @@
   支持需求规则抽取、模型结构化校验、PlantUML 生成、SVG 渲染和错误修复。
 - **设计模型链路**
   顺序图作为设计阶段动态行为基础，下游设计图从需求模型和顺序图共同推导。
+- **可信链路门禁**
+  需求、设计、代码和文档阶段都会携带需求基线、覆盖矩阵、追踪矩阵和证据包；阻塞、冲突、低置信度、待确认追踪关系和不可建模需求会进入复核流程。
 - **代码原型生成**
   使用业务逻辑 function calling 抽取实体、角色、流程、权限、状态和异常分支，再由前端设计执行器生成 React + TypeScript + CSS 原型。
+- **业务断言**
+  对生成代码进行需求关联的静态业务断言检查，覆盖权限、角色、状态机、数据一致性、边界条件、异常反馈和幂等等关键业务类别。
 - **Skill Runtime**
   扫描本地 skill，读取 `SKILL.md`、资源清单和声明式 action，向代码生成 prompt 注入 design-system、react-stack、ux-guidelines 等上下文。
 - **质量与预览检查**
@@ -89,18 +105,27 @@
 ```mermaid
 flowchart LR
   A["需求文本"] --> B["需求规则"]
-  B --> C["需求 UML 模型"]
-  C --> D["设计 UML 模型"]
-  D --> E["业务逻辑分析"]
-  E --> F["前端设计执行器"]
-  F --> G["React 原型文件"]
-  G --> H["质量与预览检查"]
-  H --> I["Sandpack 预览"]
-  C --> J["需求规格说明书"]
-  D --> K["软件设计说明书"]
+  B --> C["RequirementBaseline"]
+  C --> D["需求 UML 模型"]
+  D --> E["CoverageMatrix / TraceabilityMatrix"]
+  E --> F["设计 UML 模型"]
+  F --> G["业务逻辑分析"]
+  G --> H["业务断言"]
+  H --> I["前端设计执行器"]
+  I --> J["React 原型文件"]
+  J --> K["质量、预览与浏览器证据"]
+  K --> L["EvidencePackage"]
+  D --> M["需求规格说明书"]
+  F --> N["软件设计说明书"]
 ```
 
 代码生成阶段不会把权限边界、服务边界、过滤条件或函数名当作用户页面文案直接展示；这些说明性内容应进入开发说明文档或注释，页面只呈现真实业务流程、数据、操作和状态反馈。
+
+## 可信链路边界
+
+当前链路可以作为普通业务系统、课程实验、原型验证和非安全关键项目的“可审计可信生成”基础：它能把自然语言需求约束为需求基线，要求每条已接受需求进入覆盖矩阵和追踪矩阵，并把低置信度、自动补齐、不可建模、冲突和失败证据显式交给人工复核。
+
+它不承诺对任意自然语言、强监管行业、安全关键系统或完全无人工复核的场景给出自动正确结果。代码业务断言属于需求关联的静态证据，浏览器验收目前覆盖可信证据页和代表性生成流程；上线到更高要求场景前，应补充领域专家复核、真实运行验收、合规审计和针对具体项目的测试证据。
 
 ---
 
@@ -208,10 +233,27 @@ umlExperimentalPlatform/
 ├── packages/
 │   ├── contracts/       # 前后端共享 Zod schema 和类型
 │   ├── prompts/         # 需求、设计、代码、文档 prompt
+│   ├── harness-e2e/     # 浏览器级可信链路验收与代表性生成流程检查
 │   └── harness-eval/    # 评测与回归辅助
-├── docs/                # 文档、部署说明、说明书模板
+├── docs/                # 文档、部署说明、可信链路审计、说明书模板
 └── plantuml/            # 本地 PlantUML 运行依赖
 ```
+
+上传前建议把本地运行痕迹留在 `.gitignore` 中，不随源码提交：
+
+- `.codex-artifacts/`、`.codex-test-logs/`、`.codex-*.png`、`.codex-*.log`：Codex/浏览器验收截图和日志。
+- `.local-*.log`：本地 API、Web、Render、Postgres 调试日志。
+- `apps/api/.local-documents/`：本地说明书工作区，可能包含 DOCX、metadata 和 workspace secret。
+- `apps/api/data/`、根目录 `data/`：本地数据库、说明书和运行数据目录，生产环境应使用外部持久化目录或数据库。
+
+可信链路核心实现位于：
+
+- `apps/api/src/runs/baselines/`：需求基线构建与下游门禁。
+- `apps/api/src/runs/traceability/`：覆盖矩阵、追踪矩阵和可信链路诊断。
+- `apps/api/src/runs/evidence/`：证据包组装、复核项和下游证据门禁。
+- `apps/api/src/runs/pipelines/code/code-business-assertions.ts`：代码阶段业务断言。
+- `apps/web/src/features/trusted-chain/`：前端可信证据查看、复核和导出。
+- `docs/trusted-chain-audit/`：行业可接受性审计、风险边界、实施路线和最终结论。
 
 ---
 
@@ -246,9 +288,17 @@ npm run test:contracts
 npm run test --workspace @uml-platform/prompts
 npm run test:api
 npm run test:web
+npm run test:harness-e2e
 
 # Web 类型检查
 npm run typecheck:web
+
+# 可信链路关键回归
+npx tsx --test apps/api/src/runs/baselines/requirement-baseline.test.ts
+npx tsx --test apps/api/src/runs/traceability/trusted-chain-traceability.test.ts
+npx tsx --test apps/api/src/runs/pipelines/code/code-business-assertions.test.ts
+npx tsx --test apps/api/src/runs/evidence/evidence-package.test.ts
+npx tsx --test apps/api/src/runs/trusted-chain-regression.test.ts
 ```
 
 ---
@@ -258,6 +308,15 @@ npm run typecheck:web
 - 前端构建产物位于 `apps/web/dist`。
 - API 默认生产端口可按环境变量配置，本地安全开发端口为 `4101`。
 - Render Service 默认端口为 `4002`，依赖 PlantUML jar 和 Java 运行环境。
+- 真实用户、项目、run、文档、后台管理和供应商配置上线前，必须核对
+  [生产环境变量清单](./docs/deployment/production-env.md)：包括
+  `DATABASE_URL`、`SMTP_*`、`UML_PROVIDER_SECRET_KEY`、CORS、OnlyOffice、
+  主 Web/API base、后台前端/API base、session cookie SameSite/Secure、管理员
+  bootstrap，以及 legacy fallback 开关。
+- 后台不提供生产固定默认账号密码。首次上线用
+  `npm run bootstrap:admin --workspace @uml-platform/api` 创建一次性真实
+  `super_admin`，创建后关闭 `UML_ENABLE_ADMIN_BOOTSTRAP`，再完成邮箱验证和
+  TOTP MFA。
 - 生产环境建议配置 CORS 白名单：
 
 ```env
@@ -270,9 +329,11 @@ RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com
   和 `PUBLIC_API_BASE_URL=http://platform.example.com`；公网真实数据建议升级 HTTPS。
 - 生产环境建议把说明书目录放到 release 外部：
   `UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents`。
-  平台会按浏览器匿名工作区隔离文档，多个用户不会共用同一份说明书列表。
+  平台会按登录后的项目作用域隔离文档，未登录用户不能访问说明书工作区。
 - 部署后可访问 API 版本接口检查运行目录、release 信息和 schema 能力。
 - 宝塔/PM2 部署可参考 [docs/deployment/baota-cicd.md](docs/deployment/baota-cicd.md)。
+- 后台真实数据 Wave 4 验收可参考
+  [docs/acceptance/wave-4-real-data-acceptance.md](./docs/acceptance/wave-4-real-data-acceptance.md)。
 
 ---
 
@@ -280,6 +341,12 @@ RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com
 
 - [API 说明](./apps/api/README.md)
 - [部署文档](./docs/deployment/baota-cicd.md)
+- [生产环境变量清单](./docs/deployment/production-env.md)
+- [可信链路审计工作台](./docs/trusted-chain-audit/README.md)
+- [可信链路最终结论](./docs/trusted-chain-audit/09-final-conclusion.md)
+- [可信链路测试与证据计划](./docs/trusted-chain-audit/08-test-and-evidence-plan.md)
+- [Wave 4 真实数据验收清单](./docs/acceptance/wave-4-real-data-acceptance.md)
+- [浏览器验收 Harness](./packages/harness-e2e/README.md)
 - [OpenAI 兼容 Chat Completions 说明](./docs/contracts/chat-completions.md)
 - [说明书模板目录](./docs/template)
 

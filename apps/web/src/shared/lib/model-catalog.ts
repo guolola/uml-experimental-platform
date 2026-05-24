@@ -99,7 +99,7 @@ export const MODEL_VENDORS: ModelVendor[] = [
 
 const MODEL_OPTIONS = MODEL_VENDORS.flatMap((vendor) => vendor.models);
 
-export const DEFAULT_MODEL_ID = MODEL_VENDORS[0].models[0].id;
+export const DEFAULT_MODEL_ID = "gpt-5.4";
 
 export function getModelOption(modelId: string) {
   return MODEL_OPTIONS.find((model) => model.id === modelId) ?? null;

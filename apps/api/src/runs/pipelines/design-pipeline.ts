@@ -41,6 +41,7 @@ import {
   parseDesignTraceabilityCoverageForSources,
 } from "../../normalizers/design/design-model-normalizer.js";
 import {
+  collectModelRefs,
   deriveDesignRelationshipTraceability,
   formatTraceabilityMissingRefs,
   mergeDesignTraceability,
@@ -49,14 +50,33 @@ import {
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
+import {
+  assertRequirementBaselineAllowsDownstream,
+  buildRequirementBaseline,
+} from "../baselines/requirement-baseline.js";
 import { collectTextResult, logFailedStructuredOutput } from "./shared/structured-output.js";
 import { appendDesignTrace } from "./shared/trace-events.js";
+import {
+  assertTrustedChainAllowsCompletion,
+  buildDesignStageTrustedChain,
+} from "../traceability/trusted-chain-traceability.js";
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
 const DESIGN_TRACEABILITY_BATCH_SIZE = 24;
+const DESIGN_SEQUENCE_CONCURRENCY = 2;
+const LLM_CHUNK_EVENT_LIMIT = 240;
+const LLM_CHUNK_CHAR_LIMIT = 24000;
+const TRACE_RAW_OUTPUT_LIMIT = 20000;
+
+function compactText(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+}
 
 function chunkArray<T>(items: T[], size: number) {
   const chunks: T[][] = [];
@@ -64,6 +84,164 @@ function chunkArray<T>(items: T[], size: number) {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+function autoFillDesignTraceability(
+  missingSources: ModelElementRef[],
+  designModels: DesignDiagramModelSpec[],
+  requirementModels: DiagramModelSpec[],
+) {
+  const requirementRefs = collectModelRefs(requirementModels).refs;
+  if (requirementRefs.length === 0) return [];
+
+  const firstUseCaseRef =
+    requirementRefs.find((ref) => ref.diagramKind === "usecase") ??
+    requirementRefs[0];
+  const byElementId = new Map(
+    requirementRefs.map((ref) => [ref.elementId.toLowerCase(), ref]),
+  );
+  const designByModelId = new Map(
+    designModels
+      .map((model) => [
+        compactText((model as unknown as Record<string, unknown>).modelId),
+        model,
+      ] as const)
+      .filter(([modelId]) => modelId),
+  );
+
+  return missingSources.flatMap((source): DesignModelTraceabilityEntry[] => {
+    const sourceModel = source.modelId ? designByModelId.get(source.modelId) : undefined;
+    const sourceUseCaseId = compactText(
+      (sourceModel as unknown as Record<string, unknown> | undefined)
+        ?.sourceUseCaseId,
+    );
+    const directUseCaseTarget = sourceUseCaseId
+      ? byElementId.get(sourceUseCaseId.toLowerCase())
+      : undefined;
+    const labelTarget = requirementRefs.find((ref) => {
+      const sourceLabel = source.label.toLowerCase();
+      return (
+        sourceLabel.includes(ref.label.toLowerCase()) ||
+        ref.label.toLowerCase().includes(sourceLabel)
+      );
+    });
+    const target = directUseCaseTarget ?? labelTarget ?? firstUseCaseRef;
+    if (!target) return [];
+    return [
+      {
+        source,
+        targets: [target],
+        mappingSource: "auto-filled-pending-review",
+        reviewStatus: "pending",
+        confidence: "low",
+        rationale:
+          "LLM 修复后仍缺少该设计元素映射，系统按顺序图用例或最接近的需求元素自动补齐。",
+      },
+    ];
+  });
+}
+
+function truncateTraceRawOutput(rawOutput: string) {
+  if (rawOutput.length <= TRACE_RAW_OUTPUT_LIMIT) return rawOutput;
+  return `${rawOutput.slice(0, TRACE_RAW_OUTPUT_LIMIT)}\n...[truncated ${rawOutput.length - TRACE_RAW_OUTPUT_LIMIT} chars]`;
+}
+
+function createLimitedLlmChunkEmitter(record: RunRecord, stage: RunStage) {
+  let emittedChunks = 0;
+  let emittedChars = 0;
+  let truncationNotified = false;
+
+  return (chunk: string) => {
+    if (
+      emittedChunks >= LLM_CHUNK_EVENT_LIMIT ||
+      emittedChars >= LLM_CHUNK_CHAR_LIMIT
+    ) {
+      if (!truncationNotified) {
+        truncationNotified = true;
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage,
+            progress: stageProgressValue(stage),
+            message: "模型流式输出较长，技术日志已折叠，后台继续解析完整结果",
+          }),
+        );
+      }
+      return;
+    }
+    emittedChunks += 1;
+    emittedChars += chunk.length;
+    emitEvent(
+      record,
+      llmChunkRunEventSchema.parse({
+        type: "llm_chunk",
+        stage,
+        chunk,
+      }),
+    );
+  };
+}
+
+function useCasesFromModel(useCaseModel: DiagramModelSpec) {
+  return useCaseModel.diagramKind === "usecase" ? useCaseModel.useCases : [];
+}
+
+function useCaseModelForSingleUseCase(
+  useCaseModel: DiagramModelSpec,
+  sourceUseCaseId: string,
+) {
+  if (useCaseModel.diagramKind !== "usecase") return useCaseModel;
+  const useCase = useCaseModel.useCases.find((item) => item.id === sourceUseCaseId);
+  if (!useCase) return useCaseModel;
+  return {
+    ...useCaseModel,
+    useCases: [useCase],
+    relationships: useCaseModel.relationships.filter(
+      (relationship) =>
+        relationship.sourceId === sourceUseCaseId ||
+        relationship.targetId === sourceUseCaseId,
+    ),
+  };
+}
+
+function validateUseCaseSequenceCoverage(
+  sequenceModels: Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }>[],
+  useCaseModel: DiagramModelSpec,
+) {
+  const useCases = useCasesFromModel(useCaseModel);
+  const covered = new Set(sequenceModels.map((model) => model.sourceUseCaseId));
+  const missing = useCases.filter((useCase) => !covered.has(useCase.id));
+  if (sequenceModels.length !== useCases.length || missing.length > 0) {
+    const preview = missing
+      .slice(0, 8)
+      .map((useCase) => `${useCase.id}:${useCase.name}`)
+      .join("、");
+    throw new Error(
+      `设计顺序图生成结果必须为每个用例生成一个独立顺序图；缺少 ${missing.length} 个用例顺序图：${preview}`,
+    );
+  }
 }
 
 async function generateDesignTraceabilityWithRepair(
@@ -162,17 +340,44 @@ async function generateDesignTraceabilityWithRepair(
     designModels,
     requirementModels,
   );
-  if (finalCoverage.traceability.length === 0) {
+  const recoveredFinalTraceability =
+    finalCoverage.traceability.length > 0 && finalCoverage.missingSources.length > 0
+      ? mergeDesignTraceability(
+          finalCoverage.traceability,
+          autoFillDesignTraceability(
+            finalCoverage.missingSources,
+            designModels,
+            requirementModels,
+          ),
+        )
+      : finalCoverage.traceability;
+  const recoveredFinalCoverage = normalizeDesignTraceabilityWithCoverage(
+    recoveredFinalTraceability,
+    designModels,
+    requirementModels,
+  );
+  if (recoveredFinalCoverage.traceability.length === 0) {
     throw new Error(
       "design traceability structured output failed: generate_design_models must return non-empty designModelTraceability with valid design-to-requirement element references",
     );
   }
-  if (finalCoverage.missingSources.length > 0) {
+  if (recoveredFinalCoverage.missingSources.length > 0) {
     throw new Error(
       `design traceability structured output failed: ${formatTraceabilityMissingRefs(
         "design",
-        finalCoverage.missingSources,
+        recoveredFinalCoverage.missingSources,
       )}`,
+    );
+  }
+  if (finalCoverage.missingSources.length > 0) {
+    emitEvent(
+      record,
+      stageProgressRunEventSchema.parse({
+        type: "stage_progress",
+        stage,
+        progress: stageProgressValue(stage),
+        message: `已自动补齐 ${finalCoverage.missingSources.length} 个设计模型元素映射`,
+      }),
     );
   }
 
@@ -183,10 +388,10 @@ async function generateDesignTraceabilityWithRepair(
     kind: "parsed_model",
     parsedData: {
       models: designModels,
-      designModelTraceability: finalCoverage.traceability,
+      designModelTraceability: recoveredFinalCoverage.traceability,
     },
   });
-  return finalCoverage.traceability;
+  return recoveredFinalCoverage.traceability;
 }
 
 async function generateDesignTraceabilityBatchWithRepair(
@@ -221,20 +426,12 @@ async function generateDesignTraceabilityBatchWithRepair(
     stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
   for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
+    const emitLimitedChunk = createLimitedLlmChunkEmitter(record, stage);
     const content = await collectTextResult(
       llmTransport,
       providerSettings,
       createMessages(prompt),
-      (chunk) => {
-        emitEvent(
-          record,
-          llmChunkRunEventSchema.parse({
-            type: "llm_chunk",
-            stage,
-            chunk,
-          }),
-        );
-      },
+      emitLimitedChunk,
       responseFormat,
     );
     previousOutput = content;
@@ -242,7 +439,7 @@ async function generateDesignTraceabilityBatchWithRepair(
       stage: traceStage,
       attempt: attempt + 1,
       kind: "llm_output",
-      rawOutput: content,
+      rawOutput: truncateTraceRawOutput(content),
     });
 
     try {
@@ -298,11 +495,53 @@ async function generateDesignTraceabilityBatchWithRepair(
         stage: traceStage,
         attempt: attempt + 1,
         kind: "parse_error",
-        rawOutput: content,
+        rawOutput: truncateTraceRawOutput(content),
         errorMessage: lastErrorMessage,
       });
 
       if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
+        if (accumulatedTraceability.length === 0) {
+          throw new Error(
+            `design traceability structured output failed: ${lastErrorMessage}`,
+          );
+        }
+        const recoveredTraceability = mergeDesignTraceability(
+          accumulatedTraceability,
+          autoFillDesignTraceability(
+            missingSources,
+            designModels,
+            requirementModels,
+          ),
+        );
+        const recoveredCoverage = normalizeDesignTraceabilityForSources(
+          recoveredTraceability,
+          requiredSources,
+          requirementModels,
+        );
+        if (
+          recoveredCoverage.traceability.length > 0 &&
+          recoveredCoverage.missingSources.length === 0
+        ) {
+          emitEvent(
+            record,
+            stageProgressRunEventSchema.parse({
+              type: "stage_progress",
+              stage,
+              progress: stageProgressValue(stage),
+              message: `已自动补齐第 ${batchIndex}/${totalBatches} 批 ${missingSources.length} 个设计模型元素映射`,
+            }),
+          );
+          appendDesignTrace(record, {
+            stage: traceStage,
+            attempt: attempt + 1,
+            kind: "parsed_model",
+            parsedData: {
+              models: designModels,
+              designModelTraceability: recoveredCoverage.traceability,
+            },
+          });
+          return recoveredCoverage.traceability;
+        }
         throw new Error(
           `design traceability structured output failed: ${lastErrorMessage}`,
         );
@@ -355,20 +594,12 @@ export async function generateDesignModelsWithRepair(
     stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
   for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
+    const emitLimitedChunk = createLimitedLlmChunkEmitter(record, stage);
     const content = await collectTextResult(
       llmTransport,
       providerSettings,
       createMessages(prompt),
-      (chunk) => {
-        emitEvent(
-          record,
-          llmChunkRunEventSchema.parse({
-            type: "llm_chunk",
-            stage,
-            chunk,
-          }),
-        );
-      },
+      emitLimitedChunk,
       responseFormat,
     );
     previousOutput = content;
@@ -376,7 +607,7 @@ export async function generateDesignModelsWithRepair(
       stage: traceStage,
       attempt: attempt + 1,
       kind: "llm_output",
-      rawOutput: content,
+      rawOutput: truncateTraceRawOutput(content),
     });
 
     try {
@@ -439,7 +670,7 @@ export async function generateDesignModelsWithRepair(
           stage: traceStage,
           attempt: attempt + 1,
           kind: "parse_error",
-          rawOutput: content,
+          rawOutput: truncateTraceRawOutput(content),
           errorMessage: lastErrorMessage,
         });
         emitEvent(
@@ -479,7 +710,7 @@ export async function generateDesignModelsWithRepair(
         stage: traceStage,
         attempt: attempt + 1,
         kind: "parse_error",
-        rawOutput: content,
+        rawOutput: truncateTraceRawOutput(content),
         errorMessage: lastErrorMessage,
       });
 
@@ -519,6 +750,45 @@ export function findRequirementModel(
   return models.find((model) => model.diagramKind === diagramKind);
 }
 
+function getDesignModelId(model: Pick<DesignDiagramModelSpec, "diagramKind" | "modelId">) {
+  return model.modelId ?? model.diagramKind;
+}
+
+function mergeDesignModels(
+  existing: DesignDiagramModelSpec[],
+  incoming: DesignDiagramModelSpec[],
+) {
+  const merged = new Map(existing.map((model) => [getDesignModelId(model), model]));
+  for (const model of incoming) {
+    merged.set(getDesignModelId(model), model);
+  }
+  return [...merged.values()];
+}
+
+function findDesignModelForArtifact(
+  models: DesignDiagramModelSpec[],
+  artifact: Pick<DesignPlantUmlArtifact, "diagramKind" | "modelId">,
+) {
+  const artifactId = artifact.modelId ?? artifact.diagramKind;
+  return models.find((model) => getDesignModelId(model) === artifactId);
+}
+
+function existingSequenceModelsForUseCases(
+  models: DesignDiagramModelSpec[],
+  useCaseModel: DiagramModelSpec,
+) {
+  const sequences = models.filter(
+    (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }> =>
+      model.diagramKind === "sequence",
+  );
+  try {
+    validateUseCaseSequenceCoverage(sequences, useCaseModel);
+    return sequences;
+  } catch {
+    return [];
+  }
+}
+
 export function sourceRequirementKindForDesign(
   diagramKind: Exclude<DesignDiagramKind, "sequence">,
 ): DiagramKind {
@@ -542,6 +812,14 @@ export async function runDesignStagePipeline(
   renderClient: RenderClient,
 ) {
   const snapshot = record.snapshot as DesignRunSnapshot;
+  if (!snapshot.requirementBaseline && snapshot.rules.length > 0) {
+    snapshot.requirementBaseline = buildRequirementBaseline({
+      runId: snapshot.runId,
+      requirementText: snapshot.requirementText,
+      rules: snapshot.rules,
+    });
+  }
+  assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
 
   const updateStage = (stage: RunStage, message?: string) => {
     snapshot.currentStage = stage;
@@ -558,39 +836,77 @@ export async function runDesignStagePipeline(
     );
   };
 
-  let models: DesignDiagramModelSpec[] = [];
-  let designModelTraceability: DesignRunSnapshot["designModelTraceability"] = [];
+  let models: DesignDiagramModelSpec[] = [...snapshot.models];
+  let designModelTraceability: DesignRunSnapshot["designModelTraceability"] = [
+    ...snapshot.designModelTraceability,
+  ];
   let diagramErrors: Partial<Record<DesignDiagramKind, DiagramError>> = {};
   const useCaseModel = findRequirementModel(snapshot.requirementModels, "usecase");
   if (!useCaseModel) {
     throw new Error("缺少需求阶段用例模型，无法生成设计阶段顺序图");
   }
 
-  updateStage("generate_design_sequence", "正在生成设计顺序图");
-  const sequenceResult = await generateDesignModelsWithRepair(
-    record,
-    providerSettings,
-    llmTransport,
-    snapshot.requirementText,
-    snapshot.rules,
-    [useCaseModel],
-    ["sequence"],
-    buildGenerateDesignSequencePrompt(
-      snapshot.requirementText,
-      snapshot.rules,
-      useCaseModel,
-    ),
-    "generate_design_sequence",
-  );
-  const sequenceModel = sequenceResult.models.find(
-    (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }> =>
-      model.diagramKind === "sequence",
-  );
-  if (!sequenceModel) {
-    throw new Error("设计顺序图生成结果缺少 sequence 模型");
+  let sequenceModels = existingSequenceModelsForUseCases(models, useCaseModel);
+  if (
+    sequenceModels.length === 0 ||
+    (snapshot.selectedDiagrams.length === 1 && snapshot.selectedDiagrams.includes("sequence"))
+  ) {
+    updateStage("generate_design_sequence", "正在生成设计顺序图");
+    const sequenceResults = await mapWithConcurrency(
+      useCasesFromModel(useCaseModel),
+      DESIGN_SEQUENCE_CONCURRENCY,
+      (useCase) => {
+        const scopedUseCaseModel = useCaseModelForSingleUseCase(
+          useCaseModel,
+          useCase.id,
+        );
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage: "generate_design_sequence",
+            progress: stageProgressValue("generate_design_sequence"),
+            message: `正在生成顺序图：${useCase.name}`,
+            diagramKind: "sequence",
+            modelId: `sequence:${useCase.id}`,
+            subtaskId: `sequence:${useCase.id}`,
+            subtaskLabel: `顺序图：${useCase.name}`,
+            subtaskStatus: "running",
+          }),
+        );
+        return generateDesignModelsWithRepair(
+          record,
+          providerSettings,
+          llmTransport,
+          snapshot.requirementText,
+          snapshot.rules,
+          [scopedUseCaseModel],
+          ["sequence"],
+          buildGenerateDesignSequencePrompt(
+            snapshot.requirementText,
+            snapshot.rules,
+            scopedUseCaseModel,
+          ),
+          "generate_design_sequence",
+        );
+      },
+    );
+    sequenceModels = sequenceResults.flatMap((result) => result.models).filter(
+      (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }> =>
+        model.diagramKind === "sequence",
+    );
+    if (sequenceModels.length === 0) {
+      throw new Error("设计顺序图生成结果缺少 sequence 模型");
+    }
+    validateUseCaseSequenceCoverage(sequenceModels, useCaseModel);
+    models = mergeDesignModels(models, sequenceModels);
+    designModelTraceability = [
+      ...designModelTraceability.filter(
+        (entry) => entry.source.diagramKind !== "sequence",
+      ),
+      ...sequenceResults.flatMap((result) => result.designModelTraceability),
+    ];
   }
-  models = [sequenceModel];
-  designModelTraceability = [...sequenceResult.designModelTraceability];
   snapshot.models = models;
   snapshot.designModelTraceability = designModelTraceability;
   emitEvent(
@@ -621,36 +937,114 @@ export async function runDesignStagePipeline(
 
   if (downstreamWithSources.length > 0) {
     updateStage("generate_design_models", "正在生成设计阶段结构化模型");
-    const sourceModels = downstreamWithSources
-      .map((diagram) =>
+    const generateDownstreamDiagram = async (
+      diagram: Exclude<DesignDiagramKind, "sequence">,
+      designContextModels: DesignDiagramModelSpec[] = [],
+    ) => {
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage: "generate_design_models",
+          progress: stageProgressValue("generate_design_models"),
+          message: `正在生成：${diagram}`,
+          diagramKind: diagram,
+          subtaskId: diagram,
+          subtaskStatus: "running",
+        }),
+      );
+      const sourceModels = [
         findRequirementModel(
           snapshot.requirementModels,
           sourceRequirementKindForDesign(diagram),
         ),
-      )
-      .filter((model): model is DiagramModelSpec => Boolean(model));
-    const downstreamResult = await generateDesignModelsWithRepair(
-      record,
-      providerSettings,
-      llmTransport,
-      snapshot.requirementText,
-      snapshot.rules,
-      sourceModels,
-      downstreamWithSources,
-      buildGenerateDesignModelsPrompt(
-        snapshot.requirementText,
-        snapshot.rules,
-        sourceModels,
-        sequenceModel,
-        downstreamWithSources,
-      ),
-      "generate_design_models",
+      ].filter((model): model is DiagramModelSpec => Boolean(model));
+      try {
+        return await generateDesignModelsWithRepair(
+          record,
+          providerSettings,
+          llmTransport,
+          snapshot.requirementText,
+          snapshot.rules,
+          sourceModels,
+          [diagram],
+          buildGenerateDesignModelsPrompt(
+            snapshot.requirementText,
+            snapshot.rules,
+            sourceModels,
+            sequenceModels,
+            [diagram],
+            designContextModels,
+          ),
+          "generate_design_models",
+        );
+      } catch (error) {
+        diagramErrors[diagram] = diagramErrorSchema.parse({
+          stage: "generate_design_models",
+          message:
+            error instanceof Error ? error.message : `${diagram} 设计模型生成失败`,
+        });
+        return null;
+      }
+    };
+
+    const parallelDownstream = downstreamWithSources.filter(
+      (diagram) => diagram !== "table",
     );
-    models = [...models, ...downstreamResult.models];
+    const downstreamResults = await Promise.all(
+      parallelDownstream.map((diagram) => generateDownstreamDiagram(diagram)),
+    );
+    const generatedDownstreamModels = downstreamResults.flatMap(
+      (result) => result?.models ?? [],
+    );
+    models = mergeDesignModels(models, generatedDownstreamModels);
     designModelTraceability = [
-      ...designModelTraceability,
-      ...downstreamResult.designModelTraceability,
+      ...designModelTraceability.filter(
+        (entry) =>
+          !generatedDownstreamModels.some(
+            (model) => model.diagramKind === entry.source.diagramKind,
+          ),
+      ),
+      ...downstreamResults.flatMap((result) => result?.designModelTraceability ?? []),
     ];
+
+    if (downstreamWithSources.includes("table")) {
+      const classModel = models.find((model) => model.diagramKind === "class");
+      if (!classModel) {
+        diagramErrors.table = diagramErrorSchema.parse({
+          stage: "generate_design_models",
+          message: "缺少设计类图，无法生成表关系图",
+        });
+      } else {
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage: "generate_design_models",
+            progress: stageProgressValue("generate_design_models"),
+            message: "表关系图依赖设计类图，正在基于设计类图生成：table",
+          }),
+        );
+        const tableResult = await generateDownstreamDiagram("table", [classModel]);
+        const tableModels = tableResult?.models ?? [];
+        models = mergeDesignModels(models, tableModels);
+        designModelTraceability = [
+          ...designModelTraceability.filter(
+            (entry) =>
+              !tableModels.some(
+                (model) => model.diagramKind === entry.source.diagramKind,
+              ),
+          ),
+          ...(tableResult?.designModelTraceability ?? []),
+        ];
+        if (tableModels.length === 0 && !diagramErrors.table) {
+          diagramErrors.table = diagramErrorSchema.parse({
+            stage: "generate_design_models",
+            message: "表关系图生成结果为空",
+          });
+        }
+      }
+    }
     snapshot.models = models;
     snapshot.designModelTraceability = designModelTraceability;
     emitEvent(
@@ -662,6 +1056,36 @@ export async function runDesignStagePipeline(
       }),
     );
   }
+
+  const trustedChain = buildDesignStageTrustedChain({
+    runId: snapshot.runId,
+    baseline: snapshot.requirementBaseline,
+    models: snapshot.requirementModels,
+    requirementModelTraceability: snapshot.requirementModelTraceability,
+    designModels: models,
+    designModelTraceability,
+  });
+  snapshot.coverageMatrix = trustedChain.coverageMatrix;
+  snapshot.traceabilityMatrix = trustedChain.traceabilityMatrix;
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "generate_design_models",
+      artifactKind: "coverageMatrix",
+      coverageMatrix: trustedChain.coverageMatrix,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "generate_design_models",
+      artifactKind: "traceabilityMatrix",
+      traceabilityMatrix: trustedChain.traceabilityMatrix,
+    }),
+  );
+  assertTrustedChainAllowsCompletion(trustedChain);
 
   updateStage("generate_plantuml", "正在生成设计阶段 PlantUML");
   let plantUml = generateDesignPlantUmlArtifacts(models);
@@ -690,7 +1114,7 @@ export async function runDesignStagePipeline(
   const svgArtifacts: DesignSvgArtifact[] = [];
   const renderFailures: string[] = [];
   for (const artifact of plantUml) {
-    const model = models.find((item) => item.diagramKind === artifact.diagramKind);
+    const model = findDesignModelForArtifact(models, artifact);
     if (!model) {
       throw new Error(`Missing design diagram model for ${artifact.diagramKind}`);
     }
@@ -733,6 +1157,16 @@ export async function runDesignStagePipeline(
   }
 
   snapshot.currentStage = "render_svg";
+  const evidencePackage = attachEvidencePackage(snapshot);
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "render_svg",
+      artifactKind: "evidencePackage",
+      evidencePackage,
+    }),
+  );
   snapshot.status = "completed";
   snapshot.errorMessage = null;
   emitEvent(

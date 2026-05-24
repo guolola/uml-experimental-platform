@@ -239,9 +239,9 @@ describe("InstructionDocumentsPage", () => {
     expect(within(generatedSection).getAllByText("128 B")).toHaveLength(3);
     expect(within(generatedSection).queryByText("来源运行")).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText("说明书类型"),
-      "requirementsSpec",
+    await userEvent.click(screen.getByRole("combobox", { name: "说明书类型" }));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "需求规格说明书" }),
     );
 
     expect(

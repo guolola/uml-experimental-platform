@@ -84,9 +84,34 @@ const sandpackMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@monaco-editor/react", () => ({
-  default: ({ beforeMount }: { beforeMount?: (monaco: typeof monacoMocks.monaco) => void }) => {
+  default: ({
+    beforeMount,
+    onChange,
+  }: {
+    beforeMount?: (monaco: typeof monacoMocks.monaco) => void;
+    onChange?: (value: string) => void;
+  }) => {
     beforeMount?.(monacoMocks.monaco);
-    return <div data-testid="monaco-editor" />;
+    return (
+      <div data-testid="monaco-editor">
+        <button
+          type="button"
+          data-testid="mock-edit-app-file"
+          onClick={() =>
+            onChange?.("export default function App() { return <main>Edited preview text</main>; }")
+          }
+        >
+          edit app file
+        </button>
+        <button
+          type="button"
+          data-testid="mock-break-app-file"
+          onClick={() => onChange?.("import './Missing'; export default function App() { return null; }")}
+        >
+          break app file
+        </button>
+      </div>
+    );
   },
   useMonaco: () => monacoMocks.monaco,
 }));
@@ -243,10 +268,58 @@ describe("CodeGenerationPage", () => {
 
     await screen.findByTestId("sandpack-provider");
 
-    expect(screen.getByText("预览可用")).toBeInTheDocument();
-    expect(
-      screen.getByText(/当前原型已经生成，可以查看预览、继续生成、重新生成或导出/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("预览已更新")).toBeInTheDocument();
+  });
+
+  it("keeps edited code out of the iframe until the user runs the preview", async () => {
+    render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
+
+    let iframe: HTMLIFrameElement | null = null;
+    await waitFor(() => {
+      iframe = document.querySelector('iframe[title="Prototype Preview"]');
+      expect(iframe).toBeInTheDocument();
+    });
+    monacoMocks.updateFile.mockClear();
+    expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain("Edited preview text");
+
+    fireEvent.click(screen.getByTestId("mock-edit-app-file"));
+
+    expect(await screen.findByText("有未运行的修改")).toBeInTheDocument();
+    expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain("Edited preview text");
+    expect(monacoMocks.updateFile).not.toHaveBeenCalledWith(
+      "/src/App.tsx",
+      expect.stringContaining("Edited preview text"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "运行预览" }));
+
+    await waitFor(() => {
+      expect(monacoMocks.updateFile).toHaveBeenCalledWith(
+        "/src/App.tsx",
+        expect.stringContaining("Edited preview text"),
+      );
+    });
+    expect(screen.getByText("预览已更新")).toBeInTheDocument();
+  });
+
+  it("shows build errors from a manually run preview without marking it updated", async () => {
+    render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('iframe[title="Prototype Preview"]'),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("mock-break-app-file"));
+    fireEvent.click(screen.getByRole("button", { name: "运行预览" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("local-preview-status")).toHaveTextContent(
+        "/src/App.tsx 无法解析导入 ./Missing",
+      );
+    });
+    expect(screen.getByText("预览构建失败")).toBeInTheDocument();
   });
 
   it("opens the full preview from the preview title", async () => {

@@ -47,6 +47,7 @@ import {
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
@@ -56,6 +57,14 @@ import {
   logFailedStructuredOutput,
 } from "./shared/structured-output.js";
 import { appendRequirementTrace } from "./shared/trace-events.js";
+import {
+  assertRequirementBaselineAllowsDownstream,
+  buildRequirementBaseline,
+} from "../baselines/requirement-baseline.js";
+import {
+  assertTrustedChainAllowsCompletion,
+  buildRequirementStageTrustedChain,
+} from "../traceability/trusted-chain-traceability.js";
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
 
@@ -235,13 +244,24 @@ export async function generateModelsWithRepair(
 
     try {
       const parsed = parseRequirementDiagramModelsResult(content, rules);
+      const selectedSet = new Set(selectedDiagrams);
+      const filteredModels = parsed.models.filter((model) =>
+        selectedSet.has(model.diagramKind),
+      );
+      const filteredTraceability = parsed.requirementModelTraceability.filter((entry) =>
+        selectedSet.has(entry.target.diagramKind as DiagramKind),
+      );
+      const filteredParsed = {
+        models: filteredModels,
+        requirementModelTraceability: filteredTraceability,
+      };
       appendRequirementTrace(record, {
         stage: "generate_models",
         attempt: attempt + 1,
         kind: "parsed_model",
-        parsedData: parsed,
+        parsedData: filteredParsed,
       });
-      return parsed;
+      return filteredParsed;
     } catch (error) {
       const modelOnly = (() => {
         try {
@@ -277,9 +297,14 @@ export async function generateModelsWithRepair(
             rules,
             modelOnly.models,
           );
+        const selectedSet = new Set(selectedDiagrams);
         return {
-          ...modelOnly,
-          requirementModelTraceability,
+          models: modelOnly.models.filter((model) =>
+            selectedSet.has(model.diagramKind),
+          ),
+          requirementModelTraceability: requirementModelTraceability.filter((entry) =>
+            selectedSet.has(entry.target.diagramKind as DiagramKind),
+          ),
         };
       }
 
@@ -379,6 +404,11 @@ export async function runStagePipeline(
     );
     rules = ruleResult.rules;
     snapshot.rules = rules;
+    snapshot.requirementBaseline = buildRequirementBaseline({
+      runId: snapshot.runId,
+      requirementText: snapshot.requirementText,
+      rules,
+    });
     emitEvent(
       record,
       artifactReadyRunEventSchema.parse({
@@ -387,24 +417,89 @@ export async function runStagePipeline(
         artifactKind: "rules",
       }),
     );
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "extract_rules",
+        artifactKind: "requirementBaseline",
+      }),
+    );
   }
+
+  if (!snapshot.requirementBaseline && rules.length > 0) {
+    snapshot.requirementBaseline = buildRequirementBaseline({
+      runId: snapshot.runId,
+      requirementText: snapshot.requirementText,
+      rules,
+    });
+  }
+  assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
 
   updateStage("generate_models", "正在生成结构化模型");
   if (snapshot.selectedDiagrams.length > 0) {
-    const modelResult = await generateModelsWithRepair(
-      record,
-      providerSettings,
-      llmTransport,
-      snapshot.requirementText,
-      rules,
-      snapshot.selectedDiagrams,
+    const generationResults = await Promise.all(
+      snapshot.selectedDiagrams.map(async (diagram) => {
+        const diagramRules = rules.filter((rule) =>
+          rule.relatedDiagrams.includes(diagram),
+        );
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage: "generate_models",
+            progress: stageProgressValue("generate_models"),
+            message: `正在生成：${diagram}`,
+            diagramKind: diagram,
+            subtaskId: diagram,
+            subtaskStatus: "running",
+          }),
+        );
+        try {
+          const result = await generateModelsWithRepair(
+            record,
+            providerSettings,
+            llmTransport,
+            snapshot.requirementText,
+            diagramRules.length > 0 ? diagramRules : rules,
+            [diagram],
+          );
+          emitEvent(
+            record,
+            artifactReadyRunEventSchema.parse({
+              type: "artifact_ready",
+              stage: "generate_models",
+              artifactKind: "model",
+              diagramKind: diagram,
+            }),
+          );
+          return { diagram, result };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : `${diagram} 模型生成失败`;
+          diagramErrors[diagram] = diagramErrorSchema.parse({
+            stage: "generate_models",
+            message,
+          });
+          return null;
+        }
+      }),
     );
-    models = modelResult.models;
-    requirementModelTraceability = modelResult.requirementModelTraceability;
+    models = generationResults.flatMap((entry) => entry?.result.models ?? []);
+    requirementModelTraceability = generationResults.flatMap(
+      (entry) => entry?.result.requirementModelTraceability ?? [],
+    );
+    if (snapshot.selectedDiagrams.length > 0 && models.length === 0) {
+      throw new Error(
+        Object.values(diagramErrors)
+          .map((error) => error.message)
+          .join("；") || "需求模型生成失败",
+      );
+    }
   }
   snapshot.models = models;
   snapshot.requirementModelTraceability = requirementModelTraceability;
-  snapshot.diagramErrors = {};
+  snapshot.diagramErrors = diagramErrors;
   emitEvent(
     record,
     artifactReadyRunEventSchema.parse({
@@ -413,6 +508,33 @@ export async function runStagePipeline(
       artifactKind: "model",
     }),
   );
+  const trustedChain = buildRequirementStageTrustedChain({
+    runId: snapshot.runId,
+    baseline: snapshot.requirementBaseline,
+    models,
+    requirementModelTraceability,
+  });
+  snapshot.coverageMatrix = trustedChain.coverageMatrix;
+  snapshot.traceabilityMatrix = trustedChain.traceabilityMatrix;
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "generate_models",
+      artifactKind: "coverageMatrix",
+      coverageMatrix: trustedChain.coverageMatrix,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "generate_models",
+      artifactKind: "traceabilityMatrix",
+      traceabilityMatrix: trustedChain.traceabilityMatrix,
+    }),
+  );
+  assertTrustedChainAllowsCompletion(trustedChain);
 
   updateStage("generate_plantuml", "正在生成 PlantUML");
   plantUml = generatePlantUmlArtifacts(models);
@@ -484,6 +606,16 @@ export async function runStagePipeline(
   }
 
   snapshot.currentStage = "render_svg";
+  const evidencePackage = attachEvidencePackage(snapshot);
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "render_svg",
+      artifactKind: "evidencePackage",
+      evidencePackage,
+    }),
+  );
   snapshot.status = "completed";
   snapshot.errorMessage = null;
   emitEvent(

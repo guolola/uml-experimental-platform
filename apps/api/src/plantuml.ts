@@ -867,18 +867,35 @@ export function generateDesignPlantUmlArtifacts(
   return models.map((model) => {
     switch (model.diagramKind) {
       case "sequence":
-        return { diagramKind: model.diagramKind, source: renderSequence(model) };
+        return {
+          modelId: model.modelId,
+          diagramKind: model.diagramKind,
+          source: renderSequence(model),
+        };
       case "class":
-        return { diagramKind: model.diagramKind, source: renderClass(model) };
+        return {
+          modelId: model.modelId,
+          diagramKind: model.diagramKind,
+          source: renderClass(model),
+        };
       case "activity":
-        return { diagramKind: model.diagramKind, source: renderActivity(model) };
+        return {
+          modelId: model.modelId,
+          diagramKind: model.diagramKind,
+          source: renderActivity(model),
+        };
       case "deployment":
         return {
+          modelId: model.modelId,
           diagramKind: model.diagramKind,
           source: renderDeployment(model),
         };
       case "table":
-        return { diagramKind: model.diagramKind, source: renderTable(model) };
+        return {
+          modelId: model.modelId,
+          diagramKind: model.diagramKind,
+          source: renderTable(model),
+        };
     }
   });
 }

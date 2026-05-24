@@ -56,6 +56,7 @@ import {
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import { z } from "zod";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
 import { collectStructuredResult } from "./shared/structured-output.js";
@@ -92,6 +93,15 @@ import {
   validatePrototypeFileContents,
   verifyRenderedPreviewStructure,
 } from "./code/code-quality-audit.js";
+import { buildCodeBusinessAssertionResults } from "./code/code-business-assertions.js";
+import {
+  assertRequirementBaselineAllowsDownstream,
+  buildRequirementBaseline,
+} from "../baselines/requirement-baseline.js";
+import {
+  assertTrustedChainAllowsCompletion,
+  buildCodeStageTrustedChain,
+} from "../traceability/trusted-chain-traceability.js";
 
 const MAX_UI_FIDELITY_REPAIR_ROUNDS = 2;
 
@@ -102,6 +112,14 @@ export async function runCodeStagePipeline(
   llmTransport: LlmTransport,
 ) {
   const snapshot = record.snapshot as CodeRunSnapshot;
+  if (!snapshot.requirementBaseline && snapshot.rules.length > 0) {
+    snapshot.requirementBaseline = buildRequirementBaseline({
+      runId: snapshot.runId,
+      requirementText: snapshot.requirementText,
+      rules: snapshot.rules,
+    });
+  }
+  assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
 
   const updateStage = (stage: RunStage, message?: string) => {
     snapshot.currentStage = stage;
@@ -658,6 +676,69 @@ export async function runCodeStagePipeline(
     addCodeDiagnostic(snapshot, "verify_code_preview", "本次未产生文件变更");
   }
 
+  updateStage("verify_code_business_assertions", "正在验证需求绑定的业务断言");
+  const businessAssertionResults = buildCodeBusinessAssertionResults({
+    runId: snapshot.runId,
+    baseline: snapshot.requirementBaseline,
+    businessLogic,
+    files: snapshot.files,
+  });
+  snapshot.businessAssertionResults = businessAssertionResults;
+  addCodeDiagnostic(
+    snapshot,
+    "verify_code_business_assertions",
+    businessAssertionResults.passed
+      ? `业务断言通过：${businessAssertionResults.assertions.length} 条需求绑定断言已验证`
+      : `业务断言失败：${businessAssertionResults.blockingFailureIds.length} 条阻断性断言未通过`,
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "verify_code_business_assertions",
+      artifactKind: "businessAssertionResults",
+      businessAssertionResults,
+    }),
+  );
+
+  const trustedChain = buildCodeStageTrustedChain({
+    runId: snapshot.runId,
+    baseline: snapshot.requirementBaseline,
+    files: snapshot.files,
+    businessAssertionResults,
+  });
+  snapshot.coverageMatrix = trustedChain.coverageMatrix;
+  snapshot.traceabilityMatrix = trustedChain.traceabilityMatrix;
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "verify_code_preview",
+      artifactKind: "coverageMatrix",
+      coverageMatrix: trustedChain.coverageMatrix,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "verify_code_preview",
+      artifactKind: "traceabilityMatrix",
+      traceabilityMatrix: trustedChain.traceabilityMatrix,
+    }),
+  );
+  assertTrustedChainAllowsCompletion(trustedChain);
+
+  const evidencePackage = attachEvidencePackage(snapshot);
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "verify_code_preview",
+      artifactKind: "evidencePackage",
+      evidencePackage,
+    }),
+  );
   snapshot.status = "completed";
   snapshot.errorMessage = null;
   emitEvent(

@@ -3,7 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { createFileDocumentLibrary } from "./document-library.js";
+import {
+  createFileDocumentLibrary,
+  createSignedDocumentAccessToken,
+} from "./document-library.js";
 
 function decodeJwtPayload(token: string) {
   const [, body] = token.split(".");
@@ -91,7 +94,7 @@ test("file document library persists generated documents and builds OnlyOffice c
         token: accessToken,
         accessTokenSecret: "access-secret",
       }),
-      { workspaceId: "workspace-a" },
+      { workspaceId: "workspace-a", projectId: null, userId: null },
     );
 
     const updated = await library.updateDocumentBuffer(
@@ -128,4 +131,147 @@ test("file document library rejects mismatched workspace secrets", async () => {
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
+});
+
+test("file document library stores project ownership metadata when provided", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-documents-"));
+  try {
+    const library = createFileDocumentLibrary(rootDir);
+    await library.authenticateWorkspace({
+      workspaceId: "workspace-project",
+      workspaceSecret: "workspace-project-secret-value-123456",
+    });
+
+    const saved = await library.saveGeneratedDocument({
+      workspaceId: "workspace-project",
+      projectId: "project-alpha",
+      createdByUserId: "user-a",
+      documentKind: "requirementsSpec",
+      sourceRunId: "run-1",
+      fileName: "需求规格说明书.docx",
+      buffer: Buffer.from("docx"),
+    });
+
+    assert.equal(saved.projectId, "project-alpha");
+    assert.equal(saved.createdByUserId, "user-a");
+    assert.equal(
+      (await library.getDocument("workspace-project", saved.id))?.projectId,
+      "project-alpha",
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("file document library soft deletes and restores project documents", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-documents-"));
+  try {
+    const library = createFileDocumentLibrary(rootDir);
+    await library.authenticateWorkspace({
+      workspaceId: "workspace-project",
+      workspaceSecret: "workspace-project-secret-value-123456",
+    });
+    const saved = await library.saveGeneratedDocument({
+      workspaceId: "workspace-project",
+      projectId: "project-alpha",
+      createdByUserId: "user-a",
+      documentKind: "requirementsSpec",
+      sourceRunId: "run-soft-delete",
+      fileName: "需求规格说明书.docx",
+      buffer: Buffer.from("restorable docx"),
+    });
+
+    assert.equal(await library.deleteDocument("workspace-project", saved.id), true);
+    assert.deepEqual(await library.listDocuments("workspace-project"), []);
+    const restored = await library.restoreDocument("workspace-project", saved.id);
+    assert.equal(restored?.id, saved.id);
+    assert.equal((await library.listDocuments("workspace-project")).length, 1);
+    assert.equal(
+      (await library.getDocumentBuffer("workspace-project", saved.id))?.toString(),
+      "restorable docx",
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("file document library records document versions with project metadata", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-documents-"));
+  try {
+    const library = createFileDocumentLibrary(rootDir);
+    await library.authenticateWorkspace({
+      workspaceId: "workspace-project",
+      workspaceSecret: "workspace-project-secret-value-123456",
+    });
+    const saved = await library.saveGeneratedDocument({
+      workspaceId: "workspace-project",
+      projectId: "project-alpha",
+      createdByUserId: "user-a",
+      documentKind: "requirementsSpec",
+      sourceRunId: "run-version-1",
+      fileName: "需求规格说明书.docx",
+      buffer: Buffer.from("version one"),
+    });
+    await library.updateDocumentBuffer(
+      "workspace-project",
+      saved.id,
+      Buffer.from("version two"),
+    );
+
+    const versions = await library.listDocumentVersions(
+      "workspace-project",
+      saved.id,
+    );
+    assert.deepEqual(
+      versions.map((version) => version.version),
+      [2, 1],
+    );
+    assert.deepEqual(
+      versions.map((version) => version.projectId),
+      ["project-alpha", "project-alpha"],
+    );
+    assert.deepEqual(
+      versions.map((version) => version.byteLength),
+      [11, 11],
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("file document library rejects expired and wrong-purpose document access tokens", () => {
+  const token = createSignedDocumentAccessToken({
+    workspaceId: "workspace-a",
+    documentId: "document-a",
+    purpose: "file",
+    secret: "access-secret",
+    expiresAt: Date.now() - 1,
+  });
+  const library = createFileDocumentLibrary("unused");
+
+  assert.equal(
+    library.verifyOnlyOfficeAccessToken({
+      documentId: "document-a",
+      purpose: "file",
+      token,
+      accessTokenSecret: "access-secret",
+    }),
+    null,
+  );
+
+  const callbackToken = createSignedDocumentAccessToken({
+    workspaceId: "workspace-a",
+    documentId: "document-a",
+    purpose: "callback",
+    secret: "access-secret",
+  });
+  assert.equal(
+    library.verifyOnlyOfficeAccessToken({
+      documentId: "document-a",
+      purpose: "file",
+      token: callbackToken,
+      accessTokenSecret: "access-secret",
+    }),
+    null,
+  );
 });

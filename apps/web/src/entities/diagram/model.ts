@@ -1,4 +1,10 @@
-import type { DesignDiagramKind, DiagramKind } from "@uml-platform/contracts";
+import type {
+  DesignDiagramKind,
+  DesignDiagramModelSpec,
+  DesignPlantUmlArtifact,
+  DesignSvgArtifact,
+  DiagramKind,
+} from "@uml-platform/contracts";
 
 export type DiagramType = DiagramKind;
 export type DesignDiagramType = DesignDiagramKind;
@@ -74,3 +80,15 @@ export const DESIGN_DIAGRAM_ORDER: DesignDiagramType[] = [
   "deployment",
   "table",
 ];
+
+export function getDesignModelId(
+  model: Pick<DesignDiagramModelSpec, "diagramKind" | "modelId">,
+) {
+  return model.modelId ?? model.diagramKind;
+}
+
+export function getDesignArtifactId(
+  artifact: Pick<DesignPlantUmlArtifact | DesignSvgArtifact, "diagramKind" | "modelId">,
+) {
+  return artifact.modelId ?? artifact.diagramKind;
+}

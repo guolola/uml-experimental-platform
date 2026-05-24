@@ -231,6 +231,70 @@ test("design traceability rejects stage names as diagramKind and reports missing
   );
 });
 
+test("design traceability distinguishes same element ids across sequence model instances", () => {
+  const sequenceModels = [
+    {
+      diagramKind: "sequence" as const,
+      modelId: "sequence:uc_view",
+      sourceUseCaseId: "uc_view",
+      sourceUseCaseName: "查看活动",
+      title: "查看活动顺序图",
+      summary: "查看活动流程",
+      notes: [],
+      participants: [
+        { id: "p_user", name: "用户", participantType: "actor" as const },
+      ],
+      messages: [],
+      fragments: [],
+    },
+    {
+      diagramKind: "sequence" as const,
+      modelId: "sequence:uc_create",
+      sourceUseCaseId: "uc_create",
+      sourceUseCaseName: "创建活动",
+      title: "创建活动顺序图",
+      summary: "创建活动流程",
+      notes: [],
+      participants: [
+        { id: "p_user", name: "用户", participantType: "actor" as const },
+      ],
+      messages: [],
+      fragments: [],
+    },
+  ];
+
+  const normalized = normalizeDesignTraceabilityWithCoverage(
+    [
+      {
+        source: {
+          modelId: "sequence:uc_view",
+          diagramKind: "sequence",
+          elementId: "p_user",
+          elementKind: "participant",
+          label: "用户",
+        },
+        targets: [
+          {
+            diagramKind: "class",
+            elementId: "domain-user",
+            elementKind: "class",
+            label: "UserDomain",
+          },
+        ],
+      },
+    ],
+    sequenceModels,
+    [requirementModel],
+  );
+
+  assert.equal(normalized.traceability.length, 1);
+  assert.equal(normalized.traceability[0]?.source.modelId, "sequence:uc_view");
+  assert.deepEqual(
+    normalized.missingSources.map((source) => `${source.modelId}:${source.elementId}`),
+    ["sequence:uc_create:p_user"],
+  );
+});
+
 test("design traceability can derive relationship mappings from endpoint mappings", () => {
   const activityDesignModel = {
     diagramKind: "activity" as const,

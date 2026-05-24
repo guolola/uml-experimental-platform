@@ -1,7 +1,8 @@
 // Registers render/provider endpoints and delegates external calls to adapters.
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
-  providerSettingsSchema,
+  type ProjectPermission,
+  resolvedProviderSettingsSchema,
   renderPngRequestSchema,
   renderPngResponseSchema,
   renderSvgRequestSchema,
@@ -15,12 +16,54 @@ export function registerRenderRoutes({
   app,
   renderClient,
   pngRenderClient,
+  resolveUserId,
+  projectMembershipGuard,
+  allowLegacyPlaintextProviderTest = false,
+  nodeEnv,
 }: {
   app: FastifyInstance;
   renderClient: RenderClient;
   pngRenderClient: PngRenderClient;
+  resolveUserId: (request: FastifyRequest) => Promise<string | null>;
+  projectMembershipGuard: (input: {
+    projectId: string;
+    userId: string;
+    permission: ProjectPermission;
+  }) => Promise<boolean>;
+  allowLegacyPlaintextProviderTest?: boolean;
+  nodeEnv?: string | null;
 }) {
+  async function requireRenderProjectAccess(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    const userId = await resolveUserId(request);
+    const projectIdHeader = request.headers["x-uml-project-id"];
+    const projectId =
+      typeof projectIdHeader === "string" ? projectIdHeader.trim() : "";
+
+    if (!userId || !projectId) {
+      reply.code(401);
+      return { ok: false as const, message: "请先登录并进入项目" };
+    }
+
+    const allowed = await projectMembershipGuard({
+      projectId,
+      userId,
+      permission: "view_project",
+    });
+    if (!allowed) {
+      reply.code(403);
+      return { ok: false as const, message: "Project permission required" };
+    }
+
+    return { ok: true as const };
+  }
+
   app.post("/api/render/svg", async (request, reply) => {
+    const access = await requireRenderProjectAccess(request, reply);
+    if (!access.ok) return { message: access.message };
+
     const input = renderSvgRequestSchema.parse(request.body);
     try {
       return renderSvgResponseSchema.parse(
@@ -39,6 +82,9 @@ export function registerRenderRoutes({
   });
 
   app.post("/api/render/png", async (request, reply) => {
+    const access = await requireRenderProjectAccess(request, reply);
+    if (!access.ok) return { message: access.message };
+
     const input = renderPngRequestSchema.parse(request.body);
     try {
       const rendered = await pngRenderClient({
@@ -59,7 +105,19 @@ export function registerRenderRoutes({
   });
 
   app.post("/api/provider/test", async (request, reply) => {
-    const providerSettings = providerSettingsSchema.parse(request.body);
+    const legacyProviderTestAllowed =
+      allowLegacyPlaintextProviderTest &&
+      (nodeEnv === "development" || nodeEnv === "test");
+    if (!legacyProviderTestAllowed) {
+      reply.code(403);
+      return {
+        ok: false,
+        message:
+          "Plaintext apiBaseUrl/apiKey provider tests are disabled. Use a managed Provider configuration instead.",
+      };
+    }
+
+    const providerSettings = resolvedProviderSettingsSchema.parse(request.body);
     const capability = getModelCapability(providerSettings.model);
     const response = await fetch(
       new URL("/v1/chat/completions", providerSettings.apiBaseUrl).toString(),

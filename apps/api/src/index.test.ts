@@ -1,8 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import type { LlmTransport } from "./llm.js";
+import type { MailAdapter, MailMessage } from "./mail/mail-adapter.js";
 import { createApiServer } from "./index.js";
+import { createInMemoryAuthStore } from "./auth/in-memory-auth-store.js";
+import type { DocumentLibrary } from "./documents/library/document-library.js";
+import { createProviderConfigStore } from "./provider-configs/provider-config-store.js";
+import { createRunRecordStore } from "./runs/records/run-record-store.js";
+
+// Most index tests exercise pipeline behavior through a synthetic authenticated
+// project context while still using local plaintext provider credentials.
+process.env.UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS = "true";
+
+const TEST_RUN_ACCESS_CONTEXT = {
+  userId: "api-index-test-user",
+  projectId: "api-index-test-project",
+};
+
+function createTestApiServer(options?: Parameters<typeof createApiServer>[0]) {
+  return createApiServer({
+    ...options,
+    testRunAccessContext:
+      options && "testRunAccessContext" in options
+        ? options.testRunAccessContext
+        : TEST_RUN_ACCESS_CONTEXT,
+  });
+}
 
 function lastPromptText(messages: Parameters<LlmTransport["streamChatCompletion"]>[0]["messages"]) {
   const content = messages.at(-1)?.content ?? "";
@@ -13,7 +40,7 @@ function lastPromptText(messages: Parameters<LlmTransport["streamChatCompletion"
 }
 
 const RULES_JSON =
-  '{"rules":[{"id":"r1","category":"业务规则","text":"用户必须登录后才能访问主要功能。","relatedDiagrams":["usecase","activity"]}]}';
+  '{"rules":[{"id":"r1","category":"业务规则","text":"研究人员可以根据文本需求生成 UML 模型。","relatedDiagrams":["usecase","activity"]}]}';
 const VALID_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
@@ -145,12 +172,12 @@ const ACTIVITY_MODEL = {
 const CLASS_MODEL = {
   diagramKind: "class" as const,
   title: "领域概念模型",
-  summary: "用户与订单领域对象",
+  summary: "文本需求与 UML 模型领域对象",
   notes: [],
   classes: [
     {
       id: "user",
-      name: "用户",
+      name: "文本需求",
       classKind: "entity",
       attributes: [
         {
@@ -160,7 +187,7 @@ const CLASS_MODEL = {
           required: true,
         },
         {
-          name: "email",
+          name: "content",
           type: "VARCHAR(100)",
           visibility: "public",
           required: true,
@@ -170,7 +197,7 @@ const CLASS_MODEL = {
     },
     {
       id: "order",
-      name: "订单",
+      name: "UML模型",
       classKind: "entity",
       attributes: [
         {
@@ -180,7 +207,7 @@ const CLASS_MODEL = {
           required: true,
         },
         {
-          name: "userId",
+          name: "requirementId",
           type: "INT",
           visibility: "public",
           required: true,
@@ -199,7 +226,7 @@ const CLASS_MODEL = {
       targetId: "order",
       sourceMultiplicity: "1",
       targetMultiplicity: "0..*",
-      label: "下单",
+      label: "生成",
     },
   ],
 };
@@ -384,7 +411,7 @@ const CLASS_REQUIREMENT_TRACEABILITY = [
       diagramKind: "class",
       elementId: "user",
       elementKind: "class",
-      label: "用户",
+      label: "文本需求",
     },
   },
   {
@@ -393,7 +420,7 @@ const CLASS_REQUIREMENT_TRACEABILITY = [
       diagramKind: "class",
       elementId: "order",
       elementKind: "class",
-      label: "订单",
+      label: "UML模型",
     },
   },
   {
@@ -402,13 +429,16 @@ const CLASS_REQUIREMENT_TRACEABILITY = [
       diagramKind: "class",
       elementId: "rel_user_order",
       elementKind: "relationship",
-      label: "下单",
+      label: "生成",
     },
   },
 ];
 
 const DESIGN_SEQUENCE_MODEL = {
   diagramKind: "sequence" as const,
+  modelId: "sequence:usecase_generate",
+  sourceUseCaseId: "usecase_generate",
+  sourceUseCaseName: "生成模型",
   title: "生成模型顺序",
   summary: "用户触发生成后的对象调用",
   notes: ["设计阶段动态行为"],
@@ -435,17 +465,18 @@ const DESIGN_SEQUENCE_MODEL = {
       type: "sync",
       sourceId: "actor_researcher",
       targetId: "ui",
-      name: "submitRequirement",
-      parameters: ["requirementText"],
+      name: "submitTextRequirement",
+      parameters: ["文本需求"],
+      description: "研究人员提交文本需求。",
     },
     {
       id: "msg_start",
       type: "sync",
       sourceId: "ui",
       targetId: "api",
-      name: "startRun",
-      parameters: ["selectedDiagrams"],
-      returnValue: "runId",
+      name: "generateUmlModel",
+      parameters: ["selectedDiagrams", "UML 模型"],
+      returnValue: "runId 与 UML 模型生成结果",
     },
   ],
   fragments: [],
@@ -486,93 +517,93 @@ function createCodeAppBlueprintJson(appName = "校园活动运营台") {
   });
 }
 
-function createCodeBusinessLogicJson(appName = "校园活动运营台") {
+function createCodeBusinessLogicJson(appName = "UML 生成工作台") {
   return JSON.stringify({
     businessLogic: {
       appName,
-      domainSummary: "校园活动平台支持学生浏览活动、报名、查看状态和接收提醒。",
-      coreWorkflow: "浏览活动、提交报名、查看报名详情和提醒状态。",
+      domainSummary: "UML 实验平台支持研究人员提交文本需求、生成 UML 模型并查看生成结果。",
+      coreWorkflow: "提交文本需求、生成 UML 模型、查看模型结果和溯源状态。",
       actors: [
         {
-          id: "student",
-          name: "学生",
+          id: "researcher",
+          name: "研究人员",
           type: "human",
-          responsibilities: ["浏览活动", "提交报名", "查看提醒"],
+          responsibilities: ["提交文本需求", "生成 UML 模型", "查看模型结果"],
         },
         {
-          id: "admin",
-          name: "活动管理员",
+          id: "reviewer",
+          name: "复核人员",
           type: "human",
-          responsibilities: ["维护活动", "审核报名"],
+          responsibilities: ["复核模型覆盖", "查看溯源状态"],
         },
       ],
       businessEntities: [
         {
-          id: "activity",
-          name: "活动",
-          description: "校园活动信息",
-          fields: ["id:string", "title:string", "status:string"],
-          relationships: ["活动拥有多个报名记录"],
+          id: "textRequirement",
+          name: "文本需求",
+          description: "用户输入的原始需求文本",
+          fields: ["id:string", "content:string", "status:string"],
+          relationships: ["文本需求生成多个 UML 模型"],
         },
         {
-          id: "registration",
-          name: "报名记录",
-          description: "学生活动报名记录",
-          fields: ["id:string", "activityId:string", "status:string"],
-          relationships: ["报名记录属于活动"],
+          id: "umlModel",
+          name: "UML 模型",
+          description: "根据文本需求生成的模型结果",
+          fields: ["id:string", "requirementId:string", "status:string"],
+          relationships: ["UML 模型追溯到文本需求"],
         },
       ],
       pageFlows: [
         {
           id: "overview",
-          name: "活动总览",
+          name: "生成总览",
           route: "/",
-          purpose: "查看活动运营指标和推荐活动",
-          actors: ["学生", "活动管理员"],
+          purpose: "查看文本需求和 UML 模型生成指标",
+          actors: ["研究人员", "复核人员"],
           entryPoints: ["进入系统"],
-          userActions: ["查看指标", "筛选活动"],
-          states: ["有活动", "空状态"],
+          userActions: ["查看生成状态", "筛选模型"],
+          states: ["有需求", "空状态"],
           sourceRefs: ["sequence"],
         },
         {
-          id: "registration",
-          name: "活动报名",
-          route: "/registration",
-          purpose: "完成活动筛选和报名提交",
-          actors: ["学生"],
-          entryPoints: ["选择活动"],
-          userActions: ["提交报名", "查看报名结果"],
-          states: ["可报名", "已满员", "报名成功"],
+          id: "generation",
+          name: "模型生成",
+          route: "/generation",
+          purpose: "提交文本需求并生成 UML 模型",
+          actors: ["研究人员"],
+          entryPoints: ["输入文本需求"],
+          userActions: ["提交文本需求", "生成 UML 模型"],
+          states: ["待输入", "生成中", "已生成"],
           sourceRefs: ["sequence"],
         },
         {
           id: "detail",
-          name: "报名详情",
+          name: "模型详情",
           route: "/detail",
-          purpose: "查看报名记录、状态和提醒",
-          actors: ["学生", "活动管理员"],
-          entryPoints: ["打开记录"],
-          userActions: ["查看详情", "发送提醒"],
-          states: ["待审核", "已通过", "已提醒"],
+          purpose: "查看 UML 模型、覆盖关系和溯源状态",
+          actors: ["研究人员", "复核人员"],
+          entryPoints: ["打开模型结果"],
+          userActions: ["查看模型详情", "查看溯源状态"],
+          states: ["待复核", "已覆盖", "需复核"],
           sourceRefs: ["sequence"],
         },
       ],
       stateMachines: [
         {
-          entity: "报名记录",
-          states: ["待审核", "已通过", "已拒绝"],
-          transitions: ["提交报名 -> 待审核", "审核通过 -> 已通过"],
+          entity: "UML 模型",
+          states: ["待输入", "生成中", "已生成", "需复核"],
+          transitions: ["提交文本需求 -> 生成中", "生成 UML 模型 -> 已生成"],
         },
       ],
       permissions: [
         {
-          actor: "学生",
-          allowedActions: ["提交报名", "查看提醒"],
-          restrictedActions: ["审核报名"],
+          actor: "研究人员",
+          allowedActions: ["提交文本需求", "生成 UML 模型", "查看模型结果"],
+          restrictedActions: [],
         },
       ],
-      edgeCases: ["活动已满时禁止报名", "提醒发送失败时展示错误原因"],
-      frontendOperations: ["筛选活动", "提交报名", "查看详情", "发送提醒"],
+      edgeCases: ["文本需求为空时禁止生成", "模型生成失败时展示错误原因"],
+      frontendOperations: ["提交文本需求", "生成 UML 模型", "查看模型详情", "查看溯源状态"],
       plantUmlTraceability: ["sequence", "class"],
     },
   });
@@ -685,54 +716,54 @@ function createCodeSkillResourceDiscoveryPlanJson() {
   });
 }
 
-function createCodeBusinessLogicObjectArrayJson(appName = "校园活动运营台") {
+function createCodeBusinessLogicObjectArrayJson(appName = "UML 生成工作台") {
   return JSON.stringify({
     businessLogic: {
       appName,
-      domainSummary: "校园活动平台支持学生浏览活动、报名、查看状态和接收提醒。",
-      coreWorkflow: ["浏览活动", "提交报名", "查看报名详情和提醒状态"],
+      domainSummary: "UML 实验平台支持研究人员提交文本需求并生成 UML 模型。",
+      coreWorkflow: ["提交文本需求", "生成 UML 模型", "查看模型结果和溯源状态"],
       actors: [
         {
-          id: "student",
-          name: "学生",
+          id: "researcher",
+          name: "研究人员",
           type: "human",
-          responsibilities: ["浏览活动", "提交报名"],
+          responsibilities: ["提交文本需求", "生成 UML 模型"],
         },
       ],
       businessEntities: [
         {
-          id: "activity",
-          name: "活动",
-          description: "校园活动信息",
+          id: "textRequirement",
+          name: "文本需求",
+          description: "用户输入的原始需求文本",
           fields: [
             { name: "id", type: "string", required: true },
-            { name: "title", type: "string", description: "活动标题" },
-            { name: "status", type: "enum", values: ["可报名", "已满员"] },
+            { name: "content", type: "string", description: "需求文本" },
+            { name: "status", type: "enum", values: ["待输入", "已提交"] },
           ],
           relationships: [
             {
-              source: "活动",
-              target: "报名记录",
+              source: "文本需求",
+              target: "UML 模型",
               type: "one-to-many",
-              description: "活动拥有多个报名记录",
+              description: "文本需求生成多个 UML 模型",
             },
           ],
         },
         {
-          id: "registration",
-          name: "报名记录",
-          description: "学生活动报名记录",
+          id: "umlModel",
+          name: "UML 模型",
+          description: "根据文本需求生成的模型结果",
           fields: [
             { name: "id", type: "string" },
-            { name: "activityId", type: "string" },
-            { name: "status", type: "enum", values: ["待审核", "已通过"] },
+            { name: "requirementId", type: "string" },
+            { name: "status", type: "enum", values: ["生成中", "已生成"] },
           ],
           relationships: [
             {
-              source: "报名记录",
-              target: "活动",
+              source: "UML 模型",
+              target: "文本需求",
               type: "many-to-one",
-              description: "报名记录属于活动",
+              description: "UML 模型追溯到文本需求",
             },
           ],
         },
@@ -740,49 +771,49 @@ function createCodeBusinessLogicObjectArrayJson(appName = "校园活动运营台
       pageFlows: [
         {
           id: "overview",
-          name: "活动总览",
+          name: "生成总览",
           route: "/",
-          purpose: "查看活动运营指标和推荐活动",
-          actors: ["学生"],
+          purpose: "查看文本需求和 UML 模型生成指标",
+          actors: ["研究人员"],
           entryPoints: ["进入系统"],
-          userActions: ["筛选活动"],
-          states: ["有活动", "空状态"],
+          userActions: ["筛选模型"],
+          states: ["有需求", "空状态"],
           sourceRefs: ["sequence"],
         },
         {
-          id: "registration",
-          name: "活动报名",
-          route: "/registration",
-          purpose: "完成活动筛选和报名提交",
-          actors: ["学生"],
-          entryPoints: ["选择活动"],
-          userActions: ["提交报名"],
-          states: ["可报名", "已满员"],
+          id: "generation",
+          name: "模型生成",
+          route: "/generation",
+          purpose: "提交文本需求并生成 UML 模型",
+          actors: ["研究人员"],
+          entryPoints: ["输入文本需求"],
+          userActions: ["生成 UML 模型"],
+          states: ["待输入", "已生成"],
           sourceRefs: ["sequence"],
         },
       ],
       stateMachines: [
         {
-          entity: "报名记录",
-          states: ["待审核", "已通过", "已拒绝"],
+          entity: "UML 模型",
+          states: ["待输入", "生成中", "已生成"],
           transitions: [
-            { from: "草稿", to: "待审核", action: "提交报名" },
-            { from: "待审核", to: "已通过", action: "审核通过" },
+            { from: "待输入", to: "生成中", action: "提交文本需求" },
+            { from: "生成中", to: "已生成", action: "生成 UML 模型" },
           ],
         },
       ],
       permissions: [],
       edgeCases: [
-        { condition: "活动已满", description: "禁止报名并提示原因" },
-        { condition: "提醒发送失败", description: "展示错误原因" },
+        { condition: "文本需求为空", description: "禁止生成并提示原因" },
+        { condition: "模型生成失败", description: "展示错误原因" },
       ],
       frontendOperations: [
-        { action: "筛选活动", target: "活动列表" },
-        { action: "提交报名", target: "报名记录" },
+        { action: "提交文本需求", target: "文本需求" },
+        { action: "生成 UML 模型", target: "UML 模型" },
       ],
       plantUmlTraceability: [
-        { type: "sequence", source: "submitRegistration", target: "Registration" },
-        { type: "class", source: "Activity", target: "Registration" },
+        { type: "sequence", source: "generateUmlModel", target: "UMLModel" },
+        { type: "class", source: "TextRequirement", target: "UMLModel" },
       ],
     },
   });
@@ -988,7 +1019,7 @@ function createCodeFilePlanJson() {
   });
 }
 
-function createQualityCodeOperations(label = "校园活动") {
+function createQualityCodeOperations(label = "UML 生成") {
   const operations = [
     {
       operation: "update_file",
@@ -1008,28 +1039,28 @@ export default function App() {
       operation: "update_file",
       path: "/src/components/WorkspaceShell.tsx",
       content:
-        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nimport { Button } from './ui/button';\nimport { Badge } from './ui/badge';\nconst routes = [{ path: '/', label: '总览' }, { path: '/registration', label: '报名' }, { path: '/detail', label: '详情' }] as const;\ntype RoutePath = (typeof routes)[number]['path'];\nexport function WorkspaceShell() { const [currentRoute,setCurrentRoute]=useState<RoutePath>('/'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"min-h-screen w-full bg-[var(--bg)] px-4 py-5 text-[var(--text)] sm:px-6 lg:px-8\" data-theme={theme}><nav className=\"mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm\">{routes.map((item)=><Button key={item.path} variant={currentRoute===item.path?'default':'secondary'} size=\"sm\" onClick={()=>setCurrentRoute(item.path)}>{item.label}</Button>)}<Badge variant=\"outline\" className=\"ml-auto\">当前路径：{currentRoute}</Badge><Button variant=\"outline\" size=\"sm\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</Button></nav>{currentRoute==='/'?<DashboardPage />:currentRoute==='/registration'?<RegistrationPage />:<DetailPage />}</main>; }",
+        "import { useState } from 'react';\nimport { DashboardPage } from '../pages/DashboardPage';\nimport { RegistrationPage } from '../pages/RegistrationPage';\nimport { DetailPage } from '../pages/DetailPage';\nimport { Button } from './ui/button';\nimport { Badge } from './ui/badge';\nconst routes = [{ path: '/', label: '总览' }, { path: '/generation', label: '模型生成' }, { path: '/detail', label: '模型详情' }] as const;\ntype RoutePath = (typeof routes)[number]['path'];\nexport function WorkspaceShell() { const [currentRoute,setCurrentRoute]=useState<RoutePath>('/'); const [theme,setTheme]=useState<'light'|'dark'>('light'); return <main className=\"min-h-screen w-full bg-[var(--bg)] px-4 py-5 text-[var(--text)] sm:px-6 lg:px-8\" data-theme={theme}><nav className=\"mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm\">{routes.map((item)=><Button key={item.path} variant={currentRoute===item.path?'default':'secondary'} size=\"sm\" onClick={()=>setCurrentRoute(item.path)}>{item.label}</Button>)}<Badge variant=\"outline\" className=\"ml-auto\">当前路径：{currentRoute}</Badge><Button variant=\"outline\" size=\"sm\" onClick={()=>setTheme(theme==='light'?'dark':'light')}>{theme==='light'?'深色':'浅色'}</Button></nav>{currentRoute==='/'?<DashboardPage />:currentRoute==='/generation'?<RegistrationPage />:<DetailPage />}</main>; }",
       reason: "生成多页面导航外壳",
     },
     {
       operation: "create_file",
       path: "/src/pages/DashboardPage.tsx",
       content:
-        "import { MetricCard } from '../components/MetricCard';\nimport { activities } from '../data/mock-data';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function DashboardPage() { return <section className=\"grid gap-4 lg:grid-cols-[1fr_320px]\"><div className=\"grid gap-4 sm:grid-cols-2\"><MetricCard label=\"可报名活动\" value={activities.length} /><MetricCard label=\"今日提醒\" value={1} /></div><Card className=\"bg-white/90\"><CardHeader><CardTitle>活动总览</CardTitle></CardHeader><CardContent><p className=\"text-sm leading-6 text-[var(--muted)]\">校园活动运营状态一目了然，支持加载、空态、报名和提醒反馈。</p></CardContent></Card></section>; }",
+        "import { MetricCard } from '../components/MetricCard';\nimport { requirements } from '../data/mock-data';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function DashboardPage() { return <section className=\"grid gap-4 lg:grid-cols-[1fr_320px]\"><div className=\"grid gap-4 sm:grid-cols-2\"><MetricCard label=\"文本需求\" value={requirements.length} /><MetricCard label=\"UML 模型\" value={1} /></div><Card className=\"bg-white/90\"><CardHeader><CardTitle>UML 生成总览</CardTitle></CardHeader><CardContent><p className=\"text-sm leading-6 text-[var(--muted)]\">研究人员可以根据文本需求生成 UML 模型，并查看模型覆盖与溯源状态。</p></CardContent></Card></section>; }",
       reason: "生成总览页面",
     },
     {
       operation: "create_file",
       path: "/src/pages/RegistrationPage.tsx",
       content:
-        "import { StatusBadge } from '../components/StatusBadge';\nimport { activities } from '../data/mock-data';\nimport { Button } from '../components/ui/button';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function RegistrationPage() { return <section className=\"grid gap-4\"><h1 className=\"text-2xl font-semibold tracking-tight\">活动报名</h1>{activities.map((item)=><Card key={item.id} className=\"border-[var(--border)]\"><CardHeader className=\"flex flex-row items-center justify-between gap-3\"><CardTitle>{item.name}</CardTitle><StatusBadge status={item.status} /></CardHeader><CardContent className=\"flex flex-wrap items-center gap-3\"><p className=\"text-sm text-[var(--muted)]\">公开活动可提交申请，成功后展示反馈。</p><Button>报名</Button></CardContent></Card>)}</section>; }",
+        "import { useState } from 'react';\nimport { StatusBadge } from '../components/StatusBadge';\nimport { requirements } from '../data/mock-data';\nimport { Button } from '../components/ui/button';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function RegistrationPage() { const [textRequirement,setTextRequirement]=useState(requirements[0]?.content ?? ''); const [status,setStatus]=useState('待输入'); const canGenerate = textRequirement.trim().length > 0; const generateUmlModel = () => { if (!canGenerate) return; setStatus('已生成'); }; return <section className=\"grid gap-4\"><h1 className=\"text-2xl font-semibold tracking-tight\">模型生成</h1><Card className=\"border-[var(--border)]\"><CardHeader className=\"flex flex-row items-center justify-between gap-3\"><CardTitle>文本需求生成 UML 模型</CardTitle><StatusBadge status={status} /></CardHeader><CardContent className=\"flex flex-wrap items-center gap-3\"><label className=\"sr-only\" htmlFor=\"requirement\">文本需求</label><textarea id=\"requirement\" value={textRequirement} onChange={(event)=>setTextRequirement(event.target.value)} className=\"min-h-24 w-full rounded-xl border border-[var(--border)] p-3\" /><p className=\"text-sm text-[var(--muted)]\">请输入文本需求后生成 UML 模型；文本需求为空时禁止生成。</p><Button disabled={!canGenerate} onClick={generateUmlModel}>生成 UML 模型</Button></CardContent></Card></section>; }",
       reason: "生成核心流程页面",
     },
     {
       operation: "create_file",
       path: "/src/pages/DetailPage.tsx",
       content:
-        "import { registrations } from '../data/mock-data';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function DetailPage() { return <section className=\"grid gap-4 md:grid-cols-2\"><h1 className=\"col-span-full text-2xl font-semibold tracking-tight\">报名详情</h1>{registrations.map((item)=><Card key={item.id} className=\"shadow-sm\"><CardHeader><CardTitle>{item.studentName}</CardTitle></CardHeader><CardContent className=\"space-y-2 text-sm text-[var(--muted)]\"><p>{item.activityName}</p><p>{item.reminder}</p></CardContent></Card>)}</section>; }",
+        "import { umlModels } from '../data/mock-data';\nimport { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';\nexport function DetailPage() { return <section className=\"grid gap-4 md:grid-cols-2\"><h1 className=\"col-span-full text-2xl font-semibold tracking-tight\">模型详情</h1>{umlModels.map((item)=><Card key={item.id} className=\"shadow-sm\"><CardHeader><CardTitle>{item.name}</CardTitle></CardHeader><CardContent className=\"space-y-2 text-sm text-[var(--muted)]\"><p>{item.status}</p><p>{item.traceability}</p></CardContent></Card>)}</section>; }",
       reason: "生成详情页面",
     },
     {
@@ -1078,15 +1109,15 @@ export default function App() {
       operation: "update_file",
       path: "/src/domain/types.ts",
       content:
-        "export interface Activity { id: string; name: string; status: string; }\nexport interface Registration { id: string; studentName: string; activityName: string; reminder: string; }",
+        "export interface TextRequirement { id: string; content: string; status: string; }\nexport interface UmlModel { id: string; name: string; status: string; traceability: string; }",
       reason: "生成领域类型",
     },
     {
       operation: "update_file",
       path: "/src/data/mock-data.ts",
-      content: `import type { Activity, Registration } from '../domain/types';
-export const activities: Activity[] = [{ id: 'a1', name: '${label}开放日', status: '报名中' }];
-export const registrations: Registration[] = [{ id: 'r1', studentName: '李同学', activityName: '${label}开放日', reminder: '明天 09:00 在礼堂签到' }];`,
+      content: `import type { TextRequirement, UmlModel } from '../domain/types';
+export const requirements: TextRequirement[] = [{ id: 'req-1', content: '研究人员可以根据文本需求生成 UML 模型。', status: '已提交' }];
+export const umlModels: UmlModel[] = [{ id: 'model-1', name: '${label} UML 模型', status: '已生成', traceability: '追溯到文本需求 req-1' }];`,
       reason: "生成 mock 数据",
     },
     {
@@ -1114,6 +1145,7 @@ const DESIGN_SEQUENCE_JSON = JSON.stringify({
   designModelTraceability: [
     {
       source: {
+        modelId: "sequence:usecase_generate",
         diagramKind: "sequence",
         elementId: "actor_researcher",
         elementKind: "participant",
@@ -1130,6 +1162,7 @@ const DESIGN_SEQUENCE_JSON = JSON.stringify({
     },
     {
       source: {
+        modelId: "sequence:usecase_generate",
         diagramKind: "sequence",
         elementId: "ui",
         elementKind: "participant",
@@ -1146,6 +1179,7 @@ const DESIGN_SEQUENCE_JSON = JSON.stringify({
     },
     {
       source: {
+        modelId: "sequence:usecase_generate",
         diagramKind: "sequence",
         elementId: "api",
         elementKind: "participant",
@@ -1162,6 +1196,7 @@ const DESIGN_SEQUENCE_JSON = JSON.stringify({
     },
     {
       source: {
+        modelId: "sequence:usecase_generate",
         diagramKind: "sequence",
         elementId: "msg_submit",
         elementKind: "message",
@@ -1178,6 +1213,7 @@ const DESIGN_SEQUENCE_JSON = JSON.stringify({
     },
     {
       source: {
+        modelId: "sequence:usecase_generate",
         diagramKind: "sequence",
         elementId: "msg_start",
         elementKind: "message",
@@ -1251,12 +1287,12 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
     {
       diagramKind: "table",
       title: "表关系图",
-      summary: "用户与订单表关系",
+      summary: "文本需求与 UML 模型表关系",
       notes: [],
       tables: [
         {
           id: "user",
-          name: "user",
+          name: "需求",
           columns: [
             {
               id: "id",
@@ -1270,7 +1306,7 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         },
         {
           id: "order",
-          name: "order",
+          name: "UML模型",
           columns: [
             {
               id: "id",
@@ -1282,7 +1318,7 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
             },
             {
               id: "user_id",
-              name: "user_id",
+              name: "requirement_id",
               dataType: "INT",
               isPrimaryKey: false,
               isForeignKey: true,
@@ -1298,7 +1334,7 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
           type: "one-to-many",
           sourceTableId: "user",
           targetTableId: "order",
-          label: "1对多",
+          label: "需求生成模型",
         },
       ],
     },
@@ -1309,14 +1345,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "class",
         elementId: "user",
         elementKind: "class",
-        label: "用户",
+        label: "文本需求",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "user",
           elementKind: "class",
-          label: "用户",
+          label: "文本需求",
         },
       ],
     },
@@ -1325,14 +1361,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "class",
         elementId: "order",
         elementKind: "class",
-        label: "订单",
+        label: "UML模型",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "order",
           elementKind: "class",
-          label: "订单",
+          label: "UML模型",
         },
       ],
     },
@@ -1341,14 +1377,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "class",
         elementId: "rel_user_order",
         elementKind: "relationship",
-        label: "下单",
+        label: "生成",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "rel_user_order",
           elementKind: "relationship",
-          label: "下单",
+          label: "生成",
         },
       ],
     },
@@ -1357,14 +1393,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "table",
         elementId: "user",
         elementKind: "table",
-        label: "user",
+        label: "需求",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "user",
           elementKind: "class",
-          label: "用户",
+          label: "文本需求",
         },
       ],
     },
@@ -1380,7 +1416,7 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
           diagramKind: "class",
           elementId: "user",
           elementKind: "class",
-          label: "用户",
+          label: "文本需求",
         },
       ],
     },
@@ -1389,14 +1425,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "table",
         elementId: "order",
         elementKind: "table",
-        label: "order",
+        label: "UML模型",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "order",
           elementKind: "class",
-          label: "订单",
+          label: "UML模型",
         },
       ],
     },
@@ -1412,7 +1448,7 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
           diagramKind: "class",
           elementId: "order",
           elementKind: "class",
-          label: "订单",
+          label: "UML模型",
         },
       ],
     },
@@ -1421,14 +1457,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "table",
         elementId: "order.user_id",
         elementKind: "table-column",
-        label: "order.user_id",
+        label: "UML模型.requirement_id",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "user",
           elementKind: "class",
-          label: "用户",
+          label: "文本需求",
         },
       ],
     },
@@ -1437,14 +1473,14 @@ const DESIGN_CLASS_AND_TABLE_JSON = JSON.stringify({
         diagramKind: "table",
         elementId: "rel_user_order_table",
         elementKind: "relationship",
-        label: "1对多",
+        label: "需求生成模型",
       },
       targets: [
         {
           diagramKind: "class",
           elementId: "rel_user_order",
           elementKind: "relationship",
-          label: "下单",
+          label: "生成",
         },
       ],
     },
@@ -1506,7 +1542,7 @@ async function withCapturedConsoleError(
 }
 
 test("api runs a full pipeline and streams SSE events", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
       svg: "<svg><text>ok</text></svg>",
@@ -1591,7 +1627,7 @@ test("api runs a full pipeline and streams SSE events", async () => {
 });
 
 test("api runs a design sequence pipeline from the requirement usecase model", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -1664,9 +1700,228 @@ test("api runs a design sequence pipeline from the requirement usecase model", a
   await app.close();
 });
 
+test("api generates design sequences with one LLM request per use case", async () => {
+  const prompts: string[] = [];
+  let activeSequenceCalls = 0;
+  let maxActiveSequenceCalls = 0;
+  const useCaseModel = JSON.parse(USECASE_MODEL_JSON).models[0];
+  const multiUseCaseModel = {
+    ...useCaseModel,
+    useCases: [
+      ...useCaseModel.useCases,
+      {
+        id: "usecase_review",
+        name: "审核模型",
+        goal: "审核生成后的模型",
+        preconditions: ["模型已生成"],
+        postconditions: ["审核结果已记录"],
+        primaryActorId: "actor_researcher",
+        supportingActorIds: [],
+      },
+      {
+        id: "usecase_archive",
+        name: "归档模型",
+        goal: "归档审核后的模型",
+        preconditions: ["模型已审核"],
+        postconditions: ["模型已归档"],
+        primaryActorId: "actor_researcher",
+        supportingActorIds: [],
+      },
+    ],
+    relationships: [
+      ...useCaseModel.relationships,
+      {
+        id: "rel_association_2",
+        sourceId: "actor_researcher",
+        targetId: "usecase_review",
+        type: "association",
+        label: "审核",
+      },
+      {
+        id: "rel_association_3",
+        sourceId: "actor_researcher",
+        targetId: "usecase_archive",
+        type: "association",
+        label: "归档",
+      },
+    ],
+  };
+  const multiUseCaseRequirementTraceability = [
+    ...USECASE_REQUIREMENT_TRACEABILITY,
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "usecase_review",
+        elementKind: "usecase",
+        label: "审核模型",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "usecase_archive",
+        elementKind: "usecase",
+        label: "归档模型",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "rel_association_2",
+        elementKind: "relationship",
+        label: "审核",
+      },
+    },
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "rel_association_3",
+        elementKind: "relationship",
+        label: "归档",
+      },
+    },
+  ];
+  const sequenceJsonFor = (useCaseId: string, useCaseName: string) =>
+    {
+      const sources = [
+        { elementId: "actor_researcher", elementKind: "participant", label: "研究人员" },
+        { elementId: "ui", elementKind: "participant", label: "Web 页面" },
+        { elementId: "api", elementKind: "participant", label: "编排 API" },
+        { elementId: "msg_submit", elementKind: "message", label: "submitRequirement" },
+        { elementId: "msg_start", elementKind: "message", label: "startRun" },
+      ];
+      const model = {
+        ...DESIGN_SEQUENCE_MODEL,
+        modelId: `sequence:${useCaseId}`,
+        sourceUseCaseId: useCaseId,
+        sourceUseCaseName: useCaseName,
+        title: `${useCaseName}顺序`,
+      };
+      if (useCaseId === "usecase_review") {
+        delete (model as { summary?: string }).summary;
+      }
+      return JSON.stringify({
+      models: [model],
+      designModelTraceability: sources.map((source) => ({
+          source: {
+            modelId: `sequence:${useCaseId}`,
+            diagramKind: "sequence",
+            ...source,
+          },
+          targets: [
+            {
+              diagramKind: "usecase",
+              elementId: useCaseId,
+              elementKind: "usecase",
+              label: useCaseName,
+            },
+          ],
+        })),
+      });
+    };
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+        prompts.push(prompt);
+        activeSequenceCalls += 1;
+        maxActiveSequenceCalls = Math.max(maxActiveSequenceCalls, activeSequenceCalls);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        assert.equal(responseFormat?.type, "json_schema");
+        try {
+          if (prompt.includes('"id": "usecase_review"')) {
+            yield sequenceJsonFor("usecase_review", "审核模型");
+          } else if (prompt.includes('"id": "usecase_archive"')) {
+            yield sequenceJsonFor("usecase_archive", "归档模型");
+          } else {
+            yield sequenceJsonFor("usecase_generate", "生成模型");
+          }
+        } finally {
+          activeSequenceCalls -= 1;
+        }
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>sequence</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: [multiUseCaseModel],
+      requirementModelTraceability: multiUseCaseRequirementTraceability,
+      selectedDiagrams: ["sequence"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  await app.inject({
+    method: "GET",
+    url: `/api/design-runs/${startResponse.json().runId}/events`,
+  });
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/design-runs/${startResponse.json().runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "completed");
+  assert.deepEqual(
+    snapshot.models.map((model: { sourceUseCaseId: string }) => model.sourceUseCaseId).sort(),
+    ["usecase_archive", "usecase_generate", "usecase_review"],
+  );
+  assert.equal(prompts.length, 3);
+  assert.ok(maxActiveSequenceCalls <= 2);
+  assert.ok(
+    prompts.some(
+      (prompt) =>
+        prompt.includes('"id": "usecase_generate"') &&
+        !prompt.includes('"id": "usecase_review"') &&
+        !prompt.includes('"id": "usecase_archive"'),
+    ),
+  );
+  assert.ok(
+    prompts.some(
+      (prompt) =>
+        prompt.includes('"id": "usecase_review"') &&
+        !prompt.includes('"id": "usecase_generate"') &&
+        !prompt.includes('"id": "usecase_archive"'),
+    ),
+  );
+  assert.ok(
+    prompts.some(
+      (prompt) =>
+        prompt.includes('"id": "usecase_archive"') &&
+        !prompt.includes('"id": "usecase_generate"') &&
+        !prompt.includes('"id": "usecase_review"'),
+    ),
+  );
+
+  await app.close();
+});
+
 test("api records design PlantUML repair trace", async () => {
   let renderAttempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -1756,7 +2011,7 @@ test("api records design PlantUML repair trace", async () => {
 
 test("api records design model parse repair trace", async () => {
   let designCalls = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -1835,7 +2090,7 @@ test("api records design model parse repair trace", async () => {
 });
 
 test("api normalizes common design model shape issues before validation", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -1845,6 +2100,9 @@ test("api normalizes common design model shape issues before validation", async 
           models: [
             {
               diagramKind: "sequence",
+              modelId: "sequence:usecase_generate",
+              sourceUseCaseId: "usecase_generate",
+              sourceUseCaseName: "生成模型",
               title: "顺序图",
               summary: "动态行为",
               notes: "由用例推导",
@@ -1860,6 +2118,7 @@ test("api normalizes common design model shape issues before validation", async 
                   targetId: "user",
                   name: "返回结果",
                   parameters: "result",
+                  description: "返回根据文本需求生成的 UML 模型结果。",
                 },
               ],
               fragments: [],
@@ -1868,6 +2127,7 @@ test("api normalizes common design model shape issues before validation", async 
           designModelTraceability: [
             {
               source: {
+                modelId: "sequence:usecase_generate",
                 diagramKind: "sequence",
                 elementId: "user",
                 elementKind: "participant",
@@ -1884,6 +2144,7 @@ test("api normalizes common design model shape issues before validation", async 
             },
             {
               source: {
+                modelId: "sequence:usecase_generate",
                 diagramKind: "sequence",
                 elementId: "system",
                 elementKind: "participant",
@@ -1900,6 +2161,7 @@ test("api normalizes common design model shape issues before validation", async 
             },
             {
               source: {
+                modelId: "sequence:usecase_generate",
                 diagramKind: "sequence",
                 elementId: "m1",
                 elementKind: "message",
@@ -1966,7 +2228,7 @@ test("api normalizes common design model shape issues before validation", async 
 test("api repairs design models by generating missing element traceability separately", async () => {
   let modelAttempts = 0;
   let traceabilityAttempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2066,7 +2328,7 @@ test("api repairs design models by generating missing element traceability separ
 
 test("api auto-adds sequence dependency for downstream design diagrams", async () => {
   const prompts: string[] = [];
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2130,7 +2392,25 @@ test("api auto-adds sequence dependency for downstream design diagrams", async (
 });
 
 test("api auto-adds class dependency for design table diagrams", async () => {
-  const app = await createApiServer({
+  const classAndTable = JSON.parse(DESIGN_CLASS_AND_TABLE_JSON);
+  const classOnlyJson = JSON.stringify({
+    models: classAndTable.models.filter(
+      (model: { diagramKind: string }) => model.diagramKind === "class",
+    ),
+    designModelTraceability: classAndTable.designModelTraceability.filter(
+      (entry: { source: { diagramKind: string } }) => entry.source.diagramKind === "class",
+    ),
+  });
+  const tableOnlyJson = JSON.stringify({
+    models: classAndTable.models.filter(
+      (model: { diagramKind: string }) => model.diagramKind === "table",
+    ),
+    designModelTraceability: classAndTable.designModelTraceability.filter(
+      (entry: { source: { diagramKind: string } }) => entry.source.diagramKind === "table",
+    ),
+  });
+  const downstreamCalls: string[] = [];
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2139,8 +2419,16 @@ test("api auto-adds class dependency for design table diagrams", async () => {
           yield DESIGN_SEQUENCE_JSON;
           return;
         }
-        assert.match(prompt, /table/);
-        yield DESIGN_CLASS_AND_TABLE_JSON;
+        if (/只生成以下设计图类型：\s*class/.test(prompt)) {
+          downstreamCalls.push("class");
+          yield classOnlyJson;
+          return;
+        }
+        assert.match(prompt, /只生成以下设计图类型：\s*table/);
+        assert.match(prompt, /已生成设计阶段上下文模型/);
+        assert.match(prompt, /设计阶段静态结构/);
+        downstreamCalls.push("table");
+        yield tableOnlyJson;
       },
     },
     renderClient: async (artifact) => ({
@@ -2185,6 +2473,7 @@ test("api auto-adds class dependency for design table diagrams", async () => {
 
   assert.equal(snapshot.status, "completed");
   assert.deepEqual(snapshot.selectedDiagrams, ["sequence", "class", "table"]);
+  assert.deepEqual(downstreamCalls, ["class", "table"]);
   assert.deepEqual(
     snapshot.models.map((model: { diagramKind: string }) => model.diagramKind),
     ["sequence", "class", "table"],
@@ -2200,7 +2489,7 @@ test("api auto-adds class dependency for design table diagrams", async () => {
 
 test("api code runs with Claude send json_schema through file operations and reuse cached plans", async () => {
   let operationCalls = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2412,7 +2701,7 @@ test("api code runs with Claude send json_schema through file operations and reu
 
 test("api records code file operations repair trace", async () => {
   let operationAttempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2539,7 +2828,7 @@ test("api records code file operations repair trace", async () => {
 });
 
 test("api code run normalizes object-array business logic fields", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2625,7 +2914,7 @@ test("api code run normalizes object-array business logic fields", async () => {
   ).json();
   assert.equal(snapshot.status, "completed");
   assert.equal(typeof snapshot.businessLogic.coreWorkflow, "string");
-  assert.match(snapshot.businessLogic.coreWorkflow, /浏览活动/);
+  assert.match(snapshot.businessLogic.coreWorkflow, /生成 UML 模型/);
   assert.equal(typeof snapshot.businessLogic.businessEntities[0].fields[0], "string");
   assert.equal(
     typeof snapshot.businessLogic.businessEntities[0].relationships[0],
@@ -2636,13 +2925,13 @@ test("api code run normalizes object-array business logic fields", async () => {
   assert.equal(typeof snapshot.businessLogic.frontendOperations[0], "string");
   assert.equal(typeof snapshot.businessLogic.plantUmlTraceability[0], "string");
   assert.match(snapshot.businessLogic.businessEntities[0].fields[0], /id/);
-  assert.match(snapshot.businessLogic.stateMachines[0].transitions[0], /提交报名/);
+  assert.match(snapshot.businessLogic.stateMachines[0].transitions[0], /提交文本需求/);
 
   await app.close();
 });
 
 test("api code run accepts trailing text after UI blueprint JSON", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2725,7 +3014,7 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
 });
 
 test("api code run does not call a separate UI blueprint stage", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2812,7 +3101,7 @@ test("api code run does not call a separate UI blueprint stage", async () => {
 });
 
 test("api code run continues when UI mockup image generation fails", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -2905,7 +3194,7 @@ test("api code run continues when UI mockup image generation fails", async () =>
 
 test("api code runs repair invalid code operation discriminators", async () => {
   let operationCalls = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -3008,7 +3297,7 @@ test("api code runs repair invalid code operation discriminators", async () => {
 
 test("api code run rejects near-black default backgrounds and repairs theme toggle", async () => {
   let operationCalls = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -3126,7 +3415,7 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
 });
 
 test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages }) {
         assert.match(lastPromptText(messages), /需求规格说明书/);
@@ -3285,7 +3574,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
 });
 
 test("api software design document uses generic cover without school names", async () => {
-  const app = await createApiServer();
+  const app = await createTestApiServer();
 
   const startResponse = await app.inject({
     method: "POST",
@@ -3346,7 +3635,7 @@ test("api software design document uses generic cover without school names", asy
   await app.close();
 });
 
-test("api isolates document library items by anonymous workspace", async () => {
+test("api rejects legacy anonymous document workspace runs", async () => {
   const originalDocumentServerUrl = process.env.ONLYOFFICE_DOCUMENT_SERVER_URL;
   const originalAccessSecret = process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET;
   process.env.ONLYOFFICE_DOCUMENT_SERVER_URL = "http://office.example.com";
@@ -3356,14 +3645,10 @@ test("api isolates document library items by anonymous workspace", async () => {
     "x-uml-workspace-id": `api-isolation-${workspaceSuffix}`,
     "x-uml-workspace-secret": "api-isolation-secret-value-123456",
   };
-  const workspaceBHeaders = {
-    "x-uml-workspace-id": `api-isolation-other-${workspaceSuffix}`,
-    "x-uml-workspace-secret": "api-isolation-secret-value-other",
-  };
-  const app = await createApiServer();
+  const app = await createTestApiServer({ testRunAccessContext: undefined });
 
   try {
-    const startA = await app.inject({
+    const startResponse = await app.inject({
       method: "POST",
       url: "/api/document-runs",
       headers: workspaceAHeaders,
@@ -3385,197 +3670,8 @@ test("api isolates document library items by anonymous workspace", async () => {
         useAiText: false,
       },
     });
-    assert.equal(startA.statusCode, 202);
-    const runA = startA.json().runId;
-    await app.inject({ method: "GET", url: `/api/document-runs/${runA}/events` });
-    const snapshotA = (
-      await app.inject({ method: "GET", url: `/api/document-runs/${runA}` })
-    ).json();
-
-    const listA = await app.inject({
-      method: "GET",
-      url: "/api/documents",
-      headers: workspaceAHeaders,
-    });
-    assert.equal(listA.statusCode, 200);
-    assert.equal(listA.json().documents.length, 1);
-
-    const startASecond = await app.inject({
-      method: "POST",
-      url: "/api/document-runs",
-      headers: workspaceAHeaders,
-      payload: {
-        documentKind: "requirementsSpec",
-        requirementText: "A 工作区第二份需求说明书。",
-        rules: [],
-        requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
-        requirementPlantUml: [],
-        requirementSvgArtifacts: [],
-        designModels: [],
-        designPlantUml: [],
-        designSvgArtifacts: [],
-        providerSettings: {
-          apiBaseUrl: "https://ai.comfly.org",
-          apiKey: "sk-test",
-          model: "gpt-5.5",
-        },
-        useAiText: false,
-      },
-    });
-    assert.equal(startASecond.statusCode, 202);
-    const runASecond = startASecond.json().runId;
-    await app.inject({
-      method: "GET",
-      url: `/api/document-runs/${runASecond}/events`,
-    });
-    const snapshotASecond = (
-      await app.inject({ method: "GET", url: `/api/document-runs/${runASecond}` })
-    ).json();
-    const listAAfterSecond = await app.inject({
-      method: "GET",
-      url: "/api/documents",
-      headers: workspaceAHeaders,
-    });
-    assert.equal(listAAfterSecond.statusCode, 200);
-    assert.equal(listAAfterSecond.json().documents.length, 2);
-    assert.notEqual(snapshotASecond.documentId, snapshotA.documentId);
-
-    const listBBefore = await app.inject({
-      method: "GET",
-      url: "/api/documents",
-      headers: workspaceBHeaders,
-    });
-    assert.equal(listBBefore.statusCode, 200);
-    assert.equal(listBBefore.json().documents.length, 0);
-
-    const blockedDownload = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotA.documentId}/download`,
-      headers: workspaceBHeaders,
-    });
-    assert.equal(blockedDownload.statusCode, 404);
-
-    const editorConfig = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotA.documentId}/editor-config`,
-      headers: workspaceAHeaders,
-    });
-    assert.equal(editorConfig.statusCode, 200);
-    const config = editorConfig.json().config;
-    const fileUrl = new URL(config.document.url);
-    const callbackUrl = new URL(config.editorConfig.callbackUrl);
-    assert.ok(fileUrl.searchParams.get("accessToken"));
-    assert.ok(callbackUrl.searchParams.get("accessToken"));
-    assert.equal(config.editorConfig.customization.uiTheme, "theme-dark");
-    const lightEditorConfig = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotA.documentId}/editor-config?uiTheme=theme-classic-light`,
-      headers: workspaceAHeaders,
-    });
-    assert.equal(lightEditorConfig.statusCode, 200);
-    assert.equal(
-      lightEditorConfig.json().config.editorConfig.customization.uiTheme,
-      "theme-classic-light",
-    );
-    const invalidEditorConfig = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotA.documentId}/editor-config?uiTheme=theme-white`,
-      headers: workspaceAHeaders,
-    });
-    assert.equal(invalidEditorConfig.statusCode, 400);
-
-    const fileResponse = await app.inject({
-      method: "GET",
-      url: `${fileUrl.pathname}${fileUrl.search}`,
-    });
-    assert.equal(fileResponse.statusCode, 200);
-    const firstDownload = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotA.documentId}/download`,
-      headers: workspaceAHeaders,
-    });
-    const secondDownload = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotASecond.documentId}/download`,
-      headers: workspaceAHeaders,
-    });
-    assert.equal(firstDownload.statusCode, 200);
-    assert.equal(secondDownload.statusCode, 200);
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(Buffer.from("edited first document"), {
-        status: 200,
-      })) as typeof fetch;
-    try {
-      const callbackResponse = await app.inject({
-        method: "POST",
-        url: `${callbackUrl.pathname}${callbackUrl.search}`,
-        payload: {
-          status: 2,
-          url: "http://office.example.com/cache/edited.docx",
-        },
-      });
-      assert.equal(callbackResponse.statusCode, 200);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-    const firstConfigAfterEdit = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotA.documentId}/editor-config`,
-      headers: workspaceAHeaders,
-    });
-    const secondConfigAfterEdit = await app.inject({
-      method: "GET",
-      url: `/api/documents/${snapshotASecond.documentId}/editor-config`,
-      headers: workspaceAHeaders,
-    });
-    assert.equal(firstConfigAfterEdit.json().document.version, 2);
-    assert.equal(secondConfigAfterEdit.json().document.version, 1);
-
-    fileUrl.searchParams.set("accessToken", "tampered");
-    const tamperedFileResponse = await app.inject({
-      method: "GET",
-      url: `${fileUrl.pathname}${fileUrl.search}`,
-    });
-    assert.equal(tamperedFileResponse.statusCode, 403);
-
-    const startB = await app.inject({
-      method: "POST",
-      url: "/api/document-runs",
-      headers: workspaceBHeaders,
-      payload: {
-        documentKind: "requirementsSpec",
-        requirementText: "B 工作区需求说明书。",
-        rules: [],
-        requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
-        requirementPlantUml: [],
-        requirementSvgArtifacts: [],
-        designModels: [],
-        designPlantUml: [],
-        designSvgArtifacts: [],
-        providerSettings: {
-          apiBaseUrl: "https://ai.comfly.org",
-          apiKey: "sk-test",
-          model: "gpt-5.5",
-        },
-        useAiText: false,
-      },
-    });
-    assert.equal(startB.statusCode, 202);
-    const runB = startB.json().runId;
-    await app.inject({ method: "GET", url: `/api/document-runs/${runB}/events` });
-    const listBAfter = await app.inject({
-      method: "GET",
-      url: "/api/documents",
-      headers: workspaceBHeaders,
-    });
-    assert.equal(listBAfter.statusCode, 200);
-    assert.equal(listBAfter.json().documents.length, 1);
-    assert.notEqual(
-      listBAfter.json().documents[0].id,
-      listA.json().documents[0].id,
-    );
+    assert.equal(startResponse.statusCode, 401);
+    assert.match(startResponse.json().message, /Authentication required/);
   } finally {
     if (originalDocumentServerUrl === undefined) {
       delete process.env.ONLYOFFICE_DOCUMENT_SERVER_URL;
@@ -3592,7 +3688,7 @@ test("api isolates document library items by anonymous workspace", async () => {
 });
 
 test("api document run reports missing embeddable image source when only SVG exists", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion() {
         yield JSON.stringify({
@@ -3667,7 +3763,7 @@ test("api document run reports missing embeddable image source when only SVG exi
 test("api repairs document content JSON before rendering DOCX", async () => {
   let attempts = 0;
   const prompts: string[] = [];
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages }) {
         const prompt = lastPromptText(messages);
@@ -3739,7 +3835,7 @@ test("api repairs document content JSON before rendering DOCX", async () => {
 
 test("api fails document runs after document content repair attempts are exhausted", async () => {
   let attempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion() {
         attempts += 1;
@@ -3787,7 +3883,7 @@ test("api fails document runs after document content repair attempts are exhaust
 });
 
 test("api document run rejects exports before the required models exist", async () => {
-  const app = await createApiServer();
+  const app = await createTestApiServer();
 
   const requirementsResponse = await app.inject({
     method: "POST",
@@ -3831,7 +3927,7 @@ test("api document run rejects exports before the required models exist", async 
 
 test("api repairs generate_models output when the first model JSON is malformed", async () => {
   let modelAttempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -3927,7 +4023,7 @@ test("api repairs generate_models output when element traceability is missing", 
   const modelsOnlyOutput = JSON.stringify({
     models: JSON.parse(USECASE_MODEL_JSON).models,
   });
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -4007,7 +4103,7 @@ test("api fails generate_models when element traceability stays empty", async ()
     models: JSON.parse(USECASE_MODEL_JSON).models,
     requirementModelTraceability: [],
   });
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages }) {
         const prompt = lastPromptText(messages);
@@ -4068,7 +4164,7 @@ test("api fails generate_models when element traceability stays empty", async ()
 
 test("api sends json_schema for Claude models and completes", async () => {
   let sawGenerateModels = false;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -4132,12 +4228,22 @@ test("api sends json_schema for Claude models and completes", async () => {
 });
 
 test("api normalizes requirement model relationship aliases and numeric deployment ports", async () => {
-  const app = await createApiServer({
+  const deploymentRulesJson = JSON.stringify({
+    rules: [
+      {
+        id: "r1",
+        category: "部署需求",
+        text: "系统部署包含 Web、Node API、数据库和邮件服务。",
+        relatedDiagrams: ["deployment"],
+      },
+    ],
+  });
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages }) {
         const prompt = lastPromptText(messages);
         if (prompt.includes("抽取结构化需求规则")) {
-          yield RULES_JSON;
+          yield deploymentRulesJson;
           return;
         }
 
@@ -4283,7 +4389,7 @@ test("api normalizes requirement model relationship aliases and numeric deployme
 test("api logs the final generate_models output when parsing or schema validation fails", async () => {
   await withCapturedConsoleError(async (logs) => {
     let modelAttempts = 0;
-    const app = await createApiServer({
+    const app = await createTestApiServer({
       llmTransport: {
         async *streamChatCompletion({ messages, responseFormat }) {
           const prompt = lastPromptText(messages);
@@ -4354,7 +4460,7 @@ test("api logs the final generate_models output when parsing or schema validatio
 
 test("api repairs PlantUML after the first render failure and completes the run", async () => {
   let renderAttempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async (artifact) => {
       renderAttempts += 1;
@@ -4436,7 +4542,7 @@ test("api repairs PlantUML after the first render failure and completes the run"
 
 test("api treats placeholder SVG as a repairable render failure", async () => {
   let renderAttempts = 0;
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async (artifact) => {
       renderAttempts += 1;
@@ -4503,7 +4609,7 @@ test("api treats placeholder SVG as a repairable render failure", async () => {
 });
 
 test("api keeps successful diagrams and reports activity render failure in diagramErrors", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
@@ -4583,7 +4689,7 @@ test("api keeps successful diagrams and reports activity render failure in diagr
 });
 
 test("api fails the run when PlantUML still cannot be repaired after retries", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => {
       throw new Error("broken uml source");
@@ -4629,7 +4735,7 @@ test("api fails the run when PlantUML still cannot be repaired after retries", a
 });
 
 test("api emits failed events when a stage returns invalid JSON", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion() {
         yield '{"rules":"invalid"}';
@@ -4688,7 +4794,7 @@ test("api emits failed events when a stage returns invalid JSON", async () => {
 });
 
 test("api rejects invalid start requests with 400", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
       svg: "<svg><text>ok</text></svg>",
@@ -4741,8 +4847,45 @@ test("api rejects invalid start requests with 400", async () => {
   await app.close();
 });
 
+test("api reports empty JSON request bodies as 400 instead of 500", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+  });
+
+  const response = await app.inject({
+    method: "DELETE",
+    url: "/api/documents/legacy-doc-id",
+    headers: {
+      "content-type": "application/json",
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /body cannot be empty/i);
+
+  await app.close();
+});
+
 test("api proxies manual PlantUML render requests", async () => {
-  const app = await createApiServer({
+  const authStore = createInMemoryAuthStore();
+  const user = await authStore.createUser({
+    email: "render-owner@example.com",
+    displayName: "Render Owner",
+    passwordHash: "hash",
+  });
+  assert.ok(user);
+  const session = await authStore.createSession({
+    userId: user.id,
+    ipAddress: "127.0.0.1",
+    userAgent: "node:test",
+  });
+  const { project } = await authStore.createProject({
+    ownerUserId: user.id,
+    name: "Render Project",
+    visibility: "private",
+  });
+  const app = await createTestApiServer({
+    authStore,
     llmTransport: createMockLlmTransport(),
     renderClient: async (artifact) => ({
       svg: `<svg><text>${artifact.diagramKind}</text></svg>`,
@@ -4758,6 +4901,10 @@ test("api proxies manual PlantUML render requests", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/api/render/svg",
+    headers: {
+      cookie: `uml_session=${encodeURIComponent(session.id)}`,
+      "x-uml-project-id": project.id,
+    },
     payload: {
       diagramKind: "class",
       plantUmlSource: "@startuml\nclass User\n@enduml",
@@ -4772,8 +4919,49 @@ test("api proxies manual PlantUML render requests", async () => {
   await app.close();
 });
 
+test("api rejects anonymous manual PlantUML render requests", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => {
+      throw new Error("render should not be called");
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/render/svg",
+    payload: {
+      diagramKind: "class",
+      plantUmlSource: "@startuml\nclass User\n@enduml",
+    },
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.match(response.body, /请先登录并进入项目|login/i);
+
+  await app.close();
+});
+
 test("api reports manual PlantUML render failures clearly", async () => {
-  const app = await createApiServer({
+  const authStore = createInMemoryAuthStore();
+  const user = await authStore.createUser({
+    email: "render-failure-owner@example.com",
+    displayName: "Render Failure Owner",
+    passwordHash: "hash",
+  });
+  assert.ok(user);
+  const session = await authStore.createSession({
+    userId: user.id,
+    ipAddress: "127.0.0.1",
+    userAgent: "node:test",
+  });
+  const { project } = await authStore.createProject({
+    ownerUserId: user.id,
+    name: "Render Failure Project",
+    visibility: "private",
+  });
+  const app = await createTestApiServer({
+    authStore,
     llmTransport: createMockLlmTransport(),
     renderClient: async () => {
       throw new Error("Syntax Error? (line 2)");
@@ -4783,6 +4971,10 @@ test("api reports manual PlantUML render failures clearly", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/api/render/svg",
+    headers: {
+      cookie: `uml_session=${encodeURIComponent(session.id)}`,
+      "x-uml-project-id": project.id,
+    },
     payload: {
       diagramKind: "activity",
       plantUmlSource: "@startuml\nbroken\n@enduml",
@@ -4796,7 +4988,25 @@ test("api reports manual PlantUML render failures clearly", async () => {
 });
 
 test("api rejects invalid manual render requests with 400", async () => {
-  const app = await createApiServer({
+  const authStore = createInMemoryAuthStore();
+  const user = await authStore.createUser({
+    email: "render-invalid-owner@example.com",
+    displayName: "Render Invalid Owner",
+    passwordHash: "hash",
+  });
+  assert.ok(user);
+  const session = await authStore.createSession({
+    userId: user.id,
+    ipAddress: "127.0.0.1",
+    userAgent: "node:test",
+  });
+  const { project } = await authStore.createProject({
+    ownerUserId: user.id,
+    name: "Render Invalid Project",
+    visibility: "private",
+  });
+  const app = await createTestApiServer({
+    authStore,
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
       svg: "<svg />",
@@ -4812,6 +5022,10 @@ test("api rejects invalid manual render requests with 400", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/api/render/svg",
+    headers: {
+      cookie: `uml_session=${encodeURIComponent(session.id)}`,
+      "x-uml-project-id": project.id,
+    },
     payload: {
       diagramKind: "unknown",
       plantUmlSource: "",
@@ -4824,16 +5038,19 @@ test("api rejects invalid manual render requests with 400", async () => {
   await app.close();
 });
 
-test("api tests provider connections and returns model capability", async () => {
+test("api rejects plaintext provider connection tests by default", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
-    })) as typeof fetch;
+    });
+  }) as typeof fetch;
 
   try {
-    const app = await createApiServer({
+    const app = await createTestApiServer({
       llmTransport: createMockLlmTransport(),
       renderClient: async () => ({
         svg: "<svg />",
@@ -4844,6 +5061,125 @@ test("api tests provider connections and returns model capability", async () => 
           durationMs: 1,
         },
       }),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/provider/test",
+      payload: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "claude-opus-4-6-thinking",
+      },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(fetchCalls, 0);
+    assert.match(response.body, /managed Provider/i);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("api production startup requires DATABASE_URL unless stores are injected", async () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+
+  try {
+    await assert.rejects(
+      () =>
+        createTestApiServer({
+          nodeEnv: "production",
+        }),
+      /DATABASE_URL is required in production/,
+    );
+  } finally {
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+  }
+});
+
+test("api rejects plaintext provider connection tests in production", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const app = await createTestApiServer({
+      llmTransport: createMockLlmTransport(),
+      authStore: createInMemoryAuthStore(),
+      providerConfigStore: createProviderConfigStore({
+        baseUrlAllowlist: ["https://ai.comfly.org"],
+        secret: "test-secret",
+      }),
+      runRecordStore: createRunRecordStore(),
+      documentLibrary: {} as DocumentLibrary,
+      renderClient: async () => ({
+        svg: "<svg />",
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: new Date().toISOString(),
+          sourceLength: 0,
+          durationMs: 1,
+        },
+      }),
+      allowLegacyPlaintextProviderTest: true,
+      nodeEnv: "production",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/provider/test",
+      payload: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "claude-opus-4-6-thinking",
+      },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.equal(fetchCalls, 0);
+    assert.match(response.body, /managed Provider/i);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("api allows explicit dev/test legacy provider connection tests", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+
+  try {
+    const app = await createTestApiServer({
+      llmTransport: createMockLlmTransport(),
+      renderClient: async () => ({
+        svg: "<svg />",
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: new Date().toISOString(),
+          sourceLength: 0,
+          durationMs: 1,
+        },
+      }),
+      allowLegacyPlaintextProviderTest: true,
+      nodeEnv: "test",
     });
 
     const response = await app.inject({
@@ -4876,7 +5212,7 @@ test("api reports provider test failures clearly", async () => {
     })) as typeof fetch;
 
   try {
-    const app = await createApiServer({
+    const app = await createTestApiServer({
       llmTransport: createMockLlmTransport(),
       renderClient: async () => ({
         svg: "<svg />",
@@ -4887,6 +5223,8 @@ test("api reports provider test failures clearly", async () => {
           durationMs: 1,
         },
       }),
+      allowLegacyPlaintextProviderTest: true,
+      nodeEnv: "test",
     });
 
     const response = await app.inject({
@@ -4909,7 +5247,7 @@ test("api reports provider test failures clearly", async () => {
 });
 
 test("api exposes health under root and /api for reverse proxy checks", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
       svg: "<svg />",
@@ -4940,7 +5278,7 @@ test("api exposes health under root and /api for reverse proxy checks", async ()
 });
 
 test("api exposes version details under root and /api for deployment checks", async () => {
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
       svg: "<svg />",
@@ -4981,7 +5319,7 @@ test("api applies the configured CORS origin allowlist", async () => {
   const originalCorsOrigins = process.env.API_CORS_ORIGINS;
   process.env.API_CORS_ORIGINS = "https://app.example.com,http://localhost:5173";
 
-  const app = await createApiServer({
+  const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
       svg: "<svg />",
@@ -5015,6 +5353,7 @@ test("api applies the configured CORS origin allowlist", async () => {
       String(allowed.headers["access-control-expose-headers"] ?? ""),
       /Content-Disposition/i,
     );
+    assert.equal(allowed.headers["access-control-allow-credentials"], "true");
     assert.equal(blocked.statusCode, 200);
     assert.equal(blocked.headers["access-control-allow-origin"], undefined);
   } finally {
@@ -5025,6 +5364,630 @@ test("api applies the configured CORS origin allowlist", async () => {
       process.env.API_CORS_ORIGINS = originalCorsOrigins;
     }
   }
+});
+
+function getSessionCookie(response: { headers: Record<string, unknown> }) {
+  const raw = response.headers["set-cookie"];
+  const value = Array.isArray(raw) ? raw[0] : String(raw ?? "");
+  assert.match(value, /uml_session=/);
+  assert.match(value, /HttpOnly/i);
+  assert.match(value, /SameSite=Lax/i);
+  return value.split(";")[0];
+}
+
+function multipartAvatarPayload({
+  boundary,
+  contentType,
+  fileName,
+  content,
+}: {
+  boundary: string;
+  contentType: string;
+  fileName: string;
+  content: Buffer;
+}) {
+  return Buffer.concat([
+    Buffer.from(
+      [
+        `--${boundary}`,
+        `Content-Disposition: form-data; name="avatar"; filename="${fileName}"`,
+        `Content-Type: ${contentType}`,
+        "",
+        "",
+      ].join("\r\n"),
+    ),
+    content,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+}
+
+test("api registers users, stores sessions in HttpOnly cookies, and logs out", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  const register = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "owner@example.com",
+      password: "password-123",
+      displayName: "Owner User",
+    },
+  });
+  assert.equal(register.statusCode, 201);
+  const cookie = getSessionCookie(register);
+  const registered = register.json();
+  assert.equal(registered.user.email, "owner@example.com");
+  assert.equal(registered.user.passwordHash, undefined);
+
+  const me = await app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { cookie },
+  });
+  assert.equal(me.statusCode, 200);
+  assert.equal(me.json().session.userId, registered.user.id);
+
+  const logout = await app.inject({
+    method: "POST",
+    url: "/api/auth/logout",
+    headers: { cookie },
+  });
+  assert.equal(logout.statusCode, 204);
+  assert.match(String(logout.headers["set-cookie"] ?? ""), /Max-Age=0/i);
+
+  const afterLogout = await app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { cookie },
+  });
+  assert.equal(afterLogout.statusCode, 401);
+
+  await app.close();
+});
+
+test("api lists active sessions and can revoke other devices", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  const unauthenticatedProfile = await app.inject({
+    method: "GET",
+    url: "/api/account/profile",
+  });
+  assert.equal(unauthenticatedProfile.statusCode, 401);
+
+  const register = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "sessions@example.com",
+      password: "password-123",
+      displayName: "Session User",
+    },
+  });
+  const firstCookie = getSessionCookie(register);
+  await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email",
+    payload: {
+      token: register.json().verification.devToken,
+    },
+  });
+
+  const login = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: {
+      email: "sessions@example.com",
+      password: "password-123",
+    },
+  });
+  const secondCookie = getSessionCookie(login);
+
+  const sessions = await app.inject({
+    method: "GET",
+    url: "/api/account/sessions",
+    headers: { cookie: secondCookie },
+  });
+  assert.equal(sessions.statusCode, 200);
+  assert.equal(sessions.json().sessions.length, 2);
+
+  const revoke = await app.inject({
+    method: "POST",
+    url: "/api/account/sessions/revoke-others",
+    headers: { cookie: secondCookie },
+  });
+  assert.equal(revoke.statusCode, 200);
+  assert.equal(revoke.json().revokedCount, 1);
+
+  const firstAfterRevoke = await app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { cookie: firstCookie },
+  });
+  assert.equal(firstAfterRevoke.statusCode, 401);
+
+  const secondAfterRevoke = await app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { cookie: secondCookie },
+  });
+  assert.equal(secondAfterRevoke.statusCode, 200);
+
+  await app.close();
+});
+
+test("api updates profile and changes password through account routes", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  const register = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "profile@example.com",
+      password: "password-123",
+      displayName: "Profile User",
+    },
+  });
+  const cookie = getSessionCookie(register);
+  await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email",
+    payload: {
+      token: register.json().verification.devToken,
+    },
+  });
+
+  const currentProfile = await app.inject({
+    method: "GET",
+    url: "/api/account/profile",
+    headers: { cookie },
+  });
+  assert.equal(currentProfile.statusCode, 200);
+  assert.equal(currentProfile.json().user.displayName, "Profile User");
+  assert.equal(currentProfile.json().mfa.enabled, false);
+  assert.equal(currentProfile.json().mfa.enforcement, "totp");
+  assert.ok(currentProfile.json().session.id);
+
+  const profile = await app.inject({
+    method: "PATCH",
+    url: "/api/account/profile",
+    headers: { cookie },
+    payload: {
+      displayName: "Renamed User",
+      avatarUrl: "https://example.com/avatar.png",
+    },
+  });
+  assert.equal(profile.statusCode, 200);
+  assert.equal(profile.json().user.displayName, "Renamed User");
+  assert.equal(profile.json().mfa.enabled, false);
+  assert.equal(profile.json().mfa.enforcement, "totp");
+  assert.ok(profile.json().session.id);
+
+  const wrongPassword = await app.inject({
+    method: "PATCH",
+    url: "/api/account/security",
+    headers: { cookie },
+    payload: {
+      currentPassword: "wrong-password",
+      newPassword: "password-456",
+    },
+  });
+  assert.equal(wrongPassword.statusCode, 400);
+
+  const changed = await app.inject({
+    method: "PATCH",
+    url: "/api/account/security",
+    headers: { cookie },
+    payload: {
+      currentPassword: "password-123",
+      newPassword: "password-456",
+    },
+  });
+  assert.equal(changed.statusCode, 200);
+
+  const oldLogin = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: {
+      email: "profile@example.com",
+      password: "password-123",
+    },
+  });
+  assert.equal(oldLogin.statusCode, 401);
+
+  const newLogin = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: {
+      email: "profile@example.com",
+      password: "password-456",
+    },
+  });
+  assert.equal(newLogin.statusCode, 200);
+
+  await app.close();
+});
+
+test("api uploads and serves account avatar files", async () => {
+  const avatarStorageDir = mkdtempSync(join(tmpdir(), "uml-avatar-test-"));
+  const originalAvatarStorageDir = process.env.UML_AVATAR_STORAGE_DIR;
+  process.env.UML_AVATAR_STORAGE_DIR = avatarStorageDir;
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  try {
+    const boundary = "----uml-avatar-boundary";
+    const unauthenticated = await app.inject({
+      method: "POST",
+      url: "/api/account/avatar",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: multipartAvatarPayload({
+        boundary,
+        contentType: "image/png",
+        fileName: "avatar.png",
+        content: VALID_PNG,
+      }),
+    });
+    assert.equal(unauthenticated.statusCode, 401);
+
+    const register = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: {
+        email: "avatar@example.com",
+        password: "password-123",
+        displayName: "Avatar User",
+      },
+    });
+    const cookie = getSessionCookie(register);
+
+    const uploaded = await app.inject({
+      method: "POST",
+      url: "/api/account/avatar",
+      headers: {
+        cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: multipartAvatarPayload({
+        boundary,
+        contentType: "image/png",
+        fileName: "avatar.png",
+        content: VALID_PNG,
+      }),
+    });
+    assert.equal(uploaded.statusCode, 200);
+    assert.match(uploaded.json().user.avatarUrl, /^http:\/\/localhost:80\/api\/account\/avatars\/.+\.png$/u);
+    assert.equal(uploaded.json().mfa.enabled, false);
+    assert.ok(uploaded.json().session.id);
+
+    const profile = await app.inject({
+      method: "GET",
+      url: "/api/account/profile",
+      headers: { cookie },
+    });
+    assert.equal(profile.json().user.avatarUrl, uploaded.json().user.avatarUrl);
+
+    const avatar = await app.inject({
+      method: "GET",
+      url: new URL(uploaded.json().user.avatarUrl).pathname,
+    });
+    assert.equal(avatar.statusCode, 200);
+    assert.match(String(avatar.headers["content-type"] ?? ""), /^image\/png/u);
+    assert.ok(avatar.body.length > 0);
+
+    const invalidType = await app.inject({
+      method: "POST",
+      url: "/api/account/avatar",
+      headers: {
+        cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: multipartAvatarPayload({
+        boundary,
+        contentType: "text/plain",
+        fileName: "avatar.txt",
+        content: Buffer.from("not an image"),
+      }),
+    });
+    assert.equal(invalidType.statusCode, 400);
+
+    const corruptPng = await app.inject({
+      method: "POST",
+      url: "/api/account/avatar",
+      headers: {
+        cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: multipartAvatarPayload({
+        boundary,
+        contentType: "image/png",
+        fileName: "avatar.png",
+        content: Buffer.from("not really a png"),
+      }),
+    });
+    assert.equal(corruptPng.statusCode, 400);
+    assert.match(corruptPng.json().message, /image type/i);
+
+    const tooLarge = await app.inject({
+      method: "POST",
+      url: "/api/account/avatar",
+      headers: {
+        cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: multipartAvatarPayload({
+        boundary,
+        contentType: "image/png",
+        fileName: "avatar.png",
+        content: Buffer.alloc(2 * 1024 * 1024 + 1),
+      }),
+    });
+    assert.equal(tooLarge.statusCode, 400);
+
+    const traversal = await app.inject({
+      method: "GET",
+      url: "/api/account/avatars/..%2Fsecret.png",
+    });
+    assert.equal(traversal.statusCode, 404);
+  } finally {
+    await app.close();
+    if (originalAvatarStorageDir === undefined) {
+      delete process.env.UML_AVATAR_STORAGE_DIR;
+    } else {
+      process.env.UML_AVATAR_STORAGE_DIR = originalAvatarStorageDir;
+    }
+    rmSync(avatarStorageDir, { recursive: true, force: true });
+  }
+});
+
+test("api enforces project membership and member management guard rules", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+  });
+
+  const unauthenticated = await app.inject({
+    method: "GET",
+    url: "/api/projects",
+  });
+  assert.equal(unauthenticated.statusCode, 401);
+
+  const ownerRegister = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "project-owner@example.com",
+      password: "password-123",
+      displayName: "Project Owner",
+    },
+  });
+  const ownerCookie = getSessionCookie(ownerRegister);
+
+  const viewerRegister = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "project-viewer@example.com",
+      password: "password-123",
+      displayName: "Project Viewer",
+    },
+  });
+  const viewerCookie = getSessionCookie(viewerRegister);
+
+  const projectCreate = await app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: { cookie: ownerCookie },
+    payload: {
+      name: "课程设计项目",
+      description: "围绕课程实验的 UML 生成项目",
+    },
+  });
+  assert.equal(projectCreate.statusCode, 201);
+  const project = projectCreate.json().project;
+
+  const ownerProfile = await app.inject({
+    method: "PATCH",
+    url: "/api/account/profile",
+    headers: { cookie: ownerCookie },
+    payload: {
+      displayName: "Project Owner",
+      avatarUrl: "https://example.com/project-owner.png",
+    },
+  });
+  assert.equal(ownerProfile.statusCode, 200);
+
+  const invited = await app.inject({
+    method: "POST",
+    url: `/api/projects/${project.id}/members`,
+    headers: { cookie: ownerCookie },
+    payload: {
+      email: "project-viewer@example.com",
+      role: "viewer",
+    },
+  });
+  assert.equal(invited.statusCode, 201);
+  const viewerMember = invited.json().member;
+  assert.equal(viewerMember.role, "viewer");
+
+  const blockedUpdate = await app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}`,
+    headers: { cookie: viewerCookie },
+    payload: {
+      name: "Viewer rename attempt",
+    },
+  });
+  assert.equal(blockedUpdate.statusCode, 403);
+
+  const promoted = await app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}/members/${viewerMember.id}`,
+    headers: { cookie: ownerCookie },
+    payload: {
+      role: "editor",
+    },
+  });
+  assert.equal(promoted.statusCode, 200);
+  assert.equal(promoted.json().member.role, "editor");
+
+  const editorUpdate = await app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}`,
+    headers: { cookie: viewerCookie },
+    payload: {
+      name: "Editor renamed project",
+    },
+  });
+  assert.equal(editorUpdate.statusCode, 200);
+  assert.equal(editorUpdate.json().project.name, "Editor renamed project");
+
+  const members = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/members`,
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(members.statusCode, 200);
+  assert.equal(members.json().members.length, 2);
+
+  const ownerMember = members
+    .json()
+    .members.find((member: { role: string }) => member.role === "owner");
+  assert.equal(ownerMember.avatarUrl, "https://example.com/project-owner.png");
+  const demoteLastOwner = await app.inject({
+    method: "PATCH",
+    url: `/api/projects/${project.id}/members/${ownerMember.id}`,
+    headers: { cookie: ownerCookie },
+    payload: {
+      role: "viewer",
+    },
+  });
+  assert.equal(demoteLastOwner.statusCode, 400);
+
+  const removeLastOwner = await app.inject({
+    method: "DELETE",
+    url: `/api/projects/${project.id}/members/${ownerMember.id}`,
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(removeLastOwner.statusCode, 400);
+
+  await app.close();
+});
+
+test("api server injects the configured mail adapter into project invitations", async () => {
+  const sent: MailMessage[] = [];
+  const mailAdapter: MailAdapter = {
+    async send(message) {
+      sent.push(message);
+    },
+  };
+  const app = await createTestApiServer({
+    llmTransport: createMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg />",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 0,
+        durationMs: 1,
+      },
+    }),
+    mailAdapter,
+  });
+
+  const ownerRegister = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "mail-project-owner@example.com",
+      password: "password-123",
+      displayName: "Mail Project Owner",
+    },
+  });
+  assert.equal(ownerRegister.statusCode, 201);
+  const ownerCookie = getSessionCookie(ownerRegister);
+
+  const projectCreate = await app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: { cookie: ownerCookie },
+    payload: {
+      name: "Mail Adapter Project",
+      visibility: "private",
+    },
+  });
+  assert.equal(projectCreate.statusCode, 201);
+
+  const invited = await app.inject({
+    method: "POST",
+    url: `/api/projects/${projectCreate.json().project.id}/invitations`,
+    headers: { cookie: ownerCookie },
+    payload: {
+      email: "mail-invitee@example.com",
+      role: "viewer",
+    },
+  });
+
+  assert.equal(invited.statusCode, 201);
+  const invitationMail = sent.find((message) => message.purpose === "project_invitation");
+  assert.ok(invitationMail);
+  assert.equal(invitationMail.to, "mail-invitee@example.com");
+  assert.equal(invitationMail.token, invited.json().devToken);
+  assert.match(invitationMail.subject, /Mail Adapter Project/);
+
+  await app.close();
 });
 
 

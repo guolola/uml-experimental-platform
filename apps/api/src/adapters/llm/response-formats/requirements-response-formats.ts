@@ -6,6 +6,7 @@ export const modelElementRefResponseSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
+    modelId: { type: "string" },
     diagramKind: {
       type: "string",
       enum: [

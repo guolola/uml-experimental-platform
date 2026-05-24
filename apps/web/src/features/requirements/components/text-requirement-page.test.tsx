@@ -11,6 +11,15 @@ import {
 import { TextRequirementView } from "./text-requirement-page";
 
 describe("TextRequirementView", () => {
+  async function chooseSelectOption(
+    user: ReturnType<typeof userEvent.setup>,
+    combobox: HTMLElement,
+    optionName: string,
+  ) {
+    await user.click(combobox);
+    await user.click(await screen.findByRole("option", { name: optionName }));
+  }
+
   function createBaseRepository(
     overrides: Partial<WorkspaceRepository> = {},
   ): WorkspaceRepository {
@@ -121,6 +130,10 @@ describe("TextRequirementView", () => {
         }),
       );
     });
+    expect(
+      await screen.findByRole("dialog", { name: "需求规则已生成" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("生成完成。")).toBeInTheDocument();
   });
 
   it("starts a diagram run through session actions", async () => {
@@ -223,6 +236,76 @@ describe("TextRequirementView", () => {
     expect(screen.queryByText("模型结果")).not.toBeInTheDocument();
   });
 
+  it("shows requirement-model AI repair records on the model stage", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              text: "普通读者可以查询自己借出的书目。",
+              relatedDiagrams: ["usecase"],
+            }),
+          ],
+          selectedDiagramTypes: ["usecase"],
+          generatedDiagramTypes: ["usecase"],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "图书馆用例模型",
+              summary: "读者自助查询",
+              notes: [],
+              actors: [
+                {
+                  id: "actor_reader",
+                  name: "普通读者",
+                  actorType: "human",
+                  responsibilities: ["查询自己借出的书目"],
+                },
+              ],
+              useCases: [
+                {
+                  id: "uc_find_own_loans",
+                  name: "查询自己借出的书目",
+                  goal: "返回当前读者借阅清单",
+                  preconditions: ["普通读者已登录"],
+                  postconditions: ["系统展示该读者当前借阅清单"],
+                  primaryActorId: "actor_reader",
+                  supportingActorIds: [],
+                },
+              ],
+              systemBoundaries: [{ id: "boundary_library", name: "图书馆系统" }],
+              relationships: [],
+            },
+          },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_find_own_loans",
+                elementKind: "usecase",
+                label: "查询自己借出的书目",
+              },
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    expect(await screen.findByText("需求模型覆盖/追踪证明")).toBeInTheDocument();
+    expect(screen.queryByText("需求模型 AI 修复记录")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/需求规则 r1 需要解释其在用例模型中的覆盖关系/u),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/补齐 r1 -> 查询自己借出的书目 的追踪关系和覆盖说明/u),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("证明已补齐").length).toBeGreaterThan(0);
+  });
+
   it("disables target diagrams that do not have linked requirement rules", async () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
@@ -249,6 +332,520 @@ describe("TextRequirementView", () => {
     expect(classDiagramCheckbox).not.toBeChecked();
     expect(screen.getAllByText("缺少对应需求规则").length).toBeGreaterThan(0);
     expect(screen.getByText("0/4")).toBeInTheDocument();
+  });
+
+  it("keeps AI repair details out of the table row and shows lightweight hints", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r10",
+              text: "功能(4)可供普通读者查找他们自己借出的书目。",
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-ai-field-repair",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-ai-field-repair",
+              status: "passed",
+              summary: "AI 已修复可从原文推出的字段。",
+              issues: [],
+              blockingIssueIds: [],
+              reviewRequiredRequirementIds: [],
+            },
+            requirements: [
+              {
+                id: "REQ-010",
+                sourceRuleId: "r10",
+                sourceFragment: "功能(4)可供普通读者查找他们自己借出的书目。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 24 },
+                type: "business-rule",
+                actor: "普通读者",
+                subject: "普通读者",
+                action: "查找他们自己借出的书目",
+                object: "自己借出的书目",
+                condition: "登录身份为普通读者",
+                outcome: "系统返回该读者自己的借出书目",
+                confidence: 0.74,
+                status: "accepted",
+                criticality: "critical",
+                acceptanceCriteria: ["普通读者只能查看自己当前借出的书目。"],
+                priority: "must",
+                fieldProvenance: {
+                  actor: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "普通读者",
+                    originalValue: null,
+                    rationale: "原文明确出现普通读者，AI 自动补齐角色/执行者字段。",
+                  },
+                  object: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "自己借出的书目",
+                    originalValue: null,
+                    rationale: "原文描述普通读者查询自己借出的书目，AI 自动补齐对象字段。",
+                  },
+                  condition: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "登录身份为普通读者",
+                    originalValue: null,
+                    rationale: "该规则涉及普通读者权限边界，AI 自动补齐身份条件。",
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const row = await screen.findByRole("row", {
+      name: /r10.*功能\(4\)可供普通读者查找他们自己借出的书目/u,
+    });
+    expect(within(row).getByText("AI已补齐")).toBeInTheDocument();
+    expect(within(row).getByText("3项")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
+    expect(within(row).queryByText(/角色\/执行者：普通读者/u)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/修复原因：原文明确出现普通读者/u)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/actor|object|condition/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求规则复核详情" })).not.toBeInTheDocument();
+  });
+
+  it("shows quality issues as lightweight hints instead of review actions", async () => {
+    const updateRequirementBaseline = vi.fn(async () => {});
+    const repository = createBaseRepository({
+      updateRequirementBaseline,
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r10",
+              text: "功能(4)可供普通读者查找他们自己借出的书目。",
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-ai-field-repair",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-ai-field-repair",
+              status: "blocked",
+              summary: "AI 补齐字段待人工确认。",
+              issues: [
+                {
+                  id: "ISS-001",
+                  requirementId: "REQ-010",
+                  severity: "critical",
+                  code: "derived-assumption",
+                  message: "REQ-010 包含 AI 补齐待确认字段。",
+                  blocksDownstream: true,
+                },
+                {
+                  id: "ISS-002",
+                  requirementId: "REQ-010",
+                  severity: "critical",
+                  code: "missing-boundary",
+                  message: "REQ-010 缺少可验证边界。",
+                  blocksDownstream: true,
+                },
+              ],
+              blockingIssueIds: ["ISS-001", "ISS-002"],
+              reviewRequiredRequirementIds: ["REQ-010"],
+            },
+            requirements: [
+              {
+                id: "REQ-010",
+                sourceRuleId: "r10",
+                sourceFragment: "功能(4)可供普通读者查找他们自己借出的书目。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 24 },
+                type: "business-rule",
+                actor: "普通读者",
+                subject: "普通读者",
+                action: "查找他们自己借出的书目",
+                object: "自己借出的书目",
+                condition: "登录身份为普通读者",
+                outcome: "系统返回该读者自己的借出书目",
+                confidence: 0.66,
+                status: "pending-review",
+                criticality: "critical",
+                acceptanceCriteria: ["普通读者只能查看自己当前借出的书目。"],
+                priority: "must",
+                fieldProvenance: {
+                  actor: {
+                    source: "ai-suggested",
+                    status: "pending-review",
+                    value: "普通读者",
+                  },
+                  object: {
+                    source: "ai-suggested",
+                    status: "pending-review",
+                    value: "自己借出的书目",
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const row = await screen.findByRole("row", {
+      name: /r10.*功能\(4\)可供普通读者查找他们自己借出的书目/u,
+    });
+    expect(updateRequirementBaseline).not.toHaveBeenCalled();
+    expect(within(row).getByText("有待确认提示")).toBeInTheDocument();
+    expect(within(row).getByText("4项")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑后采纳" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "采纳 AI 补齐" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "拒绝建议" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/阻断可信完成/u)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/角色\/执行者：普通读者/u)).not.toBeInTheDocument();
+  });
+
+  it("does not expose single-rule repair actions from the requirement table", async () => {
+    const startRun = vi.fn();
+    const updateRequirementBaseline = vi.fn(async () => {});
+    const repairRequirementRule = vi.fn(async (input) => {
+      const requirement = {
+        ...input.baseline.requirements[0],
+        actor: "系统",
+        subject: "系统",
+        confidence: 0.82,
+        status: "accepted" as const,
+        fieldProvenance: {
+          actor: {
+            source: "ai-suggested" as const,
+            status: "accepted" as const,
+            value: "系统",
+            rationale: "原文描述的是系统状态一致性约束。",
+          },
+          subject: {
+            source: "ai-suggested" as const,
+            status: "accepted" as const,
+            value: "系统",
+            rationale: "由约束语义推出主体。",
+          },
+        },
+      };
+      return {
+        requirement,
+        qualityReport: {
+          ...input.baseline.qualityReport,
+          status: "blocked" as const,
+          issues: input.baseline.qualityReport.issues.filter(
+            (issue) => issue.requirementId !== "REQ-013",
+          ),
+          blockingIssueIds: ["ISS-014"],
+          reviewRequiredRequirementIds: ["REQ-014"],
+        },
+        repairRationale: "只修复当前规则。",
+        blockingReasons: [],
+      };
+    });
+    const repository = createBaseRepository({
+      startRun,
+      updateRequirementBaseline,
+      repairRequirementRule,
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r13",
+              text: "同一时刻，一本书不能既处于已借出状态，又处于可借阅状态。",
+            }),
+            createRule({
+              id: "r14",
+              text: "一个读者一次借出的书籍数目不能超过预定值。",
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-ai-field-repair",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-ai-field-repair",
+              status: "blocked",
+              summary: "存在阻断项。",
+              issues: [
+                {
+                  id: "ISS-013",
+                  requirementId: "REQ-013",
+                  severity: "critical",
+                  code: "missing-actor",
+                  message: "REQ-013 缺少明确角色/执行者。",
+                  blocksDownstream: true,
+                },
+                {
+                  id: "ISS-014",
+                  requirementId: "REQ-014",
+                  severity: "critical",
+                  code: "missing-boundary",
+                  message: "REQ-014 提到边界但缺少可验证数值。",
+                  blocksDownstream: true,
+                },
+              ],
+              blockingIssueIds: ["ISS-013", "ISS-014"],
+              reviewRequiredRequirementIds: ["REQ-013", "REQ-014"],
+            },
+            requirements: [
+              {
+                id: "REQ-013",
+                sourceRuleId: "r13",
+                sourceFragment: "同一时刻，一本书不能既处于已借出状态，又处于可借阅状态。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 28 },
+                type: "business-rule",
+                actor: null,
+                subject: null,
+                action: "一本书不能同时处于两个状态",
+                object: "图书借阅状态",
+                condition: null,
+                outcome: "系统阻止该行为",
+                confidence: 0.62,
+                status: "pending-review",
+                criticality: "critical",
+                acceptanceCriteria: ["同一图书不能同时标记为已借出和可借阅。"],
+                priority: "must",
+                fieldProvenance: {},
+              },
+              {
+                id: "REQ-014",
+                sourceRuleId: "r14",
+                sourceFragment: "一个读者一次借出的书籍数目不能超过预定值。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 20 },
+                type: "business-rule",
+                actor: "读者",
+                subject: "读者",
+                action: "借出书籍数目不能超过",
+                object: "借出的书籍",
+                condition: "借书数量上限为预定值，需人工确认具体数值",
+                outcome: "超过上限时系统阻断借书",
+                confidence: 0.64,
+                status: "pending-review",
+                criticality: "critical",
+                acceptanceCriteria: ["读者借书数量超过上限时系统必须拒绝。"],
+                priority: "must",
+                fieldProvenance: {
+                  condition: {
+                    source: "ai-suggested",
+                    status: "pending-review",
+                    value: "借书数量上限为预定值，需人工确认具体数值",
+                    rationale: "原文没有给出具体数值。",
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const r13Row = await screen.findByRole("row", {
+      name: /r13.*同一时刻/u,
+    });
+    const r14Row = await screen.findByRole("row", {
+      name: /r14.*预定值/u,
+    });
+    expect(within(r14Row).getByText("有待确认提示")).toBeInTheDocument();
+
+    expect(within(r13Row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新智能修复" })).not.toBeInTheDocument();
+    expect(startRun).not.toHaveBeenCalled();
+    expect(repairRequirementRule).not.toHaveBeenCalled();
+    expect(updateRequirementBaseline).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "单项智能修复完成" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/REQ-013|runId|requirementId|EvidencePackage/u)).not.toBeInTheDocument();
+    expect(within(r14Row).getByText("有待确认提示")).toBeInTheDocument();
+    expect(within(r14Row).getByDisplayValue("一个读者一次借出的书籍数目不能超过预定值。")).toBeInTheDocument();
+  });
+
+  it("shows missing business facts as AI suggestions that still require confirmation", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r14",
+              text: "一个读者一次借出的书籍数目不能超过预定值。",
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-ai-field-repair",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-ai-field-repair",
+              status: "blocked",
+              summary: "存在待确认边界条件。",
+              issues: [
+                {
+                  id: "ISS-014",
+                  requirementId: "REQ-014",
+                  severity: "critical",
+                  code: "missing-boundary",
+                  message: "REQ-014 提到边界但缺少可验证数值。",
+                  blocksDownstream: true,
+                },
+              ],
+              blockingIssueIds: ["ISS-014"],
+              reviewRequiredRequirementIds: ["REQ-014"],
+            },
+            requirements: [
+              {
+                id: "REQ-014",
+                sourceRuleId: "r14",
+                sourceFragment: "一个读者一次借出的书籍数目不能超过预定值。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 20 },
+                type: "business-rule",
+                actor: "读者",
+                subject: "读者",
+                action: "借出书籍数目不能超过",
+                object: "借出的书籍",
+                condition: "借书数量上限为预定值，需人工确认具体数值",
+                outcome: "超过上限时系统阻断借书",
+                confidence: 0.64,
+                status: "pending-review",
+                criticality: "critical",
+                acceptanceCriteria: ["读者借书数量超过上限时系统必须拒绝。"],
+                priority: "must",
+                fieldProvenance: {
+                  condition: {
+                    source: "ai-suggested",
+                    status: "pending-review",
+                    value: "借书数量上限为预定值，需人工确认具体数值",
+                    originalValue: null,
+                    rationale:
+                      "原文含边界限制但没有给出具体数值，AI 只能补齐待确认的边界条件。",
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const row = await screen.findByRole("row", {
+      name: /r14.*一个读者一次借出的书籍数目不能超过预定值/u,
+    });
+    expect(within(row).getByText("有待确认提示")).toBeInTheDocument();
+    expect(within(row).getByText("2项")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
+    expect(within(row).queryByText(/预定值缺少具体数值/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求规则复核详情" })).not.toBeInTheDocument();
+  });
+
+  it("toggles selectable target diagrams from the whole model card", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              relatedDiagrams: ["usecase"],
+            }),
+          ],
+          rulesVersion: 1,
+        }),
+      ),
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const useCaseCheckbox = await screen.findByRole("checkbox", {
+      name: /用例模型/,
+    });
+    expect(useCaseCheckbox).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "选择用例模型" }));
+
+    expect(useCaseCheckbox).toBeChecked();
+
+    await user.keyboard("{Enter}");
+
+    expect(useCaseCheckbox).not.toBeChecked();
+  });
+
+  it("does not toggle disabled target diagram cards", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              relatedDiagrams: ["usecase"],
+            }),
+          ],
+          rulesVersion: 1,
+        }),
+      ),
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const classDiagramCheckbox = await screen.findByRole("checkbox", {
+      name: /领域概念模型/,
+    });
+    expect(classDiagramCheckbox).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "选择领域概念模型" }));
+
+    expect(classDiagramCheckbox).not.toBeChecked();
+  });
+
+  it("keeps rule id jumps from toggling target diagram selection", async () => {
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              relatedDiagrams: ["usecase"],
+            }),
+          ],
+          rulesVersion: 1,
+        }),
+      ),
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const useCaseCheckbox = await screen.findByRole("checkbox", {
+      name: /用例模型/,
+    });
+    expect(useCaseCheckbox).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "r1" }));
+
+    expect(useCaseCheckbox).not.toBeChecked();
   });
 
   it("auto-removes a selected target diagram when its last linked rule is deleted", async () => {
@@ -462,11 +1059,12 @@ describe("TextRequirementView", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("paginates requirement rules and resets to a valid page after filtering", async () => {
+  it("uses fixed 8-row pages and filters requirement rules by text and type", async () => {
     const rules = Array.from({ length: 10 }, (_, index) =>
       createRule({
         id: `r${index + 1}`,
         text: `规则 ${index + 1}`,
+        category: index % 2 === 0 ? "业务规则" : "数据需求",
         relatedDiagrams: ["usecase"],
       }),
     );
@@ -487,7 +1085,9 @@ describe("TextRequirementView", () => {
     expect(within(table).getByDisplayValue("规则 1")).toBeInTheDocument();
     expect(within(table).getByDisplayValue("规则 8")).toBeInTheDocument();
     expect(within(table).queryByDisplayValue("规则 9")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("requirement-rule-row-slot")).toHaveLength(8);
     expect(screen.getByText("1-8 / 10")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "每页需求规则数量" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "下一页" }));
     expect(within(table).queryByDisplayValue("规则 1")).not.toBeInTheDocument();
@@ -495,20 +1095,108 @@ describe("TextRequirementView", () => {
     expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
     expect(screen.getByText("9-10 / 10")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "每页需求规则数量" }), "4");
-    expect(within(table).getByDisplayValue("规则 1")).toBeInTheDocument();
-    expect(within(table).getByDisplayValue("规则 4")).toBeInTheDocument();
-    expect(within(table).queryByDisplayValue("规则 5")).not.toBeInTheDocument();
-    expect(screen.getByText("1-4 / 10")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "下一页" }));
-    expect(within(table).getByDisplayValue("规则 5")).toBeInTheDocument();
-    expect(screen.getByText("5-8 / 10")).toBeInTheDocument();
-
     await user.type(screen.getByPlaceholderText("搜索规则..."), "10");
     expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
-    expect(within(table).queryByDisplayValue("规则 5")).not.toBeInTheDocument();
+    expect(within(table).queryByDisplayValue("规则 9")).not.toBeInTheDocument();
     expect(screen.getByText("1-1 / 1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("requirement-rule-row-slot")).toHaveLength(8);
+
+    await user.clear(screen.getByPlaceholderText("搜索规则..."));
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "需求类型筛选" }),
+      "数据需求",
+    );
+    expect(within(table).getByDisplayValue("规则 2")).toBeInTheDocument();
+    expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
+    expect(within(table).queryByDisplayValue("规则 1")).not.toBeInTheDocument();
+    expect(screen.getByText("1-5 / 5")).toBeInTheDocument();
+  });
+
+  it("keeps status and related diagram cells compact in fixed-width rows", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r10",
+              text: "普通读者只能使用查找自己已借出书目的功能。",
+              relatedDiagrams: ["usecase", "class", "activity"],
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-compact-rule-row",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-compact-rule-row",
+              status: "passed",
+              summary: "系统已补齐结构化字段。",
+              issues: [],
+              blockingIssueIds: [],
+              reviewRequiredRequirementIds: [],
+            },
+            requirements: [
+              {
+                id: "REQ-010",
+                sourceRuleId: "r10",
+                sourceFragment: "普通读者只能使用查找自己已借出书目的功能。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 21 },
+                type: "business-rule",
+                actor: "普通读者",
+                subject: "普通读者",
+                action: "查找",
+                object: "自己已借出的书目",
+                condition: "登录身份为普通读者",
+                outcome: "系统返回自己的借出书目",
+                confidence: 0.74,
+                status: "accepted",
+                criticality: "critical",
+                acceptanceCriteria: ["普通读者只能查看自己已借出的书目。"],
+                priority: "must",
+                fieldProvenance: {
+                  actor: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "普通读者",
+                  },
+                  object: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "自己已借出的书目",
+                  },
+                  condition: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "登录身份为普通读者",
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const row = await screen.findByRole("row", {
+      name: /r10.*普通读者只能使用查找自己已借出书目的功能/u,
+    });
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[2]).toHaveClass("px-4");
+    expect(within(cells[2]).getByText("AI已补齐")).toBeInTheDocument();
+    expect(within(cells[2]).getByText("3项")).toBeInTheDocument();
+    expect(within(cells[2]).queryByText("3项提示")).not.toBeInTheDocument();
+
+    expect(cells[4]).toHaveClass("px-4");
+    expect(cells[4]).toHaveAttribute("title", "用例模型、领域概念模型、界面关系");
+    expect(within(cells[4]).getByText("用例模型")).toBeInTheDocument();
+    expect(within(cells[4]).getByText("领域概念模型")).toBeInTheDocument();
+    expect(within(cells[4]).getByText("+1")).toBeInTheDocument();
+    expect(within(cells[4]).queryByText("界面关系")).not.toBeInTheDocument();
   });
 
   it("creates a requirement rule from the add-rule dialog", async () => {
@@ -538,7 +1226,7 @@ describe("TextRequirementView", () => {
     const submitButton = within(dialog).getByRole("button", { name: "创建需求项" });
     expect(submitButton).toBeDisabled();
 
-    await user.selectOptions(within(dialog).getByRole("combobox"), "数据需求");
+    await chooseSelectOption(user, within(dialog).getByRole("combobox"), "数据需求");
     await user.click(within(dialog).getByRole("checkbox", { name: "领域概念模型" }));
     await user.type(
       within(dialog).getByPlaceholderText("填写这条需求项的具体内容"),

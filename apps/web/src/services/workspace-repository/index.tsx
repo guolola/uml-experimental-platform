@@ -1,7 +1,9 @@
 import {
   createContext,
+  useEffect,
   useContext,
   useMemo,
+  useState,
   type ReactNode,
 } from "react";
 import type {
@@ -13,6 +15,9 @@ import type {
   DocumentStyleSettings,
   DocumentRunSnapshot,
   DesignPlantUmlArtifact,
+  DesignModelTraceabilityEntry,
+  EvidencePackage,
+  EvidenceReviewDecision,
   RequirementModelTraceabilityEntry,
   DesignRunSnapshot,
   DesignSvgArtifact,
@@ -25,18 +30,27 @@ import type {
   RunEvent,
   RunSnapshot,
   SvgArtifact,
+  ManagedProviderSettings,
+  RepairRequirementRuleRequest,
+  RepairRequirementRuleResponse,
+  RequirementBaseline,
 } from "@uml-platform/contracts";
-import type { DesignDiagramType, DiagramType } from "../../entities/diagram/model";
+import {
+  getDesignArtifactId,
+  getDesignModelId,
+  type DesignDiagramType,
+  type DiagramType,
+} from "../../entities/diagram/model";
 import type { WorkspaceRecord } from "../../entities/workspace/model";
 import type { RequirementRule } from "../../entities/requirement-rule/model";
 import {
   loadUserSettings,
   normalizeApiBaseUrl,
 } from "../../shared/lib/user-settings";
-import { documentWorkspaceHeaders } from "../../shared/lib/anonymous-workspace";
 import type { ModelCapability } from "../../shared/lib/model-catalog";
 import {
   ApiClientError,
+  buildApiUrl,
   downloadBlob,
   postJson,
   requestJson,
@@ -44,7 +58,11 @@ import {
 import { subscribeToRunEvents } from "../sse-client";
 import {
   clearRunHistoryItems,
+  createRunHistoryTitle,
   deleteRunHistoryItem,
+  isCodeRunSnapshot,
+  isDesignRunSnapshot,
+  isDocumentRunSnapshot,
   loadRunHistory,
   saveRunHistoryItem,
   type RunHistoryItem,
@@ -53,9 +71,17 @@ import {
 
 export { buildApiUrl } from "../api-client";
 
+const PROJECT_ID_HEADER = "X-UML-Project-Id";
+const PROJECT_REQUIRED_MESSAGE = "请先登录并进入项目";
+
+interface WorkspaceRepositoryOptions {
+  projectId?: string | null;
+}
+
 export interface ProviderSettingsInput {
-  apiBaseUrl: ProviderSettings["apiBaseUrl"];
-  apiKey: ProviderSettings["apiKey"];
+  apiBaseUrl?: ProviderSettings["apiBaseUrl"];
+  apiKey?: ProviderSettings["apiKey"];
+  providerConfigId?: ManagedProviderSettings["providerConfigId"];
   model: ProviderSettings["model"];
 }
 
@@ -69,15 +95,21 @@ export interface StartRunInput {
 export interface StartDesignRunInput {
   requirementText: string;
   rules: RequirementRule[];
+  evidencePackage?: EvidencePackage | null;
   requirementModels: DiagramModelSpec[];
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
   selectedDiagrams: DesignDiagramType[];
+  existingDesignModels: DesignDiagramModelSpec[];
+  existingDesignModelTraceability: DesignModelTraceabilityEntry[];
+  existingDesignPlantUml: DesignPlantUmlArtifact[];
+  existingDesignSvgArtifacts: DesignSvgArtifact[];
   providerSettings: ProviderSettingsInput;
 }
 
 export interface StartCodeRunInput {
   requirementText: string;
   rules: RequirementRule[];
+  evidencePackage?: EvidencePackage | null;
   designModels: DesignDiagramModelSpec[];
   designPlantUml: DesignPlantUmlArtifact[];
   existingFiles: Record<string, string>;
@@ -88,6 +120,7 @@ export interface StartCodeRunInput {
 export interface StartDocumentRunInput {
   documentKind: DocumentKind;
   requirementText: string;
+  evidencePackage?: EvidencePackage | null;
   rules: RequirementRule[];
   requirementModels: DiagramModelSpec[];
   requirementPlantUml: PlantUmlArtifact[];
@@ -104,6 +137,10 @@ export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceRecord>;
   updateRequirementText(text: string): Promise<void>;
   updateRequirementRules?(rules: RequirementRule[]): Promise<void>;
+  updateRequirementBaseline?(baseline: RequirementBaseline): Promise<void>;
+  repairRequirementRule?(
+    input: RepairRequirementRuleRequest,
+  ): Promise<RepairRequirementRuleResponse>;
   startRun(input: StartRunInput): Promise<{ runId: string }>;
   startDesignRun?(input: StartDesignRunInput): Promise<{ runId: string }>;
   startCodeRun?(input: StartCodeRunInput): Promise<{ runId: string }>;
@@ -128,6 +165,15 @@ export interface WorkspaceRepository {
   getDesignRunSnapshot?(runId: string): Promise<DesignRunSnapshot>;
   getCodeRunSnapshot?(runId: string): Promise<CodeRunSnapshot>;
   getDocumentRunSnapshot?(runId: string): Promise<DocumentRunSnapshot>;
+  getRunEvidence?(runId: string): Promise<EvidencePackage>;
+  submitRunReviewDecision?(
+    runId: string,
+    decision: {
+      reviewItemId: string;
+      decision: EvidenceReviewDecision["decision"];
+      comment: string;
+    },
+  ): Promise<EvidencePackage>;
   listDocuments?(): Promise<DocumentLibraryItem[]>;
   getOnlyOfficeEditorConfig?(
     documentId: string,
@@ -169,6 +215,8 @@ function createEmptyWorkspace(): WorkspaceRecord {
     requirementText: "",
     selectedDiagramTypes: [],
     rules: [],
+    requirementBaseline: null,
+    requirementQualityReport: null,
     models: {},
     requirementModelTraceability: [],
     generatedDiagramTypes: [],
@@ -205,6 +253,197 @@ function createEmptyWorkspace(): WorkspaceRecord {
   };
 }
 
+type ProjectWorkspaceResponse = {
+  projectId: string;
+  version: number;
+  state?: Partial<WorkspaceRecord>;
+  updatedAt?: string;
+  updatedByUserId?: string | null;
+  sourceRunId?: string | null;
+};
+
+type ProjectRunDetailResponse = {
+  projectId?: string;
+  run?: {
+    runId?: string;
+    model?: string | null;
+    startedAt?: string | null;
+    createdAt?: string | null;
+  };
+  snapshot?: RunHistorySnapshot;
+};
+
+type ProjectRunsResponse = {
+  runs?: Array<{
+    runId?: string;
+    status?: string | null;
+    startedAt?: string | null;
+    updatedAt?: string | null;
+    completedAt?: string | null;
+    model?: string | null;
+    snapshotAvailable?: boolean | null;
+    canRestore?: boolean | null;
+    documentDownloadAvailable?: boolean | null;
+  }>;
+};
+
+function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
+  return structuredClone(workspace) as WorkspaceRecord;
+}
+
+function mergeWorkspaceState(state?: Partial<WorkspaceRecord>): WorkspaceRecord {
+  return {
+    ...createEmptyWorkspace(),
+    ...(state ?? {}),
+  };
+}
+
+function applySnapshotToWorkspace(
+  workspace: WorkspaceRecord,
+  snapshot: RunHistorySnapshot,
+): WorkspaceRecord {
+  const next = cloneWorkspace(workspace);
+  next.requirementText = snapshot.requirementText;
+  next.runStatus = "idle";
+  next.runProgress = 0;
+  next.currentStage = null;
+  next.runMessage = null;
+  next.errorMessage = null;
+
+  if (isDocumentRunSnapshot(snapshot)) {
+    return next;
+  }
+
+  next.rules = [...snapshot.rules];
+  next.requirementBaseline = snapshot.requirementBaseline ?? next.requirementBaseline ?? null;
+  next.requirementQualityReport =
+    snapshot.requirementBaseline?.qualityReport ?? next.requirementQualityReport ?? null;
+
+  if (isCodeRunSnapshot(snapshot)) {
+    next.designModels = Object.fromEntries(
+      snapshot.designModels.map((model) => [getDesignModelId(model), model]),
+    ) as WorkspaceRecord["designModels"];
+    next.designPlantUml = Object.fromEntries(
+      snapshot.designPlantUml.map((artifact) => [getDesignArtifactId(artifact), artifact.source]),
+    ) as WorkspaceRecord["designPlantUml"];
+    next.codeSpec = snapshot.spec;
+    next.codeBusinessLogic = snapshot.businessLogic;
+    next.codeFiles = { ...snapshot.files };
+    next.codeEntryFile = snapshot.entryFile;
+    next.codeDependencies = { ...snapshot.dependencies };
+    next.codeUiMockup = snapshot.uiMockup;
+    next.codeAgentPlan = [...snapshot.agentPlan];
+    next.codeSkills = [...snapshot.selectedCodeSkills];
+    next.codeSkillDiagnostics = [...snapshot.skillDiagnostics];
+    next.codeSkillResourcePlan = snapshot.skillResourcePlan;
+    next.codeSkillContext = snapshot.codeSkillContext;
+    next.codeDiagnostics = [...snapshot.diagnostics];
+    return next;
+  }
+
+  if (isDesignRunSnapshot(snapshot)) {
+    const designRecords = mapDesignSnapshotToRecords(snapshot);
+    const affected = new Set(snapshot.selectedDiagrams);
+    next.selectedDesignDiagramTypes = [...snapshot.selectedDiagrams];
+    next.designModels = { ...next.designModels, ...designRecords.modelMap };
+    next.designModelTraceability = [
+      ...next.designModelTraceability.filter(
+        (entry) => !affected.has(entry.source.diagramKind as DesignDiagramType),
+      ),
+      ...snapshot.designModelTraceability,
+    ];
+    next.generatedDesignDiagramTypes = Array.from(
+      new Set([...next.generatedDesignDiagramTypes, ...snapshot.selectedDiagrams]),
+    );
+    next.designPlantUml = { ...next.designPlantUml, ...designRecords.plantUmlMap };
+    next.designSvgArtifacts = { ...next.designSvgArtifacts, ...designRecords.svgMap };
+    next.designDiagramErrors = clearAndMergeDiagramErrors(
+      next.designDiagramErrors,
+      snapshot.diagramErrors,
+      snapshot.selectedDiagrams,
+    );
+    next.models = {
+      ...next.models,
+      ...(Object.fromEntries(
+        snapshot.requirementModels.map((model) => [model.diagramKind, model]),
+      ) as WorkspaceRecord["models"]),
+    };
+    next.requirementModelTraceability = mergeRequirementTraceability(
+      next.requirementModelTraceability,
+      snapshot.requirementModelTraceability,
+      snapshot.requirementModels.map((model) => model.diagramKind),
+    );
+    return next;
+  }
+
+  const records = mapSnapshotToRecords(snapshot);
+  const nextRulesVersion = next.rulesVersion + 1;
+  const affected = snapshot.selectedDiagrams;
+  next.selectedDiagramTypes = [...snapshot.selectedDiagrams];
+  next.rulesVersion = nextRulesVersion;
+  next.rulesBasedOnTextVersion = 0;
+  if (affected.length === 0) {
+    return next;
+  }
+  next.models = { ...next.models, ...records.modelMap };
+  next.requirementModelTraceability = mergeRequirementTraceability(
+    next.requirementModelTraceability,
+    snapshot.requirementModelTraceability ?? [],
+    affected,
+  );
+  next.generatedDiagramTypes = Array.from(
+    new Set([...next.generatedDiagramTypes, ...snapshot.selectedDiagrams]),
+  );
+  next.plantUml = { ...next.plantUml, ...records.plantUmlMap };
+  next.svgArtifacts = { ...next.svgArtifacts, ...records.svgMap };
+  next.diagramErrors = clearAndMergeDiagramErrors(
+    next.diagramErrors,
+    snapshot.diagramErrors,
+    affected,
+  );
+  next.diagramVersions = {
+    ...next.diagramVersions,
+    ...Object.fromEntries(affected.map((diagram) => [diagram, nextRulesVersion])),
+  };
+  return next;
+}
+
+function clearAndMergeDiagramErrors<T extends string, V>(
+  current: Partial<Record<T, V>>,
+  incoming: Partial<Record<T, V>>,
+  affected: readonly T[],
+) {
+  const next = { ...current };
+  for (const diagram of affected) {
+    delete next[diagram];
+  }
+  return { ...next, ...incoming };
+}
+
+function mergeRequirementTraceability(
+  current: WorkspaceRecord["requirementModelTraceability"],
+  incoming: WorkspaceRecord["requirementModelTraceability"],
+  affectedDiagrams: readonly DiagramType[],
+) {
+  const affected = new Set<DiagramType>(affectedDiagrams);
+  return [
+    ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramType)),
+    ...incoming.filter((entry) => affected.has(entry.target.diagramKind as DiagramType)),
+  ];
+}
+
+function stableWorkspaceState(workspace: WorkspaceRecord): Partial<WorkspaceRecord> {
+  const {
+    currentStage: _currentStage,
+    runStatus: _runStatus,
+    runProgress: _runProgress,
+    runMessage: _runMessage,
+    errorMessage: _errorMessage,
+    ...state
+  } = workspace;
+  return state;
+}
+
 function mapSnapshotToRecords(snapshot: RunSnapshot) {
   return {
     modelMap: Object.fromEntries(
@@ -222,14 +461,14 @@ function mapSnapshotToRecords(snapshot: RunSnapshot) {
 function mapDesignSnapshotToRecords(snapshot: DesignRunSnapshot) {
   return {
     modelMap: Object.fromEntries(
-      snapshot.models.map((model) => [model.diagramKind, model]),
-    ) as Partial<Record<DesignDiagramType, DesignDiagramModelSpec>>,
+      snapshot.models.map((model) => [getDesignModelId(model), model]),
+    ) as WorkspaceRecord["designModels"],
     plantUmlMap: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [artifact.diagramKind, artifact.source]),
-    ) as Partial<Record<DesignDiagramType, string>>,
+      snapshot.plantUml.map((artifact) => [getDesignArtifactId(artifact), artifact.source]),
+    ) as WorkspaceRecord["designPlantUml"],
     svgMap: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [artifact.diagramKind, artifact]),
-    ) as Partial<Record<DesignDiagramType, DesignSvgArtifact>>,
+      snapshot.svgArtifacts.map((artifact) => [getDesignArtifactId(artifact), artifact]),
+    ) as WorkspaceRecord["designSvgArtifacts"],
   };
 }
 
@@ -251,22 +490,56 @@ function documentFileName(documentKind: DocumentKind, date = new Date()) {
     : `软件设计说明书-${timestamp}.docx`;
 }
 
-async function readRunSnapshot(runId: string) {
+function normalizeProjectId(projectId?: string | null) {
+  const normalized = projectId?.trim();
+  return normalized ? normalized : null;
+}
+
+function getProjectIdFromPath(pathname: string) {
+  const match = pathname.match(/^\/projects\/([^/]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function projectHeaders(projectId: string | null) {
+  return projectId ? { [PROJECT_ID_HEADER]: projectId } : {};
+}
+
+function requireProjectScope(projectId: string | null) {
+  if (!projectId) throw new Error(PROJECT_REQUIRED_MESSAGE);
+  return projectId;
+}
+
+function withProjectHeaders<
+  T extends RequestInit & { errorMessage?: string; defaultFileName?: string },
+>(projectId: string | null, options: T): T {
+  return {
+    ...options,
+    headers: {
+      ...projectHeaders(projectId),
+      ...options.headers,
+    },
+  } as T;
+}
+
+async function readRunSnapshot(runId: string, projectId: string | null = null) {
   return requestJson<RunSnapshot>(`/api/runs/${runId}`, {
     errorMessage: "读取运行快照失败",
+    headers: projectHeaders(projectId),
   });
 }
 
-async function readDesignRunSnapshot(runId: string) {
+async function readDesignRunSnapshot(runId: string, projectId: string | null = null) {
   return requestJson<DesignRunSnapshot>(`/api/design-runs/${runId}`, {
     errorMessage: "读取设计运行快照失败",
+    headers: projectHeaders(projectId),
   });
 }
 
-async function readCodeRunSnapshot(runId: string) {
+async function readCodeRunSnapshot(runId: string, projectId: string | null = null) {
   try {
     return await requestJson<CodeRunSnapshot>(`/api/code-runs/${runId}`, {
       errorMessage: "读取代码运行快照失败",
+      headers: projectHeaders(projectId),
     });
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) {
@@ -276,35 +549,64 @@ async function readCodeRunSnapshot(runId: string) {
   }
 }
 
-async function readDocumentRunSnapshot(runId: string) {
+async function readDocumentRunSnapshot(runId: string, projectId: string | null = null) {
   return requestJson<DocumentRunSnapshot>(`/api/document-runs/${runId}`, {
     errorMessage: "读取说明书运行快照失败",
+    headers: projectHeaders(projectId),
   });
 }
 
-function withDocumentWorkspaceHeaders<
-  T extends RequestInit & { errorMessage?: string; defaultFileName?: string },
->(options: T): T {
-  return {
-    ...options,
-    headers: {
-      ...documentWorkspaceHeaders(),
-      ...options.headers,
-    },
-  } as T;
+async function readRunEvidencePackage(runId: string, projectId: string | null = null) {
+  const scopedProjectId = requireProjectScope(projectId);
+  const response = await requestJson<{ evidencePackage: EvidencePackage }>(
+    `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}/evidence`,
+    withProjectHeaders(scopedProjectId, {
+      errorMessage: "读取可信证据包失败",
+    }),
+  );
+  return response.evidencePackage;
 }
 
-async function downloadDocumentRunFile(runId: string, defaultFileName?: string) {
-  return downloadBlob(`/api/document-runs/${runId}/download`, {
-    errorMessage: "下载说明书失败",
-    defaultFileName: defaultFileName ?? "说明书.docx",
-  });
+async function postRunReviewDecision(
+  runId: string,
+  decision: {
+    reviewItemId: string;
+    decision: EvidenceReviewDecision["decision"];
+    comment: string;
+  },
+  projectId: string | null = null,
+) {
+  const scopedProjectId = requireProjectScope(projectId);
+  const response = await postJson<{ evidencePackage: EvidencePackage }>(
+    `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}/review-decisions`,
+    decision,
+    withProjectHeaders(scopedProjectId, {
+      errorMessage: "提交人工复核决策失败",
+    }),
+  );
+  return response.evidencePackage;
 }
 
-async function listDocumentLibraryItems() {
+async function downloadDocumentRunFile(
+  runId: string,
+  defaultFileName?: string,
+  projectId: string | null = null,
+) {
+  const scopedProjectId = requireProjectScope(projectId);
+  return downloadBlob(
+    `/api/document-runs/${runId}/download`,
+    withProjectHeaders(scopedProjectId, {
+      errorMessage: "下载说明书失败",
+      defaultFileName: defaultFileName ?? "说明书.docx",
+    }),
+  );
+}
+
+async function listDocumentLibraryItems(projectId: string | null = null) {
+  const scopedProjectId = requireProjectScope(projectId);
   const response = await requestJson<DocumentLibraryListResponse>(
-    "/api/documents",
-    withDocumentWorkspaceHeaders({
+    `/api/projects/${encodeURIComponent(scopedProjectId)}/documents`,
+    withProjectHeaders(scopedProjectId, {
       errorMessage: "读取说明书列表失败",
     }),
   );
@@ -314,34 +616,101 @@ async function listDocumentLibraryItems() {
 async function readOnlyOfficeEditorConfig(
   documentId: string,
   uiTheme?: OnlyOfficeUiTheme,
+  projectId: string | null = null,
 ) {
+  const scopedProjectId = requireProjectScope(projectId);
   const query = uiTheme ? `?uiTheme=${encodeURIComponent(uiTheme)}` : "";
   return requestJson<OnlyOfficeEditorConfigResponse>(
-    `/api/documents/${documentId}/editor-config${query}`,
-    withDocumentWorkspaceHeaders({
+    `/api/projects/${encodeURIComponent(scopedProjectId)}/documents/${encodeURIComponent(documentId)}/editor-config${query}`,
+    withProjectHeaders(scopedProjectId, {
       errorMessage: "读取 OnlyOffice 编辑器配置失败",
     }),
   );
 }
 
-async function downloadDocumentFile(documentId: string, defaultFileName?: string) {
+async function downloadDocumentFile(
+  documentId: string,
+  defaultFileName?: string,
+  projectId: string | null = null,
+) {
+  const scopedProjectId = requireProjectScope(projectId);
   return downloadBlob(
-    `/api/documents/${documentId}/download`,
-    withDocumentWorkspaceHeaders({
+    `/api/projects/${encodeURIComponent(scopedProjectId)}/documents/${encodeURIComponent(documentId)}/download`,
+    withProjectHeaders(scopedProjectId, {
       errorMessage: "下载说明书失败",
       defaultFileName: defaultFileName ?? "说明书.docx",
     }),
   );
 }
 
+async function streamProjectRunEvents(
+  endpoint: string,
+  projectId: string,
+  onEvent: (event: RunEvent) => void,
+) {
+  const response = await fetch(buildApiUrl(endpoint), {
+    credentials: "include",
+    headers: projectHeaders(projectId),
+  });
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const payload = await response.json();
+      if (payload && typeof payload === "object" && "message" in payload) {
+        const payloadMessage = payload.message;
+        if (typeof payloadMessage === "string" && payloadMessage.trim()) {
+          message = payloadMessage;
+        }
+      }
+    } catch {
+      // Keep the status-based permission message when the SSE endpoint has no JSON body.
+    }
+    throw new ApiClientError(message, response.status);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const flushEvent = (chunk: string) => {
+    const data = chunk
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .join("\n");
+    if (!data) return;
+    const event = JSON.parse(data) as RunEvent;
+    onEvent(event);
+    if (event.type === "failed") {
+      throw new Error(event.message);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const chunks = buffer.split(/\r?\n\r?\n/);
+    buffer = chunks.pop() ?? "";
+    for (const chunk of chunks) {
+      flushEvent(chunk);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) {
+    flushEvent(buffer);
+  }
+}
+
 async function waitForCodeRunSnapshot(
   runId: string,
   onEvent: (event: RunEvent) => void,
+  projectId: string | null = null,
 ) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < 120_000) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    const snapshot = await readCodeRunSnapshot(runId);
+    const snapshot = await readCodeRunSnapshot(runId, projectId);
     if (snapshot.status === "completed") {
       onEvent({ type: "completed", snapshot });
       return;
@@ -362,11 +731,12 @@ async function waitForCodeRunSnapshot(
 async function waitForDocumentRunSnapshot(
   runId: string,
   onEvent: (event: RunEvent) => void,
+  projectId: string | null = null,
 ) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < 120_000) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    const snapshot = await readDocumentRunSnapshot(runId);
+    const snapshot = await readDocumentRunSnapshot(runId, projectId);
     if (snapshot.status === "completed") {
       onEvent({ type: "completed", snapshot });
       return;
@@ -384,59 +754,262 @@ async function waitForDocumentRunSnapshot(
   throw new Error("说明书 SSE 订阅失败，轮询等待超时");
 }
 
-export function createHttpWorkspaceRepository(): WorkspaceRepository {
+function normalizeProjectHistoryResponse(payload: unknown): RunHistoryItem[] {
+  if (!payload || typeof payload !== "object") return [];
+  const record = payload as {
+    history?: RunHistoryItem[];
+    items?: RunHistoryItem[];
+    runs?: Array<Partial<RunHistoryItem> & { snapshot?: RunHistorySnapshot }>;
+  };
+  const candidates = record.history ?? record.items ?? record.runs ?? [];
+  return candidates.filter((item): item is RunHistoryItem => {
+    return (
+      !!item &&
+      typeof item.id === "string" &&
+      typeof item.createdAt === "string" &&
+      typeof item.title === "string" &&
+      typeof item.providerModel === "string" &&
+      !!item.snapshot
+    );
+  });
+}
+
+export function createHttpWorkspaceRepository(
+  options: WorkspaceRepositoryOptions = {},
+): WorkspaceRepository {
+  const projectId = normalizeProjectId(options.projectId);
   let localRequirementText = "";
   let localRequirementRules: RequirementRule[] = [];
+  let localRequirementBaseline: RequirementBaseline | null = null;
+  let projectWorkspace: WorkspaceRecord | null = null;
+  let projectWorkspaceVersion = 0;
+
+  async function loadProjectWorkspace() {
+    const scopedProjectId = requireProjectScope(projectId);
+    const response = await requestJson<ProjectWorkspaceResponse>(
+      `/api/projects/${encodeURIComponent(scopedProjectId)}/workspace`,
+      withProjectHeaders(scopedProjectId, {
+        errorMessage: "读取项目工作台失败",
+      }),
+    );
+    projectWorkspaceVersion = response.version;
+    projectWorkspace = mergeWorkspaceState(response.state);
+    await hydrateEmptyProjectWorkspaceFromLatestRun();
+    return cloneWorkspace(projectWorkspace);
+  }
+
+  async function ensureProjectWorkspace() {
+    if (projectWorkspace) return projectWorkspace;
+    await loadProjectWorkspace();
+    return projectWorkspace ?? createEmptyWorkspace();
+  }
+
+  async function saveProjectWorkspace(
+    workspace: WorkspaceRecord,
+    sourceRunId?: string | null,
+  ) {
+    const scopedProjectId = requireProjectScope(projectId);
+    const response = await requestJson<ProjectWorkspaceResponse>(
+      `/api/projects/${encodeURIComponent(scopedProjectId)}/workspace`,
+      withProjectHeaders(scopedProjectId, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseVersion: projectWorkspaceVersion,
+          state: stableWorkspaceState(workspace),
+          sourceRunId: sourceRunId ?? null,
+        }),
+        errorMessage: "保存项目工作台失败",
+      }),
+    );
+    projectWorkspaceVersion = response.version;
+    projectWorkspace = mergeWorkspaceState(response.state);
+    return cloneWorkspace(projectWorkspace);
+  }
+
+  async function readProjectRunDetail(runId: string) {
+    const scopedProjectId = requireProjectScope(projectId);
+    return requestJson<ProjectRunDetailResponse>(
+      `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}`,
+      withProjectHeaders(scopedProjectId, {
+        errorMessage: "读取项目运行详情失败",
+      }),
+    );
+  }
+
+  async function readProjectRuns() {
+    const scopedProjectId = requireProjectScope(projectId);
+    return requestJson<ProjectRunsResponse>(
+      `/api/projects/${encodeURIComponent(scopedProjectId)}/runs`,
+      withProjectHeaders(scopedProjectId, {
+        errorMessage: "读取项目运行历史失败",
+      }),
+    );
+  }
+
+  async function persistSnapshotAsProjectWorkspace(
+    snapshot: RunHistorySnapshot,
+  ) {
+    const current = await ensureProjectWorkspace();
+    const next = applySnapshotToWorkspace(current, snapshot);
+    try {
+      return await saveProjectWorkspace(next, snapshot.runId);
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.status !== 409) {
+        throw error;
+      }
+      await loadProjectWorkspace();
+      const latest = projectWorkspace ?? createEmptyWorkspace();
+      return saveProjectWorkspace(
+        applySnapshotToWorkspace(latest, snapshot),
+        snapshot.runId,
+      );
+    }
+  }
+
+  async function hydrateEmptyProjectWorkspaceFromLatestRun() {
+    if (!projectWorkspace || projectWorkspace.requirementText.trim()) return;
+    const runs = (await readProjectRuns()).runs ?? [];
+    const candidates = runs
+      .filter((run) => run.runId && run.snapshotAvailable && run.canRestore)
+      .sort(
+        (left, right) =>
+          Number(left.documentDownloadAvailable) - Number(right.documentDownloadAvailable),
+      );
+    for (const run of candidates) {
+      const detail = await readProjectRunDetail(run.runId!);
+      if (!detail.snapshot || isDocumentRunSnapshot(detail.snapshot)) continue;
+      projectWorkspace = applySnapshotToWorkspace(projectWorkspace, detail.snapshot);
+      try {
+        await saveProjectWorkspace(projectWorkspace, detail.snapshot.runId);
+      } catch (error) {
+        if (!(error instanceof ApiClientError) || (error.status !== 403 && error.status !== 409)) {
+          throw error;
+        }
+      }
+      return;
+    }
+  }
 
   return {
     async loadWorkspace() {
+      if (projectId) {
+        return loadProjectWorkspace();
+      }
       const workspace = createEmptyWorkspace();
       workspace.requirementText = localRequirementText;
       workspace.rules = [...localRequirementRules];
+      workspace.requirementBaseline = localRequirementBaseline;
+      workspace.requirementQualityReport =
+        localRequirementBaseline?.qualityReport ?? null;
       return workspace;
     },
 
     async updateRequirementText(text: string) {
+      if (projectId) {
+        const workspace = await ensureProjectWorkspace();
+        workspace.requirementText = text;
+        await saveProjectWorkspace(workspace);
+        return;
+      }
       localRequirementText = text;
     },
 
     async updateRequirementRules(rules: RequirementRule[]) {
+      if (projectId) {
+        const workspace = await ensureProjectWorkspace();
+        workspace.rules = [...rules];
+        await saveProjectWorkspace(workspace);
+        return;
+      }
       localRequirementRules = [...rules];
     },
 
+    async updateRequirementBaseline(baseline: RequirementBaseline) {
+      if (projectId) {
+        const workspace = await ensureProjectWorkspace();
+        workspace.requirementBaseline = baseline;
+        workspace.requirementQualityReport = baseline.qualityReport;
+        await saveProjectWorkspace(workspace);
+        return;
+      }
+      localRequirementBaseline = structuredClone(baseline) as RequirementBaseline;
+    },
+
+    async repairRequirementRule(input: RepairRequirementRuleRequest) {
+      const scopedProjectId = requireProjectScope(projectId);
+      return postJson<RepairRequirementRuleResponse>(
+        "/api/runs/requirement-rule-repair",
+        {
+          ...input,
+          projectId: scopedProjectId,
+        },
+        {
+          errorMessage: "智能修复失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
+    },
+
     async startRun(input: StartRunInput) {
+      const scopedProjectId = requireProjectScope(projectId);
       return postJson<{ runId: string }>("/api/runs", input, {
         errorMessage: "启动生成失败",
+        headers: projectHeaders(scopedProjectId),
       });
     },
 
     async startDesignRun(input: StartDesignRunInput) {
+      const scopedProjectId = requireProjectScope(projectId);
       return postJson<{ runId: string }>("/api/design-runs", input, {
         errorMessage: "启动设计生成失败",
+        headers: projectHeaders(scopedProjectId),
       });
     },
 
     async startCodeRun(input: StartCodeRunInput) {
+      const scopedProjectId = requireProjectScope(projectId);
       return postJson<{ runId: string }>("/api/code-runs", input, {
         errorMessage: "启动代码生成失败",
+        headers: projectHeaders(scopedProjectId),
       });
     },
 
     async startDocumentRun(input: StartDocumentRunInput) {
+      const scopedProjectId = requireProjectScope(projectId);
       return postJson<{ runId: string }>(
         "/api/document-runs",
         input,
-        withDocumentWorkspaceHeaders({
+        withProjectHeaders(scopedProjectId, {
           errorMessage: "启动说明书生成失败",
         }),
       );
     },
 
     async subscribeToRun(runId: string, onEvent: (event: RunEvent) => void) {
+      const scopedProjectId = requireProjectScope(projectId);
+      if (projectId) {
+        try {
+          await streamProjectRunEvents(`/api/runs/${runId}/events`, scopedProjectId, onEvent);
+          return;
+        } catch (error) {
+          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+            throw error;
+          }
+          const snapshot = await readRunSnapshot(runId, scopedProjectId);
+          if (snapshot.status === "failed") {
+            throw new Error(snapshot.errorMessage ?? "生成失败");
+          }
+          if (snapshot.status !== "completed") {
+            throw error;
+          }
+          return;
+        }
+      }
       const subscription = subscribeToRunEvents(`/api/runs/${runId}/events`, {
         onEvent,
         onError: async () => {
-          const snapshot = await readRunSnapshot(runId);
+          const snapshot = await readRunSnapshot(runId, projectId);
           if (snapshot.status === "failed") {
             throw new Error(snapshot.errorMessage ?? "生成失败");
           }
@@ -449,12 +1022,31 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async subscribeToDesignRun(runId: string, onEvent: (event: RunEvent) => void) {
+      const scopedProjectId = requireProjectScope(projectId);
+      if (projectId) {
+        try {
+          await streamProjectRunEvents(`/api/design-runs/${runId}/events`, scopedProjectId, onEvent);
+          return;
+        } catch (error) {
+          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+            throw error;
+          }
+          const snapshot = await readDesignRunSnapshot(runId, scopedProjectId);
+          if (snapshot.status === "failed") {
+            throw new Error(snapshot.errorMessage ?? "设计生成失败");
+          }
+          if (snapshot.status !== "completed") {
+            throw error;
+          }
+          return;
+        }
+      }
       const subscription = subscribeToRunEvents(
         `/api/design-runs/${runId}/events`,
         {
           onEvent,
           onError: async () => {
-            const snapshot = await readDesignRunSnapshot(runId);
+            const snapshot = await readDesignRunSnapshot(runId, projectId);
             if (snapshot.status === "failed") {
               throw new Error(snapshot.errorMessage ?? "设计生成失败");
             }
@@ -468,66 +1060,106 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async subscribeToCodeRun(runId: string, onEvent: (event: RunEvent) => void) {
+      const scopedProjectId = requireProjectScope(projectId);
+      if (projectId) {
+        try {
+          await streamProjectRunEvents(`/api/code-runs/${runId}/events`, scopedProjectId, onEvent);
+          return;
+        } catch (error) {
+          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+            throw error;
+          }
+          await waitForCodeRunSnapshot(runId, onEvent, scopedProjectId);
+          return;
+        }
+      }
       const subscription = subscribeToRunEvents(`/api/code-runs/${runId}/events`, {
         onEvent,
-        onError: () => waitForCodeRunSnapshot(runId, onEvent),
+        onError: () => waitForCodeRunSnapshot(runId, onEvent, projectId),
       });
       await subscription.closed;
     },
 
     async subscribeToDocumentRun(runId: string, onEvent: (event: RunEvent) => void) {
+      const scopedProjectId = requireProjectScope(projectId);
+      if (projectId) {
+        try {
+          await streamProjectRunEvents(`/api/document-runs/${runId}/events`, scopedProjectId, onEvent);
+          return;
+        } catch (error) {
+          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+            throw error;
+          }
+          await waitForDocumentRunSnapshot(runId, onEvent, scopedProjectId);
+          return;
+        }
+      }
       const subscription = subscribeToRunEvents(
         `/api/document-runs/${runId}/events`,
         {
           onEvent,
-          onError: () => waitForDocumentRunSnapshot(runId, onEvent),
+          onError: () => waitForDocumentRunSnapshot(runId, onEvent, projectId),
         },
       );
       await subscription.closed;
     },
 
     async getRunSnapshot(runId: string) {
-      return readRunSnapshot(runId);
+      return readRunSnapshot(runId, requireProjectScope(projectId));
     },
 
     async getDesignRunSnapshot(runId: string) {
-      return readDesignRunSnapshot(runId);
+      return readDesignRunSnapshot(runId, requireProjectScope(projectId));
     },
 
     async getCodeRunSnapshot(runId: string) {
-      return readCodeRunSnapshot(runId);
+      return readCodeRunSnapshot(runId, requireProjectScope(projectId));
     },
 
     async getDocumentRunSnapshot(runId: string) {
-      return readDocumentRunSnapshot(runId);
+      return readDocumentRunSnapshot(runId, requireProjectScope(projectId));
+    },
+
+    async getRunEvidence(runId: string) {
+      return readRunEvidencePackage(runId, requireProjectScope(projectId));
+    },
+
+    async submitRunReviewDecision(runId, decision) {
+      return postRunReviewDecision(runId, decision, requireProjectScope(projectId));
     },
 
     async listDocuments() {
-      return listDocumentLibraryItems();
+      return listDocumentLibraryItems(projectId);
     },
 
     async getOnlyOfficeEditorConfig(
       documentId: string,
       uiTheme?: OnlyOfficeUiTheme,
     ) {
-      return readOnlyOfficeEditorConfig(documentId, uiTheme);
+      return readOnlyOfficeEditorConfig(documentId, uiTheme, projectId);
     },
 
     async downloadDocumentRun(runId: string, defaultFileName?: string) {
-      return downloadDocumentRunFile(runId, defaultFileName);
+      return downloadDocumentRunFile(runId, defaultFileName, projectId);
     },
 
     async downloadDocument(documentId: string, defaultFileName?: string) {
-      return downloadDocumentFile(documentId, defaultFileName);
+      return downloadDocumentFile(documentId, defaultFileName, projectId);
     },
 
     async renderPlantUml(diagramKind, plantUmlSource) {
-      return postJson<RenderSvgResponse>("/api/render/svg", {
-        diagramKind,
-        plantUmlSource,
-      }, {
-        errorMessage: "渲染 PlantUML 失败",
-      });
+      const scopedProjectId = requireProjectScope(projectId);
+      return postJson<RenderSvgResponse>(
+        "/api/render/svg",
+        {
+          diagramKind,
+          plantUmlSource,
+        },
+        {
+          errorMessage: "渲染 PlantUML 失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
     },
 
     async testProviderSettings(providerSettings) {
@@ -549,23 +1181,101 @@ export function createHttpWorkspaceRepository(): WorkspaceRepository {
     },
 
     async saveRunHistory(snapshot, meta) {
-      return saveRunHistoryItem(snapshot, meta);
+      if (projectId) {
+        await persistSnapshotAsProjectWorkspace(snapshot);
+        return {
+          id: snapshot.runId,
+          createdAt: new Date().toISOString(),
+          title: createRunHistoryTitle(snapshot.requirementText),
+          snapshot,
+          providerModel: meta.providerModel,
+          durationMs: meta.durationMs,
+        };
+      }
+      throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
 
     async listRunHistory() {
-      return loadRunHistory();
+      if (projectId) {
+        const payload = await readProjectRuns();
+        const embeddedHistory = normalizeProjectHistoryResponse(payload);
+        if (embeddedHistory.length > 0) return embeddedHistory;
+        const runs = payload.runs ?? [];
+        const details = await Promise.all(
+          runs
+            .filter((run) => run.runId && run.snapshotAvailable && run.canRestore !== false)
+            .map(async (run) => {
+              try {
+                const detail = await readProjectRunDetail(run.runId!);
+                if (!detail.snapshot) return null;
+                return {
+                  id: detail.snapshot.runId,
+                  createdAt:
+                    detail.run?.startedAt ??
+                    detail.run?.createdAt ??
+                    run.startedAt ??
+                    run.updatedAt ??
+                    new Date().toISOString(),
+                  title: createRunHistoryTitle(detail.snapshot.requirementText),
+                  snapshot: detail.snapshot,
+                  providerModel: detail.run?.model ?? run.model ?? "默认模型",
+                } satisfies RunHistoryItem;
+              } catch {
+                return null;
+              }
+            }),
+        );
+        return details.filter((item): item is RunHistoryItem => Boolean(item));
+      }
+      throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
 
     async restoreRunHistory(id) {
-      return loadRunHistory().find((item) => item.id === id) ?? null;
+      if (projectId) {
+        const detail = await readProjectRunDetail(id);
+        if (!detail.snapshot) return null;
+        await persistSnapshotAsProjectWorkspace(detail.snapshot);
+        return {
+          id: detail.snapshot.runId,
+          createdAt:
+            detail.run?.startedAt ??
+            detail.run?.createdAt ??
+            new Date().toISOString(),
+          title: createRunHistoryTitle(detail.snapshot.requirementText),
+          snapshot: detail.snapshot,
+          providerModel: detail.run?.model ?? "默认模型",
+        };
+      }
+      throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
 
     async deleteRunHistory(id) {
-      return deleteRunHistoryItem(id);
+      if (projectId) {
+        await requestJson(
+          `/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(id)}`,
+          withProjectHeaders(projectId, {
+            method: "DELETE",
+            errorMessage: "删除项目运行历史失败",
+          }),
+        );
+        const history = await readProjectRuns();
+        return normalizeProjectHistoryResponse(history);
+      }
+      throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
 
     async clearRunHistory() {
-      clearRunHistoryItems();
+      if (projectId) {
+        await requestJson(
+          `/api/projects/${encodeURIComponent(projectId)}/runs`,
+          withProjectHeaders(projectId, {
+            method: "DELETE",
+            errorMessage: "清空项目运行历史失败",
+          }),
+        );
+        return;
+      }
+      throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
   };
 }
@@ -686,6 +1396,19 @@ export function createMockWorkspaceRepository(
       };
     },
 
+    async updateRequirementBaseline(baseline: RequirementBaseline) {
+      const nextBaseline = structuredClone(baseline) as RequirementBaseline;
+      workspace = {
+        ...workspace,
+        requirementBaseline: nextBaseline,
+        requirementQualityReport: nextBaseline.qualityReport,
+      };
+    },
+
+    async repairRequirementRule() {
+      throw new Error("当前环境不支持单项智能修复");
+    },
+
     async startRun(input: StartRunInput) {
       const runId = `run-${Math.random().toString(36).slice(2, 10)}`;
       const snapshot =
@@ -722,10 +1445,17 @@ export function createMockWorkspaceRepository(
         requirementModelTraceability: input.requirementModelTraceability,
         models: Object.values(workspace.designModels),
         designModelTraceability: [...workspace.designModelTraceability],
-        plantUml: Object.entries(workspace.designPlantUml).map(([diagramKind, source]) => ({
-          diagramKind: diagramKind as DesignDiagramType,
-          source,
-        })),
+        plantUml: Object.entries(workspace.designPlantUml).map(([artifactId, source]) => {
+          const model = workspace.designModels[artifactId];
+          const svgArtifact = workspace.designSvgArtifacts[artifactId];
+          const diagramKind =
+            model?.diagramKind ?? svgArtifact?.diagramKind ?? (artifactId as DesignDiagramType);
+          return {
+            diagramKind,
+            modelId: model?.modelId ?? svgArtifact?.modelId,
+            source,
+          };
+        }),
         svgArtifacts: Object.values(workspace.designSvgArtifacts),
         diagramErrors: workspace.designDiagramErrors,
         designTrace: [],
@@ -931,6 +1661,10 @@ export function createMockWorkspaceRepository(
         selectedDiagramTypes: [...snapshot.selectedDiagrams],
         generatedDiagramTypes: [...snapshot.selectedDiagrams],
         rules: [...snapshot.rules],
+        requirementBaseline: snapshot.requirementBaseline ?? workspace.requirementBaseline,
+        requirementQualityReport:
+          snapshot.requirementBaseline?.qualityReport ??
+          workspace.requirementQualityReport,
         models: modelMap,
         plantUml: plantUmlMap,
         svgArtifacts: svgMap,
@@ -948,11 +1682,19 @@ export function createMockWorkspaceRepository(
       workspace = {
         ...workspace,
         selectedDesignDiagramTypes: [...snapshot.selectedDiagrams],
-        generatedDesignDiagramTypes: [...snapshot.selectedDiagrams],
-        designModels: modelMap,
-        designPlantUml: plantUmlMap,
-        designSvgArtifacts: svgMap,
-        designDiagramErrors: snapshot.diagramErrors,
+        generatedDesignDiagramTypes: Array.from(
+          new Set([
+            ...workspace.generatedDesignDiagramTypes,
+            ...snapshot.selectedDiagrams,
+          ]),
+        ),
+        designModels: { ...workspace.designModels, ...modelMap },
+        designPlantUml: { ...workspace.designPlantUml, ...plantUmlMap },
+        designSvgArtifacts: { ...workspace.designSvgArtifacts, ...svgMap },
+        designDiagramErrors: {
+          ...workspace.designDiagramErrors,
+          ...snapshot.diagramErrors,
+        },
       };
       return snapshot;
     },
@@ -985,6 +1727,62 @@ export function createMockWorkspaceRepository(
         throw new Error("Mock document run not found");
       }
       return snapshot;
+    },
+
+    async getRunEvidence(runId) {
+      const snapshot =
+        snapshots.get(runId) ??
+        designSnapshots.get(runId) ??
+        codeSnapshots.get(runId) ??
+        documentSnapshots.get(runId);
+      if (!snapshot?.evidencePackage) {
+        throw new Error("Mock evidence package not found");
+      }
+      return snapshot.evidencePackage;
+    },
+
+    async submitRunReviewDecision(runId, decision) {
+      const snapshot =
+        snapshots.get(runId) ??
+        designSnapshots.get(runId) ??
+        codeSnapshots.get(runId) ??
+        documentSnapshots.get(runId);
+      if (!snapshot?.evidencePackage) {
+        throw new Error("Mock evidence package not found");
+      }
+      const resolved = {
+        ...snapshot.evidencePackage,
+        status: "complete" as const,
+        reviewItems: snapshot.evidencePackage.reviewItems.map((item) =>
+          item.id === decision.reviewItemId
+            ? {
+                ...item,
+                status: "resolved" as const,
+                decision: {
+                  id: "DEC-MOCK",
+                  reviewItemId: decision.reviewItemId,
+                  decision: decision.decision,
+                  comment: decision.comment,
+                  decidedAt: new Date().toISOString(),
+                },
+              }
+            : item,
+        ),
+        reviewDecisions: [
+          ...snapshot.evidencePackage.reviewDecisions.filter(
+            (item) => item.reviewItemId !== decision.reviewItemId,
+          ),
+          {
+            id: "DEC-MOCK",
+            reviewItemId: decision.reviewItemId,
+            decision: decision.decision,
+            comment: decision.comment,
+            decidedAt: new Date().toISOString(),
+          },
+        ],
+      };
+      snapshot.evidencePackage = resolved;
+      return resolved;
     },
 
     async listDocuments() {
@@ -1097,13 +1895,39 @@ const defaultWorkspaceRepository = createHttpWorkspaceRepository();
 export function WorkspaceRepositoryProvider({
   children,
   repository,
+  projectId,
 }: {
   children: ReactNode;
   repository?: WorkspaceRepository;
+  projectId?: string | null;
 }) {
+  const [routeProjectId, setRouteProjectId] = useState(() =>
+    typeof window === "undefined" ? null : getProjectIdFromPath(window.location.pathname),
+  );
+
+  useEffect(() => {
+    if (projectId !== undefined) return;
+    const syncProjectId = () => {
+      setRouteProjectId(getProjectIdFromPath(window.location.pathname));
+    };
+    window.addEventListener("popstate", syncProjectId);
+    window.addEventListener("uml-route-change", syncProjectId);
+    return () => {
+      window.removeEventListener("popstate", syncProjectId);
+      window.removeEventListener("uml-route-change", syncProjectId);
+    };
+  }, [projectId]);
+
+  const scopedProjectId = normalizeProjectId(
+    projectId === undefined ? routeProjectId : projectId,
+  );
   const value = useMemo(
-    () => repository ?? defaultWorkspaceRepository,
-    [repository],
+    () =>
+      repository ??
+      (scopedProjectId
+        ? createHttpWorkspaceRepository({ projectId: scopedProjectId })
+        : defaultWorkspaceRepository),
+    [repository, scopedProjectId],
   );
 
   return (
@@ -1131,10 +1955,26 @@ export function createStartRunInput(
   const settings = loadUserSettings();
   const rawApiBaseUrl = settings.apiBaseUrl.trim();
   const apiKey = settings.apiKey.trim();
+  const providerConfigId = settings.providerConfigId.trim();
   const model = settings.defaultModel.trim();
 
+  if (!model) {
+    throw new Error("请先在设置中选择默认模型");
+  }
+  if (providerConfigId) {
+    return {
+      requirementText,
+      selectedDiagrams,
+      rules,
+      providerSettings: {
+        providerConfigId,
+        model,
+      },
+    };
+  }
+
   if (!rawApiBaseUrl) {
-    throw new Error("请先在设置中填写 API Base URL");
+    throw new Error("请先在设置中选择托管供应商配置，或在显式 legacy/dev 备选中填写 API Base URL");
   }
   let apiBaseUrl = "";
   try {
@@ -1143,10 +1983,7 @@ export function createStartRunInput(
     throw new Error("设置中的 API Base URL 不是合法地址");
   }
   if (!apiKey) {
-    throw new Error("请先在设置中填写 API Key");
-  }
-  if (!model) {
-    throw new Error("请先在设置中选择默认模型");
+    throw new Error("请先在设置中选择托管供应商配置，或在显式 legacy/dev 备选中填写 API Key");
   }
 
   return {
@@ -1167,6 +2004,10 @@ export function createStartDesignRunInput(
   requirementModels: DiagramModelSpec[],
   requirementModelTraceability: RequirementModelTraceabilityEntry[],
   selectedDiagrams: DesignDiagramType[],
+  existingDesignModels: DesignDiagramModelSpec[] = [],
+  existingDesignModelTraceability: DesignModelTraceabilityEntry[] = [],
+  existingDesignPlantUml: DesignPlantUmlArtifact[] = [],
+  existingDesignSvgArtifacts: DesignSvgArtifact[] = [],
 ): StartDesignRunInput {
   const base = createStartRunInput(requirementText, []);
   return {
@@ -1175,6 +2016,10 @@ export function createStartDesignRunInput(
     requirementModels,
     requirementModelTraceability,
     selectedDiagrams,
+    existingDesignModels,
+    existingDesignModelTraceability,
+    existingDesignPlantUml,
+    existingDesignSvgArtifacts,
     providerSettings: base.providerSettings,
   };
 }

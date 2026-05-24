@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
+import { SelectControl } from "../../../shared/ui/select";
 import { downloadBlobFile } from "../../../shared/lib/download";
 import { useWorkspaceRepository } from "../../../services/workspace-repository";
 import { useWorkspaceSession } from "../../workspace-session/state";
@@ -647,20 +648,19 @@ export function InstructionDocumentsPage({
                 placeholder="搜索已生成的文档..."
               />
             </div>
-            <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground">
+            <label className="inline-flex h-10 items-center gap-2 text-sm text-muted-foreground">
               <SlidersHorizontal className="size-4" />
-              <select
+              <SelectControl
                 value={typeFilter}
-                onChange={(event) =>
-                  setTypeFilter(event.target.value as DocumentKind | "all")
-                }
-                className="bg-transparent text-sm text-foreground outline-none"
+                onValueChange={(value) => setTypeFilter(value as DocumentKind | "all")}
+                className="h-10 min-w-44"
                 aria-label="说明书类型"
-              >
-                <option value="all">所有类型</option>
-                <option value="requirementsSpec">需求规格说明书</option>
-                <option value="softwareDesignSpec">软件设计说明书</option>
-              </select>
+                options={[
+                  { value: "all", label: "所有类型" },
+                  { value: "requirementsSpec", label: "需求规格说明书" },
+                  { value: "softwareDesignSpec", label: "软件设计说明书" },
+                ]}
+              />
             </label>
           </div>
           <Button
@@ -687,7 +687,7 @@ export function InstructionDocumentsPage({
           </div>
         ) : (
           <>
-            <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <section className="grid grid-cols-[minmax(0,360px)] justify-start gap-6 sm:grid-cols-[repeat(auto-fill,360px)]">
               {DOCUMENT_DEFINITIONS.map((definition) => {
                 const generating = documentGeneratingByKind[definition.kind];
                 return (
@@ -718,7 +718,7 @@ export function InstructionDocumentsPage({
                   暂无匹配的说明书
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                <div className="grid grid-cols-[minmax(0,360px)] justify-start gap-6 sm:grid-cols-[repeat(auto-fill,360px)]">
                   {filteredDocuments.map((document) => (
                     <GeneratedDocumentCard
                       key={document.id}

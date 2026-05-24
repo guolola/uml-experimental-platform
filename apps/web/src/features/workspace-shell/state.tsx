@@ -24,12 +24,18 @@ export type WorkspaceSelection =
   | { kind: "diagram"; diagram: DiagramType; label: string }
   | { kind: "design-home"; label: string }
   | { kind: "design-trace-matrix"; label: string }
-  | { kind: "design-diagram"; diagram: DesignDiagramType; label: string }
+  | {
+      kind: "design-diagram";
+      diagram: DesignDiagramType;
+      label: string;
+      modelId?: string;
+    }
   | { kind: "documents-home"; label: string }
   | { kind: "document-editor"; documentId: string; label: string }
   | {
       kind: "design-diagram-element";
       diagram: DesignDiagramType;
+      modelId?: string;
       elementKind: string;
       elementId: string;
       label: string;
@@ -69,7 +75,11 @@ interface WorkspaceShellState {
   openDiagram: (diagram: DiagramType) => void;
   openDesignHome: () => void;
   openDesignTraceMatrix: () => void;
-  openDesignDiagram: (diagram: DesignDiagramType) => void;
+  openDesignDiagram: (
+    diagram: DesignDiagramType,
+    modelId?: string,
+    label?: string,
+  ) => void;
   openDocumentsHome: () => void;
   openDocumentEditor: (documentId: string, label: string) => void;
   openDesignDiagramElement: (
@@ -77,6 +87,7 @@ interface WorkspaceShellState {
     elementKind: string,
     elementId: string,
     label: string,
+    modelId?: string,
   ) => void;
   openDiagramElement: (
     diagram: DiagramType,
@@ -107,7 +118,7 @@ function tabIdForSelection(selection: WorkspaceSelection) {
       return "design:trace-matrix";
     case "design-diagram":
     case "design-diagram-element":
-      return `design-diagram:${selection.diagram}`;
+      return `design-diagram:${selection.modelId ?? selection.diagram}`;
     case "documents-home":
       return "documents";
     case "document-editor":
@@ -132,7 +143,7 @@ function tabLabelForSelection(selection: WorkspaceSelection) {
       return "设计跟踪矩阵";
     case "design-diagram":
     case "design-diagram-element":
-      return DESIGN_DIAGRAM_META[selection.diagram].label;
+      return selection.label || DESIGN_DIAGRAM_META[selection.diagram].label;
     case "documents-home":
       return "说明书";
     case "document-editor":
@@ -283,11 +294,16 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     });
   }, [openWorkspaceTab]);
 
-  const openDesignDiagram = useCallback((diagram: DesignDiagramType) => {
+  const openDesignDiagram = useCallback((
+    diagram: DesignDiagramType,
+    modelId?: string,
+    label?: string,
+  ) => {
     openWorkspaceTab({
       kind: "design-diagram",
       diagram,
-      label: DESIGN_DIAGRAM_META[diagram].label,
+      modelId,
+      label: label ?? DESIGN_DIAGRAM_META[diagram].label,
     });
   }, [openWorkspaceTab]);
 
@@ -308,10 +324,12 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       elementKind: string,
       elementId: string,
       label: string,
+      modelId?: string,
     ) => {
       openWorkspaceTab({
         kind: "design-diagram-element",
         diagram,
+        modelId,
         elementKind,
         elementId,
         label,
@@ -428,13 +446,13 @@ export function getSelectionKey(selection: WorkspaceSelection) {
     case "design-trace-matrix":
       return "design:trace-matrix";
     case "design-diagram":
-      return `design-diagram:${selection.diagram}`;
+      return `design-diagram:${selection.modelId ?? selection.diagram}`;
     case "documents-home":
       return "documents";
     case "document-editor":
       return `document:${selection.documentId}`;
     case "design-diagram-element":
-      return `design-diagram-element:${selection.diagram}:${selection.elementKind}:${selection.elementId}`;
+      return `design-diagram-element:${selection.modelId ?? selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "diagram-element":
       return `diagram-element:${selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "workspace-placeholder":

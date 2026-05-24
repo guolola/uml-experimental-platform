@@ -6,8 +6,6 @@ import type { DocumentKind } from "@uml-platform/contracts";
 export const GENERATION_COMPLETED_EVENT = "uml-generation-completed";
 
 export function notifyGenerationCompleted(kind: "requirements" | "design") {
-  const message = kind === "requirements" ? "需求模型生成完成" : "设计模型生成完成";
-  toast.success(message);
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(GENERATION_COMPLETED_EVENT, {
@@ -35,7 +33,7 @@ export function notifyGenerationStarted(
 }
 
 export function notifyGenerationFailed(message: string) {
-  toast.error(message);
+  void message;
 }
 
 export function notifyGenerationResultStale() {

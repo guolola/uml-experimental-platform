@@ -1,0 +1,603 @@
+// Persists provider configuration views and encrypted API keys in PostgreSQL.
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
+import type { Queryable } from "../db/transactions.js";
+import {
+  maskApiKey,
+  ProviderConfigPolicyError,
+  ProviderConfigSecretError,
+  type ProviderAuditLog,
+  type ProviderConfigStatus,
+  type ProviderConfigView,
+  type ProviderRiskState,
+} from "./provider-config-store.js";
+
+type ProviderConfigRow = {
+  id: string;
+  name: string;
+  provider: string;
+  base_url: string;
+  allowlisted: boolean;
+  masked_key: string;
+  key_purpose: string;
+  created_by: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+  last_used_at: string | Date | null;
+  risk_state: ProviderRiskState;
+  default_model: string;
+  allowed_models: string[] | string | null;
+  quota: string;
+  status: ProviderConfigStatus;
+  scope_type?: "system" | "user" | "project";
+  scope_id?: string | null;
+  breaker_state: "closed" | "open";
+  breaker_failure_count: string | number;
+  breaker_opened_at: string | Date | null;
+  breaker_last_failure_at: string | Date | null;
+};
+
+type SecretRow = {
+  secret_ciphertext: string;
+};
+
+type AuditLogRow = {
+  id: string;
+  actor: string | null;
+  action: string;
+  target: string | null;
+  ip: string | null;
+  result: ProviderAuditLog["result"] | "failure";
+  created_at: string | Date;
+};
+
+export type PostgresProviderConfigRepository = ReturnType<
+  typeof createPostgresProviderConfigRepository
+>;
+
+function normalizeUrlOrigin(url: string) {
+  try {
+    return new URL(url.trim()).origin;
+  } catch {
+    throw new ProviderConfigPolicyError("Provider Base URL must be a valid URL");
+  }
+}
+
+function createSecretKey(secret: string) {
+  return createHash("sha256").update(secret).digest();
+}
+
+function encryptSecret(apiKey: string, secretKey: Buffer) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", secretKey, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(apiKey, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("base64")}.${tag.toString("base64")}.${ciphertext.toString(
+    "base64",
+  )}`;
+}
+
+function decryptSecret(payload: string, secretKey: Buffer) {
+  const [ivBase64, tagBase64, ciphertextBase64] = payload.split(".");
+  if (!ivBase64 || !tagBase64 || !ciphertextBase64) {
+    throw new ProviderConfigSecretError("Provider secret payload is invalid");
+  }
+
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    secretKey,
+    Buffer.from(ivBase64, "base64"),
+  );
+  decipher.setAuthTag(Buffer.from(tagBase64, "base64"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextBase64, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
+}
+
+function hashSecret(apiKey: string) {
+  return createHash("sha256").update(apiKey).digest("hex");
+}
+
+function toIsoString(value: string | Date) {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function mapProviderRow(row: ProviderConfigRow): ProviderConfigView {
+  return {
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    baseUrl: row.base_url,
+    allowlisted: row.allowlisted,
+    maskedKey: row.masked_key,
+    keyPurpose: row.key_purpose,
+    createdBy: row.created_by,
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+    lastUsedAt: row.last_used_at ? toIsoString(row.last_used_at) : null,
+    riskState: row.risk_state,
+    defaultModel: row.default_model,
+    allowedModels: Array.isArray(row.allowed_models)
+      ? row.allowed_models
+      : row.allowed_models
+        ? JSON.parse(row.allowed_models)
+        : [row.default_model],
+    quota: row.quota,
+    status: row.status,
+    scopeType: row.scope_type ?? "system",
+    scopeId: row.scope_id ?? null,
+    breakerState: row.breaker_state,
+    breakerFailureCount: Number(row.breaker_failure_count),
+    breakerOpenedAt: row.breaker_opened_at ? toIsoString(row.breaker_opened_at) : null,
+    breakerLastFailureAt: row.breaker_last_failure_at
+      ? toIsoString(row.breaker_last_failure_at)
+      : null,
+  };
+}
+
+function mapAuditRow(row: AuditLogRow): ProviderAuditLog {
+  return {
+    id: row.id,
+    actor: row.actor ?? "unknown",
+    action: row.action,
+    target: row.target ?? "",
+    ip: row.ip ?? "unknown",
+    result: row.result === "failure" ? "failed" : row.result,
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
+const providerViewColumns = `
+  id,
+  name,
+  provider,
+  base_url,
+  allowlisted,
+  masked_key,
+  key_purpose,
+  created_by,
+  created_at,
+  updated_at,
+  last_used_at,
+  risk_state,
+  default_model,
+  allowed_models,
+  quota,
+  status,
+  scope_type,
+  scope_id,
+  breaker_state,
+  breaker_failure_count,
+  breaker_opened_at,
+  breaker_last_failure_at
+`;
+
+export function createPostgresProviderConfigRepository({
+  db,
+  baseUrlAllowlist,
+  secret,
+}: {
+  db: Queryable;
+  baseUrlAllowlist: string[];
+  secret?: string;
+}) {
+  const allowlist = new Set(baseUrlAllowlist.map(normalizeUrlOrigin));
+  const secretKey = createSecretKey(
+    secret ??
+      process.env.UML_PROVIDER_CONFIG_SECRET ??
+      "local-provider-config-secret-for-development-only",
+  );
+
+  function assertAllowlisted(baseUrl: string) {
+    const normalized = normalizeUrlOrigin(baseUrl);
+    if (!allowlist.has(normalized)) {
+      throw new ProviderConfigPolicyError(
+        "Provider Base URL is not in the admin allowlist",
+      );
+    }
+    return normalized;
+  }
+
+  async function audit(input: {
+    actor: string;
+    action: string;
+    targetId: string | null;
+    target: string;
+    result: "success" | "blocked" | "failed";
+  }) {
+    await db.query(
+      `
+        insert into audit_logs (
+          id,
+          actor_user_id,
+          action,
+          target_type,
+          target_id,
+          outcome,
+          message,
+          metadata
+        )
+        values ($1, $2, $3, 'provider_config', $4, $5, $6, $7)
+      `,
+      [
+        randomUUID(),
+        null,
+        input.action,
+        input.targetId,
+        input.result === "failed" ? "failure" : input.result,
+        input.target,
+        { providerConfigTarget: input.target },
+      ],
+    );
+  }
+
+  function normalizeAllowedModels(defaultModel: string, allowedModels?: string[]) {
+    const normalized = new Set(
+      [defaultModel, ...(allowedModels ?? [])]
+        .map((model) => model.trim())
+        .filter(Boolean),
+    );
+    return Array.from(normalized);
+  }
+
+  return {
+    async create(input: {
+      name: string;
+      provider: string;
+      baseUrl: string;
+      apiKey: string;
+      defaultModel: string;
+      allowedModels?: string[];
+      keyPurpose?: string;
+      createdBy: string;
+      quota?: string;
+      riskState?: ProviderRiskState;
+      scopeType?: "system" | "user" | "project";
+      scopeId?: string | null;
+    }) {
+      const baseUrl = assertAllowlisted(input.baseUrl);
+      const apiKey = input.apiKey.trim();
+      const id = randomUUID();
+      const maskedKey = maskApiKey(apiKey);
+      const defaultModel = input.defaultModel.trim();
+      const allowedModels = normalizeAllowedModels(defaultModel, input.allowedModels);
+      const keyPurpose =
+        input.keyPurpose?.trim() || "admin-configured provider key";
+      const scopeType = input.scopeType ?? "system";
+      const scopeId = scopeType === "system" ? null : input.scopeId?.trim() || null;
+      if (scopeType !== "system" && !scopeId) {
+        throw new ProviderConfigPolicyError(
+          "Provider config user and project scopes require a scope id",
+        );
+      }
+      const result = await db.query<ProviderConfigRow>(
+        `
+          insert into provider_configs (
+            id,
+            name,
+            provider,
+            base_url,
+            default_model,
+            allowed_models,
+            status,
+            allowlisted,
+            masked_key,
+            key_purpose,
+            created_by,
+            risk_state,
+            quota,
+            scope_type,
+            scope_id
+          )
+          values ($1, $2, $3, $4, $5, $6, 'active', true, $7, $8, $9, $10, $11, $12, $13)
+          returning ${providerViewColumns}
+        `,
+        [
+          id,
+          input.name.trim(),
+          input.provider.trim(),
+          baseUrl,
+          defaultModel,
+          allowedModels,
+          maskedKey,
+          keyPurpose,
+          input.createdBy,
+          input.riskState ?? "medium",
+          input.quota ?? "unlimited",
+          scopeType,
+          scopeId,
+        ],
+      );
+
+      await db.query(
+        `
+          insert into provider_secrets (
+            id,
+            provider_config_id,
+            secret_ciphertext,
+            secret_hash,
+            key_tail,
+            status,
+            created_by_user_id
+          )
+          values ($1, $2, $3, $4, $5, 'active', $6)
+        `,
+        [
+          randomUUID(),
+          id,
+          encryptSecret(apiKey, secretKey),
+          hashSecret(apiKey),
+          apiKey.slice(-4),
+          null,
+        ],
+      );
+      await audit({
+        actor: input.createdBy,
+        action: "create_provider_config",
+        targetId: id,
+        target: input.name.trim(),
+        result: "success",
+      });
+
+      return mapProviderRow(result.rows[0]);
+    },
+
+    async list() {
+      const result = await db.query<ProviderConfigRow>(
+        `
+          select ${providerViewColumns}
+          from provider_configs
+          order by created_at desc
+        `,
+      );
+      return result.rows.map(mapProviderRow);
+    },
+
+    async get(id: string) {
+      const result = await db.query<ProviderConfigRow>(
+        `
+          select ${providerViewColumns}
+          from provider_configs
+          where id = $1
+          limit 1
+        `,
+        [id],
+      );
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async disable(id: string, actor: string) {
+      const existing = await this.get(id);
+      if (!existing || existing.status === "revoked") return null;
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set status = 'disabled', updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id],
+      );
+      await audit({
+        actor,
+        action: "disable_provider_config",
+        targetId: id,
+        target: existing.name,
+        result: "success",
+      });
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async enable(id: string, actor: string) {
+      const existing = await this.get(id);
+      if (!existing || existing.status === "revoked") return null;
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set status = 'active', updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id],
+      );
+      await audit({
+        actor,
+        action: "enable_provider_config",
+        targetId: id,
+        target: existing.name,
+        result: "success",
+      });
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async rotate(id: string, apiKey: string, actor: string) {
+      const existing = await this.get(id);
+      if (!existing) return null;
+      const trimmedApiKey = apiKey.trim();
+      await db.query(
+        `
+          update provider_secrets
+          set status = 'revoked', revoked_at = now()
+          where provider_config_id = $1 and status = 'active'
+        `,
+        [id],
+      );
+      await db.query(
+        `
+          insert into provider_secrets (
+            id,
+            provider_config_id,
+            secret_ciphertext,
+            secret_hash,
+            key_tail,
+            status,
+            created_by_user_id,
+            rotated_at
+          )
+          values ($1, $2, $3, $4, $5, 'active', $6, now())
+        `,
+        [
+          randomUUID(),
+          id,
+          encryptSecret(trimmedApiKey, secretKey),
+          hashSecret(trimmedApiKey),
+          trimmedApiKey.slice(-4),
+          null,
+        ],
+      );
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set
+            masked_key = $2,
+            status = 'active',
+            updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id, maskApiKey(trimmedApiKey)],
+      );
+      await audit({
+        actor,
+        action: "rotate_provider_key",
+        targetId: id,
+        target: existing.name,
+        result: "success",
+      });
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async revoke(id: string, actor: string) {
+      const existing = await this.get(id);
+      if (!existing) return null;
+      await db.query(
+        `
+          update provider_secrets
+          set status = 'revoked', revoked_at = now()
+          where provider_config_id = $1 and status = 'active'
+        `,
+        [id],
+      );
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set status = 'revoked', updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id],
+      );
+      await audit({
+        actor,
+        action: "revoke_provider_key",
+        targetId: id,
+        target: existing.name,
+        result: "success",
+      });
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async getSecret(id: string) {
+      const result = await db.query<SecretRow>(
+        `
+          select s.secret_ciphertext
+          from provider_secrets s
+          join provider_configs c on c.id = s.provider_config_id
+          where s.provider_config_id = $1
+            and s.status = 'active'
+            and c.status = 'active'
+            and c.breaker_state = 'closed'
+          order by s.created_at desc
+          limit 1
+        `,
+        [id],
+      );
+      return result.rows[0]
+        ? decryptSecret(result.rows[0].secret_ciphertext, secretKey)
+        : null;
+    },
+
+    async markUsed(id: string) {
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set last_used_at = now(), updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id],
+      );
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async recordFailure(id: string) {
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set
+            breaker_failure_count = breaker_failure_count + 1,
+            breaker_last_failure_at = now(),
+            breaker_state = case
+              when breaker_failure_count + 1 >= 3 then 'open'
+              else breaker_state
+            end,
+            breaker_opened_at = case
+              when breaker_failure_count + 1 >= 3 then coalesce(breaker_opened_at, now())
+              else breaker_opened_at
+            end,
+            updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id],
+      );
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async resetBreaker(id: string) {
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set
+            breaker_state = 'closed',
+            breaker_failure_count = 0,
+            breaker_opened_at = null,
+            breaker_last_failure_at = null,
+            updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [id],
+      );
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async listAuditLogs() {
+      const result = await db.query<AuditLogRow>(
+        `
+          select
+            id,
+            actor_user_id as actor,
+            action,
+            message as target,
+            ip_address as ip,
+            outcome as result,
+            created_at
+          from audit_logs
+          where target_type = 'provider_config'
+          order by created_at desc
+        `,
+      );
+      return result.rows.map(mapAuditRow);
+    },
+  };
+}
