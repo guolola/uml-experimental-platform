@@ -333,7 +333,10 @@ const projectMemberColumns = `
   project_id,
   user_id,
   email,
-  display_name,
+  coalesce(
+    (select users.display_name from users where users.id = project_members.user_id),
+    project_members.display_name
+  ) as display_name,
   (select users.avatar_url from users where users.id = project_members.user_id) as avatar_url,
   role,
   status,

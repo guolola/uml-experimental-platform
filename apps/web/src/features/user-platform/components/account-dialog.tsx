@@ -33,7 +33,7 @@ import { Label } from "../../../shared/ui/label";
 import { Separator } from "../../../shared/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../shared/ui/tabs";
 import { cn } from "../../../shared/ui/utils";
-import { formatSessionDevice } from "../lib/session-device";
+import { formatSessionDevice, formatSessionRegion } from "../lib/session-device";
 import {
   notifyAuthSessionChanged,
   platformApi,
@@ -713,7 +713,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
                 <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <h3 className="text-lg font-semibold text-foreground">活跃会话</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">查看当前登录设备、IP、最近活动和过期时间。</p>
+                    <p className="mt-1 text-sm text-muted-foreground">查看当前登录设备、地区、最近活动和过期时间。</p>
                   </div>
                   <Button variant="ghost" className="justify-start text-destructive hover:text-destructive" onClick={revokeOtherSessions}>
                     <LogOut className="size-4" />
@@ -746,7 +746,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
                             {isCurrent && <Badge variant="outline" className="text-primary">当前设备</Badge>}
                           </div>
                           <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
-                            <span>IP: {session.ipAddress ?? "未知 IP"}</span>
+                            <span>地区: {formatSessionRegion(session)}</span>
                             <span>最后活跃: {formatDate(session.lastSeenAt)}</span>
                             <span>过期: {formatDate(session.expiresAt)}</span>
                           </div>
@@ -767,7 +767,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
                         <tr>
                           <th className="px-4 py-2 font-medium">状态</th>
                           <th className="px-4 py-2 font-medium">时间</th>
-                          <th className="px-4 py-2 font-medium">IP 地址</th>
+                          <th className="px-4 py-2 font-medium">地区</th>
                           <th className="px-4 py-2 font-medium">详情</th>
                         </tr>
                       </thead>
@@ -784,7 +784,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
                               {loginOutcomeLabel(event.outcome)}
                             </td>
                             <td className="px-4 py-2 text-muted-foreground">{formatDate(event.createdAt)}</td>
-                            <td className="px-4 py-2">{event.ipAddress ?? "未知 IP"}</td>
+                            <td className="px-4 py-2">{formatSessionRegion(event)}</td>
                             <td className="max-w-52 truncate px-4 py-2 text-muted-foreground">{loginDetail(event)}</td>
                           </tr>
                         ))}

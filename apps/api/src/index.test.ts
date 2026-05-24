@@ -5843,7 +5843,7 @@ test("api enforces project membership and member management guard rules", async 
     url: "/api/account/profile",
     headers: { cookie: ownerCookie },
     payload: {
-      displayName: "Project Owner",
+      displayName: "Renamed Project Owner",
       avatarUrl: "https://example.com/project-owner.png",
     },
   });
@@ -5905,7 +5905,19 @@ test("api enforces project membership and member management guard rules", async 
   const ownerMember = members
     .json()
     .members.find((member: { role: string }) => member.role === "owner");
+  assert.equal(ownerMember.displayName, "Renamed Project Owner");
   assert.equal(ownerMember.avatarUrl, "https://example.com/project-owner.png");
+  const listed = await app.inject({
+    method: "GET",
+    url: "/api/projects",
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(listed.statusCode, 200);
+  const listedProject = listed
+    .json()
+    .projects.find((item: { id: string }) => item.id === project.id);
+  assert.equal(listedProject.ownerDisplayName, "Renamed Project Owner");
+  assert.equal(listedProject.memberPreviews[0].displayName, "Renamed Project Owner");
   const demoteLastOwner = await app.inject({
     method: "PATCH",
     url: `/api/projects/${project.id}/members/${ownerMember.id}`,

@@ -321,6 +321,25 @@ test("postgres auth repository manages project members with normalized invite em
   assert.match(client.calls[7]?.sql ?? "", /delete from project_members/i);
 });
 
+test("postgres auth repository selects current user profile for bound project members", async () => {
+  const client = new CapturingClient();
+  client.nextRows = [
+    {
+      ...memberRow,
+      display_name: "Renamed Profile",
+      avatar_url: "https://example.com/current-avatar.png",
+    },
+  ];
+
+  const repository = createPostgresAuthRepository(client);
+  const member = await repository.findProjectMember("project-1", "user-1");
+
+  assert.equal(member?.displayName, "Renamed Profile");
+  assert.equal(member?.avatarUrl, "https://example.com/current-avatar.png");
+  assert.match(client.calls[0]?.sql ?? "", /users\.display_name/i);
+  assert.match(client.calls[0]?.sql ?? "", /coalesce/i);
+});
+
 test("postgres auth repository records audit logs and checks system roles", async () => {
   const client = new CapturingClient();
   client.queueRows([auditLogRow], [{ has_role: true }]);

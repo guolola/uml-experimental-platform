@@ -508,6 +508,7 @@ describe("TopBar", () => {
       expiresAt: "2026-05-24T00:00:00.000Z",
       lastSeenAt: "2026-05-23T01:00:00.000Z",
       ipAddress: "203.0.113.10",
+      locationLabel: "中国 北京",
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -531,6 +532,7 @@ describe("TopBar", () => {
               expiresAt: "2026-05-25T00:00:00.000Z",
               lastSeenAt: "2026-05-22T12:00:00.000Z",
               ipAddress: "198.51.100.22",
+              locationLabel: "中国 上海",
               userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             },
             {
@@ -540,6 +542,7 @@ describe("TopBar", () => {
               expiresAt: "2026-05-25T00:00:00.000Z",
               lastSeenAt: "2026-05-22T11:00:00.000Z",
               ipAddress: "198.51.100.23",
+              locationLabel: "中国 杭州",
               userAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             },
             {
@@ -549,6 +552,7 @@ describe("TopBar", () => {
               expiresAt: "2026-05-25T00:00:00.000Z",
               lastSeenAt: "2026-05-22T10:00:00.000Z",
               ipAddress: "198.51.100.24",
+              locationLabel: "中国 深圳",
               userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             },
             {
@@ -558,6 +562,7 @@ describe("TopBar", () => {
               expiresAt: "2026-05-25T00:00:00.000Z",
               lastSeenAt: "2026-05-22T09:00:00.000Z",
               ipAddress: "198.51.100.25",
+              locationLabel: "中国 成都",
               userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/125.0.0.0 Safari/537.36",
             },
             {
@@ -567,6 +572,7 @@ describe("TopBar", () => {
               expiresAt: "2026-05-25T00:00:00.000Z",
               lastSeenAt: "2026-05-22T08:00:00.000Z",
               ipAddress: "198.51.100.26",
+              locationLabel: "中国 广州",
               userAgent: "Mozilla/5.0 (Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
             },
           ],
@@ -581,6 +587,7 @@ describe("TopBar", () => {
               email: "avatar@example.com",
               outcome: "success",
               ipAddress: "203.0.113.10",
+              locationLabel: "中国 北京",
               userAgent: currentSession.userAgent,
               message: "密码登录",
               createdAt: "2026-05-23T01:00:00.000Z",
@@ -591,6 +598,7 @@ describe("TopBar", () => {
               email: "avatar@example.com",
               outcome: "failure",
               ipAddress: "203.0.113.66",
+              locationLabel: "中国 天津",
               userAgent: null,
               message: "凭据无效",
               createdAt: "2026-05-22T01:00:00.000Z",
@@ -601,6 +609,7 @@ describe("TopBar", () => {
               email: "avatar@example.com",
               outcome: "success",
               ipAddress: "203.0.113.11",
+              locationLabel: "中国 北京",
               userAgent: currentSession.userAgent,
               message: "第二条登录记录",
               createdAt: "2026-05-21T01:00:00.000Z",
@@ -611,6 +620,7 @@ describe("TopBar", () => {
               email: "avatar@example.com",
               outcome: "success",
               ipAddress: "203.0.113.12",
+              locationLabel: "中国 北京",
               userAgent: currentSession.userAgent,
               message: "第三条登录记录",
               createdAt: "2026-05-20T01:00:00.000Z",
@@ -621,6 +631,7 @@ describe("TopBar", () => {
               email: "avatar@example.com",
               outcome: "success",
               ipAddress: "203.0.113.13",
+              locationLabel: "中国 北京",
               userAgent: currentSession.userAgent,
               message: "第四条登录记录",
               createdAt: "2026-05-19T01:00:00.000Z",
@@ -631,6 +642,7 @@ describe("TopBar", () => {
               email: "avatar@example.com",
               outcome: "success",
               ipAddress: "203.0.113.14",
+              locationLabel: "中国 北京",
               userAgent: currentSession.userAgent,
               message: "第六条登录记录",
               createdAt: "2026-05-18T01:00:00.000Z",
@@ -689,8 +701,9 @@ describe("TopBar", () => {
 
     expect(screen.getByText("macOS • Chrome")).toBeInTheDocument();
     expect(screen.getByText("当前设备")).toBeInTheDocument();
-    expect(screen.getByText(/IP: 203\.0\.113\.10/u)).toBeInTheDocument();
-    expect(screen.queryByText(/IP: 198\.51\.100\.26/u)).not.toBeInTheDocument();
+    expect(screen.getByText(/地区: 中国 北京/u)).toBeInTheDocument();
+    expect(screen.queryByText(/203\.0\.113\.10/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/中国 广州/u)).not.toBeInTheDocument();
     const historyTable = screen.getByRole("table", { name: "登录历史" });
     expect(within(historyTable).getAllByRole("row")).toHaveLength(6);
     expect(within(historyTable).getAllByText("成功").length).toBeGreaterThan(0);

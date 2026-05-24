@@ -23,6 +23,16 @@ import {
 } from "../../test/workspace-test-utils";
 import { useWorkspaceSession } from "./state";
 
+const { toastMessage } = vi.hoisted(() => ({
+  toastMessage: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    message: toastMessage,
+  },
+}));
+
 function GenerateRulesHarness() {
   const { generateRules } = useWorkspaceSession();
   return (
@@ -34,6 +44,7 @@ function GenerateRulesHarness() {
 
 describe("WorkspaceSessionProvider", () => {
   it("shows Figma-style generation result dialogs with cancel and confirm close actions", async () => {
+    toastMessage.mockClear();
     const successSnapshot = createRunSnapshot({
       runId: "run-success-dialog",
       requirementText: "订单系统需求",
@@ -70,15 +81,22 @@ describe("WorkspaceSessionProvider", () => {
       within(successDialog).getByLabelText("操作成功"),
     ).toHaveClass("bg-[rgba(74,222,128,0.1)]");
     expect(within(successDialog).getByText("生成完成。")).toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.queryByRole("dialog", { name: "生成成功" })).not.toBeInTheDocument();
+    expect(toastMessage).not.toHaveBeenCalled();
     await user.click(within(successDialog).getByRole("button", { name: "取消" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "需求规则已生成" })).not.toBeInTheDocument();
     });
 
+    toastMessage.mockClear();
     await user.click(screen.getByRole("button", { name: "生成需求规则" }));
     const successDialogAgain = await screen.findByRole("dialog", {
       name: "需求规则已生成",
     });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.queryByRole("dialog", { name: "生成成功" })).not.toBeInTheDocument();
+    expect(toastMessage).not.toHaveBeenCalled();
     await user.click(within(successDialogAgain).getByRole("button", { name: "确认" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "需求规则已生成" })).not.toBeInTheDocument();

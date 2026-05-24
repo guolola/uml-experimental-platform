@@ -201,6 +201,8 @@ export interface PlatformAccountSession {
   lastSeenAt: string;
   ipAddress: string | null;
   userAgent: string | null;
+  locationLabel?: string | null;
+  region?: string | null;
 }
 
 export interface PlatformLoginEvent {
@@ -210,6 +212,8 @@ export interface PlatformLoginEvent {
   outcome: "success" | "failure";
   ipAddress: string | null;
   userAgent: string | null;
+  locationLabel?: string | null;
+  region?: string | null;
   message: string | null;
   createdAt: string;
 }

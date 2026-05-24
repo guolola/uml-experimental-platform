@@ -14,3 +14,10 @@ export function formatSessionDevice(userAgent: string | null | undefined) {
   if (osName) return osName;
   return "未知设备";
 }
+
+export function formatSessionRegion(input: {
+  locationLabel?: string | null;
+  region?: string | null;
+}) {
+  return input.locationLabel?.trim() || input.region?.trim() || "未知地区";
+}

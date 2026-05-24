@@ -64,6 +64,7 @@ import {
   buildRunMarkdownReport,
   isDocumentRunSnapshot,
 } from "../../history";
+import { formatSessionRegion } from "../lib/session-device";
 import {
   AUTH_SESSION_CHANGED_EVENT,
   notifyAuthSessionChanged,
@@ -4231,7 +4232,7 @@ export function AccountSecurityPage({ onNavigate }: { onNavigate: Navigate }) {
             <Mail className="size-4 text-primary" />
             <h2 className="text-base">异常登录提醒</h2>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">新设备或异常 IP 登录时发送邮件提醒。</p>
+          <p className="mt-2 text-sm text-muted-foreground">新设备或异常地区登录时发送邮件提醒。</p>
           <Switch defaultChecked aria-label="异常登录提醒" className="mt-4" />
         </SectionCard>
       </div>
@@ -4252,7 +4253,7 @@ export function AccountSecurityPage({ onNavigate }: { onNavigate: Navigate }) {
           {!loading &&
             sessions.map((session) => (
               <div key={session.id} className="rounded-md border border-border p-4 text-sm">
-                <div>{session.userAgent ?? "未知设备"} · {session.ipAddress ?? "未知 IP"}</div>
+                <div>{session.userAgent ?? "未知设备"} · {formatSessionRegion(session)}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   最近活动：{formatDateTime(session.lastSeenAt)}
                 </div>
@@ -4271,7 +4272,7 @@ export function AccountSecurityPage({ onNavigate }: { onNavigate: Navigate }) {
             loginEvents.map((event) => (
               <span key={event.id}>
                 {event.email ?? "未知账号"} · {event.outcome === "success" ? "成功" : "失败"} ·{" "}
-                {event.ipAddress ?? "未知 IP"} · {formatDateTime(event.createdAt)}
+                {formatSessionRegion(event)} · {formatDateTime(event.createdAt)}
               </span>
             ))}
           {!loading && loginEvents.length === 0 && <span>暂无登录记录。</span>}

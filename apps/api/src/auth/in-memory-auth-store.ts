@@ -606,13 +606,15 @@ export function createInMemoryAuthStore() {
       updatedAt: createdAt,
     };
     members.set(member.id, member);
-    return withMemberAvatar(member);
+    return withMemberUserProfile(member);
   }
 
-  function withMemberAvatar(member: ProjectMemberRecord): ProjectMemberRecord {
+  function withMemberUserProfile(member: ProjectMemberRecord): ProjectMemberRecord {
+    const user = member.userId ? users.get(member.userId) : null;
     return {
       ...member,
-      avatarUrl: member.userId ? users.get(member.userId)?.avatarUrl ?? null : member.avatarUrl ?? null,
+      displayName: user?.displayName ?? member.displayName,
+      avatarUrl: user?.avatarUrl ?? (member.userId ? null : member.avatarUrl ?? null),
     };
   }
 
@@ -624,7 +626,7 @@ export function createInMemoryAuthStore() {
           item.userId === userId &&
           item.status === "active",
       ) ?? null;
-    return member ? withMemberAvatar(member) : null;
+    return member ? withMemberUserProfile(member) : null;
   }
 
   function findProjectMemberByEmail(projectId: string, email: string) {
@@ -633,18 +635,18 @@ export function createInMemoryAuthStore() {
       [...members.values()].find(
         (member) => member.projectId === projectId && member.email === normalized,
       ) ?? null;
-    return member ? withMemberAvatar(member) : null;
+    return member ? withMemberUserProfile(member) : null;
   }
 
   function getMember(memberId: string) {
     const member = members.get(memberId) ?? null;
-    return member ? withMemberAvatar(member) : null;
+    return member ? withMemberUserProfile(member) : null;
   }
 
   function listProjectMembers(projectId: string) {
     return [...members.values()]
       .filter((member) => member.projectId === projectId)
-      .map(withMemberAvatar);
+      .map(withMemberUserProfile);
   }
 
   function updateMember(
@@ -654,7 +656,7 @@ export function createInMemoryAuthStore() {
     const member = members.get(memberId);
     if (!member) return null;
     Object.assign(member, patch, { updatedAt: now() });
-    return withMemberAvatar(member);
+    return withMemberUserProfile(member);
   }
 
   function deleteMember(memberId: string) {

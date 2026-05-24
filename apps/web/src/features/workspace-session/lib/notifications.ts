@@ -16,20 +16,10 @@ export function notifyGenerationCompleted(kind: "requirements" | "design") {
 }
 
 export function notifyGenerationStarted(
-  kind: "requirements" | "design" | "code" | "document",
-  documentKind?: DocumentKind,
+  _kind: "requirements" | "design" | "code" | "document",
+  _documentKind?: DocumentKind,
 ) {
-  const message =
-    kind === "requirements"
-      ? "需求生成已开始"
-      : kind === "design"
-        ? "设计生成已开始"
-        : kind === "code"
-          ? "代码生成已开始"
-          : documentKind === "requirementsSpec"
-            ? "需求规格说明书生成已开始"
-            : "软件设计说明书生成已开始";
-  toast.message(message);
+  // Progress is visible in the page state and generation-task drawer; avoid a second user-facing popup.
 }
 
 export function notifyGenerationFailed(message: string) {
