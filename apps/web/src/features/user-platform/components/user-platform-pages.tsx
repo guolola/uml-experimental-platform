@@ -700,8 +700,15 @@ export function AuthPage({
     typeof window === "undefined"
       ? ""
       : new URLSearchParams(window.location.search).get("token") ?? "";
+  const [verificationToken, setVerificationToken] = useState(() => urlToken);
   const queryEmail = getQueryParam("email");
   const redirectPath = getSafeRedirectPath();
+
+  useEffect(() => {
+    if (path === "/verify-email") {
+      setVerificationToken(urlToken);
+    }
+  }, [path, urlToken]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -775,6 +782,17 @@ export function AuthPage({
         setMessage("密码已重置，请重新登录。");
         return;
       }
+      if (path === "/verify-email") {
+        const token = urlToken || verificationToken.trim();
+        if (token) {
+          await platformApi.verifyEmail({ token });
+          setMessage("邮箱验证已完成，请返回登录。");
+          return;
+        }
+        await platformApi.resendVerification({ email: email || queryEmail });
+        setMessage("验证邮件已重新发送，请复制邮件中的短期 token 到本页完成验证。");
+        return;
+      }
       if (urlToken) {
         await platformApi.verifyEmail({ token: urlToken });
         setMessage("邮箱验证已完成。");
@@ -827,8 +845,8 @@ export function AuthPage({
       : path === "/register"
         ? "注册并发送验证邮件"
         : path === "/verify-email"
-          ? urlToken
-            ? "验证邮箱"
+          ? urlToken || verificationToken.trim()
+            ? "完成邮箱验证"
             : "重新发送验证邮件"
           : path === "/forgot-password"
             ? "发送重置邮件"
@@ -1010,11 +1028,34 @@ export function AuthPage({
                 </>
               )}
               {path === "/verify-email" && (
-                <div className="motion-status rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm leading-6 text-[#464554]">
-                  {getQueryParam("sent")
-                    ? `验证邮件已发送到 ${queryEmail || "你的邮箱"}。`
-                    : "我们已准备好验证您的邮箱账户，请点击下方按钮完成操作。"}
-                </div>
+                <>
+                  <div className="motion-status rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm leading-6 text-[#464554]">
+                    {getQueryParam("sent")
+                      ? `验证邮件已发送到 ${queryEmail || "你的邮箱"}。请点击邮件中的验证链接，或复制短期 token 到下方完成验证。`
+                      : "请点击邮件中的验证链接，或复制短期 token 到下方完成验证。"}
+                  </div>
+                  {!urlToken && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="auth-verification-token" className="text-sm font-medium leading-5 text-[#0b1c30]">
+                        邮件验证码 / 短期 token
+                      </Label>
+                      <div className="relative">
+                        <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#5b5e69]" />
+                        <Input
+                          id="auth-verification-token"
+                          aria-label="邮件验证码 / 短期 token"
+                          value={verificationToken}
+                          onChange={(event) => setVerificationToken(event.target.value)}
+                          placeholder="粘贴邮件中的短期 token"
+                          className={`${authInputClass} pl-10`}
+                        />
+                      </div>
+                      <span className="text-xs leading-5 text-[#464554]">
+                        没有收到邮件时，可保持此处为空并点击重新发送验证邮件。
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
               <Button type="submit" disabled={submitting} className={authPrimaryActionClass}>
                 {submitting && <Loader2 className="size-4 animate-spin" />}

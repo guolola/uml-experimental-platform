@@ -59,6 +59,7 @@ pm2 -v
    - `API_CORS_ORIGINS`
    - `RENDER_SERVICE_CORS_ORIGINS`
    - `PUBLIC_API_BASE_URL`
+   - `PUBLIC_WEB_BASE_URL`
    - `ONLYOFFICE_DOCUMENT_SERVER_URL`
    - `ONLYOFFICE_JWT_SECRET`
    - `ONLYOFFICE_ACCESS_TOKEN_SECRET`
@@ -189,6 +190,7 @@ API_CORS_ORIGINS=https://platform.example.com,https://admin.example.com
 RENDER_SERVICE_CORS_ORIGINS=https://platform.example.com
 ONLYOFFICE_DOCUMENT_SERVER_URL=http://office.example.com
 PUBLIC_API_BASE_URL=http://platform.example.com
+PUBLIC_WEB_BASE_URL=http://platform.example.com
 ONLYOFFICE_JWT_SECRET='<与 Document Server 一致的强随机密钥>'
 ONLYOFFICE_ACCESS_TOKEN_SECRET='<强随机密钥>'
 UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents

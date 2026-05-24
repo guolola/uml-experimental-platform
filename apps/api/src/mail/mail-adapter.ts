@@ -95,14 +95,28 @@ export function buildTokenMail({
       text: `你被邀请加入项目「${projectName ?? "UML 平台项目"}」。请使用邀请 token：${token}\n过期时间：${expiresAt}`,
     };
   }
+  const verificationUrl = buildPublicWebUrl(
+    `/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`,
+  );
   return {
     to: email,
     purpose,
     token,
     expiresAt,
     subject: "验证 UML 平台邮箱",
-    text: `请使用以下短期 token 验证邮箱：${token}\n过期时间：${expiresAt}`,
+    text: verificationUrl
+      ? `请点击以下链接验证邮箱：${verificationUrl}\n\n如果链接无法打开，请在验证邮箱页面粘贴以下短期 token：${token}\n过期时间：${expiresAt}`
+      : `请在验证邮箱页面粘贴以下短期 token：${token}\n过期时间：${expiresAt}`,
   };
+}
+
+function buildPublicWebUrl(path: string) {
+  const configured =
+    process.env.PUBLIC_WEB_BASE_URL?.trim() ||
+    process.env.PUBLIC_API_BASE_URL?.trim();
+  if (!configured) return null;
+  const baseUrl = configured.replace(/\/+$/u, "").replace(/\/api$/iu, "");
+  return `${baseUrl}${path}`;
 }
 
 function readRequiredEnv(name: string) {

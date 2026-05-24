@@ -26,6 +26,9 @@ const documentEnv = {
   ...(process.env.PUBLIC_API_BASE_URL
     ? { PUBLIC_API_BASE_URL: process.env.PUBLIC_API_BASE_URL }
     : {}),
+  ...(process.env.PUBLIC_WEB_BASE_URL
+    ? { PUBLIC_WEB_BASE_URL: process.env.PUBLIC_WEB_BASE_URL }
+    : {}),
   ...(process.env.ONLYOFFICE_JWT_SECRET
     ? { ONLYOFFICE_JWT_SECRET: process.env.ONLYOFFICE_JWT_SECRET }
     : {}),

@@ -1626,8 +1626,8 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/verify-email?token=verification-token-123456");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
-    await user.click(await screen.findByRole("button", { name: "验证邮箱" }));
-    expect(await screen.findByText("邮箱验证已完成。")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "完成邮箱验证" }));
+    expect(await screen.findByText("邮箱验证已完成，请返回登录。")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/auth/verify-email"),
       expect.objectContaining({
@@ -1636,6 +1636,23 @@ describe("App shell routes", () => {
       }),
     );
     verifyView.unmount();
+
+    window.history.pushState({}, "", "/verify-email?email=new-student%40example.edu&sent=1");
+    const manualVerifyView = render(withWorkspaceProviders(<Shell />, createRepository()));
+    await user.type(
+      await screen.findByLabelText("邮件验证码 / 短期 token"),
+      "manual-token-789",
+    );
+    await user.click(screen.getByRole("button", { name: "完成邮箱验证" }));
+    expect(await screen.findByText("邮箱验证已完成，请返回登录。")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/auth/verify-email"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ token: "manual-token-789" }),
+      }),
+    );
+    manualVerifyView.unmount();
 
     window.history.pushState({}, "", "/forgot-password");
     const forgotView = render(withWorkspaceProviders(<Shell />, createRepository()));
