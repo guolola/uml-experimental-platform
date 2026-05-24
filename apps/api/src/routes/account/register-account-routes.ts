@@ -18,7 +18,7 @@ import {
   accountSessionsResponseSchema,
   authSessionResponseSchema,
 } from "@uml-platform/contracts";
-import { toSessionDto, toUserDto } from "../../auth/dto.js";
+import { toLoginEventDto, toSessionDto, toUserDto } from "../../auth/dto.js";
 import type {
   AuthStore,
   SessionRecord,
@@ -273,7 +273,9 @@ export function registerAccountRoutes({
     if (isAuthError(auth)) return auth;
 
     return accountLoginEventsResponseSchema.parse({
-      events: await authStore.listLoginEventsForUser(auth.user.id),
+      events: (await authStore.listLoginEventsForUser(auth.user.id)).map(
+        toLoginEventDto,
+      ),
     });
   });
 

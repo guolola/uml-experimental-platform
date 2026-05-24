@@ -4,13 +4,16 @@ import {
   projectMemberDtoSchema,
   sessionDtoSchema,
   userDtoSchema,
+  loginEventDtoSchema,
 } from "@uml-platform/contracts";
+import type { LoginEventDto } from "@uml-platform/contracts";
 import type {
   ProjectMemberRecord,
   ProjectRecord,
   SessionRecord,
   UserRecord,
 } from "./in-memory-auth-store.js";
+import { resolveSessionLocation } from "./session-location.js";
 
 export function toUserDto(user: UserRecord) {
   return userDtoSchema.parse({
@@ -29,6 +32,7 @@ export function toUserDto(user: UserRecord) {
 }
 
 export function toSessionDto(session: SessionRecord) {
+  const location = resolveSessionLocation(session.ipAddress);
   return sessionDtoSchema.parse({
     id: session.id,
     userId: session.userId,
@@ -37,6 +41,17 @@ export function toSessionDto(session: SessionRecord) {
     lastSeenAt: session.lastSeenAt,
     ipAddress: session.ipAddress,
     userAgent: session.userAgent,
+    locationLabel: location.locationLabel,
+    region: location.region,
+  });
+}
+
+export function toLoginEventDto(event: LoginEventDto) {
+  const location = resolveSessionLocation(event.ipAddress);
+  return loginEventDtoSchema.parse({
+    ...event,
+    locationLabel: location.locationLabel,
+    region: location.region,
   });
 }
 

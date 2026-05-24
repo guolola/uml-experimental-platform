@@ -5497,6 +5497,9 @@ test("api lists active sessions and can revoke other devices", async () => {
   const login = await app.inject({
     method: "POST",
     url: "/api/auth/login",
+    headers: {
+      "x-forwarded-for": "10.1.2.3",
+    },
     payload: {
       email: "sessions@example.com",
       password: "password-123",
@@ -5511,6 +5514,12 @@ test("api lists active sessions and can revoke other devices", async () => {
   });
   assert.equal(sessions.statusCode, 200);
   assert.equal(sessions.json().sessions.length, 2);
+  assert.ok(
+    sessions.json().sessions.some(
+      (session: { ipAddress: string | null; locationLabel?: string | null }) =>
+        session.ipAddress === "10.1.2.3" && session.locationLabel === "内网地址",
+    ),
+  );
 
   const revoke = await app.inject({
     method: "POST",

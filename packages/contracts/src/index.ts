@@ -1265,6 +1265,8 @@ export const sessionDtoSchema = z
     lastSeenAt: isoTimestampSchema,
     ipAddress: z.string().min(1).nullable(),
     userAgent: z.string().min(1).nullable(),
+    locationLabel: z.string().min(1).nullable().optional(),
+    region: z.string().min(1).nullable().optional(),
   })
   .strict();
 export type SessionDto = z.infer<typeof sessionDtoSchema>;
@@ -1383,6 +1385,8 @@ export const loginEventDtoSchema = z
     outcome: z.enum(["success", "failure"]),
     ipAddress: z.string().min(1).nullable(),
     userAgent: z.string().min(1).nullable(),
+    locationLabel: z.string().min(1).nullable().optional(),
+    region: z.string().min(1).nullable().optional(),
     message: z.string().min(1).nullable(),
     createdAt: isoTimestampSchema,
   })

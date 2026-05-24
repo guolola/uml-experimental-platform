@@ -138,7 +138,7 @@ export async function createApiServer(options?: {
     );
   }
 
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: true });
   await app.register(cors, {
     origin: createCorsOriginChecker("API_CORS_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS),
     credentials: true,
