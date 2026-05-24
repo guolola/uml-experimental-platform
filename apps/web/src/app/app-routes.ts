@@ -14,6 +14,7 @@ export type AppRoute =
   | { kind: "marketing-home"; path: MarketingRoutePath }
   | { kind: "shell"; path: ShellRoutePath }
   | { kind: "auth"; path: AuthRoutePath }
+  | { kind: "invitation-accept"; path: "/invitations/accept" }
   | { kind: "legacy-account"; path: "/account" | "/account/security" }
   | { kind: "legacy-settings"; path: "/settings/models" }
   | { kind: "projects-index"; path: "/projects" }
@@ -52,6 +53,10 @@ export function matchAppRoute(pathname: string): AppRoute {
 
   if (AUTH_PATHS.has(pathname as AuthRoutePath)) {
     return { kind: "auth", path: pathname as AuthRoutePath };
+  }
+
+  if (pathname === "/invitations/accept") {
+    return { kind: "invitation-accept", path: "/invitations/accept" };
   }
 
   if (pathname === "/account" || pathname === "/account/security") {

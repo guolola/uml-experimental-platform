@@ -34,6 +34,7 @@ import { WorkspaceSessionProvider } from "../features/workspace-session/state";
 import {
   AuthenticatedRoute,
   AuthPage,
+  InvitationAcceptPage,
   ProjectNewPage,
   ProjectWorkspaceDrawer,
   type ProjectDrawerKind,
@@ -228,6 +229,9 @@ export function Shell() {
     if (route.kind === "auth") {
       return <AuthPage key={route.path} path={route.path} onNavigate={navigate} />;
     }
+    if (route.kind === "invitation-accept") {
+      return <InvitationAcceptPage onNavigate={navigate} />;
+    }
     if (route.kind === "projects-index") {
       return <ProjectsIndexPage onNavigate={navigate} />;
     }
@@ -249,7 +253,10 @@ export function Shell() {
 
   const protectedRoutePath = getProtectedRoutePath(route);
   const routeContent = renderRoute();
-  const showWorkspaceTopBar = route.kind !== "marketing-home" && route.kind !== "auth";
+  const showWorkspaceTopBar =
+    route.kind !== "marketing-home" &&
+    route.kind !== "auth" &&
+    route.kind !== "invitation-accept";
   const guardedRouteContent = (
     <>
       {showWorkspaceTopBar && (

@@ -75,6 +75,7 @@ export interface PlatformProjectInvitation {
   status: "invited" | "active" | "expired" | "revoked" | string;
   invitedAt?: string | null;
   expiresAt?: string | null;
+  project?: PlatformProject;
 }
 
 export interface PlatformRunSummary {
@@ -425,8 +426,13 @@ export const platformApi = {
       body: JSON.stringify(input),
     });
   },
+  inspectInvitation(token: string) {
+    return requestJson<{ invitation: PlatformProjectInvitation; expiresAt: string }>(
+      `/api/invitations/${encodeURIComponent(token)}`,
+    );
+  },
   acceptInvitation(token: string) {
-    return requestJson<{ message?: string }>(
+    return requestJson<{ message?: string; member?: PlatformProjectMember }>(
       `/api/invitations/${encodeURIComponent(token)}/accept`,
       { method: "POST" },
     );

@@ -86,13 +86,18 @@ export function buildTokenMail({
     };
   }
   if (purpose === "project_invitation") {
+    const invitationUrl = buildPublicWebUrl(
+      `/invitations/accept?token=${encodeURIComponent(token)}`,
+    );
     return {
       to: email,
       purpose,
       token,
       expiresAt,
       subject: `项目邀请：${projectName ?? "UML 平台项目"}`,
-      text: `你被邀请加入项目「${projectName ?? "UML 平台项目"}」。请使用邀请 token：${token}\n过期时间：${expiresAt}`,
+      text: invitationUrl
+        ? `你被邀请加入项目「${projectName ?? "UML 平台项目"}」。\n\n请点击以下链接接受邀请：${invitationUrl}\n\n如果链接无法打开，请在注册页的邀请码中粘贴以下邀请 token：${token}\n过期时间：${expiresAt}`
+        : `你被邀请加入项目「${projectName ?? "UML 平台项目"}」。请在注册页的邀请码中粘贴以下邀请 token：${token}\n过期时间：${expiresAt}`,
     };
   }
   const verificationUrl = buildPublicWebUrl(

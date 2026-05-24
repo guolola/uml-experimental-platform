@@ -665,6 +665,9 @@ function getSafeRedirectPath() {
 function localizeAuthMessage(message: string) {
   if (message.includes("Invalid email or password")) return "邮箱或密码错误。";
   if (message.includes("Email verification is required")) return "登录前需要先完成邮箱验证。";
+  if (message.includes("Log in to accept this project invitation")) return "请先登录后接受项目邀请。";
+  if (message.includes("Project invitation token is invalid or expired")) return "邀请链接无效或已过期。";
+  if (message.includes("Project invitation is for a different email address")) return "当前登录账号不是被邀请邮箱，请切换账号后再接受邀请。";
   if (message.includes("Reset email sent")) return "重置邮件已发送。";
   if (message.includes("Password reset")) return "密码已重置。";
   return message;
@@ -1092,6 +1095,117 @@ export function AuthPage({
           <AuthSecurityPanel />
         </div>
       </div>
+    </main>
+  );
+}
+
+export function InvitationAcceptPage({ onNavigate }: { onNavigate: Navigate }) {
+  const token = getQueryParam("token");
+  const [loading, setLoading] = useState(Boolean(token));
+  const [accepting, setAccepting] = useState(false);
+  const [invitation, setInvitation] = useState<PlatformProjectInvitation | null>(null);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    if (!token) {
+      setLoading(false);
+      setMessage("邀请链接缺少 token，请检查邮件中的链接。");
+      return () => {
+        active = false;
+      };
+    }
+    setLoading(true);
+    platformApi.inspectInvitation(token)
+      .then((response) => {
+        if (!active) return;
+        setInvitation(response.invitation);
+        setMessage("");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setMessage(error instanceof Error ? localizeAuthMessage(error.message) : "邀请链接无效或已过期。");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  const accept = async () => {
+    if (!token) return;
+    setAccepting(true);
+    setMessage("");
+    try {
+      await platformApi.acceptInvitation(token);
+      setMessage("已加入项目，正在进入项目首页。");
+      onNavigate("/projects");
+    } catch (error) {
+      const status = error instanceof PlatformApiError ? error.status : 0;
+      if (status === 401) {
+        const redirect = `/invitations/accept?token=${encodeURIComponent(token)}`;
+        onNavigate(`/login?redirect=${encodeURIComponent(redirect)}`);
+        return;
+      }
+      setMessage(error instanceof Error ? localizeAuthMessage(error.message) : "接受邀请失败。");
+    } finally {
+      setAccepting(false);
+    }
+  };
+
+  const projectName = invitation?.project?.name ?? "受邀项目";
+  const invitedEmail = invitation?.email ?? "你的邮箱";
+
+  return (
+    <main className="min-h-0 flex-1 overflow-auto bg-[#f8f9ff] px-4 py-10 text-[#0b1c30] md:px-12">
+      <section className="mx-auto max-w-xl rounded-xl border border-[#c7c4d6]/40 bg-white p-8 shadow-[0_8px_30px_rgba(11,28,48,0.06)]">
+        <div className="mb-6">
+          <h1 className="font-display text-2xl font-semibold leading-8">接受项目邀请</h1>
+          <p className="mt-2 text-sm leading-6 text-[#464554]">
+            请确认邀请信息后加入项目。若尚未登录，请先使用被邀请邮箱登录或注册。
+          </p>
+        </div>
+        {loading ? (
+          <div className="flex items-center gap-2 rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm text-[#464554]">
+            <Loader2 className="size-4 animate-spin" />
+            正在读取邀请信息...
+          </div>
+        ) : invitation ? (
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4">
+              <p className="text-sm text-[#464554]">项目</p>
+              <p className="mt-1 font-medium">{projectName}</p>
+            </div>
+            <div className="rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4">
+              <p className="text-sm text-[#464554]">邀请邮箱</p>
+              <p className="mt-1 font-medium">{invitedEmail}</p>
+            </div>
+            <div className="rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4">
+              <p className="text-sm text-[#464554]">项目角色</p>
+              <p className="mt-1 font-medium">{memberRoleLabel(invitation.role)}</p>
+            </div>
+          </div>
+        ) : null}
+        {message && (
+          <div className="mt-5 rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm leading-6 text-[#464554]">
+            {message}
+          </div>
+        )}
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <Button type="button" className="h-11 flex-1" onClick={() => void accept()} disabled={!invitation || accepting}>
+            {accepting && <Loader2 className="size-4 animate-spin" />}
+            接受邀请
+          </Button>
+          <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => onNavigate(`/register?invitationToken=${encodeURIComponent(token)}`)}>
+            注册新账号
+          </Button>
+        </div>
+        <button type="button" className="mt-4 text-sm font-medium text-[#4441c4] hover:underline" onClick={() => onNavigate("/login")}>
+          返回登录
+        </button>
+      </section>
     </main>
   );
 }

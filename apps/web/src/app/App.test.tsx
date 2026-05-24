@@ -381,6 +381,61 @@ describe("App shell routes", () => {
             },
           );
         }
+        if (pathname === "/api/invitations/invite-token-123" && method === "GET") {
+          return new Response(
+            JSON.stringify({
+              invitation: {
+                id: "invitation-123",
+                projectId: "library-booking",
+                email: "invitee@example.edu",
+                role: "editor",
+                status: "invited",
+                invitedAt: "2026-05-22T02:00:00.000Z",
+                expiresAt: "2026-05-29T02:00:00.000Z",
+                project: {
+                  id: "library-booking",
+                  name: "智慧图书馆预约系统",
+                  description: "真实项目数据",
+                  visibility: "team",
+                  status: "active",
+                  ownerUserId: "user-owner",
+                  createdAt: "2026-05-22T01:00:00.000Z",
+                  updatedAt: projectUpdatedAt,
+                },
+              },
+              expiresAt: "2026-05-29T02:00:00.000Z",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (pathname === "/api/invitations/invite-token-123/accept" && method === "POST") {
+          return new Response(
+            JSON.stringify({
+              message: "Invitation accepted",
+              member: {
+                id: "member-invitee",
+                projectId: "library-booking",
+                userId: "user-new",
+                email: "invitee@example.edu",
+                displayName: "invitee",
+                role: "editor",
+                status: "active",
+                invitedByUserId: "user-owner",
+                invitedAt: "2026-05-22T02:00:00.000Z",
+                joinedAt: "2026-05-22T02:05:00.000Z",
+                createdAt: "2026-05-22T02:00:00.000Z",
+                updatedAt: "2026-05-22T02:05:00.000Z",
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
         if (pathname === "/api/account/sessions/revoke-others") {
           return new Response(JSON.stringify({ revokedCount: 1 }), {
             status: 200,
@@ -1398,6 +1453,10 @@ describe("App shell routes", () => {
     expect(matchAppRoute("/login")).toMatchObject({ kind: "auth", path: "/login" });
     expect(matchAppRoute("/register")).toMatchObject({ kind: "auth", path: "/register" });
     expect(matchAppRoute("/verify-email")).toMatchObject({ kind: "auth", path: "/verify-email" });
+    expect(matchAppRoute("/invitations/accept")).toMatchObject({
+      kind: "invitation-accept",
+      path: "/invitations/accept",
+    });
     expect(matchAppRoute("/forgot-password")).toMatchObject({ kind: "auth", path: "/forgot-password" });
     expect(matchAppRoute("/reset-password")).toMatchObject({ kind: "auth", path: "/reset-password" });
     expect(matchAppRoute("/projects")).toMatchObject({ kind: "projects-index" });
@@ -1615,6 +1674,34 @@ describe("App shell routes", () => {
       expect(window.location.pathname).toBe("/verify-email");
     });
     expect(window.location.search).toContain("email=new-student%40example.edu");
+  });
+
+  it("opens a project invitation link and accepts it from the browser", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/invitations/accept?token=invite-token-123");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    expect(await screen.findByRole("heading", { name: "接受项目邀请" })).toBeInTheDocument();
+    expect(await screen.findByText("智慧图书馆预约系统")).toBeInTheDocument();
+    expect(screen.getByText("invitee@example.edu")).toBeInTheDocument();
+    expect(screen.getByText("编辑者")).toBeInTheDocument();
+    expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "接受邀请" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/invitations/invite-token-123"),
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/invitations/invite-token-123/accept"),
+      expect.objectContaining({ method: "POST" }),
+    );
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects");
+    });
   });
 
   it("calls real auth recovery endpoints for verify, forgot, and reset flows", async () => {
