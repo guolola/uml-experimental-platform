@@ -141,6 +141,7 @@ export interface PlatformProviderConfig {
   provider: string;
   baseUrl: string;
   defaultModel?: string;
+  allowedModels?: string[];
   maskedKey: string;
   keyPurpose: string;
   status: string;
@@ -711,10 +712,13 @@ export const platformApi = {
       providerConfigs: PlatformProviderConfig[];
     }>(`/api/projects/${projectId}/provider-configs`);
   },
-  testProviderConfig(providerConfigId: string) {
+  testProviderConfig(providerConfigId: string, model?: string) {
     return requestJson<{ ok?: boolean; message?: string }>(
       `/api/provider-configs/${providerConfigId}/test`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify(model?.trim() ? { model: model.trim() } : {}),
+      },
     );
   },
 };

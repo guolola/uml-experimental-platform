@@ -5,6 +5,10 @@ import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import type { ProjectPermission, ProviderSettings, RunEvent } from "@uml-platform/contracts";
 import type { LlmTransport } from "../../llm.js";
+import {
+  createInMemoryLlmScheduler,
+  type LlmScheduler,
+} from "../../adapters/llm/llm-scheduler.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
@@ -100,6 +104,8 @@ async function createRunRouteTestApp(options?: {
   allowLegacyProjectProviderSettings?: boolean;
   completeRuns?: boolean;
   documentLibrary?: DocumentLibrary;
+  llmScheduler?: LlmScheduler;
+  runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
 }) {
   return (await createRunRouteTestContext(options)).app;
@@ -114,6 +120,8 @@ async function createRunRouteTestContext(options?: {
   allowLegacyProjectProviderSettings?: boolean;
   completeRuns?: boolean;
   documentLibrary?: DocumentLibrary;
+  llmScheduler?: LlmScheduler;
+  runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
 }) {
   const app = Fastify({ logger: false });
@@ -142,7 +150,7 @@ async function createRunRouteTestContext(options?: {
     pngRenderClient: noOpPngRenderClient,
     defaultSseAllowOrigin: "http://localhost:5173",
     runStagePipeline: completeQueuedRun,
-    runDesignStagePipeline: completeQueuedRun,
+    runDesignStagePipeline: options?.runDesignStagePipeline ?? completeQueuedRun,
     runCodeStagePipeline: completeQueuedRun,
     runDocumentStagePipeline: options?.runDocumentStagePipeline ?? (async () => undefined),
     addCodeDiagnostic: () => undefined,
@@ -150,6 +158,7 @@ async function createRunRouteTestContext(options?: {
     providerConfigs: options?.providerConfigs,
     resolveProjectDefaultProviderConfig: options?.resolveProjectDefaultProviderConfig,
     providerUsageTracker: options?.providerUsageTracker,
+    llmScheduler: options?.llmScheduler,
     allowLegacyProjectProviderSettings:
       options?.allowLegacyProjectProviderSettings ?? true,
   });
@@ -1746,6 +1755,94 @@ test("blocked evidence package prevents downstream design run start", async () =
 
   assert.equal(response.statusCode, 409);
   assert.match(response.json().message, /EvidencePackage review is unresolved/);
+
+  await app.close();
+});
+
+test("design LLM scheduler completion marks the subtask completed", async () => {
+  const { app, runs } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "reviewer-a": {
+        start_runs: ["project-a"],
+        view_runs: ["project-a"],
+      },
+    }),
+    llmScheduler: createInMemoryLlmScheduler({
+      globalConcurrency: 1,
+      providerConcurrency: 1,
+      projectConcurrency: 1,
+      userConcurrency: 1,
+      runConcurrency: 1,
+    }),
+    llmTransport: {
+      async *streamChatCompletion() {
+        yield "{}";
+      },
+    },
+    runDesignStagePipeline: async (record, providerSettings, llmTransport) => {
+      record.snapshot.status = "running";
+      record.snapshot.currentStage = "generate_design_models";
+      for await (const _chunk of llmTransport.streamChatCompletion({
+        providerSettings,
+        messages: [
+          {
+            role: "user",
+            content: "只生成以下设计图类型：\nclass",
+          },
+        ],
+      })) {
+        // The route-level scheduler emits status events while the pipeline consumes output.
+      }
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: { "x-test-user-id": "reviewer-a" },
+    payload: {
+      projectId: "project-a",
+      requirementText: "系统支持查看活动。",
+      rules: [],
+      requirementModels: [minimalUseCaseModel],
+      requirementModelTraceability: [
+        {
+          ruleId: "REQ-001",
+          target: {
+            diagramKind: "usecase",
+            elementId: "usecase-view",
+            elementKind: "useCase",
+            label: "查看活动",
+          },
+        },
+      ],
+      selectedDiagrams: ["class"],
+      providerSettings,
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const record = runs.get(response.json().runId);
+  assert.ok(record);
+  const startedAt = Date.now();
+  while (
+    Date.now() - startedAt < 1000 &&
+    !record.events.some(
+      (event) =>
+        event.type === "stage_progress" && event.message === "模型调用完成",
+    )
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.subtaskId === "class" &&
+        event.subtaskStatus === "completed" &&
+        event.message === "模型调用完成",
+    ),
+  );
 
   await app.close();
 });

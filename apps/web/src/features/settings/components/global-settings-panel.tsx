@@ -17,6 +17,10 @@ import {
   type UserSettings,
 } from "../../../shared/lib/user-settings";
 import {
+  getProviderAllowedModels,
+  resolveProviderModel,
+} from "../../../shared/lib/provider-config-models";
+import {
   platformApi,
   PlatformApiError,
   type PlatformProviderConfig,
@@ -75,17 +79,18 @@ export function GlobalSettingsPanel({
             }
             setProviderConfigs(activeConfigs);
             if (activeConfigs[0]) {
-              setSettings((current) =>
-                current.providerConfigId
-                  ? current
-                  : {
-                      ...current,
-                      providerConfigId: activeConfigs[0].id,
-                      defaultModel: activeConfigs[0].defaultModel ?? current.defaultModel,
-                      apiKey: "",
-                      apiBaseUrl: "",
-                    },
-              );
+              setSettings((current) => {
+                const selected =
+                  activeConfigs.find((config) => config.id === current.providerConfigId) ??
+                  activeConfigs[0];
+                return {
+                  ...current,
+                  providerConfigId: selected.id,
+                  defaultModel: resolveProviderModel(selected, current.defaultModel),
+                  apiKey: "",
+                  apiBaseUrl: "",
+                };
+              });
             }
           })
           .catch((error) => {
@@ -121,12 +126,17 @@ export function GlobalSettingsPanel({
     () => providerConfigs.find((config) => config.id === settings.providerConfigId),
     [providerConfigs, settings.providerConfigId],
   );
+  const selectedProviderModels = useMemo(
+    () => getProviderAllowedModels(selectedProvider),
+    [selectedProvider],
+  );
 
   const save = () => {
     try {
       if (settings.providerConfigId) {
         saveUserSettings({
           ...settings,
+          defaultModel: resolveProviderModel(selectedProvider, settings.defaultModel),
           apiKey: "",
           apiBaseUrl: "",
         });
@@ -155,7 +165,10 @@ export function GlobalSettingsPanel({
     setTesting(true);
     try {
       if (settings.providerConfigId) {
-        const result = await platformApi.testProviderConfig(settings.providerConfigId);
+        const result = await platformApi.testProviderConfig(
+          settings.providerConfigId,
+          resolveProviderModel(selectedProvider, settings.defaultModel),
+        );
         toast.success(result.message ?? "托管配置连接成功");
         return;
       }
@@ -215,7 +228,9 @@ export function GlobalSettingsPanel({
                 setSettings((current) => ({
                   ...current,
                   providerConfigId,
-                  defaultModel: config?.defaultModel ?? current.defaultModel,
+                  defaultModel: providerConfigId
+                    ? resolveProviderModel(config, current.defaultModel)
+                    : current.defaultModel,
                   apiBaseUrl: providerConfigId ? "" : current.apiBaseUrl,
                   apiKey: providerConfigId ? "" : current.apiKey,
                 }));
@@ -248,12 +263,35 @@ export function GlobalSettingsPanel({
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="managed-default-model">默认模型</Label>
-            <Input
-              id="managed-default-model"
-              value={settings.defaultModel}
-              onChange={(event) => update("defaultModel", event.target.value)}
-              className="h-9 font-mono text-xs"
-            />
+            {selectedProvider ? (
+              <Select
+                value={resolveProviderModel(selectedProvider, settings.defaultModel)}
+                onValueChange={(value) => update("defaultModel", value)}
+              >
+                <SelectTrigger id="managed-default-model" className="h-9">
+                  <SelectValue placeholder="选择允许的模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedProviderModels.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id="managed-default-model"
+                value={settings.defaultModel}
+                onChange={(event) => update("defaultModel", event.target.value)}
+                className="h-9 font-mono text-xs"
+              />
+            )}
+            {selectedProvider && (
+              <span className="text-[11px] text-muted-foreground">
+                这里只能选择管理员在该托管配置中允许的模型。
+              </span>
+            )}
           </div>
           {legacyAllowed && (
             <div className="rounded-md border border-dashed border-border p-3">

@@ -53,6 +53,10 @@ import {
   saveUserSettings,
   type UserSettings,
 } from "../../../shared/lib/user-settings";
+import {
+  getProviderAllowedModels,
+  resolveProviderModel,
+} from "../../../shared/lib/provider-config-models";
 import type { AuthRoutePath } from "../../../app/app-routes";
 import { ModelSettingsFields, maskApiKey } from "../../settings/components/model-settings-fields";
 import {
@@ -4305,16 +4309,18 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
         );
         setProviderConfigs(activeConfigs);
         if (activeConfigs[0]) {
-          setSettings((current) =>
-            current.providerConfigId
-              ? current
-              : {
-                  ...current,
-                  providerConfigId: activeConfigs[0].id,
-                  apiKey: "",
-                  apiBaseUrl: "",
-                },
-          );
+          setSettings((current) => {
+            const selected =
+              activeConfigs.find((config) => config.id === current.providerConfigId) ??
+              activeConfigs[0];
+            return {
+              ...current,
+              providerConfigId: selected.id,
+              defaultModel: resolveProviderModel(selected, current.defaultModel),
+              apiKey: "",
+              apiBaseUrl: "",
+            };
+          });
         }
       })
       .catch((error) => {
@@ -4350,6 +4356,9 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
     try {
       saveUserSettings({
         ...settings,
+        defaultModel: settings.providerConfigId
+          ? resolveProviderModel(selectedProviderConfig, settings.defaultModel)
+          : settings.defaultModel,
         apiKey: settings.providerConfigId ? "" : settings.apiKey,
         apiBaseUrl: settings.providerConfigId
           ? ""
@@ -4374,7 +4383,10 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
     setStatus("");
     try {
       if (settings.providerConfigId) {
-        const result = await platformApi.testProviderConfig(settings.providerConfigId);
+        const result = await platformApi.testProviderConfig(
+          settings.providerConfigId,
+          resolveProviderModel(selectedProviderConfig, settings.defaultModel),
+        );
         if (result.ok === false) {
           throw new Error(result.message ?? "托管配置连接测试失败。");
         }
@@ -4401,6 +4413,7 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
   const selectedProviderConfig = providerConfigs.find(
     (config) => config.id === settings.providerConfigId,
   );
+  const selectedProviderModels = getProviderAllowedModels(selectedProviderConfig);
 
   return (
     <PageFrame onNavigate={onNavigate}>
@@ -4429,12 +4442,18 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
                 aria-label="托管供应商配置"
                 value={settings.providerConfigId}
                 onValueChange={(value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    providerConfigId: value,
-                    apiBaseUrl: value ? "" : current.apiBaseUrl,
-                    apiKey: value ? "" : current.apiKey,
-                  }))
+                  setSettings((current) => {
+                    const selected = providerConfigs.find((config) => config.id === value);
+                    return {
+                      ...current,
+                      providerConfigId: value,
+                      defaultModel: value
+                        ? resolveProviderModel(selected, current.defaultModel)
+                        : current.defaultModel,
+                      apiBaseUrl: value ? "" : current.apiBaseUrl,
+                      apiKey: value ? "" : current.apiKey,
+                    };
+                  })
                 }
                 className="h-9"
                 disabled={providerLoading || providerConfigs.length === 0}
@@ -4458,12 +4477,31 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="managed-default-model">默认模型</Label>
-              <Input
-                id="managed-default-model"
-                value={settings.defaultModel}
-                onChange={(event) => update("defaultModel", event.target.value)}
-                className="h-9 font-mono text-xs"
-              />
+              {selectedProviderConfig ? (
+                <SelectControl
+                  id="managed-default-model"
+                  aria-label="默认模型"
+                  value={resolveProviderModel(selectedProviderConfig, settings.defaultModel)}
+                  onValueChange={(value) => update("defaultModel", value)}
+                  className="h-9"
+                  options={selectedProviderModels.map((model) => ({
+                    value: model,
+                    label: model,
+                  }))}
+                />
+              ) : (
+                <Input
+                  id="managed-default-model"
+                  value={settings.defaultModel}
+                  onChange={(event) => update("defaultModel", event.target.value)}
+                  className="h-9 font-mono text-xs"
+                />
+              )}
+              {selectedProviderConfig && (
+                <span className="text-[11px] text-muted-foreground">
+                  这里只能选择管理员在该托管配置中允许的模型。
+                </span>
+              )}
             </div>
             {allowLegacyProviderSettings && (
               <Button

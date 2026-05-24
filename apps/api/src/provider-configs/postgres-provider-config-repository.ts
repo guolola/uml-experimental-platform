@@ -16,6 +16,7 @@ import {
   type ProviderConfigView,
   type ProviderRiskState,
 } from "./provider-config-store.js";
+import { normalizeProviderAllowedModels } from "./default-provider-models.js";
 
 type ProviderConfigRow = {
   id: string;
@@ -112,6 +113,11 @@ function toIsoString(value: string | Date) {
 }
 
 function mapProviderRow(row: ProviderConfigRow): ProviderConfigView {
+  const persistedAllowedModels = Array.isArray(row.allowed_models)
+    ? row.allowed_models
+    : row.allowed_models
+      ? JSON.parse(row.allowed_models)
+      : null;
   return {
     id: row.id,
     name: row.name,
@@ -126,11 +132,10 @@ function mapProviderRow(row: ProviderConfigRow): ProviderConfigView {
     lastUsedAt: row.last_used_at ? toIsoString(row.last_used_at) : null,
     riskState: row.risk_state,
     defaultModel: row.default_model,
-    allowedModels: Array.isArray(row.allowed_models)
-      ? row.allowed_models
-      : row.allowed_models
-        ? JSON.parse(row.allowed_models)
-        : [row.default_model],
+    allowedModels: normalizeProviderAllowedModels(
+      row.default_model,
+      persistedAllowedModels,
+    ),
     quota: row.quota,
     status: row.status,
     scopeType: row.scope_type ?? "system",
@@ -240,15 +245,6 @@ export function createPostgresProviderConfigRepository({
     );
   }
 
-  function normalizeAllowedModels(defaultModel: string, allowedModels?: string[]) {
-    const normalized = new Set(
-      [defaultModel, ...(allowedModels ?? [])]
-        .map((model) => model.trim())
-        .filter(Boolean),
-    );
-    return Array.from(normalized);
-  }
-
   return {
     async create(input: {
       name: string;
@@ -269,7 +265,7 @@ export function createPostgresProviderConfigRepository({
       const id = randomUUID();
       const maskedKey = maskApiKey(apiKey);
       const defaultModel = input.defaultModel.trim();
-      const allowedModels = normalizeAllowedModels(defaultModel, input.allowedModels);
+      const allowedModels = normalizeProviderAllowedModels(defaultModel, input.allowedModels);
       const keyPurpose =
         input.keyPurpose?.trim() || "admin-configured provider key";
       const scopeType = input.scopeType ?? "system";

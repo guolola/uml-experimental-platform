@@ -204,4 +204,45 @@ describe("workspace-session generation task helpers", () => {
       }),
     );
   });
+
+  it("does not downgrade a completed subtask when a later artifact event has no explicit status", () => {
+    const task = createGenerationTask({
+      clientTaskId: "design-sequence-1",
+      kind: "design",
+      title: "生成设计顺序图",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-05-24T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "sequence",
+          label: "顺序图",
+          status: "completed",
+          message: "模型调用完成",
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const next = updateTaskFromEvent(
+      task,
+      {
+        type: "artifact_ready",
+        stage: "generate_design_sequence",
+        artifactKind: "model",
+        diagramKind: "sequence",
+      } satisfies RunEvent,
+      {
+        queued: "设计生成任务已进入队列",
+        completed: "设计生成完成",
+      },
+    );
+
+    expect(next.subtasks[0]).toEqual(
+      expect.objectContaining({
+        id: "sequence",
+        status: "completed",
+      }),
+    );
+  });
 });

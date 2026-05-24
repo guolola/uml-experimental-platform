@@ -74,6 +74,8 @@ import { runDesignStagePipeline } from "./runs/pipelines/design-pipeline.js";
 import { runDocumentStagePipeline } from "./runs/pipelines/document-pipeline.js";
 import { runStagePipeline } from "./runs/pipelines/requirements-pipeline.js";
 import { addCodeDiagnostic } from "./runs/pipelines/code/code-run-diagnostics.js";
+import { hashPassword } from "./security/password-hashing.js";
+import type { AdminRole } from "@uml-platform/contracts";
 
 const DEFAULT_PORT = Number(process.env.API_PORT ?? 4001);
 const DEFAULT_HOST = process.env.API_HOST ?? "127.0.0.1";
@@ -95,6 +97,7 @@ const DEFAULT_PROVIDER_BASE_URL_ALLOWLIST = (
   .filter(Boolean);
 const DEFAULT_ALLOW_LEGACY_PLAINTEXT_PROVIDER_TEST =
   process.env.UML_ALLOW_LEGACY_PROVIDER_TEST === "true";
+const DEFAULT_DEV_ADMIN_MFA_SECRET = "JBSWY3DPEHPK3PXP";
 
 
 
@@ -244,6 +247,10 @@ export async function createApiServer(options?: {
     ? createPostgresAcademicAdminRepository(pool)
     : createInMemoryAcademicAdminRepository();
   const riskEvents: AdminRiskEvent[] = [];
+
+  if (runtimeNodeEnv !== "production") {
+    await seedDevelopmentAdmin(authStore);
+  }
 
   const healthPayload = () => ({
     status: "ok",
@@ -397,6 +404,48 @@ export async function createApiServer(options?: {
   });
 
   return app;
+}
+
+async function seedDevelopmentAdmin(authStore: AuthStore) {
+  const email = process.env.UML_DEV_ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.UML_DEV_ADMIN_PASSWORD?.trim();
+  if (!email || !password) return;
+
+  const displayName = process.env.UML_DEV_ADMIN_DISPLAY_NAME?.trim() || "本地管理员";
+  const mfaSecret = process.env.UML_DEV_ADMIN_MFA_SECRET?.trim() || DEFAULT_DEV_ADMIN_MFA_SECRET;
+  const systemRoles: AdminRole[] = ["super_admin"];
+  const existing = await authStore.findUserByEmail(email);
+  const patch = {
+    displayName,
+    passwordHash: hashPassword(password),
+    emailVerified: true,
+    systemRoles,
+    mfaEnabled: true,
+    mfaSecret,
+    mfaPendingSecret: null,
+    mfaPendingExpiresAt: null,
+  };
+
+  if (existing) {
+    await authStore.updateUser(existing.id, patch);
+    return;
+  }
+
+  const created = await authStore.createUser({
+    email,
+    displayName,
+    passwordHash: patch.passwordHash,
+    systemRoles,
+    emailVerified: true,
+  });
+  if (created) {
+    await authStore.updateUser(created.id, {
+      mfaEnabled: true,
+      mfaSecret,
+      mfaPendingSecret: null,
+      mfaPendingExpiresAt: null,
+    });
+  }
 }
 
 async function start() {

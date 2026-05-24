@@ -106,17 +106,27 @@ function updateSubtasksFromEvent(
 ): GenerationSubtask[] {
   const subtaskId = subtaskIdFromEvent(event);
   if (!subtaskId) return subtasks;
+  const hasExplicitSubtaskStatus =
+    "subtaskStatus" in event && Boolean(event.subtaskStatus);
+  const nextStatus = subtaskStatusFromEvent(event);
   let matched = false;
   const next = subtasks.map((subtask) => {
     if (subtask.id !== subtaskId) return subtask;
     matched = true;
+    const status =
+      !hasExplicitSubtaskStatus &&
+      event.type === "artifact_ready" &&
+      nextStatus === "running" &&
+      (subtask.status === "completed" || subtask.status === "pending_review")
+        ? subtask.status
+        : nextStatus;
     return {
       ...subtask,
       label:
         "subtaskLabel" in event && event.subtaskLabel
           ? event.subtaskLabel
           : subtask.label,
-      status: subtaskStatusFromEvent(event),
+      status,
       message:
         event.type === "stage_progress" ? event.message ?? subtask.message : subtask.message,
       errorMessage: event.type === "failed" ? event.message : subtask.errorMessage,

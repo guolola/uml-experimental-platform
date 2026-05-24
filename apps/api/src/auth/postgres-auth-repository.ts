@@ -527,6 +527,7 @@ export function createPostgresAuthRepository(db: Queryable) {
           | "passwordHash"
           | "status"
           | "emailVerified"
+          | "systemRoles"
           | "mfaEnabled"
           | "mfaSecret"
           | "mfaPendingSecret"
@@ -543,10 +544,11 @@ export function createPostgresAuthRepository(db: Queryable) {
             password_hash = case when $6 then $7 else password_hash end,
             status = case when $8 then $9 else status end,
             email_verified = case when $10 then $11 else email_verified end,
-            mfa_enabled = case when $12 then $13 else mfa_enabled end,
-            mfa_secret = case when $14 then $15 else mfa_secret end,
-            mfa_pending_secret = case when $16 then $17 else mfa_pending_secret end,
-            mfa_pending_expires_at = case when $18 then $19 else mfa_pending_expires_at end,
+            system_roles = case when $12 then $13 else system_roles end,
+            mfa_enabled = case when $14 then $15 else mfa_enabled end,
+            mfa_secret = case when $16 then $17 else mfa_secret end,
+            mfa_pending_secret = case when $18 then $19 else mfa_pending_secret end,
+            mfa_pending_expires_at = case when $20 then $21 else mfa_pending_expires_at end,
             updated_at = now()
           where id = $1
           returning ${userColumns}
@@ -563,6 +565,8 @@ export function createPostgresAuthRepository(db: Queryable) {
           patch.status ?? null,
           Object.hasOwn(patch, "emailVerified"),
           patch.emailVerified ?? null,
+          Object.hasOwn(patch, "systemRoles"),
+          patch.systemRoles ?? null,
           Object.hasOwn(patch, "mfaEnabled"),
           patch.mfaEnabled ?? null,
           Object.hasOwn(patch, "mfaSecret"),

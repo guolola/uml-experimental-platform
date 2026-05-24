@@ -1,4 +1,4 @@
-export type ModelVendorId = "openai" | "claude" | "google";
+export type ModelVendorId = "openai" | "claude" | "google" | "deepseek" | "minimax" | "aliyun" | "zhipu";
 
 export interface ModelOption {
   id: string;
@@ -26,6 +26,13 @@ export const MODEL_VENDORS: ModelVendor[] = [
     label: "OpenAI",
     models: [
       {
+        id: "gpt-5.5-pro",
+        vendorId: "openai",
+        shortLabel: "GPT 5.5 Pro",
+        fullLabel: "gpt-5.5-pro",
+        supportsJsonSchema: true,
+      },
+      {
         id: "gpt-5.5",
         vendorId: "openai",
         shortLabel: "GPT 5.5",
@@ -52,6 +59,13 @@ export const MODEL_VENDORS: ModelVendor[] = [
     id: "claude",
     label: "Claude",
     models: [
+      {
+        id: "claude-opus-4-7",
+        vendorId: "claude",
+        shortLabel: "Opus 4.7",
+        fullLabel: "claude-opus-4-7",
+        supportsJsonSchema: true,
+      },
       {
         id: "claude-opus-4-6-thinking",
         vendorId: "claude",
@@ -91,6 +105,58 @@ export const MODEL_VENDORS: ModelVendor[] = [
         vendorId: "google",
         shortLabel: "Flash Lite",
         fullLabel: "gemini-3.1-flash-lite-preview",
+        supportsJsonSchema: true,
+      },
+    ],
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    models: [
+      {
+        id: "deepseek-v4-pro",
+        vendorId: "deepseek",
+        shortLabel: "V4 Pro",
+        fullLabel: "deepseek-v4-pro",
+        supportsJsonSchema: true,
+      },
+    ],
+  },
+  {
+    id: "minimax",
+    label: "Minimax",
+    models: [
+      {
+        id: "MiniMax-M2.7",
+        vendorId: "minimax",
+        shortLabel: "M2.7",
+        fullLabel: "MiniMax-M2.7",
+        supportsJsonSchema: true,
+      },
+    ],
+  },
+  {
+    id: "aliyun",
+    label: "Aliyun",
+    models: [
+      {
+        id: "qwen3.5-plus",
+        vendorId: "aliyun",
+        shortLabel: "Qwen 3.5 Plus",
+        fullLabel: "qwen3.5-plus",
+        supportsJsonSchema: true,
+      },
+    ],
+  },
+  {
+    id: "zhipu",
+    label: "智谱",
+    models: [
+      {
+        id: "glm-5.1",
+        vendorId: "zhipu",
+        shortLabel: "GLM 5.1",
+        fullLabel: "glm-5.1",
         supportsJsonSchema: true,
       },
     ],

@@ -920,8 +920,10 @@ export function registerRunRoutes({
           subtaskStatus:
             status.status === "queued"
               ? "queued"
-              : status.status === "running" || status.status === "completed"
+              : status.status === "running"
                 ? "running"
+                : status.status === "completed"
+                  ? "completed"
                 : "failed",
           diagramKind: context.diagramKind,
           subtaskId: context.subtaskId,

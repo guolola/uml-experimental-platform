@@ -45,21 +45,27 @@ function GenerateRulesHarness() {
 describe("WorkspaceSessionProvider", () => {
   it("shows Figma-style generation result dialogs with cancel and confirm close actions", async () => {
     toastMessage.mockClear();
-    const successSnapshot = createRunSnapshot({
-      runId: "run-success-dialog",
-      requirementText: "订单系统需求",
-      rules: [createRule()],
-    });
+    let runIndex = 0;
+    const createSuccessSnapshot = () =>
+      createRunSnapshot({
+        runId: `run-success-dialog-${runIndex}`,
+        requirementText: "订单系统需求",
+        rules: [createRule()],
+      });
     const successRepository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({ requirementText: "订单系统需求" }),
       ),
       updateRequirementText: vi.fn(async () => {}),
-      startRun: vi.fn(async () => ({ runId: "run-success-dialog" })),
+      startRun: vi.fn(async () => {
+        runIndex += 1;
+        return { runId: `run-success-dialog-${runIndex}` };
+      }),
       subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        const successSnapshot = createSuccessSnapshot();
         onEvent({ type: "completed", snapshot: successSnapshot });
       }),
-      getRunSnapshot: vi.fn(async () => successSnapshot),
+      getRunSnapshot: vi.fn(async () => createSuccessSnapshot()),
       renderPlantUml: vi.fn(),
       testProviderSettings: vi.fn(),
       saveRunHistory: vi.fn(),

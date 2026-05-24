@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createPostgresProviderConfigRepository } from "./postgres-provider-config-repository.js";
+import { normalizeProviderAllowedModels } from "./default-provider-models.js";
 import type { Queryable } from "../db/transactions.js";
 
 class ScriptedClient implements Queryable {
@@ -120,7 +121,7 @@ test("postgres provider repository maps views and never includes secret cipherte
       lastUsedAt: "2026-05-22T00:01:00.000Z",
       riskState: "medium",
       defaultModel: "gpt-4.1",
-      allowedModels: ["gpt-4.1"],
+      allowedModels: normalizeProviderAllowedModels("gpt-4.1", ["gpt-4.1"]),
       quota: "unlimited",
       status: "active",
       scopeType: "system",

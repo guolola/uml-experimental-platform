@@ -216,6 +216,7 @@ export function createInMemoryAuthStore() {
         | "passwordHash"
         | "status"
         | "emailVerified"
+        | "systemRoles"
         | "mfaEnabled"
         | "mfaSecret"
         | "mfaPendingSecret"

@@ -223,6 +223,15 @@ function resultDialogMessage(result: GenerationResultDialogState) {
   return sanitizeResultDialogCopy(result.message);
 }
 
+function generationResultDialogGroup(result: GenerationResultDialogState) {
+  const tone = result.tone === "destructive" ? "failure" : "completion";
+  const runKey = result.runId ? `run:${result.runId}` : "";
+  const stageKey = sanitizeResultDialogCopy(
+    result.stageLabel ?? result.title ?? "生成结果",
+  );
+  return `${tone}:${runKey || stageKey}`;
+}
+
 function GenerationResultDialog({
   result,
   onClose,
@@ -596,13 +605,47 @@ export function WorkspaceSessionProvider({
     useState<RequirementQualityReport | null>(null);
   const [generationResultDialog, setGenerationResultDialog] =
     useState<GenerationResultDialogState | null>(null);
+  const closedGenerationResultDialogRef = useRef<{
+    group: string;
+    closedAt: number;
+  } | null>(null);
 
   const openGenerationResultDialog = useCallback(
     (input: GenerationResultDialogState) => {
-      setGenerationResultDialog(input);
+      const nextGroup = generationResultDialogGroup(input);
+      const openedAt = Date.now();
+      const isCompletion = input.tone !== "destructive";
+      setGenerationResultDialog((current) => {
+        const currentGroup = current ? generationResultDialogGroup(current) : null;
+        if (isCompletion && currentGroup === nextGroup) {
+          return current;
+        }
+        const recentlyClosed = closedGenerationResultDialogRef.current;
+        if (
+          isCompletion &&
+          recentlyClosed &&
+          recentlyClosed.group === nextGroup &&
+          openedAt - recentlyClosed.closedAt < 10_000
+        ) {
+          return current;
+        }
+        return input;
+      });
     },
     [],
   );
+
+  const closeGenerationResultDialog = useCallback(() => {
+    setGenerationResultDialog((current) => {
+      if (current) {
+        closedGenerationResultDialogRef.current = {
+          group: generationResultDialogGroup(current),
+          closedAt: Date.now(),
+        };
+      }
+      return null;
+    });
+  }, []);
 
   const persistRequirementBaseline = useCallback(
     async (next: RequirementBaseline) => {
@@ -1586,9 +1629,26 @@ export function WorkspaceSessionProvider({
                     : event.type === "failed"
                       ? event.message
                       : current.runMessage,
-            errorMessage:
+          errorMessage:
               event.type === "failed" ? event.message : current.errorMessage,
           }));
+          if (event.type === "completed") {
+            const completedSnapshot = event.snapshot as WorkspaceRunSnapshot;
+            const qualityHintCount =
+              completedSnapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
+            openGenerationResultDialog({
+              title: mode.kind === "rules-only" ? "需求规则已生成" : "需求模型已生成",
+              tone: qualityHintCount > 0 ? "warning" : "success",
+              message:
+                qualityHintCount > 0
+                  ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
+                  : "生成完成。",
+              runId: completedSnapshot.runId,
+              stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+              targetLabel: mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
+            });
+            notifyGenerationCompleted("requirements");
+          }
         });
 
         const snapshot =
@@ -3017,7 +3077,7 @@ export function WorkspaceSessionProvider({
       {children}
       <GenerationResultDialog
         result={generationResultDialog}
-        onClose={() => setGenerationResultDialog(null)}
+        onClose={closeGenerationResultDialog}
       />
     </WorkspaceSessionContext.Provider>
   );

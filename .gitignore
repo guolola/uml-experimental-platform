@@ -39,6 +39,7 @@ vite.config.ts.timestamp-*
 vite.config.*.timestamp-*
 
 # local codex/dev artifacts
+.codex/
 .codex-artifacts/
 .codex-logs/
 .codex-test-logs/

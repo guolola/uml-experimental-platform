@@ -6,6 +6,7 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
+import { normalizeProviderAllowedModels } from "./default-provider-models.js";
 
 export type ProviderConfigStatus = "active" | "disabled" | "revoked";
 export type ProviderRiskState = "low" | "medium" | "high" | "critical";
@@ -194,15 +195,6 @@ export function createProviderConfigStore({
     return { ...view, allowedModels: [...view.allowedModels] };
   }
 
-  function normalizeAllowedModels(defaultModel: string, allowedModels?: string[]) {
-    const normalized = new Set(
-      [defaultModel, ...(allowedModels ?? [])]
-        .map((model) => model.trim())
-        .filter(Boolean),
-    );
-    return Array.from(normalized);
-  }
-
   function normalizeScope(input: {
     scopeType?: ProviderConfigScopeType;
     scopeId?: string | null;
@@ -245,7 +237,7 @@ export function createProviderConfigStore({
         lastUsedAt: null,
         riskState: input.riskState ?? "medium",
         defaultModel: input.defaultModel.trim(),
-        allowedModels: normalizeAllowedModels(
+        allowedModels: normalizeProviderAllowedModels(
           input.defaultModel,
           input.allowedModels,
         ),
