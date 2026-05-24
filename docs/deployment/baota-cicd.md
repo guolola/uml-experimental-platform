@@ -63,6 +63,7 @@ pm2 -v
    - `ONLYOFFICE_JWT_SECRET`
    - `ONLYOFFICE_ACCESS_TOKEN_SECRET`
    - `UML_DOCUMENT_STORAGE_DIR`
+   - `UML_AVATAR_STORAGE_DIR`
    - `UML_PROVIDER_SECRET_KEY`
    - `UML_PROVIDER_BASE_URL_ALLOWLIST`
 
@@ -191,6 +192,7 @@ PUBLIC_API_BASE_URL=http://platform.example.com
 ONLYOFFICE_JWT_SECRET='<与 Document Server 一致的强随机密钥>'
 ONLYOFFICE_ACCESS_TOKEN_SECRET='<强随机密钥>'
 UML_DOCUMENT_STORAGE_DIR=/www/wwwroot/uml-platform/shared/documents
+UML_AVATAR_STORAGE_DIR=/www/wwwroot/uml-platform/shared/avatars
 EOF
 
 chmod 600 /www/wwwroot/uml-platform/shared/production.env

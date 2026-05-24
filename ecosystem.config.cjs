@@ -35,6 +35,9 @@ const documentEnv = {
   ...(process.env.UML_DOCUMENT_STORAGE_DIR
     ? { UML_DOCUMENT_STORAGE_DIR: process.env.UML_DOCUMENT_STORAGE_DIR }
     : {}),
+  ...(process.env.UML_AVATAR_STORAGE_DIR
+    ? { UML_AVATAR_STORAGE_DIR: process.env.UML_AVATAR_STORAGE_DIR }
+    : {}),
 };
 
 const renderServiceEnv = {
