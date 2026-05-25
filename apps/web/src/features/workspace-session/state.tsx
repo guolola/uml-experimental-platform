@@ -239,9 +239,17 @@ function GenerationResultDialog({
   result: GenerationResultDialogState | null;
   onClose: () => void;
 }) {
-  const displayTitle = result ? sanitizeResultDialogCopy(result.title) : "生成结果";
-  const displayMessage = result ? resultDialogMessage(result) : "";
-  const isFailure = result?.tone === "destructive";
+  const lastResultRef = useRef<GenerationResultDialogState | null>(null);
+  if (result) {
+    lastResultRef.current = result;
+  }
+  const visibleResult = result ?? lastResultRef.current;
+  if (!visibleResult) {
+    return null;
+  }
+  const displayTitle = sanitizeResultDialogCopy(visibleResult.title);
+  const displayMessage = resultDialogMessage(visibleResult);
+  const isFailure = visibleResult.tone === "destructive";
   const Icon = isFailure ? XCircle : CheckCircle2;
   const iconLabel = isFailure ? "操作失败" : "操作成功";
 
