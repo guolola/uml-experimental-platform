@@ -1,11 +1,364 @@
 // Defines JSON schema response formats for design model generation.
 import { type ChatCompletionResponseFormat } from "../../../llm.js";
 import { getModelCapability } from "../../../model-capabilities.js";
-import {
-  modelElementRefResponseSchema,
-  requirementModelOneOf,
-} from "./requirements-response-formats.js";
+import { modelElementRefResponseSchema } from "./requirements-response-formats.js";
 import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
+
+const stringArrayResponseSchema = { type: "array", items: { type: "string" } };
+
+const classOperationResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: { type: "string" },
+    returnType: { type: "string" },
+    visibility: { type: "string", enum: ["public", "protected", "private", "package"] },
+    parameters: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          type: { type: "string" },
+          required: { type: "boolean" },
+          direction: { type: "string", enum: ["in", "out", "inout"] },
+        },
+        required: ["name", "type"],
+      },
+    },
+    description: { type: "string" },
+  },
+  required: ["name", "visibility", "parameters"],
+};
+
+const relationshipResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "string" },
+    type: {
+      type: "string",
+      enum: [
+        "association",
+        "aggregation",
+        "composition",
+        "inheritance",
+        "implementation",
+        "dependency",
+        "control_flow",
+        "object_flow",
+        "deployment",
+        "communication",
+        "hosting",
+        "one-to-one",
+        "one-to-many",
+        "many-to-many",
+      ],
+    },
+    sourceId: { type: "string" },
+    targetId: { type: "string" },
+    sourceRole: { type: "string" },
+    targetRole: { type: "string" },
+    sourceMultiplicity: { type: "string" },
+    targetMultiplicity: { type: "string" },
+    navigability: {
+      type: "string",
+      enum: ["none", "source-to-target", "target-to-source", "bidirectional"],
+    },
+    condition: { type: "string" },
+    guard: { type: "string" },
+    trigger: { type: "string" },
+    protocol: { type: "string" },
+    port: { type: "string" },
+    direction: { type: "string", enum: ["one-way", "two-way", "inbound", "outbound"] },
+    sourceTableId: { type: "string" },
+    targetTableId: { type: "string" },
+    sourceColumnId: { type: "string" },
+    targetColumnId: { type: "string" },
+    label: { type: "string" },
+    description: { type: "string" },
+  },
+  required: ["id", "type"],
+};
+
+const designModelResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    diagramKind: {
+      type: "string",
+      enum: ["sequence", "class", "activity", "deployment", "table"],
+    },
+    modelId: { type: "string" },
+    sourceUseCaseId: { type: "string" },
+    sourceUseCaseName: { type: "string" },
+    title: { type: "string" },
+    summary: { type: "string" },
+    notes: stringArrayResponseSchema,
+    participants: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          participantType: {
+            type: "string",
+            enum: [
+              "actor",
+              "boundary",
+              "control",
+              "entity",
+              "service",
+              "database",
+              "external",
+            ],
+          },
+          description: { type: "string" },
+        },
+        required: ["id", "name", "participantType"],
+      },
+    },
+    messages: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          type: { type: "string", enum: ["sync", "async", "return", "create", "destroy"] },
+          sourceId: { type: "string" },
+          targetId: { type: "string" },
+          name: { type: "string" },
+          parameters: stringArrayResponseSchema,
+          returnValue: { type: "string" },
+          condition: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "type", "sourceId", "targetId", "name", "parameters"],
+      },
+    },
+    fragments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          type: { type: "string", enum: ["alt", "opt", "loop", "par"] },
+          label: { type: "string" },
+          messageIds: stringArrayResponseSchema,
+          condition: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "type", "label", "messageIds"],
+      },
+    },
+    classes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          classKind: {
+            type: "string",
+            enum: ["entity", "aggregate", "valueObject", "service", "other"],
+          },
+          stereotype: { type: "string" },
+          description: { type: "string" },
+          attributes: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                name: { type: "string" },
+                type: { type: "string" },
+                visibility: {
+                  type: "string",
+                  enum: ["public", "protected", "private", "package"],
+                },
+                required: { type: "boolean" },
+                multiplicity: { type: "string" },
+                defaultValue: { type: "string" },
+                description: { type: "string" },
+              },
+              required: ["name", "type", "visibility"],
+            },
+          },
+          operations: { type: "array", items: classOperationResponseSchema },
+        },
+        required: ["id", "name", "attributes", "operations"],
+      },
+    },
+    interfaces: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string" },
+          operations: { type: "array", items: classOperationResponseSchema },
+        },
+        required: ["id", "name", "operations"],
+      },
+    },
+    enums: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          literals: stringArrayResponseSchema,
+        },
+        required: ["id", "name", "literals"],
+      },
+    },
+    swimlanes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "name"],
+      },
+    },
+    nodes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["start", "end", "activity", "decision", "merge", "fork", "join"],
+          },
+          name: { type: "string" },
+          description: { type: "string" },
+          actorOrLane: { type: "string" },
+          input: stringArrayResponseSchema,
+          output: stringArrayResponseSchema,
+          question: { type: "string" },
+          nodeType: {
+            type: "string",
+            enum: ["app", "server", "device", "container", "external"],
+          },
+          environment: { type: "string" },
+        },
+        required: ["id"],
+      },
+    },
+    databases: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          engine: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "name"],
+      },
+    },
+    components: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          componentType: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "name"],
+      },
+    },
+    externalSystems: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "name"],
+      },
+    },
+    artifacts: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          artifactType: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["id", "name"],
+      },
+    },
+    tables: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          description: { type: "string" },
+          columns: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                id: { type: "string" },
+                name: { type: "string" },
+                dataType: { type: "string" },
+                isPrimaryKey: { type: "boolean" },
+                isForeignKey: { type: "boolean" },
+                nullable: { type: "boolean" },
+                references: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    tableId: { type: "string" },
+                    columnId: { type: "string" },
+                  },
+                  required: ["tableId", "columnId"],
+                },
+                description: { type: "string" },
+              },
+              required: ["id", "name", "dataType"],
+            },
+          },
+        },
+        required: ["id", "name", "columns"],
+      },
+    },
+    relationships: { type: "array", items: relationshipResponseSchema },
+  },
+  required: ["diagramKind", "title", "summary", "notes"],
+};
 
 export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
@@ -18,111 +371,7 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
       properties: {
         models: {
           type: "array",
-          items: {
-            oneOf: [
-              {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  diagramKind: { type: "string", enum: ["sequence"] },
-                  modelId: { type: "string" },
-                  sourceUseCaseId: { type: "string" },
-                  sourceUseCaseName: { type: "string" },
-                  title: { type: "string" },
-                  summary: { type: "string" },
-                  notes: { type: "array", items: { type: "string" } },
-                  participants: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        id: { type: "string" },
-                        name: { type: "string" },
-                        participantType: {
-                          type: "string",
-                          enum: [
-                            "actor",
-                            "boundary",
-                            "control",
-                            "entity",
-                            "service",
-                            "database",
-                            "external",
-                          ],
-                        },
-                        description: { type: "string" },
-                      },
-                      required: ["id", "name", "participantType"],
-                    },
-                  },
-                  messages: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        id: { type: "string" },
-                        type: {
-                          type: "string",
-                          enum: ["sync", "async", "return", "create", "destroy"],
-                        },
-                        sourceId: { type: "string" },
-                        targetId: { type: "string" },
-                        name: { type: "string" },
-                        parameters: { type: "array", items: { type: "string" } },
-                        returnValue: { type: "string" },
-                        condition: { type: "string" },
-                        description: { type: "string" },
-                      },
-                      required: [
-                        "id",
-                        "type",
-                        "sourceId",
-                        "targetId",
-                        "name",
-                        "parameters",
-                      ],
-                    },
-                  },
-                  fragments: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        id: { type: "string" },
-                        type: { type: "string", enum: ["alt", "opt", "loop", "par"] },
-                        label: { type: "string" },
-                        messageIds: { type: "array", items: { type: "string" } },
-                        condition: { type: "string" },
-                        description: { type: "string" },
-                      },
-                      required: ["id", "type", "label", "messageIds"],
-                    },
-                  },
-                },
-                required: [
-                  "diagramKind",
-                  "modelId",
-                  "sourceUseCaseId",
-                  "sourceUseCaseName",
-                  "title",
-                  "summary",
-                  "notes",
-                  "participants",
-                  "messages",
-                  "fragments",
-                ],
-              },
-              ...requirementModelOneOf.filter((schema) => {
-                const diagramKind = (
-                  schema.properties as { diagramKind?: { enum?: string[] } }
-                ).diagramKind?.enum?.[0];
-                return diagramKind !== "usecase";
-              }),
-            ],
-          },
+          items: designModelResponseSchema,
         },
         designModelTraceability: {
           type: "array",

@@ -32,8 +32,27 @@ function assertStrictObjectRequirements(schema: unknown, path = "schema") {
   }
 }
 
+function assertNoOneOf(schema: unknown, path = "schema") {
+  if (!schema || typeof schema !== "object") return;
+  const node = schema as {
+    items?: unknown;
+    oneOf?: unknown;
+    properties?: Record<string, unknown>;
+  };
+
+  assert.equal(node.oneOf, undefined, `${path} must not use oneOf`);
+
+  for (const [key, value] of Object.entries(node.properties ?? {})) {
+    assertNoOneOf(value, `${path}.properties.${key}`);
+  }
+  if (node.items) {
+    assertNoOneOf(node.items, `${path}.items`);
+  }
+}
+
 test("design model response format is valid for OpenAI strict JSON Schema", () => {
   assertStrictObjectRequirements(
     GENERATE_DESIGN_MODELS_RESPONSE_FORMAT.json_schema.schema,
   );
+  assertNoOneOf(GENERATE_DESIGN_MODELS_RESPONSE_FORMAT.json_schema.schema);
 });
