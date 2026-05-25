@@ -5,12 +5,18 @@ import {
   resolvedProviderSettingsSchema,
   renderPngRequestSchema,
   renderPngResponseSchema,
+  renderStructuredModelRequestSchema,
+  renderStructuredModelResponseSchema,
   renderSvgRequestSchema,
   renderSvgResponseSchema,
 } from "@uml-platform/contracts";
 import { getModelCapability } from "../../model-capabilities.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
+import {
+  generateDesignPlantUmlArtifacts,
+  generatePlantUmlArtifacts,
+} from "../../plantuml.js";
 
 export function registerRenderRoutes({
   app,
@@ -72,6 +78,37 @@ export function registerRenderRoutes({
           source: input.plantUmlSource,
         }),
       );
+    } catch (error) {
+      request.log.error(error);
+      reply.code(400);
+      return {
+        message: error instanceof Error ? error.message : "Unknown render error",
+      };
+    }
+  });
+
+  app.post("/api/render/model", async (request, reply) => {
+    const access = await requireRenderProjectAccess(request, reply);
+    if (!access.ok) return { message: access.message };
+
+    const input = renderStructuredModelRequestSchema.parse(request.body);
+    try {
+      const [artifact] =
+        input.model.diagramKind === "usecase"
+          ? generatePlantUmlArtifacts([input.model])
+          : generateDesignPlantUmlArtifacts([input.model]);
+      if (!artifact) {
+        reply.code(400);
+        return { message: "模型无法生成 PlantUML" };
+      }
+      const rendered = await renderClient({
+        diagramKind: artifact.diagramKind,
+        source: artifact.source,
+      });
+      return renderStructuredModelResponseSchema.parse({
+        plantUmlSource: artifact.source,
+        ...rendered,
+      });
     } catch (error) {
       request.log.error(error);
       reply.code(400);

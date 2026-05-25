@@ -33,6 +33,7 @@ import {
   type DiagramType,
 } from "../../entities/diagram/model";
 import type {
+  ManualModelEditStatus,
   WorkspaceRecord,
   WorkspaceCodeRunSnapshot,
   WorkspaceDesignRunSnapshot,
@@ -470,12 +471,29 @@ function hasCompleteTraceabilityCoverage(
   return Array.from(modelRefs).every((key) => covered.has(key));
 }
 
+function isManualModelRerendered(
+  manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"],
+  key: string,
+) {
+  return manualModelEditStatus[key]?.status === "rerendered";
+}
+
 function hasCompleteRequirementTraceability(
   models: Array<DiagramModelSpec | undefined>,
   traceability: RequirementModelTraceabilityEntry[],
+  manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"] = {},
 ) {
+  const availableModels = models.filter(
+    (model): model is DiagramModelSpec => Boolean(model),
+  );
+  const modelsRequiringTraceability = availableModels.filter(
+    (model) => !isManualModelRerendered(manualModelEditStatus, model.diagramKind),
+  );
+  if (modelsRequiringTraceability.length === 0) {
+    return availableModels.length > 0;
+  }
   const modelRefs = collectTraceableRefKeys(
-    models.filter((model): model is DiagramModelSpec => Boolean(model)),
+    modelsRequiringTraceability,
   );
   return hasCompleteTraceabilityCoverage(
     modelRefs,
@@ -486,9 +504,19 @@ function hasCompleteRequirementTraceability(
 function hasCompleteDesignTraceability(
   models: Array<DesignDiagramModelSpec | undefined>,
   traceability: DesignModelTraceabilityEntry[],
+  manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"] = {},
 ) {
+  const availableModels = models.filter(
+    (model): model is DesignDiagramModelSpec => Boolean(model),
+  );
+  const modelsRequiringTraceability = availableModels.filter(
+    (model) => !isManualModelRerendered(manualModelEditStatus, getDesignModelId(model)),
+  );
+  if (modelsRequiringTraceability.length === 0) {
+    return availableModels.length > 0;
+  }
   const modelRefs = collectTraceableRefKeys(
-    models.filter((model): model is DesignDiagramModelSpec => Boolean(model)),
+    modelsRequiringTraceability,
   );
   return hasCompleteTraceabilityCoverage(
     modelRefs,
@@ -571,6 +599,9 @@ export function WorkspaceSessionProvider({
     generatedDesignDiagrams,
     setGeneratedDesignDiagrams,
   } = useDesignSlice();
+  const [manualModelEditStatus, setManualModelEditStatus] = useState<
+    WorkspaceRecord["manualModelEditStatus"]
+  >({});
   const {
     codeSpec,
     setCodeSpec,
@@ -1035,6 +1066,7 @@ export function WorkspaceSessionProvider({
       setDesignPlantUml(workspace.designPlantUml);
       setDesignSvgArtifacts(workspace.designSvgArtifacts);
       setDesignDiagramErrors(workspace.designDiagramErrors);
+      setManualModelEditStatus(workspace.manualModelEditStatus ?? {});
       setCodeSpec(workspace.codeSpec);
       setCodeBusinessLogic(workspace.codeBusinessLogic);
       setCodeFiles(workspace.codeFiles);
@@ -1782,6 +1814,7 @@ export function WorkspaceSessionProvider({
         const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
           Object.values(models),
           requirementModelTraceability,
+          manualModelEditStatus,
         );
         if (currentRulesStale || currentStaleDiagrams.length > 0) {
           throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
@@ -2047,6 +2080,7 @@ export function WorkspaceSessionProvider({
       applyDesignRunSnapshot,
       diagramVersions,
       generatedDiagrams,
+      manualModelEditStatus,
       models,
       openGenerationResultDialog,
       repository,
@@ -2102,10 +2136,12 @@ export function WorkspaceSessionProvider({
       const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
         Object.values(models),
         requirementModelTraceability,
+        manualModelEditStatus,
       );
       const designTraceabilityComplete = hasCompleteDesignTraceability(
         Object.values(designModels),
         designModelTraceability,
+        manualModelEditStatus,
       );
       if (currentRulesStale || currentStaleDiagrams.length > 0) {
         throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
@@ -2451,6 +2487,7 @@ export function WorkspaceSessionProvider({
     diagramVersions,
     generatedDesignDiagrams,
     generatedDiagrams,
+    manualModelEditStatus,
     models,
     openGenerationResultDialog,
     repository,
@@ -2527,10 +2564,12 @@ export function WorkspaceSessionProvider({
         const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
           Object.values(models),
           requirementModelTraceability,
+          manualModelEditStatus,
         );
         const designTraceabilityComplete = hasCompleteDesignTraceability(
           Object.values(designModels),
           designModelTraceability,
+          manualModelEditStatus,
         );
         if (
           documentKind === "requirementsSpec" &&
@@ -2757,6 +2796,7 @@ export function WorkspaceSessionProvider({
       diagramVersions,
       generatedDesignDiagrams,
       generatedDiagrams,
+      manualModelEditStatus,
       models,
       openGenerationResultDialog,
       plantUml,
@@ -2816,6 +2856,112 @@ export function WorkspaceSessionProvider({
     [repository],
   );
 
+  const createManualEditStatus = useCallback((status: "dirty" | "rerendered") => {
+    const now = new Date().toISOString();
+    return {
+      status,
+      warning:
+        status === "dirty"
+          ? "模型已手动修改，可能与前置需求映射不一致。请重绘当前图后继续使用。"
+          : null,
+      editedAt: now,
+      ...(status === "rerendered" ? { rerenderedAt: now } : {}),
+    } satisfies ManualModelEditStatus;
+  }, []);
+
+  const saveRequirementModelEdit = useCallback(
+    async (diagramKind: DiagramType, model: DiagramModelSpec) => {
+      const status = createManualEditStatus("dirty");
+      setModels((current) => ({ ...current, [diagramKind]: model }));
+      setManualModelEditStatus((current) => ({ ...current, [diagramKind]: status }));
+      await repository.saveRequirementModelEdit?.(diagramKind, model, status);
+    },
+    [createManualEditStatus, repository],
+  );
+
+  const saveDesignModelEdit = useCallback(
+    async (modelId: string, model: DesignDiagramModelSpec) => {
+      const status = createManualEditStatus("dirty");
+      setDesignModels((current) => ({ ...current, [modelId]: model }));
+      setManualModelEditStatus((current) => ({ ...current, [modelId]: status }));
+      await repository.saveDesignModelEdit?.(modelId, model, status);
+    },
+    [createManualEditStatus, repository],
+  );
+
+  const rerenderRequirementModel = useCallback(
+    async (diagramKind: DiagramType, modelOverride?: DiagramModelSpec) => {
+      const model = modelOverride ?? models[diagramKind];
+      if (!model) {
+        throw new Error("当前需求模型不存在，无法重绘");
+      }
+      if (!repository.renderStructuredModel) {
+        throw new Error("当前环境不支持结构化模型重绘");
+      }
+      const rendered = await repository.renderStructuredModel(model);
+      const status = createManualEditStatus("rerendered");
+      const svgArtifact = {
+        diagramKind,
+        svg: rendered.svg,
+        renderMeta: rendered.renderMeta,
+      };
+      setPlantUml((current) => ({ ...current, [diagramKind]: rendered.plantUmlSource }));
+      setSvgArtifacts((current) => ({ ...current, [diagramKind]: svgArtifact }));
+      setDiagramErrors((current) => {
+        const next = { ...current };
+        delete next[diagramKind];
+        return next;
+      });
+      setGeneratedDiagrams((current) =>
+        current.includes(diagramKind) ? current : [...current, diagramKind],
+      );
+      setManualModelEditStatus((current) => ({ ...current, [diagramKind]: status }));
+      await repository.saveManualModelRerender?.(diagramKind, status, {
+        plantUmlSource: rendered.plantUmlSource,
+        svgArtifact,
+      });
+      toast.message("当前模型已重绘");
+    },
+    [createManualEditStatus, models, repository],
+  );
+
+  const rerenderDesignModel = useCallback(
+    async (modelId: string, modelOverride?: DesignDiagramModelSpec) => {
+      const model = modelOverride ?? designModels[modelId];
+      if (!model) {
+        throw new Error("当前设计模型不存在，无法重绘");
+      }
+      if (!repository.renderStructuredModel) {
+        throw new Error("当前环境不支持结构化模型重绘");
+      }
+      const rendered = await repository.renderStructuredModel(model);
+      const status = createManualEditStatus("rerendered");
+      const svgArtifact = {
+        diagramKind: model.diagramKind,
+        modelId: "modelId" in model ? model.modelId : undefined,
+        svg: rendered.svg,
+        renderMeta: rendered.renderMeta,
+      };
+      setDesignPlantUml((current) => ({ ...current, [modelId]: rendered.plantUmlSource }));
+      setDesignSvgArtifacts((current) => ({ ...current, [modelId]: svgArtifact }));
+      setDesignDiagramErrors((current) => {
+        const next = { ...current };
+        delete next[model.diagramKind];
+        return next;
+      });
+      setGeneratedDesignDiagrams((current) =>
+        current.includes(model.diagramKind) ? current : [...current, model.diagramKind],
+      );
+      setManualModelEditStatus((current) => ({ ...current, [modelId]: status }));
+      await repository.saveManualModelRerender?.(modelId, status, {
+        plantUmlSource: rendered.plantUmlSource,
+        svgArtifact,
+      });
+      toast.message("当前模型已重绘");
+    },
+    [createManualEditStatus, designModels, repository],
+  );
+
   const generateRules = useCallback(async () => {
     await runGeneration([], { kind: "rules-only" });
   }, [runGeneration]);
@@ -2866,10 +3012,12 @@ export function WorkspaceSessionProvider({
   const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
     Object.values(models),
     requirementModelTraceability,
+    manualModelEditStatus,
   );
   const designTraceabilityComplete = hasCompleteDesignTraceability(
     Object.values(designModels),
     designModelTraceability,
+    manualModelEditStatus,
   );
   const requirementTraceabilityStale =
     generatedDiagrams.length > 0 &&
@@ -2923,6 +3071,7 @@ export function WorkspaceSessionProvider({
       clearRequirementRules,
       models,
       requirementModelTraceability,
+      manualModelEditStatus,
       selectedDiagrams,
       setSelectedDiagrams,
       plantUml,
@@ -2962,6 +3111,10 @@ export function WorkspaceSessionProvider({
       selectGenerationTask,
       clearCompletedGenerationTasks,
       generateRules,
+      saveRequirementModelEdit,
+      saveDesignModelEdit,
+      rerenderRequirementModel,
+      rerenderDesignModel,
       generateDiagrams,
       generateDesignDiagrams,
       generateCodePrototype,
@@ -3001,6 +3154,7 @@ export function WorkspaceSessionProvider({
       clearRequirementRules,
       models,
       requirementModelTraceability,
+      manualModelEditStatus,
       selectedDiagrams,
       plantUml,
       svgArtifacts,
@@ -3038,6 +3192,10 @@ export function WorkspaceSessionProvider({
       selectGenerationTask,
       clearCompletedGenerationTasks,
       generateRules,
+      saveRequirementModelEdit,
+      saveDesignModelEdit,
+      rerenderRequirementModel,
+      rerenderDesignModel,
       generateDiagrams,
       generateDesignDiagrams,
       generateCodePrototype,

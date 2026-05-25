@@ -4933,6 +4933,98 @@ test("api proxies manual PlantUML render requests", async () => {
   await app.close();
 });
 
+test("api rerenders structured use case models without calling the LLM", async () => {
+  const authStore = createInMemoryAuthStore();
+  const user = await authStore.createUser({
+    email: "structured-render-owner@example.com",
+    displayName: "Structured Render Owner",
+    passwordHash: "hash",
+  });
+  assert.ok(user);
+  const session = await authStore.createSession({
+    userId: user.id,
+    ipAddress: "127.0.0.1",
+    userAgent: "node:test",
+  });
+  const { project } = await authStore.createProject({
+    ownerUserId: user.id,
+    name: "Structured Render Project",
+    visibility: "private",
+  });
+  let renderedSource = "";
+  const app = await createTestApiServer({
+    authStore,
+    llmTransport: createMockLlmTransport(),
+    renderClient: async (artifact) => {
+      renderedSource = artifact.source;
+      return {
+        svg: `<svg><text>${artifact.diagramKind}:${artifact.source.includes("发起")}</text></svg>`,
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: new Date().toISOString(),
+          sourceLength: artifact.source.length,
+          durationMs: 4,
+        },
+      };
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/render/model",
+    headers: {
+      cookie: `uml_session=${encodeURIComponent(session.id)}`,
+      "x-uml-project-id": project.id,
+    },
+    payload: {
+      model: {
+        diagramKind: "usecase",
+        title: "登录用例模型",
+        summary: "教师登录系统。",
+        notes: [],
+        actors: [
+          {
+            id: "actor_teacher",
+            name: "教师",
+            actorType: "human",
+            responsibilities: [],
+          },
+        ],
+        useCases: [
+          {
+            id: "uc_login",
+            name: "登录",
+            goal: "进入系统",
+            preconditions: [],
+            postconditions: [],
+            supportingActorIds: [],
+          },
+        ],
+        systemBoundaries: [{ id: "system", name: "实验平台" }],
+        relationships: [
+          {
+            id: "rel_login",
+            type: "association",
+            sourceId: "actor_teacher",
+            targetId: "uc_login",
+            label: "发起",
+            description: "教师发起登录。",
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.match(body.plantUmlSource, /actor "教师"/);
+  assert.match(body.plantUmlSource, /发起/);
+  assert.equal(body.renderMeta.sourceLength, renderedSource.length);
+  assert.match(body.svg, /usecase:true/);
+
+  await app.close();
+});
+
 test("guest access seed creates a login-ready non-admin guest account when enabled", async () => {
   const originalEnabled = process.env.UML_ENABLE_GUEST_ACCESS;
   const originalEmail = process.env.UML_GUEST_EMAIL;

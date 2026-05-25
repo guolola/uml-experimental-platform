@@ -293,17 +293,27 @@ describe("TextRequirementView", () => {
       ),
     });
 
+    const user = userEvent.setup();
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
-    expect(await screen.findByText("需求模型覆盖/追踪证明")).toBeInTheDocument();
+    await screen.findByText("目标模型");
     expect(screen.queryByText("需求模型 AI 修复记录")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/需求规则 r1 需要解释其在用例模型中的覆盖关系/u),
+      screen.queryByText(/需求规则 r1 需要解释其在用例模型中的覆盖关系/u),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: /查看需求模型追踪证明/u }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "需求模型追踪证明",
+    });
+    expect(
+      within(dialog).getByText(/需求规则 r1 需要解释其在用例模型中的覆盖关系/u),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/补齐 r1 -> 查询自己借出的书目 的追踪关系和覆盖说明/u),
+      within(dialog).getByText(/补齐 r1 -> 查询自己借出的书目 的追踪关系和覆盖说明/u),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("证明已补齐").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("证明已补齐").length).toBeGreaterThan(0);
   });
 
   it("disables target diagrams that do not have linked requirement rules", async () => {
@@ -335,6 +345,7 @@ describe("TextRequirementView", () => {
   });
 
   it("keeps AI repair details out of the table row and shows lightweight hints", async () => {
+    const user = userEvent.setup();
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -418,9 +429,17 @@ describe("TextRequirementView", () => {
     expect(within(row).queryByText(/修复原因：原文明确出现普通读者/u)).not.toBeInTheDocument();
     expect(within(row).queryByText(/actor|object|condition/u)).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "需求规则复核详情" })).not.toBeInTheDocument();
+
+    await user.click(within(row).getByRole("button", { name: /需求提示详情 r10/u }));
+
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByRole("dialog", { name: "需求提示详情" })).toBeInTheDocument();
+    expect(screen.getByText("角色/执行者")).toBeInTheDocument();
+    expect(screen.getByText("原文明确出现普通读者，AI 自动补齐角色/执行者字段。")).toBeInTheDocument();
   });
 
   it("shows quality issues as lightweight hints instead of review actions", async () => {
+    const user = userEvent.setup();
     const updateRequirementBaseline = vi.fn(async () => {});
     const repository = createBaseRepository({
       updateRequirementBaseline,
@@ -508,12 +527,88 @@ describe("TextRequirementView", () => {
     expect(updateRequirementBaseline).not.toHaveBeenCalled();
     expect(within(row).getByText("有待确认提示")).toBeInTheDocument();
     expect(within(row).getByText("4项")).toBeInTheDocument();
+    const detailsButton = within(row).getByRole("button", {
+      name: /需求提示详情 r10/u,
+    });
+    expect(detailsButton).not.toHaveAttribute("title");
+    expect(screen.queryByRole("dialog", { name: "需求提示详情" })).not.toBeInTheDocument();
+    expect(screen.queryByText("REQ-010 包含 AI 补齐待确认字段。")).not.toBeInTheDocument();
+    expect(screen.queryByText("REQ-010 缺少可验证边界。")).not.toBeInTheDocument();
+
+    await user.click(detailsButton);
+
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByRole("dialog", { name: "需求提示详情" })).toBeInTheDocument();
+    expect(screen.getByText("REQ-010 包含 AI 补齐待确认字段。")).toBeInTheDocument();
+    expect(screen.getByText("REQ-010 缺少可验证边界。")).toBeInTheDocument();
+    expect(screen.getByText("角色/执行者")).toBeInTheDocument();
+    expect(screen.getByText("对象")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑后采纳" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "采纳 AI 补齐" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "拒绝建议" })).not.toBeInTheDocument();
     expect(screen.queryByText(/阻断可信完成/u)).not.toBeInTheDocument();
-    expect(within(row).queryByText(/角色\/执行者：普通读者/u)).not.toBeInTheDocument();
+    expect(updateRequirementBaseline).not.toHaveBeenCalled();
+  });
+
+  it("keeps generated rules without hint details as read-only status text", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              text: "系统应提供订单提交能力。",
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-clean-rule",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-clean-rule",
+              status: "passed",
+              summary: "需求质量检查通过。",
+              issues: [],
+              blockingIssueIds: [],
+              reviewRequiredRequirementIds: [],
+            },
+            requirements: [
+              {
+                id: "REQ-001",
+                sourceRuleId: "r1",
+                sourceFragment: "系统应提供订单提交能力。",
+                sourceLocation: { section: "input", startOffset: 0, endOffset: 12 },
+                type: "functional",
+                actor: "用户",
+                subject: "用户",
+                action: "提交订单",
+                object: "订单",
+                condition: null,
+                outcome: "系统保存订单",
+                confidence: 0.9,
+                status: "accepted",
+                criticality: "medium",
+                acceptanceCriteria: ["用户可以提交订单。"],
+                priority: "should",
+                fieldProvenance: {},
+              },
+            ],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const row = await screen.findByRole("row", {
+      name: /r1.*系统应提供订单提交能力/u,
+    });
+    expect(within(row).getByText("已生成")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /查看需求提示详情/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求提示详情" })).not.toBeInTheDocument();
   });
 
   it("does not expose single-rule repair actions from the requirement table", async () => {
@@ -963,7 +1058,7 @@ describe("TextRequirementView", () => {
       screen.getByPlaceholderText(
         "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
       ),
-    ).toBeInTheDocument();
+    ).toHaveClass("h-[240px]");
     expect(within(table).getByRole("columnheader", { name: "编号" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "类型" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "需求文本内容" })).toBeInTheDocument();
@@ -1033,7 +1128,7 @@ describe("TextRequirementView", () => {
     ).toBeInTheDocument();
   });
 
-  it("uses fixed 8-row pages and filters requirement rules by text and type", async () => {
+  it("uses selectable page sizes and filters requirement rules by text and type", async () => {
     const rules = Array.from({ length: 10 }, (_, index) =>
       createRule({
         id: `r${index + 1}`,
@@ -1061,7 +1156,22 @@ describe("TextRequirementView", () => {
     expect(within(table).queryByDisplayValue("规则 9")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("requirement-rule-row-slot")).toHaveLength(8);
     expect(screen.getByText("1-8 / 10")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "每页需求规则数量" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("requirement-rule-pagination")).toHaveClass("sticky", "bottom-0");
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "每页需求规则数量" }),
+      "每页 12 条",
+    );
+    expect(within(table).getByDisplayValue("规则 9")).toBeInTheDocument();
+    expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
+    expect(screen.getAllByTestId("requirement-rule-row-slot")).toHaveLength(12);
+    expect(screen.getByText("1-10 / 10")).toBeInTheDocument();
+
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "每页需求规则数量" }),
+      "每页 8 条",
+    );
 
     await user.click(screen.getByRole("button", { name: "下一页" }));
     expect(within(table).queryByDisplayValue("规则 1")).not.toBeInTheDocument();

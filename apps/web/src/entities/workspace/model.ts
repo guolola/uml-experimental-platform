@@ -26,6 +26,13 @@ export type WorkspaceDesignRunSnapshot = DesignRunSnapshot;
 export type WorkspaceCodeRunSnapshot = CodeRunSnapshot;
 export type RunStatus = "idle" | ContractRunStatus;
 
+export interface ManualModelEditStatus {
+  status: "dirty" | "rerendered";
+  warning: string | null;
+  editedAt: string;
+  rerenderedAt?: string;
+}
+
 export interface WorkspaceRecord {
   id: string;
   name: string;
@@ -47,6 +54,7 @@ export interface WorkspaceRecord {
   designPlantUml: Record<string, string>;
   designSvgArtifacts: Record<string, DesignSvgArtifact>;
   designDiagramErrors: Partial<Record<DesignDiagramType, DiagramError>>;
+  manualModelEditStatus: Record<string, ManualModelEditStatus>;
   codeSpec: CodeGenerationSpec | null;
   codeBusinessLogic: CodeBusinessLogic | null;
   codeFiles: Record<string, string>;

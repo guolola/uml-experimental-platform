@@ -56,6 +56,7 @@ const stableProjectWorkspaceDefaults = {
   designPlantUml: {},
   designSvgArtifacts: {},
   designDiagramErrors: {},
+  manualModelEditStatus: {},
   codeSpec: null,
   codeBusinessLogic: null,
   codeFiles: {},

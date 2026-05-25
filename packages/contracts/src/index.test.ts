@@ -19,6 +19,8 @@ import {
   traceabilityMatrixSchema,
   codeVisualDirectionSchema,
   codeUiIrResultSchema,
+  renderStructuredModelRequestSchema,
+  renderStructuredModelResponseSchema,
   renderSvgResponseSchema,
   requirementTraceEntrySchema,
   requirementBaselineSchema,
@@ -70,6 +72,61 @@ import {
   startRunRequestSchema,
   userDtoSchema,
 } from "./index.js";
+
+test("contracts describe structured model rerender requests", () => {
+  const request = renderStructuredModelRequestSchema.parse({
+    model: {
+      diagramKind: "usecase",
+      title: "登录用例模型",
+      summary: "教师登录系统。",
+      notes: [],
+      actors: [
+        {
+          id: "actor_teacher",
+          name: "教师",
+          actorType: "human",
+          responsibilities: [],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_login",
+          name: "登录",
+          goal: "进入系统",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [{ id: "system", name: "实验平台" }],
+      relationships: [
+        {
+          id: "rel_login",
+          type: "association",
+          sourceId: "actor_teacher",
+          targetId: "uc_login",
+          label: "发起",
+          description: "教师发起登录。",
+        },
+      ],
+    },
+  });
+
+  assert.equal(request.model.diagramKind, "usecase");
+
+  const response = renderStructuredModelResponseSchema.parse({
+    plantUmlSource: "@startuml\nactor 教师\n@enduml",
+    svg: "<svg><text>教师</text></svg>",
+    renderMeta: {
+      engine: "plantuml",
+      generatedAt: "2026-05-25T00:00:00.000Z",
+      sourceLength: 24,
+      durationMs: 3,
+    },
+  });
+
+  assert.match(response.plantUmlSource, /@startuml/);
+});
 
 test("contracts describe source-attributed requirement baselines", () => {
   const baseline = requirementBaselineSchema.parse({

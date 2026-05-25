@@ -3688,6 +3688,20 @@ export const renderSvgResponseSchema = z.object({
 });
 export type RenderSvgResponse = z.infer<typeof renderSvgResponseSchema>;
 
+export const renderStructuredModelRequestSchema = z.object({
+  model: z.union([diagramModelSpecSchema, designDiagramModelSpecSchema]),
+});
+export type RenderStructuredModelRequest = z.infer<
+  typeof renderStructuredModelRequestSchema
+>;
+
+export const renderStructuredModelResponseSchema = renderSvgResponseSchema.extend({
+  plantUmlSource: z.string().min(1),
+});
+export type RenderStructuredModelResponse = z.infer<
+  typeof renderStructuredModelResponseSchema
+>;
+
 export const renderPngRequestSchema = renderSvgRequestSchema;
 export type RenderPngRequest = z.infer<typeof renderPngRequestSchema>;
 

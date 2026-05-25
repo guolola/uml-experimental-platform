@@ -13,6 +13,7 @@ import type {
   DesignRunSnapshot,
   DiagramModelSpec,
   DocumentRunSnapshot,
+  UseCaseDiagramSpec,
 } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../services/workspace-repository";
 import {
@@ -471,6 +472,169 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.rulesVersion).toBe(3);
     expect(result.current.rules[0]?.id).toBe("r2");
     expect(result.current.staleDiagrams).toEqual(["usecase", "activity"]);
+  });
+
+  it("saves manual requirement model edits and clears the mapping warning after rerender", async () => {
+    const originalUseCaseModel: UseCaseDiagramSpec = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "教师登录系统。",
+      notes: [],
+      actors: [
+        {
+          id: "actor_teacher",
+          name: "教师",
+          actorType: "human",
+          responsibilities: [],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_login",
+          name: "登录",
+          goal: "进入系统",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [{ id: "system", name: "实验平台" }],
+      relationships: [
+        {
+          id: "rel_login",
+          type: "association",
+          sourceId: "actor_teacher",
+          targetId: "uc_login",
+          label: "发起",
+        },
+      ],
+    };
+    const editedUseCaseModel: UseCaseDiagramSpec = {
+      ...originalUseCaseModel,
+      actors: [{ ...originalUseCaseModel.actors[0], name: "授课教师" }],
+      useCases: [
+        ...originalUseCaseModel.useCases,
+        {
+          id: "uc_logout",
+          name: "退出登录",
+          goal: "离开系统",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      relationships: [
+        {
+          ...originalUseCaseModel.relationships[0],
+          label: "发起登录",
+          description: "授课教师发起登录。",
+        },
+      ],
+    };
+    const saveRequirementModelEdit = vi.fn(async () => {});
+    const renderStructuredModel = vi.fn(async () => ({
+      plantUmlSource: "@startuml\nactor 授课教师\n@enduml",
+      svg: "<svg><text>授课教师</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: "2026-05-25T00:00:00.000Z",
+        sourceLength: 28,
+        durationMs: 2,
+      },
+    }));
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          models: { usecase: originalUseCaseModel },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "actor_teacher",
+                elementKind: "actor",
+                label: "教师",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_login",
+                elementKind: "usecase",
+                label: "登录",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "rel_login",
+                elementKind: "relationship",
+                label: "发起",
+              },
+            },
+          ],
+          generatedDiagramTypes: ["usecase"],
+          diagramVersions: { usecase: 0 },
+          plantUml: { usecase: "@startuml\nactor 教师\n@enduml" },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      renderStructuredModel,
+      saveRequirementModelEdit,
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.designGenerationBlockedReason).toBeNull();
+
+    await act(async () => {
+      await result.current.saveRequirementModelEdit("usecase", editedUseCaseModel);
+    });
+
+    expect(
+      (result.current.models.usecase as UseCaseDiagramSpec | undefined)?.actors[0]
+        ?.name,
+    ).toBe("授课教师");
+    expect(saveRequirementModelEdit).toHaveBeenCalledWith(
+      "usecase",
+      editedUseCaseModel,
+      expect.objectContaining({ status: "dirty" }),
+    );
+    expect(result.current.manualModelEditStatus.usecase?.status).toBe("dirty");
+    expect(result.current.manualModelEditStatus.usecase?.warning).toMatch(
+      /可能与前置需求映射不一致/,
+    );
+    expect(result.current.designGenerationBlockedReason).toBe(
+      "需求模型缺少完整元素级映射，请先重新生成需求模型",
+    );
+
+    await act(async () => {
+      await result.current.rerenderRequirementModel("usecase");
+    });
+
+    expect(renderStructuredModel).toHaveBeenCalledWith(editedUseCaseModel);
+    expect(result.current.plantUml.usecase).toContain("授课教师");
+    expect(result.current.svgArtifacts.usecase?.svg).toContain("授课教师");
+    expect(result.current.manualModelEditStatus.usecase?.status).toBe("rerendered");
+    expect(result.current.manualModelEditStatus.usecase?.warning).toBeNull();
+    expect(result.current.designGenerationBlockedReason).toBeNull();
   });
 
   it("keeps only the tail of long streamed LLM diagnostics in memory", async () => {

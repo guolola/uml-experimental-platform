@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { DesignRunSnapshot } from "@uml-platform/contracts";
@@ -416,15 +416,27 @@ describe("DesignModelPage", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
+    const user = userEvent.setup();
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
-    expect(await screen.findByText("设计模型追踪证明")).toBeInTheDocument();
+    await screen.findByText("需求阶段来源");
     expect(screen.queryByText("设计模型 AI 修复记录")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/设计元素缺少上游来源，系统自动补齐到需求用例/u),
+      screen.queryByText(/设计元素缺少上游来源，系统自动补齐到需求用例/u),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: /查看设计模型追踪证明/u }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "设计模型追踪证明",
+    });
+    expect(
+      within(dialog).getByText(/设计元素缺少上游来源，系统自动补齐到需求用例/u),
     ).toBeInTheDocument();
-    expect(screen.getByText(/补齐 编排 API -> 生成模型 追踪关系/u)).toBeInTheDocument();
-    expect(screen.getAllByText("追踪已补齐").length).toBeGreaterThan(0);
+    expect(
+      within(dialog).getByText(/补齐 编排 API -> 生成模型 追踪关系/u),
+    ).toBeInTheDocument();
+    expect(within(dialog).getAllByText("追踪已补齐").length).toBeGreaterThan(0);
   });
 
   it("auto-includes valid sequence and class dependencies when generating table diagrams", async () => {

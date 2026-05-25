@@ -34,6 +34,7 @@ export function createWorkspaceRecord(
     designPlantUml: {},
     designSvgArtifacts: {},
     designDiagramErrors: {},
+    manualModelEditStatus: {},
     codeSpec: null,
     codeBusinessLogic: null,
     codeFiles: {},

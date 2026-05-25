@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   Wand2,
   Loader2,
@@ -19,6 +19,7 @@ import {
   ShoppingCart,
   MessageCircle,
   Activity,
+  Eye,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
@@ -36,6 +37,7 @@ import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import type {
   AtomicRequirement,
+  AtomicRequirementField,
   RequirementQualityIssue,
 } from "@uml-platform/contracts";
 import {
@@ -57,8 +59,18 @@ import {
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
 const RULES_PER_PAGE = 8;
+const RULE_PAGE_SIZE_OPTIONS = [8, 12, 20, 50] as const;
 const RULE_ROW_CLASS = "h-[60px]";
 const ALL_RULE_CATEGORIES = "";
+const REQUIREMENT_FIELD_LABELS: Record<AtomicRequirementField, string> = {
+  actor: "角色/执行者",
+  subject: "主体",
+  action: "动作",
+  object: "对象",
+  condition: "条件",
+  outcome: "结果",
+  acceptanceCriteria: "验收标准",
+};
 
 function stageRepairCopy(text: string) {
   return text.replace(/\bAI\b\s*/gu, "系统");
@@ -105,6 +117,33 @@ function requirementStateTone(state: string | null) {
   if (state === "有待确认提示") return "border-warning/40 bg-warning/10 text-warning";
   if (state === "存在冲突提示") return "border-destructive/40 bg-destructive/10 text-destructive";
   return "border-border bg-muted/40 text-muted-foreground";
+}
+
+function requirementFieldValue(
+  requirement: AtomicRequirement,
+  field: AtomicRequirementField,
+) {
+  const provenanceValue = requirement.fieldProvenance[field]?.value;
+  if (typeof provenanceValue === "string" && provenanceValue.trim()) {
+    return provenanceValue;
+  }
+  if (field === "acceptanceCriteria") {
+    return requirement.acceptanceCriteria.join("；");
+  }
+  return requirement[field] ?? "";
+}
+
+function requirementFieldStatusLabel(status: string) {
+  if (status === "accepted") return "已确认";
+  if (status === "rejected") return "已拒绝";
+  return "待确认";
+}
+
+function requirementSourceLabel(source: string) {
+  if (source === "ai-suggested") return "AI补齐";
+  if (source === "manual") return "手动编辑";
+  if (source === "source-text") return "原文提取";
+  return "规则推断";
 }
 
 const REQUIREMENT_TEMPLATE_CARDS = [
@@ -171,7 +210,10 @@ export function TextRequirementView() {
   const [modelRepairResult, setModelRepairResult] = useState<{
     targetLabel: string;
   } | null>(null);
+  const [hintDetailRuleId, setHintDetailRuleId] = useState<string | null>(null);
+  const [traceabilityDialogOpen, setTraceabilityDialogOpen] = useState(false);
   const [currentRulePage, setCurrentRulePage] = useState(1);
+  const [rulePageSize, setRulePageSize] = useState(RULES_PER_PAGE);
   const [ruleCategoryFilter, setRuleCategoryFilter] = useState<
     RequirementRule["category"] | typeof ALL_RULE_CATEGORIES
   >(ALL_RULE_CATEGORIES);
@@ -300,13 +342,13 @@ export function TextRequirementView() {
     setCurrentRulePage(1);
   }, [query, ruleCategoryFilter]);
 
-  const totalRulePages = Math.max(1, Math.ceil(filteredRules.length / RULES_PER_PAGE));
+  const totalRulePages = Math.max(1, Math.ceil(filteredRules.length / rulePageSize));
   const safeRulePage = Math.min(currentRulePage, totalRulePages);
   const firstRuleIndex =
-    filteredRules.length === 0 ? 0 : (safeRulePage - 1) * RULES_PER_PAGE + 1;
-  const lastRuleIndex = Math.min(filteredRules.length, safeRulePage * RULES_PER_PAGE);
+    filteredRules.length === 0 ? 0 : (safeRulePage - 1) * rulePageSize + 1;
+  const lastRuleIndex = Math.min(filteredRules.length, safeRulePage * rulePageSize);
   const pagedRules = filteredRules.slice(firstRuleIndex - 1, lastRuleIndex);
-  const emptyRuleSlots = Math.max(0, RULES_PER_PAGE - pagedRules.length);
+  const emptyRuleSlots = Math.max(0, rulePageSize - pagedRules.length);
   const requirementByRuleId = useMemo(() => {
     const entries =
       requirementBaseline?.requirements
@@ -325,6 +367,39 @@ export function TextRequirementView() {
     }
     return map;
   }, [requirementBaseline]);
+  const hintDetail = useMemo(() => {
+    if (!hintDetailRuleId) return null;
+    const rule = rules.find((item) => item.id === hintDetailRuleId);
+    const requirement = requirementByRuleId.get(hintDetailRuleId);
+    if (!rule || !requirement) return null;
+    const qualityIssues = qualityIssuesByRequirementId.get(requirement.id) ?? [];
+    const fieldEntries = Object.entries(requirement.fieldProvenance).filter(
+      (entry): entry is [
+        AtomicRequirementField,
+        NonNullable<AtomicRequirement["fieldProvenance"][AtomicRequirementField]>,
+      ] => {
+        const [, provenance] = entry;
+        return Boolean(
+          provenance &&
+            (provenance.source === "ai-suggested" ||
+              provenance.status === "pending-review" ||
+              provenance.status === "rejected"),
+        );
+      },
+    );
+    return {
+      rule,
+      requirement,
+      rowState: requirementRowState(requirement, qualityIssues),
+      qualityIssues,
+      fieldEntries,
+    };
+  }, [hintDetailRuleId, qualityIssuesByRequirementId, requirementByRuleId, rules]);
+  const lastHintDetailRef = useRef<typeof hintDetail>(null);
+  if (hintDetail) {
+    lastHintDetailRef.current = hintDetail;
+  }
+  const visibleHintDetail = hintDetail ?? lastHintDetailRef.current;
   useEffect(() => {
     if (currentRulePage > totalRulePages) {
       setCurrentRulePage(totalRulePages);
@@ -397,7 +472,7 @@ export function TextRequirementView() {
         placeholder="用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则"
         className={cn(
           "relative mt-3 w-full resize-y rounded-lg border border-input bg-background px-4 py-4 text-sm leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/15",
-          mode === "empty" ? "h-[clamp(360px,48vh,620px)] min-h-80" : "min-h-32",
+          mode === "empty" ? "h-[clamp(360px,48vh,620px)] min-h-80" : "h-[240px]",
         )}
       />
       <div className="relative mt-6 flex flex-wrap items-center gap-2">
@@ -521,6 +596,27 @@ export function TextRequirementView() {
                 : [];
               const rowState = requirementRowState(requirement, qualityIssues);
               const hintCount = requirementHintCount(requirement) + qualityIssues.length;
+              const hasHintDetails = Boolean(requirement && hintCount > 0);
+              const statusContent = rowState ? (
+                <>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "max-w-[112px] rounded-md px-2 py-1 text-xs",
+                      requirementStateTone(rowState),
+                    )}
+                  >
+                    <span className="truncate">{rowState}</span>
+                  </Badge>
+                  {hintCount > 0 && (
+                    <span
+                      className="shrink-0 rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
+                    >
+                      {hintCount}项
+                    </span>
+                  )}
+                </>
+              ) : null;
               return (
                 <tr
                   key={rule.id}
@@ -547,22 +643,17 @@ export function TextRequirementView() {
                     <td className="px-4 py-3 align-middle">
                       {rowState && (
                         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "max-w-[112px] rounded-md px-2 py-1 text-xs",
-                              requirementStateTone(rowState),
-                            )}
-                          >
-                            <span className="truncate">{rowState}</span>
-                          </Badge>
-                          {hintCount > 0 && (
-                            <span
-                              className="shrink-0 rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
-                              title={`共有 ${hintCount} 项质量提示，仅用于审计，不阻断后续生成`}
+                          {hasHintDetails ? (
+                            <button
+                              type="button"
+                              className="inline-flex min-w-0 items-center gap-1.5 overflow-hidden rounded-md text-left transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
+                              aria-label={`需求提示详情 ${rule.id}`}
+                              onClick={() => setHintDetailRuleId(rule.id)}
                             >
-                              {hintCount}项
-                            </span>
+                              {statusContent}
+                            </button>
+                          ) : (
+                            statusContent
                           )}
                         </div>
                       )}
@@ -601,7 +692,7 @@ export function TextRequirementView() {
             {Array.from({
               length:
                 filteredRules.length === 0
-                  ? Math.max(0, RULES_PER_PAGE - 1)
+                  ? Math.max(0, rulePageSize - 1)
                   : emptyRuleSlots,
             }).map((_, index) => (
               <tr
@@ -619,10 +710,29 @@ export function TextRequirementView() {
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4 text-xs text-muted-foreground">
-        <span>
-          {firstRuleIndex}-{lastRuleIndex} / {filteredRules.length}
-        </span>
+      <div
+        data-testid="requirement-rule-pagination"
+        className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/95 px-6 py-4 text-xs text-muted-foreground shadow-[0_-8px_18px_rgba(15,23,42,0.06)] backdrop-blur"
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <span>
+            {firstRuleIndex}-{lastRuleIndex} / {filteredRules.length}
+          </span>
+          <SelectControl
+            value={String(rulePageSize)}
+            onValueChange={(value) => {
+              setRulePageSize(Number(value));
+              setCurrentRulePage(1);
+            }}
+            className="h-8 w-28 rounded-md bg-background text-xs"
+            contentClassName="min-w-[7rem]"
+            aria-label="每页需求规则数量"
+            options={RULE_PAGE_SIZE_OPTIONS.map((pageSize) => ({
+              value: String(pageSize),
+              label: `每页 ${pageSize} 条`,
+            }))}
+          />
+        </div>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -803,6 +913,22 @@ export function TextRequirementView() {
                 {selectedDiagrams.length}/{DIAGRAM_ORDER.length}
               </Badge>
               <div className="ml-auto flex items-center gap-2">
+                {requirementModelRepairRecords.length > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 rounded-lg bg-card"
+                    aria-label={`查看需求模型追踪证明，共 ${requirementModelRepairRecords.length} 项`}
+                    onClick={() => setTraceabilityDialogOpen(true)}
+                  >
+                    <Eye className="size-3.5" />
+                    追踪证明
+                    <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                      {requirementModelRepairRecords.length}项
+                    </span>
+                  </Button>
+                )}
                 <ModelPicker
                   value={defaultModel}
                   onValueChange={updateModel}
@@ -955,61 +1081,186 @@ export function TextRequirementView() {
                 );
               })}
             </div>
-            {requirementModelRepairRecords.length > 0 && (
-              <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      需求模型覆盖/追踪证明
-                    </h3>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      这里检查并补齐模型是否按规则提供覆盖解释和追踪关系。
-                    </p>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className="border-success/35 bg-success/10 text-success"
-                  >
-                    证明已补齐
-                  </Badge>
-                </div>
-                <div className="mt-3 grid gap-2">
-                  {requirementModelRepairRecords.map((record) => (
-                    <div
-                      key={record.id}
-                      className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
-                    >
-                      <div className="text-muted-foreground">
-                        问题原因：{stageRepairCopy(record.reason)}
-                      </div>
-                      <div className="mt-1 text-foreground">
-                        补齐方式：{stageRepairCopy(record.repair)}
-                      </div>
-                      <div className="mt-1 font-medium text-success">
-                        证明状态：{record.status}
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="mt-2 h-8"
-                        onClick={() =>
-                          setModelRepairResult({ targetLabel: record.targetLabel })
-                        }
-                      >
-                        重新补齐证明
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
             <p className="pb-4 text-center text-xs text-muted-foreground">
               勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里选择的需求项。
             </p>
           </section>
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(hintDetail)}
+        onOpenChange={(open) => {
+          if (!open) setHintDetailRuleId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>需求提示详情</DialogTitle>
+            <DialogDescription>
+              当前规则的字段来源、待确认项和质量提示。
+            </DialogDescription>
+          </DialogHeader>
+          {visibleHintDetail && (
+            <div className="max-h-[60vh] overflow-auto pr-1">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs uppercase text-muted-foreground">
+                    {visibleHintDetail.rule.id}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs",
+                      requirementStateTone(visibleHintDetail.rowState),
+                    )}
+                  >
+                    {visibleHintDetail.rowState}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {visibleHintDetail.requirement.id}
+                  </span>
+                </div>
+                <div className="mt-2 text-foreground">
+                  {visibleHintDetail.rule.text}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold text-foreground">
+                  字段来源与待确认项
+                </h3>
+                <div className="mt-2 grid gap-2">
+                  {visibleHintDetail.fieldEntries.length > 0 ? (
+                    visibleHintDetail.fieldEntries.map(([field, provenance]) => (
+                      <div
+                        key={field}
+                        className="rounded-lg border border-border bg-card px-3 py-2 text-xs leading-5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">
+                            {REQUIREMENT_FIELD_LABELS[field]}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className="rounded-md px-1.5 py-0 text-[10px]"
+                          >
+                            {requirementSourceLabel(provenance.source)}
+                          </Badge>
+                          <span className="text-muted-foreground">
+                            {requirementFieldStatusLabel(provenance.status)}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-foreground">
+                          {requirementFieldValue(visibleHintDetail.requirement, field) ||
+                            "暂无字段值"}
+                        </div>
+                        {provenance.rationale && (
+                          <div className="mt-1 text-muted-foreground">
+                            {provenance.rationale}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      暂无字段来源提示。
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold text-foreground">质量提示</h3>
+                <div className="mt-2 grid gap-2">
+                  {visibleHintDetail.qualityIssues.length > 0 ? (
+                    visibleHintDetail.qualityIssues.map((issue) => (
+                      <div
+                        key={issue.id}
+                        className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning"
+                      >
+                        {issue.message}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      暂无额外质量提示。
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" onClick={() => setHintDetailRuleId(null)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={traceabilityDialogOpen} onOpenChange={setTraceabilityDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>需求模型追踪证明</DialogTitle>
+            <DialogDescription>
+              查看需求规则到需求模型元素的覆盖解释；这些内容用于审计和排查，不影响当前页面编辑。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto pr-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  覆盖证明
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  共 {requirementModelRepairRecords.length} 项
+                </div>
+              </div>
+              <Badge
+                variant="outline"
+                className="border-success/35 bg-success/10 text-success"
+              >
+                证明已补齐
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {requirementModelRepairRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
+                >
+                  <div className="text-muted-foreground">
+                    问题原因：{stageRepairCopy(record.reason)}
+                  </div>
+                  <div className="mt-1 text-foreground">
+                    补齐方式：{stageRepairCopy(record.repair)}
+                  </div>
+                  <div className="mt-1 font-medium text-success">
+                    证明状态：{record.status}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-8"
+                    onClick={() =>
+                      setModelRepairResult({ targetLabel: record.targetLabel })
+                    }
+                  >
+                    重新补齐证明
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setTraceabilityDialogOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(modelRepairResult)}

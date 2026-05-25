@@ -21,6 +21,8 @@ import type {
   DocumentKind,
   DocumentRunSnapshot,
   DocumentStyleSettings,
+  DesignDiagramModelSpec,
+  DiagramModelSpec,
   RunStage,
 } from "@uml-platform/contracts";
 import type { DesignDiagramType, DiagramType } from "../../../entities/diagram/model";
@@ -128,6 +130,7 @@ export interface WorkspaceSessionState {
   clearRequirementRules: () => void;
   models: WorkspaceRecord["models"];
   requirementModelTraceability: WorkspaceRecord["requirementModelTraceability"];
+  manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"];
   selectedDiagrams: DiagramType[];
   setSelectedDiagrams: (value: DiagramType[]) => void;
   plantUml: Partial<Record<DiagramType, string>>;
@@ -168,6 +171,22 @@ export interface WorkspaceSessionState {
   clearCompletedGenerationTasks: () => void;
   generateRules: () => Promise<void>;
   repairRequirementRule: (ruleId: string) => Promise<void>;
+  saveRequirementModelEdit: (
+    diagramKind: DiagramType,
+    model: DiagramModelSpec,
+  ) => Promise<void>;
+  saveDesignModelEdit: (
+    modelId: string,
+    model: DesignDiagramModelSpec,
+  ) => Promise<void>;
+  rerenderRequirementModel: (
+    diagramKind: DiagramType,
+    modelOverride?: DiagramModelSpec,
+  ) => Promise<void>;
+  rerenderDesignModel: (
+    modelId: string,
+    modelOverride?: DesignDiagramModelSpec,
+  ) => Promise<void>;
   generateDiagrams: (only?: DiagramType[]) => Promise<void>;
   generateDesignDiagrams: (only?: DesignDiagramType[]) => Promise<void>;
   generateCodePrototype: (mode?: "continue" | "regenerate") => Promise<void>;

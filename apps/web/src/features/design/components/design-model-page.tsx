@@ -133,6 +133,7 @@ export function DesignModelPage() {
   const [repairResult, setRepairResult] = useState<{ targetLabel: string } | null>(
     null,
   );
+  const [traceabilityDialogOpen, setTraceabilityDialogOpen] = useState(false);
 
   useEffect(() => {
     const syncSettings = () => {
@@ -472,9 +473,27 @@ export function DesignModelPage() {
                   <h3 className="text-sm font-semibold text-foreground">
                     需求阶段来源
                   </h3>
-                  <span className="text-xs text-muted-foreground">
-                    当前模型：{getModelDisplayName(defaultModel).triggerLabel}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {designRepairRecords.length > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 rounded-lg bg-card"
+                        aria-label={`查看设计模型追踪证明，共 ${designRepairRecords.length} 项`}
+                        onClick={() => setTraceabilityDialogOpen(true)}
+                      >
+                        <Eye className="size-3.5" />
+                        追踪证明
+                        <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                          {designRepairRecords.length}项
+                        </span>
+                      </Button>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      当前模型：{getModelDisplayName(defaultModel).triggerLabel}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   {(["usecase", "activity", "class", "deployment"] as DiagramType[]).map(
@@ -511,62 +530,6 @@ export function DesignModelPage() {
                 </div>
               </section>
 
-              {designRepairRecords.length > 0 && (
-                <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        设计模型追踪证明
-                      </h3>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        需求规则和需求模型不在这里改动；这里只补齐设计元素到上游模型的来源证明。
-                      </p>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className="border-success/35 bg-success/10 text-success"
-                    >
-                      追踪已补齐
-                    </Badge>
-                  </div>
-                  <div className="mt-3 grid gap-2">
-                    {designRepairRecords.map((record) => (
-                      <div
-                        key={record.id}
-                        className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
-                      >
-                        <div className="text-muted-foreground">
-                          原因：{stageRepairCopy(record.reason)}
-                        </div>
-                        <div className="mt-1 text-foreground">
-                          补齐：{stageRepairCopy(record.repair)}
-                        </div>
-                        <div
-                          className={cn(
-                            "mt-1 font-medium",
-                            record.status === "追踪已补齐"
-                              ? "text-success"
-                              : "text-warning",
-                          )}
-                        >
-                          状态：{record.status}
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="mt-2 h-8"
-                          onClick={() =>
-                            setRepairResult({ targetLabel: record.targetLabel })
-                          }
-                        >
-                          重新补齐证明
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
             </main>
 
             <aside className="flex min-w-0 flex-col gap-3">
@@ -632,6 +595,75 @@ export function DesignModelPage() {
           </div>
         </div>
       </div>
+      <Dialog open={traceabilityDialogOpen} onOpenChange={setTraceabilityDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>设计模型追踪证明</DialogTitle>
+            <DialogDescription>
+              查看设计元素到上游需求模型的来源证明；这些内容用于审计和排查，不会改动需求规则或设计模型。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto pr-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  来源追踪
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  共 {designRepairRecords.length} 项
+                </div>
+              </div>
+              <Badge
+                variant="outline"
+                className="border-success/35 bg-success/10 text-success"
+              >
+                追踪已补齐
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {designRepairRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
+                >
+                  <div className="text-muted-foreground">
+                    原因：{stageRepairCopy(record.reason)}
+                  </div>
+                  <div className="mt-1 text-foreground">
+                    补齐：{stageRepairCopy(record.repair)}
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-1 font-medium",
+                      record.status === "追踪已补齐"
+                        ? "text-success"
+                        : "text-warning",
+                    )}
+                  >
+                    状态：{record.status}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-8"
+                    onClick={() =>
+                      setRepairResult({ targetLabel: record.targetLabel })
+                    }
+                  >
+                    重新补齐证明
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => setTraceabilityDialogOpen(false)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={Boolean(repairResult)}
         onOpenChange={(open) => {

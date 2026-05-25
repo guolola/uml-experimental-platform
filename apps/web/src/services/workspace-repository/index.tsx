@@ -26,6 +26,7 @@ import type {
   ProviderSettings,
   OnlyOfficeEditorConfigResponse,
   OnlyOfficeUiTheme,
+  RenderStructuredModelResponse,
   RenderSvgResponse,
   RunEvent,
   RunSnapshot,
@@ -41,7 +42,10 @@ import {
   type DesignDiagramType,
   type DiagramType,
 } from "../../entities/diagram/model";
-import type { WorkspaceRecord } from "../../entities/workspace/model";
+import type {
+  ManualModelEditStatus,
+  WorkspaceRecord,
+} from "../../entities/workspace/model";
 import type { RequirementRule } from "../../entities/requirement-rule/model";
 import {
   loadUserSettings,
@@ -191,6 +195,27 @@ export interface WorkspaceRepository {
     diagramKind: DiagramType,
     plantUmlSource: string,
   ): Promise<RenderSvgResponse>;
+  renderStructuredModel?(
+    model: DiagramModelSpec | DesignDiagramModelSpec,
+  ): Promise<RenderStructuredModelResponse>;
+  saveRequirementModelEdit?(
+    diagramKind: DiagramType,
+    model: DiagramModelSpec,
+    status: ManualModelEditStatus,
+  ): Promise<void>;
+  saveDesignModelEdit?(
+    modelId: string,
+    model: DesignDiagramModelSpec,
+    status: ManualModelEditStatus,
+  ): Promise<void>;
+  saveManualModelRerender?(
+    key: string,
+    status: ManualModelEditStatus,
+    artifact: {
+      plantUmlSource: string;
+      svgArtifact: SvgArtifact | DesignSvgArtifact;
+    },
+  ): Promise<void>;
   testProviderSettings(
     providerSettings: ProviderSettingsInput,
   ): Promise<{
@@ -230,6 +255,7 @@ function createEmptyWorkspace(): WorkspaceRecord {
     designPlantUml: {},
     designSvgArtifacts: {},
     designDiagramErrors: {},
+    manualModelEditStatus: {},
     codeSpec: null,
     codeBusinessLogic: null,
     codeFiles: {},
@@ -1162,6 +1188,67 @@ export function createHttpWorkspaceRepository(
       );
     },
 
+    async renderStructuredModel(model) {
+      const scopedProjectId = requireProjectScope(projectId);
+      return postJson<RenderStructuredModelResponse>(
+        "/api/render/model",
+        { model },
+        {
+          errorMessage: "重绘结构化模型失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
+    },
+
+    async saveRequirementModelEdit(diagramKind, model, status) {
+      const workspace = await ensureProjectWorkspace();
+      workspace.models = { ...workspace.models, [diagramKind]: model };
+      workspace.manualModelEditStatus = {
+        ...workspace.manualModelEditStatus,
+        [diagramKind]: status,
+      };
+      await saveProjectWorkspace(workspace);
+    },
+
+    async saveDesignModelEdit(modelId, model, status) {
+      const workspace = await ensureProjectWorkspace();
+      workspace.designModels = { ...workspace.designModels, [modelId]: model };
+      workspace.manualModelEditStatus = {
+        ...workspace.manualModelEditStatus,
+        [modelId]: status,
+      };
+      await saveProjectWorkspace(workspace);
+    },
+
+    async saveManualModelRerender(key, status, artifact) {
+      const workspace = await ensureProjectWorkspace();
+      workspace.manualModelEditStatus = {
+        ...workspace.manualModelEditStatus,
+        [key]: status,
+      };
+      if (key in workspace.designModels) {
+        workspace.designPlantUml = {
+          ...workspace.designPlantUml,
+          [key]: artifact.plantUmlSource,
+        };
+        workspace.designSvgArtifacts = {
+          ...workspace.designSvgArtifacts,
+          [key]: artifact.svgArtifact as DesignSvgArtifact,
+        };
+      } else {
+        const diagramKind = key as DiagramType;
+        workspace.plantUml = {
+          ...workspace.plantUml,
+          [diagramKind]: artifact.plantUmlSource,
+        };
+        workspace.svgArtifacts = {
+          ...workspace.svgArtifacts,
+          [diagramKind]: artifact.svgArtifact as SvgArtifact,
+        };
+      }
+      await saveProjectWorkspace(workspace);
+    },
+
     async testProviderSettings(providerSettings) {
       const payload = await postJson<{
         ok?: boolean;
@@ -1331,6 +1418,10 @@ export function createMockWorkspaceRepository(
       ...defaultWorkspace.designDiagramErrors,
       ...seed.designDiagramErrors,
     },
+    manualModelEditStatus: {
+      ...defaultWorkspace.manualModelEditStatus,
+      ...seed.manualModelEditStatus,
+    },
     codeFiles: { ...defaultWorkspace.codeFiles, ...seed.codeFiles },
     codeDependencies: {
       ...defaultWorkspace.codeDependencies,
@@ -1364,6 +1455,7 @@ export function createMockWorkspaceRepository(
         designPlantUml: { ...workspace.designPlantUml },
         designSvgArtifacts: { ...workspace.designSvgArtifacts },
         designDiagramErrors: { ...workspace.designDiagramErrors },
+        manualModelEditStatus: { ...workspace.manualModelEditStatus },
         codeSpec: workspace.codeSpec,
         codeBusinessLogic: workspace.codeBusinessLogic,
         codeFiles: { ...workspace.codeFiles },
@@ -1853,6 +1945,74 @@ export function createMockWorkspaceRepository(
           sourceLength: plantUmlSource.length,
           durationMs: 1,
         },
+      };
+    },
+
+    async renderStructuredModel(model) {
+      const source = `@startuml\n' ${model.title}\n@enduml`;
+      return {
+        plantUmlSource: source,
+        svg: `<svg><text>${model.diagramKind}</text></svg>`,
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: new Date().toISOString(),
+          sourceLength: source.length,
+          durationMs: 1,
+        },
+      };
+    },
+
+    async saveRequirementModelEdit(diagramKind, model, status) {
+      workspace = {
+        ...workspace,
+        models: { ...workspace.models, [diagramKind]: model },
+        manualModelEditStatus: {
+          ...workspace.manualModelEditStatus,
+          [diagramKind]: status,
+        },
+      };
+    },
+
+    async saveDesignModelEdit(modelId, model, status) {
+      workspace = {
+        ...workspace,
+        designModels: { ...workspace.designModels, [modelId]: model },
+        manualModelEditStatus: {
+          ...workspace.manualModelEditStatus,
+          [modelId]: status,
+        },
+      };
+    },
+
+    async saveManualModelRerender(key, status, artifact) {
+      const isDesign = key in workspace.designModels;
+      workspace = {
+        ...workspace,
+        manualModelEditStatus: {
+          ...workspace.manualModelEditStatus,
+          [key]: status,
+        },
+        ...(isDesign
+          ? {
+              designPlantUml: {
+                ...workspace.designPlantUml,
+                [key]: artifact.plantUmlSource,
+              },
+              designSvgArtifacts: {
+                ...workspace.designSvgArtifacts,
+                [key]: artifact.svgArtifact as DesignSvgArtifact,
+              },
+            }
+          : {
+              plantUml: {
+                ...workspace.plantUml,
+                [key as DiagramType]: artifact.plantUmlSource,
+              },
+              svgArtifacts: {
+                ...workspace.svgArtifacts,
+                [key as DiagramType]: artifact.svgArtifact as SvgArtifact,
+              },
+            }),
       };
     },
 
