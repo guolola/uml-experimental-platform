@@ -46,11 +46,6 @@ import {
   getSelectionKey,
   useWorkspaceShell,
 } from "../state";
-import {
-  buildDesignDiagramTraceBadge,
-  buildRequirementDiagramTraceBadge,
-  type RequirementTraceBadge,
-} from "../lib/sidebar-trace-badges";
 
 type Node = {
   key: string;
@@ -60,7 +55,6 @@ type Node = {
   selectable?: boolean;
   badge?: string | number;
   badgeTooltip?: string;
-  badges?: string[];
   onSelect?: () => void;
 };
 
@@ -207,15 +201,6 @@ function TreeItem({
         {node.badge !== undefined && (
           <TraceBadge label={node.badge} tooltip={node.badgeTooltip} />
         )}
-        {node.badges?.map((badge) => (
-          <span
-            key={badge}
-            className="max-w-20 shrink-0 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground"
-            title={badge}
-          >
-            {badge}
-          </span>
-        ))}
       </div>
       {hasChildren && open && (
         <div>
@@ -240,7 +225,6 @@ function buildDiagramNode(
   model: ReturnType<typeof useWorkspaceSession>["models"][DiagramType],
   stale: boolean,
   failed: boolean,
-  traceBadge: RequirementTraceBadge | undefined,
   openDiagram: (diagram: DiagramType) => void,
   openDiagramElement: (
     diagram: DiagramType,
@@ -264,7 +248,7 @@ function buildDiagramNode(
     })),
   }));
 
-  const badge = failed ? "失败" : traceBadge?.label || detail.items.length || undefined;
+  const badge = failed ? "失败" : detail.items.length || undefined;
 
   return {
     key: `diagram:${diagram}`,
@@ -288,7 +272,6 @@ function buildDiagramNode(
     ),
     children,
     badge,
-    badgeTooltip: failed ? undefined : traceBadge?.fullLabel,
     onSelect: () => openDiagram(diagram),
   };
 }
@@ -297,7 +280,6 @@ function buildDesignDiagramNode(
   diagram: DesignDiagramType,
   model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
   failed: boolean,
-  traceBadges: string[],
   openDesignDiagram: (
     diagram: DesignDiagramType,
     modelId?: string,
@@ -352,7 +334,6 @@ function buildDesignDiagramNode(
     ),
     children,
     badge: failed ? "失败" : undefined,
-    badges: failed ? undefined : traceBadges,
     onSelect: () => openDesignDiagram(diagram, modelId, label),
   };
 }
@@ -367,16 +348,13 @@ export function SidebarMenu() {
     generatedDesignDiagrams,
     designModels,
     designDiagramErrors,
-    rulesForDiagram,
   } =
     useWorkspaceSession();
   const {
     selection,
     openRequirementsText,
-    openRequirementTraceMatrix,
     openDiagram,
     openDesignHome,
-    openDesignTraceMatrix,
     openDesignDiagram,
     openDesignDiagramElement,
     openDiagramElement,
@@ -423,23 +401,12 @@ export function SidebarMenu() {
       icon: <FileText className="size-4 text-muted-foreground" />,
       onSelect: openRequirementsText,
       children: [
-        ...(generatedDiagrams.length > 0
-          ? [
-              {
-                key: "requirements:trace-matrix",
-                label: "需求跟踪矩阵",
-                icon: <GitBranch className="size-3.5 text-muted-foreground" />,
-                onSelect: openRequirementTraceMatrix,
-              },
-            ]
-          : []),
         ...generatedDiagrams.map((diagram) =>
           buildDiagramNode(
             diagram,
             models[diagram],
             staleDiagrams.includes(diagram),
             Boolean(diagramErrors[diagram]),
-            buildRequirementDiagramTraceBadge(rulesForDiagram(diagram)),
             openDiagram,
             openDiagramElement,
           ),
@@ -452,16 +419,6 @@ export function SidebarMenu() {
       icon: <Palette className="size-4 text-muted-foreground" />,
       onSelect: openDesignHome,
       children: [
-        ...(generatedDesignDiagrams.length > 0
-          ? [
-              {
-                key: "design:trace-matrix",
-                label: "设计跟踪矩阵",
-                icon: <GitBranch className="size-3.5 text-muted-foreground" />,
-                onSelect: openDesignTraceMatrix,
-              },
-            ]
-          : []),
         ...orderedDesignDiagrams.map((diagram) => {
           const diagramModels = designModelsByDiagram[diagram];
           if (diagram === "sequence" && diagramModels.length > 1) {
@@ -475,7 +432,6 @@ export function SidebarMenu() {
                   diagram,
                   model,
                   Boolean(designDiagramErrors[diagram]),
-                  buildDesignDiagramTraceBadge(diagram),
                   openDesignDiagram,
                   openDesignDiagramElement,
                 ),
@@ -486,7 +442,6 @@ export function SidebarMenu() {
             diagram,
             diagramModels[0],
             Boolean(designDiagramErrors[diagram]),
-            buildDesignDiagramTraceBadge(diagram),
             openDesignDiagram,
             openDesignDiagramElement,
           );

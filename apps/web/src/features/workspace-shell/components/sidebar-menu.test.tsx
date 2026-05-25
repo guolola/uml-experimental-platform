@@ -97,7 +97,7 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
   });
 
-  it("shows requirement rule provenance badges for generated diagrams", async () => {
+  it("hides requirement rule provenance badges for generated diagrams", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -144,18 +144,12 @@ describe("SidebarMenu", () => {
     await user.click(await screen.findByRole("button", { name: "展开 需求" }));
 
     expect(screen.getByText("用例模型")).toBeInTheDocument();
-    const badge = screen.getByText("R1 R2 R3 +4");
-    expect(badge).toBeInTheDocument();
+    expect(screen.queryByText("R1 R2 R3 +4")).not.toBeInTheDocument();
     expect(screen.queryByText("R1, R2, R3, R4, R5, R6, R7")).not.toBeInTheDocument();
-
-    await user.hover(badge);
-
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "R1, R2, R3, R4, R5, R6, R7",
-    );
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
-  it("shows design diagram upstream provenance badges", async () => {
+  it("hides design diagram upstream provenance badges", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -191,10 +185,10 @@ describe("SidebarMenu", () => {
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
 
     expect(screen.getByText("顺序图")).toBeInTheDocument();
-    expect(screen.getByText("用例模型")).toBeInTheDocument();
+    expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
   });
 
-  it("shows traceability matrix entries after requirement and design models are generated", async () => {
+  it("hides traceability matrix entries from requirement and design navigation", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -237,15 +231,13 @@ describe("SidebarMenu", () => {
     );
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
-    await userEvent.click(screen.getByRole("button", { name: "需求跟踪矩阵" }));
-    expect(screen.getByRole("button", { name: "关闭 需求跟踪矩阵" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "需求跟踪矩阵" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
-    await userEvent.click(screen.getByRole("button", { name: "设计跟踪矩阵" }));
-    expect(screen.getByRole("button", { name: "关闭 设计跟踪矩阵" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设计跟踪矩阵" })).not.toBeInTheDocument();
   });
 
-  it("shows multiple upstream badges for downstream design diagrams", async () => {
+  it("hides upstream badges for downstream design diagrams", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -282,8 +274,8 @@ describe("SidebarMenu", () => {
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
 
     expect(screen.getByRole("button", { name: "设计类图" })).toBeInTheDocument();
-    expect(screen.getByText("领域概念模型")).toBeInTheDocument();
-    expect(screen.getByText("顺序图")).toBeInTheDocument();
+    expect(screen.queryByText("领域概念模型")).not.toBeInTheDocument();
+    expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
   });
 
   it("does not show element count badges in the design navigation", async () => {
@@ -324,7 +316,7 @@ describe("SidebarMenu", () => {
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
     await userEvent.click(screen.getByRole("button", { name: "展开 顺序图" }));
 
-    expect(screen.getByText("用例模型")).toBeInTheDocument();
+    expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
     expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
 

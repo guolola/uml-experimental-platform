@@ -142,7 +142,6 @@ export function TextRequirementView() {
     createRequirementRule,
     updateRequirementRule,
     deleteRequirementRule,
-    clearRequirementRules,
     selectedDiagrams,
     setSelectedDiagrams,
     generating,
@@ -169,7 +168,6 @@ export function TextRequirementView() {
   );
   const [newRuleText, setNewRuleText] = useState("");
   const [newRuleError, setNewRuleError] = useState<string | null>(null);
-  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [modelRepairResult, setModelRepairResult] = useState<{
     targetLabel: string;
   } | null>(null);
@@ -203,14 +201,6 @@ export function TextRequirementView() {
 
   const updateModel = (model: string) => {
     patchUserSettings({ defaultModel: model });
-  };
-
-  const confirmReturnToRequirementText = () => {
-    clearRequirementRules();
-    setReturnDialogOpen(false);
-    setQuery("");
-    setRuleCategoryFilter(ALL_RULE_CATEGORIES);
-    setCurrentRulePage(1);
   };
 
   const selectableDiagramSet = useMemo(
@@ -459,15 +449,6 @@ export function TextRequirementView() {
           >
             {rules.length}
           </Badge>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 rounded-full px-3 text-primary"
-            onClick={() => setReturnDialogOpen(true)}
-          >
-            返回修改描述
-          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <div className="relative w-64">
@@ -516,7 +497,6 @@ export function TextRequirementView() {
               <th className="w-36 px-6 py-4 text-left font-medium">类型</th>
               <th className="w-52 px-4 py-4 text-left font-medium">状态</th>
               <th className="px-6 py-4 text-left font-medium">需求文本内容</th>
-              <th className="w-56 px-4 py-4 text-left font-medium">相关图</th>
               <th className="w-28 px-6 py-4 text-right font-medium">操作</th>
             </tr>
           </thead>
@@ -527,7 +507,7 @@ export function TextRequirementView() {
                 className={cn(RULE_ROW_CLASS, "border-b border-border")}
               >
                 <td
-                  colSpan={6}
+                  colSpan={5}
                   className="px-6 py-3 text-center align-middle text-sm text-muted-foreground"
                 >
                   没有匹配的规则。
@@ -541,12 +521,6 @@ export function TextRequirementView() {
                 : [];
               const rowState = requirementRowState(requirement, qualityIssues);
               const hintCount = requirementHintCount(requirement) + qualityIssues.length;
-              const visibleRelatedDiagrams = rule.relatedDiagrams.slice(0, 2);
-              const hiddenRelatedDiagramCount =
-                rule.relatedDiagrams.length - visibleRelatedDiagrams.length;
-              const relatedDiagramTitle = rule.relatedDiagrams
-                .map((diagram) => DIAGRAM_META[diagram].label)
-                .join("、");
               return (
                 <tr
                   key={rule.id}
@@ -607,32 +581,6 @@ export function TextRequirementView() {
                         disabled={generating}
                       />
                     </td>
-                    <td
-                      className="min-w-0 px-4 py-3 align-middle"
-                      title={relatedDiagramTitle}
-                    >
-                      <div className="flex min-w-0 flex-nowrap gap-1 overflow-hidden whitespace-nowrap">
-                        {visibleRelatedDiagrams.map((diagram) => (
-                          <Badge
-                            key={`${rule.id}:${diagram}`}
-                            variant="outline"
-                            className="max-w-[72px] shrink-0 rounded-md border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                            title={DIAGRAM_META[diagram].label}
-                          >
-                            <span className="truncate">{DIAGRAM_META[diagram].label}</span>
-                          </Badge>
-                        ))}
-                        {hiddenRelatedDiagramCount > 0 && (
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 rounded-md border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                            title={relatedDiagramTitle}
-                          >
-                            +{hiddenRelatedDiagramCount}
-                          </Badge>
-                        )}
-                      </div>
-                    </td>
                     <td className="px-6 py-3 text-right align-middle">
                       <Button
                         type="button"
@@ -662,7 +610,7 @@ export function TextRequirementView() {
                 aria-hidden="true"
                 className={cn(RULE_ROW_CLASS, "border-b border-border")}
               >
-                <td colSpan={6} className="px-6 py-3">
+                <td colSpan={5} className="px-6 py-3">
                   &nbsp;
                 </td>
               </tr>
@@ -833,7 +781,10 @@ export function TextRequirementView() {
             </p>
           </header>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]">
-            {hasGeneratedRules ? renderRequirementRules() : renderRequirementInput("empty")}
+            <div className="grid min-w-0 gap-4">
+              {renderRequirementInput(hasGeneratedRules ? "generated" : "empty")}
+              {hasGeneratedRules && renderRequirementRules()}
+            </div>
             {renderAssistantPanel()}
           </div>
 
@@ -1085,29 +1036,6 @@ export function TextRequirementView() {
           <DialogFooter>
             <Button type="button" onClick={() => setModelRepairResult(null)}>
               我知道了
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>返回修改描述？</DialogTitle>
-            <DialogDescription>
-              返回项目需求描述会清空目前的需求规则，目标模型选择也会随规则失效而取消。此操作不会清空需求描述文本。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setReturnDialogOpen(false)}
-            >
-              取消
-            </Button>
-            <Button type="button" variant="destructive" onClick={confirmReturnToRequirementText}>
-              确认回退
             </Button>
           </DialogFooter>
         </DialogContent>

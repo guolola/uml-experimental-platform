@@ -960,13 +960,14 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("AI 需求助手")).toBeInTheDocument();
     expect(screen.queryByText("探索与灵感")).not.toBeInTheDocument();
     expect(
-      screen.queryByPlaceholderText(
+      screen.getByPlaceholderText(
         "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
       ),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "编号" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "类型" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "需求文本内容" })).toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "相关图" })).not.toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
     expect(within(table).getByText("r1")).toBeInTheDocument();
     expect(within(table).getByText("业务规则")).toBeInTheDocument();
@@ -991,9 +992,8 @@ describe("TextRequirementView", () => {
     });
   });
 
-  it("returns to requirement text after confirming generated rules will be cleared", async () => {
+  it("keeps requirement text editable on the same page as generated rules", async () => {
     const updateRequirementText = vi.fn(async () => {});
-    const updateRequirementRules = vi.fn(async () => {});
     const originalRule = createRule({
       id: "r1",
       text: "系统应提供订单提交能力。",
@@ -1010,53 +1010,27 @@ describe("TextRequirementView", () => {
         }),
       ),
       updateRequirementText,
-      updateRequirementRules,
     });
 
     const user = userEvent.setup();
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(
-      screen.queryByPlaceholderText(
-        "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
-      ),
-    ).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "返回修改描述" }));
-    const dialog = await screen.findByRole("dialog", { name: "返回修改描述？" });
-    expect(
-      within(dialog).getByText(/返回项目需求描述会清空目前的需求规则/),
-    ).toBeInTheDocument();
-
-    await user.click(within(dialog).getByRole("button", { name: "取消" }));
-    expect(screen.getByRole("table")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "返回修改描述" }));
-    await user.click(
-      within(await screen.findByRole("dialog", { name: "返回修改描述？" })).getByRole(
-        "button",
-        { name: "确认回退" },
-      ),
-    );
-
-    await waitFor(() => {
-      expect(updateRequirementRules).toHaveBeenLastCalledWith([]);
-    });
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
     const sourceText = screen.getByPlaceholderText(
       "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
     );
     expect(sourceText).toHaveValue("创建一个订单系统");
+    expect(screen.queryByRole("button", { name: "返回修改描述" })).not.toBeInTheDocument();
 
     await user.type(sourceText, "，并支持退款");
 
     await waitFor(() => {
       expect(updateRequirementText).toHaveBeenLastCalledWith("创建一个订单系统，并支持退款");
     });
+    expect(screen.getByRole("table")).toBeInTheDocument();
     expect(
-      screen.queryByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
-    ).not.toBeInTheDocument();
+      screen.getByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+    ).toBeInTheDocument();
   });
 
   it("uses fixed 8-row pages and filters requirement rules by text and type", async () => {
@@ -1191,12 +1165,10 @@ describe("TextRequirementView", () => {
     expect(within(cells[2]).getByText("3项")).toBeInTheDocument();
     expect(within(cells[2]).queryByText("3项提示")).not.toBeInTheDocument();
 
-    expect(cells[4]).toHaveClass("px-4");
-    expect(cells[4]).toHaveAttribute("title", "用例模型、领域概念模型、界面关系");
-    expect(within(cells[4]).getByText("用例模型")).toBeInTheDocument();
-    expect(within(cells[4]).getByText("领域概念模型")).toBeInTheDocument();
-    expect(within(cells[4]).getByText("+1")).toBeInTheDocument();
-    expect(within(cells[4]).queryByText("界面关系")).not.toBeInTheDocument();
+    expect(cells).toHaveLength(5);
+    expect(within(row).queryByText("用例模型")).not.toBeInTheDocument();
+    expect(within(row).queryByText("领域概念模型")).not.toBeInTheDocument();
+    expect(within(row).queryByText("界面关系")).not.toBeInTheDocument();
   });
 
   it("creates a requirement rule from the add-rule dialog", async () => {
