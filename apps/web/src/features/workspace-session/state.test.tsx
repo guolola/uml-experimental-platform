@@ -147,6 +147,48 @@ describe("WorkspaceSessionProvider", () => {
     expect(screen.queryByText(/runId/u)).not.toBeInTheDocument();
   });
 
+  it("does not show a stale success dialog when final snapshot handling fails", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({ requirementText: "订单系统需求" }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-completed-then-failed" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({
+          type: "completed",
+          snapshot: createRunSnapshot({
+            runId: "run-completed-then-failed",
+            requirementText: "订单系统需求",
+            rules: [createRule()],
+          }),
+        });
+      }),
+      getRunSnapshot: vi.fn(async () => {
+        throw new Error("Final snapshot unavailable");
+      }),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const user = userEvent.setup();
+
+    render(withWorkspaceProviders(<GenerateRulesHarness />, repository));
+    await user.click(await screen.findByRole("button", { name: "生成需求规则" }));
+
+    const failedDialog = await screen.findByRole("dialog", { name: "生成失败" });
+    expect(screen.queryByRole("dialog", { name: "需求规则已生成" })).not.toBeInTheDocument();
+    await user.click(within(failedDialog).getByRole("button", { name: "确认" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog", { name: "需求规则已生成" })).not.toBeInTheDocument();
+  });
+
   it("keeps global generating true for active model runs", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>

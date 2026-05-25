@@ -1632,23 +1632,6 @@ export function WorkspaceSessionProvider({
           errorMessage:
               event.type === "failed" ? event.message : current.errorMessage,
           }));
-          if (event.type === "completed") {
-            const completedSnapshot = event.snapshot as WorkspaceRunSnapshot;
-            const qualityHintCount =
-              completedSnapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
-            openGenerationResultDialog({
-              title: mode.kind === "rules-only" ? "需求规则已生成" : "需求模型已生成",
-              tone: qualityHintCount > 0 ? "warning" : "success",
-              message:
-                qualityHintCount > 0
-                  ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
-                  : "生成完成。",
-              runId: completedSnapshot.runId,
-              stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
-              targetLabel: mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
-            });
-            notifyGenerationCompleted("requirements");
-          }
         });
 
         const snapshot =
