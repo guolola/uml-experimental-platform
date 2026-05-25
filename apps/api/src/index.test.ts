@@ -4933,6 +4933,44 @@ test("api proxies manual PlantUML render requests", async () => {
   await app.close();
 });
 
+test("guest access seed creates a login-ready non-admin guest account when enabled", async () => {
+  const originalEnabled = process.env.UML_ENABLE_GUEST_ACCESS;
+  const originalEmail = process.env.UML_GUEST_EMAIL;
+  const originalPassword = process.env.UML_GUEST_PASSWORD;
+  const originalDisplayName = process.env.UML_GUEST_DISPLAY_NAME;
+  process.env.UML_ENABLE_GUEST_ACCESS = "true";
+  process.env.UML_GUEST_EMAIL = "guest@example.edu";
+  process.env.UML_GUEST_PASSWORD = "guest";
+  process.env.UML_GUEST_DISPLAY_NAME = "Guest";
+
+  const authStore = createInMemoryAuthStore();
+  const app = await createTestApiServer({ authStore });
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {
+        email: "guest@example.edu",
+        password: "guest",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().user.email, "guest@example.edu");
+    assert.deepEqual((await authStore.findUserByEmail("guest@example.edu"))?.systemRoles, []);
+  } finally {
+    await app.close();
+    if (originalEnabled === undefined) delete process.env.UML_ENABLE_GUEST_ACCESS;
+    else process.env.UML_ENABLE_GUEST_ACCESS = originalEnabled;
+    if (originalEmail === undefined) delete process.env.UML_GUEST_EMAIL;
+    else process.env.UML_GUEST_EMAIL = originalEmail;
+    if (originalPassword === undefined) delete process.env.UML_GUEST_PASSWORD;
+    else process.env.UML_GUEST_PASSWORD = originalPassword;
+    if (originalDisplayName === undefined) delete process.env.UML_GUEST_DISPLAY_NAME;
+    else process.env.UML_GUEST_DISPLAY_NAME = originalDisplayName;
+  }
+});
+
 test("api rejects anonymous manual PlantUML render requests", async () => {
   const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),

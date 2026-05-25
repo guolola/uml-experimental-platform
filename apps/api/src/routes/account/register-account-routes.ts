@@ -31,6 +31,10 @@ import {
   verifyTotpCode,
 } from "../../auth/totp.js";
 import { hashPassword, verifyPassword } from "../../security/password-hashing.js";
+import {
+  createGenerationUsageService,
+  type GenerationUsageService,
+} from "../../generation/generation-usage.js";
 
 const MFA_SETUP_TTL_MS = 1000 * 60 * 10;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
@@ -40,7 +44,17 @@ const AVATAR_MIME_TYPES = {
   "image/webp": { extension: ".webp", contentType: "image/webp" },
 } as const;
 
-function accountProfileResponse(user: UserRecord, session: SessionRecord) {
+async function accountProfileResponse({
+  user,
+  session,
+  generationUsage,
+  ipAddress,
+}: {
+  user: UserRecord;
+  session: SessionRecord;
+  generationUsage: GenerationUsageService;
+  ipAddress: string | null;
+}) {
   return accountProfileResponseSchema.parse({
     user: toUserDto(user),
     session: toSessionDto(session),
@@ -48,7 +62,20 @@ function accountProfileResponse(user: UserRecord, session: SessionRecord) {
       enabled: user.mfaEnabled,
       enforcement: "totp",
     },
+    generationUsage: await generationUsage.getAccountGenerationUsage({
+      userId: user.id,
+      email: user.email,
+      ipAddress,
+    }),
   });
+}
+
+function ipAddressFromRequest(request: FastifyRequest) {
+  const forwardedFor = request.headers["x-forwarded-for"];
+  if (typeof forwardedFor === "string" && forwardedFor.trim()) {
+    return forwardedFor.split(",")[0]?.trim() ?? null;
+  }
+  return request.ip ?? null;
 }
 
 function safeAvatarPrefix(userId: string) {
@@ -89,16 +116,23 @@ export function registerAccountRoutes({
   app,
   authStore,
   avatarStorageDir,
+  generationUsage = createGenerationUsageService(),
 }: {
   app: FastifyInstance;
   authStore: AuthStore;
   avatarStorageDir: string;
+  generationUsage?: GenerationUsageService;
 }) {
   app.get("/api/account/profile", async (request, reply) => {
     const auth = await requireAuth(request, reply, authStore);
     if (isAuthError(auth)) return auth;
 
-    return accountProfileResponse(auth.user, auth.session);
+    return accountProfileResponse({
+      user: auth.user,
+      session: auth.session,
+      generationUsage,
+      ipAddress: ipAddressFromRequest(request),
+    });
   });
 
   app.patch("/api/account/profile", async (request, reply) => {
@@ -120,7 +154,12 @@ export function registerAccountRoutes({
       outcome: "success",
     });
 
-    return accountProfileResponse(user, auth.session);
+    return accountProfileResponse({
+      user,
+      session: auth.session,
+      generationUsage,
+      ipAddress: ipAddressFromRequest(request),
+    });
   });
 
   app.post("/api/account/avatar", async (request, reply) => {
@@ -179,7 +218,12 @@ export function registerAccountRoutes({
       outcome: "success",
     });
 
-    return accountProfileResponse(user, auth.session);
+    return accountProfileResponse({
+      user,
+      session: auth.session,
+      generationUsage,
+      ipAddress: ipAddressFromRequest(request),
+    });
   });
 
   app.get<{ Params: { fileName: string } }>(

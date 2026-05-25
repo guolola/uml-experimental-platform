@@ -243,6 +243,14 @@ export interface PlatformAccountProfileResponse {
   user: PlatformUser;
   session: PlatformAccountSession;
   mfa?: PlatformMfaState;
+  generationUsage?: {
+    usedToday: number;
+    limit: number | null;
+    remaining: number | null;
+    windowSeconds: number;
+    limited: boolean;
+    scope: "user" | "visitor";
+  };
 }
 
 export class PlatformApiError extends Error {

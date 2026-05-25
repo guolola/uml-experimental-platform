@@ -103,6 +103,7 @@ describe("App shell routes", () => {
     HTMLAnchorElement.prototype.click = vi.fn();
     window.history.pushState({}, "", "/");
     localStorage.removeItem(USER_SETTINGS_STORAGE_KEY);
+    localStorage.removeItem("uml-auth-remembered-email");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1541,6 +1542,37 @@ describe("App shell routes", () => {
     });
     expect(window.location.search).toContain("email=new-student%40example.edu");
     expect(await screen.findByText(/验证邮件已发送到/)).toBeInTheDocument();
+  });
+
+  it("remembers the login email only when requested and lets users reveal the password", async () => {
+    const user = userEvent.setup();
+    loginApiMode = "success";
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    window.history.pushState({}, "", "/login");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    const passwordInput = await screen.findByLabelText("密码");
+    expect(passwordInput).toHaveAttribute("type", "password");
+    await user.click(screen.getByRole("button", { name: "显示密码" }));
+    expect(passwordInput).toHaveAttribute("type", "text");
+    await user.click(screen.getByRole("button", { name: "隐藏密码" }));
+    expect(passwordInput).toHaveAttribute("type", "password");
+
+    await user.type(screen.getByLabelText("邮箱"), "student@example.edu");
+    await user.type(passwordInput, "password-123");
+    await user.click(screen.getByLabelText("记住我"));
+    await user.click(screen.getByRole("button", { name: "登录" }));
+
+    await waitFor(() => {
+      expect(localStorage.getItem("uml-auth-remembered-email")).toBe("student@example.edu");
+    });
+
+    window.history.pushState({}, "", "/login");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(await screen.findByLabelText("邮箱")).toHaveValue("student@example.edu");
+    expect(screen.getByLabelText("记住我")).toBeChecked();
   });
 
   it("renders every website auth route inside the animated auth shell", async () => {

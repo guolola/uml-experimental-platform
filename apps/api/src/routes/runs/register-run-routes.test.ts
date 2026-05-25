@@ -27,6 +27,7 @@ import type {
   ProviderUsageInput,
   ProviderUsageTracker,
 } from "../../provider-configs/provider-usage-tracker.js";
+import { createGenerationUsageService } from "../../generation/generation-usage.js";
 import { buildRequirementBaseline } from "../../runs/baselines/requirement-baseline.js";
 import { buildEvidencePackage } from "../../runs/evidence/evidence-package.js";
 
@@ -105,8 +106,10 @@ async function createRunRouteTestApp(options?: {
   completeRuns?: boolean;
   documentLibrary?: DocumentLibrary;
   llmScheduler?: LlmScheduler;
+  runStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runStagePipeline"];
   runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
+  generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
 }) {
   return (await createRunRouteTestContext(options)).app;
 }
@@ -121,8 +124,10 @@ async function createRunRouteTestContext(options?: {
   completeRuns?: boolean;
   documentLibrary?: DocumentLibrary;
   llmScheduler?: LlmScheduler;
+  runStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runStagePipeline"];
   runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
+  generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
 }) {
   const app = Fastify({ logger: false });
   const runs = createRunRecordStore();
@@ -149,7 +154,7 @@ async function createRunRouteTestContext(options?: {
     renderClient: noOpRenderClient,
     pngRenderClient: noOpPngRenderClient,
     defaultSseAllowOrigin: "http://localhost:5173",
-    runStagePipeline: completeQueuedRun,
+    runStagePipeline: options?.runStagePipeline ?? completeQueuedRun,
     runDesignStagePipeline: options?.runDesignStagePipeline ?? completeQueuedRun,
     runCodeStagePipeline: completeQueuedRun,
     runDocumentStagePipeline: options?.runDocumentStagePipeline ?? (async () => undefined),
@@ -158,6 +163,7 @@ async function createRunRouteTestContext(options?: {
     providerConfigs: options?.providerConfigs,
     resolveProjectDefaultProviderConfig: options?.resolveProjectDefaultProviderConfig,
     providerUsageTracker: options?.providerUsageTracker,
+    generationUsage: options?.generationUsage,
     llmScheduler: options?.llmScheduler,
     allowLegacyProjectProviderSettings:
       options?.allowLegacyProjectProviderSettings ?? true,
@@ -1755,6 +1761,63 @@ test("blocked evidence package prevents downstream design run start", async () =
 
   assert.equal(response.statusCode, 409);
   assert.match(response.json().message, /EvidencePackage review is unresolved/);
+
+  await app.close();
+});
+
+test("guest project run starts return 429 after the visitor daily generation limit", async () => {
+  let pipelineCalls = 0;
+  const generationUsage = createGenerationUsageService({
+    guestEmail: "guest@example.edu",
+    guestDailyLimit: 1,
+    now: () => new Date("2026-05-25T08:00:00.000Z"),
+  });
+  const app = await createRunRouteTestApp({
+    generationUsage,
+    runAccessGuard: {
+      async resolveRunAccess(request) {
+        return {
+          userId: "guest-user",
+          projectId: stringHeader(request, "x-test-project-id"),
+          email: "guest@example.edu",
+        };
+      },
+      async canAccessProject({ projectId }) {
+        return projectId === "project-a";
+      },
+    },
+    runStagePipeline: async () => {
+      pipelineCalls += 1;
+    },
+  });
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    remoteAddress: "203.0.113.10",
+    payload: {
+      projectId: "project-a",
+      requirementText: "项目 A 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings,
+    },
+  });
+  assert.equal(first.statusCode, 202);
+
+  const second = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    remoteAddress: "203.0.113.10",
+    payload: {
+      projectId: "project-a",
+      requirementText: "项目 A 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings,
+    },
+  });
+  assert.equal(second.statusCode, 429);
+  assert.match(second.json().message, /generation limit/i);
+  assert.equal(pipelineCalls, 1);
 
   await app.close();
 });

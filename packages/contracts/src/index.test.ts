@@ -1112,6 +1112,14 @@ test("contracts describe user, session, admin, and account security DTOs", () =>
       enabled: false,
       enforcement: "totp",
     },
+    generationUsage: {
+      usedToday: 0,
+      limit: null,
+      remaining: null,
+      windowSeconds: 86400,
+      limited: false,
+      scope: "user",
+    },
   });
   assert.equal(accountProfile.mfa.enforcement, "totp");
 

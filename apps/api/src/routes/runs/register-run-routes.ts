@@ -76,6 +76,7 @@ import type {
   ProviderUsageTracker,
 } from "../../provider-configs/provider-usage-tracker.js";
 import { resolveProviderRateLimitPolicy } from "../../provider-configs/provider-usage-tracker.js";
+import type { GenerationUsageService } from "../../generation/generation-usage.js";
 import { RUN_ROUTE_CONFIG } from "./run-route-config.js";
 import { parseJson } from "../../normalizers/json/parse-json.js";
 import { rebuildRequirementBaselineQualityReport } from "../../runs/baselines/requirement-baseline.js";
@@ -155,6 +156,7 @@ function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
 export interface RunAccessContext {
   userId?: string;
   projectId?: string;
+  email?: string | null;
 }
 
 export interface RunAccessGuard {
@@ -469,6 +471,59 @@ async function checkProviderUsageLimit({
     message: "Provider rate limit exceeded",
     rateLimit: decision,
   };
+}
+
+async function checkGenerationUsageLimit({
+  generationUsage,
+  runAccessGuard,
+  request,
+  reply,
+}: {
+  generationUsage?: GenerationUsageService;
+  runAccessGuard: RunAccessGuard;
+  request: FastifyRequest;
+  reply: FastifyReply;
+}) {
+  if (!generationUsage) return true;
+  const access = await runAccessGuard.resolveRunAccess(request);
+  if (!access.userId) return true;
+  const decision = await generationUsage.checkGenerationLimit({
+    userId: access.userId,
+    email: access.email,
+    ipAddress: ipAddressFromRequest(request),
+  });
+  if (decision.allowed) return true;
+
+  reply.code(429);
+  return {
+    message: "Guest generation limit exceeded",
+    generationUsage: decision.usage,
+  };
+}
+
+async function recordGenerationUsage({
+  generationUsage,
+  runAccessGuard,
+  request,
+  taskType,
+  providerConfigId,
+}: {
+  generationUsage?: GenerationUsageService;
+  runAccessGuard: RunAccessGuard;
+  request: FastifyRequest;
+  taskType: ProviderTaskType;
+  providerConfigId: string | null;
+}) {
+  if (!generationUsage) return;
+  const access = await runAccessGuard.resolveRunAccess(request);
+  if (!access.userId) return;
+  await generationUsage.recordGenerationUsage({
+    userId: access.userId,
+    email: access.email,
+    ipAddress: ipAddressFromRequest(request),
+    taskType,
+    providerConfigId,
+  });
 }
 
 async function canReadRunRecord(
@@ -853,6 +908,7 @@ export function registerRunRoutes({
   providerConfigs,
   resolveProjectDefaultProviderConfig,
   providerUsageTracker,
+  generationUsage,
   providerRateLimitPolicy = resolveProviderRateLimitPolicy(),
   llmScheduler,
   allowLegacyProjectProviderSettings =
@@ -879,6 +935,7 @@ export function registerRunRoutes({
   providerConfigs?: ProviderConfigStore;
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   providerUsageTracker?: ProviderUsageTracker;
+  generationUsage?: GenerationUsageService;
   providerRateLimitPolicy?: ProviderRateLimitPolicy;
   llmScheduler?: LlmScheduler;
   allowLegacyProjectProviderSettings?: boolean;
@@ -1043,6 +1100,13 @@ export function registerRunRoutes({
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const generationLimitCheck = await checkGenerationUsageLimit({
+      generationUsage,
+      runAccessGuard,
+      request,
+      reply,
+    });
+    if (generationLimitCheck !== true) return generationLimitCheck;
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1059,6 +1123,13 @@ export function registerRunRoutes({
       metadata,
       request,
       taskType: "requirements_to_uml",
+    });
+    await recordGenerationUsage({
+      generationUsage,
+      runAccessGuard,
+      request,
+      taskType: "requirements_to_uml",
+      providerConfigId,
     });
     const runId = randomUUID();
     const record: RunRecord = {
@@ -1138,6 +1209,13 @@ export function registerRunRoutes({
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const generationLimitCheck = await checkGenerationUsageLimit({
+      generationUsage,
+      runAccessGuard,
+      request,
+      reply,
+    });
+    if (generationLimitCheck !== true) return generationLimitCheck;
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1154,6 +1232,13 @@ export function registerRunRoutes({
       metadata,
       request,
       taskType: "design_modeling",
+    });
+    await recordGenerationUsage({
+      generationUsage,
+      runAccessGuard,
+      request,
+      taskType: "design_modeling",
+      providerConfigId,
     });
     const runId = randomUUID();
     const record: RunRecord = {
@@ -1225,6 +1310,13 @@ export function registerRunRoutes({
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const generationLimitCheck = await checkGenerationUsageLimit({
+      generationUsage,
+      runAccessGuard,
+      request,
+      reply,
+    });
+    if (generationLimitCheck !== true) return generationLimitCheck;
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1241,6 +1333,13 @@ export function registerRunRoutes({
       metadata,
       request,
       taskType: "code_generation",
+    });
+    await recordGenerationUsage({
+      generationUsage,
+      runAccessGuard,
+      request,
+      taskType: "code_generation",
+      providerConfigId,
     });
     const runId = randomUUID();
     const record: RunRecord = {
@@ -1322,6 +1421,13 @@ export function registerRunRoutes({
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const generationLimitCheck = await checkGenerationUsageLimit({
+      generationUsage,
+      runAccessGuard,
+      request,
+      reply,
+    });
+    if (generationLimitCheck !== true) return generationLimitCheck;
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1347,6 +1453,13 @@ export function registerRunRoutes({
       reply.code(400);
       return { message: "请先在设计页生成设计模型，再导出软件设计说明书" };
     }
+    await recordGenerationUsage({
+      generationUsage,
+      runAccessGuard,
+      request,
+      taskType: "document_generation",
+      providerConfigId,
+    });
 
     const runId = randomUUID();
     const record: RunRecord = {

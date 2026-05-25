@@ -1,6 +1,7 @@
 // Hosts the top-bar account modal for profile, MFA, sessions, and login-state actions.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   Camera,
   CheckCircle2,
   History,
@@ -42,6 +43,7 @@ import {
   type PlatformLoginEvent,
   type PlatformMfaSetup,
   type PlatformUser,
+  type PlatformAccountProfileResponse,
 } from "../services/platform-api";
 import { MfaSetupPanel } from "./mfa-setup-panel";
 
@@ -53,6 +55,8 @@ type AccountDialogProps = {
 const AVATAR_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const ACCOUNT_SESSION_RECORD_LIMIT = 5;
+
+type AccountGenerationUsage = NonNullable<PlatformAccountProfileResponse["generationUsage"]>;
 
 function initials(user: PlatformUser | null) {
   const label = user?.displayName || user?.email || "登录";
@@ -88,6 +92,20 @@ function loginOutcomeLabel(outcome: PlatformLoginEvent["outcome"]) {
 
 function loginDetail(event: PlatformLoginEvent) {
   return event.message || (event.userAgent ? formatSessionDevice(event.userAgent) : "暂无详情");
+}
+
+function generationUsagePrimaryText(usage: AccountGenerationUsage | null) {
+  if (!usage) return "今日 0 次";
+  if (usage.limited && usage.limit !== null) {
+    return `今日 ${usage.usedToday} / ${usage.limit} 次`;
+  }
+  return `今日 ${usage.usedToday} 次`;
+}
+
+function generationUsageSecondaryText(usage: AccountGenerationUsage | null) {
+  if (!usage) return "不限额";
+  if (usage.limited && usage.remaining !== null) return `剩余 ${usage.remaining} 次`;
+  return "不限额";
 }
 
 function AvatarPreview({
@@ -128,6 +146,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
   const [disableCode, setDisableCode] = useState("");
   const [sessions, setSessions] = useState<PlatformAccountSession[]>([]);
   const [events, setEvents] = useState<PlatformLoginEvent[]>([]);
+  const [generationUsage, setGenerationUsage] = useState<AccountGenerationUsage | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [activeTab, setActiveTab] = useState("profile");
@@ -178,6 +197,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
         setAvatarFile(null);
         setAvatarError("");
         setMfaEnabled(Boolean(profile.mfa?.enabled ?? profile.user.mfaEnabled));
+        setGenerationUsage(profile.generationUsage ?? null);
         setCurrentSessionId(profile.session?.id ?? null);
         setSessions(sessionResponse.sessions);
         setEvents(eventResponse.events);
@@ -261,6 +281,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
         response = await platformApi.uploadAccountAvatar(avatarFile);
       }
       setUser(response.user);
+      setGenerationUsage(response.generationUsage ?? generationUsage);
       setAvatarUrl(response.user.avatarUrl ?? "");
       setCurrentSessionId(response.session?.id ?? currentSessionId);
       setAvatarFile(null);
@@ -309,6 +330,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
     setUser(null);
     setSessions([]);
     setEvents([]);
+    setGenerationUsage(null);
     setCurrentSessionId(null);
     setMfaSetup(null);
     setMfaCode("");
@@ -579,6 +601,26 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
                         <Badge variant="outline">{accountStatus}</Badge>
                         <Badge variant="outline">{user.emailVerified ? "邮箱已验证" : "邮箱未验证"}</Badge>
                         <Badge variant="outline">{mfaEnabled ? "MFA 已启用" : "MFA 未启用"}</Badge>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
+                      <div className="flex items-center gap-2 font-medium text-foreground">
+                        <Activity className="size-4 text-muted-foreground" />
+                        今日生成次数
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{generationUsagePrimaryText(generationUsage)}</Badge>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            generationUsage?.limited && generationUsage.remaining === 0
+                              ? "border-destructive/30 text-destructive"
+                              : "text-primary",
+                          )}
+                        >
+                          {generationUsageSecondaryText(generationUsage)}
+                        </Badge>
                       </div>
                     </div>
                   </div>
