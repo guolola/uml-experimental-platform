@@ -936,6 +936,7 @@ export function ProjectGenerationTasksDrawerContent() {
                                           type="button"
                                           size="sm"
                                           variant="outline"
+                                          aria-label="重试此模型"
                                           className="shrink-0"
                                           disabled={taskIsActive}
                                           onClick={() => retrySubtask(subtask.id)}

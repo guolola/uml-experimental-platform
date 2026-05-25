@@ -1087,9 +1087,14 @@ describe("TopBar", () => {
     expect(screen.getAllByText("用例模型")).toHaveLength(1);
 
     completeRun();
-    expect(await within(stageSection as HTMLElement).findByRole("button", { name: "重试此模型" })).toBeEnabled();
+    const updatedStageSection = screen.getByText("链路阶段").parentElement?.parentElement;
+    expect(updatedStageSection).toBeTruthy();
+    const retryButton = (
+      await within(updatedStageSection as HTMLElement).findByText("重试此模型")
+    ).closest("button");
+    expect(retryButton).toBeEnabled();
     expect(
-      within(stageSection as HTMLElement).getByText("界面关系 traceability 缺失"),
+      within(updatedStageSection as HTMLElement).getByText("界面关系 traceability 缺失"),
     ).toBeInTheDocument();
   });
 
