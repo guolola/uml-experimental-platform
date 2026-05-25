@@ -2021,7 +2021,21 @@ test("api records design model parse repair trace", async () => {
           return;
         }
         designCalls += 1;
-        yield '{"models":[{"diagramKind":"sequence","title":""}]}';
+        yield JSON.stringify({
+          models: [
+            {
+              diagramKind: "sequence",
+              title: "非法顺序图",
+              summary: "参与者类型非法。",
+              notes: [],
+              participants: [
+                { id: "p1", name: "参与者", participantType: "alien" },
+              ],
+              messages: [],
+              fragments: [],
+            },
+          ],
+        });
       },
     },
     renderClient: async () => ({
@@ -2068,7 +2082,7 @@ test("api records design model parse repair trace", async () => {
       (entry: { attempt: number; kind: string; rawOutput?: string }) =>
         entry.attempt === 1 &&
         entry.kind === "llm_output" &&
-        /"title":""/.test(entry.rawOutput ?? ""),
+        /"participantType":"alien"/.test(entry.rawOutput ?? ""),
     ),
   );
   assert.ok(
@@ -2076,7 +2090,7 @@ test("api records design model parse repair trace", async () => {
       (entry: { attempt: number; kind: string; errorMessage?: string }) =>
         entry.attempt === 1 &&
         entry.kind === "parse_error" &&
-        /title/.test(entry.errorMessage ?? ""),
+        /participantType/.test(entry.errorMessage ?? ""),
     ),
   );
   assert.ok(

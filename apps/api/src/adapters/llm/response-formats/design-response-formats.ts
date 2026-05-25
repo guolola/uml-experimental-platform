@@ -5,13 +5,14 @@ import {
   modelElementRefResponseSchema,
   requirementModelOneOf,
 } from "./requirements-response-formats.js";
+import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
 
 export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "design_diagram_models_result",
     strict: true,
-    schema: {
+    schema: toOpenAiStrictJsonSchema({
       type: "object",
       additionalProperties: false,
       properties: {
@@ -144,7 +145,7 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
         },
       },
       required: ["models", "designModelTraceability"],
-    },
+    }),
   },
 };
 
@@ -153,7 +154,7 @@ export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRespons
   json_schema: {
     name: "design_model_traceability_result",
     strict: true,
-    schema: {
+    schema: toOpenAiStrictJsonSchema({
       type: "object",
       additionalProperties: false,
       properties: {
@@ -178,7 +179,7 @@ export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRespons
         },
       },
       required: ["designModelTraceability"],
-    },
+    }),
   },
 };
 

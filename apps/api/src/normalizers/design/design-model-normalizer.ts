@@ -54,6 +54,20 @@ function normalizeClassKind(value: unknown) {
   return "class";
 }
 
+function omitNullValues(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitNullValues);
+  }
+  if (!isPlainRecord(value)) return value;
+
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === null) continue;
+    next[key] = omitNullValues(item);
+  }
+  return next;
+}
+
 function normalizeDesignDiagramModel(model: unknown) {
   if (!isPlainRecord(model)) return model;
 
@@ -73,15 +87,20 @@ function normalizeDesignDiagramModel(model: unknown) {
       typeof normalized.sourceUseCaseId === "string"
         ? normalized.sourceUseCaseId.trim()
         : "";
+    const sourceUseCaseName =
+      typeof normalized.sourceUseCaseName === "string"
+        ? normalized.sourceUseCaseName.trim()
+        : "";
     if (sourceUseCaseId && typeof normalized.modelId !== "string") {
       normalized.modelId = `sequence:${sourceUseCaseId}`;
     }
+    if (typeof normalized.title !== "string" || !normalized.title.trim()) {
+      normalized.title = sourceUseCaseName
+        ? `${sourceUseCaseName}顺序图`
+        : `${sourceUseCaseId || "设计"}顺序图`;
+    }
     if (typeof normalized.summary !== "string" || !normalized.summary.trim()) {
       const title = typeof normalized.title === "string" ? normalized.title.trim() : "";
-      const sourceUseCaseName =
-        typeof normalized.sourceUseCaseName === "string"
-          ? normalized.sourceUseCaseName.trim()
-          : "";
       normalized.summary = `${title || sourceUseCaseName || sourceUseCaseId || "该用例"}的对象交互流程。`;
     }
     normalized.participants = ensureArray(normalized.participants);
@@ -210,12 +229,13 @@ function assertCompleteDesignTraceability(
 }
 
 function parseDesignDiagramModelsOnlyFromParsed(parsed: unknown) {
-  const normalized = isPlainRecord(parsed)
+  const cleaned = omitNullValues(parsed);
+  const normalized = isPlainRecord(cleaned)
     ? {
-        ...parsed,
-        models: ensureArray(parsed.models).map(normalizeDesignDiagramModel),
+        ...cleaned,
+        models: ensureArray(cleaned.models).map(normalizeDesignDiagramModel),
       }
-    : parsed;
+    : cleaned;
   const result = designDiagramModelsResultSchema
     .omit({ designModelTraceability: true })
     .parse(normalized);
@@ -255,7 +275,7 @@ export function parseDesignTraceabilityCoverageResult(
   designModels: DesignDiagramModelSpec[],
   requirementModels: DiagramModelSpec[],
 ) {
-  const parsed = parseJson<unknown>(value);
+  const parsed = omitNullValues(parseJson<unknown>(value));
   const rawTraceability = isPlainRecord(parsed)
     ? designModelTraceabilityEntrySchema
         .array()
@@ -273,7 +293,7 @@ export function parseDesignTraceabilityCoverageForSources(
   requiredSources: ModelElementRef[],
   requirementModels: DiagramModelSpec[],
 ) {
-  const parsed = parseJson<unknown>(value);
+  const parsed = omitNullValues(parseJson<unknown>(value));
   const rawTraceability = isPlainRecord(parsed)
     ? designModelTraceabilityEntrySchema
         .array()
