@@ -222,6 +222,7 @@ describe("TextRequirementView", () => {
     });
 
     await user.click(generateButton);
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
 
     await waitFor(() => {
       expect(startRun).toHaveBeenCalledWith(
