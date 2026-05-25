@@ -10,6 +10,8 @@ import {
   Clock3,
   Code2,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   GitBranch,
   KeyRound,
@@ -90,6 +92,22 @@ import {
 } from "../services/platform-api";
 
 type Navigate = (path: string) => void;
+
+const REMEMBERED_LOGIN_EMAIL_STORAGE_KEY = "uml-auth-remembered-email";
+
+function readRememberedLoginEmail() {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY) ?? "";
+}
+
+function writeRememberedLoginEmail(email: string, remember: boolean) {
+  if (typeof window === "undefined") return;
+  if (remember) {
+    localStorage.setItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY, email.trim());
+    return;
+  }
+  localStorage.removeItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY);
+}
 
 function legacyProviderSettingsEnabled() {
   return import.meta.env.VITE_ENABLE_LEGACY_PROVIDER_SETTINGS === "true";
@@ -685,8 +703,14 @@ export function AuthPage({
   path: AuthRoutePath;
   onNavigate: Navigate;
 }) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() =>
+    path === "/login" ? readRememberedLoginEmail() : "",
+  );
   const [password, setPassword] = useState("");
+  const [rememberLogin, setRememberLogin] = useState(() =>
+    path === "/login" && Boolean(readRememberedLoginEmail()),
+  );
+  const [showPassword, setShowPassword] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
   const [mfaChallenge, setMfaChallenge] = useState<PlatformMfaChallenge | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -718,6 +742,16 @@ export function AuthPage({
     }
   }, [path, urlToken]);
 
+  useEffect(() => {
+    setShowPassword(false);
+    if (path !== "/login") return;
+    const rememberedEmail = readRememberedLoginEmail();
+    setRememberLogin(Boolean(rememberedEmail));
+    if (rememberedEmail) {
+      setEmail(rememberedEmail);
+    }
+  }, [path]);
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
@@ -729,6 +763,7 @@ export function AuthPage({
             challengeId: mfaChallenge.challengeId,
             code: mfaCode,
           });
+          writeRememberedLoginEmail(email, rememberLogin);
           notifyAuthSessionChanged();
           setMessage("MFA 验证通过，正在进入项目首页。");
           onNavigate(redirectPath);
@@ -749,6 +784,7 @@ export function AuthPage({
           setMessage("请输入认证器中的 6 位验证码完成登录。");
           return;
         }
+        writeRememberedLoginEmail(email, rememberLogin);
         notifyAuthSessionChanged();
         setMessage("登录成功，正在进入项目首页。");
         onNavigate(redirectPath);
@@ -946,7 +982,7 @@ export function AuthPage({
                     <Input
                       id="auth-password"
                       aria-label={path === "/reset-password" ? "新密码" : "密码"}
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(event) => {
                         setPassword(event.target.value);
@@ -954,8 +990,17 @@ export function AuthPage({
                       }}
                       placeholder={path === "/register" ? "至少 8 个字符" : "••••••••"}
                       required
-                      className={`${authInputClass} pl-10`}
+                      className={`${authInputClass} pl-10 pr-12`}
                     />
+                    <button
+                      type="button"
+                      aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                      title={showPassword ? "隐藏密码" : "显示密码"}
+                      className="motion-action absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-[#5b5e69] hover:bg-[#dce9ff] hover:text-[#2b23ad] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4441c4]/30"
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+                    </button>
                   </div>
                   {path !== "/login" && (
                     <div className="grid gap-2">
@@ -979,6 +1024,8 @@ export function AuthPage({
                     className="size-4 rounded border-[#c7c4d6] bg-[#eff4ff] accent-[#4441c4]"
                     id="auth-remember"
                     type="checkbox"
+                    checked={rememberLogin}
+                    onChange={(event) => setRememberLogin(event.target.checked)}
                   />
                   <Label htmlFor="auth-remember" className="ml-2 text-sm leading-5 text-[#464554]">
                     记住我

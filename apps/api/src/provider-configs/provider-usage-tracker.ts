@@ -88,11 +88,19 @@ export interface ProviderUsageEventRecord {
   providerConfigId: string;
   provider: string;
   model: string | null;
+  ipAddress: string | null;
   taskType: ProviderTaskType;
   outcome: "success" | "failed" | "blocked";
   units: number;
   tokenUsage: ProviderTokenUsage | null;
   createdAt: string;
+}
+
+export interface ProviderUsageCountInput {
+  userId: string;
+  taskTypes: readonly ProviderTaskType[];
+  createdAfter: string;
+  ipAddress?: string | null;
 }
 
 export interface ProviderQuotaSnapshot {
@@ -112,6 +120,7 @@ export interface ProviderQuotaSnapshot {
 export interface ProviderUsageTracker {
   recordUsage(input: ProviderUsageInput): Promise<void>;
   checkLimit(input: ProviderLimitCheckInput): Promise<ProviderLimitDecision>;
+  countUsageEvents?(input: ProviderUsageCountInput): Promise<number>;
   listUsageEvents?(): Promise<ProviderUsageEventRecord[]>;
   listQuotaSnapshots?(): Promise<ProviderQuotaSnapshot[]>;
   listRateLimitPolicies?(): Promise<ProviderRateLimitPolicyRecord[]>;
@@ -421,12 +430,33 @@ export function createProviderUsageTracker(db: Queryable): ProviderUsageTracker 
       };
     },
 
+    async countUsageEvents(input: ProviderUsageCountInput) {
+      const result = await db.query<{ used_units: string | number | null }>(
+        `
+          select coalesce(sum(units), 0) as used_units
+          from provider_usage_events
+          where user_id = $1
+            and task_type = any($2::text[])
+            and created_at >= $3::timestamptz
+            and ($4::text is null or ip_address = $4)
+        `,
+        [
+          input.userId,
+          input.taskTypes,
+          input.createdAfter,
+          input.ipAddress ?? null,
+        ],
+      );
+      return Number(result.rows[0]?.used_units ?? 0);
+    },
+
     async listUsageEvents() {
       const result = await db.query<{
         id: string;
         user_id: string | null;
         project_id: string | null;
         provider_config_id: string;
+        ip_address: string | null;
         provider: string;
         default_model: string | null;
         task_type: ProviderTaskType;
@@ -441,6 +471,7 @@ export function createProviderUsageTracker(db: Queryable): ProviderUsageTracker 
             usage.user_id,
             usage.project_id,
             usage.provider_config_id,
+            usage.ip_address,
             config.provider,
             config.default_model,
             usage.task_type,
@@ -466,6 +497,7 @@ export function createProviderUsageTracker(db: Queryable): ProviderUsageTracker 
           providerConfigId: row.provider_config_id,
           provider: readNullableString(metadata.provider) ?? row.provider,
           model: readNullableString(metadata.model) ?? row.default_model,
+          ipAddress: row.ip_address ?? null,
           taskType: row.task_type,
           outcome: row.outcome,
           units: Number(row.units),

@@ -58,6 +58,7 @@ import {
 } from "./provider-configs/provider-config-store.js";
 import { createPostgresProviderConfigRepository } from "./provider-configs/postgres-provider-config-repository.js";
 import { createProviderUsageTracker } from "./provider-configs/provider-usage-tracker.js";
+import { createGenerationUsageService } from "./generation/generation-usage.js";
 import { createPostgresRunRecordStore } from "./runs/records/postgres-run-record-store.js";
 import { createRunRecordStore, type RunRecordStore } from "./runs/records/run-record-store.js";
 import {
@@ -243,6 +244,7 @@ export async function createApiServer(options?: {
       : fileDocumentLibrary);
   const mailAdapter = options?.mailAdapter ?? createMailAdapterFromEnv();
   const providerUsageTracker = pool ? createProviderUsageTracker(pool) : undefined;
+  const generationUsage = createGenerationUsageService({ providerUsageTracker });
   const academicStore = pool
     ? createPostgresAcademicAdminRepository(pool)
     : createInMemoryAcademicAdminRepository();
@@ -251,6 +253,7 @@ export async function createApiServer(options?: {
   if (runtimeNodeEnv !== "production") {
     await seedDevelopmentAdmin(authStore);
   }
+  await seedGuestUser(authStore);
 
   const healthPayload = () => ({
     status: "ok",
@@ -297,6 +300,7 @@ export async function createApiServer(options?: {
   registerAccountRoutes({
     app,
     authStore,
+    generationUsage,
     avatarStorageDir:
       process.env.UML_AVATAR_STORAGE_DIR ??
       join(resolveRuntimeCwd(), "data", "avatars"),
@@ -368,12 +372,17 @@ export async function createApiServer(options?: {
       return project?.defaultProviderConfigId ?? null;
     },
     providerUsageTracker,
+    generationUsage,
     runAccessGuard: {
       async resolveRunAccess(request) {
         const projectIdHeader = request.headers["x-uml-project-id"];
-        const userId = await activeUserIdFromRequest(request);
+        const sessionId = readSessionCookie(request);
+        const session = sessionId ? await authStore.getActiveSession(sessionId) : null;
+        const user = session ? await authStore.getUser(session.userId) : null;
+        const userId = user?.status === "active" ? user.id : null;
         return {
           userId: userId ?? testRunAccessContext?.userId,
+          email: user?.status === "active" ? user.email : testRunAccessContext?.email,
           projectId:
             typeof projectIdHeader === "string" && projectIdHeader.trim()
               ? projectIdHeader.trim()
@@ -442,6 +451,45 @@ async function seedDevelopmentAdmin(authStore: AuthStore) {
     await authStore.updateUser(created.id, {
       mfaEnabled: true,
       mfaSecret,
+      mfaPendingSecret: null,
+      mfaPendingExpiresAt: null,
+    });
+  }
+}
+
+async function seedGuestUser(authStore: AuthStore) {
+  if (process.env.UML_ENABLE_GUEST_ACCESS !== "true") return;
+  const email = (process.env.UML_GUEST_EMAIL?.trim() || "guest@example.edu").toLowerCase();
+  const password = process.env.UML_GUEST_PASSWORD?.trim() || "guest";
+  const displayName = process.env.UML_GUEST_DISPLAY_NAME?.trim() || "Guest";
+  const patch = {
+    displayName,
+    passwordHash: hashPassword(password),
+    emailVerified: true,
+    systemRoles: [] as AdminRole[],
+    mfaEnabled: false,
+    mfaSecret: null,
+    mfaPendingSecret: null,
+    mfaPendingExpiresAt: null,
+  };
+
+  const existing = await authStore.findUserByEmail(email);
+  if (existing) {
+    await authStore.updateUser(existing.id, patch);
+    return;
+  }
+
+  const created = await authStore.createUser({
+    email,
+    displayName,
+    passwordHash: patch.passwordHash,
+    systemRoles: [],
+    emailVerified: true,
+  });
+  if (created) {
+    await authStore.updateUser(created.id, {
+      mfaEnabled: false,
+      mfaSecret: null,
       mfaPendingSecret: null,
       mfaPendingExpiresAt: null,
     });

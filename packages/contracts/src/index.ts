@@ -1346,6 +1346,14 @@ export const accountProfileResponseSchema = authSessionResponseSchema.extend({
     enabled: z.boolean(),
     enforcement: z.literal("totp"),
   }),
+  generationUsage: z.object({
+    usedToday: z.number().int().min(0),
+    limit: z.number().int().min(1).nullable(),
+    remaining: z.number().int().min(0).nullable(),
+    windowSeconds: z.number().int().min(1),
+    limited: z.boolean(),
+    scope: z.enum(["user", "visitor"]),
+  }),
 });
 export type AccountProfileResponse = z.infer<
   typeof accountProfileResponseSchema
