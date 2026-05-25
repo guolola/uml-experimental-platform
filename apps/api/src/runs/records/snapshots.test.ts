@@ -35,6 +35,20 @@ test("createEmptyDesignSnapshot carries a RequirementBaseline into design runs",
   assert.equal(snapshot.requirementBaseline?.requirements[0]?.id, "REQ-001");
 });
 
+test("createEmptyDesignSnapshot preserves the requested design selection", () => {
+  const snapshot = createEmptyDesignSnapshot("design-append", {
+    requirementText: rule.text,
+    selectedDiagrams: ["class"],
+    requestedDiagrams: ["class"],
+    rules: [rule],
+    requirementModels: [],
+    requirementModelTraceability: [],
+  });
+
+  assert.deepEqual(snapshot.selectedDiagrams, ["class"]);
+  assert.deepEqual(snapshot.requestedDiagrams, ["class"]);
+});
+
 test("createEmptyCodeSnapshot carries a RequirementBaseline into code runs", () => {
   const snapshot = createEmptyCodeSnapshot("code-1", {
     requirementText: rule.text,

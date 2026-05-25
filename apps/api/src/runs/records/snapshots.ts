@@ -29,22 +29,6 @@ const DESIGN_DIAGRAM_ORDER: DesignDiagramKind[] = [
   "table",
 ];
 
-function withSequenceDependency(selectedDiagrams: DesignDiagramKind[]) {
-  const unique = Array.from(new Set(selectedDiagrams));
-  const needsSequence = unique.some((diagram) => diagram !== "sequence");
-  return needsSequence && !unique.includes("sequence")
-    ? (["sequence", ...unique] as DesignDiagramKind[])
-    : unique;
-}
-
-function withDesignDependencies(selectedDiagrams: DesignDiagramKind[]) {
-  const withSequence = new Set(withSequenceDependency(selectedDiagrams));
-  if (withSequence.has("table")) {
-    withSequence.add("class");
-  }
-  return DESIGN_DIAGRAM_ORDER.filter((diagram) => withSequence.has(diagram));
-}
-
 function normalizeSnapshotFilePath(path: string) {
   return path.startsWith("/") ? path : `/${path}`;
 }
@@ -99,6 +83,7 @@ export function createEmptyDesignSnapshot(
     requirementBaseline?: RequirementBaseline | null;
     requirementModels: DiagramModelSpec[];
     requirementModelTraceability: RunSnapshot["requirementModelTraceability"];
+    requestedDiagrams?: DesignDiagramKind[];
     existingDesignModels?: DesignRunSnapshot["models"];
     existingDesignModelTraceability?: DesignRunSnapshot["designModelTraceability"];
     existingDesignPlantUml?: DesignRunSnapshot["plantUml"];
@@ -116,7 +101,14 @@ export function createEmptyDesignSnapshot(
   return designRunSnapshotSchema.parse({
     runId,
     requirementText: input.requirementText,
-    selectedDiagrams: withDesignDependencies(input.selectedDiagrams),
+    selectedDiagrams: DESIGN_DIAGRAM_ORDER.filter((diagram) =>
+      input.selectedDiagrams.includes(diagram),
+    ),
+    requestedDiagrams: input.requestedDiagrams
+      ? DESIGN_DIAGRAM_ORDER.filter((diagram) =>
+          input.requestedDiagrams?.includes(diagram),
+        )
+      : undefined,
     rules: input.rules,
     requirementBaseline,
     coverageMatrix: null,

@@ -2340,7 +2340,7 @@ test("api repairs design models by generating missing element traceability separ
   await app.close();
 });
 
-test("api auto-adds sequence dependency for downstream design diagrams", async () => {
+test("api generates an explicit sequence dependency for downstream design diagrams", async () => {
   const prompts: string[] = [];
   const app = await createTestApiServer({
     llmTransport: {
@@ -2352,6 +2352,67 @@ test("api auto-adds sequence dependency for downstream design diagrams", async (
           yield DESIGN_SEQUENCE_JSON;
           return;
         }
+        yield DESIGN_ACTIVITY_JSON;
+      },
+    },
+    renderClient: async (artifact) => ({
+      svg: `<svg><text>${artifact.diagramKind}</text></svg>`,
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], ACTIVITY_MODEL],
+      requirementModelTraceability: [
+        ...USECASE_REQUIREMENT_TRACEABILITY,
+        ...ACTIVITY_REQUIREMENT_TRACEABILITY,
+      ],
+      selectedDiagrams: ["sequence", "activity"],
+      requestedDiagrams: ["activity"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const { runId } = startResponse.json();
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/design-runs/${runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "completed");
+  assert.deepEqual(snapshot.selectedDiagrams, ["sequence", "activity"]);
+  assert.deepEqual(snapshot.requestedDiagrams, ["activity"]);
+  assert.deepEqual(
+    snapshot.models.map((model: { diagramKind: string }) => model.diagramKind),
+    ["sequence", "activity"],
+  );
+  assert.equal(prompts.length, 2);
+
+  await app.close();
+});
+
+test("api reports missing design prerequisites when downstream diagrams bypass frontend dependency confirmation", async () => {
+  let llmCalls = 0;
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion() {
+        llmCalls += 1;
         yield DESIGN_ACTIVITY_JSON;
       },
     },
@@ -2394,18 +2455,15 @@ test("api auto-adds sequence dependency for downstream design diagrams", async (
       url: `/api/design-runs/${runId}`,
     })
   ).json();
-  assert.equal(snapshot.status, "completed");
-  assert.deepEqual(snapshot.selectedDiagrams, ["sequence", "activity"]);
-  assert.deepEqual(
-    snapshot.models.map((model: { diagramKind: string }) => model.diagramKind),
-    ["sequence", "activity"],
-  );
-  assert.equal(prompts.length, 2);
+
+  assert.equal(snapshot.status, "failed");
+  assert.match(snapshot.errorMessage, /缺少设计顺序图/);
+  assert.equal(llmCalls, 0);
 
   await app.close();
 });
 
-test("api auto-adds class dependency for design table diagrams", async () => {
+test("api generates explicit sequence and class dependencies for design table diagrams", async () => {
   const classAndTable = JSON.parse(DESIGN_CLASS_AND_TABLE_JSON);
   const classOnlyJson = JSON.stringify({
     models: classAndTable.models.filter(
@@ -2467,7 +2525,8 @@ test("api auto-adds class dependency for design table diagrams", async () => {
         ...USECASE_REQUIREMENT_TRACEABILITY,
         ...CLASS_REQUIREMENT_TRACEABILITY,
       ],
-      selectedDiagrams: ["table"],
+      selectedDiagrams: ["sequence", "class", "table"],
+      requestedDiagrams: ["table"],
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
         apiKey: "sk-test",
@@ -2487,6 +2546,7 @@ test("api auto-adds class dependency for design table diagrams", async () => {
 
   assert.equal(snapshot.status, "completed");
   assert.deepEqual(snapshot.selectedDiagrams, ["sequence", "class", "table"]);
+  assert.deepEqual(snapshot.requestedDiagrams, ["table"]);
   assert.deepEqual(downstreamCalls, ["class", "table"]);
   assert.deepEqual(
     snapshot.models.map((model: { diagramKind: string }) => model.diagramKind),

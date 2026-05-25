@@ -25,7 +25,7 @@ interface FakeRunRow {
 interface FakeRunEventRow {
   run_id: string;
   sequence: number;
-  payload: RunEvent;
+  payload: RunEvent | { type: "completed"; snapshotRef: string };
 }
 
 class FakeRunDb implements Queryable {
@@ -94,7 +94,9 @@ class FakeRunDb implements Queryable {
     if (normalized.startsWith("insert into run_events")) {
       const [runId, sequence, eventType, payload] = params;
       const parsedPayload =
-        typeof payload === "string" ? (JSON.parse(payload) as RunEvent) : (payload as RunEvent);
+        typeof payload === "string"
+          ? (JSON.parse(payload) as FakeRunEventRow["payload"])
+          : (payload as FakeRunEventRow["payload"]);
       assert.equal(eventType, parsedPayload.type);
       this.eventRows.push({
         run_id: String(runId),
@@ -108,15 +110,25 @@ class FakeRunDb implements Queryable {
   }
 }
 
-test("postgres run store persists records and emitted events", async () => {
-  const db = new FakeRunDb();
-  const runs = await createPostgresRunRecordStore(db);
-  const snapshot = createEmptySnapshot("run-1", "需求文本", ["class"], []);
+function attachProviderSettings(snapshot: ReturnType<typeof createEmptySnapshot>) {
   snapshot.providerSettings = {
     apiBaseUrl: "https://ai.comfly.org",
     apiKey: "redacted",
     model: "gpt-5.5",
   };
+}
+
+function countRunRecordWrites(db: FakeRunDb) {
+  return db.calls.filter((call) =>
+    call.sql.replace(/\s+/g, " ").trim().toLowerCase().startsWith("insert into run_records"),
+  ).length;
+}
+
+test("postgres run store persists records and emitted events", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-1", "需求文本", ["class"], []);
+  attachProviderSettings(snapshot);
   const record: RunRecord = {
     snapshot,
     events: [],
@@ -139,10 +151,104 @@ test("postgres run store persists records and emitted events", async () => {
   assert.equal(db.runRows.get("run-1")?.status, "completed");
   assert.equal(db.eventRows.length, 2);
   assert.equal(db.eventRows[1]?.sequence, 2);
+  assert.deepEqual(db.eventRows[1]?.payload, {
+    type: "completed",
+    snapshotRef: "run-1",
+  });
+  assert.equal("snapshot" in (record.events[1] ?? {}), true);
 
   const restored = await createPostgresRunRecordStore(db);
   const restoredRecord = restored.get("run-1");
   assert.equal(restoredRecord?.snapshot.status, "completed");
   assert.equal(restoredRecord?.events.length, 2);
+  assert.equal(restoredRecord?.events[1]?.type, "completed");
+  assert.equal(
+    restoredRecord?.events[1]?.type === "completed"
+      ? restoredRecord.events[1].snapshot.runId
+      : null,
+    "run-1",
+  );
   assert.equal(restoredRecord?.metadata?.userId, "user-1");
+});
+
+test("postgres run store restores abandoned active runs as interrupted", async () => {
+  const db = new FakeRunDb();
+  const snapshot = createEmptySnapshot("run-interrupted", "需求文本", ["usecase"], []);
+  snapshot.status = "running";
+  snapshot.currentStage = "generate_models";
+  snapshot.providerSettings = {
+    apiBaseUrl: "https://ai.comfly.org",
+    apiKey: "redacted",
+    model: "gpt-5.5",
+  };
+  db.runRows.set("run-interrupted", {
+    id: "run-interrupted",
+    user_id: "user-1",
+    project_id: "project-1",
+    snapshot,
+    status: "running",
+    stage: "generate_models",
+    error_message: null,
+    created_at: "2026-05-22T00:00:00.000Z",
+    updated_at: "2026-05-22T00:01:00.000Z",
+    completed_at: null,
+  });
+
+  const restored = await createPostgresRunRecordStore(db);
+  const record = restored.get("run-interrupted");
+  await restored.flush();
+
+  assert.equal(record?.terminal, true);
+  assert.equal(record?.snapshot.status, "running");
+  assert.equal(record?.snapshot.errorMessage, "Run interrupted by server restart");
+  assert.ok(db.runRows.get("run-interrupted")?.completed_at);
+});
+
+test("postgres run store skips snapshot upserts for streaming progress by default", async () => {
+  const previousPersistProgress = process.env.UML_PERSIST_PROGRESS_SNAPSHOT;
+  delete process.env.UML_PERSIST_PROGRESS_SNAPSHOT;
+
+  try {
+    const db = new FakeRunDb();
+    const runs = await createPostgresRunRecordStore(db);
+    const snapshot = createEmptySnapshot("run-progress", "需求文本", ["class"], []);
+    attachProviderSettings(snapshot);
+    const record: RunRecord = {
+      snapshot,
+      events: [],
+      listeners: new Set(),
+      terminal: false,
+      metadata: {
+        userId: "user-1",
+        projectId: "project-1",
+        createdAt: "2026-05-22T00:00:00.000Z",
+      },
+    };
+
+    runs.set("run-progress", record);
+    await runs.flush();
+    const writesAfterInitialSave = countRunRecordWrites(db);
+
+    emitEvent(record, {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "partial",
+    });
+    emitEvent(record, {
+      type: "stage_progress",
+      stage: "generate_models",
+      progress: 20,
+      message: "解析中",
+    });
+    await runs.flush();
+
+    assert.equal(countRunRecordWrites(db), writesAfterInitialSave);
+    assert.equal(db.eventRows.length, 2);
+  } finally {
+    if (previousPersistProgress === undefined) {
+      delete process.env.UML_PERSIST_PROGRESS_SNAPSHOT;
+    } else {
+      process.env.UML_PERSIST_PROGRESS_SNAPSHOT = previousPersistProgress;
+    }
+  }
 });

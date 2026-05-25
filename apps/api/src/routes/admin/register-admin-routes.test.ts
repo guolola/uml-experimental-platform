@@ -103,9 +103,15 @@ function putRunRecord(
 async function createAdminRouteTestApp({
   providerUsageTracker,
   riskEvents,
+  runs = createRunRecordStore(),
+  llmScheduler,
+  startRunPipeline,
 }: {
   providerUsageTracker?: ProviderUsageTracker;
   riskEvents?: () => AdminRiskEvent[];
+  runs?: RunRecordStore;
+  llmScheduler?: Parameters<typeof registerAdminRoutes>[0]["llmScheduler"];
+  startRunPipeline?: Parameters<typeof registerAdminRoutes>[0]["startRunPipeline"];
 } = {}) {
   const app = Fastify({ logger: false });
   const authStore = createInMemoryAuthStore();
@@ -124,10 +130,12 @@ async function createAdminRouteTestApp({
   registerAdminRoutes({
     app,
     authStore,
-    runs: createRunRecordStore(),
+    runs,
     documentLibrary: {} as DocumentLibrary,
     providerConfigs,
     providerUsageTracker,
+    llmScheduler,
+    startRunPipeline,
     riskEvents,
   });
   return {
@@ -1542,6 +1550,54 @@ test("admin can cancel and retry runs through write-scoped admin endpoints", asy
         log.outcome === "success",
     ),
   );
+
+  await app.close();
+});
+
+test("admin cancel calls the scheduler and retry starts the new run pipeline", async () => {
+  const runs = createRunRecordStore();
+  putRunRecord(runs, {
+    runId: "run-active-admin",
+    projectId: "project-a",
+    status: "running",
+  });
+  putRunRecord(runs, {
+    runId: "run-failed-admin",
+    projectId: "project-a",
+    status: "failed",
+  });
+  const cancelledRunIds: string[] = [];
+  const startedRunIds: string[] = [];
+  const { app, cookie } = await createAdminRouteTestApp({
+    runs,
+    llmScheduler: {
+      run: async (_context, task) => task(),
+      stream: (_context, task) => task(),
+      cancelRun: (runId) => {
+        cancelledRunIds.push(runId);
+      },
+      snapshot: () => ({ running: 0, queued: 0 }),
+    },
+    startRunPipeline: ({ record }) => {
+      startedRunIds.push(record.snapshot.runId);
+    },
+  });
+
+  const cancel = await app.inject({
+    method: "POST",
+    url: "/api/admin/runs/run-active-admin/cancel",
+    headers: { cookie },
+  });
+  const retry = await app.inject({
+    method: "POST",
+    url: "/api/admin/runs/run-failed-admin/retry",
+    headers: { cookie },
+  });
+
+  assert.equal(cancel.statusCode, 200);
+  assert.deepEqual(cancelledRunIds, ["run-active-admin"]);
+  assert.equal(retry.statusCode, 202);
+  assert.deepEqual(startedRunIds, [retry.json().runId]);
 
   await app.close();
 });

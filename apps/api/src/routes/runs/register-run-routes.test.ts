@@ -1445,7 +1445,8 @@ test("project run history supports detail and status filters for authorized memb
   await app.close();
 });
 
-test("project run cancel requires start permission, records a terminal event, and is not repeatable", async () => {
+test("project run cancel requires start permission, cancels scheduled work, records a terminal event, and is not repeatable", async () => {
+  const cancelledRunIds: string[] = [];
   const { app } = await createRunRouteTestContext({
     runAccessGuard: createTestRunAccessGuard({
       "runner-a": {
@@ -1457,6 +1458,14 @@ test("project run cancel requires start permission, records a terminal event, an
       },
     }),
     completeRuns: false,
+    llmScheduler: {
+      run: async (_context, task) => task(),
+      stream: (_context, task) => task(),
+      cancelRun: (runId) => {
+        cancelledRunIds.push(runId);
+      },
+      snapshot: () => ({ running: 0, queued: 0 }),
+    },
   });
 
   const startResponse = await app.inject({
@@ -1515,6 +1524,7 @@ test("project run cancel requires start permission, records a terminal event, an
   assert.equal(cancel.statusCode, 200);
   assert.equal(cancel.json().action, "cancel");
   assert.equal(cancel.json().status, "cancelled");
+  assert.deepEqual(cancelledRunIds, [runId]);
   assert.equal(duplicateCancel.statusCode, 409);
   assert.equal(detail.json().snapshot.status, "cancelled");
   assert.equal(detail.json().events.at(-1).type, "cancelled");
@@ -1524,7 +1534,8 @@ test("project run cancel requires start permission, records a terminal event, an
   await app.close();
 });
 
-test("project run retry and rerun create queued records without marking the new run completed", async () => {
+test("project run retry and rerun create queued records and start their pipeline", async () => {
+  const pipelineRunIds: string[] = [];
   const { app } = await createRunRouteTestContext({
     runAccessGuard: createTestRunAccessGuard({
       "runner-a": {
@@ -1533,6 +1544,9 @@ test("project run retry and rerun create queued records without marking the new 
       },
     }),
     completeRuns: false,
+    runStagePipeline: async (record) => {
+      pipelineRunIds.push(record.snapshot.runId);
+    },
   });
 
   const startResponse = await app.inject({
@@ -1594,6 +1608,11 @@ test("project run retry and rerun create queued records without marking the new 
   assert.equal(retryDetail.json().snapshot.requirementText, "需要重试的需求");
   assert.equal(sourceDetail.json().snapshot.status, "cancelled");
   assert.equal(sourceDetail.json().events.at(-1).type, "run_action");
+  assert.deepEqual(pipelineRunIds, [
+    sourceRunId,
+    retry.json().runId,
+    rerun.json().runId,
+  ]);
 
   await app.close();
 });

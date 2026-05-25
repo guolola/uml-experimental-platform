@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { Dispatch, MouseEvent, SetStateAction } from "react";
 import { toast } from "sonner";
 import {
   ExternalLink,
@@ -15,11 +15,21 @@ import {
   List,
   ArrowRight,
   Plus,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../shared/ui/tabs";
 import { Badge } from "../../../shared/ui/badge";
+import { SelectControl } from "../../../shared/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
 import { InlineSvg } from "./inline-svg";
 import { cn } from "../../../shared/ui/utils";
 import { downloadTextFile } from "../../../shared/lib/download";
@@ -635,23 +645,22 @@ function LabelSelect({
   onChange: (value: string) => void;
   allowEmpty?: boolean;
 }) {
+  const normalizedOptions = allowEmpty
+    ? [{ value: "", label: "无" }, ...options]
+    : options;
+
   return (
-    <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
+    <div className="min-w-0 space-y-1 text-xs text-muted-foreground">
       <span>{label}</span>
-      <select
+      <SelectControl
         aria-label={label}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground"
-      >
-        {allowEmpty ? <option value="">无</option> : null}
-        {options.map((option) => (
-          <option key={`${label}:${option.value}`} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        onValueChange={onChange}
+        options={normalizedOptions}
+        placeholder="请选择"
+        className="h-9 rounded-md text-sm"
+      />
+    </div>
   );
 }
 
@@ -681,72 +690,174 @@ function enumOptions(options: string[]) {
   return options.map((option) => ({ value: option, label: option }));
 }
 
-function ModelEditPanel({
-  model,
-  isDesign,
-  requirementType,
-  designArtifactId,
-}: {
-  model: unknown;
-  isDesign: boolean;
-  requirementType: DiagramType;
-  designArtifactId: string;
-}) {
-  const {
-    manualModelEditStatus,
-    saveRequirementModelEdit,
-    saveDesignModelEdit,
-    rerenderRequirementModel,
-    rerenderDesignModel,
-    generating,
-  } = useWorkspaceSession();
-  const [draft, setDraft] = useState<Record<string, unknown> | null>(() =>
-    model ? cloneDraftModel(model) : null,
-  );
-  const [saving, setSaving] = useState(false);
-  const statusKey = isDesign ? designArtifactId : requirementType;
-  const editStatus = manualModelEditStatus[statusKey];
+function ordinalLabel(index: number, unit: string) {
+  return `第 ${index + 1} 个${unit}`;
+}
 
-  useEffect(() => {
-    setDraft(model ? cloneDraftModel(model) : null);
-  }, [model, statusKey]);
+function editorFieldLabel(ownerLabel: string, fieldLabel: string) {
+  return `${ownerLabel}${fieldLabel}`;
+}
+
+function namedActionLabel(action: string, kind: string, name: string) {
+  return `${action}${kind}：${name || `未命名${kind}`}`;
+}
+
+function ModelEditPanel({
+  draft,
+  setDraft,
+  onCommitDraft,
+  onSelectElement,
+  selectedElement,
+  saving,
+}: {
+  draft: Record<string, unknown> | null;
+  setDraft: Dispatch<SetStateAction<Record<string, unknown> | null>>;
+  onCommitDraft: (nextDraft: Record<string, unknown>) => Promise<void>;
+  onSelectElement: (element: DiagramDetailItem) => void;
+  selectedElement?: { kind: string; id: string } | null;
+  saving: boolean;
+}) {
+  const [elementSearch, setElementSearch] = useState("");
+  const [elementKindFilter, setElementKindFilter] = useState<"all" | SemanticElementKind>(
+    "all",
+  );
+  const [relationSearch, setRelationSearch] = useState("");
+  const [relationKindFilter, setRelationKindFilter] = useState("all");
+  const [elementEditor, setElementEditor] = useState<{
+    collection: EditableCollection;
+    itemId: string;
+    draft: Record<string, unknown>;
+    mode: "create" | "edit";
+  } | null>(null);
+  const [relationEditor, setRelationEditor] = useState<{
+    relationId: string;
+    draft: Record<string, unknown>;
+    mode: "create" | "edit";
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: "element"; collection: EditableCollection; id: string; label: string }
+    | { kind: "relation"; id: string; label: string }
+    | null
+  >(null);
+  const detailModel = useMemo(() => buildDiagramDetailModel(draft), [draft]);
 
   if (!draft) return null;
 
+  const editorDraft = elementEditor?.draft ?? relationEditor?.draft ?? draft;
+  const setEditorDraft = (
+    updater:
+      | Record<string, unknown>
+      | ((current: Record<string, unknown>) => Record<string, unknown>),
+  ) => {
+    if (elementEditor) {
+      setElementEditor((current) => {
+        if (!current) return current;
+        const nextDraft = typeof updater === "function" ? updater(current.draft) : updater;
+        return { ...current, draft: nextDraft };
+      });
+      return;
+    }
+    if (relationEditor) {
+      setRelationEditor((current) => {
+        if (!current) return current;
+        const nextDraft = typeof updater === "function" ? updater(current.draft) : updater;
+        return { ...current, draft: nextDraft };
+      });
+      return;
+    }
+    setDraft((current) => {
+      if (!current) return current;
+      return typeof updater === "function" ? updater(current) : updater;
+    });
+  };
+
   const collections = editableCollectionsFor(draft);
-  const endpointOptions = collections.flatMap((collection) =>
-    collectionItems(draft, collection).map((item) => ({
+  const editorCollections = editableCollectionsFor(editorDraft);
+  const editableItemsById = new Map<string, { collection: EditableCollection; item: Record<string, unknown> }>();
+  for (const collection of collections) {
+    for (const item of collectionItems(draft, collection)) {
+      const itemId = stringValue(item.id);
+      if (itemId) editableItemsById.set(itemId, { collection, item });
+    }
+  }
+  const filteredGroups = detailModel.groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          (elementKindFilter === "all" || item.kind === elementKindFilter) &&
+          matchesItemSearch(item, elementSearch.trim()),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+  const filteredElements = filteredGroups.flatMap((group) => group.items);
+  const detailItemsById = new Map(detailModel.items.map((item) => [item.id, item]));
+  const detailRelationshipsById = new Map(detailModel.relationships.map((relation) => [relation.id, relation]));
+  const endpointOptions = editorCollections.flatMap((collection) =>
+    collectionItems(editorDraft, collection).map((item) => ({
       id: String(item.id ?? ""),
       label: `${collection.label}：${itemLabel(item, collection) || item.id}`,
     })),
   ).filter((item) => item.id);
   const relationships = relationshipItems(draft);
-
-  const rerenderDraft = async () => {
-    setSaving(true);
-    try {
-      if (isDesign) {
-        await saveDesignModelEdit(designArtifactId, draft as never);
-        await rerenderDesignModel(designArtifactId, draft as never);
-      } else {
-        await saveRequirementModelEdit(requirementType, draft as never);
-        await rerenderRequirementModel(requirementType, draft as never);
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const setDraftField = (key: string, value: unknown) => {
-    setDraft((current) => (current ? { ...current, [key]: value } : current));
-  };
+  const relationshipSummaries = relationships.map((relation) => {
+    const id = String(relation.id ?? "");
+    const detailRelation = detailRelationshipsById.get(id);
+    const displayLabel = detailRelation
+      ? getRelationDisplayLabel(detailRelation, detailItemsById)
+      : relationName(relation) || id;
+    const typeLabel = detailRelation?.typeLabel ?? (stringValue(relation.type) || "未分类");
+    const sourceKey = relationEndpointKey(draft, "source");
+    const targetKey = relationEndpointKey(draft, "target");
+    const sourceLabel = detailRelation
+      ? getRelationEndpointLabel(detailRelation, detailItemsById, "source")
+      : stringValue(relation[sourceKey]);
+    const targetLabel = detailRelation
+      ? getRelationEndpointLabel(detailRelation, detailItemsById, "target")
+      : stringValue(relation[targetKey]);
+    const fieldsText = detailRelation?.fields
+      .map((field) => `${field.label} ${field.value}`)
+      .join(" ") ?? "";
+    return {
+      id,
+      relation,
+      detailRelation,
+      displayLabel,
+      typeLabel,
+      sourceKey,
+      targetKey,
+      sourceLabel,
+      targetLabel,
+      searchText: [
+        displayLabel,
+        typeLabel,
+        sourceLabel,
+        targetLabel,
+        fieldsText,
+        stringValue(relation.type),
+      ].join(" ").toLowerCase(),
+    };
+  });
+  const relationTypeCounts = relationshipSummaries.reduce<Map<string, number>>((counts, relation) => {
+    counts.set(relation.typeLabel, (counts.get(relation.typeLabel) ?? 0) + 1);
+    return counts;
+  }, new Map());
+  const relationFilterOptions = Array.from(relationTypeCounts.entries()).map(([label, count]) => ({
+    label,
+    count,
+  }));
+  const filteredRelationships = relationshipSummaries.filter((relation) => {
+    const matchesKind = relationKindFilter === "all" || relation.typeLabel === relationKindFilter;
+    const query = relationSearch.trim().toLowerCase();
+    return matchesKind && (!query || relation.searchText.includes(query));
+  });
 
   const updateItem = (
     collection: EditableCollection,
     itemId: string,
     updater: (item: Record<string, unknown>) => Record<string, unknown>,
   ) => {
-    setDraft((current) => current ? updateDraftItem(current, collection, itemId, updater) : current);
+    setEditorDraft((current) => updateDraftItem(current, collection, itemId, updater));
   };
 
   const setItemField = (
@@ -775,8 +886,7 @@ function ModelEditPanel({
     relationId: string,
     updater: (item: Record<string, unknown>) => Record<string, unknown>,
   ) => {
-    setDraft((current) => {
-      if (!current) return current;
+    setEditorDraft((current) => {
       const nextRelationships = relationshipItems(current).map((currentRelation) =>
         String(currentRelation.id ?? "") === relationId ? updater(currentRelation) : currentRelation,
       );
@@ -785,30 +895,30 @@ function ModelEditPanel({
     });
   };
 
-  const actorOptions = collectionItems(draft, {
+  const actorOptions = collectionItems(editorDraft, {
     key: "actors",
     label: "角色",
     nameKey: "name",
     create: () => ({}),
   }).map((actor) => ({ value: stringValue(actor.id), label: stringValue(actor.name) || stringValue(actor.id) }));
-  const laneOptions = collectionItems(draft, {
+  const laneOptions = collectionItems(editorDraft, {
     key: "swimlanes",
     label: "泳道",
     nameKey: "name",
     create: () => ({}),
   }).map((lane) => ({ value: stringValue(lane.id), label: stringValue(lane.name) || stringValue(lane.id) }));
-  const messageOptions = relationshipItems(draft).map((message) => ({
+  const messageOptions = relationshipItems(editorDraft).map((message) => ({
     value: stringValue(message.id),
     label: stringValue(message.name) || stringValue(message.id),
   }));
-  const tableOptions = collectionItems(draft, {
+  const tableOptions = collectionItems(editorDraft, {
     key: "tables",
     label: "数据表",
     nameKey: "name",
     create: () => ({}),
   }).map((table) => ({ value: stringValue(table.id), label: stringValue(table.name) || stringValue(table.id) }));
   const columnsForTable = (tableId: string) => {
-    const table = collectionItems(draft, {
+    const table = collectionItems(editorDraft, {
       key: "tables",
       label: "数据表",
       nameKey: "name",
@@ -867,7 +977,7 @@ function ModelEditPanel({
           </Button>
         </div>
         {operations.map((operation, operationIndex) => {
-          const operationLabel = `${ownerLabel} 方法 ${operationIndex}`;
+          const operationLabel = ordinalLabel(operationIndex, "方法");
           const parameters = Array.isArray(operation.parameters)
             ? (operation.parameters as Array<Record<string, unknown>>)
             : [];
@@ -875,12 +985,12 @@ function ModelEditPanel({
             <div key={`${ownerLabel}:operation:${operationIndex}`} className="space-y-2 rounded-md border border-border bg-card p-3">
               <div className="grid gap-2 md:grid-cols-3">
                 <LabelTextInput
-                  label={`${operationLabel} 名称`}
+                  label={`${operationLabel}名称`}
                   value={stringValue(operation.name)}
                   onChange={(value) => updateOperation(operationIndex, (current) => ({ ...current, name: value }))}
                 />
                 <LabelTextInput
-                  label={`${operationLabel} 返回类型`}
+                  label={`${operationLabel}返回类型`}
                   value={stringValue(operation.returnType)}
                   onChange={(value) =>
                     updateOperation(operationIndex, (current) => {
@@ -891,14 +1001,14 @@ function ModelEditPanel({
                   }
                 />
                 <LabelSelect
-                  label={`${operationLabel} 可见性`}
+                  label={`${operationLabel}可见性`}
                   value={stringValue(operation.visibility) || "public"}
                   options={enumOptions(["public", "protected", "private", "package"])}
                   onChange={(value) => updateOperation(operationIndex, (current) => ({ ...current, visibility: value }))}
                 />
               </div>
               <LabelTextarea
-                label={`${operationLabel} 说明`}
+                label={`${operationLabel}说明`}
                 value={stringValue(operation.description)}
                 onChange={(value) =>
                   updateOperation(operationIndex, (current) => {
@@ -930,11 +1040,11 @@ function ModelEditPanel({
                   </Button>
                 </div>
                 {parameters.map((parameter, parameterIndex) => {
-                  const parameterLabel = `${operationLabel} 参数 ${parameterIndex}`;
+                  const parameterLabel = `${operationLabel}的${ordinalLabel(parameterIndex, "参数")}`;
                   return (
                     <div key={`${operationLabel}:parameter:${parameterIndex}`} className="grid gap-2 md:grid-cols-4">
                       <LabelTextInput
-                        label={`${parameterLabel} 名称`}
+                        label={`${parameterLabel}名称`}
                         value={stringValue(parameter.name)}
                         onChange={(value) =>
                           updateOperation(operationIndex, (current) => ({
@@ -946,7 +1056,7 @@ function ModelEditPanel({
                         }
                       />
                       <LabelTextInput
-                        label={`${parameterLabel} 类型`}
+                        label={`${parameterLabel}类型`}
                         value={stringValue(parameter.type)}
                         onChange={(value) =>
                           updateOperation(operationIndex, (current) => ({
@@ -958,7 +1068,7 @@ function ModelEditPanel({
                         }
                       />
                       <LabelSelect
-                        label={`${parameterLabel} 方向`}
+                        label={`${parameterLabel}方向`}
                         value={stringValue(parameter.direction)}
                         options={enumOptions(["in", "out", "inout"])}
                         allowEmpty
@@ -975,7 +1085,7 @@ function ModelEditPanel({
                         }
                       />
                       <LabelCheckbox
-                        label={`${parameterLabel} 必填`}
+                        label={`${parameterLabel}必填`}
                         checked={booleanValue(parameter.required, true)}
                         onChange={(checked) =>
                           updateOperation(operationIndex, (current) => ({
@@ -1002,65 +1112,65 @@ function ModelEditPanel({
     item: Record<string, unknown>,
     itemId: string,
   ) => {
-    const itemPrefix = `${collection.label} ${itemId}`;
-    if (draft.diagramKind === "usecase" && collection.key === "actors") {
+    const itemPrefix = collection.label;
+    if (editorDraft.diagramKind === "usecase" && collection.key === "actors") {
       return (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelSelect
-            label={`${itemPrefix} 类型`}
+            label={editorFieldLabel(itemPrefix, "类型")}
             value={stringValue(item.actorType) || "human"}
             options={enumOptions(["human", "system", "external"])}
             onChange={(value) => setItemField(collection, itemId, "actorType", value)}
           />
           <LabelTextarea
-            label={`${itemPrefix} 职责`}
+            label={editorFieldLabel(itemPrefix, "职责")}
             value={stringListValue(item.responsibilities).join("\n")}
             onChange={(value) => setItemField(collection, itemId, "responsibilities", textToStringList(value))}
           />
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
         </div>
       );
     }
-    if (draft.diagramKind === "usecase" && collection.key === "useCases") {
+    if (editorDraft.diagramKind === "usecase" && collection.key === "useCases") {
       return (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelTextInput
-            label={`${itemPrefix} 目标`}
+            label={editorFieldLabel(itemPrefix, "目标")}
             value={stringValue(item.goal)}
             onChange={(value) => setItemField(collection, itemId, "goal", value)}
           />
           <LabelSelect
-            label={`${itemPrefix} 主参与者`}
+            label={editorFieldLabel(itemPrefix, "主参与者")}
             value={stringValue(item.primaryActorId)}
             options={actorOptions}
             allowEmpty
             onChange={(value) => setItemOptionalString(collection, itemId, "primaryActorId", value)}
           />
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
           <LabelTextarea
-            label={`${itemPrefix} 前置条件`}
+            label={editorFieldLabel(itemPrefix, "前置条件")}
             value={stringListValue(item.preconditions).join("\n")}
             onChange={(value) => setItemField(collection, itemId, "preconditions", textToStringList(value))}
           />
           <LabelTextarea
-            label={`${itemPrefix} 后置条件`}
+            label={editorFieldLabel(itemPrefix, "后置条件")}
             value={stringListValue(item.postconditions).join("\n")}
             onChange={(value) => setItemField(collection, itemId, "postconditions", textToStringList(value))}
           />
           <div className="space-y-1 text-xs text-muted-foreground">
-            <div>{itemPrefix} 辅助参与者</div>
+            <div>{editorFieldLabel(itemPrefix, "辅助参与者")}</div>
             {actorOptions.map((actor) => (
               <LabelCheckbox
                 key={`${itemPrefix}:support:${actor.value}`}
-                label={`${itemPrefix} 辅助参与者 ${actor.value}`}
+                label={`辅助参与者：${actor.label || "未命名角色"}`}
                 checked={stringListValue(item.supportingActorIds).includes(actor.value)}
                 onChange={(checked) =>
                   setItemField(
@@ -1078,16 +1188,16 @@ function ModelEditPanel({
         </div>
       );
     }
-    if (draft.diagramKind === "usecase" && collection.key === "systemBoundaries") {
+    if (editorDraft.diagramKind === "usecase" && collection.key === "systemBoundaries") {
       return (
         <LabelTextarea
-          label={`${itemPrefix} 说明`}
+          label={editorFieldLabel(itemPrefix, "说明")}
           value={stringValue(item.description)}
           onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
         />
       );
     }
-    if (draft.diagramKind === "class" && collection.key === "classes") {
+    if (editorDraft.diagramKind === "class" && collection.key === "classes") {
       const attributes = Array.isArray(item.attributes)
         ? (item.attributes as Array<Record<string, unknown>>)
         : [];
@@ -1095,19 +1205,19 @@ function ModelEditPanel({
         <div className="space-y-3">
           <div className="grid gap-2 md:grid-cols-3">
             <LabelSelect
-              label={`${itemPrefix} 类型`}
+              label={editorFieldLabel(itemPrefix, "类型")}
               value={stringValue(item.classKind)}
               options={enumOptions(["entity", "aggregate", "valueObject", "service", "other"])}
               allowEmpty
               onChange={(value) => setItemOptionalString(collection, itemId, "classKind", value)}
             />
             <LabelTextInput
-              label={`${itemPrefix} 构造型`}
+              label={editorFieldLabel(itemPrefix, "构造型")}
               value={stringValue(item.stereotype)}
               onChange={(value) => setItemOptionalString(collection, itemId, "stereotype", value)}
             />
             <LabelTextInput
-              label={`${itemPrefix} 说明`}
+              label={editorFieldLabel(itemPrefix, "说明")}
               value={stringValue(item.description)}
               onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
             />
@@ -1136,7 +1246,7 @@ function ModelEditPanel({
             {attributes.map((attribute, index) => (
               <div key={`${itemPrefix}:attribute:${index}`} className="grid gap-2 md:grid-cols-4">
                 <LabelTextInput
-                  label={`${itemPrefix} 属性 ${index} 名称`}
+                  label={`${ordinalLabel(index, "属性")}名称`}
                   value={stringValue(attribute.name)}
                   onChange={(value) =>
                     updateItem(collection, itemId, (currentItem) => ({
@@ -1148,7 +1258,7 @@ function ModelEditPanel({
                   }
                 />
                 <LabelTextInput
-                  label={`${itemPrefix} 属性 ${index} 类型`}
+                  label={`${ordinalLabel(index, "属性")}类型`}
                   value={stringValue(attribute.type)}
                   onChange={(value) =>
                     updateItem(collection, itemId, (currentItem) => ({
@@ -1160,7 +1270,7 @@ function ModelEditPanel({
                   }
                 />
                 <LabelSelect
-                  label={`${itemPrefix} 属性 ${index} 可见性`}
+                  label={`${ordinalLabel(index, "属性")}可见性`}
                   value={stringValue(attribute.visibility) || "private"}
                   options={enumOptions(["public", "protected", "private", "package"])}
                   onChange={(value) =>
@@ -1173,7 +1283,7 @@ function ModelEditPanel({
                   }
                 />
                 <LabelTextInput
-                  label={`${itemPrefix} 属性 ${index} 多重性`}
+                  label={`${ordinalLabel(index, "属性")}多重性`}
                   value={stringValue(attribute.multiplicity)}
                   onChange={(value) =>
                     updateItem(collection, itemId, (currentItem) => ({
@@ -1194,11 +1304,11 @@ function ModelEditPanel({
         </div>
       );
     }
-    if (draft.diagramKind === "class" && collection.key === "interfaces") {
+    if (editorDraft.diagramKind === "class" && collection.key === "interfaces") {
       return (
         <div className="space-y-3">
           <LabelTextInput
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
@@ -1206,27 +1316,27 @@ function ModelEditPanel({
         </div>
       );
     }
-    if (draft.diagramKind === "class" && collection.key === "enums") {
+    if (editorDraft.diagramKind === "class" && collection.key === "enums") {
       return (
         <LabelTextarea
-          label={`${itemPrefix} 字面量`}
+          label={editorFieldLabel(itemPrefix, "字面量")}
           value={stringListValue(item.literals).join("\n")}
           onChange={(value) => setItemField(collection, itemId, "literals", textToStringList(value))}
         />
       );
     }
-    if (draft.diagramKind === "activity" && collection.key === "nodes") {
+    if (editorDraft.diagramKind === "activity" && collection.key === "nodes") {
       return (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelSelect
-            label={`${itemPrefix} 类型`}
+            label={editorFieldLabel(itemPrefix, "类型")}
             value={stringValue(item.type)}
             options={enumOptions(["start", "end", "activity", "decision", "merge", "fork", "join"])}
             onChange={(value) => updateItem(collection, itemId, (currentItem) => activityNodeForType(currentItem, value))}
           />
           {item.type === "decision" ? (
             <LabelTextInput
-              label={`${itemPrefix} 问题`}
+              label={editorFieldLabel(itemPrefix, "问题")}
               value={stringValue(item.question)}
               onChange={(value) => setItemOptionalString(collection, itemId, "question", value)}
             />
@@ -1234,54 +1344,54 @@ function ModelEditPanel({
           {item.type === "activity" ? (
             <>
               <LabelSelect
-                label={`${itemPrefix} 泳道`}
+                label={editorFieldLabel(itemPrefix, "泳道")}
                 value={stringValue(item.actorOrLane)}
                 options={laneOptions}
                 allowEmpty
                 onChange={(value) => setItemOptionalString(collection, itemId, "actorOrLane", value)}
               />
               <LabelTextarea
-                label={`${itemPrefix} 输入`}
+                label={editorFieldLabel(itemPrefix, "输入")}
                 value={stringListValue(item.input).join("\n")}
                 onChange={(value) => setItemField(collection, itemId, "input", textToStringList(value))}
               />
               <LabelTextarea
-                label={`${itemPrefix} 输出`}
+                label={editorFieldLabel(itemPrefix, "输出")}
                 value={stringListValue(item.output).join("\n")}
                 onChange={(value) => setItemField(collection, itemId, "output", textToStringList(value))}
               />
             </>
           ) : null}
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
         </div>
       );
     }
-    if (draft.diagramKind === "activity" && collection.key === "swimlanes") {
+    if (editorDraft.diagramKind === "activity" && collection.key === "swimlanes") {
       return (
         <LabelTextarea
-          label={`${itemPrefix} 说明`}
+          label={editorFieldLabel(itemPrefix, "说明")}
           value={stringValue(item.description)}
           onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
         />
       );
     }
-    if (draft.diagramKind === "deployment") {
+    if (editorDraft.diagramKind === "deployment") {
       return (
         <div className="grid gap-2 md:grid-cols-2">
           {collection.key === "nodes" ? (
             <>
               <LabelSelect
-                label={`${itemPrefix} 类型`}
+                label={editorFieldLabel(itemPrefix, "类型")}
                 value={stringValue(item.nodeType) || "server"}
                 options={enumOptions(["app", "server", "device", "container", "external"])}
                 onChange={(value) => setItemField(collection, itemId, "nodeType", value)}
               />
               <LabelTextInput
-                label={`${itemPrefix} 环境`}
+                label={editorFieldLabel(itemPrefix, "环境")}
                 value={stringValue(item.environment)}
                 onChange={(value) => setItemOptionalString(collection, itemId, "environment", value)}
               />
@@ -1289,76 +1399,76 @@ function ModelEditPanel({
           ) : null}
           {collection.key === "databases" ? (
             <LabelTextInput
-              label={`${itemPrefix} 引擎`}
+              label={editorFieldLabel(itemPrefix, "引擎")}
               value={stringValue(item.engine)}
               onChange={(value) => setItemOptionalString(collection, itemId, "engine", value)}
             />
           ) : null}
           {collection.key === "components" ? (
             <LabelTextInput
-              label={`${itemPrefix} 组件类型`}
+              label={editorFieldLabel(itemPrefix, "组件类型")}
               value={stringValue(item.componentType)}
               onChange={(value) => setItemOptionalString(collection, itemId, "componentType", value)}
             />
           ) : null}
           {collection.key === "artifacts" ? (
             <LabelTextInput
-              label={`${itemPrefix} 制品类型`}
+              label={editorFieldLabel(itemPrefix, "制品类型")}
               value={stringValue(item.artifactType)}
               onChange={(value) => setItemOptionalString(collection, itemId, "artifactType", value)}
             />
           ) : null}
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
         </div>
       );
     }
-    if (draft.diagramKind === "sequence" && collection.key === "participants") {
+    if (editorDraft.diagramKind === "sequence" && collection.key === "participants") {
       return (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelSelect
-            label={`${itemPrefix} 类型`}
+            label={editorFieldLabel(itemPrefix, "类型")}
             value={stringValue(item.participantType) || "entity"}
             options={enumOptions(["actor", "boundary", "control", "entity", "service", "database", "external"])}
             onChange={(value) => setItemField(collection, itemId, "participantType", value)}
           />
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
         </div>
       );
     }
-    if (draft.diagramKind === "sequence" && collection.key === "fragments") {
+    if (editorDraft.diagramKind === "sequence" && collection.key === "fragments") {
       const messageIds = stringListValue(item.messageIds);
       return (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelSelect
-            label={`${itemPrefix} 类型`}
+            label={editorFieldLabel(itemPrefix, "类型")}
             value={stringValue(item.type) || "opt"}
             options={enumOptions(["alt", "opt", "loop", "par"])}
             onChange={(value) => setItemField(collection, itemId, "type", value)}
           />
           <LabelTextInput
-            label={`${itemPrefix} 条件`}
+            label={editorFieldLabel(itemPrefix, "条件")}
             value={stringValue(item.condition)}
             onChange={(value) => setItemOptionalString(collection, itemId, "condition", value)}
           />
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
           <div className="space-y-1 text-xs text-muted-foreground">
-            <div>{itemPrefix} 包含消息</div>
+            <div>{editorFieldLabel(itemPrefix, "包含消息")}</div>
             {messageOptions.map((message) => (
               <LabelCheckbox
                 key={`${itemPrefix}:message:${message.value}`}
-                label={`${itemPrefix} 包含消息 ${message.value}`}
+                label={`包含消息：${message.label || "未命名消息"}`}
                 checked={messageIds.includes(message.value)}
                 onChange={(checked) =>
                   setItemField(
@@ -1376,7 +1486,7 @@ function ModelEditPanel({
         </div>
       );
     }
-    if (draft.diagramKind === "table" && collection.key === "tables") {
+    if (editorDraft.diagramKind === "table" && collection.key === "tables") {
       const columns = Array.isArray(item.columns)
         ? (item.columns as Array<Record<string, unknown>>)
         : [];
@@ -1395,7 +1505,7 @@ function ModelEditPanel({
       return (
         <div className="space-y-3">
           <LabelTextarea
-            label={`${itemPrefix} 说明`}
+            label={editorFieldLabel(itemPrefix, "说明")}
             value={stringValue(item.description)}
             onChange={(value) => setItemOptionalString(collection, itemId, "description", value)}
           />
@@ -1407,7 +1517,7 @@ function ModelEditPanel({
                 size="sm"
                 variant="outline"
                 className="h-7 px-2 text-xs"
-                aria-label={`${itemPrefix} 添加字段`}
+                aria-label="添加字段"
                 onClick={() =>
                   updateItem(collection, itemId, (currentItem) => ({
                     ...currentItem,
@@ -1428,9 +1538,9 @@ function ModelEditPanel({
                 <Plus className="size-3" /> 添加字段
               </Button>
             </div>
-            {columns.map((column) => {
+            {columns.map((column, index) => {
               const columnId = stringValue(column.id);
-              const columnPrefix = `${itemPrefix} 字段 ${columnId}`;
+              const columnPrefix = ordinalLabel(index, "字段");
               const reference = column.references && typeof column.references === "object"
                 ? (column.references as Record<string, unknown>)
                 : {};
@@ -1438,17 +1548,17 @@ function ModelEditPanel({
                 <div key={`${itemPrefix}:column:${columnId}`} className="space-y-2 rounded-md border border-border bg-card p-3">
                   <div className="grid gap-2 md:grid-cols-3">
                     <LabelTextInput
-                      label={`${columnPrefix} 名称`}
+                      label={`${columnPrefix}名称`}
                       value={stringValue(column.name)}
                       onChange={(value) => updateColumn(columnId, (current) => ({ ...current, name: value }))}
                     />
                     <LabelTextInput
-                      label={`${columnPrefix} 类型`}
+                      label={`${columnPrefix}类型`}
                       value={stringValue(column.dataType)}
                       onChange={(value) => updateColumn(columnId, (current) => ({ ...current, dataType: value }))}
                     />
                     <LabelTextInput
-                      label={`${columnPrefix} 说明`}
+                      label={`${columnPrefix}说明`}
                       value={stringValue(column.description)}
                       onChange={(value) =>
                         updateColumn(columnId, (current) => {
@@ -1461,24 +1571,24 @@ function ModelEditPanel({
                   </div>
                   <div className="grid gap-2 md:grid-cols-3">
                     <LabelCheckbox
-                      label={`${columnPrefix} 主键`}
+                      label={`${columnPrefix}主键`}
                       checked={booleanValue(column.isPrimaryKey)}
                       onChange={(checked) => updateColumn(columnId, (current) => ({ ...current, isPrimaryKey: checked }))}
                     />
                     <LabelCheckbox
-                      label={`${columnPrefix} 外键`}
+                      label={`${columnPrefix}外键`}
                       checked={booleanValue(column.isForeignKey)}
                       onChange={(checked) => updateColumn(columnId, (current) => ({ ...current, isForeignKey: checked }))}
                     />
                     <LabelCheckbox
-                      label={`${columnPrefix} 可空`}
+                      label={`${columnPrefix}可空`}
                       checked={booleanValue(column.nullable, true)}
                       onChange={(checked) => updateColumn(columnId, (current) => ({ ...current, nullable: checked }))}
                     />
                   </div>
                   <div className="grid gap-2 md:grid-cols-2">
                     <LabelSelect
-                      label={`${columnPrefix} 引用表`}
+                      label={`${columnPrefix}引用表`}
                       value={stringValue(reference.tableId)}
                       options={tableOptions}
                       allowEmpty
@@ -1495,7 +1605,7 @@ function ModelEditPanel({
                       }
                     />
                     <LabelSelect
-                      label={`${columnPrefix} 引用字段`}
+                      label={`${columnPrefix}引用字段`}
                       value={stringValue(reference.columnId)}
                       options={columnsForTable(stringValue(reference.tableId))}
                       allowEmpty
@@ -1523,539 +1633,867 @@ function ModelEditPanel({
     return null;
   };
 
-  return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">编辑模型</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            可调整元素名称和关系，重新生成当前图时会先保存编辑再重绘。
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={rerenderDraft}
-            disabled={generating || saving}
-          >
-            <RefreshCw className="size-3.5" /> 重新生成当前图
-          </Button>
-        </div>
-      </div>
-
-      {editStatus?.warning ? (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-          <AlertTriangle className="size-3.5 shrink-0 text-warning" />
-          {editStatus.warning}
-        </div>
-      ) : null}
-
-      <div className="mt-4 grid gap-3 rounded-lg border border-border bg-background p-4 md:grid-cols-2">
+  const renderRelationEditors = (relation: Record<string, unknown>, id: string) => {
+    const sourceKey = relationEndpointKey(editorDraft, "source");
+    const targetKey = relationEndpointKey(editorDraft, "target");
+    return (
+      <div className="space-y-3">
         <LabelTextInput
-          label="模型标题"
-          value={stringValue(draft.title)}
-          onChange={(value) => setDraftField("title", value)}
+          label="关系名称"
+          value={relationName(relation)}
+          onChange={(value) =>
+            updateRelation(id, (currentRelation) => {
+              const nextRelation = { ...currentRelation };
+              setRelationName(nextRelation, value);
+              return nextRelation;
+            })
+          }
         />
-        <LabelTextarea
-          label="模型摘要"
-          value={stringValue(draft.summary)}
-          onChange={(value) => setDraftField("summary", value)}
-        />
-        <div className="md:col-span-2">
-          <LabelTextarea
-            label="模型备注"
-            value={stringListValue(draft.notes).join("\n")}
-            rows={3}
-            onChange={(value) => setDraftField("notes", textToStringList(value))}
+        <div className="grid gap-2 sm:grid-cols-3">
+          <LabelSelect
+            label="起点"
+            value={String(relation[sourceKey] ?? "")}
+            options={endpointOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+            }))}
+            onChange={(value) =>
+              updateRelation(id, (currentRelation) => ({
+                ...currentRelation,
+                [sourceKey]: value,
+              }))
+            }
+          />
+          <LabelSelect
+            label="关系类型"
+            value={String(relation.type ?? "")}
+            options={relationTypeOptions(editorDraft.diagramKind).map((option) => ({
+              value: option,
+              label: option,
+            }))}
+            onChange={(value) =>
+              updateRelation(id, (currentRelation) => ({
+                ...currentRelation,
+                type: value,
+              }))
+            }
+          />
+          <LabelSelect
+            label="终点"
+            value={String(relation[targetKey] ?? "")}
+            options={endpointOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+            }))}
+            onChange={(value) =>
+              updateRelation(id, (currentRelation) => ({
+                ...currentRelation,
+                [targetKey]: value,
+              }))
+            }
           />
         </div>
+        {editorDraft.diagramKind === "usecase" ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            <LabelTextInput
+              label="条件"
+              value={stringValue(relation.condition)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "condition", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextarea
+              label="说明"
+              value={stringValue(relation.description)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "description", value);
+                  return nextRelation;
+                })
+              }
+            />
+          </div>
+        ) : null}
+        {editorDraft.diagramKind === "class" ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {[
+              ["sourceRole", "源角色"],
+              ["targetRole", "目标角色"],
+              ["sourceMultiplicity", "源多重性"],
+              ["targetMultiplicity", "目标多重性"],
+            ].map(([key, label]) => (
+              <LabelTextInput
+                key={`${id}:${key}`}
+                label={label}
+                value={stringValue(relation[key])}
+                onChange={(value) =>
+                  updateRelation(id, (currentRelation) => {
+                    const nextRelation = { ...currentRelation };
+                    setOptionalStringValue(nextRelation, key, value);
+                    return nextRelation;
+                  })
+                }
+              />
+            ))}
+            <LabelSelect
+              label="导航性"
+              value={stringValue(relation.navigability)}
+              options={enumOptions(["none", "source-to-target", "target-to-source", "bidirectional"])}
+              allowEmpty
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "navigability", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextarea
+              label="说明"
+              value={stringValue(relation.description)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "description", value);
+                  return nextRelation;
+                })
+              }
+            />
+          </div>
+        ) : null}
+        {editorDraft.diagramKind === "activity" ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {[
+              ["condition", "条件"],
+              ["guard", "守卫"],
+              ["trigger", "触发"],
+            ].map(([key, label]) => (
+              <LabelTextInput
+                key={`${id}:${key}`}
+                label={label}
+                value={stringValue(relation[key])}
+                onChange={(value) =>
+                  updateRelation(id, (currentRelation) => {
+                    const nextRelation = { ...currentRelation };
+                    setOptionalStringValue(nextRelation, key, value);
+                    return nextRelation;
+                  })
+                }
+              />
+            ))}
+            <LabelTextarea
+              label="说明"
+              value={stringValue(relation.description)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "description", value);
+                  return nextRelation;
+                })
+              }
+            />
+          </div>
+        ) : null}
+        {editorDraft.diagramKind === "deployment" ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            <LabelTextInput
+              label="协议"
+              value={stringValue(relation.protocol)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "protocol", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextInput
+              label="端口"
+              value={stringValue(relation.port)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "port", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelSelect
+              label="方向"
+              value={stringValue(relation.direction)}
+              options={enumOptions(["one-way", "two-way", "inbound", "outbound"])}
+              allowEmpty
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "direction", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextarea
+              label="说明"
+              value={stringValue(relation.description)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "description", value);
+                  return nextRelation;
+                })
+              }
+            />
+          </div>
+        ) : null}
+        {editorDraft.diagramKind === "sequence" ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            <LabelTextarea
+              label="参数"
+              value={stringListValue(relation.parameters).join("\n")}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => ({
+                  ...currentRelation,
+                  parameters: textToStringList(value),
+                }))
+              }
+            />
+            <LabelTextInput
+              label="返回值"
+              value={stringValue(relation.returnValue)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "returnValue", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextInput
+              label="条件"
+              value={stringValue(relation.condition)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "condition", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextarea
+              label="说明"
+              value={stringValue(relation.description)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "description", value);
+                  return nextRelation;
+                })
+              }
+            />
+          </div>
+        ) : null}
+        {editorDraft.diagramKind === "table" ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            <LabelSelect
+              label="源字段"
+              value={stringValue(relation.sourceColumnId)}
+              options={columnsForTable(stringValue(relation.sourceTableId))}
+              allowEmpty
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "sourceColumnId", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelSelect
+              label="目标字段"
+              value={stringValue(relation.targetColumnId)}
+              options={columnsForTable(stringValue(relation.targetTableId))}
+              allowEmpty
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "targetColumnId", value);
+                  return nextRelation;
+                })
+              }
+            />
+            <LabelTextarea
+              label="说明"
+              value={stringValue(relation.description)}
+              onChange={(value) =>
+                updateRelation(id, (currentRelation) => {
+                  const nextRelation = { ...currentRelation };
+                  setOptionalStringValue(nextRelation, "description", value);
+                  return nextRelation;
+                })
+              }
+            />
+          </div>
+        ) : null}
       </div>
+    );
+  };
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
-        <div className="space-y-4">
-          {collections.map((collection) => {
-            const items = collectionItems(draft, collection);
-            return (
-              <div key={collection.key} className="rounded-lg border border-border bg-background p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-medium text-foreground">{collection.label}</h4>
+  const editingElement = elementEditor
+    ? collectionItems(elementEditor.draft, elementEditor.collection).find(
+        (item) => stringValue(item.id) === elementEditor.itemId,
+      ) ?? null
+    : null;
+  const editingRelation = relationEditor
+    ? relationshipItems(relationEditor.draft).find(
+        (relation) => stringValue(relation.id) === relationEditor.relationId,
+      ) ?? null
+    : null;
+
+  const commitElementEdit = async () => {
+    if (!elementEditor) return;
+    const nextDraft = elementEditor.draft;
+    setElementEditor(null);
+    await onCommitDraft(nextDraft);
+  };
+
+  const commitRelationEdit = async () => {
+    if (!relationEditor) return;
+    const nextDraft = relationEditor.draft;
+    setRelationEditor(null);
+    await onCommitDraft(nextDraft);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    let nextDraft: Record<string, unknown>;
+    if (deleteTarget.kind === "element") {
+      nextDraft = removeDanglingRelations(
+        updateDraftCollection(draft, deleteTarget.collection, (currentItems) =>
+          currentItems.filter((currentItem) => stringValue(currentItem.id) !== deleteTarget.id),
+        ),
+      );
+    } else {
+      const nextRelationships = relationshipItems(draft).filter(
+        (currentRelation) => stringValue(currentRelation.id) !== deleteTarget.id,
+      );
+      nextDraft =
+        draft.diagramKind === "sequence"
+          ? { ...draft, messages: nextRelationships }
+          : { ...draft, relationships: nextRelationships };
+    }
+    setDeleteTarget(null);
+    await onCommitDraft(nextDraft);
+  };
+
+  return (
+    <>
+      <div className="space-y-8">
+        <section className="space-y-4">
+          <div className="border-b border-border pb-3">
+            <h3 className="text-lg font-semibold text-foreground">元素清单</h3>
+            <div
+              className="mt-3 flex items-center justify-between gap-3 overflow-x-auto pb-1"
+              aria-label="元素清单工具栏"
+            >
+              <div className="flex min-w-max items-center gap-2">
+                <label className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    aria-label="搜索元素"
+                    value={elementSearch}
+                    onChange={(event) => setElementSearch(event.target.value)}
+                    className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="搜索元素、属性或说明"
+                  />
+                </label>
+                {detailModel.groups.length > 0 ? (
+                  <div
+                    className="flex items-center gap-2"
+                    aria-label="按元素类型筛选"
+                    role="group"
+                  >
+                    <Button
+                      type="button"
+                      variant={elementKindFilter === "all" ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 rounded-full px-3 text-xs"
+                      onClick={() => setElementKindFilter("all")}
+                    >
+                      全部类型
+                      <span className="ml-1 font-mono text-[10px] opacity-75">
+                        {detailModel.items.length}
+                      </span>
+                    </Button>
+                    {detailModel.groups.map((group) => (
+                      <Button
+                        key={group.kind}
+                        type="button"
+                        variant={elementKindFilter === group.kind ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 rounded-full px-3 text-xs"
+                        onClick={() => setElementKindFilter(group.kind)}
+                      >
+                        {SEMANTIC_KIND_META[group.kind].label}
+                        <span className="ml-1 font-mono text-[10px] opacity-75">
+                          {group.items.length}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="ml-auto flex min-w-max items-center gap-2">
+                {collections.map((collection) => (
                   <Button
+                    key={`add:${collection.key}`}
                     type="button"
                     size="sm"
                     variant="outline"
                     className="h-8"
-                    onClick={() =>
-                      setDraft((current) =>
-                        current
-                          ? updateDraftCollection(current, collection, (currentItems) => [
-                              ...currentItems,
-                              collection.create(),
-                            ])
-                          : current,
-                      )
-                    }
+                    disabled={saving}
+                    onClick={() => {
+                      const nextItem = collection.create();
+                      const itemId = stringValue(nextItem.id);
+                      const nextDraft = updateDraftCollection(draft, collection, (currentItems) => [
+                        ...currentItems,
+                        nextItem,
+                      ]);
+                      setElementEditor({
+                        collection,
+                        itemId,
+                        draft: nextDraft,
+                        mode: "create",
+                      });
+                    }}
                   >
-                    <Plus className="size-3.5" /> 添加
+                    <Plus className="size-3.5" /> 添加{collection.label}
                   </Button>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {items.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                      暂无{collection.label}
-                    </div>
-                  ) : (
-                    items.map((item) => {
-                      const id = String(item.id ?? "");
-                      return (
-                        <div key={`${collection.key}:${id}`} className="space-y-3 rounded-md border border-border bg-card p-3">
-                          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
-                            <label className="min-w-0">
-                              <span className="sr-only">{collection.label} {id} 名称</span>
-                              <input
-                                aria-label={`${collection.label} ${id} 名称`}
-                                value={itemLabel(item, collection)}
-                                onChange={(event) =>
-                                  setDraft((current) => {
-                                    if (!current) return current;
-                                    return updateDraftCollection(current, collection, (currentItems) =>
-                                      currentItems.map((currentItem) => {
-                                        if (String(currentItem.id ?? "") !== id) return currentItem;
-                                        const nextItem = { ...currentItem };
-                                        setItemLabel(nextItem, collection, event.target.value);
-                                        return nextItem;
-                                      }),
-                                    );
-                                  })
-                                }
-                                className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              />
-                            </label>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-9 px-2 text-destructive"
-                              aria-label={`删除${collection.label} ${id}`}
-                              onClick={() =>
-                                setDraft((current) => {
-                                  if (!current) return current;
-                                  return removeDanglingRelations(
-                                    updateDraftCollection(current, collection, (currentItems) =>
-                                      currentItems.filter((currentItem) => String(currentItem.id ?? "") !== id),
-                                    ),
-                                  );
-                                })
-                              }
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </div>
-                          {renderCollectionExtras(collection, item, id)}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
-
-        <div className="rounded-lg border border-border bg-background p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-medium text-foreground">关系</h4>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={endpointOptions.length === 0}
-              onClick={() =>
-                setDraft((current) => {
-                  if (!current) return current;
-                  const nextRelation = createRelationshipDraft(current);
-                  if (current.diagramKind === "sequence") {
-                    return { ...current, messages: [...relationshipItems(current), nextRelation] };
-                  }
-                  return { ...current, relationships: [...relationshipItems(current), nextRelation] };
-                })
-              }
-            >
-              <Plus className="size-3.5" /> 添加
-            </Button>
+            </div>
           </div>
-          <div className="mt-3 space-y-3">
-            {relationships.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-                暂无关系
+          <div>
+            {detailModel.groups.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
+                未识别到元素。
+              </div>
+            ) : filteredElements.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
+                没有匹配的元素，请调整搜索或类型筛选。
               </div>
             ) : (
-              relationships.map((relation) => {
-                const id = String(relation.id ?? "");
-                const sourceKey = relationEndpointKey(draft, "source");
-                const targetKey = relationEndpointKey(draft, "target");
-                const updateRelation = (updater: (item: Record<string, unknown>) => Record<string, unknown>) => {
-                  setDraft((current) => {
-                    if (!current) return current;
-                    const nextRelationships = relationshipItems(current).map((currentRelation) =>
-                      String(currentRelation.id ?? "") === id ? updater(currentRelation) : currentRelation,
-                    );
-                    if (current.diagramKind === "sequence") return { ...current, messages: nextRelationships };
-                    return { ...current, relationships: nextRelationships };
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {filteredElements.map((el) => {
+                  const editable = editableItemsById.get(el.id);
+                  const active = selectedElement?.kind === el.kind && selectedElement.id === el.id;
+                  const fieldSummary = el.fields
+                    .slice(0, 3)
+                    .map((field) => `${field.label}：${field.value}`)
+                    .join(" / ");
+                  return (
+                    <article
+                      key={`${el.kind}:${el.id}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`定位元素：${el.label}`}
+                      aria-pressed={active}
+                      onClick={() => onSelectElement(el)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        onSelectElement(el);
+                      }}
+                      className={cn(
+                        "min-h-40 cursor-pointer rounded-lg border p-4 text-left text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        active
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-card hover:bg-accent/40",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <Badge variant="secondary" className="shrink-0 bg-primary/10 text-xs text-primary">
+                          {SEMANTIC_KIND_META[el.kind].label}
+                        </Badge>
+                        <div className="flex min-w-0 flex-1 justify-end gap-1">
+                          {editable ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="size-7"
+                                aria-label={namedActionLabel(
+                                  "编辑",
+                                  editable.collection.label,
+                                  itemLabel(editable.item, editable.collection),
+                                )}
+                                disabled={saving}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setElementEditor({
+                                    collection: editable.collection,
+                                    itemId: el.id,
+                                    draft: cloneDraftModel(draft),
+                                    mode: "edit",
+                                  });
+                                }}
+                              >
+                                <span className="sr-only">编辑</span>
+                                <Pencil className="size-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="size-7 text-destructive"
+                                aria-label={namedActionLabel(
+                                  "删除",
+                                  editable.collection.label,
+                                  itemLabel(editable.item, editable.collection),
+                                )}
+                                disabled={saving}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDeleteTarget({
+                                    kind: "element",
+                                    collection: editable.collection,
+                                    id: el.id,
+                                    label: `${editable.collection.label} ${itemLabel(editable.item, editable.collection) || `未命名${editable.collection.label}`}`,
+                                  });
+                                }}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-4 truncate text-base font-semibold text-foreground">
+                        {el.label}
+                      </div>
+                      <div className="mt-2 line-clamp-3 min-h-[3.75rem] text-xs leading-5 text-muted-foreground">
+                        {el.description || "暂无说明。"}
+                      </div>
+                      <div className="mt-4 border-t border-border pt-3">
+                        <div className="truncate text-xs text-muted-foreground">
+                          {fieldSummary || "暂无字段"}
+                        </div>
+                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          {el.fields.length} 个字段
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="border-b border-border pb-3">
+            <h3 className="text-lg font-semibold text-foreground">关系说明</h3>
+            <div
+              className="mt-3 flex items-center justify-between gap-3 overflow-x-auto pb-1"
+              aria-label="关系说明工具栏"
+            >
+              <div className="flex min-w-max items-center gap-2">
+                <label className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    aria-label="搜索关系"
+                    value={relationSearch}
+                    onChange={(event) => setRelationSearch(event.target.value)}
+                    className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="搜索关系、端点或说明"
+                  />
+                </label>
+                {relationships.length > 0 ? (
+                  <div
+                    className="flex items-center gap-2"
+                    aria-label="按关系类型筛选"
+                    role="group"
+                  >
+                    <Button
+                      type="button"
+                      variant={relationKindFilter === "all" ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 rounded-full px-3 text-xs"
+                      onClick={() => setRelationKindFilter("all")}
+                    >
+                      全部关系
+                      <span className="ml-1 font-mono text-[10px] opacity-75">
+                        {relationships.length}
+                      </span>
+                    </Button>
+                    {relationFilterOptions.map((option) => (
+                      <Button
+                        key={`relation-filter:${option.label}`}
+                        type="button"
+                        variant={relationKindFilter === option.label ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 rounded-full px-3 text-xs"
+                        onClick={() => setRelationKindFilter(option.label)}
+                      >
+                        {option.label}
+                        <span className="ml-1 font-mono text-[10px] opacity-75">
+                          {option.count}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto h-8"
+                disabled={endpointOptions.length === 0 || saving}
+                onClick={() => {
+                  const nextRelation = createRelationshipDraft(draft);
+                  const relationId = stringValue(nextRelation.id);
+                  const nextDraft =
+                    draft.diagramKind === "sequence"
+                      ? { ...draft, messages: [...relationshipItems(draft), nextRelation] }
+                      : { ...draft, relationships: [...relationshipItems(draft), nextRelation] };
+                  setRelationEditor({
+                    relationId,
+                    draft: nextDraft,
+                    mode: "create",
                   });
-                };
+                }}
+              >
+                <Plus className="size-3.5" /> 添加关系
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {relationships.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
+                暂无结构化关系。
+              </div>
+            ) : filteredRelationships.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
+                没有匹配的关系，请调整搜索或类型筛选。
+              </div>
+            ) : (
+              filteredRelationships.map((relationSummary) => {
+                const {
+                  id,
+                  detailRelation,
+                  displayLabel,
+                  sourceLabel,
+                  targetLabel,
+                  typeLabel,
+                } = relationSummary;
                 return (
-                  <div key={id} className="space-y-2 rounded-md border border-border bg-card p-3">
-                    <input
-                      aria-label={`关系 ${id} 名称`}
-                      value={relationName(relation)}
-                      onChange={(event) =>
-                        updateRelation((currentRelation) => {
-                          const nextRelation = { ...currentRelation };
-                          setRelationName(nextRelation, event.target.value);
-                          return nextRelation;
-                        })
-                      }
-                      className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <select
-                        aria-label={`关系 ${id} 起点`}
-                        value={String(relation[sourceKey] ?? "")}
-                        onChange={(event) =>
-                          updateRelation((currentRelation) => ({
-                            ...currentRelation,
-                            [sourceKey]: event.target.value,
-                          }))
-                        }
-                        className="h-9 rounded-md border border-border bg-background px-2 text-xs"
-                      >
-                        {endpointOptions.map((option) => (
-                          <option key={`source:${id}:${option.id}`} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        aria-label={`关系 ${id} 类型`}
-                        value={String(relation.type ?? "")}
-                        onChange={(event) =>
-                          updateRelation((currentRelation) => ({
-                            ...currentRelation,
-                            type: event.target.value,
-                          }))
-                        }
-                        className="h-9 rounded-md border border-border bg-background px-2 text-xs"
-                      >
-                        {relationTypeOptions(draft.diagramKind).map((option) => (
-                          <option key={`type:${id}:${option}`} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        aria-label={`关系 ${id} 终点`}
-                        value={String(relation[targetKey] ?? "")}
-                        onChange={(event) =>
-                          updateRelation((currentRelation) => ({
-                            ...currentRelation,
-                            [targetKey]: event.target.value,
-                          }))
-                        }
-                        className="h-9 rounded-md border border-border bg-background px-2 text-xs"
-                      >
-                        {endpointOptions.map((option) => (
-                          <option key={`target:${id}:${option.id}`} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <input
-                      aria-label={`关系 ${id} 说明条件`}
-                      value={String(relation.description ?? relation.condition ?? relation.guard ?? relation.protocol ?? "")}
-                      onChange={(event) =>
-                        updateRelation((currentRelation) => ({
-                          ...currentRelation,
-                          description: event.target.value || undefined,
-                        }))
-                      }
-                      className="h-9 w-full rounded-md border border-border bg-background px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    {draft.diagramKind === "usecase" ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <LabelTextInput
-                          label={`关系 ${id} 条件`}
-                          value={stringValue(relation.condition)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "condition", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextarea
-                          label={`关系 ${id} 说明`}
-                          value={stringValue(relation.description)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "description", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
+                  <article
+                    key={id}
+                    className={cn(
+                      "rounded-lg border border-border border-l-4 bg-card shadow-sm",
+                      getRelationAccentClass(Math.max(0, detailModel.relationships.findIndex((item) => item.id === id))),
+                    )}
+                  >
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-4 py-3 text-center">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {sourceLabel || "未指定起点"}
+                        </div>
                       </div>
-                    ) : null}
-                    {draft.diagramKind === "class" ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {[
-                          ["sourceRole", "源角色"],
-                          ["targetRole", "目标角色"],
-                          ["sourceMultiplicity", "源多重性"],
-                          ["targetMultiplicity", "目标多重性"],
-                        ].map(([key, label]) => (
-                          <LabelTextInput
-                            key={`${id}:${key}`}
-                            label={`关系 ${id} ${label}`}
-                            value={stringValue(relation[key])}
-                            onChange={(value) =>
-                              updateRelation((currentRelation) => {
-                                const nextRelation = { ...currentRelation };
-                                setOptionalStringValue(nextRelation, key, value);
-                                return nextRelation;
-                              })
-                            }
-                          />
-                        ))}
-                        <LabelSelect
-                          label={`关系 ${id} 导航性`}
-                          value={stringValue(relation.navigability)}
-                          options={enumOptions(["none", "source-to-target", "target-to-source", "bidirectional"])}
-                          allowEmpty
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "navigability", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextarea
-                          label={`关系 ${id} 说明`}
-                          value={stringValue(relation.description)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "description", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
+                      <div className="grid min-w-[160px] flex-[1.3] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center text-xs text-muted-foreground">
+                        <span className="h-px min-w-8 bg-border" />
+                        <span className="max-w-40 truncate bg-card px-2 text-center">
+                          <span className="block truncate text-foreground">{displayLabel}</span>
+                          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                            {typeLabel}
+                          </span>
+                        </span>
+                        <span className="relative h-px min-w-8 bg-border">
+                          <ArrowRight className="absolute right-0 top-1/2 size-4 -translate-y-1/2 translate-x-1/2 text-border" />
+                        </span>
                       </div>
-                    ) : null}
-                    {draft.diagramKind === "activity" ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {[
-                          ["condition", "条件"],
-                          ["guard", "守卫"],
-                          ["trigger", "触发"],
-                        ].map(([key, label]) => (
-                          <LabelTextInput
-                            key={`${id}:${key}`}
-                            label={`关系 ${id} ${label}`}
-                            value={stringValue(relation[key])}
-                            onChange={(value) =>
-                              updateRelation((currentRelation) => {
-                                const nextRelation = { ...currentRelation };
-                                setOptionalStringValue(nextRelation, key, value);
-                                return nextRelation;
-                              })
-                            }
-                          />
-                        ))}
-                        <LabelTextarea
-                          label={`关系 ${id} 说明`}
-                          value={stringValue(relation.description)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "description", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
+                      <div className="min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-4 py-3 text-center">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {targetLabel || "未指定终点"}
+                        </div>
                       </div>
-                    ) : null}
-                    {draft.diagramKind === "deployment" ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <LabelTextInput
-                          label={`关系 ${id} 协议`}
-                          value={stringValue(relation.protocol)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "protocol", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextInput
-                          label={`关系 ${id} 端口`}
-                          value={stringValue(relation.port)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "port", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelSelect
-                          label={`关系 ${id} 方向`}
-                          value={stringValue(relation.direction)}
-                          options={enumOptions(["one-way", "two-way", "inbound", "outbound"])}
-                          allowEmpty
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "direction", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextarea
-                          label={`关系 ${id} 说明`}
-                          value={stringValue(relation.description)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "description", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    {draft.diagramKind === "sequence" ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <LabelTextarea
-                          label={`关系 ${id} 参数`}
-                          value={stringListValue(relation.parameters).join("\n")}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => ({
-                              ...currentRelation,
-                              parameters: textToStringList(value),
-                            }))
-                          }
-                        />
-                        <LabelTextInput
-                          label={`关系 ${id} 返回值`}
-                          value={stringValue(relation.returnValue)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "returnValue", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextInput
-                          label={`关系 ${id} 条件`}
-                          value={stringValue(relation.condition)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "condition", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextarea
-                          label={`关系 ${id} 说明`}
-                          value={stringValue(relation.description)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "description", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    {draft.diagramKind === "table" ? (
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <LabelSelect
-                          label={`关系 ${id} 源字段`}
-                          value={stringValue(relation.sourceColumnId)}
-                          options={columnsForTable(stringValue(relation.sourceTableId))}
-                          allowEmpty
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "sourceColumnId", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelSelect
-                          label={`关系 ${id} 目标字段`}
-                          value={stringValue(relation.targetColumnId)}
-                          options={columnsForTable(stringValue(relation.targetTableId))}
-                          allowEmpty
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "targetColumnId", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                        <LabelTextarea
-                          label={`关系 ${id} 说明`}
-                          value={stringValue(relation.description)}
-                          onChange={(value) =>
-                            updateRelation((currentRelation) => {
-                              const nextRelation = { ...currentRelation };
-                              setOptionalStringValue(nextRelation, "description", value);
-                              return nextRelation;
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    <div className="flex justify-end">
                       <Button
                         type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2 text-destructive"
-                        aria-label={`删除关系 ${id}`}
+                        size="icon"
+                        variant="ghost"
+                        className="size-8"
+                        aria-label={namedActionLabel("编辑", "关系", displayLabel)}
+                        disabled={saving}
                         onClick={() =>
-                          setDraft((current) => {
-                            if (!current) return current;
-                            const nextRelationships = relationshipItems(current).filter(
-                              (currentRelation) => String(currentRelation.id ?? "") !== id,
-                            );
-                            if (current.diagramKind === "sequence") return { ...current, messages: nextRelationships };
-                            return { ...current, relationships: nextRelationships };
+                          setRelationEditor({
+                            relationId: id,
+                            draft: cloneDraftModel(draft),
+                            mode: "edit",
+                          })
+                        }
+                      >
+                        <span className="sr-only">编辑</span>
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 text-destructive"
+                        aria-label={namedActionLabel("删除", "关系", displayLabel)}
+                        disabled={saving}
+                        onClick={() =>
+                          setDeleteTarget({
+                            kind: "relation",
+                            id,
+                            label: `关系 ${displayLabel || "未命名关系"}`,
                           })
                         }
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
-                  </div>
+                  </article>
                 );
               })
             )}
           </div>
-        </div>
+        </section>
       </div>
-    </section>
+
+      <Dialog open={Boolean(elementEditor)} onOpenChange={(open) => !open && setElementEditor(null)}>
+        <DialogContent className="max-h-[88vh] overflow-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {elementEditor
+                ? `${elementEditor.mode === "create" ? "添加" : "编辑"}${elementEditor.collection.label}`
+                : "编辑元素"}
+            </DialogTitle>
+            <DialogDescription>
+              确认后会保存当前模型草稿，并立即重新生成当前图。
+            </DialogDescription>
+          </DialogHeader>
+          {elementEditor && editingElement ? (
+            <div className="space-y-4 [&_.grid]:!grid-cols-1">
+              <LabelTextInput
+                label={editorFieldLabel(elementEditor.collection.label, "名称")}
+                value={itemLabel(editingElement, elementEditor.collection)}
+                onChange={(value) =>
+                  updateItem(elementEditor.collection, elementEditor.itemId, (currentItem) => {
+                    const nextItem = { ...currentItem };
+                    setItemLabel(nextItem, elementEditor.collection, value);
+                    return nextItem;
+                  })
+                }
+              />
+              {renderCollectionExtras(
+                elementEditor.collection,
+                editingElement,
+                elementEditor.itemId,
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              未找到可编辑元素。
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setElementEditor(null)}
+              disabled={saving}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={commitElementEdit}
+              disabled={!editingElement || saving}
+            >
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              {elementEditor?.mode === "create" ? "确认添加" : "确认编辑"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(relationEditor)} onOpenChange={(open) => !open && setRelationEditor(null)}>
+        <DialogContent className="max-h-[88vh] overflow-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {relationEditor?.mode === "create" ? "添加关系" : "编辑关系"}
+            </DialogTitle>
+            <DialogDescription>
+              调整端点、类型和关系字段后，确认会保存草稿并重新生成当前图。
+            </DialogDescription>
+          </DialogHeader>
+          {relationEditor && editingRelation ? (
+            <div className="[&_.grid]:!grid-cols-1">
+              {renderRelationEditors(editingRelation, relationEditor.relationId)}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              未找到可编辑关系。
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRelationEditor(null)}
+              disabled={saving}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={commitRelationEdit}
+              disabled={!editingRelation || saving}
+            >
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              {relationEditor?.mode === "create" ? "确认添加" : "确认编辑"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {deleteTarget?.kind === "element" ? `删除${deleteTarget.collection.label}` : "删除关系"}
+            </DialogTitle>
+            <DialogDescription>
+              将删除{deleteTarget?.label ?? "当前项"}，并清理相关引用或关系。确认删除后会立即保存并重新生成当前图。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={saving}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -2081,7 +2519,11 @@ function DiagramDetailView({
     designDiagramErrors,
     rulesForDiagram,
     staleDiagrams,
-    generateDiagrams,
+    manualModelEditStatus,
+    saveRequirementModelEdit,
+    saveDesignModelEdit,
+    rerenderRequirementModel,
+    rerenderDesignModel,
     generating,
   } = useWorkspaceSession();
   const {
@@ -2111,6 +2553,12 @@ function DiagramDetailView({
   const diagramError = isDesign
     ? designDiagramErrors[designType] ?? null
     : diagramErrors[requirementType] ?? null;
+  const statusKey = isDesign ? designArtifactId : requirementType;
+  const editStatus = manualModelEditStatus[statusKey];
+  const [draft, setDraft] = useState<Record<string, unknown> | null>(() =>
+    model ? cloneDraftModel(model) : null,
+  );
+  const [saving, setSaving] = useState(false);
   const [svgUrl, setSvgUrl] = useState("");
   const [svgScale, setSvgScale] = useState(1);
   const svgScaleRef = useRef(svgScale);
@@ -2134,6 +2582,45 @@ function DiagramDetailView({
     "all",
   );
   const [relationsOnlyFocus, setRelationsOnlyFocus] = useState(false);
+  const [localHighlightedElement, setLocalHighlightedElement] = useState<{
+    kind: string;
+    id: string;
+  } | null>(null);
+  const [highlightRequestId, setHighlightRequestId] = useState(0);
+  useEffect(() => {
+    setDraft(model ? cloneDraftModel(model) : null);
+    setLocalHighlightedElement(null);
+  }, [model, statusKey]);
+  const setDraftField = useCallback((key: string, value: unknown) => {
+    setDraft((current) => (current ? { ...current, [key]: value } : current));
+  }, []);
+  const commitDraftAndRerender = useCallback(async (nextDraft: Record<string, unknown>) => {
+    setDraft(nextDraft);
+    setSaving(true);
+    try {
+      if (isDesign) {
+        await saveDesignModelEdit(designArtifactId, nextDraft as never);
+        await rerenderDesignModel(designArtifactId, nextDraft as never);
+      } else {
+        await saveRequirementModelEdit(requirementType, nextDraft as never);
+        await rerenderRequirementModel(requirementType, nextDraft as never);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    designArtifactId,
+    isDesign,
+    requirementType,
+    rerenderDesignModel,
+    rerenderRequirementModel,
+    saveDesignModelEdit,
+    saveRequirementModelEdit,
+  ]);
+  const rerenderDraft = useCallback(async () => {
+    if (!draft) return;
+    await commitDraftAndRerender(draft);
+  }, [commitDraftAndRerender, draft]);
   const updateSvgScale = useCallback((next: number) => {
     setSvgScale(Math.min(3, Math.max(0.25, Math.round(next * 100) / 100)));
   }, []);
@@ -2206,19 +2693,24 @@ function DiagramDetailView({
     };
   }, [svgMarkup]);
   const sourceRules = isDesign ? [] : rulesForDiagram(requirementType);
-  const detailModel = useMemo(() => buildDiagramDetailModel(model), [model]);
+  const detailModel = useMemo(() => buildDiagramDetailModel(draft ?? model), [draft, model]);
   const { items, groups, relationships } = detailModel;
   const itemsById = useMemo(
     () => new Map(items.map((item) => [item.id, item])),
     [items],
   );
 
+  const effectiveHighlightedElement = localHighlightedElement ?? highlightedElement ?? null;
   const highlighted: DiagramDetailItem | undefined = useMemo(() => {
-    if (!highlightedElement) return undefined;
+    if (!effectiveHighlightedElement) return undefined;
     return items.find(
-      (e) => e.kind === highlightedElement.kind && e.id === highlightedElement.id,
+      (e) => e.kind === effectiveHighlightedElement.kind && e.id === effectiveHighlightedElement.id,
     );
-  }, [items, highlightedElement]);
+  }, [items, effectiveHighlightedElement]);
+  const selectElementInDiagram = useCallback((element: DiagramDetailItem) => {
+    setLocalHighlightedElement({ kind: element.kind, id: element.id });
+    setHighlightRequestId((current) => current + 1);
+  }, []);
   const relatedRelationships = useMemo(
     () => relationships.filter((relation) => isRelationConnectedTo(relation, highlighted)),
     [highlighted, relationships],
@@ -2263,8 +2755,8 @@ function DiagramDetailView({
     if (group.kind === "message" || group.kind === "table-column") return false;
     return group.items.length > 0;
   });
-  const modelTitle = getModelText(model, "title", meta.label);
-  const modelSummary = getModelText(model, "summary", meta.description);
+  const modelTitle = getModelText(draft ?? model, "title", meta.label);
+  const modelSummary = getModelText(draft ?? model, "summary", meta.description);
   const diagramActions = svgMarkup ? (
     <div className="flex flex-wrap items-center gap-1">
       <Button
@@ -2371,54 +2863,77 @@ function DiagramDetailView({
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
               <AlertTriangle className="size-4 shrink-0 text-warning" />
               <span>此图基于旧规则生成，可能已过时。</span>
-              <Button
-                size="sm"
-                variant="outline"
-                className="ml-auto h-8"
-                onClick={() => generateDiagrams([requirementType])}
-                disabled={generating}
-              >
-                {generating ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-3.5" />
-                )}
-                重新生成此图
-              </Button>
             </div>
           )}
 
           <header className="px-1">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-2xl font-semibold tracking-normal text-foreground">
-                    {modelTitle}
-                  </h2>
-                  <Badge variant="secondary">{isDesign ? "设计模型" : "需求模型"}</Badge>
+                  {draft ? (
+                    <input
+                      aria-label="模型标题"
+                      value={stringValue(draft.title)}
+                      onChange={(event) => setDraftField("title", event.target.value)}
+                      className="min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-1 py-0 text-2xl font-semibold tracking-normal text-foreground outline-none transition-colors hover:border-border focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                    />
+                  ) : (
+                    <h2 className="truncate text-2xl font-semibold tracking-normal text-foreground">
+                      {modelTitle}
+                    </h2>
+                  )}
                 </div>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  {modelSummary}
-                </p>
+                {draft ? (
+                  <>
+                    <textarea
+                      aria-label="模型摘要"
+                      value={stringValue(draft.summary)}
+                      onChange={(event) => setDraftField("summary", event.target.value)}
+                      rows={2}
+                      className="mt-1 block w-full max-w-3xl resize-y rounded-md border border-transparent bg-transparent px-1 py-0 text-sm leading-6 text-muted-foreground outline-none transition-colors hover:border-border focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                    />
+                  </>
+                ) : (
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    {modelSummary}
+                  </p>
+                )}
               </div>
-              <div className="grid grid-cols-3 gap-2 text-center sm:w-auto">
-                <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
-                  <div className="font-mono text-lg font-semibold text-foreground">
-                    {items.length}
-                  </div>
-                  <div className="text-xs text-muted-foreground">元素</div>
+              <div className="flex flex-col gap-2 sm:w-auto">
+                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={rerenderDraft}
+                    disabled={!draft || generating || saving}
+                  >
+                    {saving || generating ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3.5" />
+                    )}
+                    重新生成当前图
+                  </Button>
                 </div>
-                <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
-                  <div className="font-mono text-lg font-semibold text-foreground">
-                    {relationships.length}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
+                    <div className="font-mono text-lg font-semibold text-foreground">
+                      {items.length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">元素</div>
                   </div>
-                  <div className="text-xs text-muted-foreground">关系</div>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
-                  <div className="font-mono text-lg font-semibold text-foreground">
-                    {groups.length}
+                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
+                    <div className="font-mono text-lg font-semibold text-foreground">
+                      {relationships.length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">关系</div>
                   </div>
-                  <div className="text-xs text-muted-foreground">分组</div>
+                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
+                    <div className="font-mono text-lg font-semibold text-foreground">
+                      {groups.length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">分组</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2427,7 +2942,7 @@ function DiagramDetailView({
           <Tabs
             key={`${stage}:${type}:${highlighted ? highlighted.id : "all"}`}
             defaultValue="diagram"
-            className="min-h-[560px] flex-1 gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+            className="gap-0 rounded-xl border border-border bg-card shadow-sm"
           >
             <div className="border-b border-border px-5">
               <TabsList className="h-auto w-full justify-start gap-8 rounded-none bg-transparent p-0">
@@ -2437,30 +2952,12 @@ function DiagramDetailView({
                 >
                   图
                 </TabsTrigger>
-                <TabsTrigger
-                  value="elements"
-                  className="relative h-12 flex-none rounded-none border-0 bg-transparent px-0 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block"
-                >
-                元素
-                <span className="ml-1 font-mono text-[10px] text-muted-foreground">
-                  {items.length}
-                </span>
-                </TabsTrigger>
-                <TabsTrigger
-                  value="relations"
-                  className="relative h-12 flex-none rounded-none border-0 bg-transparent px-0 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block"
-                >
-                关系
-                <span className="ml-1 font-mono text-[10px] text-muted-foreground">
-                  {relationships.length}
-                </span>
-                </TabsTrigger>
               </TabsList>
             </div>
 
-            <TabsContent value="diagram" className="m-0 min-h-0 flex-1 p-0 data-[state=active]:flex data-[state=active]:flex-col">
-              <div className="grid min-h-0 flex-1 gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <section className="flex min-w-0 min-h-0 flex-col bg-background">
+            <TabsContent value="diagram" className="m-0 p-0">
+              <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-background">
                   <div className="flex flex-col gap-3 rounded-t-xl border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">预览</h3>
@@ -2474,7 +2971,7 @@ function DiagramDetailView({
                     ref={svgCanvasRef}
                     data-testid="svg-preview-canvas"
                     className={cn(
-                      "min-h-[420px] flex-1 overflow-auto",
+                      "h-[560px] overflow-auto",
                       svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
                     )}
                     onMouseDown={startCanvasPan}
@@ -2488,6 +2985,7 @@ function DiagramDetailView({
                             svg={svgMarkup}
                             scale={svgScale}
                             highlightLabel={highlighted?.label}
+                            highlightKey={highlightRequestId}
                             className="w-full [&>svg]:drop-shadow-sm"
                           />
                         </div>
@@ -2529,15 +3027,21 @@ function DiagramDetailView({
                             variant="ghost"
                             size="sm"
                             className="h-8"
-                            onClick={() =>
-                              isDesign
-                                ? openDesignDiagram(
-                                    designType,
-                                    designArtifactId,
-                                    getModelText(model, "title", meta.label),
-                                  )
-                                : openDiagram(requirementType)
-                            }
+                            onClick={() => {
+                              if (localHighlightedElement) {
+                                setLocalHighlightedElement(null);
+                                return;
+                              }
+                              if (isDesign) {
+                                openDesignDiagram(
+                                  designType,
+                                  designArtifactId,
+                                  getModelText(model, "title", meta.label),
+                                );
+                              } else {
+                                openDiagram(requirementType);
+                              }
+                            }}
                           >
                             清除高亮
                           </Button>
@@ -2616,30 +3120,26 @@ function DiagramDetailView({
                           </div>
                         </div>
                       </section>
-                      <section className="rounded-xl border border-border bg-background p-4 shadow-sm">
-                        <h3 className="text-sm font-semibold text-foreground">当前状态</h3>
-                        <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                          <div className="flex items-center justify-between gap-2">
-                            <span>模型类型</span>
-                            <span className="font-medium text-foreground">{meta.label}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span>SVG 预览</span>
-                            <span className="font-medium text-foreground">
-                              {svgMarkup ? "已生成" : "未生成"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span>缩放比例</span>
-                            <span className="font-mono text-foreground">
-                              当前 {Math.round(svgScale * 100)}%
-                            </span>
-                          </div>
-                        </div>
-                      </section>
                     </>
                   )}
                 </aside>
+              </div>
+              <div className="px-5 pb-5">
+                <div className="mb-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                  <AlertTriangle className="size-3.5 shrink-0 text-warning" />
+                  <span>
+                    {editStatus?.warning ??
+                      "手动修改会更新当前模型结构，可能不再完全对应原始需求或上游用例。重新生成只会基于当前编辑后的模型重绘此图。"}
+                  </span>
+                </div>
+                <ModelEditPanel
+                  draft={draft}
+                  setDraft={setDraft}
+                  onCommitDraft={commitDraftAndRerender}
+                  onSelectElement={selectElementInDiagram}
+                  selectedElement={effectiveHighlightedElement}
+                  saving={saving}
+                />
               </div>
             </TabsContent>
 
@@ -2919,13 +3419,6 @@ function DiagramDetailView({
             </TabsContent>
 
           </Tabs>
-
-          <ModelEditPanel
-            model={model}
-            isDesign={isDesign}
-            requirementType={requirementType}
-            designArtifactId={designArtifactId}
-          />
 
           </div>
         </div>

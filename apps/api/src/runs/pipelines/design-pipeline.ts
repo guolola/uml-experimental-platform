@@ -50,6 +50,7 @@ import {
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { throwIfRunCancelled } from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
@@ -812,6 +813,7 @@ export async function runDesignStagePipeline(
   renderClient: RenderClient,
 ) {
   const snapshot = record.snapshot as DesignRunSnapshot;
+  throwIfRunCancelled(record);
   if (!snapshot.requirementBaseline && snapshot.rules.length > 0) {
     snapshot.requirementBaseline = buildRequirementBaseline({
       runId: snapshot.runId,
@@ -822,6 +824,7 @@ export async function runDesignStagePipeline(
   assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
 
   const updateStage = (stage: RunStage, message?: string) => {
+    throwIfRunCancelled(record);
     snapshot.currentStage = stage;
     snapshot.status = "running";
     emitEvent(record, stageStartedRunEventSchema.parse({ type: "stage_started", stage }));
@@ -847,15 +850,20 @@ export async function runDesignStagePipeline(
   }
 
   let sequenceModels = existingSequenceModelsForUseCases(models, useCaseModel);
-  if (
-    sequenceModels.length === 0 ||
-    (snapshot.selectedDiagrams.length === 1 && snapshot.selectedDiagrams.includes("sequence"))
-  ) {
+  const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
+  const shouldGenerateSequence = selectedDesignDiagrams.has("sequence");
+  const selectedDownstreamDiagrams = snapshot.selectedDiagrams.filter(
+    (diagram): diagram is Exclude<DesignDiagramKind, "sequence"> =>
+      diagram !== "sequence",
+  );
+
+  if (shouldGenerateSequence) {
     updateStage("generate_design_sequence", "正在生成设计顺序图");
     const sequenceResults = await mapWithConcurrency(
       useCasesFromModel(useCaseModel),
       DESIGN_SEQUENCE_CONCURRENCY,
       (useCase) => {
+        throwIfRunCancelled(record);
         const scopedUseCaseModel = useCaseModelForSingleUseCase(
           useCaseModel,
           useCase.id,
@@ -891,6 +899,7 @@ export async function runDesignStagePipeline(
         );
       },
     );
+    throwIfRunCancelled(record);
     sequenceModels = sequenceResults.flatMap((result) => result.models).filter(
       (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }> =>
         model.diagramKind === "sequence",
@@ -906,23 +915,31 @@ export async function runDesignStagePipeline(
       ),
       ...sequenceResults.flatMap((result) => result.designModelTraceability),
     ];
+  } else if (selectedDownstreamDiagrams.length > 0 && sequenceModels.length === 0) {
+    throw new Error("缺少设计顺序图，无法生成所选设计模型；请先生成顺序图或在本次请求中包含顺序图");
   }
   snapshot.models = models;
   snapshot.designModelTraceability = designModelTraceability;
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "generate_design_sequence",
-      artifactKind: "model",
-      diagramKind: "sequence",
-    }),
-  );
+  if (shouldGenerateSequence) {
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "generate_design_sequence",
+        artifactKind: "model",
+        diagramKind: "sequence",
+      }),
+    );
+  }
 
-  const requestedDownstream = snapshot.selectedDiagrams.filter(
-    (diagram): diagram is Exclude<DesignDiagramKind, "sequence"> =>
-      diagram !== "sequence",
-  );
+  const requestedDownstream = selectedDownstreamDiagrams;
+  if (
+    requestedDownstream.includes("table") &&
+    !selectedDesignDiagrams.has("class") &&
+    !models.some((model) => model.diagramKind === "class")
+  ) {
+    throw new Error("缺少设计类图，无法生成表关系图；请先生成设计类图或在本次请求中包含设计类图");
+  }
   const downstreamWithSources = requestedDownstream.filter((diagram) => {
     const sourceKind = sourceRequirementKindForDesign(diagram);
     if (findRequirementModel(snapshot.requirementModels, sourceKind)) {
@@ -941,6 +958,7 @@ export async function runDesignStagePipeline(
       diagram: Exclude<DesignDiagramKind, "sequence">,
       designContextModels: DesignDiagramModelSpec[] = [],
     ) => {
+      throwIfRunCancelled(record);
       emitEvent(
         record,
         stageProgressRunEventSchema.parse({
@@ -960,7 +978,7 @@ export async function runDesignStagePipeline(
         ),
       ].filter((model): model is DiagramModelSpec => Boolean(model));
       try {
-        return await generateDesignModelsWithRepair(
+        const result = await generateDesignModelsWithRepair(
           record,
           providerSettings,
           llmTransport,
@@ -978,7 +996,10 @@ export async function runDesignStagePipeline(
           ),
           "generate_design_models",
         );
+        throwIfRunCancelled(record);
+        return result;
       } catch (error) {
+        throwIfRunCancelled(record);
         diagramErrors[diagram] = diagramErrorSchema.parse({
           stage: "generate_design_models",
           message:
@@ -994,6 +1015,7 @@ export async function runDesignStagePipeline(
     const downstreamResults = await Promise.all(
       parallelDownstream.map((diagram) => generateDownstreamDiagram(diagram)),
     );
+    throwIfRunCancelled(record);
     const generatedDownstreamModels = downstreamResults.flatMap(
       (result) => result?.models ?? [],
     );
@@ -1026,6 +1048,7 @@ export async function runDesignStagePipeline(
           }),
         );
         const tableResult = await generateDownstreamDiagram("table", [classModel]);
+        throwIfRunCancelled(record);
         const tableModels = tableResult?.models ?? [];
         models = mergeDesignModels(models, tableModels);
         designModelTraceability = [
@@ -1088,6 +1111,7 @@ export async function runDesignStagePipeline(
   assertTrustedChainAllowsCompletion(trustedChain);
 
   updateStage("generate_plantuml", "正在生成设计阶段 PlantUML");
+  throwIfRunCancelled(record);
   let plantUml = generateDesignPlantUmlArtifacts(models);
   snapshot.plantUml = plantUml;
   for (const artifact of plantUml) {
@@ -1114,6 +1138,7 @@ export async function runDesignStagePipeline(
   const svgArtifacts: DesignSvgArtifact[] = [];
   const renderFailures: string[] = [];
   for (const artifact of plantUml) {
+    throwIfRunCancelled(record);
     const model = findDesignModelForArtifact(models, artifact);
     if (!model) {
       throw new Error(`Missing design diagram model for ${artifact.diagramKind}`);
@@ -1127,6 +1152,7 @@ export async function runDesignStagePipeline(
       model,
       artifact,
     );
+    throwIfRunCancelled(record);
     repairedPlantUmlArtifacts.push(rendered.artifact as DesignPlantUmlArtifact);
     if (rendered.status === "success") {
       svgArtifacts.push(rendered.svgArtifact as DesignSvgArtifact);
@@ -1157,6 +1183,7 @@ export async function runDesignStagePipeline(
   }
 
   snapshot.currentStage = "render_svg";
+  throwIfRunCancelled(record);
   const evidencePackage = attachEvidencePackage(snapshot);
   emitEvent(
     record,

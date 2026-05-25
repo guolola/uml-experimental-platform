@@ -213,6 +213,7 @@ describe("WorkspaceSessionProvider", () => {
     const { result } = renderHook(() => useWorkspaceSession(), {
       wrapper: ({ children }) => withWorkspaceProviders(children, repository),
     });
+    const user = userEvent.setup();
 
     await waitFor(() => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
@@ -417,6 +418,7 @@ describe("WorkspaceSessionProvider", () => {
     const { result } = renderHook(() => useWorkspaceSession(), {
       wrapper: ({ children }) => withWorkspaceProviders(children, repository),
     });
+    const user = userEvent.setup();
 
     await waitFor(() => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
@@ -446,8 +448,13 @@ describe("WorkspaceSessionProvider", () => {
       result.current.setSelectedDiagrams(["usecase", "activity"]);
     });
 
+    let diagramGeneration: Promise<void> | null = null;
+    act(() => {
+      diagramGeneration = result.current.generateDiagrams();
+    });
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
     await act(async () => {
-      await result.current.generateDiagrams();
+      await diagramGeneration;
     });
 
     expect(startRun).toHaveBeenCalledWith(
@@ -1110,8 +1117,14 @@ describe("WorkspaceSessionProvider", () => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
     });
 
+    const user = userEvent.setup();
+    let designGeneration: Promise<void> | null = null;
+    act(() => {
+      designGeneration = result.current.generateDesignDiagrams(["table"]);
+    });
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
     await act(async () => {
-      await result.current.generateDesignDiagrams(["table"]);
+      await designGeneration;
     });
 
     expect(repository.startDesignRun).toHaveBeenCalledWith(

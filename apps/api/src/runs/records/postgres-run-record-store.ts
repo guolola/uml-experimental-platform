@@ -18,9 +18,14 @@ interface RunRecordRow {
 interface RunEventRow {
   run_id: string;
   sequence: number;
-  payload: RunEvent;
+  payload: PersistedRunEvent;
 }
 
+type PersistedCompletedRunEvent = {
+  type: "completed";
+  snapshotRef: string;
+};
+type PersistedRunEvent = RunEvent | PersistedCompletedRunEvent;
 type PersistJob = Promise<void>;
 
 export interface PersistentRunRecordStore extends RunRecordStore {
@@ -59,8 +64,40 @@ function createMetadata(row: RunRecordRow): RunRecordMetadata | undefined {
   };
 }
 
+function shouldPersistProgressSnapshots() {
+  return process.env.UML_PERSIST_PROGRESS_SNAPSHOT === "true";
+}
+
+function shouldPersistSnapshotForEvent(event: RunEvent) {
+  if (event.type === "llm_chunk") {
+    return false;
+  }
+  if (event.type === "stage_progress") {
+    return shouldPersistProgressSnapshots();
+  }
+  return true;
+}
+
+function serializeEventForPersistence(event: RunEvent, snapshot: RunRecord["snapshot"]): PersistedRunEvent {
+  if (event.type === "completed") {
+    return { type: "completed", snapshotRef: snapshot.runId };
+  }
+  return event;
+}
+
+function hydratePersistedEvent(
+  event: PersistedRunEvent,
+  snapshot: RunRecord["snapshot"],
+): RunEvent {
+  if (event.type === "completed" && "snapshotRef" in event) {
+    return { type: "completed", snapshot };
+  }
+  return event;
+}
+
 class PostgresRunRecordStore extends Map<string, RunRecord> implements PersistentRunRecordStore {
   private readonly pending = new Set<PersistJob>();
+  private readonly chains = new Map<string, PersistJob>();
   private readonly failures: unknown[] = [];
 
   constructor(private readonly db: Queryable) {
@@ -70,14 +107,14 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
   override set(runId: string, record: RunRecord) {
     this.attachPersistence(record);
     super.set(runId, record);
-    this.enqueue(this.saveRecord(record));
+    this.enqueue(runId, () => this.saveRecord(record));
     return this;
   }
 
   override delete(runId: string) {
     const deleted = super.delete(runId);
     if (deleted) {
-      this.enqueue(
+      this.enqueue(runId, () =>
         this.db.query("delete from run_records where id = $1", [runId]).then(() => undefined),
       );
     }
@@ -98,24 +135,35 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
     const eventsByRun = new Map<string, RunEvent[]>();
     for (const row of events.rows) {
       const list = eventsByRun.get(row.run_id) ?? [];
-      list.push(row.payload);
+      const snapshot = records.rows.find((recordRow) => recordRow.id === row.run_id)?.snapshot;
+      if (!snapshot) continue;
+      list.push(hydratePersistedEvent(row.payload, snapshot));
       eventsByRun.set(row.run_id, list);
     }
 
     for (const row of records.rows) {
+      const restoredActiveRun =
+        (row.status === "queued" || row.status === "running") && !row.completed_at;
       const record: RunRecord = {
         snapshot: row.snapshot,
         events: eventsByRun.get(row.id) ?? [],
         listeners: new Set(),
         terminal:
+          restoredActiveRun ||
           row.status === "completed" ||
           row.status === "failed" ||
           row.status === "cancelled" ||
           Boolean(row.completed_at),
         metadata: createMetadata(row),
       };
+      if (restoredActiveRun && !record.snapshot.errorMessage) {
+        record.snapshot.errorMessage = "Run interrupted by server restart";
+      }
       this.attachPersistence(record);
       super.set(row.id, record);
+      if (restoredActiveRun) {
+        this.enqueue(row.id, () => this.saveRecord(record));
+      }
     }
   }
 
@@ -130,58 +178,70 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
 
   private attachPersistence(record: RunRecord) {
     record.persist = (nextRecord, event) => {
-      this.enqueue(this.saveRecord(nextRecord, event));
+      this.enqueue(nextRecord.snapshot.runId, () => this.saveRecord(nextRecord, event));
     };
   }
 
-  private enqueue(job: PersistJob) {
-    const tracked = job.catch((error) => {
-      this.failures.push(error);
-    }).finally(() => {
-      this.pending.delete(tracked);
-    });
+  private enqueue(runId: string, job: () => PersistJob) {
+    const previous = this.chains.get(runId) ?? Promise.resolve();
+    const chained = previous.catch(() => undefined).then(job);
+    this.chains.set(runId, chained);
+
+    const tracked = chained
+      .catch((error) => {
+        this.failures.push(error);
+      })
+      .finally(() => {
+        this.pending.delete(tracked);
+        if (this.chains.get(runId) === chained) {
+          this.chains.delete(runId);
+        }
+      });
     this.pending.add(tracked);
   }
 
   private async saveRecord(record: RunRecord, event?: RunEvent) {
     const snapshot = record.snapshot;
     const metadata = record.metadata;
-    await this.db.query(
-      `
-        insert into run_records (
-          id, user_id, project_id, stage, status, model, provider_config_id,
-          snapshot, error_message, completed_at, created_at, updated_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, now())
-        on conflict (id) do update set
-          user_id = excluded.user_id,
-          project_id = excluded.project_id,
-          stage = excluded.stage,
-          status = excluded.status,
-          model = excluded.model,
-          provider_config_id = excluded.provider_config_id,
-          snapshot = excluded.snapshot,
-          error_message = excluded.error_message,
-          completed_at = coalesce(excluded.completed_at, run_records.completed_at),
-          updated_at = now()
-      `,
-      [
-        snapshot.runId,
-        metadata?.userId ?? null,
-        metadata?.projectId ?? null,
-        readStage(snapshot),
-        snapshot.status,
-        readModel(snapshot),
-        null,
-        JSON.stringify(snapshot),
-        snapshot.errorMessage ?? null,
-        readCompletedAt(record),
-        metadata?.createdAt ?? new Date().toISOString(),
-      ],
-    );
+    if (!event || shouldPersistSnapshotForEvent(event)) {
+      await this.db.query(
+        `
+          insert into run_records (
+            id, user_id, project_id, stage, status, model, provider_config_id,
+            snapshot, error_message, completed_at, created_at, updated_at
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, now())
+          on conflict (id) do update set
+            user_id = excluded.user_id,
+            project_id = excluded.project_id,
+            stage = excluded.stage,
+            status = excluded.status,
+            model = excluded.model,
+            provider_config_id = excluded.provider_config_id,
+            snapshot = excluded.snapshot,
+            error_message = excluded.error_message,
+            completed_at = coalesce(excluded.completed_at, run_records.completed_at),
+            updated_at = now()
+        `,
+        [
+          snapshot.runId,
+          metadata?.userId ?? null,
+          metadata?.projectId ?? null,
+          readStage(snapshot),
+          snapshot.status,
+          readModel(snapshot),
+          null,
+          JSON.stringify(snapshot),
+          snapshot.errorMessage ?? null,
+          readCompletedAt(record),
+          metadata?.createdAt ?? new Date().toISOString(),
+        ],
+      );
+    }
 
     if (!event) return;
     const sequence = record.events.length;
+    const persistedEvent = serializeEventForPersistence(event, snapshot);
     await this.db.query(
       `
         insert into run_events (run_id, sequence, event_type, payload)
@@ -190,7 +250,7 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           event_type = excluded.event_type,
           payload = excluded.payload
       `,
-      [snapshot.runId, sequence, event.type, JSON.stringify(event)],
+      [snapshot.runId, sequence, event.type, JSON.stringify(persistedEvent)],
     );
   }
 }

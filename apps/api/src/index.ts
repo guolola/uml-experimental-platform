@@ -4,7 +4,11 @@ import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { ZodError } from "zod";
-import { designDiagramKindSchema } from "@uml-platform/contracts";
+import {
+  designDiagramKindSchema,
+  type ProviderSettings,
+  type ProviderSettingsInput,
+} from "@uml-platform/contracts";
 import {
   createRealLlmTransport,
   type ImageGenerationClient,
@@ -60,7 +64,11 @@ import { createPostgresProviderConfigRepository } from "./provider-configs/postg
 import { createProviderUsageTracker } from "./provider-configs/provider-usage-tracker.js";
 import { createGenerationUsageService } from "./generation/generation-usage.js";
 import { createPostgresRunRecordStore } from "./runs/records/postgres-run-record-store.js";
-import { createRunRecordStore, type RunRecordStore } from "./runs/records/run-record-store.js";
+import {
+  createRunRecordStore,
+  type RunRecord,
+  type RunRecordStore,
+} from "./runs/records/run-record-store.js";
 import {
   createRenderClient,
   type AnyPlantUmlArtifact,
@@ -74,6 +82,10 @@ import { runCodeStagePipeline } from "./runs/pipelines/code-pipeline.js";
 import { runDesignStagePipeline } from "./runs/pipelines/design-pipeline.js";
 import { runDocumentStagePipeline } from "./runs/pipelines/document-pipeline.js";
 import { runStagePipeline } from "./runs/pipelines/requirements-pipeline.js";
+import {
+  handleRunPipelineError,
+  startRunRecordPipeline,
+} from "./runs/pipelines/run-record-pipeline-starter.js";
 import { addCodeDiagnostic } from "./runs/pipelines/code/code-run-diagnostics.js";
 import { hashPassword } from "./security/password-hashing.js";
 import type { AdminRole } from "@uml-platform/contracts";
@@ -294,6 +306,101 @@ export async function createApiServer(options?: {
     const member = await authStore.findProjectMember(projectId, userId);
     return Boolean(member && hasProjectPermission(member.role, permission));
   };
+  const isManagedProviderSettings = (
+    settings: ProviderSettingsInput | undefined,
+  ): settings is Extract<ProviderSettingsInput, { providerConfigId: string }> =>
+    Boolean(settings && "providerConfigId" in settings);
+  const readSnapshotProviderSettings = (record: RunRecord) => {
+    const settings = (record.snapshot as { providerSettings?: unknown }).providerSettings;
+    return settings && typeof settings === "object"
+      ? (settings as ProviderSettingsInput)
+      : undefined;
+  };
+  const resolveAdminRunProviderSettings = async (
+    source: RunRecord,
+  ): Promise<{
+    input: ProviderSettingsInput | undefined;
+    resolved: ProviderSettings | null;
+    providerConfigId: string | null;
+  }> => {
+    let input = readSnapshotProviderSettings(source);
+    if (!input && source.metadata?.projectId) {
+      const project = await authStore.getProject(source.metadata.projectId);
+      const providerConfigId = project?.defaultProviderConfigId ?? null;
+      if (providerConfigId) {
+        const config = await providerConfigs.get(providerConfigId);
+        if (config) {
+          input = { providerConfigId, model: config.defaultModel };
+        }
+      }
+    }
+    if (!input) {
+      return { input, resolved: null, providerConfigId: null };
+    }
+    if (!isManagedProviderSettings(input)) {
+      return { input, resolved: input as ProviderSettings, providerConfigId: null };
+    }
+    const config = await providerConfigs.get(input.providerConfigId);
+    if (
+      !config ||
+      !config.allowlisted ||
+      config.status !== "active" ||
+      config.breakerState === "open" ||
+      !config.allowedModels.includes(input.model)
+    ) {
+      return { input, resolved: null, providerConfigId: input.providerConfigId };
+    }
+    const apiKey = await providerConfigs.getSecret(input.providerConfigId);
+    if (!apiKey) {
+      return { input, resolved: null, providerConfigId: input.providerConfigId };
+    }
+    return {
+      input,
+      providerConfigId: input.providerConfigId,
+      resolved: {
+        apiBaseUrl: config.baseUrl,
+        apiKey,
+        model: input.model,
+      },
+    };
+  };
+  const startAdminRunPipeline = async ({
+    record,
+    source,
+  }: {
+    record: RunRecord;
+    source: RunRecord;
+  }) => {
+    const provider = await resolveAdminRunProviderSettings(source);
+    if (!provider.resolved) {
+      if (!provider.input) return;
+      handleRunPipelineError(
+        record,
+        new Error("Run cannot be started because no usable provider config is available"),
+        addCodeDiagnostic,
+      );
+      return;
+    }
+    if (provider.input) {
+      (record.snapshot as { providerSettings?: ProviderSettingsInput }).providerSettings =
+        provider.input;
+    }
+    startRunRecordPipeline({
+      record,
+      providerSettings: provider.resolved,
+      providerConfigId: provider.providerConfigId,
+      llmTransport,
+      llmScheduler,
+      renderClient,
+      pngRenderClient,
+      documentLibrary,
+      runStagePipeline,
+      runDesignStagePipeline,
+      runCodeStagePipeline,
+      runDocumentStagePipeline,
+      addCodeDiagnostic,
+    });
+  };
 
   registerHealthRoutes({ app, healthPayload, versionPayload });
   registerAuthRoutes({ app, authStore, mailAdapter });
@@ -320,6 +427,8 @@ export async function createApiServer(options?: {
     documentLibrary,
     providerConfigs,
     providerUsageTracker,
+    llmScheduler,
+    startRunPipeline: startAdminRunPipeline,
     riskEvents: () => riskEvents.map((event) => ({ ...event })),
     academicStore,
   });

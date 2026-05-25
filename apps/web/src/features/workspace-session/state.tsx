@@ -26,7 +26,9 @@ import type {
   RequirementQualityIssue,
 } from "@uml-platform/contracts";
 import {
+  DESIGN_DIAGRAM_ORDER,
   DESIGN_DIAGRAM_META,
+  DIAGRAM_ORDER,
   DIAGRAM_META,
   getDesignModelId,
   type DesignDiagramType,
@@ -116,6 +118,116 @@ type GenerationResultDialogState = {
   stageLabel?: string;
   targetLabel?: string | null;
 };
+
+type GenerationConfirmationSummary = {
+  title: string;
+  description: string;
+  newLabels: string[];
+  regeneratedLabels: string[];
+  dependencyLabels: string[];
+  keptLabels: string[];
+};
+
+type GenerationConfirmationDialogState = GenerationConfirmationSummary & {
+  resolve: (confirmed: boolean) => void;
+};
+
+function orderedRequirementDiagrams(diagrams: DiagramType[]) {
+  const set = new Set(diagrams);
+  return DIAGRAM_ORDER.filter((diagram) => set.has(diagram));
+}
+
+function orderedDesignDiagrams(diagrams: DesignDiagramType[]) {
+  const set = new Set(diagrams);
+  return DESIGN_DIAGRAM_ORDER.filter((diagram) => set.has(diagram));
+}
+
+function requirementLabels(diagrams: DiagramType[]) {
+  return orderedRequirementDiagrams(diagrams).map((diagram) => DIAGRAM_META[diagram].label);
+}
+
+function designLabels(diagrams: DesignDiagramType[]) {
+  return orderedDesignDiagrams(diagrams).map((diagram) => DESIGN_DIAGRAM_META[diagram].label);
+}
+
+function analyzeRequirementGeneration(
+  requestedDiagrams: DiagramType[],
+  existingDiagrams: DiagramType[],
+): GenerationConfirmationSummary {
+  const requested = orderedRequirementDiagrams(requestedDiagrams);
+  const existing = new Set(existingDiagrams);
+  const effective = new Set(requested);
+  const newDiagrams = requested.filter((diagram) => !existing.has(diagram));
+  const regeneratedDiagrams = requested.filter((diagram) => existing.has(diagram));
+  const keptDiagrams = orderedRequirementDiagrams(existingDiagrams).filter(
+    (diagram) => !effective.has(diagram),
+  );
+  return {
+    title: "确认生成需求模型",
+    description: "本次会追加或更新所选需求模型，已有模型会保留。",
+    newLabels: requirementLabels(newDiagrams),
+    regeneratedLabels: requirementLabels(regeneratedDiagrams),
+    dependencyLabels: [],
+    keptLabels: requirementLabels(keptDiagrams),
+  };
+}
+
+function collectExistingDesignDiagramKinds(
+  designModels: WorkspaceRecord["designModels"],
+): DesignDiagramType[] {
+  return orderedDesignDiagrams(
+    Object.values(designModels).map((model) => model.diagramKind),
+  );
+}
+
+function resolveDesignGenerationDiagrams(
+  requestedDiagrams: DesignDiagramType[],
+  existingDiagrams: DesignDiagramType[],
+) {
+  const requested = new Set(requestedDiagrams);
+  const existing = new Set(existingDiagrams);
+  const dependencies = new Set<DesignDiagramType>();
+
+  const needsSequence = [...requested].some((diagram) => diagram !== "sequence");
+  if (needsSequence && !existing.has("sequence") && !requested.has("sequence")) {
+    dependencies.add("sequence");
+  }
+  if (requested.has("table") && !existing.has("class") && !requested.has("class")) {
+    dependencies.add("class");
+  }
+
+  const effectiveDiagrams = orderedDesignDiagrams([
+    ...requestedDiagrams,
+    ...dependencies,
+  ]);
+  return {
+    effectiveDiagrams,
+    dependencyDiagrams: orderedDesignDiagrams([...dependencies]),
+  };
+}
+
+function analyzeDesignGeneration(
+  requestedDiagrams: DesignDiagramType[],
+  effectiveDiagrams: DesignDiagramType[],
+  dependencyDiagrams: DesignDiagramType[],
+  existingDiagrams: DesignDiagramType[],
+): GenerationConfirmationSummary {
+  const existing = new Set(existingDiagrams);
+  const effective = new Set(effectiveDiagrams);
+  const newDiagrams = effectiveDiagrams.filter((diagram) => !existing.has(diagram));
+  const regeneratedDiagrams = effectiveDiagrams.filter((diagram) => existing.has(diagram));
+  const keptDiagrams = orderedDesignDiagrams(existingDiagrams).filter(
+    (diagram) => !effective.has(diagram),
+  );
+  return {
+    title: "确认生成设计模型",
+    description: "本次会追加或更新设计模型；缺失的前置模型会在确认后一并生成。",
+    newLabels: designLabels(newDiagrams),
+    regeneratedLabels: designLabels(regeneratedDiagrams),
+    dependencyLabels: designLabels(dependencyDiagrams),
+    keptLabels: designLabels(keptDiagrams),
+  };
+}
 
 function uniqueIssueMessages(issues: RequirementQualityIssue[]) {
   return Array.from(
@@ -302,6 +414,74 @@ function GenerationResultDialog({
             onClick={onClose}
           >
             确认
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SummaryGroup({ label, items }: { label: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left">
+      <div className="text-[13px] font-medium text-[#0B1C30]">{label}</div>
+      <div className="mt-1 text-[13px] leading-5 text-[#464554]">
+        {items.join("、")}
+      </div>
+    </div>
+  );
+}
+
+function GenerationConfirmationDialog({
+  confirmation,
+  onCancel,
+  onConfirm,
+}: {
+  confirmation: GenerationConfirmationDialogState | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={Boolean(confirmation)} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="max-w-[calc(100%-2rem)] rounded-[12px] border-[rgba(199,196,214,0.5)] bg-white p-6 shadow-[0px_8px_30px_0px_rgba(0,0,0,0.06)] sm:max-w-[520px]">
+        <DialogHeader className="space-y-2 text-left">
+          <DialogTitle className="text-[20px] font-semibold leading-[28px] text-[#0B1C30]">
+            {confirmation?.title ?? "确认生成"}
+          </DialogTitle>
+          <DialogDescription className="text-[14px] leading-5 text-[#464554]">
+            {confirmation?.description ?? "确认后开始生成。"}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-5 grid gap-3">
+          <SummaryGroup label="新生成" items={confirmation?.newLabels ?? []} />
+          <SummaryGroup label="重新生成" items={confirmation?.regeneratedLabels ?? []} />
+          <SummaryGroup label="依赖补齐" items={confirmation?.dependencyLabels ?? []} />
+          <SummaryGroup label="保留不变" items={confirmation?.keptLabels ?? []} />
+          {confirmation &&
+            confirmation.newLabels.length === 0 &&
+            confirmation.regeneratedLabels.length === 0 &&
+            confirmation.dependencyLabels.length === 0 && (
+              <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left text-[13px] leading-5 text-[#464554]">
+                本次没有需要生成的模型。
+              </div>
+            )}
+        </div>
+        <DialogFooter className="mt-6 flex-row justify-end gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-[#464554] hover:bg-muted/60"
+            onClick={onCancel}
+          >
+            取消
+          </Button>
+          <Button
+            type="button"
+            className="h-10 rounded-[8px] bg-[#2B23AD] px-6 text-[14px] font-normal text-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] hover:bg-[#241d96]"
+            onClick={onConfirm}
+          >
+            确认生成
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -644,6 +824,8 @@ export function WorkspaceSessionProvider({
     useState<RequirementQualityReport | null>(null);
   const [generationResultDialog, setGenerationResultDialog] =
     useState<GenerationResultDialogState | null>(null);
+  const [generationConfirmationDialog, setGenerationConfirmationDialog] =
+    useState<GenerationConfirmationDialogState | null>(null);
   const closedGenerationResultDialogRef = useRef<{
     group: string;
     closedAt: number;
@@ -682,6 +864,24 @@ export function WorkspaceSessionProvider({
           closedAt: Date.now(),
         };
       }
+      return null;
+    });
+  }, []);
+
+  const confirmGeneration = useCallback(
+    (summary: GenerationConfirmationSummary) =>
+      new Promise<boolean>((resolve) => {
+        setGenerationConfirmationDialog((current) => {
+          current?.resolve(false);
+          return { ...summary, resolve };
+        });
+      }),
+    [],
+  );
+
+  const closeGenerationConfirmationDialog = useCallback((confirmed: boolean) => {
+    setGenerationConfirmationDialog((current) => {
+      current?.resolve(confirmed);
       return null;
     });
   }, []);
@@ -1141,17 +1341,17 @@ export function WorkspaceSessionProvider({
       setRulesVersion(nextRulesVersion);
       setRulesBasedOnTextVersion(baseTextVersion);
       setDiagramErrors((current) => {
-        if (mode.kind === "partial-diagrams") {
-          const next = { ...current };
-          for (const diagram of mode.diagrams) {
-            delete next[diagram];
-          }
-          for (const [diagram, error] of Object.entries(snapshot.diagramErrors)) {
-            next[diagram as DiagramType] = error;
-          }
-          return next;
+        const affected = mode.kind === "partial-diagrams"
+          ? mode.diagrams
+          : snapshot.selectedDiagrams;
+        const next = { ...current };
+        for (const diagram of affected) {
+          delete next[diagram];
         }
-        return snapshot.diagramErrors;
+        for (const [diagram, error] of Object.entries(snapshot.diagramErrors)) {
+          next[diagram as DiagramType] = error;
+        }
+        return next;
       });
 
       if (mode.kind === "rules-only") {
@@ -1159,58 +1359,57 @@ export function WorkspaceSessionProvider({
       }
 
       setModels((current) => {
-        if (mode.kind === "partial-diagrams") {
-          const next = { ...current };
-          for (const diagram of mode.diagrams) {
-            delete next[diagram];
-          }
-          for (const [diagram, model] of Object.entries(mapped.models)) {
-            next[diagram as DiagramType] = model;
-          }
-          return next;
+        const affected = mode.kind === "partial-diagrams"
+          ? mode.diagrams
+          : snapshot.selectedDiagrams;
+        const next = { ...current };
+        for (const diagram of affected) {
+          delete next[diagram];
         }
-        return mapped.models;
+        for (const [diagram, model] of Object.entries(mapped.models)) {
+          next[diagram as DiagramType] = model;
+        }
+        return next;
       });
       setRequirementModelTraceability((current) => {
         const snapshotTraceability = snapshot.requirementModelTraceability ?? [];
-        if (mode.kind === "partial-diagrams") {
-          const affected = new Set(mode.diagrams);
-          return [
-            ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramType)),
-            ...snapshotTraceability.filter((entry) =>
-              affected.has(entry.target.diagramKind as DiagramType),
-            ),
-          ];
-        }
-        return snapshotTraceability;
+        const affected = new Set(
+          mode.kind === "partial-diagrams" ? mode.diagrams : snapshot.selectedDiagrams,
+        );
+        return [
+          ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramType)),
+          ...snapshotTraceability.filter((entry) =>
+            affected.has(entry.target.diagramKind as DiagramType),
+          ),
+        ];
       });
 
       setPlantUml((current) => {
-        if (mode.kind === "partial-diagrams") {
-          const next = { ...current };
-          for (const diagram of mode.diagrams) {
-            delete next[diagram];
-          }
-          for (const [diagram, source] of Object.entries(mapped.plantUml)) {
-            next[diagram as DiagramType] = source;
-          }
-          return next;
+        const affected = mode.kind === "partial-diagrams"
+          ? mode.diagrams
+          : snapshot.selectedDiagrams;
+        const next = { ...current };
+        for (const diagram of affected) {
+          delete next[diagram];
         }
-        return mapped.plantUml;
+        for (const [diagram, source] of Object.entries(mapped.plantUml)) {
+          next[diagram as DiagramType] = source;
+        }
+        return next;
       });
 
       setSvgArtifacts((current) => {
-        if (mode.kind === "partial-diagrams") {
-          const next = { ...current };
-          for (const diagram of mode.diagrams) {
-            delete next[diagram];
-          }
-          for (const [diagram, artifact] of Object.entries(mapped.svgArtifacts)) {
-            next[diagram as DiagramType] = artifact;
-          }
-          return next;
+        const affected = mode.kind === "partial-diagrams"
+          ? mode.diagrams
+          : snapshot.selectedDiagrams;
+        const next = { ...current };
+        for (const diagram of affected) {
+          delete next[diagram];
         }
-        return mapped.svgArtifacts;
+        for (const [diagram, artifact] of Object.entries(mapped.svgArtifacts)) {
+          next[diagram as DiagramType] = artifact;
+        }
+        return next;
       });
 
       const affectedDiagrams =
@@ -1219,23 +1418,18 @@ export function WorkspaceSessionProvider({
           : [...snapshot.selectedDiagrams];
 
       setGeneratedDiagrams((current) => {
-        if (mode.kind === "partial-diagrams") {
-          return Array.from(new Set([...current, ...affectedDiagrams]));
-        }
-        return [...snapshot.selectedDiagrams];
+        return Array.from(new Set([...current, ...affectedDiagrams]));
       });
+      setSelectedDiagrams((current) =>
+        Array.from(new Set([...current, ...snapshot.selectedDiagrams])),
+      );
 
       setDiagramVersions((current) => {
-        if (mode.kind === "partial-diagrams") {
-          const next = { ...current };
-          for (const diagram of affectedDiagrams) {
-            next[diagram] = nextRulesVersion;
-          }
-          return next;
+        const next = { ...current };
+        for (const diagram of affectedDiagrams) {
+          next[diagram] = nextRulesVersion;
         }
-        return Object.fromEntries(
-          snapshot.selectedDiagrams.map((diagram) => [diagram, nextRulesVersion]),
-        ) as Partial<Record<DiagramType, number>>;
+        return next;
       });
     },
     [rulesVersion],
@@ -1247,7 +1441,9 @@ export function WorkspaceSessionProvider({
       requestedDiagrams: DesignDiagramType[],
     ) => {
       const mapped = designSnapshotToMaps(snapshot);
-      setSelectedDesignDiagrams([...requestedDiagrams]);
+      setSelectedDesignDiagrams((current) =>
+        Array.from(new Set([...current, ...requestedDiagrams])),
+      );
       setDesignModels((current) => ({
         ...current,
         ...mapped.models,
@@ -1270,7 +1466,7 @@ export function WorkspaceSessionProvider({
       }));
       setDesignDiagramErrors((current) => {
         const next = { ...current };
-        for (const diagram of requestedDiagrams) {
+        for (const diagram of snapshot.selectedDiagrams) {
           delete next[diagram];
         }
         return {
@@ -1789,7 +1985,10 @@ export function WorkspaceSessionProvider({
   );
 
   const runDesignGeneration = useCallback(
-    async (diagrams: DesignDiagramType[]) => {
+    async (
+      diagrams: DesignDiagramType[],
+      requestedDiagrams: DesignDiagramType[] = diagrams,
+    ) => {
       const runRequestId = runController.beginRun("design");
       let lastCompletedSnapshot: WorkspaceDesignRunSnapshot | null = null;
       const baseInputFingerprint = snapshotInputFingerprint({
@@ -1837,6 +2036,7 @@ export function WorkspaceSessionProvider({
           ),
           requirementModelTraceability,
           diagrams,
+          requestedDiagrams,
           Object.values(designModels),
           designModelTraceability,
           Object.entries(designPlantUml).map(([artifactId, source]) => {
@@ -1971,7 +2171,7 @@ export function WorkspaceSessionProvider({
           return;
         }
 
-        applyDesignRunSnapshot(snapshot, diagrams);
+        applyDesignRunSnapshot(snapshot, requestedDiagrams);
         setCurrentRunDiagnostics((current) => ({
           ...current,
           designTrace: snapshot.designTrace ?? [],
@@ -2031,7 +2231,7 @@ export function WorkspaceSessionProvider({
         if (runId) {
           try {
             const failedSnapshot = await repository.getDesignRunSnapshot(runId);
-            applyDesignRunSnapshot(failedSnapshot, diagrams);
+            applyDesignRunSnapshot(failedSnapshot, requestedDiagrams);
             setCurrentRunDiagnostics((current) => ({
               ...current,
               designTrace: failedSnapshot.designTrace ?? [],
@@ -2968,10 +3168,17 @@ export function WorkspaceSessionProvider({
 
   const generateDiagrams = useCallback(
     async (only?: DiagramType[]) => {
-      const diagrams = only ?? selectedDiagrams;
+      const diagrams = orderedRequirementDiagrams(only ?? selectedDiagrams);
       if (diagrams.length === 0) {
         return;
       }
+      const confirmed = await confirmGeneration(
+        analyzeRequirementGeneration(
+          diagrams,
+          Object.keys(models) as DiagramType[],
+        ),
+      );
+      if (!confirmed) return;
 
       await runGeneration(
         diagrams,
@@ -2980,19 +3187,31 @@ export function WorkspaceSessionProvider({
           : { kind: "full-diagrams" },
       );
     },
-    [runGeneration, selectedDiagrams],
+    [confirmGeneration, models, runGeneration, selectedDiagrams],
   );
 
   const generateDesignDiagrams = useCallback(
     async (only?: DesignDiagramType[]) => {
-      const diagrams = only ?? selectedDesignDiagrams;
-      if (diagrams.length === 0) {
+      const requestedDiagrams = orderedDesignDiagrams(only ?? selectedDesignDiagrams);
+      if (requestedDiagrams.length === 0) {
         return;
       }
+      const existingDesignDiagrams = collectExistingDesignDiagramKinds(designModels);
+      const { effectiveDiagrams, dependencyDiagrams } =
+        resolveDesignGenerationDiagrams(requestedDiagrams, existingDesignDiagrams);
+      const confirmed = await confirmGeneration(
+        analyzeDesignGeneration(
+          requestedDiagrams,
+          effectiveDiagrams,
+          dependencyDiagrams,
+          existingDesignDiagrams,
+        ),
+      );
+      if (!confirmed) return;
 
-      await runDesignGeneration(diagrams);
+      await runDesignGeneration(effectiveDiagrams, requestedDiagrams);
     },
-    [runDesignGeneration, selectedDesignDiagrams],
+    [confirmGeneration, designModels, runDesignGeneration, selectedDesignDiagrams],
   );
 
   const generateCodePrototype = useCallback(async (
@@ -3227,6 +3446,11 @@ export function WorkspaceSessionProvider({
       <GenerationResultDialog
         result={generationResultDialog}
         onClose={closeGenerationResultDialog}
+      />
+      <GenerationConfirmationDialog
+        confirmation={generationConfirmationDialog}
+        onCancel={() => closeGenerationConfirmationDialog(false)}
+        onConfirm={() => closeGenerationConfirmationDialog(true)}
       />
     </WorkspaceSessionContext.Provider>
   );

@@ -56,6 +56,7 @@ import {
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import { z } from "zod";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { throwIfRunCancelled } from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
@@ -112,6 +113,7 @@ export async function runCodeStagePipeline(
   llmTransport: LlmTransport,
 ) {
   const snapshot = record.snapshot as CodeRunSnapshot;
+  throwIfRunCancelled(record);
   if (!snapshot.requirementBaseline && snapshot.rules.length > 0) {
     snapshot.requirementBaseline = buildRequirementBaseline({
       runId: snapshot.runId,
@@ -122,6 +124,7 @@ export async function runCodeStagePipeline(
   assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
 
   const updateStage = (stage: RunStage, message?: string) => {
+    throwIfRunCancelled(record);
     snapshot.currentStage = stage;
     snapshot.status = "running";
     emitEvent(record, stageStartedRunEventSchema.parse({ type: "stage_started", stage }));
@@ -187,6 +190,7 @@ export async function runCodeStagePipeline(
     parseCodeBusinessLogicResult,
     getGenerateCodeBusinessLogicResponseFormat(providerSettings.model),
   );
+  throwIfRunCancelled(record);
   const businessLogic = businessLogicResult.businessLogic;
   snapshot.businessLogic = businessLogic;
   addCodeDiagnostic(
@@ -238,8 +242,10 @@ export async function runCodeStagePipeline(
       (text) => codeVisualDirectionResultSchema.parse(parseJson(text)),
       getGenerateCodeVisualDirectionResponseFormat(providerSettings.model),
     );
+    throwIfRunCancelled(record);
     visualDirection = visualDirectionResult.visualDirection;
   } catch (error) {
+    throwIfRunCancelled(record);
     visualDirection = fallbackCodeVisualDirection(businessLogic);
     snapshot.skillDiagnostics.push(
       codeSkillDiagnosticsSchema.parse({
@@ -285,10 +291,12 @@ export async function runCodeStagePipeline(
           .parse(parseJson(text)),
       getGenerateCodeSkillResourceDiscoveryResponseFormat(providerSettings.model),
     );
+    throwIfRunCancelled(record);
     skillResourceDiscoveryPlan = codeSkillResourceDiscoveryPlanSchema.parse(
       discoveryResult.skillResourceDiscoveryPlan,
     );
   } catch (error) {
+    throwIfRunCancelled(record);
     skillResourceDiscoveryPlan = fallbackCodeSkillResourceDiscoveryPlan(loadedCodeSkill);
     snapshot.skillDiagnostics.push(
       codeSkillDiagnosticsSchema.parse({
@@ -346,10 +354,12 @@ export async function runCodeStagePipeline(
       parseCodeSkillResourcePlanResult,
       getGenerateCodeSkillResourcePlanResponseFormat(providerSettings.model),
     );
+    throwIfRunCancelled(record);
     skillResourcePlan = codeSkillResourcePlanSchema.parse(
       skillResourcePlanResult.skillResourcePlan,
     );
   } catch (error) {
+    throwIfRunCancelled(record);
     skillResourcePlan = fallbackCodeSkillResourcePlan(loadedCodeSkill, businessLogic);
     snapshot.skillDiagnostics.push(
       codeSkillDiagnosticsSchema.parse({
@@ -373,6 +383,7 @@ export async function runCodeStagePipeline(
   const skillContext = codeSkillContextSchema.parse(
     await resolveCodeSkillContext(loadedCodeSkill, skillResourcePlan),
   );
+  throwIfRunCancelled(record);
   snapshot.codeSkillContext = skillContext;
   snapshot.skillDiagnostics = [
     ...snapshot.skillDiagnostics,
@@ -498,9 +509,11 @@ export async function runCodeStagePipeline(
     },
     "generate_code_files",
   );
+  throwIfRunCancelled(record);
 
   let generatedFileChangeCount = 0;
   for (const operation of operationsResult.operations) {
+    throwIfRunCancelled(record);
     if (applyCodeOperation(record, snapshot, operation)) {
       generatedFileChangeCount += 1;
     }
@@ -551,7 +564,9 @@ export async function runCodeStagePipeline(
       },
       "repair_code_files",
     );
+    throwIfRunCancelled(record);
     for (const operation of repairOperations.operations) {
+      throwIfRunCancelled(record);
       applyCodeOperation(record, snapshot, operation);
     }
     upsertBusinessContextMarkdown(record, snapshot);
@@ -567,6 +582,7 @@ export async function runCodeStagePipeline(
     providerSettings,
     llmTransport,
   );
+  throwIfRunCancelled(record);
   let repairRoundsRun = 0;
   let repairStopReason = fidelityReport.passed
     ? "还原度检查已通过"
@@ -609,7 +625,9 @@ export async function runCodeStagePipeline(
       },
       "repair_code_files",
     );
+    throwIfRunCancelled(record);
     for (const operation of repairOperations.operations) {
+      throwIfRunCancelled(record);
       applyCodeOperation(record, snapshot, operation);
     }
     upsertBusinessContextMarkdown(record, snapshot);
@@ -635,6 +653,7 @@ export async function runCodeStagePipeline(
       providerSettings,
       llmTransport,
     );
+    throwIfRunCancelled(record);
     repairStopReason = fidelityReport.passed
       ? "还原度检查已通过"
       : "达到还原修复轮次上限";
@@ -729,6 +748,7 @@ export async function runCodeStagePipeline(
   );
   assertTrustedChainAllowsCompletion(trustedChain);
 
+  throwIfRunCancelled(record);
   const evidencePackage = attachEvidencePackage(snapshot);
   emitEvent(
     record,

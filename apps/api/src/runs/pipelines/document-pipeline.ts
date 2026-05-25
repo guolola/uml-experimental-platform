@@ -31,6 +31,7 @@ import {
 } from "../../documents/context/document-context.js";
 import { renderDocumentBuffer } from "../../documents/render/document-renderer.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { throwIfRunCancelled } from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
@@ -129,6 +130,7 @@ export async function runDocumentStagePipeline(
 ) {
   const snapshot = record.snapshot as DocumentRunSnapshot;
   const updateStage = (stage: RunStage, message?: string) => {
+    throwIfRunCancelled(record);
     snapshot.currentStage = stage;
     snapshot.status = "running";
     emitEvent(record, stageStartedRunEventSchema.parse({ type: "stage_started", stage }));
@@ -143,6 +145,7 @@ export async function runDocumentStagePipeline(
     );
   };
 
+  throwIfRunCancelled(record);
   updateStage("generate_document_text", "正在生成说明书正文");
   let sections = fallbackDocumentSections(input);
   if (input.useAiText) {
@@ -152,6 +155,7 @@ export async function runDocumentStagePipeline(
       providerSettings,
       llmTransport,
     );
+    throwIfRunCancelled(record);
     sections = mergeDocumentSectionsWithTemplate(sections, generatedSections);
   }
   sections = ensureDocumentDiagramSections(input.documentKind, sections);
@@ -169,6 +173,7 @@ export async function runDocumentStagePipeline(
     missingArtifacts,
     input.documentStyle,
   );
+  throwIfRunCancelled(record);
   record.documentBuffer = buffer;
   const document = await documentLibrary.saveGeneratedDocument({
     workspaceId,
@@ -180,12 +185,14 @@ export async function runDocumentStagePipeline(
     mimeType: snapshot.mimeType,
     buffer,
   });
+  throwIfRunCancelled(record);
   snapshot.documentId = document.id;
   snapshot.fileName = document.fileName;
   snapshot.mimeType = document.mimeType;
   snapshot.missingArtifacts = [...new Set(missingArtifacts)];
   snapshot.byteLength = buffer.byteLength;
   const evidencePackage = attachEvidencePackage(snapshot);
+  throwIfRunCancelled(record);
   snapshot.status = "completed";
   snapshot.errorMessage = null;
   emitEvent(

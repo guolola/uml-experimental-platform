@@ -77,6 +77,7 @@ import {
   type ProviderRateLimitPolicyRecord,
   type ProviderUsageTracker,
 } from "../../provider-configs/provider-usage-tracker.js";
+import type { LlmScheduler } from "../../adapters/llm/llm-scheduler.js";
 
 export type AdminRiskEvent = {
   id: string;
@@ -90,6 +91,13 @@ export type AdminRiskEvent = {
   metadata: Record<string, unknown>;
   createdAt: string;
 };
+
+export type AdminRunPipelineStarter = (input: {
+  record: RunRecord;
+  source: RunRecord;
+  request: FastifyRequest;
+  actorUserId: string;
+}) => Promise<void> | void;
 
 type ScopedAdminActor = AdminActor & {
   roles: AdminRole[];
@@ -770,6 +778,8 @@ export function registerAdminRoutes({
   documentLibrary,
   providerConfigs,
   providerUsageTracker,
+  llmScheduler,
+  startRunPipeline,
   riskEvents = () => [],
   providerRateLimitPolicy = resolveProviderRateLimitPolicy(),
   academicStore: providedAcademicStore,
@@ -780,6 +790,8 @@ export function registerAdminRoutes({
   documentLibrary: DocumentLibrary;
   providerConfigs: ProviderConfigStore;
   providerUsageTracker?: ProviderUsageTracker;
+  llmScheduler?: LlmScheduler;
+  startRunPipeline?: AdminRunPipelineStarter;
   riskEvents?: () => AdminRiskEvent[];
   providerRateLimitPolicy?: ProviderRateLimitPolicy;
   academicStore?: AcademicAdminRepository;
@@ -1728,6 +1740,7 @@ export function registerAdminRoutes({
       return { message: "Terminal runs cannot be cancelled again" };
     }
 
+    llmScheduler?.cancelRun(id);
     const result = cancelRunRecord(access.record, id);
     await recordAdminAction(authStore, {
       actor: access.actor,
@@ -1751,7 +1764,15 @@ export function registerAdminRoutes({
     if ("message" in access) return access;
     if (actionKind === "retry" && !isRetryableRun(access.record)) {
       reply.code(409);
-      return { message: "Only failed or cancelled runs can be retried" };
+      return { message: "Only failed, cancelled, or interrupted runs can be retried" };
+    }
+    if (
+      !access.record.terminal &&
+      (access.record.snapshot.status === "queued" ||
+        access.record.snapshot.status === "running")
+    ) {
+      reply.code(409);
+      return { message: "Running or queued runs cannot be rerun" };
     }
 
     const metadata: RunRecordMetadata = {
@@ -1769,6 +1790,15 @@ export function registerAdminRoutes({
       sourceRunId: id,
       actorUserId: access.actor.id,
     });
+    const newRecord = runs.get(result.runId);
+    if (newRecord) {
+      await startRunPipeline?.({
+        record: newRecord,
+        source: access.record,
+        request,
+        actorUserId: access.actor.id,
+      });
+    }
     await recordAdminAction(authStore, {
       actor: access.actor,
       action,

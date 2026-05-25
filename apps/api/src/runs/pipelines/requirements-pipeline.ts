@@ -47,6 +47,7 @@ import {
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
+import { throwIfRunCancelled } from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
@@ -363,6 +364,7 @@ export async function runStagePipeline(
   const snapshot = record.snapshot as RunSnapshot;
 
   const updateStage = (stage: RunStage, message?: string) => {
+    throwIfRunCancelled(record);
     snapshot.currentStage = stage;
     snapshot.status = "running";
     emitEvent(record, stageStartedRunEventSchema.parse({ type: "stage_started", stage }));
@@ -383,6 +385,7 @@ export async function runStagePipeline(
   let plantUml: PlantUmlArtifact[] = [];
   let diagramErrors: Partial<Record<DiagramKind, DiagramError>> = {};
 
+  throwIfRunCancelled(record);
   if (rules.length === 0 || snapshot.selectedDiagrams.length === 0) {
     updateStage("extract_rules", "正在抽取需求规则");
     const ruleResult = await collectStructuredResult(
@@ -402,6 +405,7 @@ export async function runStagePipeline(
       },
       (text) => requirementRulesResultSchema.parse(parseJson(text)),
     );
+    throwIfRunCancelled(record);
     rules = ruleResult.rules;
     snapshot.rules = rules;
     snapshot.requirementBaseline = buildRequirementBaseline({
@@ -456,6 +460,7 @@ export async function runStagePipeline(
           }),
         );
         try {
+          throwIfRunCancelled(record);
           const result = await generateModelsWithRepair(
             record,
             providerSettings,
@@ -473,8 +478,10 @@ export async function runStagePipeline(
               diagramKind: diagram,
             }),
           );
+          throwIfRunCancelled(record);
           return { diagram, result };
         } catch (error) {
+          throwIfRunCancelled(record);
           const message =
             error instanceof Error ? error.message : `${diagram} 模型生成失败`;
           diagramErrors[diagram] = diagramErrorSchema.parse({
@@ -485,6 +492,7 @@ export async function runStagePipeline(
         }
       }),
     );
+    throwIfRunCancelled(record);
     models = generationResults.flatMap((entry) => entry?.result.models ?? []);
     requirementModelTraceability = generationResults.flatMap(
       (entry) => entry?.result.requirementModelTraceability ?? [],
@@ -537,6 +545,7 @@ export async function runStagePipeline(
   assertTrustedChainAllowsCompletion(trustedChain);
 
   updateStage("generate_plantuml", "正在生成 PlantUML");
+  throwIfRunCancelled(record);
   plantUml = generatePlantUmlArtifacts(models);
   snapshot.plantUml = plantUml;
   for (const artifact of plantUml) {
@@ -563,6 +572,7 @@ export async function runStagePipeline(
   const svgArtifacts: SvgArtifact[] = [];
   const renderFailures: string[] = [];
   for (const artifact of plantUml) {
+    throwIfRunCancelled(record);
     const model = models.find((item) => item.diagramKind === artifact.diagramKind);
     if (!model) {
       throw new Error(`Missing diagram model for ${artifact.diagramKind}`);
@@ -576,6 +586,7 @@ export async function runStagePipeline(
       model,
       artifact,
     );
+    throwIfRunCancelled(record);
     repairedPlantUmlArtifacts.push(rendered.artifact as PlantUmlArtifact);
     if (rendered.status === "success") {
       svgArtifacts.push(rendered.svgArtifact as SvgArtifact);
@@ -606,6 +617,7 @@ export async function runStagePipeline(
   }
 
   snapshot.currentStage = "render_svg";
+  throwIfRunCancelled(record);
   const evidencePackage = attachEvidencePackage(snapshot);
   emitEvent(
     record,

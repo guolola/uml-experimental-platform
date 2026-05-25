@@ -18,11 +18,13 @@ function isScopedHighlightGroup(group: Element) {
 export function InlineSvg({
   svg,
   highlightLabel,
+  highlightKey,
   scale = 1,
   className,
 }: {
   svg: string;
   highlightLabel?: string;
+  highlightKey?: string | number;
   scale?: number;
   className?: string;
 }) {
@@ -96,7 +98,7 @@ export function InlineSvg({
         /* ignore */
       }
     }
-  }, [sanitizedSvg, highlightLabel, scale]);
+  }, [sanitizedSvg, highlightLabel, highlightKey, scale]);
 
   if (!sanitizedSvg) {
     return (

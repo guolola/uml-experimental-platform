@@ -7,9 +7,7 @@ import {
   designRunSnapshotSchema,
   evidenceReviewDecisionSchema,
   artifactReadyRunEventSchema,
-  failedRunEventSchema,
   queuedRunEventSchema,
-  stageProgressRunEventSchema,
   runSnapshotSchema,
   repairRequirementRuleRequestSchema,
   repairRequirementRuleResponseSchema,
@@ -23,7 +21,6 @@ import {
   startRunRequestSchema,
   startRunResponseSchema,
   type CodeRunSnapshot,
-  type DiagramKind,
   type EvidencePackage,
   type AtomicRequirement,
   type AtomicRequirementField,
@@ -37,15 +34,11 @@ import {
   type RunStage,
   type StartDocumentRunRequest,
 } from "@uml-platform/contracts";
-import type { ChatMessage, LlmTransport, StreamChatCompletionInput } from "../../llm.js";
+import type { ChatMessage, LlmTransport } from "../../llm.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
-import {
-  createScheduledLlmTransport,
-  type LlmScheduler,
-  type LlmScheduleStatus,
-} from "../../adapters/llm/llm-scheduler.js";
+import type { LlmScheduler } from "../../adapters/llm/llm-scheduler.js";
 import {
   createEmptyCodeSnapshot,
   createEmptyDesignSnapshot,
@@ -69,6 +62,7 @@ import {
   buildEvidencePackage,
 } from "../../runs/evidence/evidence-package.js";
 import { stageProgressValue } from "../../runs/pipelines/shared/pipeline-events.js";
+import { startRunRecordPipeline } from "../../runs/pipelines/run-record-pipeline-starter.js";
 import type { ProviderConfigStore } from "../../provider-configs/provider-config-store.js";
 import type {
   ProviderTaskType,
@@ -111,47 +105,6 @@ type DocumentPipeline = (
   llmTransport: LlmTransport,
   pngRenderClient: PngRenderClient,
 ) => Promise<void>;
-
-const LLM_SUBTASK_LABELS: Record<string, string> = {
-  usecase: "用例模型",
-  class: "类模型",
-  activity: "界面关系",
-  deployment: "部署模型",
-  sequence: "顺序图",
-  table: "表关系图",
-};
-
-const KNOWN_LLM_DIAGRAM_KINDS = new Set([
-  "usecase",
-  "class",
-  "activity",
-  "deployment",
-  "sequence",
-  "table",
-]);
-
-function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
-  const prompt = String(input.messages.at(-1)?.content ?? "");
-  const match =
-    prompt.match(/只生成以下设计图类型：\s*\n?([^\n]+)/) ??
-    prompt.match(/只生成以下图类型：\s*\n?([^\n]+)/);
-  const selected = match?.[1]
-    ?.split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const diagramKind =
-    selected?.length === 1 && KNOWN_LLM_DIAGRAM_KINDS.has(selected[0]!)
-      ? selected[0]!
-      : prompt.includes("生成设计阶段顺序图结构化模型")
-        ? "sequence"
-        : null;
-  if (!diagramKind) return {};
-  return {
-    diagramKind: diagramKind as DiagramKind,
-    subtaskId: diagramKind,
-    subtaskLabel: LLM_SUBTASK_LABELS[diagramKind] ?? diagramKind,
-  };
-}
 
 export interface RunAccessContext {
   userId?: string;
@@ -408,6 +361,37 @@ function providerConfigIdFromSettings(providerSettings: ProviderSettingsInput | 
   return isManagedProviderSettings(providerSettings)
     ? providerSettings.providerConfigId
     : null;
+}
+
+function snapshotProviderSettings(record: RunRecord) {
+  const settings = (record.snapshot as { providerSettings?: unknown }).providerSettings;
+  return settings && typeof settings === "object"
+    ? (settings as ProviderSettingsInput)
+    : undefined;
+}
+
+function rememberProviderSettings(
+  record: RunRecord,
+  providerSettings: ProviderSettingsInput | undefined,
+) {
+  if (!providerSettings) return;
+  (record.snapshot as { providerSettings?: ProviderSettingsInput }).providerSettings =
+    providerSettings;
+}
+
+function isActiveRun(record: RunRecord) {
+  return (
+    !record.terminal &&
+    (record.snapshot.status === "queued" || record.snapshot.status === "running")
+  );
+}
+
+function taskTypeForRun(record: RunRecord): ProviderTaskType {
+  const snapshot = record.snapshot;
+  if ("documentKind" in snapshot) return "document_generation";
+  if ("files" in snapshot) return "code_generation";
+  if ("designModelTraceability" in snapshot) return "design_modeling";
+  return "requirements_to_uml";
 }
 
 async function recordProviderUsage({
@@ -940,72 +924,32 @@ export function registerRunRoutes({
   llmScheduler?: LlmScheduler;
   allowLegacyProjectProviderSettings?: boolean;
 }) {
-  const createRunLlmTransport = ({
+  const startRecordPipeline = ({
     record,
     providerSettings,
     providerConfigId,
-    taskType,
+    documentInput,
   }: {
     record: RunRecord;
     providerSettings: ProviderSettings;
     providerConfigId: string | null;
-    taskType: ProviderTaskType;
+    documentInput?: StartDocumentRunRequest;
   }) => {
-    if (!llmScheduler) return llmTransport;
-    const emitQueueStatus = (status: LlmScheduleStatus, context: {
-      diagramKind?: string | null;
-      subtaskId?: string | null;
-      subtaskLabel?: string | null;
-    }) => {
-      const stage = record.snapshot.currentStage ?? "generate_models";
-      if (record.terminal || record.snapshot.status === "cancelled") return;
-      const queueText =
-        status.status === "queued"
-          ? `模型调用排队中：前方 ${status.queueAhead ?? 0} 个模型调用`
-          : status.status === "running"
-            ? "模型调用开始执行"
-            : status.status === "cancelled"
-              ? "模型调用已取消"
-              : "模型调用完成";
-      emitEvent(
-        record,
-        stageProgressRunEventSchema.parse({
-          type: "stage_progress",
-          stage,
-          progress: stageProgressValue(stage),
-          message: queueText,
-          subtaskStatus:
-            status.status === "queued"
-              ? "queued"
-              : status.status === "running"
-                ? "running"
-                : status.status === "completed"
-                  ? "completed"
-                : "failed",
-          diagramKind: context.diagramKind,
-          subtaskId: context.subtaskId,
-          subtaskLabel: context.subtaskLabel,
-          queuePosition: status.queuePosition,
-          queueAhead: status.queueAhead,
-          waitMs: status.waitMs,
-          estimatedWaitMs: status.estimatedWaitMs,
-          queueReason: status.queueReason,
-        }),
-      );
-    };
-    return createScheduledLlmTransport({
-      transport: llmTransport,
-      scheduler: llmScheduler,
-      context: {
-        runId: record.snapshot.runId,
-        projectId: record.metadata?.projectId,
-        userId: record.metadata?.userId,
-        providerConfigId,
-        model: providerSettings.model,
-        taskType,
-      },
-      deriveContext: deriveLlmSubtaskContext,
-      onStatus: emitQueueStatus,
+    startRunRecordPipeline({
+      record,
+      providerSettings,
+      providerConfigId,
+      llmTransport,
+      llmScheduler,
+      renderClient,
+      pngRenderClient,
+      documentLibrary,
+      runStagePipeline,
+      runDesignStagePipeline,
+      runCodeStagePipeline,
+      runDocumentStagePipeline,
+      addCodeDiagnostic,
+      documentInput,
     });
   };
 
@@ -1144,36 +1088,17 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
+    rememberProviderSettings(record, input.providerSettings);
     runs.set(runId, record);
 
     // Routes create queued records; pipelines advance them to running/completed/failed.
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    void runStagePipeline(
+    startRecordPipeline({
       record,
       providerSettings,
-      createRunLlmTransport({
-        record,
-        providerSettings,
-        providerConfigId,
-        taskType: "requirements_to_uml",
-      }),
-      renderClient,
-    ).catch(
-      (error) => {
-        record.snapshot.status = "failed";
-        record.snapshot.errorMessage =
-          error instanceof Error ? error.message : "Unknown run error";
-        emitEvent(
-          record,
-          failedRunEventSchema.parse({
-            type: "failed",
-            stage: record.snapshot.currentStage ?? undefined,
-            message: record.snapshot.errorMessage,
-          }),
-        );
-      },
-    );
+      providerConfigId,
+    });
 
     reply.code(202);
     return startRunResponseSchema.parse({ runId });
@@ -1248,32 +1173,15 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
+    rememberProviderSettings(record, input.providerSettings);
     runs.set(runId, record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    void runDesignStagePipeline(
+    startRecordPipeline({
       record,
       providerSettings,
-      createRunLlmTransport({
-        record,
-        providerSettings,
-        providerConfigId,
-        taskType: "design_modeling",
-      }),
-      renderClient,
-    ).catch((error) => {
-      record.snapshot.status = "failed";
-      record.snapshot.errorMessage =
-        error instanceof Error ? error.message : "Unknown design run error";
-      emitEvent(
-        record,
-        failedRunEventSchema.parse({
-          type: "failed",
-          stage: record.snapshot.currentStage ?? undefined,
-          message: record.snapshot.errorMessage,
-        }),
-      );
+      providerConfigId,
     });
 
     reply.code(202);
@@ -1349,36 +1257,15 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
+    rememberProviderSettings(record, input.providerSettings);
     runs.set(runId, record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    void runCodeStagePipeline(
+    startRecordPipeline({
       record,
       providerSettings,
-      createRunLlmTransport({
-        record,
-        providerSettings,
-        providerConfigId,
-        taskType: "code_generation",
-      }),
-    ).catch((error) => {
-      record.snapshot.status = "failed";
-      record.snapshot.errorMessage =
-        error instanceof Error ? error.message : "Unknown code run error";
-      addCodeDiagnostic(
-        record.snapshot as CodeRunSnapshot,
-        record.snapshot.currentStage ?? "write_code_files",
-        record.snapshot.errorMessage,
-      );
-      emitEvent(
-        record,
-        failedRunEventSchema.parse({
-          type: "failed",
-          stage: record.snapshot.currentStage ?? undefined,
-          message: record.snapshot.errorMessage,
-        }),
-      );
+      providerConfigId,
     });
 
     reply.code(202);
@@ -1397,8 +1284,6 @@ export function registerRunRoutes({
       reply.code(401);
       return { error: { message: "请先登录并进入项目" } };
     }
-    const workspaceId = projectDocumentWorkspaceId(metadata.projectId);
-
     const input = startDocumentRunRequestSchema.parse(request.body);
     const blockedEvidence = rejectBlockedEvidencePackage(
       reply,
@@ -1469,35 +1354,16 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
+    rememberProviderSettings(record, input.providerSettings);
     runs.set(runId, record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    void runDocumentStagePipeline(
+    startRecordPipeline({
       record,
-      input,
-      documentLibrary,
-      workspaceId,
       providerSettings,
-      createRunLlmTransport({
-        record,
-        providerSettings,
-        providerConfigId,
-        taskType: "document_generation",
-      }),
-      pngRenderClient,
-    ).catch((error) => {
-      record.snapshot.status = "failed";
-      record.snapshot.errorMessage =
-        error instanceof Error ? error.message : "Unknown document run error";
-      emitEvent(
-        record,
-        failedRunEventSchema.parse({
-          type: "failed",
-          stage: record.snapshot.currentStage ?? "generate_document_text",
-          message: record.snapshot.errorMessage,
-        }),
-      );
+      providerConfigId,
+      documentInput: input,
     });
 
     reply.code(202);
@@ -1711,7 +1577,11 @@ export function registerRunRoutes({
     }
     if (action === "retry" && !isRetryableRun(source)) {
       reply.code(409);
-      return { message: "Only failed or cancelled runs can be retried" };
+      return { message: "Only failed, cancelled, or interrupted runs can be retried" };
+    }
+    if (isActiveRun(source)) {
+      reply.code(409);
+      return { message: "Running or queued runs cannot be rerun" };
     }
 
     const metadata: RunRecordMetadata = {
@@ -1719,6 +1589,55 @@ export function registerRunRoutes({
       projectId,
       createdAt: new Date().toISOString(),
     };
+    const providerSettingsInput = snapshotProviderSettings(source);
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: providerSettingsInput,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(providerSettingsInput);
+    const taskType = taskTypeForRun(source);
+    const generationLimitCheck = await checkGenerationUsageLimit({
+      generationUsage,
+      runAccessGuard,
+      request,
+      reply,
+    });
+    if (generationLimitCheck !== true) return generationLimitCheck;
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType,
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+    await recordProviderUsage({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType,
+    });
+    await recordGenerationUsage({
+      generationUsage,
+      runAccessGuard,
+      request,
+      taskType,
+      providerConfigId,
+    });
     const result = createQueuedRunFromSource({
       runs,
       source,
@@ -1727,6 +1646,15 @@ export function registerRunRoutes({
       sourceRunId: runId,
       actorUserId: access.userId,
     });
+    const newRecord = runs.get(result.runId);
+    if (newRecord) {
+      rememberProviderSettings(newRecord, providerSettingsInput);
+      startRecordPipeline({
+        record: newRecord,
+        providerSettings,
+        providerConfigId,
+      });
+    }
 
     reply.code(202);
     return result;

@@ -69,22 +69,6 @@ const REQUIREMENT_SOURCE_ICON = {
 
 type RequirementSourceStatus = Record<DiagramType, boolean>;
 
-function ensureSequenceDependency(diagrams: DesignDiagramType[]) {
-  let next = [...diagrams];
-  if (next.some((diagram) => diagram !== "sequence") && !next.includes("sequence")) {
-    next = ["sequence", ...next] as DesignDiagramType[];
-  }
-  if (next.includes("table") && !next.includes("class")) {
-    const tableIndex = next.indexOf("table");
-    next = [
-      ...next.slice(0, tableIndex),
-      "class",
-      ...next.slice(tableIndex),
-    ] as DesignDiagramType[];
-  }
-  return DESIGN_DIAGRAM_ORDER.filter((diagram) => next.includes(diagram));
-}
-
 function sameDesignDiagramSelection(
   left: DesignDiagramType[],
   right: DesignDiagramType[],
@@ -175,11 +159,8 @@ export function DesignModelPage() {
   );
 
   const effectiveSelected = useMemo(
-    () =>
-      ensureSequenceDependency(validSelectedDesignDiagrams).filter((diagram) =>
-        selectableDesignDiagramSet.has(diagram),
-      ),
-    [selectableDesignDiagramSet, validSelectedDesignDiagrams],
+    () => validSelectedDesignDiagrams,
+    [validSelectedDesignDiagrams],
   );
 
   useEffect(() => {
@@ -231,9 +212,9 @@ export function DesignModelPage() {
     }
     setSelectedDesignDiagrams(
       checked
-        ? ensureSequenceDependency(Array.from(new Set([...selectedDesignDiagrams, diagram]))).filter(
-            (item) => selectableDesignDiagramSet.has(item),
-          )
+        ? DESIGN_DIAGRAM_ORDER.filter((item) =>
+            new Set([...selectedDesignDiagrams, diagram]).has(item),
+          ).filter((item) => selectableDesignDiagramSet.has(item))
         : selectedDesignDiagrams.filter((item) => item !== diagram),
     );
   };
@@ -318,7 +299,7 @@ export function DesignModelPage() {
                   const sourceLabel =
                     diagram === "sequence"
                       ? DIAGRAM_META.usecase.label
-                      : `${DIAGRAM_META[source as DiagramType].label} + 顺序图`;
+                      : DIAGRAM_META[source as DiagramType].label;
                   const blockReason = getDesignDiagramBlockReason(
                     diagram,
                     sourceStatus,

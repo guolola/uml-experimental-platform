@@ -42,7 +42,7 @@ const classModel = {
 };
 
 describe("DesignModelPage", () => {
-  it("auto-includes sequence dependency when generating downstream design diagrams", async () => {
+  it("keeps downstream design selection separate and confirms missing sequence dependency", async () => {
     const snapshot: DesignRunSnapshot = {
       runId: "design-run",
       requirementText: "生成 UML",
@@ -119,12 +119,19 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await userEvent.click(await screen.findByRole("button", { name: "选择界面关系" }));
+    expect(screen.getByRole("checkbox", { name: /顺序图/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /界面关系/ })).toBeChecked();
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
+    const confirmation = await screen.findByRole("dialog", { name: "确认生成设计模型" });
+    expect(within(confirmation).getByText("依赖补齐")).toBeInTheDocument();
+    expect(within(confirmation).getByText("顺序图")).toBeInTheDocument();
+    await userEvent.click(within(confirmation).getByRole("button", { name: "确认生成" }));
 
     await waitFor(() => {
       expect(startDesignRun).toHaveBeenCalledWith(
         expect.objectContaining({
           selectedDiagrams: ["sequence", "activity"],
+          requestedDiagrams: ["activity"],
         }),
       );
     });
@@ -439,7 +446,7 @@ describe("DesignModelPage", () => {
     expect(within(dialog).getAllByText("追踪已补齐").length).toBeGreaterThan(0);
   });
 
-  it("auto-includes valid sequence and class dependencies when generating table diagrams", async () => {
+  it("keeps table selection separate and confirms missing sequence and class dependencies", async () => {
     const snapshot: DesignRunSnapshot = {
       runId: "design-run-table",
       requirementText: "生成 UML",
@@ -487,12 +494,20 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await userEvent.click(await screen.findByRole("checkbox", { name: /表关系图/ }));
+    expect(screen.getByRole("checkbox", { name: /顺序图/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /设计类图/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /表关系图/ })).toBeChecked();
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
+    const confirmation = await screen.findByRole("dialog", { name: "确认生成设计模型" });
+    expect(within(confirmation).getByText("依赖补齐")).toBeInTheDocument();
+    expect(within(confirmation).getByText("顺序图、设计类图")).toBeInTheDocument();
+    await userEvent.click(within(confirmation).getByRole("button", { name: "确认生成" }));
 
     await waitFor(() => {
       expect(startDesignRun).toHaveBeenCalledWith(
         expect.objectContaining({
           selectedDiagrams: ["sequence", "class", "table"],
+          requestedDiagrams: ["table"],
         }),
       );
     });

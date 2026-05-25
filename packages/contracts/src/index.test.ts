@@ -831,16 +831,20 @@ test("contracts validate representative stage payloads", () => {
     kind: "validation_error",
     path: "/src/App.tsx",
     rawOutput: "```tsx\nexport default function App() { return null; }\n```",
+    rawOutputTruncated: true,
+    rawOutputOriginalLength: 12000,
     errorMessage: "/src/App.tsx content still contains a Markdown fence",
     createdAt: new Date().toISOString(),
   });
   assert.equal(codeTraceEntry.path, "/src/App.tsx");
+  assert.equal(codeTraceEntry.rawOutputTruncated, true);
 
   const designTraceEntry = designTraceEntrySchema.parse({
     stage: "render_svg",
     attempt: 1,
     kind: "render_error",
     diagramKind: "activity",
+    rawOutputTruncated: false,
     plantUmlSource: "@startuml\nstart\n@enduml",
     errorMessage: "Syntax Error? (line 2)",
     createdAt: new Date().toISOString(),
@@ -880,10 +884,13 @@ test("contracts validate representative stage payloads", () => {
     attempt: 1,
     kind: "parse_error",
     rawOutput: "{\"models\":[]}",
+    rawOutputTruncated: true,
+    rawOutputOriginalLength: 9000,
     errorMessage: "models.0.notes: Required",
     createdAt: new Date().toISOString(),
   });
   assert.equal(requirementTraceEntry.kind, "parse_error");
+  assert.equal(requirementTraceEntry.rawOutputOriginalLength, 9000);
 
   const requirementSnapshot = runSnapshotSchema.parse({
     runId: "run",
@@ -983,6 +990,7 @@ test("contracts accept existing design context for incremental design runs", () 
       },
     ],
     selectedDiagrams: ["table"],
+    requestedDiagrams: ["table"],
     existingDesignModels: [
       {
         diagramKind: "sequence",
@@ -1039,6 +1047,7 @@ test("contracts accept existing design context for incremental design runs", () 
   });
 
   assert.equal(parsed.selectedDiagrams[0], "table");
+  assert.equal(parsed.requestedDiagrams?.[0], "table");
   assert.equal(parsed.existingDesignModels?.[0]?.diagramKind, "sequence");
 });
 

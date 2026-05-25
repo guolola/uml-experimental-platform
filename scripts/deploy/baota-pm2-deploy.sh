@@ -4,8 +4,12 @@ set -Eeuo pipefail
 DEPLOY_PATH="${DEPLOY_PATH:-/www/wwwroot/uml-platform}"
 RELEASE_SHA="${RELEASE_SHA:-$(date +%Y%m%d%H%M%S)}"
 RELEASE_ARCHIVE="${RELEASE_ARCHIVE:-}"
-KEEP_RELEASES="${KEEP_RELEASES:-5}"
+KEEP_RELEASES="${KEEP_RELEASES:-2}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+NPM_CACHE_DIR="${NPM_CACHE_DIR:-$DEPLOY_PATH/shared/npm-cache}"
+CLEAN_NPM_CACHE="${CLEAN_NPM_CACHE:-true}"
+STALE_INCOMING_DAYS="${STALE_INCOMING_DAYS:-1}"
+STALE_TMP_ARCHIVE_DAYS="${STALE_TMP_ARCHIVE_DAYS:-1}"
 
 if [[ -z "$RELEASE_ARCHIVE" ]]; then
   echo "RELEASE_ARCHIVE is required" >&2
@@ -41,6 +45,30 @@ TMP_DIR="$DEPLOY_PATH/incoming/$RELEASE_SHA"
 RELEASE_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 PRODUCTION_ENV_FILE="$DEPLOY_PATH/shared/production.env"
 
+cleanup_tmp_dir() {
+  if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
+    rm -rf -- "$TMP_DIR"
+  fi
+}
+
+cleanup_stale_deploy_artifacts() {
+  echo "Cleaning stale deploy artifacts ..."
+
+  find "$DEPLOY_PATH/incoming" -mindepth 1 -maxdepth 1 -type d -mtime +"$STALE_INCOMING_DAYS" -print0 |
+    while IFS= read -r -d '' incoming_dir; do
+      rm -rf -- "$incoming_dir"
+    done
+
+  find /tmp -maxdepth 1 -type f -name 'uml-platform-*.tar.gz' -mtime +"$STALE_TMP_ARCHIVE_DAYS" -delete 2>/dev/null || true
+}
+
+trap cleanup_tmp_dir EXIT
+
+echo "Disk usage before deploy:"
+df -h "$DEPLOY_PATH" /tmp || true
+
+cleanup_stale_deploy_artifacts
+
 rm -rf "$TMP_DIR" "$RELEASE_DIR"
 mkdir -p "$TMP_DIR"
 
@@ -70,11 +98,17 @@ echo "Installing production dependencies from $NPM_REGISTRY ..."
     --no-audit \
     --no-fund \
     --ignore-scripts \
+    --cache "$NPM_CACHE_DIR" \
     --workspace @uml-platform/api \
     --workspace @uml-platform/render-service \
     --include-workspace-root=false \
     --registry="$NPM_REGISTRY"
 )
+
+if [[ "$CLEAN_NPM_CACHE" == "true" ]]; then
+  echo "Cleaning npm cache ..."
+  npm cache clean --force --cache "$NPM_CACHE_DIR" || true
+fi
 
 mv "$TMP_DIR" "$RELEASE_DIR"
 ln -sfnT "$RELEASE_DIR" "$DEPLOY_PATH/current"
@@ -186,6 +220,9 @@ if [[ ! -f "$DEPLOY_PATH/current/apps/web/dist/index.html" ]]; then
 fi
 
 rm -f "$RELEASE_ARCHIVE"
+
+echo "Disk usage after deploy:"
+df -h "$DEPLOY_PATH" /tmp || true
 
 echo "Deploy finished: $RELEASE_SHA"
 echo "Check API: curl http://127.0.0.1:4001/api/health"

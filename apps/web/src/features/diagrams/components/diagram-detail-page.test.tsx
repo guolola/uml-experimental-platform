@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -40,6 +40,15 @@ describe("DiagramView", () => {
       deleteRunHistory: vi.fn(async () => []),
       clearRunHistory: vi.fn(async () => {}),
     };
+  }
+
+  async function selectComboboxOption(
+    scope: HTMLElement,
+    label: string,
+    optionName: string,
+  ) {
+    await userEvent.click(within(scope).getByRole("combobox", { name: label }));
+    await userEvent.click(await screen.findByRole("option", { name: optionName }));
   }
 
   it("shows a clear error card when a diagram finished without SVG output", async () => {
@@ -378,7 +387,7 @@ describe("DiagramView", () => {
     expect(screen.getByText("125%")).toBeInTheDocument();
   });
 
-  it("filters elements and shows human-readable relation endpoints", async () => {
+  it("shows editable elements and relation endpoints in the diagram page", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
         generatedDiagramTypes: ["class"],
@@ -445,25 +454,159 @@ describe("DiagramView", () => {
       }),
     );
 
+    const { container } = render(withWorkspaceProviders(<DiagramView type="class" />, repository));
+
+    expect(await screen.findByLabelText("模型标题")).toHaveValue("领域概念模型");
+    expect(screen.getByLabelText("模型摘要")).toHaveValue("公开日历领域对象");
+    expect(screen.queryByRole("tab", { name: /元素/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /关系/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("编辑模型")).not.toBeInTheDocument();
+
+    expect(screen.getByText("元素清单")).toBeInTheDocument();
+    const elementSearch = screen.getByLabelText("搜索元素");
+    const elementFilterGroup = screen.getByRole("group", { name: "按元素类型筛选" });
+    const addClassButton = screen.getByRole("button", { name: "添加类" });
+    expect(elementSearch).toBeInTheDocument();
+    expect(elementSearch.compareDocumentPosition(elementFilterGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(elementFilterGroup.compareDocumentPosition(addClassButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "全部类型 2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "类 2" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "模型结构编辑" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("类 cls_event 名称")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑类：Event" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除类：Event" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "编辑类：Event" }).compareDocumentPosition(
+        screen.getByRole("button", { name: "删除类：Event" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const eventCard = screen.getByRole("button", { name: "定位元素：Event" });
+    await userEvent.click(eventCard);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "定位元素：Event" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+    await waitFor(() => {
+      expect(container.querySelector("text.pum-highlight")?.textContent).toBe("Event");
+    });
+    expect(screen.getByText("关系说明")).toBeInTheDocument();
+    const relationSearch = screen.getByLabelText("搜索关系");
+    const relationFilterGroup = screen.getByRole("group", { name: "按关系类型筛选" });
+    const addRelationButton = screen.getByRole("button", { name: "添加关系" });
+    expect(relationSearch).toBeInTheDocument();
+    expect(relationSearch.compareDocumentPosition(relationFilterGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(relationFilterGroup.compareDocumentPosition(addRelationButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "全部关系 1" })).toBeInTheDocument();
+    expect(screen.getAllByText("活动关联多个提醒记录。").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("关系 rel_event_reminder 起点")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑关系：活动关联多个提醒记录。" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除关系：活动关联多个提醒记录。" })).toBeInTheDocument();
+    await userEvent.type(relationSearch, "不存在的关系");
+    expect(screen.queryByRole("button", { name: "编辑关系：活动关联多个提醒记录。" })).not.toBeInTheDocument();
+    await userEvent.clear(relationSearch);
+    await userEvent.type(relationSearch, "Reminder");
+    expect(screen.getByRole("button", { name: "编辑关系：活动关联多个提醒记录。" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "删除类：Event" }));
+    const cancelDialog = await screen.findByRole("dialog", { name: /删除类/u });
+    await userEvent.click(within(cancelDialog).getByRole("button", { name: "取消" }));
+    expect(repository.renderStructuredModel).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "删除关系：活动关联多个提醒记录。" }));
+    const deleteDialog = await screen.findByRole("dialog", { name: /删除关系/u });
+    await userEvent.click(within(deleteDialog).getByRole("button", { name: "确认删除" }));
+    await waitFor(() => expect(repository.renderStructuredModel).toHaveBeenCalled());
+    expect(repository.renderStructuredModel).toHaveBeenCalledWith(
+      expect.objectContaining({ relationships: [] }),
+    );
+  });
+
+  it("opens add dialogs before creating elements or relations", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        plantUml: {
+          class: "@startuml\nclass Customer\n@enduml",
+        },
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "客户领域对象",
+            notes: [],
+            classes: [
+              {
+                id: "cls_customer",
+                name: "Customer",
+                classKind: "entity",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: "<svg><text>Customer</text></svg>",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
     render(withWorkspaceProviders(<DiagramView type="class" />, repository));
 
-    await userEvent.click(await screen.findByRole("tab", { name: /元素/ }));
-    expect(screen.getByRole("button", { name: "网格视图" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    await userEvent.click(await screen.findByRole("button", { name: "添加类" }));
+    let dialog = await screen.findByRole("dialog", { name: /添加类/u });
+    expect(dialog).toHaveClass("sm:max-w-lg");
+    expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
+    expect(within(dialog).queryByText(/cls_|rel_|actor_/u)).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(repository.renderStructuredModel).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "添加类" }));
+    dialog = await screen.findByRole("dialog", { name: /添加类/u });
+    const classNameInput = within(dialog).getByLabelText("类名称");
+    await userEvent.clear(classNameInput);
+    await userEvent.type(classNameInput, "Invoice");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认添加" }));
+    await waitFor(() => expect(repository.renderStructuredModel).toHaveBeenCalledTimes(1));
+    expect(repository.renderStructuredModel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        classes: expect.arrayContaining([expect.objectContaining({ name: "Invoice" })]),
+      }),
     );
-    expect(screen.getByRole("button", { name: "全部类型 2" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Event" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reminder" })).toBeInTheDocument();
-    expect(screen.getAllByText(/个字段/).length).toBeGreaterThan(0);
 
-    await userEvent.type(screen.getByPlaceholderText("搜索元素、属性或说明"), "Reminder");
-    expect(screen.queryByRole("button", { name: "Event" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reminder" })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("tab", { name: /关系/ }));
-    expect(screen.getAllByText("活动关联多个提醒记录。").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Event → Reminder/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "添加关系" }));
+    dialog = await screen.findByRole("dialog", { name: /添加关系/u });
+    expect(dialog).toHaveClass("sm:max-w-lg");
+    expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
+    expect(dialog.querySelector("select")).toBeNull();
+    expect(within(dialog).getByRole("combobox", { name: "起点" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "终点" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "关系类型" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/cls_|rel_|actor_/u)).not.toBeInTheDocument();
+    const relationNameInput = within(dialog).getByLabelText("关系名称");
+    await userEvent.clear(relationNameInput);
+    await userEvent.type(relationNameInput, "关联发票");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认添加" }));
+    await waitFor(() => expect(repository.renderStructuredModel).toHaveBeenCalledTimes(2));
+    expect(repository.renderStructuredModel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        relationships: expect.arrayContaining([expect.objectContaining({ label: "关联发票" })]),
+      }),
+    );
   });
 
   it("edits a use case model and rerenders the current diagram", async () => {
@@ -526,14 +669,50 @@ describe("DiagramView", () => {
 
     render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
 
-    const actorNameInput = await screen.findByLabelText("角色 actor_teacher 名称");
+    expect(await screen.findByLabelText("模型标题")).toHaveValue("用例图");
+    expect(screen.getByLabelText("模型摘要")).toHaveValue("教师登录系统");
+    expect(screen.getByText(/手动修改会更新当前模型结构/)).toBeInTheDocument();
+    expect(screen.queryByText("编辑模型")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新生成此图" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /元素/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /关系/ })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "添加角色" }));
+    let dialog = await screen.findByRole("dialog", { name: /添加角色/u });
+    expect(dialog).toHaveClass("sm:max-w-lg");
+    expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
+    expect(within(dialog).getByLabelText("角色名称")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/actor_/u)).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(repository.renderStructuredModel).not.toHaveBeenCalled();
+
+    await userEvent.click(await screen.findByRole("button", { name: "编辑角色：教师" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑角色/u });
+    expect(dialog).toHaveClass("sm:max-w-lg");
+    expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
+    expect(within(dialog).queryByText(/actor_/u)).not.toBeInTheDocument();
+    const actorNameInput = within(dialog).getByLabelText("角色名称");
     await userEvent.clear(actorNameInput);
     await userEvent.type(actorNameInput, "授课教师");
-    const relationLabelInput = screen.getByLabelText("关系 rel_login 名称");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+    await waitFor(() => expect(repository.renderStructuredModel).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑关系：发起" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    expect(dialog).toHaveClass("sm:max-w-lg");
+    expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
+    expect(dialog.querySelector("select")).toBeNull();
+    expect(within(dialog).getByRole("combobox", { name: "起点" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "终点" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "关系类型" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/rel_/u)).not.toBeInTheDocument();
+    const relationLabelInput = within(dialog).getByLabelText("关系名称");
     await userEvent.clear(relationLabelInput);
     await userEvent.type(relationLabelInput, "发起登录");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+    await waitFor(() => expect(repository.renderStructuredModel).toHaveBeenCalledTimes(2));
+
     expect(screen.queryByRole("button", { name: "保存编辑" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
     expect(repository.saveRequirementModelEdit).toHaveBeenCalledWith(
       "usecase",
@@ -648,26 +827,43 @@ describe("DiagramView", () => {
 
     await userEvent.clear(await screen.findByLabelText("模型标题"));
     await userEvent.type(screen.getByLabelText("模型标题"), "订单类模型");
-    await userEvent.clear(screen.getByLabelText("模型备注"));
-    await userEvent.type(screen.getByLabelText("模型备注"), "人工补充备注");
-    await userEvent.clear(screen.getByLabelText("类 cls_order 属性 0 名称"));
-    await userEvent.type(screen.getByLabelText("类 cls_order 属性 0 名称"), "totalAmount");
-    await userEvent.clear(screen.getByLabelText("类 cls_order 方法 0 参数 0 名称"));
-    await userEvent.type(screen.getByLabelText("类 cls_order 方法 0 参数 0 名称"), "userId");
-    await userEvent.clear(screen.getByLabelText("接口 if_payable 方法 0 名称"));
-    await userEvent.type(screen.getByLabelText("接口 if_payable 方法 0 名称"), "capture");
-    fireEvent.change(screen.getByLabelText("枚举 enum_status 字面量"), {
+    expect(screen.queryByText("备注")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("模型备注")).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑类：Order" }));
+    let dialog = await screen.findByRole("dialog", { name: /编辑类/u });
+    expect(dialog).toHaveClass("sm:max-w-lg");
+    expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
+    await userEvent.clear(within(dialog).getByLabelText("第 1 个属性名称"));
+    await userEvent.type(within(dialog).getByLabelText("第 1 个属性名称"), "totalAmount");
+    await userEvent.clear(within(dialog).getByLabelText("第 1 个方法的第 1 个参数名称"));
+    await userEvent.type(within(dialog).getByLabelText("第 1 个方法的第 1 个参数名称"), "userId");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑接口：Payable" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑接口/u });
+    await userEvent.clear(within(dialog).getByLabelText("第 1 个方法名称"));
+    await userEvent.type(within(dialog).getByLabelText("第 1 个方法名称"), "capture");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑枚举：OrderStatus" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑枚举/u });
+    fireEvent.change(within(dialog).getByLabelText("枚举字面量"), {
       target: { value: "CREATED\nPAID" },
     });
-    await userEvent.clear(screen.getByLabelText("关系 rel_owner 目标多重性"));
-    await userEvent.type(screen.getByLabelText("关系 rel_owner 目标多重性"), "0..*");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: /编辑关系：/u }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    await userEvent.clear(within(dialog).getByLabelText("目标多重性"));
+    await userEvent.type(within(dialog).getByLabelText("目标多重性"), "0..*");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
     await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
     expect(repository.renderStructuredModel).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "订单类模型",
-        notes: ["人工补充备注"],
+        notes: ["旧备注"],
         classes: expect.arrayContaining([
           expect.objectContaining({
             id: "cls_order",
@@ -770,11 +966,19 @@ describe("DiagramView", () => {
 
     render(withWorkspaceProviders(<DesignDiagramView type="table" />, repository));
 
-    await userEvent.clear(await screen.findByLabelText("数据表 orders 字段 order_id 名称"));
-    await userEvent.type(screen.getByLabelText("数据表 orders 字段 order_id 名称"), "order_id");
-    await userEvent.click(screen.getByLabelText("数据表 orders 添加字段"));
-    await userEvent.selectOptions(screen.getByLabelText("关系 rel_orders_users 源字段"), "id");
-    await userEvent.selectOptions(screen.getByLabelText("关系 rel_orders_users 目标字段"), "user_id");
+    await userEvent.click(await screen.findByRole("button", { name: "编辑数据表：orders" }));
+    let dialog = await screen.findByRole("dialog", { name: /编辑数据表/u });
+    await userEvent.clear(within(dialog).getByLabelText("第 1 个字段名称"));
+    await userEvent.type(within(dialog).getByLabelText("第 1 个字段名称"), "order_id");
+    await userEvent.click(within(dialog).getByLabelText("添加字段"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: /编辑关系：/u }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    expect(dialog.querySelector("select")).toBeNull();
+    await selectComboboxOption(dialog, "源字段", "id");
+    await selectComboboxOption(dialog, "目标字段", "user_id");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
     await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
@@ -866,13 +1070,29 @@ describe("DiagramView", () => {
       ),
     );
 
-    await userEvent.selectOptions(await screen.findByLabelText("参与对象 auth 类型"), "control");
-    fireEvent.change(screen.getByLabelText("关系 msg_login 参数"), {
+    await userEvent.click(await screen.findByRole("button", { name: "编辑参与对象：认证服务" }));
+    let dialog = await screen.findByRole("dialog", { name: /编辑参与对象/u });
+    expect(dialog.querySelector("select")).toBeNull();
+    await selectComboboxOption(dialog, "参与对象类型", "control");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑关系：登录" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    fireEvent.change(within(dialog).getByLabelText("参数"), {
       target: { value: "username\npassword" },
     });
-    await userEvent.clear(screen.getByLabelText("关系 msg_result 返回值"));
-    await userEvent.type(screen.getByLabelText("关系 msg_result 返回值"), "token");
-    await userEvent.click(screen.getByLabelText("组合片段 frag_auth 包含消息 msg_result"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑关系：返回结果" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    await userEvent.clear(within(dialog).getByLabelText("返回值"));
+    await userEvent.type(within(dialog).getByLabelText("返回值"), "token");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑组合片段：认证成功" }));
+    dialog = await screen.findByRole("dialog", { name: /编辑组合片段/u });
+    await userEvent.click(within(dialog).getByLabelText("包含消息：返回结果"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
     await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
@@ -929,10 +1149,17 @@ describe("DiagramView", () => {
 
     const { unmount } = render(withWorkspaceProviders(<DiagramView type="activity" />, activityRepository));
 
-    await userEvent.clear(await screen.findByLabelText("活动节点 decide 问题"));
-    await userEvent.type(screen.getByLabelText("活动节点 decide 问题"), "是否允许提交");
-    await userEvent.clear(screen.getByLabelText("关系 flow_yes 守卫"));
-    await userEvent.type(screen.getByLabelText("关系 flow_yes 守卫"), "允许");
+    await userEvent.click(await screen.findByRole("button", { name: "编辑活动节点：是否通过" }));
+    let dialog = await screen.findByRole("dialog", { name: /编辑活动节点/u });
+    await userEvent.clear(within(dialog).getByLabelText("活动节点问题"));
+    await userEvent.type(within(dialog).getByLabelText("活动节点问题"), "是否允许提交");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await userEvent.click(screen.getByRole("button", { name: /编辑关系：/u }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    await userEvent.clear(within(dialog).getByLabelText("守卫"));
+    await userEvent.type(within(dialog).getByLabelText("守卫"), "允许");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
     await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
     expect(activityRepository.renderStructuredModel).toHaveBeenCalledWith(
@@ -996,9 +1223,13 @@ describe("DiagramView", () => {
 
     render(withWorkspaceProviders(<DesignDiagramView type="deployment" />, deploymentRepository));
 
-    await userEvent.clear(await screen.findByLabelText("关系 dep_db 协议"));
-    await userEvent.type(screen.getByLabelText("关系 dep_db 协议"), "HTTPS");
-    await userEvent.selectOptions(screen.getByLabelText("关系 dep_db 方向"), "two-way");
+    await userEvent.click(await screen.findByRole("button", { name: /编辑关系：/u }));
+    dialog = await screen.findByRole("dialog", { name: /编辑关系/u });
+    await userEvent.clear(within(dialog).getByLabelText("协议"));
+    await userEvent.type(within(dialog).getByLabelText("协议"), "HTTPS");
+    expect(dialog.querySelector("select")).toBeNull();
+    await selectComboboxOption(dialog, "方向", "two-way");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
     await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
     expect(deploymentRepository.renderStructuredModel).toHaveBeenCalledWith(
@@ -1015,7 +1246,7 @@ describe("DiagramView", () => {
     ).not.toHaveProperty("description");
   });
 
-  it("opens highlighted elements in the element view and filters focus relations", async () => {
+  it("keeps highlighted context while showing relation editors in the diagram page", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
         generatedDiagramTypes: ["class"],
@@ -1107,15 +1338,12 @@ describe("DiagramView", () => {
     );
 
     expect(await screen.findByText("预览")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("搜索元素、属性或说明")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索元素、属性或说明")).toBeInTheDocument();
     expect(screen.getByText(/相关关系 1 条/)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("tab", { name: /关系/ }));
+    expect(screen.queryByRole("tab", { name: /关系/ })).not.toBeInTheDocument();
     expect(screen.getAllByText("活动关联多个提醒记录。").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("用户查看提醒。").length).toBeGreaterThan(0);
-
-    await userEvent.click(screen.getByLabelText("只看焦点相关关系"));
-    expect(screen.getAllByText("活动关联多个提醒记录。").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("用户查看提醒。")).toHaveLength(1);
+    expect(screen.getAllByText("Event").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reminder").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("只看焦点相关关系")).not.toBeInTheDocument();
   });
 });

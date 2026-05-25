@@ -1068,6 +1068,7 @@ describe("TopBar", () => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
     });
     await user.click(await screen.findByRole("button", { name: "开始模型任务" }));
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
 
     const stageSection = screen.getByText("链路阶段").parentElement?.parentElement;
     expect(stageSection).toBeTruthy();
@@ -1155,6 +1156,7 @@ describe("TopBar", () => {
     render(withWorkspaceProviders(<TopBarDiagramTaskHarness />, repository));
 
     await user.click(await screen.findByRole("button", { name: "开始模型任务" }));
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
 
     const taskTitle = await screen.findByText(/^需求模型生成/u);
     const taskButton = taskTitle.closest("button");

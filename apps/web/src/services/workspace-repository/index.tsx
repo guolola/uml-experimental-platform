@@ -103,6 +103,7 @@ export interface StartDesignRunInput {
   requirementModels: DiagramModelSpec[];
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
   selectedDiagrams: DesignDiagramType[];
+  requestedDiagrams?: DesignDiagramType[];
   existingDesignModels: DesignDiagramModelSpec[];
   existingDesignModelTraceability: DesignModelTraceabilityEntry[];
   existingDesignPlantUml: DesignPlantUmlArtifact[];
@@ -370,7 +371,10 @@ function applySnapshotToWorkspace(
   if (isDesignRunSnapshot(snapshot)) {
     const designRecords = mapDesignSnapshotToRecords(snapshot);
     const affected = new Set(snapshot.selectedDiagrams);
-    next.selectedDesignDiagramTypes = [...snapshot.selectedDiagrams];
+    const requestedDesignDiagrams = snapshot.requestedDiagrams ?? snapshot.selectedDiagrams;
+    next.selectedDesignDiagramTypes = Array.from(
+      new Set([...next.selectedDesignDiagramTypes, ...requestedDesignDiagrams]),
+    );
     next.designModels = { ...next.designModels, ...designRecords.modelMap };
     next.designModelTraceability = [
       ...next.designModelTraceability.filter(
@@ -405,7 +409,9 @@ function applySnapshotToWorkspace(
   const records = mapSnapshotToRecords(snapshot);
   const nextRulesVersion = next.rulesVersion + 1;
   const affected = snapshot.selectedDiagrams;
-  next.selectedDiagramTypes = [...snapshot.selectedDiagrams];
+  next.selectedDiagramTypes = Array.from(
+    new Set([...next.selectedDiagramTypes, ...snapshot.selectedDiagrams]),
+  );
   next.rulesVersion = nextRulesVersion;
   next.rulesBasedOnTextVersion = 0;
   if (affected.length === 0) {
@@ -1532,6 +1538,7 @@ export function createMockWorkspaceRepository(
         runId,
         requirementText: input.requirementText,
         selectedDiagrams: input.selectedDiagrams,
+        requestedDiagrams: input.requestedDiagrams,
         rules: input.rules,
         requirementModels: input.requirementModels,
         requirementModelTraceability: input.requirementModelTraceability,
@@ -1750,17 +1757,25 @@ export function createMockWorkspaceRepository(
       workspace = {
         ...workspace,
         requirementText: snapshot.requirementText,
-        selectedDiagramTypes: [...snapshot.selectedDiagrams],
-        generatedDiagramTypes: [...snapshot.selectedDiagrams],
+        selectedDiagramTypes: Array.from(
+          new Set([...workspace.selectedDiagramTypes, ...snapshot.selectedDiagrams]),
+        ),
+        generatedDiagramTypes: Array.from(
+          new Set([...workspace.generatedDiagramTypes, ...snapshot.selectedDiagrams]),
+        ),
         rules: [...snapshot.rules],
         requirementBaseline: snapshot.requirementBaseline ?? workspace.requirementBaseline,
         requirementQualityReport:
           snapshot.requirementBaseline?.qualityReport ??
           workspace.requirementQualityReport,
-        models: modelMap,
-        plantUml: plantUmlMap,
-        svgArtifacts: svgMap,
-        diagramErrors: snapshot.diagramErrors,
+        models: { ...workspace.models, ...modelMap },
+        plantUml: { ...workspace.plantUml, ...plantUmlMap },
+        svgArtifacts: { ...workspace.svgArtifacts, ...svgMap },
+        diagramErrors: clearAndMergeDiagramErrors(
+          workspace.diagramErrors,
+          snapshot.diagramErrors,
+          snapshot.selectedDiagrams,
+        ),
       };
       return snapshot;
     },
@@ -1773,7 +1788,12 @@ export function createMockWorkspaceRepository(
       const { modelMap, plantUmlMap, svgMap } = mapDesignSnapshotToRecords(snapshot);
       workspace = {
         ...workspace,
-        selectedDesignDiagramTypes: [...snapshot.selectedDiagrams],
+        selectedDesignDiagramTypes: Array.from(
+          new Set([
+            ...workspace.selectedDesignDiagramTypes,
+            ...(snapshot.requestedDiagrams ?? snapshot.selectedDiagrams),
+          ]),
+        ),
         generatedDesignDiagramTypes: Array.from(
           new Set([
             ...workspace.generatedDesignDiagramTypes,
@@ -1783,10 +1803,11 @@ export function createMockWorkspaceRepository(
         designModels: { ...workspace.designModels, ...modelMap },
         designPlantUml: { ...workspace.designPlantUml, ...plantUmlMap },
         designSvgArtifacts: { ...workspace.designSvgArtifacts, ...svgMap },
-        designDiagramErrors: {
-          ...workspace.designDiagramErrors,
-          ...snapshot.diagramErrors,
-        },
+        designDiagramErrors: clearAndMergeDiagramErrors(
+          workspace.designDiagramErrors,
+          snapshot.diagramErrors,
+          snapshot.selectedDiagrams,
+        ),
       };
       return snapshot;
     },
@@ -2164,6 +2185,7 @@ export function createStartDesignRunInput(
   requirementModels: DiagramModelSpec[],
   requirementModelTraceability: RequirementModelTraceabilityEntry[],
   selectedDiagrams: DesignDiagramType[],
+  requestedDiagrams: DesignDiagramType[] = selectedDiagrams,
   existingDesignModels: DesignDiagramModelSpec[] = [],
   existingDesignModelTraceability: DesignModelTraceabilityEntry[] = [],
   existingDesignPlantUml: DesignPlantUmlArtifact[] = [],
@@ -2176,6 +2198,7 @@ export function createStartDesignRunInput(
     requirementModels,
     requirementModelTraceability,
     selectedDiagrams,
+    requestedDiagrams,
     existingDesignModels,
     existingDesignModelTraceability,
     existingDesignPlantUml,

@@ -67,6 +67,8 @@ pm2 -v
    - `UML_AVATAR_STORAGE_DIR`
    - `UML_PROVIDER_SECRET_KEY`
    - `UML_PROVIDER_BASE_URL_ALLOWLIST`
+   - `UML_TRACE_RAW_OUTPUT_MAX_CHARS`
+   - `UML_PERSIST_PROGRESS_SNAPSHOT`
 
 5. **核对 GitHub Secrets**
    只要 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_PORT`、`DEPLOY_SSH_KEY`、`DEPLOY_PATH` 已经正确，就不需要新增数据库密码到 GitHub Secrets；数据库和 OnlyOffice 生产密钥保留在服务器的 `production.env`。
@@ -186,6 +188,8 @@ UML_PROVIDER_CONFIG_SECRET='<与 UML_PROVIDER_SECRET_KEY 相同的兼容值>'
 UML_PROVIDER_BASE_URL_ALLOWLIST=https://api.openai.com,https://llm.example.edu
 UML_ALLOW_LEGACY_PROVIDER_TEST=false
 UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS=false
+UML_TRACE_RAW_OUTPUT_MAX_CHARS=8000
+UML_PERSIST_PROGRESS_SNAPSHOT=false
 API_CORS_ORIGINS=https://platform.example.com,https://admin.example.com
 RENDER_SERVICE_CORS_ORIGINS=https://platform.example.com
 ONLYOFFICE_DOCUMENT_SERVER_URL=http://office.example.com
@@ -286,7 +290,7 @@ VITE_APP_API_BASE_URL="" npm run build:web
 - 自动加载 `/www/wwwroot/uml-platform/shared/production.env` 后再启动 PM2，确保 OnlyOffice 等生产配置在每次发布后仍然存在
 - 使用 PM2 重启 `uml-api` 和 `uml-render-service`
 - 自动检查 `http://127.0.0.1:4001/api/health` 和 `http://127.0.0.1:4002/health`，失败时直接让 GitHub Actions 失败并输出 PM2 日志
-- 清理旧版本，只保留最近 5 个 release
+- 清理旧版本，默认只保留最近 2 个 release；如需要更多回滚点，可在部署时设置 `KEEP_RELEASES`
 
 ## 验证
 
@@ -329,6 +333,68 @@ pm2 logs uml-api
 pm2 logs uml-render-service
 pm2 restart uml-api
 pm2 restart uml-render-service
+```
+
+## 磁盘空间排查和清理
+
+当 `df -h` 显示 `/dev/vda3` 超过 85% 时，先暂停发布，避免新 release 解压和 `npm ci` 的峰值占用把磁盘打满。优先在服务器执行下面的只读排查命令：
+
+```bash
+df -h
+du -h --max-depth=2 /www/wwwroot/uml-platform | sort -hr | head -40
+du -h --max-depth=1 /www/wwwroot/uml-platform/releases | sort -hr | head -20
+du -h --max-depth=1 /www/wwwroot/uml-platform/shared | sort -hr | head -20
+du -h --max-depth=1 /root/.pm2 /tmp /var/lib/docker 2>/dev/null | sort -hr | head -40
+```
+
+本项目线上最常见的大头是：
+
+- `/www/wwwroot/uml-platform/releases/*`：每个 release 都包含 Web dist、PlantUML jar 和一份 API/render 生产依赖。
+- `/www/wwwroot/uml-platform/incoming/*`：发布失败或中断后可能留下的解压临时目录。
+- `/tmp/uml-platform-*.tar.gz`：GitHub Actions 上传到服务器的发布压缩包。
+- `/www/wwwroot/uml-platform/shared/documents`：用户生成和 OnlyOffice 回调保存的 DOCX 文件。
+- `/root/.pm2/logs`：PM2 stdout/stderr 日志。
+- `/var/lib/docker`：OnlyOffice Document Server 镜像、容器层和 Docker 日志。
+
+确认当前 release 后，可清理旧 release 和发布残留：
+
+```bash
+DEPLOY_PATH=/www/wwwroot/uml-platform
+CURRENT_RELEASE="$(readlink -f "$DEPLOY_PATH/current")"
+find "$DEPLOY_PATH/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' |
+  sort -rn |
+  awk 'NR>2 {print $2}' |
+  while read -r release_dir; do
+    [ "$(readlink -f "$release_dir")" = "$CURRENT_RELEASE" ] && continue
+    rm -rf -- "$release_dir"
+  done
+rm -rf -- "$DEPLOY_PATH/incoming"/*
+rm -f /tmp/uml-platform-*.tar.gz /tmp/baota-pm2-deploy.sh
+```
+
+PM2 日志过大时，可以先截断日志，再安装日志轮转：
+
+```bash
+pm2 flush
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 20M
+pm2 set pm2-logrotate:retain 5
+```
+
+如果 Docker 占用异常，先查看再清理未使用资源；不要删除正在运行的 `onlyoffice-documentserver` 容器：
+
+```bash
+docker system df
+docker ps -a
+docker image prune -f
+docker container prune -f
+docker builder prune -f
+```
+
+发布脚本默认 `KEEP_RELEASES=2`、`CLEAN_NPM_CACHE=true`，会在每次发布时清理旧 release、旧 incoming、旧上传包和 npm 安装缓存。磁盘很紧时可以进一步降为只保留 1 个回滚点：
+
+```bash
+KEEP_RELEASES=1 DEPLOY_PATH=/www/wwwroot/uml-platform RELEASE_SHA=<sha> RELEASE_ARCHIVE=/tmp/uml-platform-<sha>.tar.gz bash /tmp/baota-pm2-deploy.sh
 ```
 
 ## 回滚

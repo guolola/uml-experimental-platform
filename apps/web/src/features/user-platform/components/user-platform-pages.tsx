@@ -2565,7 +2565,7 @@ function getProjectRunStatusLabel(status?: string | null) {
     case "cancelled":
       return "已取消";
     case "interrupted":
-      return "已中断";
+      return "服务中断，可重试";
     default:
       return status ?? "未知状态";
   }
