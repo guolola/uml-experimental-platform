@@ -3157,7 +3157,7 @@ export function WorkspaceSessionProvider({
       status,
       warning:
         status === "dirty"
-          ? "模型已手动修改，可能与前置需求映射不一致。请重绘当前图后继续使用。"
+          ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
           : null,
       editedAt: now,
       ...(status === "rerendered" ? { rerenderedAt: now } : {}),
@@ -3185,7 +3185,11 @@ export function WorkspaceSessionProvider({
   );
 
   const rerenderRequirementModel = useCallback(
-    async (diagramKind: DiagramType, modelOverride?: DiagramModelSpec) => {
+    async (
+      diagramKind: DiagramType,
+      modelOverride?: DiagramModelSpec,
+      options?: { toastMessage?: string | null },
+    ) => {
       const model = modelOverride ?? models[diagramKind];
       if (!model) {
         throw new Error("当前需求模型不存在，无法重绘");
@@ -3215,13 +3219,19 @@ export function WorkspaceSessionProvider({
         plantUmlSource: rendered.plantUmlSource,
         svgArtifact,
       });
-      toast.message("当前模型已重绘");
+      if (options?.toastMessage !== null) {
+        toast.message(options?.toastMessage ?? "当前模型已重绘");
+      }
     },
     [createManualEditStatus, models, repository],
   );
 
   const rerenderDesignModel = useCallback(
-    async (modelId: string, modelOverride?: DesignDiagramModelSpec) => {
+    async (
+      modelId: string,
+      modelOverride?: DesignDiagramModelSpec,
+      options?: { toastMessage?: string | null },
+    ) => {
       const model = modelOverride ?? designModels[modelId];
       if (!model) {
         throw new Error("当前设计模型不存在，无法重绘");
@@ -3252,7 +3262,9 @@ export function WorkspaceSessionProvider({
         plantUmlSource: rendered.plantUmlSource,
         svgArtifact,
       });
-      toast.message("当前模型已重绘");
+      if (options?.toastMessage !== null) {
+        toast.message(options?.toastMessage ?? "当前模型已重绘");
+      }
     },
     [createManualEditStatus, designModels, repository],
   );

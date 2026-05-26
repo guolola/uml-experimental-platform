@@ -182,10 +182,12 @@ export interface WorkspaceSessionState {
   rerenderRequirementModel: (
     diagramKind: DiagramType,
     modelOverride?: DiagramModelSpec,
+    options?: { toastMessage?: string | null },
   ) => Promise<void>;
   rerenderDesignModel: (
     modelId: string,
     modelOverride?: DesignDiagramModelSpec,
+    options?: { toastMessage?: string | null },
   ) => Promise<void>;
   generateDiagrams: (only?: DiagramType[]) => Promise<void>;
   generateDesignDiagrams: (only?: DesignDiagramType[]) => Promise<void>;

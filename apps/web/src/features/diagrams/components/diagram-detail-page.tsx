@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import {
   ExternalLink,
   AlertTriangle,
-  RefreshCw,
   Loader2,
   Download,
   Maximize2,
@@ -331,6 +330,52 @@ function cloneDraftModel(model: unknown) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function draftFingerprint(model: Record<string, unknown> | null) {
+  return model ? JSON.stringify(model) : "";
+}
+
+function designSourceLabel(
+  diagram: DesignDiagramType,
+  model: Record<string, unknown> | null,
+) {
+  if (diagram === "sequence") {
+    const useCaseName = stringValue(model?.sourceUseCaseName).trim();
+    if (useCaseName) {
+      return `来源：需求阶段用例模型（用例：${useCaseName}）`;
+    }
+    const useCaseId = stringValue(model?.sourceUseCaseId).trim();
+    if (useCaseId) {
+      return `来源：需求阶段用例模型（用例ID：${useCaseId}）`;
+    }
+    return "来源：需求阶段用例模型（具体用例未标明）";
+  }
+  if (diagram === "activity") {
+    return "来源：需求阶段界面关系图 + 设计阶段顺序图";
+  }
+  if (diagram === "class") {
+    return "来源：需求阶段领域概念模型 + 设计阶段顺序图";
+  }
+  if (diagram === "deployment") {
+    return "来源：需求阶段部署模型 + 设计阶段顺序图";
+  }
+  return "来源：设计阶段设计类图 + 设计阶段顺序图";
+}
+
+function requirementSourceLabel(rules: Array<{ id?: string }>) {
+  if (rules.length === 0) {
+    return "来源：需求规则（未标明）";
+  }
+  const visibleRuleIds = rules
+    .slice(0, 5)
+    .map((rule) => rule.id.trim().toUpperCase())
+    .filter(Boolean);
+  if (visibleRuleIds.length === 0) {
+    return "来源：需求规则（未标明）";
+  }
+  const suffix = rules.length > visibleRuleIds.length ? ` +${rules.length - visibleRuleIds.length}` : "";
+  return `来源：需求规则（${visibleRuleIds.join("、")}${suffix}）`;
 }
 
 function booleanValue(value: unknown, fallback = false) {
@@ -2374,7 +2419,7 @@ function ModelEditPanel({
                 : "编辑元素"}
             </DialogTitle>
             <DialogDescription>
-              确认后会保存当前模型草稿，并立即重新生成当前图。
+              确认后会保存当前模型草稿，并自动更新当前图。
             </DialogDescription>
           </DialogHeader>
           {elementEditor && editingElement ? (
@@ -2429,7 +2474,7 @@ function ModelEditPanel({
               {relationEditor?.mode === "create" ? "添加关系" : "编辑关系"}
             </DialogTitle>
             <DialogDescription>
-              调整端点、类型和关系字段后，确认会保存草稿并重新生成当前图。
+              调整端点、类型和关系字段后，确认会保存草稿并自动更新当前图。
             </DialogDescription>
           </DialogHeader>
           {relationEditor && editingRelation ? (
@@ -2469,7 +2514,7 @@ function ModelEditPanel({
               {deleteTarget?.kind === "element" ? `删除${deleteTarget.collection.label}` : "删除关系"}
             </DialogTitle>
             <DialogDescription>
-              将删除{deleteTarget?.label ?? "当前项"}，并清理相关引用或关系。确认删除后会立即保存并重新生成当前图。
+              将删除{deleteTarget?.label ?? "当前项"}，并清理相关引用或关系。确认删除后会自动保存并更新当前图。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-2">
@@ -2524,7 +2569,6 @@ function DiagramDetailView({
     saveDesignModelEdit,
     rerenderRequirementModel,
     rerenderDesignModel,
-    generating,
   } = useWorkspaceSession();
   const {
     openDiagram,
@@ -2559,6 +2603,8 @@ function DiagramDetailView({
     model ? cloneDraftModel(model) : null,
   );
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const persistedDraftFingerprintRef = useRef(draftFingerprint(model ? cloneDraftModel(model) : null));
   const [svgUrl, setSvgUrl] = useState("");
   const [svgScale, setSvgScale] = useState(1);
   const svgScaleRef = useRef(svgScale);
@@ -2591,7 +2637,10 @@ function DiagramDetailView({
   } | null>(null);
   const [highlightRequestId, setHighlightRequestId] = useState(0);
   useEffect(() => {
-    setDraft(model ? cloneDraftModel(model) : null);
+    const nextDraft = model ? cloneDraftModel(model) : null;
+    setDraft(nextDraft);
+    persistedDraftFingerprintRef.current = draftFingerprint(nextDraft);
+    setSaveStatus("idle");
     setLocalHighlightedElement(null);
   }, [model, statusKey]);
   const setDraftField = useCallback((key: string, value: unknown) => {
@@ -2600,14 +2649,26 @@ function DiagramDetailView({
   const commitDraftAndRerender = useCallback(async (nextDraft: Record<string, unknown>) => {
     setDraft(nextDraft);
     setSaving(true);
+    setSaveStatus("saving");
     try {
       if (isDesign) {
         await saveDesignModelEdit(designArtifactId, nextDraft as never);
-        await rerenderDesignModel(designArtifactId, nextDraft as never);
+        await rerenderDesignModel(designArtifactId, nextDraft as never, {
+          toastMessage: null,
+        });
       } else {
         await saveRequirementModelEdit(requirementType, nextDraft as never);
-        await rerenderRequirementModel(requirementType, nextDraft as never);
+        await rerenderRequirementModel(requirementType, nextDraft as never, {
+          toastMessage: null,
+        });
       }
+      persistedDraftFingerprintRef.current = draftFingerprint(nextDraft);
+      setSaveStatus("saved");
+      toast.message("修改已保存，当前图已更新");
+    } catch {
+      setSaveStatus("error");
+      toast.error("保存失败，请稍后重试");
+      return;
     } finally {
       setSaving(false);
     }
@@ -2620,10 +2681,17 @@ function DiagramDetailView({
     saveDesignModelEdit,
     saveRequirementModelEdit,
   ]);
-  const rerenderDraft = useCallback(async () => {
-    if (!draft) return;
-    await commitDraftAndRerender(draft);
-  }, [commitDraftAndRerender, draft]);
+  useEffect(() => {
+    if (!draft || saving) return;
+    const fingerprint = draftFingerprint(draft);
+    if (fingerprint === persistedDraftFingerprintRef.current) return;
+    const timer = window.setTimeout(() => {
+      void commitDraftAndRerender(draft);
+    }, 600);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [commitDraftAndRerender, draft, saving]);
   const updateSvgScale = useCallback((next: number) => {
     setSvgScale(Math.min(3, Math.max(0.25, Math.round(next * 100) / 100)));
   }, []);
@@ -2771,6 +2839,15 @@ function DiagramDetailView({
   });
   const modelTitle = getModelText(draft ?? model, "title", meta.label);
   const modelSummary = getModelText(draft ?? model, "summary", meta.description);
+  const designSourceText = isDesign
+    ? designSourceLabel(designType, draft ?? (designModel ? cloneDraftModel(designModel) : null))
+    : null;
+  const requirementSourceText = !isDesign ? requirementSourceLabel(sourceRules) : null;
+  const sourceText = designSourceText ?? requirementSourceText;
+  const editWarningText = editStatus?.warning?.includes("重绘当前图")
+    ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
+    : editStatus?.warning ??
+      "手动修改会更新当前模型结构，可能不再完全对应原始需求或上游用例。修改保存后会基于当前结构自动更新此图。";
   const diagramActions = svgMarkup ? (
     <div className="flex flex-wrap items-center gap-1">
       <Button
@@ -2912,23 +2989,25 @@ function DiagramDetailView({
                     {modelSummary}
                   </p>
                 )}
+                {sourceText ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="rounded-md border border-border bg-muted/40 px-2 py-1">
+                      {sourceText}
+                    </span>
+                    {saveStatus === "saving" ? (
+                      <span className="inline-flex items-center gap-1 text-primary">
+                        <Loader2 className="size-3 animate-spin" />
+                        保存并更新图中
+                      </span>
+                    ) : saveStatus === "saved" ? (
+                      <span className="text-success">修改已保存</span>
+                    ) : saveStatus === "error" ? (
+                      <span className="text-destructive">保存失败</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="flex flex-col gap-2 sm:w-auto">
-                <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={rerenderDraft}
-                    disabled={!draft || generating || saving}
-                  >
-                    {saving || generating ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="size-3.5" />
-                    )}
-                    重新生成当前图
-                  </Button>
-                </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
                     <div className="font-mono text-lg font-semibold text-foreground">
@@ -3146,10 +3225,7 @@ function DiagramDetailView({
               <div className="px-5 pb-5">
                 <div className="mb-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
                   <AlertTriangle className="size-3.5 shrink-0 text-warning" />
-                  <span>
-                    {editStatus?.warning ??
-                      "手动修改会更新当前模型结构，可能不再完全对应原始需求或上游用例。重新生成只会基于当前编辑后的模型重绘此图。"}
-                  </span>
+                  <span>{editWarningText}</span>
                 </div>
                 <ModelEditPanel
                   draft={draft}

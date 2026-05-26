@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
   createRule,
@@ -9,7 +9,25 @@ import {
 } from "../../../test/workspace-test-utils";
 import { DesignDiagramView, DiagramView } from "./diagram-detail-page";
 
+const { toastMessage, toastError } = vi.hoisted(() => ({
+  toastMessage: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    message: toastMessage,
+    error: toastError,
+    success: vi.fn(),
+  },
+}));
+
 describe("DiagramView", () => {
+  beforeEach(() => {
+    toastMessage.mockClear();
+    toastError.mockClear();
+  });
+
   function createRepository(
     workspace = createWorkspaceRecord(),
   ): WorkspaceRepository {
@@ -122,6 +140,297 @@ describe("DiagramView", () => {
     expect(screen.queryByText("溯源·需求规则")).not.toBeInTheDocument();
     expect(screen.queryByText("用户可以查看公开活动。")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
+  });
+
+  it("shows requirement rule sources below the requirement model summary", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        rules: [
+          createRule({
+            id: "r1",
+            text: "系统应管理图书信息。",
+            relatedDiagrams: ["class"],
+          }),
+          createRule({
+            id: "r2",
+            text: "系统应维护读者借阅记录。",
+            relatedDiagrams: ["class"],
+          }),
+          createRule({
+            id: "r3",
+            text: "系统应支持借出图书。",
+            relatedDiagrams: ["usecase"],
+          }),
+        ],
+        plantUml: {
+          class: "@startuml\nclass Book\n@enduml",
+        },
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "图书馆核心概念",
+            notes: [],
+            classes: [],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: "<svg><text>class</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="class" />, repository));
+
+    expect(await screen.findByText("来源：需求规则（R1、R2）")).toBeInTheDocument();
+    expect(screen.queryByText("来源：需求规则（R1、R2、R3）")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新生成当前图" })).not.toBeInTheDocument();
+  });
+
+  it("shows design model source below the detail summary", async () => {
+    const sequenceWithName = createRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["sequence"],
+        designPlantUml: { "sequence:borrow": "@startuml\n@enduml" },
+        designModels: {
+          "sequence:borrow": {
+            diagramKind: "sequence",
+            modelId: "sequence:borrow",
+            sourceUseCaseId: "uc_borrow",
+            sourceUseCaseName: "借出图书",
+            title: "借出图书顺序图",
+            summary: "借出图书流程",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+        },
+        designSvgArtifacts: {
+          "sequence:borrow": {
+            diagramKind: "sequence",
+            modelId: "sequence:borrow",
+            svg: "<svg><text>borrow</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+    const namedView = render(
+      withWorkspaceProviders(
+        <DesignDiagramView type="sequence" modelId="sequence:borrow" />,
+        sequenceWithName,
+      ),
+    );
+
+    expect(
+      await screen.findByText("来源：需求阶段用例模型（用例：借出图书）"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新生成当前图" })).not.toBeInTheDocument();
+    namedView.unmount();
+
+    const sequenceWithId = createRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["sequence"],
+        designPlantUml: { "sequence:uc_only": "@startuml\n@enduml" },
+        designModels: {
+          "sequence:uc_only": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc_only",
+            sourceUseCaseId: "uc_only",
+            title: "顺序图",
+            summary: "无用例名",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+        },
+        designSvgArtifacts: {
+          "sequence:uc_only": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc_only",
+            svg: "<svg><text>sequence</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+    const idView = render(
+      withWorkspaceProviders(
+        <DesignDiagramView type="sequence" modelId="sequence:uc_only" />,
+        sequenceWithId,
+      ),
+    );
+
+    expect(
+      await screen.findByText("来源：需求阶段用例模型（用例ID：uc_only）"),
+    ).toBeInTheDocument();
+    idView.unmount();
+
+    const sequenceWithoutUseCase = createRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["sequence"],
+        designPlantUml: { sequence: "@startuml\n@enduml" },
+        designModels: {
+          sequence: {
+            diagramKind: "sequence",
+            title: "顺序图",
+            summary: "缺少用例信息",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+        },
+        designSvgArtifacts: {
+          sequence: {
+            diagramKind: "sequence",
+            svg: "<svg><text>sequence</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+    const missingView = render(
+      withWorkspaceProviders(<DesignDiagramView type="sequence" />, sequenceWithoutUseCase),
+    );
+
+    expect(
+      await screen.findByText("来源：需求阶段用例模型（具体用例未标明）"),
+    ).toBeInTheDocument();
+    missingView.unmount();
+
+    const activityRepository = createRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["activity"],
+        designPlantUml: { activity: "@startuml\n@enduml" },
+        designModels: {
+          activity: {
+            diagramKind: "activity",
+            title: "业务流程图",
+            summary: "业务流程",
+            notes: [],
+            swimlanes: [],
+            nodes: [],
+            relationships: [],
+          },
+        },
+        designSvgArtifacts: {
+          activity: {
+            diagramKind: "activity",
+            svg: "<svg><text>activity</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+    render(withWorkspaceProviders(<DesignDiagramView type="activity" />, activityRepository));
+
+    expect(
+      await screen.findByText("来源：需求阶段界面关系图 + 设计阶段顺序图"),
+    ).toBeInTheDocument();
+  });
+
+  it("autosaves title and summary edits, rerenders the design diagram, and shows a toast", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["class"],
+        designPlantUml: { class: "@startuml\n@enduml" },
+        designModels: {
+          class: {
+            diagramKind: "class",
+            title: "设计类图",
+            summary: "静态结构",
+            notes: [],
+            classes: [],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        designSvgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: "<svg><text>class</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DesignDiagramView type="class" />, repository));
+
+    await userEvent.clear(await screen.findByLabelText("模型标题"));
+    await userEvent.type(screen.getByLabelText("模型标题"), "图书馆设计类图");
+    await userEvent.clear(screen.getByLabelText("模型摘要"));
+    await userEvent.type(screen.getByLabelText("模型摘要"), "更新后的结构说明");
+
+    await waitFor(() => {
+      expect(repository.saveDesignModelEdit).toHaveBeenCalledWith(
+        "class",
+        expect.objectContaining({
+          title: "图书馆设计类图",
+          summary: "更新后的结构说明",
+        }),
+        expect.objectContaining({ status: "dirty" }),
+      );
+    }, { timeout: 2500 });
+    expect(repository.renderStructuredModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "图书馆设计类图",
+        summary: "更新后的结构说明",
+      }),
+    );
+    expect(toastMessage).toHaveBeenCalledWith("修改已保存，当前图已更新");
+    expect(screen.queryByRole("button", { name: "重新生成当前图" })).not.toBeInTheDocument();
+  });
+
+  it("keeps edited text visible and shows a toast when autosave fails", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["activity"],
+        designPlantUml: { activity: "@startuml\n@enduml" },
+        designModels: {
+          activity: {
+            diagramKind: "activity",
+            title: "业务流程图",
+            summary: "业务流程",
+            notes: [],
+            swimlanes: [],
+            nodes: [],
+            relationships: [],
+          },
+        },
+        designSvgArtifacts: {
+          activity: {
+            diagramKind: "activity",
+            svg: "<svg><text>activity</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+    vi.mocked(repository.saveDesignModelEdit!).mockRejectedValueOnce(new Error("save failed"));
+
+    render(withWorkspaceProviders(<DesignDiagramView type="activity" />, repository));
+
+    await userEvent.clear(await screen.findByLabelText("模型摘要"));
+    await userEvent.type(screen.getByLabelText("模型摘要"), "失败时仍保留的摘要");
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith("保存失败，请稍后重试");
+    }, { timeout: 2500 });
+    expect(screen.getByLabelText("模型摘要")).toHaveValue("失败时仍保留的摘要");
+    expect(repository.renderStructuredModel).not.toHaveBeenCalled();
   });
 
   it("opens SVG preview through a blob URL and revokes it on unmount", async () => {
@@ -534,6 +843,7 @@ describe("DiagramView", () => {
     expect(repository.renderStructuredModel).toHaveBeenCalledWith(
       expect.objectContaining({ relationships: [] }),
     );
+    expect(toastMessage).toHaveBeenCalledWith("修改已保存，当前图已更新");
   });
 
   it("opens add dialogs before creating elements or relations", async () => {
@@ -620,6 +930,59 @@ describe("DiagramView", () => {
         relationships: expect.arrayContaining([expect.objectContaining({ label: "关联发票" })]),
       }),
     );
+    expect(toastMessage).toHaveBeenCalledWith("修改已保存，当前图已更新");
+  });
+
+  it("keeps edited element draft visible and shows a toast when rerender fails", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        plantUml: {
+          class: "@startuml\nclass Customer\n@enduml",
+        },
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "客户领域对象",
+            notes: [],
+            classes: [
+              {
+                id: "cls_customer",
+                name: "Customer",
+                classKind: "entity",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: "<svg><text>Customer</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+    vi.mocked(repository.renderStructuredModel!).mockRejectedValueOnce(new Error("render failed"));
+
+    render(withWorkspaceProviders(<DiagramView type="class" />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "编辑类：Customer" }));
+    const dialog = await screen.findByRole("dialog", { name: /编辑类/u });
+    await userEvent.clear(within(dialog).getByLabelText("类名称"));
+    await userEvent.type(within(dialog).getByLabelText("类名称"), "Client");
+    await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith("保存失败，请稍后重试");
+    });
+    expect(await screen.findByRole("button", { name: "定位元素：Client" })).toBeInTheDocument();
   });
 
   it("edits a use case model and rerenders the current diagram", async () => {
@@ -871,36 +1234,36 @@ describe("DiagramView", () => {
     await userEvent.type(within(dialog).getByLabelText("目标多重性"), "0..*");
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
-
-    expect(repository.renderStructuredModel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "订单类模型",
-        notes: ["旧备注"],
-        classes: expect.arrayContaining([
-          expect.objectContaining({
-            id: "cls_order",
-            attributes: [expect.objectContaining({ name: "totalAmount" })],
-            operations: [
-              expect.objectContaining({
-                parameters: [expect.objectContaining({ name: "userId" })],
-              }),
-            ],
-          }),
-        ]),
-        interfaces: [
-          expect.objectContaining({
-            operations: [expect.objectContaining({ name: "capture" })],
-          }),
-        ],
-        enums: [expect.objectContaining({ literals: ["CREATED", "PAID"] })],
-        relationships: [
-          expect.objectContaining({
-            targetMultiplicity: "0..*",
-          }),
-        ],
-      }),
-    );
+    await waitFor(() => {
+      expect(repository.renderStructuredModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "订单类模型",
+          notes: ["旧备注"],
+          classes: expect.arrayContaining([
+            expect.objectContaining({
+              id: "cls_order",
+              attributes: [expect.objectContaining({ name: "totalAmount" })],
+              operations: [
+                expect.objectContaining({
+                  parameters: [expect.objectContaining({ name: "userId" })],
+                }),
+              ],
+            }),
+          ]),
+          interfaces: [
+            expect.objectContaining({
+              operations: [expect.objectContaining({ name: "capture" })],
+            }),
+          ],
+          enums: [expect.objectContaining({ literals: ["CREATED", "PAID"] })],
+          relationships: [
+            expect.objectContaining({
+              targetMultiplicity: "0..*",
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   it("edits table columns and field-level table relations", async () => {
@@ -993,27 +1356,27 @@ describe("DiagramView", () => {
     await selectComboboxOption(dialog, "目标字段", "user_id");
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
-
-    expect(repository.renderStructuredModel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tables: expect.arrayContaining([
-          expect.objectContaining({
-            id: "orders",
-            columns: expect.arrayContaining([
-              expect.objectContaining({ id: "order_id", name: "order_id" }),
-              expect.objectContaining({ name: "new_column" }),
-            ]),
-          }),
-        ]),
-        relationships: [
-          expect.objectContaining({
-            sourceColumnId: "id",
-            targetColumnId: "user_id",
-          }),
-        ],
-      }),
-    );
+    await waitFor(() => {
+      expect(repository.renderStructuredModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tables: expect.arrayContaining([
+            expect.objectContaining({
+              id: "orders",
+              columns: expect.arrayContaining([
+                expect.objectContaining({ id: "order_id", name: "order_id" }),
+                expect.objectContaining({ name: "new_column" }),
+              ]),
+            }),
+          ]),
+          relationships: [
+            expect.objectContaining({
+              sourceColumnId: "id",
+              targetColumnId: "user_id",
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   it("edits sequence message details and fragment message membership", async () => {
@@ -1107,20 +1470,20 @@ describe("DiagramView", () => {
     await userEvent.click(within(dialog).getByLabelText("包含消息：返回结果"));
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
-
-    expect(repository.renderStructuredModel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        participants: expect.arrayContaining([
-          expect.objectContaining({ id: "auth", participantType: "control" }),
-        ]),
-        messages: expect.arrayContaining([
-          expect.objectContaining({ id: "msg_login", parameters: ["username", "password"] }),
-          expect.objectContaining({ id: "msg_result", returnValue: "token" }),
-        ]),
-        fragments: [expect.objectContaining({ messageIds: ["msg_login", "msg_result"] })],
-      }),
-    );
+    await waitFor(() => {
+      expect(repository.renderStructuredModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          participants: expect.arrayContaining([
+            expect.objectContaining({ id: "auth", participantType: "control" }),
+          ]),
+          messages: expect.arrayContaining([
+            expect.objectContaining({ id: "msg_login", parameters: ["username", "password"] }),
+            expect.objectContaining({ id: "msg_result", returnValue: "token" }),
+          ]),
+          fragments: [expect.objectContaining({ messageIds: ["msg_login", "msg_result"] })],
+        }),
+      );
+    });
   });
 
   it("edits activity and deployment relation-specific fields without collapsing them into descriptions", async () => {
@@ -1173,16 +1536,17 @@ describe("DiagramView", () => {
     await userEvent.clear(within(dialog).getByLabelText("守卫"));
     await userEvent.type(within(dialog).getByLabelText("守卫"), "允许");
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
-    await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
-    expect(activityRepository.renderStructuredModel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        nodes: expect.arrayContaining([
-          expect.objectContaining({ id: "decide", question: "是否允许提交" }),
-        ]),
-        relationships: [expect.objectContaining({ guard: "允许" })],
-      }),
-    );
+    await waitFor(() => {
+      expect(activityRepository.renderStructuredModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: expect.arrayContaining([
+            expect.objectContaining({ id: "decide", question: "是否允许提交" }),
+          ]),
+          relationships: [expect.objectContaining({ guard: "允许" })],
+        }),
+      );
+    });
     expect(
       (
         vi.mocked(activityRepository.renderStructuredModel).mock.calls[0]?.[0] as {
@@ -1243,13 +1607,14 @@ describe("DiagramView", () => {
     expect(dialog.querySelector("select")).toBeNull();
     await selectComboboxOption(dialog, "方向", "two-way");
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
-    await userEvent.click(screen.getByRole("button", { name: "重新生成当前图" }));
 
-    expect(deploymentRepository.renderStructuredModel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        relationships: [expect.objectContaining({ protocol: "HTTPS", direction: "two-way" })],
-      }),
-    );
+    await waitFor(() => {
+      expect(deploymentRepository.renderStructuredModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          relationships: [expect.objectContaining({ protocol: "HTTPS", direction: "two-way" })],
+        }),
+      );
+    });
     expect(
       (
         vi.mocked(deploymentRepository.renderStructuredModel).mock.calls[0]?.[0] as {
