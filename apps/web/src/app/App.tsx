@@ -181,10 +181,10 @@ export function Shell() {
           data-testid="workspace-sidebar-panel"
           data-default-size="10"
           data-min-size="8"
-          data-max-size="14"
+          data-max-size="22"
           defaultSize={10}
           minSize={8}
-          maxSize={14}
+          maxSize={22}
         >
           <aside className="h-full w-full border-r border-sidebar-border bg-sidebar">
             <SidebarMenu />

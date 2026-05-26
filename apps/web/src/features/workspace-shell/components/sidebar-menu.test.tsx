@@ -141,7 +141,7 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
   });
 
-  it("hides requirement rule provenance badges for generated diagrams", async () => {
+  it("shows requirement rule provenance badges for generated diagrams", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -188,12 +188,13 @@ describe("SidebarMenu", () => {
     await user.click(await screen.findByRole("button", { name: "展开 需求" }));
 
     expect(screen.getByText("用例模型")).toBeInTheDocument();
-    expect(screen.queryByText("R1 R2 R3 +4")).not.toBeInTheDocument();
-    expect(screen.queryByText("R1, R2, R3, R4, R5, R6, R7")).not.toBeInTheDocument();
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(screen.getByText("R1 R2 R3 +4"));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "R1, R2, R3, R4, R5, R6, R7",
+    );
   });
 
-  it("hides design diagram upstream provenance badges", async () => {
+  it("shows design diagram upstream provenance badges", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -236,7 +237,7 @@ describe("SidebarMenu", () => {
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
 
     expect(screen.getByText("顺序图")).toBeInTheDocument();
-    expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
+    expect(screen.getByText("用例模型")).toBeInTheDocument();
   });
 
   it("hides traceability matrix entries from requirement and design navigation", async () => {
@@ -295,7 +296,7 @@ describe("SidebarMenu", () => {
     expect(screen.queryByRole("button", { name: "设计跟踪矩阵" })).not.toBeInTheDocument();
   });
 
-  it("hides upstream badges for downstream design diagrams", async () => {
+  it("shows upstream badges for downstream design diagrams", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -332,8 +333,8 @@ describe("SidebarMenu", () => {
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
 
     expect(screen.getByRole("button", { name: "设计类图" })).toBeInTheDocument();
-    expect(screen.queryByText("领域概念模型")).not.toBeInTheDocument();
-    expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
+    expect(screen.getByText("领域概念模型")).toBeInTheDocument();
+    expect(screen.getByText("顺序图")).toBeInTheDocument();
   });
 
   it("shows a toast when a generated design model has no SVG yet", async () => {
@@ -740,7 +741,7 @@ describe("SidebarMenu", () => {
     releaseRun();
   });
 
-  it("does not show element count badges in the design navigation", async () => {
+  it("shows design provenance badges without element count badges", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -785,7 +786,7 @@ describe("SidebarMenu", () => {
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
     await userEvent.click(screen.getByRole("button", { name: "展开 顺序图" }));
 
-    expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
+    expect(screen.getByText("用例模型")).toBeInTheDocument();
     expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
 

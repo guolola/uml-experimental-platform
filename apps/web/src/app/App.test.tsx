@@ -2496,7 +2496,7 @@ describe("App shell routes", () => {
     ).toHaveClass("w-full");
     expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-default-size", "10");
     expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-min-size", "8");
-    expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-max-size", "14");
+    expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-max-size", "22");
     expect(screen.getByRole("button", { name: "生成任务" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导出" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "运行历史" })).toBeInTheDocument();
