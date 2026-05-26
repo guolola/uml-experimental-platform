@@ -2252,6 +2252,7 @@ describe("App shell routes", () => {
       });
 
       expect(screen.getByText("项目导航")).toBeInTheDocument();
+      expect(screen.queryByText("项目数据加载中...")).not.toBeInTheDocument();
       expect(screen.queryByTestId("project-workspace-loading-layout")).not.toBeInTheDocument();
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
 

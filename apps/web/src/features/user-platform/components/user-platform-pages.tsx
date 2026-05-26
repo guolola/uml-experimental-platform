@@ -1,5 +1,14 @@
 // Hosts authenticated project, account, and provider pages backed by the platform API.
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  FormEvent,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CSSProperties } from "react";
 import {
   Activity,
@@ -369,10 +378,17 @@ const emptyProjectOverview: ProjectOverviewState = {
   documents: [],
 };
 
+const ProjectOverviewContext =
+  createContext<{ projectId: string; overview: ProjectOverviewState } | null>(null);
+
 function useProjectOverview(projectId: string) {
+  const providedOverview = useContext(ProjectOverviewContext);
+  const contextOverview =
+    providedOverview?.projectId === projectId ? providedOverview.overview : null;
   const [state, setState] = useState<ProjectOverviewState>(emptyProjectOverview);
 
   useEffect(() => {
+    if (contextOverview) return;
     let active = true;
     setState({ ...emptyProjectOverview, loading: true });
     Promise.all([
@@ -412,9 +428,9 @@ function useProjectOverview(projectId: string) {
     return () => {
       active = false;
     };
-  }, [projectId]);
+  }, [contextOverview, projectId]);
 
-  return state;
+  return contextOverview ?? state;
 }
 
 function renderAccessMessage(
@@ -484,13 +500,13 @@ function ProjectWorkspaceLoadingLayout() {
   return (
     <div
       data-testid="project-workspace-loading-layout"
-      className="pointer-events-none grid min-h-0 min-w-0 flex-1 grid-cols-[10%_10px_minmax(0,1fr)] overflow-hidden bg-background"
+      className="pointer-events-none grid min-h-0 min-w-0 flex-1 grid-cols-[10%_1px_minmax(0,1fr)] overflow-hidden bg-background"
       aria-hidden="true"
     >
       <aside className="h-full min-w-20 border-r border-sidebar-border bg-sidebar" />
       <div className="h-full bg-border/70" />
       <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
-        <div className="min-h-[49px] shrink-0 border-b border-border bg-card" />
+        <div className="h-[53px] shrink-0 border-b border-border bg-card" />
         <div className="h-12 shrink-0 border-b border-border bg-background" />
         <div className="min-h-0 flex-1 bg-background" />
       </main>
@@ -2178,6 +2194,10 @@ export function ProjectWorkspaceAccessBoundary({
     overview.loading,
   );
   const loadingTransition = useLoadingTransition(overview.loading);
+  const overviewContextValue = useMemo(
+    () => ({ projectId, overview }),
+    [overview, projectId],
+  );
 
   if (overview.loading) {
     if (coordinatedLoading) {
@@ -2214,7 +2234,9 @@ export function ProjectWorkspaceAccessBoundary({
 
   return (
     <div className="relative flex min-h-0 flex-1">
-      {children}
+      <ProjectOverviewContext.Provider value={overviewContextValue}>
+        {children}
+      </ProjectOverviewContext.Provider>
       {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
         <PlatformLoadingScreen
           message="正在同步项目状态..."
@@ -4800,7 +4822,7 @@ export function ProjectWorkspaceBanner({
 
   if (overview.loading) {
     return (
-      <div className="border-b border-border bg-card px-4 py-2">
+      <div className="flex min-h-[53px] items-center border-b border-border bg-card px-4 py-2">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           项目数据加载中...
@@ -4811,8 +4833,8 @@ export function ProjectWorkspaceBanner({
 
   if (overview.authRequired || overview.forbidden || overview.error || !overview.project) {
     return (
-      <div className="border-b border-border bg-card px-4 py-2">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div className="flex min-h-[53px] items-center border-b border-border bg-card px-4 py-2">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm">
           <div className="flex items-center gap-3">
             <Badge variant={overview.forbidden ? "destructive" : "outline"}>
               {overview.forbidden ? "权限不足" : "项目工作台"}
@@ -4830,8 +4852,8 @@ export function ProjectWorkspaceBanner({
   }
 
   return (
-    <div className="border-b border-border bg-card px-4 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+    <div className="flex min-h-[53px] items-center border-b border-border bg-card px-4 py-2">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm">
         <div className="flex items-center gap-3">
           <Badge variant="secondary">项目工作台</Badge>
           <span className="font-semibold">{overview.project.name}</span>
