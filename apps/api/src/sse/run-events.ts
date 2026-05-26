@@ -90,7 +90,7 @@ export function registerRunEventsRoute({
 
     listener = (event: RunEvent) => {
       send(event);
-      if (event.type === "completed" || event.type === "failed") {
+      if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
         close();
       }
     };

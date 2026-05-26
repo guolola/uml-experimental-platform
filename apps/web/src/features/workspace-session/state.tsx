@@ -167,6 +167,26 @@ function shouldRefreshRunSnapshotFromEvent(event: RunEvent) {
   );
 }
 
+function isTerminalRunEvent(event: RunEvent) {
+  return (
+    event.type === "completed" ||
+    event.type === "failed" ||
+    event.type === "cancelled"
+  );
+}
+
+function statusFromRunEvent(event: RunEvent) {
+  if (event.type === "queued") return "queued";
+  if (event.type === "failed") return "failed";
+  if (event.type === "completed") return "completed";
+  if (event.type === "cancelled") return "cancelled";
+  return "running";
+}
+
+function cancelledRunMessage(snapshot?: { errorMessage?: string | null }) {
+  return snapshot?.errorMessage ?? "任务已取消";
+}
+
 function designLabels(diagrams: DesignDiagramType[]) {
   return orderedDesignDiagrams(diagrams).map((diagram) => DESIGN_DIAGRAM_META[diagram].label);
 }
@@ -1891,7 +1911,7 @@ export function WorkspaceSessionProvider({
           setCurrentRunDiagnostics((current) => ({
             ...current,
             finishedAt:
-              event.type === "completed" || event.type === "failed"
+              isTerminalRunEvent(event)
                 ? diagnosticEvent.at
                 : current.finishedAt,
             activeStage:
@@ -1926,14 +1946,7 @@ export function WorkspaceSessionProvider({
           }));
 
           setRunUiState((current) => ({
-            runStatus:
-              event.type === "queued"
-                ? "queued"
-                : event.type === "failed"
-                  ? "failed"
-                  : event.type === "completed"
-                    ? "completed"
-                    : "running",
+            runStatus: statusFromRunEvent(event),
             runProgress: progress ?? current.runProgress,
             runMessage:
               event.type === "stage_progress"
@@ -1942,10 +1955,12 @@ export function WorkspaceSessionProvider({
                   ? "任务已进入队列"
                   : event.type === "completed"
                     ? "生成完成"
+                    : event.type === "cancelled"
+                      ? event.message
                     : event.type === "failed"
                       ? event.message
                       : current.runMessage,
-          errorMessage:
+            errorMessage:
               event.type === "failed" ? event.message : current.errorMessage,
           }));
         });
@@ -1953,6 +1968,22 @@ export function WorkspaceSessionProvider({
         const snapshot =
           (await repository.getRunSnapshot(runId)) ?? lastCompletedSnapshot;
         if (!snapshot || !runController.isCurrentRun(runRequestId, "requirements")) {
+          return;
+        }
+        if (snapshot.status === "cancelled") {
+          setRunUiState({
+            runStatus: "cancelled",
+            runProgress: 100,
+            runMessage: cancelledRunMessage(snapshot),
+            errorMessage: null,
+          });
+          openGenerationResultDialog({
+            title: "任务已取消",
+            tone: "warning",
+            message: cancelledRunMessage(snapshot),
+            runId: snapshot.runId,
+            stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+          });
           return;
         }
 
@@ -2205,7 +2236,7 @@ export function WorkspaceSessionProvider({
           setCurrentRunDiagnostics((current) => ({
             ...current,
             finishedAt:
-              event.type === "completed" || event.type === "failed"
+              isTerminalRunEvent(event)
                 ? diagnosticEvent.at
                 : current.finishedAt,
             activeStage:
@@ -2236,14 +2267,7 @@ export function WorkspaceSessionProvider({
           }));
 
           setRunUiState((current) => ({
-            runStatus:
-              event.type === "queued"
-                ? "queued"
-                : event.type === "failed"
-                  ? "failed"
-                  : event.type === "completed"
-                    ? "completed"
-                    : "running",
+            runStatus: statusFromRunEvent(event),
             runProgress: progress ?? current.runProgress,
             runMessage:
               event.type === "stage_progress"
@@ -2252,6 +2276,8 @@ export function WorkspaceSessionProvider({
                   ? "设计生成任务已进入队列"
                   : event.type === "completed"
                     ? "设计生成完成"
+                    : event.type === "cancelled"
+                      ? event.message
                     : event.type === "failed"
                       ? event.message
                       : current.runMessage,
@@ -2263,6 +2289,22 @@ export function WorkspaceSessionProvider({
         const snapshot =
           (await repository.getDesignRunSnapshot(runId)) ?? lastCompletedSnapshot;
         if (!snapshot || !runController.isCurrentRun(runRequestId, "design")) {
+          return;
+        }
+        if (snapshot.status === "cancelled") {
+          setRunUiState({
+            runStatus: "cancelled",
+            runProgress: 100,
+            runMessage: cancelledRunMessage(snapshot),
+            errorMessage: null,
+          });
+          openGenerationResultDialog({
+            title: "任务已取消",
+            tone: "warning",
+            message: cancelledRunMessage(snapshot),
+            runId: snapshot.runId,
+            stageLabel: "设计模型",
+          });
           return;
         }
 
@@ -2553,7 +2595,7 @@ export function WorkspaceSessionProvider({
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt:
-            event.type === "completed" || event.type === "failed"
+            isTerminalRunEvent(event)
               ? diagnosticEvent.at
               : current.finishedAt,
           activeStage:
@@ -2630,14 +2672,7 @@ export function WorkspaceSessionProvider({
         }));
 
         setRunUiState((current) => ({
-          runStatus:
-            event.type === "queued"
-              ? "queued"
-              : event.type === "failed"
-                ? "failed"
-                : event.type === "completed"
-                  ? "completed"
-                  : "running",
+          runStatus: statusFromRunEvent(event),
           runProgress: progress ?? current.runProgress,
           runMessage:
             event.type === "code_file_changed"
@@ -2652,6 +2687,8 @@ export function WorkspaceSessionProvider({
                       event.snapshot.changedFileCount === 0
                       ? "本次未产生文件变更"
                       : "代码生成完成"
+                    : event.type === "cancelled"
+                      ? event.message
                     : event.type === "failed"
                       ? event.message
                       : current.runMessage,
@@ -2663,6 +2700,22 @@ export function WorkspaceSessionProvider({
       const snapshot =
         (await repository.getCodeRunSnapshot(runId)) ?? lastCompletedSnapshot;
       if (!snapshot || !runController.isCurrentRun(runRequestId, "code")) {
+        return;
+      }
+      if (snapshot.status === "cancelled") {
+        setRunUiState({
+          runStatus: "cancelled",
+          runProgress: 100,
+          runMessage: cancelledRunMessage(snapshot),
+          errorMessage: null,
+        });
+        openGenerationResultDialog({
+          title: "任务已取消",
+          tone: "warning",
+          message: cancelledRunMessage(snapshot),
+          runId: snapshot.runId,
+          stageLabel: "代码原型",
+        });
         return;
       }
 
@@ -2951,7 +3004,7 @@ export function WorkspaceSessionProvider({
           setCurrentRunDiagnostics((current) => ({
             ...current,
             finishedAt:
-              event.type === "completed" || event.type === "failed"
+              isTerminalRunEvent(event)
                 ? diagnosticEvent.at
                 : current.finishedAt,
             activeStage: "stage" in event ? event.stage : current.activeStage,
@@ -2975,14 +3028,7 @@ export function WorkspaceSessionProvider({
           }));
 
           setRunUiState((current) => ({
-            runStatus:
-              event.type === "queued"
-                ? "queued"
-                : event.type === "failed"
-                  ? "failed"
-                  : event.type === "completed"
-                    ? "completed"
-                    : "running",
+            runStatus: statusFromRunEvent(event),
             runProgress: progress ?? current.runProgress,
             runMessage:
               event.type === "stage_progress"
@@ -2991,6 +3037,8 @@ export function WorkspaceSessionProvider({
                   ? "说明书生成任务已进入队列"
                   : event.type === "completed"
                     ? "说明书生成完成"
+                    : event.type === "cancelled"
+                      ? event.message
                     : event.type === "failed"
                       ? event.message
                       : current.runMessage,
@@ -3002,6 +3050,22 @@ export function WorkspaceSessionProvider({
         const snapshot =
           (await repository.getDocumentRunSnapshot(runId)) ?? lastCompletedSnapshot;
         if (!snapshot) {
+          return null;
+        }
+        if (snapshot.status === "cancelled") {
+          setRunUiState({
+            runStatus: "cancelled",
+            runProgress: 100,
+            runMessage: cancelledRunMessage(snapshot),
+            errorMessage: null,
+          });
+          openGenerationResultDialog({
+            title: "任务已取消",
+            tone: "warning",
+            message: cancelledRunMessage(snapshot),
+            runId: snapshot.runId,
+            stageLabel: "说明书",
+          });
           return null;
         }
 

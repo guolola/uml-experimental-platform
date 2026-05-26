@@ -107,13 +107,18 @@ import {
   usePlatformRouteLoading,
   useLoadingTransition,
 } from "./platform-loading-screen";
-import { AuthenticatedRouteSessionProvider } from "./authenticated-route-session";
+import {
+  AuthenticatedRouteSessionProvider,
+  useAuthenticatedRouteSession,
+} from "./authenticated-route-session";
 
 type Navigate = (path: string) => void;
 
 const REMEMBERED_LOGIN_EMAIL_STORAGE_KEY = "uml-auth-remembered-email";
 const STABLE_PLATFORM_SCROLL_CLASS =
   "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-scroll bg-background [scrollbar-gutter:stable]";
+const AUTH_ROUTE_SESSION_GRACE_MS = 60_000;
+const ACTIVE_RUNS_REFRESH_MS = 8_000;
 
 function readRememberedLoginEmail() {
   if (typeof window === "undefined") return "";
@@ -432,6 +437,34 @@ function useProjectOverview(projectId: string) {
     };
   }, [contextOverview, projectId]);
 
+  const hasActiveRuns = state.runs.some(
+    (run) => run.status === "queued" || run.status === "running",
+  );
+
+  useEffect(() => {
+    if (contextOverview || state.loading || !hasActiveRuns) return;
+    let active = true;
+    const refreshRuns = () => {
+      platformApi
+        .listProjectRuns(projectId)
+        .then((response) => {
+          if (!active) return;
+          setState((current) => ({
+            ...current,
+            runs: response.runs,
+          }));
+        })
+        .catch(() => {
+          // Project overview remains usable when background run polling misses a beat.
+        });
+    };
+    const intervalId = window.setInterval(refreshRuns, ACTIVE_RUNS_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [contextOverview, hasActiveRuns, projectId, state.loading]);
+
   return contextOverview ?? state;
 }
 
@@ -689,22 +722,30 @@ function AuthenticatedRouteContent({
   const [verifiedRouteKey, setVerifiedRouteKey] = useState<string | undefined>(undefined);
   const [authSession, setAuthSession] = useState<PlatformAccountProfileResponse | null>(null);
   const childLoading = usePlatformLoadingCoordinatorState();
-  const effectiveChecking = checking || verifiedRouteKey !== routeKey;
+  const mountedRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const lastVerifiedAtRef = useRef(0);
+  const hasFreshSession =
+    Boolean(authSession) &&
+    verifiedRouteKey !== undefined &&
+    Date.now() - lastVerifiedAtRef.current < AUTH_ROUTE_SESSION_GRACE_MS;
+  const effectiveChecking = checking || (!hasFreshSession && verifiedRouteKey !== routeKey);
   const overlayActive = effectiveChecking || childLoading.active;
   const overlayMessage = childLoading.message ?? "正在校验登录状态...";
   const loadingTransition = useLoadingTransition(overlayActive);
-  const mountedRef = useRef(false);
-  const requestIdRef = useRef(0);
 
-  const verifySession = useCallback(() => {
+  const verifySession = useCallback((options: { blocking?: boolean } = {}) => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-    setChecking(true);
+    if (options.blocking !== false) {
+      setChecking(true);
+    }
     platformApi
       .me()
       .then((response) => {
         if (!mountedRef.current || requestIdRef.current !== requestId) return;
         setAuthSession(response);
+        lastVerifiedAtRef.current = Date.now();
         setVerifiedRouteKey(routeKey);
         setChecking(false);
       })
@@ -712,6 +753,7 @@ function AuthenticatedRouteContent({
         if (!mountedRef.current || requestIdRef.current !== requestId) return;
         setAuthSession(null);
         setVerifiedRouteKey(undefined);
+        setChecking(false);
         onNavigate("/");
       });
   }, [onNavigate, routeKey]);
@@ -725,13 +767,18 @@ function AuthenticatedRouteContent({
   }, []);
 
   useEffect(() => {
-    verifySession();
+    const canUseGrace =
+      Boolean(authSession) &&
+      verifiedRouteKey !== undefined &&
+      Date.now() - lastVerifiedAtRef.current < AUTH_ROUTE_SESSION_GRACE_MS;
+    verifySession({ blocking: !canUseGrace });
   }, [routeKey, verifySession]);
 
   useEffect(() => {
-    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, verifySession);
+    const handleSessionChanged = () => verifySession({ blocking: true });
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, handleSessionChanged);
     return () => {
-      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, verifySession);
+      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, handleSessionChanged);
     };
   }, [verifySession]);
 
@@ -1357,6 +1404,7 @@ export function InvitationAcceptPage({ onNavigate }: { onNavigate: Navigate }) {
 export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
   const [projects, setProjects] = useState<StaticProject[]>([]);
   const [loading, setLoading] = useState(true);
+  const authSession = useAuthenticatedRouteSession();
   const coordinatedLoading = usePlatformRouteLoading(
     "正在同步项目空间状态...",
     loading,
@@ -1377,14 +1425,16 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
     setAuthRequired(false);
     setForbidden(false);
     setListError(false);
-    Promise.all([
-      platformApi.listProjects(),
-      platformApi.me().catch(() => null),
-    ])
-      .then(([response, account]) => {
+    platformApi
+      .listProjects()
+      .then((response) => {
         if (!active) return;
         setListError(false);
-        setProjects(response.projects.map((project) => projectFromApi(project, account?.user ?? null)));
+        setProjects(
+          response.projects.map((project) =>
+            projectFromApi(project, authSession?.user ?? null),
+          ),
+        );
         setStatus(
           response.projects.length === 0
             ? "当前账号还没有项目，可以创建第一个实名项目。"
@@ -1416,7 +1466,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [authSession?.user]);
 
   const visibleProjects = useMemo(() => {
     const query = search.trim().toLowerCase();

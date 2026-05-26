@@ -677,6 +677,48 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.requirementText).toBe("恢复后的项目需求");
   });
 
+  it("lists project run history without fetching every snapshot detail", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/projects/library-booking/runs")) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            runs: [
+              {
+                runId: "run-active",
+                status: "running",
+                stage: "generate_models",
+                createdAt: "2026-05-22T01:00:00.000Z",
+                snapshotAvailable: true,
+                canRestore: false,
+              },
+              {
+                runId: "run-complete",
+                status: "completed",
+                stage: "render_svg",
+                createdAt: "2026-05-22T00:00:00.000Z",
+                snapshotAvailable: true,
+                canRestore: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/api/projects/library-booking/runs/")) {
+        throw new Error("run detail should be loaded on demand");
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const history = await repository.listRunHistory();
+
+    expect(history).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("persists requirement run snapshots incrementally with diagram versions", async () => {
     const existingUseCase = {
       diagramKind: "usecase",

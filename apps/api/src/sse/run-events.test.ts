@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
 import type { RunEvent, RunSnapshot } from "@uml-platform/contracts";
-import type { RunRecord } from "../runs/records/run-record-store.js";
+import {
+  emitEvent,
+  type RunRecord,
+} from "../runs/records/run-record-store.js";
 import { registerRunEventsRoute } from "./run-events.js";
 
 const completedSnapshot = {
@@ -39,7 +42,7 @@ async function createSseTestApp() {
     heartbeatMs: 1000,
   });
 
-  return app;
+  return { app, runs };
 }
 
 async function withApiCorsOrigins<T>(
@@ -66,7 +69,7 @@ async function withApiCorsOrigins<T>(
 
 test("run event SSE allows an allowlisted default origin", async () => {
   await withApiCorsOrigins("http://localhost:5173", async () => {
-    const app = await createSseTestApp();
+    const { app } = await createSseTestApp();
 
     const response = await app.inject({
       method: "GET",
@@ -89,7 +92,7 @@ test("run event SSE allows an allowlisted default origin", async () => {
 
 test("run event SSE allows origins from the API CORS allowlist", async () => {
   await withApiCorsOrigins("https://app.example.com", async () => {
-    const app = await createSseTestApp();
+    const { app } = await createSseTestApp();
 
     const response = await app.inject({
       method: "GET",
@@ -111,7 +114,7 @@ test("run event SSE allows origins from the API CORS allowlist", async () => {
 
 test("run event SSE does not reflect hostile origins", async () => {
   await withApiCorsOrigins("https://app.example.com", async () => {
-    const app = await createSseTestApp();
+    const { app } = await createSseTestApp();
 
     const response = await app.inject({
       method: "GET",
@@ -129,7 +132,7 @@ test("run event SSE does not reflect hostile origins", async () => {
 });
 
 test("run event SSE keeps no-origin requests usable", async () => {
-  const app = await createSseTestApp();
+  const { app } = await createSseTestApp();
 
   const response = await app.inject({
     method: "GET",
@@ -142,6 +145,39 @@ test("run event SSE keeps no-origin requests usable", async () => {
     "http://localhost:5173",
   );
   assert.match(response.body, /"type":"completed"/);
+
+  await app.close();
+});
+
+test("run event SSE closes after a live cancelled event", async () => {
+  const { app, runs } = await createSseTestApp();
+  const record: RunRecord = {
+    snapshot: {
+      runId: "run-cancel",
+      status: "running",
+    } as RunSnapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+  runs.set("run-cancel", record);
+
+  const responsePromise = app.inject({
+    method: "GET",
+    url: "/runs/run-cancel/events",
+  });
+  setTimeout(() => {
+    emitEvent(record, {
+      type: "cancelled",
+      message: "Run cancelled by user",
+    } as RunEvent);
+  }, 0);
+
+  const response = await responsePromise;
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /"type":"cancelled"/);
+  assert.equal(record.listeners.size, 0);
 
   await app.close();
 });

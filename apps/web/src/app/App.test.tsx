@@ -2278,7 +2278,7 @@ describe("App shell routes", () => {
     }
   });
 
-  it("waits for the next protected route check before mounting the project workspace", async () => {
+  it("keeps protected route navigation visible while revalidating the session in the background", async () => {
     vi.useFakeTimers();
     const routeAuthDeferred = createDeferred<Response>();
     const projectDetailDeferred = createDeferred<Response>();
@@ -2348,14 +2348,15 @@ describe("App shell routes", () => {
       });
 
       expect(window.location.pathname).toBe("/projects/library-booking");
-      expect(screen.getByText("正在校验登录状态...")).toBeInTheDocument();
+      expect(screen.queryByText("正在校验登录状态...")).not.toBeInTheDocument();
+      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
       expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
       expect(screen.queryByText("需求分析提取")).not.toBeInTheDocument();
       expect(projectRequests).toEqual({
-        detail: 0,
-        members: 0,
-        runs: 0,
-        documents: 0,
+        detail: 1,
+        members: 1,
+        runs: 1,
+        documents: 1,
       });
 
       const authCallsAfterRouteCheckStarted = authMeCalls;

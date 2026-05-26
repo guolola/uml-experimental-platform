@@ -750,6 +750,14 @@ async function waitForCodeRunSnapshot(
     if (snapshot.status === "failed") {
       throw new Error(snapshot.errorMessage ?? "代码生成失败");
     }
+    if (snapshot.status === "cancelled") {
+      onEvent({
+        type: "cancelled",
+        stage: snapshot.currentStage ?? "write_code_files",
+        message: snapshot.errorMessage ?? "任务已取消",
+      });
+      return;
+    }
     onEvent({
       type: "stage_progress",
       stage: snapshot.currentStage ?? "write_code_files",
@@ -775,6 +783,14 @@ async function waitForDocumentRunSnapshot(
     }
     if (snapshot.status === "failed") {
       throw new Error(snapshot.errorMessage ?? "说明书生成失败");
+    }
+    if (snapshot.status === "cancelled") {
+      onEvent({
+        type: "cancelled",
+        stage: snapshot.currentStage ?? "generate_document_text",
+        message: snapshot.errorMessage ?? "任务已取消",
+      });
+      return;
     }
     onEvent({
       type: "stage_progress",
@@ -1032,6 +1048,14 @@ export function createHttpWorkspaceRepository(
           if (snapshot.status === "failed") {
             throw new Error(snapshot.errorMessage ?? "生成失败");
           }
+          if (snapshot.status === "cancelled") {
+            onEvent({
+              type: "cancelled",
+              stage: snapshot.currentStage ?? undefined,
+              message: snapshot.errorMessage ?? "任务已取消",
+            });
+            return;
+          }
           if (snapshot.status !== "completed") {
             throw error;
           }
@@ -1042,12 +1066,20 @@ export function createHttpWorkspaceRepository(
         onEvent,
         onError: async () => {
           const snapshot = await readRunSnapshot(runId, projectId);
-          if (snapshot.status === "failed") {
-            throw new Error(snapshot.errorMessage ?? "生成失败");
-          }
-          if (snapshot.status !== "completed") {
-            throw new Error("SSE 订阅失败");
-          }
+            if (snapshot.status === "failed") {
+              throw new Error(snapshot.errorMessage ?? "生成失败");
+            }
+            if (snapshot.status === "cancelled") {
+              onEvent({
+                type: "cancelled",
+                stage: snapshot.currentStage ?? undefined,
+                message: snapshot.errorMessage ?? "任务已取消",
+              });
+              return;
+            }
+            if (snapshot.status !== "completed") {
+              throw new Error("SSE 订阅失败");
+            }
         },
       });
       await subscription.closed;
@@ -1067,6 +1099,14 @@ export function createHttpWorkspaceRepository(
           if (snapshot.status === "failed") {
             throw new Error(snapshot.errorMessage ?? "设计生成失败");
           }
+          if (snapshot.status === "cancelled") {
+            onEvent({
+              type: "cancelled",
+              stage: snapshot.currentStage ?? undefined,
+              message: snapshot.errorMessage ?? "任务已取消",
+            });
+            return;
+          }
           if (snapshot.status !== "completed") {
             throw error;
           }
@@ -1081,6 +1121,14 @@ export function createHttpWorkspaceRepository(
             const snapshot = await readDesignRunSnapshot(runId, projectId);
             if (snapshot.status === "failed") {
               throw new Error(snapshot.errorMessage ?? "设计生成失败");
+            }
+            if (snapshot.status === "cancelled") {
+              onEvent({
+                type: "cancelled",
+                stage: snapshot.currentStage ?? undefined,
+                message: snapshot.errorMessage ?? "任务已取消",
+              });
+              return;
             }
             if (snapshot.status !== "completed") {
               throw new Error("设计 SSE 订阅失败");
@@ -1291,34 +1339,7 @@ export function createHttpWorkspaceRepository(
     async listRunHistory() {
       if (projectId) {
         const payload = await readProjectRuns();
-        const embeddedHistory = normalizeProjectHistoryResponse(payload);
-        if (embeddedHistory.length > 0) return embeddedHistory;
-        const runs = payload.runs ?? [];
-        const details = await Promise.all(
-          runs
-            .filter((run) => run.runId && run.snapshotAvailable && run.canRestore !== false)
-            .map(async (run) => {
-              try {
-                const detail = await readProjectRunDetail(run.runId!);
-                if (!detail.snapshot) return null;
-                return {
-                  id: detail.snapshot.runId,
-                  createdAt:
-                    detail.run?.startedAt ??
-                    detail.run?.createdAt ??
-                    run.startedAt ??
-                    run.updatedAt ??
-                    new Date().toISOString(),
-                  title: createRunHistoryTitle(detail.snapshot.requirementText),
-                  snapshot: detail.snapshot,
-                  providerModel: detail.run?.model ?? run.model ?? "默认模型",
-                } satisfies RunHistoryItem;
-              } catch {
-                return null;
-              }
-            }),
-        );
-        return details.filter((item): item is RunHistoryItem => Boolean(item));
+        return normalizeProjectHistoryResponse(payload);
       }
       throw new Error(PROJECT_REQUIRED_MESSAGE);
     },

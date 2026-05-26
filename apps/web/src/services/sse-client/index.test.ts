@@ -76,4 +76,34 @@ describe("sse-client", () => {
 
     await expect(subscription.closed).rejects.toThrow("LLM request failed");
   });
+
+  it("resolves when a cancelled event is received", async () => {
+    class MockEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      close() {}
+
+      constructor(url: string) {
+        void url;
+        queueMicrotask(() => {
+          this.onmessage?.({
+            data: JSON.stringify({
+              type: "cancelled",
+              message: "Run cancelled by user",
+            }),
+          } as MessageEvent<string>);
+        });
+      }
+    }
+
+    vi.stubGlobal("EventSource", MockEventSource);
+    const events: string[] = [];
+    const subscription = subscribeToRunEvents("/api/runs/run-1/events", {
+      onEvent: (event) => events.push(event.type),
+    });
+
+    await expect(subscription.closed).resolves.toBeUndefined();
+    expect(events).toEqual(["cancelled"]);
+  });
 });

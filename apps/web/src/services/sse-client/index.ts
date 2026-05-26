@@ -40,6 +40,9 @@ export function subscribeToRunEvents(
         if (event.type === "completed") {
           settleResolve();
         }
+        if (event.type === "cancelled") {
+          settleResolve();
+        }
         if (event.type === "failed") {
           settleReject(new Error(event.message));
         }

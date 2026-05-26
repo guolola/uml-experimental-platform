@@ -280,6 +280,7 @@ function titleWithSubtaskSummary(task: GenerationTask, subtasks: GenerationSubta
 export function taskStatusFromEvent(event: RunEvent): RunStatus {
   if (event.type === "queued") return "queued";
   if (event.type === "failed") return "failed";
+  if (event.type === "cancelled") return "cancelled";
   if (event.type === "completed") return "completed";
   return "running";
 }
@@ -292,7 +293,7 @@ export function updateDiagnosticsFromEvent(
   return {
     ...current,
     finishedAt:
-      event.type === "completed" || event.type === "failed"
+      event.type === "completed" || event.type === "failed" || event.type === "cancelled"
         ? diagnosticEvent.at
         : current.finishedAt,
     activeStage: "stage" in event ? event.stage : current.activeStage,
@@ -403,12 +404,14 @@ export function updateTaskFromEvent(
             ? messages.queued
             : event.type === "completed"
               ? messages.completed
+              : event.type === "cancelled"
+                ? event.message
               : event.type === "failed"
                 ? event.message
                 : task.message,
     errorMessage: event.type === "failed" ? event.message : task.errorMessage,
     finishedAt:
-      event.type === "completed" || event.type === "failed"
+      event.type === "completed" || event.type === "failed" || event.type === "cancelled"
         ? new Date().toISOString()
         : task.finishedAt,
     diagnostics: updateDiagnosticsFromEvent(task.diagnostics, event),
