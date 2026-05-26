@@ -90,10 +90,19 @@ import {
   type PlatformProjectInvitation,
   type PlatformProjectMemberPreview,
 } from "../services/platform-api";
+import {
+  PlatformLoadingCoordinatorProvider,
+  PlatformLoadingScreen,
+  usePlatformLoadingCoordinatorState,
+  usePlatformRouteLoading,
+  useLoadingTransition,
+} from "./platform-loading-screen";
 
 type Navigate = (path: string) => void;
 
 const REMEMBERED_LOGIN_EMAIL_STORAGE_KEY = "uml-auth-remembered-email";
+const STABLE_PLATFORM_SCROLL_CLASS =
+  "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-scroll bg-background [scrollbar-gutter:stable]";
 
 function readRememberedLoginEmail() {
   if (typeof window === "undefined") return "";
@@ -463,11 +472,29 @@ function PageFrame({
   onNavigate?: Navigate;
 }) {
   return (
-    <main className="min-h-0 flex-1 overflow-auto bg-background">
+    <main className={STABLE_PLATFORM_SCROLL_CLASS}>
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-6">
         {children}
       </div>
     </main>
+  );
+}
+
+function ProjectWorkspaceLoadingLayout() {
+  return (
+    <div
+      data-testid="project-workspace-loading-layout"
+      className="pointer-events-none grid min-h-0 min-w-0 flex-1 grid-cols-[10%_10px_minmax(0,1fr)] overflow-hidden bg-background"
+      aria-hidden="true"
+    >
+      <aside className="h-full min-w-20 border-r border-sidebar-border bg-sidebar" />
+      <div className="h-full bg-border/70" />
+      <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="min-h-[49px] shrink-0 border-b border-border bg-card" />
+        <div className="h-12 shrink-0 border-b border-border bg-background" />
+        <div className="min-h-0 flex-1 bg-background" />
+      </main>
+    </div>
   );
 }
 
@@ -622,7 +649,29 @@ export function AuthenticatedRoute({
   onNavigate: Navigate;
   routeKey?: string;
 }) {
+  return (
+    <PlatformLoadingCoordinatorProvider>
+      <AuthenticatedRouteContent onNavigate={onNavigate} routeKey={routeKey}>
+        {children}
+      </AuthenticatedRouteContent>
+    </PlatformLoadingCoordinatorProvider>
+  );
+}
+
+function AuthenticatedRouteContent({
+  children,
+  onNavigate,
+  routeKey,
+}: {
+  children: React.ReactNode;
+  onNavigate: Navigate;
+  routeKey?: string;
+}) {
   const [checking, setChecking] = useState(true);
+  const childLoading = usePlatformLoadingCoordinatorState();
+  const overlayActive = checking || childLoading.active;
+  const overlayMessage = childLoading.message ?? "正在校验登录状态...";
+  const loadingTransition = useLoadingTransition(overlayActive);
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
 
@@ -663,13 +712,29 @@ export function AuthenticatedRoute({
 
   if (checking) {
     return (
-      <main className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-        正在校验登录状态...
-      </main>
+      <PlatformLoadingScreen
+        message={overlayMessage}
+        variant="fullscreen"
+        phase={loadingTransition.phase === "hidden" ? "loading" : loadingTransition.phase}
+        progress={loadingTransition.progress}
+      />
     );
   }
 
-  return <>{children}</>;
+  return (
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {children}
+      {loadingTransition.visible && loadingTransition.phase !== "hidden" && (
+        <PlatformLoadingScreen
+          message={overlayMessage}
+          variant="fullscreen"
+          phase={loadingTransition.phase}
+          progress={loadingTransition.progress}
+          className="absolute inset-0 z-50"
+        />
+      )}
+    </div>
+  );
 }
 
 function getQueryParam(name: string) {
@@ -1265,6 +1330,11 @@ export function InvitationAcceptPage({ onNavigate }: { onNavigate: Navigate }) {
 export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
   const [projects, setProjects] = useState<StaticProject[]>([]);
   const [loading, setLoading] = useState(true);
+  const coordinatedLoading = usePlatformRouteLoading(
+    "正在同步项目空间状态...",
+    loading,
+  );
+  const loadingTransition = useLoadingTransition(loading);
   const [status, setStatus] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
   const [forbidden, setForbidden] = useState(false);
@@ -1348,8 +1418,35 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
     setCreateDialogOpen(true);
   };
 
+  if (loading) {
+    if (coordinatedLoading) {
+      return (
+        <main
+          data-testid="projects-index-shell"
+          className={STABLE_PLATFORM_SCROLL_CLASS}
+        />
+      );
+    }
+    return (
+      <main
+        data-testid="projects-index-shell"
+        className={cn(STABLE_PLATFORM_SCROLL_CLASS, "px-6 py-6 md:px-10 xl:px-12")}
+      >
+        <PlatformLoadingScreen
+          message="正在同步项目空间状态..."
+          variant="content"
+          phase={loadingTransition.phase === "hidden" ? "loading" : loadingTransition.phase}
+          progress={loadingTransition.progress}
+        />
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-0 flex-1 overflow-auto bg-background">
+    <main
+      data-testid="projects-index-shell"
+      className={cn("relative", STABLE_PLATFORM_SCROLL_CLASS)}
+    >
       <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-10 px-6 py-16 md:px-10 xl:px-12">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="grid gap-2">
@@ -1370,7 +1467,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </Button>
         </div>
 
-        {!loading && (authRequired || forbidden || listError) && (
+        {(authRequired || forbidden || listError) && (
           <SectionCard className="grid gap-4 rounded-xl md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div>
               <h2 className="text-base">
@@ -1442,7 +1539,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </section>
         )}
 
-        {!loading && !authRequired && !forbidden && !listError && projects.length > 0 && visibleProjects.length === 0 && (
+        {!authRequired && !forbidden && !listError && projects.length > 0 && visibleProjects.length === 0 && (
           <section className="rounded-xl border border-dashed border-[rgba(199,196,214,0.3)] bg-card p-10 text-center">
             <h2 className="text-xl font-semibold">没有匹配的项目</h2>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -1451,7 +1548,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </section>
         )}
 
-        {!loading && !authRequired && !forbidden && !listError && projects.length > 0 && visibleProjects.length > 0 && (
+        {!authRequired && !forbidden && !listError && projects.length > 0 && visibleProjects.length > 0 && (
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             {visibleProjects.map((project) => (
               <article
@@ -1552,7 +1649,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </div>
         )}
 
-        {!loading && !authRequired && !forbidden && !listError && projects.length === 0 && (
+        {!authRequired && !forbidden && !listError && projects.length === 0 && (
           <section className="mx-auto flex w-full max-w-[672px] flex-col items-center justify-center rounded-xl border border-dashed border-[rgba(199,196,214,0.3)] bg-card px-8 py-12 text-center md:px-[49px]">
             <div className="mb-6 inline-flex size-16 items-center justify-center rounded-2xl bg-[#e5eeff] text-primary dark:bg-accent">
               <FileText className="size-6" />
@@ -1585,6 +1682,15 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </DialogContent>
         </Dialog>
       </div>
+      {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
+        <PlatformLoadingScreen
+          message="正在同步项目空间状态..."
+          variant="content"
+          phase={loadingTransition.phase}
+          progress={loadingTransition.progress}
+          className="absolute inset-6 z-20 md:inset-10 xl:inset-12"
+        />
+      )}
     </main>
   );
 }
@@ -2067,25 +2173,59 @@ export function ProjectWorkspaceAccessBoundary({
 }) {
   const overview = useProjectOverview(projectId);
   const accessMessage = renderAccessMessage(overview, onNavigate);
+  const coordinatedLoading = usePlatformRouteLoading(
+    "正在同步项目状态...",
+    overview.loading,
+  );
+  const loadingTransition = useLoadingTransition(overview.loading);
 
   if (overview.loading) {
+    if (coordinatedLoading) {
+      return <ProjectWorkspaceLoadingLayout />;
+    }
     return (
       <PageFrame onNavigate={onNavigate}>
-        <SectionCard>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            正在加载项目权限...
-          </div>
-        </SectionCard>
+        <PlatformLoadingScreen
+          message="正在同步项目状态..."
+          variant="content"
+          phase={loadingTransition.phase === "hidden" ? "loading" : loadingTransition.phase}
+          progress={loadingTransition.progress}
+        />
       </PageFrame>
     );
   }
 
   if (accessMessage || !overview.project) {
-    return <PageFrame onNavigate={onNavigate}>{accessMessage}</PageFrame>;
+    return (
+      <div className="relative flex min-h-0 flex-1">
+        <PageFrame onNavigate={onNavigate}>{accessMessage}</PageFrame>
+        {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
+          <PlatformLoadingScreen
+            message="正在同步项目状态..."
+            variant="content"
+            phase={loadingTransition.phase}
+            progress={loadingTransition.progress}
+            className="absolute inset-6 z-20"
+          />
+        )}
+      </div>
+    );
   }
 
-  return <>{children}</>;
+  return (
+    <div className="relative flex min-h-0 flex-1">
+      {children}
+      {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
+        <PlatformLoadingScreen
+          message="正在同步项目状态..."
+          variant="content"
+          phase={loadingTransition.phase}
+          progress={loadingTransition.progress}
+          className="absolute inset-6 z-20"
+        />
+      )}
+    </div>
+  );
 }
 
 function ProjectSettings({

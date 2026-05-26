@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../services/workspace-repository";
@@ -11,6 +11,10 @@ import {
 import { loadUserSettings, USER_SETTINGS_STORAGE_KEY } from "../shared/lib/user-settings";
 import { Shell } from "./App";
 import { matchAppRoute } from "./app-routes";
+import {
+  ProjectWorkspaceAccessBoundary,
+  ProjectsIndexPage,
+} from "../features/user-platform/components/user-platform-pages";
 
 let projectApiMode: "unauthenticated" | "authenticated" | "empty" | "forbidden" | "offline";
 let loginApiMode: "failure" | "success" | "mfa-challenge" | "email-unverified";
@@ -68,6 +72,109 @@ async function findSelectTrigger(name: string) {
     throw new Error(`Select trigger not found: ${name}`);
   }
   return trigger;
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function createAuthMeResponse() {
+  return new Response(
+    JSON.stringify({
+      user: {
+        id: "e91237c8-5ccf-45aa-b0d2-822b96915a24",
+        email: "new-student@example.edu",
+        displayName: "new-student",
+        status: "active",
+        emailVerified: true,
+        mfaEnabled: accountMfaEnabled,
+      },
+      mfa: { enabled: accountMfaEnabled, enforcement: "totp" },
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+function createProjectListResponse() {
+  return new Response(
+    JSON.stringify({
+      projects: [
+        {
+          id: "library-booking",
+          name: "智慧图书馆预约系统",
+          description: "真实项目数据",
+          visibility: "team",
+          status: "active",
+          ownerUserId: "e91237c8-5ccf-45aa-b0d2-822b96915a24",
+          ownerDisplayName: "New Student",
+          ownerAvatarUrl: null,
+          createdAt: "2026-05-22T01:00:00.000Z",
+          updatedAt: projectUpdatedAt,
+          lastGeneratedAt: "2026-05-22T02:05:00.000Z",
+          memberCount: 4,
+        },
+      ],
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+function createProjectOverviewResponse() {
+  return new Response(
+    JSON.stringify({
+      project: {
+        id: "library-booking",
+        name: "智慧图书馆预约系统",
+        description: "真实项目数据",
+        visibility: "team",
+        status: "active",
+        ownerUserId: "e91237c8-5ccf-45aa-b0d2-822b96915a24",
+        ownerDisplayName: "New Student",
+        ownerAvatarUrl: null,
+        createdAt: "2026-05-22T01:00:00.000Z",
+        updatedAt: projectUpdatedAt,
+        lastGeneratedAt: "2026-05-22T02:05:00.000Z",
+        memberCount: 4,
+      },
+      membership: {
+        id: "member-owner",
+        projectId: "library-booking",
+        userId: "e91237c8-5ccf-45aa-b0d2-822b96915a24",
+        email: "new-student@example.edu",
+        displayName: "New Student",
+        role: "owner",
+        status: "active",
+      },
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+async function flushResolvedPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function advanceTimersByTime(ms: number) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+    await flushResolvedPromises();
+  });
 }
 
 describe("App shell routes", () => {
@@ -1815,6 +1922,359 @@ describe("App shell routes", () => {
     });
     expect(screen.queryByRole("heading", { name: "项目首页" })).not.toBeInTheDocument();
     expect(screen.queryByText("项目服务不可用")).not.toBeInTheDocument();
+  });
+
+  it("shows the product loading screen while protected routes verify the session", async () => {
+    vi.useFakeTimers();
+    const authDeferred = createDeferred<Response>();
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let holdInitialAuthCheck = true;
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/exam");
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      if (url.pathname === "/api/auth/me" && holdInitialAuthCheck) {
+        holdInitialAuthCheck = false;
+        return authDeferred.promise;
+      }
+      if (!defaultFetch) throw new Error("Default fetch mock is not installed");
+      return defaultFetch(input, init);
+    });
+
+    try {
+      render(withWorkspaceProviders(<Shell />, createRepository()));
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-variant",
+        "fullscreen",
+      );
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "loading",
+      );
+      expect(screen.getByText("UML 实验平台")).toBeInTheDocument();
+      expect(screen.getByText("项目工作台")).toBeInTheDocument();
+      expect(screen.getByText("SYS_CORE")).toBeInTheDocument();
+      expect(
+        screen.getByRole("progressbar", { name: "正在校验登录状态..." }),
+      ).toHaveAttribute("aria-valuenow", "25");
+
+      await act(async () => {
+        authDeferred.resolve(createAuthMeResponse());
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByRole("heading", { name: "考试" })).toBeInTheDocument();
+      expect(screen.getByText("正在校验登录状态...")).toBeInTheDocument();
+
+      await advanceTimersByTime(800);
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "completing",
+      );
+      expect(
+        screen.getByRole("progressbar", { name: "正在校验登录状态..." }),
+      ).toHaveAttribute("aria-valuenow", "100");
+
+      await advanceTimersByTime(120);
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "exiting",
+      );
+
+      await advanceTimersByTime(520);
+
+      expect(screen.queryByText("正在校验登录状态...")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the product loading screen while the projects index loads", async () => {
+    vi.useFakeTimers();
+    const projectsDeferred = createDeferred<Response>();
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/projects");
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      if (url.pathname === "/api/projects" && (init?.method ?? "GET") === "GET") {
+        return projectsDeferred.promise;
+      }
+      if (!defaultFetch) throw new Error("Default fetch mock is not installed");
+      return defaultFetch(input, init);
+    });
+
+    try {
+      render(
+        withWorkspaceProviders(
+          <ProjectsIndexPage onNavigate={() => {}} />,
+          createRepository(),
+        ),
+      );
+
+      expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
+      expect(screen.getByTestId("projects-index-shell")).toHaveClass(
+        "overflow-y-scroll",
+        "overflow-x-hidden",
+        "[scrollbar-gutter:stable]",
+      );
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-variant",
+        "content",
+      );
+      expect(screen.queryByLabelText("搜索项目")).not.toBeInTheDocument();
+
+      await act(async () => {
+        projectsDeferred.resolve(createProjectListResponse());
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+      expect(screen.getByTestId("projects-index-shell")).toHaveClass(
+        "overflow-y-scroll",
+        "overflow-x-hidden",
+        "[scrollbar-gutter:stable]",
+      );
+      expect(screen.getAllByText("智慧图书馆预约系统").length).toBeGreaterThan(0);
+      expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
+
+      await advanceTimersByTime(800);
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "completing",
+      );
+      expect(
+        screen.getByRole("progressbar", { name: "正在同步项目空间状态..." }),
+      ).toHaveAttribute("aria-valuenow", "100");
+
+      await advanceTimersByTime(120);
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "exiting",
+      );
+
+      await advanceTimersByTime(520);
+
+      expect(screen.queryByText("正在同步项目空间状态...")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the product loading screen while entering a project workspace", async () => {
+    vi.useFakeTimers();
+    const projectDeferred = createDeferred<Response>();
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let holdProjectOverview = true;
+    authSessionMode = "authenticated";
+    projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/projects/library-booking");
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      if (
+        url.pathname === "/api/projects/library-booking" &&
+        (init?.method ?? "GET") === "GET" &&
+        holdProjectOverview
+      ) {
+        holdProjectOverview = false;
+        return projectDeferred.promise;
+      }
+      if (!defaultFetch) throw new Error("Default fetch mock is not installed");
+      return defaultFetch(input, init);
+    });
+
+    try {
+      render(
+        withWorkspaceProviders(
+          <ProjectWorkspaceAccessBoundary
+            projectId="library-booking"
+            onNavigate={() => {}}
+          >
+            <div>项目导航</div>
+          </ProjectWorkspaceAccessBoundary>,
+          createRepository(),
+        ),
+      );
+
+      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-variant",
+        "content",
+      );
+      expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+
+      await act(async () => {
+        projectDeferred.resolve(createProjectOverviewResponse());
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByText("项目导航")).toBeInTheDocument();
+      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+
+      await advanceTimersByTime(800);
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "completing",
+      );
+      expect(
+        screen.getByRole("progressbar", { name: "正在同步项目状态..." }),
+      ).toHaveAttribute("aria-valuenow", "100");
+
+      await advanceTimersByTime(120);
+
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "exiting",
+      );
+
+      await advanceTimersByTime(520);
+
+      expect(screen.getByText("项目导航")).toBeInTheDocument();
+      expect(screen.queryByText("正在同步项目状态...")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps one coordinated loading overlay while protected projects load", async () => {
+    vi.useFakeTimers();
+    const projectsDeferred = createDeferred<Response>();
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/projects");
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      if (url.pathname === "/api/projects" && (init?.method ?? "GET") === "GET") {
+        return projectsDeferred.promise;
+      }
+      if (!defaultFetch) throw new Error("Default fetch mock is not installed");
+      return defaultFetch(input, init);
+    });
+
+    try {
+      render(withWorkspaceProviders(<Shell />, createRepository()));
+
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
+      expect(screen.getByTestId("projects-index-shell")).toHaveClass(
+        "overflow-y-scroll",
+        "overflow-x-hidden",
+        "[scrollbar-gutter:stable]",
+      );
+
+      await act(async () => {
+        projectsDeferred.resolve(createProjectListResponse());
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+      expect(screen.getByTestId("projects-index-shell")).toHaveClass(
+        "overflow-y-scroll",
+        "overflow-x-hidden",
+        "[scrollbar-gutter:stable]",
+      );
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+
+      await advanceTimersByTime(800);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "completing",
+      );
+
+      await advanceTimersByTime(120);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "exiting",
+      );
+
+      await advanceTimersByTime(520);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(0);
+      expect(screen.getByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps one coordinated loading overlay while protected workspaces load", async () => {
+    vi.useFakeTimers();
+    const projectDeferred = createDeferred<Response>();
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let holdProjectOverview = true;
+    authSessionMode = "authenticated";
+    projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/projects/library-booking");
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      if (
+        url.pathname === "/api/projects/library-booking" &&
+        (init?.method ?? "GET") === "GET" &&
+        holdProjectOverview
+      ) {
+        holdProjectOverview = false;
+        return projectDeferred.promise;
+      }
+      if (!defaultFetch) throw new Error("Default fetch mock is not installed");
+      return defaultFetch(input, init);
+    });
+
+    try {
+      render(withWorkspaceProviders(<Shell />, createRepository()));
+
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByTestId("project-workspace-loading-layout")).toBeInTheDocument();
+      expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+
+      await act(async () => {
+        projectDeferred.resolve(createProjectOverviewResponse());
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByText("项目导航")).toBeInTheDocument();
+      expect(screen.queryByTestId("project-workspace-loading-layout")).not.toBeInTheDocument();
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+
+      await advanceTimersByTime(800);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "completing",
+      );
+
+      await advanceTimersByTime(120);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
+        "data-loading-phase",
+        "exiting",
+      );
+
+      await advanceTimersByTime(520);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(0);
+      expect(screen.getByText("项目导航")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("blocks anonymous workspace route access when the session is missing", async () => {
