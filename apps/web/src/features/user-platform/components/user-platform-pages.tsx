@@ -98,6 +98,7 @@ import {
   type PlatformMfaSetup,
   type PlatformProjectInvitation,
   type PlatformProjectMemberPreview,
+  type PlatformAccountProfileResponse,
 } from "../services/platform-api";
 import {
   PlatformLoadingCoordinatorProvider,
@@ -106,6 +107,7 @@ import {
   usePlatformRouteLoading,
   useLoadingTransition,
 } from "./platform-loading-screen";
+import { AuthenticatedRouteSessionProvider } from "./authenticated-route-session";
 
 type Navigate = (path: string) => void;
 
@@ -684,8 +686,11 @@ function AuthenticatedRouteContent({
   routeKey?: string;
 }) {
   const [checking, setChecking] = useState(true);
+  const [verifiedRouteKey, setVerifiedRouteKey] = useState<string | undefined>(undefined);
+  const [authSession, setAuthSession] = useState<PlatformAccountProfileResponse | null>(null);
   const childLoading = usePlatformLoadingCoordinatorState();
-  const overlayActive = checking || childLoading.active;
+  const effectiveChecking = checking || verifiedRouteKey !== routeKey;
+  const overlayActive = effectiveChecking || childLoading.active;
   const overlayMessage = childLoading.message ?? "正在校验登录状态...";
   const loadingTransition = useLoadingTransition(overlayActive);
   const mountedRef = useRef(false);
@@ -697,15 +702,19 @@ function AuthenticatedRouteContent({
     setChecking(true);
     platformApi
       .me()
-      .then(() => {
+      .then((response) => {
         if (!mountedRef.current || requestIdRef.current !== requestId) return;
+        setAuthSession(response);
+        setVerifiedRouteKey(routeKey);
         setChecking(false);
       })
       .catch(() => {
         if (!mountedRef.current || requestIdRef.current !== requestId) return;
+        setAuthSession(null);
+        setVerifiedRouteKey(undefined);
         onNavigate("/");
       });
-  }, [onNavigate]);
+  }, [onNavigate, routeKey]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -726,7 +735,7 @@ function AuthenticatedRouteContent({
     };
   }, [verifySession]);
 
-  if (checking) {
+  if (effectiveChecking) {
     return (
       <PlatformLoadingScreen
         message={overlayMessage}
@@ -739,7 +748,9 @@ function AuthenticatedRouteContent({
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {children}
+      <AuthenticatedRouteSessionProvider value={authSession}>
+        {children}
+      </AuthenticatedRouteSessionProvider>
       {loadingTransition.visible && loadingTransition.phase !== "hidden" && (
         <PlatformLoadingScreen
           message={overlayMessage}

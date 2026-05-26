@@ -28,6 +28,7 @@ import type {
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
+import { useAuthenticatedRouteSession } from "../../user-platform/components/authenticated-route-session";
 import { useTheme } from "../../../app/providers/theme-provider";
 import {
   DropdownMenu,
@@ -1130,6 +1131,7 @@ export function ProjectWorkspaceActions({
 
 export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
   const { theme, toggle } = useTheme();
+  const authSession = useAuthenticatedRouteSession();
   const navItems = [
     { route: "/projects", label: "项目" },
     ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace"),
@@ -1175,7 +1177,7 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
       >
         {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
       </Button>
-      <AccountDialog onNavigate={onNavigate} />
+      <AccountDialog onNavigate={onNavigate} initialUser={authSession?.user ?? null} />
       </div>
     </header>
   );

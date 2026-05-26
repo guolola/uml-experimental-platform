@@ -2116,8 +2116,8 @@ describe("App shell routes", () => {
         await flushResolvedPromises();
       });
 
-      expect(screen.getByText("项目导航")).toBeInTheDocument();
       expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByText("项目导航")).toBeInTheDocument();
 
       await advanceTimersByTime(800);
 
@@ -2273,6 +2273,125 @@ describe("App shell routes", () => {
       await advanceTimersByTime(520);
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(0);
       expect(screen.getByText("项目导航")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the next protected route check before mounting the project workspace", async () => {
+    vi.useFakeTimers();
+    const routeAuthDeferred = createDeferred<Response>();
+    const projectDetailDeferred = createDeferred<Response>();
+    const fetchMock = vi.mocked(fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let holdNextRouteAuth = false;
+    let authMeCalls = 0;
+    const projectRequests = {
+      detail: 0,
+      members: 0,
+      runs: 0,
+      documents: 0,
+    };
+    authSessionMode = "authenticated";
+    projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/projects");
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      const method = init?.method ?? "GET";
+      if (url.pathname === "/api/auth/me") {
+        authMeCalls += 1;
+        if (holdNextRouteAuth) {
+          holdNextRouteAuth = false;
+          return routeAuthDeferred.promise;
+        }
+        return createAuthMeResponse();
+      }
+      if (url.pathname === "/api/projects" && method === "GET") {
+        return createProjectListResponse();
+      }
+      if (url.pathname === "/api/projects/library-booking" && method === "GET") {
+        projectRequests.detail += 1;
+        return projectDetailDeferred.promise;
+      }
+      if (url.pathname === "/api/projects/library-booking/members" && method === "GET") {
+        projectRequests.members += 1;
+      }
+      if (url.pathname === "/api/projects/library-booking/runs" && method === "GET") {
+        projectRequests.runs += 1;
+      }
+      if (url.pathname === "/api/projects/library-booking/documents" && method === "GET") {
+        projectRequests.documents += 1;
+      }
+      if (!defaultFetch) throw new Error("Default fetch mock is not installed");
+      return defaultFetch(input, init);
+    });
+
+    try {
+      render(withWorkspaceProviders(<Shell />, createRepository()));
+
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+      holdNextRouteAuth = true;
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "进入项目 智慧图书馆预约系统" }),
+      );
+
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+
+      expect(window.location.pathname).toBe("/projects/library-booking");
+      expect(screen.getByText("正在校验登录状态...")).toBeInTheDocument();
+      expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+      expect(screen.queryByText("需求分析提取")).not.toBeInTheDocument();
+      expect(projectRequests).toEqual({
+        detail: 0,
+        members: 0,
+        runs: 0,
+        documents: 0,
+      });
+
+      const authCallsAfterRouteCheckStarted = authMeCalls;
+      await act(async () => {
+        routeAuthDeferred.resolve(createAuthMeResponse());
+        await flushResolvedPromises();
+      });
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+      expect(projectRequests).toEqual({
+        detail: 1,
+        members: 1,
+        runs: 1,
+        documents: 1,
+      });
+
+      await act(async () => {
+        projectDetailDeferred.resolve(createProjectOverviewResponse());
+        await flushResolvedPromises();
+      });
+      await act(async () => {
+        await flushResolvedPromises();
+      });
+
+      expect(screen.getByText("项目导航")).toBeInTheDocument();
+      expect(projectRequests).toEqual({
+        detail: 1,
+        members: 1,
+        runs: 1,
+        documents: 1,
+      });
+      expect(authMeCalls).toBe(authCallsAfterRouteCheckStarted);
     } finally {
       vi.useRealTimers();
     }

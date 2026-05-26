@@ -162,6 +162,11 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
 
   useEffect(() => {
     let active = true;
+    if (initialUser) {
+      return () => {
+        active = false;
+      };
+    }
     platformApi
       .me()
       .then((response) => {
@@ -177,7 +182,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialUser]);
 
   useEffect(() => {
     if (!open || !userId) return;
