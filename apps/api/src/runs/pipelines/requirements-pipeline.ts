@@ -469,6 +469,20 @@ export async function runStagePipeline(
             diagramRules.length > 0 ? diagramRules : rules,
             [diagram],
           );
+          models = [
+            ...models.filter((model) => model.diagramKind !== diagram),
+            ...result.models,
+          ];
+          requirementModelTraceability = [
+            ...requirementModelTraceability.filter(
+              (entry) => entry.target.diagramKind !== diagram,
+            ),
+            ...result.requirementModelTraceability,
+          ];
+          delete diagramErrors[diagram];
+          snapshot.models = models;
+          snapshot.requirementModelTraceability = requirementModelTraceability;
+          snapshot.diagramErrors = diagramErrors;
           emitEvent(
             record,
             artifactReadyRunEventSchema.parse({
@@ -476,6 +490,8 @@ export async function runStagePipeline(
               stage: "generate_models",
               artifactKind: "model",
               diagramKind: diagram,
+              subtaskId: diagram,
+              subtaskStatus: "completed",
             }),
           );
           throwIfRunCancelled(record);
@@ -488,15 +504,24 @@ export async function runStagePipeline(
             stage: "generate_models",
             message,
           });
+          snapshot.diagramErrors = diagramErrors;
+          emitEvent(
+            record,
+            stageProgressRunEventSchema.parse({
+              type: "stage_progress",
+              stage: "generate_models",
+              progress: stageProgressValue("generate_models"),
+              message,
+              diagramKind: diagram,
+              subtaskId: diagram,
+              subtaskStatus: "failed",
+            }),
+          );
           return null;
         }
       }),
     );
     throwIfRunCancelled(record);
-    models = generationResults.flatMap((entry) => entry?.result.models ?? []);
-    requirementModelTraceability = generationResults.flatMap(
-      (entry) => entry?.result.requirementModelTraceability ?? [],
-    );
     if (snapshot.selectedDiagrams.length > 0 && models.length === 0) {
       throw new Error(
         Object.values(diagramErrors)
@@ -563,6 +588,8 @@ export async function runStagePipeline(
         stage: "generate_plantuml",
         artifactKind: "plantuml",
         diagramKind: artifact.diagramKind,
+        subtaskId: artifact.diagramKind,
+        subtaskStatus: "rendering",
       }),
     );
   }
@@ -588,8 +615,10 @@ export async function runStagePipeline(
     );
     throwIfRunCancelled(record);
     repairedPlantUmlArtifacts.push(rendered.artifact as PlantUmlArtifact);
+    snapshot.plantUml = repairedPlantUmlArtifacts;
     if (rendered.status === "success") {
       svgArtifacts.push(rendered.svgArtifact as SvgArtifact);
+      snapshot.svgArtifacts = svgArtifacts;
       emitEvent(
         record,
         artifactReadyRunEventSchema.parse({
@@ -597,6 +626,8 @@ export async function runStagePipeline(
           stage: "render_svg",
           artifactKind: "svg",
           diagramKind: artifact.diagramKind,
+          subtaskId: artifact.diagramKind,
+          subtaskStatus: "completed",
         }),
       );
       continue;
@@ -607,6 +638,19 @@ export async function runStagePipeline(
       stage: "render_svg",
       message: rendered.errorMessage,
     });
+    snapshot.diagramErrors = diagramErrors;
+    emitEvent(
+      record,
+      stageProgressRunEventSchema.parse({
+        type: "stage_progress",
+        stage: "render_svg",
+        progress: stageProgressValue("render_svg"),
+        message: rendered.errorMessage,
+        diagramKind: artifact.diagramKind,
+        subtaskId: artifact.diagramKind,
+        subtaskStatus: "failed",
+      }),
+    );
   }
   snapshot.plantUml = repairedPlantUmlArtifacts;
   snapshot.svgArtifacts = svgArtifacts;

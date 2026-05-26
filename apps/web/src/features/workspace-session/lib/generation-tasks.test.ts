@@ -245,4 +245,52 @@ describe("workspace-session generation task helpers", () => {
       }),
     );
   });
+
+  it("does not add an aggregate sequence completion when use-case sequence subtasks exist", () => {
+    const task = createGenerationTask({
+      clientTaskId: "design-sequence-2",
+      kind: "design",
+      title: "生成设计顺序图",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-05-24T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "sequence:uc_view",
+          label: "顺序图：查看活动",
+          status: "completed",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "sequence:uc_create",
+          label: "顺序图：创建活动",
+          status: "rendering",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const next = updateTaskFromEvent(
+      task,
+      {
+        type: "artifact_ready",
+        stage: "generate_design_sequence",
+        artifactKind: "model",
+        diagramKind: "sequence",
+        subtaskId: "sequence",
+        subtaskStatus: "completed",
+      } satisfies RunEvent,
+      {
+        queued: "设计生成任务已进入队列",
+        completed: "设计生成完成",
+      },
+    );
+
+    expect(next.subtasks.map((subtask) => subtask.id)).toEqual([
+      "sequence:uc_view",
+      "sequence:uc_create",
+    ]);
+  });
 });

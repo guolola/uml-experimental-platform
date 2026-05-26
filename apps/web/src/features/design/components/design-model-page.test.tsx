@@ -118,9 +118,10 @@ describe("DesignModelPage", () => {
 
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "选择界面关系" }));
+    await userEvent.click(await screen.findByRole("button", { name: "选择业务流程图" }));
     expect(screen.getByRole("checkbox", { name: /顺序图/ })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /界面关系/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /业务流程图/ })).toBeChecked();
+    expect(screen.getByText("来源：需求阶段界面关系图 + 设计阶段顺序图")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
     const confirmation = await screen.findByRole("dialog", { name: "确认生成设计模型" });
     expect(within(confirmation).getByText("依赖补齐")).toBeInTheDocument();
@@ -278,7 +279,10 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     expect(
-      await screen.findByText("需求模型基于旧需求规则，请先重新生成需求模型"),
+      await screen.findByText("需求规则已更新，请先重新生成需求模型"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "回到需求页更新" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /生成设计模型/ })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
@@ -319,6 +323,20 @@ describe("DesignModelPage", () => {
               participants: [],
               messages: [],
               fragments: [],
+            },
+          },
+          designSvgArtifacts: {
+            "sequence:uc_view": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_view",
+              svg: "<svg><text>查看活动</text></svg>",
+              renderMeta: { engine: "plantuml" },
+            },
+            "sequence:uc_create": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_create",
+              svg: "<svg><text>创建活动</text></svg>",
+              renderMeta: { engine: "plantuml" },
             },
           },
         }),

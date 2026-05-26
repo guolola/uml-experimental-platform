@@ -66,7 +66,7 @@ describe("DiagramView", () => {
 
     render(withWorkspaceProviders(<DiagramView type="activity" />, repository));
 
-    expect(await screen.findByText("界面关系 生成失败")).toBeInTheDocument();
+    expect(await screen.findByText("界面关系图 生成失败")).toBeInTheDocument();
     expect(
       screen.getByText(/PlantUML repair failed for activity: Syntax Error\?/),
     ).toBeInTheDocument();
@@ -327,15 +327,28 @@ describe("DiagramView", () => {
     render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
 
     const canvas = await screen.findByTestId("svg-preview-canvas");
-    Object.defineProperty(canvas, "scrollLeft", { configurable: true, value: 100, writable: true });
-    Object.defineProperty(canvas, "scrollTop", { configurable: true, value: 80, writable: true });
+    const viewport = canvas.firstElementChild as HTMLElement;
 
-    fireEvent.mouseDown(canvas, { button: 0, clientX: 120, clientY: 90 });
-    fireEvent.mouseMove(canvas, { clientX: 90, clientY: 70 });
-    fireEvent.mouseUp(canvas);
+    const pointerEvent = (
+      type: string,
+      init: { button?: number; pointerId: number; clientX?: number; clientY?: number },
+    ) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        button: { value: init.button ?? 0 },
+        pointerId: { value: init.pointerId },
+        clientX: { value: init.clientX ?? 0 },
+        clientY: { value: init.clientY ?? 0 },
+      });
+      return event;
+    };
 
-    expect(canvas.scrollLeft).toBe(130);
-    expect(canvas.scrollTop).toBe(100);
+    fireEvent(canvas, pointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 120, clientY: 90 }));
+    fireEvent(canvas, pointerEvent("pointermove", { pointerId: 1, clientX: 90, clientY: 70 }));
+    fireEvent(canvas, pointerEvent("pointerup", { pointerId: 1 }));
+
+    expect(viewport.style.transform).toBe("translate(-30px, -20px)");
+    expect(canvas).toHaveClass("select-none");
   });
 
   it("shows large diagrams directly without summary view controls", async () => {

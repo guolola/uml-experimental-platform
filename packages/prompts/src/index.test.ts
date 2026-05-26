@@ -37,8 +37,11 @@ test("requirement model prompts include requirement-stage responsibilities", () 
 
   assert.match(prompt, /需求阶段模型职责/);
   assert.match(prompt, /用例模型\(usecase\): 明确系统边界/);
-  assert.match(prompt, /领域概念模型\(class\): 建立领域模型/);
-  assert.match(prompt, /界面关系\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
+  assert.match(prompt, /领域概念模型\(class\): 只描述业务领域内的核心概念实体/);
+  assert.match(prompt, /禁止输出 \*Service/);
+  assert.match(prompt, /operations 必须输出 \[\] 或省略/);
+  assert.match(prompt, /界面关系图\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
+  assert.match(prompt, /重复业务步骤必须合并为一个 activity 节点/);
   assert.match(prompt, /部署模型\(deployment\): 描述物理架构、网络拓扑、服务器节点及通信协议/);
   assert.match(prompt, /JSON 必须完整合法/);
   assert.match(prompt, /sourceId 和 targetId/);
@@ -57,7 +60,7 @@ test("requirement repair prompt preserves requirement-stage responsibilities", (
   );
 
   assert.match(prompt, /需求阶段模型职责/);
-  assert.match(prompt, /界面关系\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
+  assert.match(prompt, /界面关系图\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
   assert.match(prompt, /relationships\[\] 必须显式包含 sourceId 和 targetId/);
   assert.match(prompt, /deployment\.relationships\[\]\.port 必须是字符串/);
 });
@@ -140,8 +143,10 @@ test("design model prompt keeps design-stage activity semantics", () => {
   );
 
   assert.match(prompt, /设计阶段模型职责/);
-  assert.match(prompt, /活动图\(activity\): 业务逻辑层，描述全局业务逻辑的流转、并行与分支/);
-  assert.match(prompt, /activity 表达业务逻辑层，不表达页面跳转说明/);
+  assert.match(prompt, /业务流程图\(activity\): 业务逻辑层，描述全局业务逻辑的流转、并行与分支/);
+  assert.match(prompt, /activity 表达业务流程图的业务逻辑层，不表达页面跳转说明/);
+  assert.match(prompt, /多分支 alt 必须优先输出 branches/);
+  assert.match(prompt, /PlantUML alt\/else\/end 分隔线/);
   assert.match(prompt, /notes 永远是字符串数组/);
   assert.match(prompt, /response\/reply\/result 必须写 return/);
   assert.match(prompt, /classKind 只能使用 entity\|aggregate\|valueObject\|service\|other/);

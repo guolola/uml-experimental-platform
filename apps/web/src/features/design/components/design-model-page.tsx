@@ -52,6 +52,14 @@ const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DiagramType | "sequence"> = {
   table: "class",
 };
 
+const DESIGN_SOURCE_COPY: Record<DesignDiagramType, string> = {
+  sequence: "需求阶段用例模型",
+  activity: "需求阶段界面关系图 + 设计阶段顺序图",
+  class: "需求阶段领域概念模型 + 设计阶段顺序图",
+  deployment: "需求阶段部署模型 + 设计阶段顺序图",
+  table: "设计阶段设计类图 + 设计阶段顺序图",
+};
+
 const DESIGN_DIAGRAM_ICON = {
   sequence: GitBranch,
   activity: Activity,
@@ -102,15 +110,15 @@ export function DesignModelPage() {
     rules,
     selectedDesignDiagrams,
     setSelectedDesignDiagrams,
-    generatedDesignDiagrams,
     designModels,
+    designSvgArtifacts,
     designModelTraceability,
     designDiagramErrors,
     generating,
     generateDesignDiagrams,
     designGenerationBlockedReason,
   } = useWorkspaceSession();
-  const { openDesignDiagram } = useWorkspaceShell();
+  const { openDesignDiagram, openRequirementsText } = useWorkspaceShell();
   const [defaultModel, setDefaultModel] = useState(
     () => loadUserSettings().defaultModel,
   );
@@ -284,8 +292,17 @@ export function DesignModelPage() {
           </header>
 
           {designGenerationBlockedReason && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {designGenerationBlockedReason}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <span>{designGenerationBlockedReason}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-lg border-destructive/30 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={openRequirementsText}
+              >
+                回到需求页更新
+              </Button>
             </div>
           )}
 
@@ -297,21 +314,25 @@ export function DesignModelPage() {
                   const checked = effectiveSelected.includes(diagram);
                   const source = DESIGN_SOURCE_MAP[diagram];
                   const sourceLabel =
-                    diagram === "sequence"
-                      ? DIAGRAM_META.usecase.label
-                      : DIAGRAM_META[source as DiagramType].label;
+                    DESIGN_SOURCE_COPY[diagram] ??
+                    (diagram === "sequence"
+                      ? `需求阶段${DIAGRAM_META.usecase.label}`
+                      : `需求阶段${DIAGRAM_META[source as DiagramType].label}`);
                   const blockReason = getDesignDiagramBlockReason(
                     diagram,
                     sourceStatus,
                   );
-                  const generated = generatedDesignDiagrams.includes(diagram);
                   const generatedModels = Object.values(designModels).filter(
                     (model) => model.diagramKind === diagram,
                   );
-                  const firstGeneratedModel = generatedModels[0];
+                  const viewableModels = generatedModels.filter((model) =>
+                    Boolean(designSvgArtifacts[getDesignModelId(model)]),
+                  );
+                  const generated = viewableModels.length > 0;
+                  const firstGeneratedModel = viewableModels[0] ?? generatedModels[0];
                   const generatedLabel =
-                    diagram === "sequence" && generatedModels.length > 0
-                      ? `${generatedModels.length} 个用例顺序图`
+                    diagram === "sequence" && viewableModels.length > 0
+                      ? `${viewableModels.length} 个用例顺序图`
                       : "已生成设计模型";
                   const error = designDiagramErrors[diagram];
                   const DiagramIcon = DESIGN_DIAGRAM_ICON[diagram];
@@ -535,7 +556,7 @@ export function DesignModelPage() {
                       2. 补全前置依赖
                     </h4>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                      系统自动生成依赖于完整的需求模型。请先前往「需求阶段」完成用例模型与界面关系的构建。
+                      系统自动生成依赖于完整的需求模型。请先前往「需求阶段」完成用例模型与界面关系图的构建。
                     </p>
                   </div>
                   <div className="rounded-lg border-l-2 border-primary bg-muted/40 px-3 py-2">

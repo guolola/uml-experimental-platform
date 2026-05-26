@@ -106,6 +106,15 @@ function updateSubtasksFromEvent(
 ): GenerationSubtask[] {
   const subtaskId = subtaskIdFromEvent(event);
   if (!subtaskId) return subtasks;
+  if (
+    subtaskId === "sequence" &&
+    event.type === "artifact_ready" &&
+    "subtaskStatus" in event &&
+    event.subtaskStatus === "completed" &&
+    subtasks.some((subtask) => subtask.id.startsWith("sequence:"))
+  ) {
+    return subtasks;
+  }
   const hasExplicitSubtaskStatus =
     "subtaskStatus" in event && Boolean(event.subtaskStatus);
   const nextStatus = subtaskStatusFromEvent(event);

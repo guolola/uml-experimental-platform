@@ -15,6 +15,19 @@ import {
   formatTraceabilityMissingRefs,
   normalizeRequirementTraceabilityWithCoverage,
 } from "../traceability/traceability-normalizer.js";
+import { dedupeActivityModel } from "../diagrams/activity-dedupe.js";
+
+function isRequirementServiceClass(classItem: Record<string, unknown>) {
+  const classKind = typeof classItem.classKind === "string" ? classItem.classKind.toLowerCase() : "";
+  const stereotype =
+    typeof classItem.stereotype === "string" ? classItem.stereotype.toLowerCase() : "";
+  const name = typeof classItem.name === "string" ? classItem.name.trim() : "";
+  return (
+    classKind === "service" ||
+    stereotype.includes("service") ||
+    /(?:service|controller|repository|manager)$/i.test(name)
+  );
+}
 
 function normalizeRequirementModelElementMaps(model: Record<string, unknown>) {
   const candidates: unknown[] = [];
@@ -127,24 +140,47 @@ function normalizeRequirementDiagramModel(model: unknown) {
     );
     normalized.systemBoundaries = ensureArray(normalized.systemBoundaries);
   } else if (diagramKind === "class") {
-    normalized.classes = ensureArray(normalized.classes).map((classItem) => {
-      if (!isPlainRecord(classItem)) return classItem;
-      return {
-        ...classItem,
-        attributes: ensureArray(classItem.attributes),
-        methods: ensureArray(classItem.methods),
-        stereotypes: normalizeStringArray(classItem.stereotypes),
-      };
-    });
+    const removedClassIds = new Set<string>();
+    normalized.classes = ensureArray(normalized.classes)
+      .map((classItem) => {
+        if (!isPlainRecord(classItem)) return classItem;
+        if (isRequirementServiceClass(classItem)) {
+          if (typeof classItem.id === "string") removedClassIds.add(classItem.id);
+          return null;
+        }
+        const nextClass: Record<string, unknown> = {
+          ...classItem,
+          attributes: ensureArray(classItem.attributes),
+          operations: [],
+          stereotypes: normalizeStringArray(classItem.stereotypes),
+        };
+        delete nextClass.methods;
+        if (nextClass.classKind === "service") {
+          nextClass.classKind = "other";
+        }
+        return nextClass;
+      })
+      .filter(Boolean);
     normalized.interfaces = ensureArray(normalized.interfaces).map((interfaceItem) =>
       isPlainRecord(interfaceItem)
-        ? { ...interfaceItem, methods: ensureArray(interfaceItem.methods) }
+        ? { ...interfaceItem, operations: [] }
         : interfaceItem,
     );
     normalized.enums = ensureArray(normalized.enums).map((enumItem) =>
       isPlainRecord(enumItem)
         ? { ...enumItem, literals: normalizeStringArray(enumItem.literals) }
         : enumItem,
+    );
+    normalized.relationships = ensureArray(normalized.relationships).filter(
+      (relationship) => {
+        if (!isPlainRecord(relationship)) return true;
+        return !(
+          (typeof relationship.sourceId === "string" &&
+            removedClassIds.has(relationship.sourceId)) ||
+          (typeof relationship.targetId === "string" &&
+            removedClassIds.has(relationship.targetId))
+        );
+      },
     );
   } else if (diagramKind === "activity") {
     normalized.swimlanes = ensureArray(normalized.swimlanes);
@@ -157,6 +193,7 @@ function normalizeRequirementDiagramModel(model: unknown) {
           }
         : node,
     );
+    normalized.relationships = ensureArray(normalized.relationships);
   } else if (diagramKind === "deployment") {
     normalized.nodes = ensureArray(normalized.nodes);
     normalized.databases = ensureArray(normalized.databases);
@@ -170,7 +207,7 @@ function normalizeRequirementDiagramModel(model: unknown) {
     .map((relationship) => normalizeRequirementRelationship(relationship, maps))
     .filter(Boolean);
 
-  return normalized;
+  return diagramKind === "activity" ? dedupeActivityModel(normalized) : normalized;
 }
 
 export function parseRequirementDiagramModelsResult(

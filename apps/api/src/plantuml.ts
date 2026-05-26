@@ -118,7 +118,8 @@ function formatOperation(operation: ClassOperation) {
   return `${prefix}${operation.name}(${parameters})${returnType}`;
 }
 
-function renderClassBlock(entity: ClassEntity) {
+function renderClassBlock(entity: ClassEntity, options: { includeOperations?: boolean } = {}) {
+  const includeOperations = options.includeOperations ?? true;
   const alias = safeAlias(entity.id);
   const stereotype = entity.stereotype
     ? ` <<${entity.stereotype}>>`
@@ -129,11 +130,13 @@ function renderClassBlock(entity: ClassEntity) {
   for (const attribute of entity.attributes) {
     lines.push(`  ${formatAttribute(attribute)}`);
   }
-  if (entity.attributes.length > 0 && entity.operations.length > 0) {
+  if (includeOperations && entity.attributes.length > 0 && entity.operations.length > 0) {
     lines.push("  --");
   }
-  for (const operation of entity.operations) {
-    lines.push(`  ${formatOperation(operation)}`);
+  if (includeOperations) {
+    for (const operation of entity.operations) {
+      lines.push(`  ${formatOperation(operation)}`);
+    }
   }
   lines.push("}");
   return lines;
@@ -187,17 +190,20 @@ function renderClassRelationship(relation: ClassRelationship) {
   return `${source}${leftMultiplicity} ${arrow}${rightMultiplicity} ${target}${suffix}`;
 }
 
-function renderClass(model: ClassDiagramSpec) {
+function renderClass(model: ClassDiagramSpec, options: { includeOperations?: boolean } = {}) {
+  const includeOperations = options.includeOperations ?? true;
   const lines = ["@startuml"];
 
   for (const entity of model.classes) {
-    lines.push(...renderClassBlock(entity));
+    lines.push(...renderClassBlock(entity, { includeOperations }));
   }
 
   for (const entity of model.interfaces) {
     lines.push(`interface ${quoteLabel(entity.name)} as ${safeAlias(entity.id)} {`);
-    for (const operation of entity.operations) {
-      lines.push(`  ${formatOperation(operation)}`);
+    if (includeOperations) {
+      for (const operation of entity.operations) {
+        lines.push(`  ${formatOperation(operation)}`);
+      }
     }
     lines.push("}");
   }
@@ -731,7 +737,16 @@ function renderSequence(model: SequenceDiagramSpec) {
 
   const fragmentStarts = new Map<string, SequenceDiagramSpec["fragments"]>();
   const fragmentEnds = new Map<string, SequenceDiagramSpec["fragments"]>();
+  const branchFragmentStarts = new Map<string, SequenceDiagramSpec["fragments"][number]>();
   for (const fragment of model.fragments) {
+    const branchFirst =
+      fragment.type === "alt" && fragment.branches && fragment.branches.length > 1
+        ? fragment.branches[0]?.messageIds[0]
+        : undefined;
+    if (branchFirst) {
+      branchFragmentStarts.set(branchFirst, fragment);
+      continue;
+    }
     const first = fragment.messageIds[0];
     const last = fragment.messageIds[fragment.messageIds.length - 1];
     if (first) {
@@ -742,14 +757,10 @@ function renderSequence(model: SequenceDiagramSpec) {
     }
   }
 
-  for (const message of model.messages) {
-    for (const fragment of fragmentStarts.get(message.id) ?? []) {
-      const label = fragment.condition
-        ? `${fragment.label} [${fragment.condition}]`
-        : fragment.label;
-      lines.push(`${fragment.type} ${label}`);
-    }
+  const messagesById = new Map(model.messages.map((message) => [message.id, message]));
+  const renderedMessageIds = new Set<string>();
 
+  const renderMessageLine = (message: SequenceMessage) => {
     const source = safeAlias(message.sourceId);
     const target = safeAlias(message.targetId);
     lines.push(`${source} ${sequenceArrow(message)} ${target}: ${sequenceMessageLabel(message)}`);
@@ -760,6 +771,46 @@ function renderSequence(model: SequenceDiagramSpec) {
     if (message.type === "destroy") {
       lines.push(`destroy ${target}`);
     }
+  };
+
+  const branchLabel = (branch: NonNullable<SequenceDiagramSpec["fragments"][number]["branches"]>[number]) =>
+    branch.condition ? `${branch.label} [${branch.condition}]` : branch.label;
+
+  const renderBranchFragment = (fragment: SequenceDiagramSpec["fragments"][number]) => {
+    const branches = fragment.branches ?? [];
+    branches.forEach((branch, index) => {
+      if (index === 0) {
+        lines.push(`alt ${branchLabel(branch)}`);
+      } else {
+        lines.push(`else ${branchLabel(branch)}`);
+      }
+      for (const messageId of branch.messageIds) {
+        const branchMessage = messagesById.get(messageId);
+        if (!branchMessage) continue;
+        renderMessageLine(branchMessage);
+        renderedMessageIds.add(messageId);
+      }
+    });
+    lines.push("end");
+  };
+
+  for (const message of model.messages) {
+    if (renderedMessageIds.has(message.id)) continue;
+    const branchFragment = branchFragmentStarts.get(message.id);
+    if (branchFragment) {
+      renderBranchFragment(branchFragment);
+      continue;
+    }
+
+    for (const fragment of fragmentStarts.get(message.id) ?? []) {
+      const label = fragment.condition
+        ? `${fragment.label} [${fragment.condition}]`
+        : fragment.label;
+      lines.push(`${fragment.type} ${label}`);
+    }
+
+    renderMessageLine(message);
+    renderedMessageIds.add(message.id);
 
     for (const fragment of [...(fragmentEnds.get(message.id) ?? [])].reverse()) {
       lines.push(`end ${fragment.type}`);
@@ -849,7 +900,10 @@ export function generatePlantUmlArtifacts(
       case "usecase":
         return { diagramKind: model.diagramKind, source: renderUseCase(model) };
       case "class":
-        return { diagramKind: model.diagramKind, source: renderClass(model) };
+        return {
+          diagramKind: model.diagramKind,
+          source: renderClass(model, { includeOperations: false }),
+        };
       case "activity":
         return { diagramKind: model.diagramKind, source: renderActivity(model) };
       case "deployment":

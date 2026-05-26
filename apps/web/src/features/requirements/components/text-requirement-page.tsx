@@ -410,7 +410,7 @@ export function TextRequirementView() {
     const toAdd = selectedDiagrams.filter(
       (diagram) => !generatedDiagrams.includes(diagram),
     ).length;
-    const toRemove = generatedDiagrams.filter(
+    const toKeep = generatedDiagrams.filter(
       (diagram) => !selectedDiagrams.includes(diagram),
     ).length;
     const stale = staleDiagrams.filter((diagram) =>
@@ -419,7 +419,7 @@ export function TextRequirementView() {
     if (generatedDiagrams.length === 0) return "生成模型";
     const parts: string[] = [];
     if (toAdd) parts.push(`新增${toAdd}`);
-    if (toRemove) parts.push(`移除${toRemove}`);
+    if (toKeep) parts.push(`保留${toKeep}`);
     if (stale) parts.push(`更新${stale}`);
     return parts.length ? `应用变更（${parts.join("·")}）` : "重新生成";
   })();

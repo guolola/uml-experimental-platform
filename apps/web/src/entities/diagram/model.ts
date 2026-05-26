@@ -24,7 +24,7 @@ export const DIAGRAM_META: Record<
     description: "领域实体、属性与关联",
   },
   activity: {
-    label: "界面关系",
+    label: "界面关系图",
     english: "Activity Diagram",
     description: "界面跳转与操作流程",
   },
@@ -52,7 +52,7 @@ export const DESIGN_DIAGRAM_META: Record<
     description: "对象间的方法调用时序与动态行为",
   },
   activity: {
-    label: "界面关系",
+    label: "业务流程图",
     english: "Activity Diagram",
     description: "全局业务逻辑流转、并行与分支",
   },

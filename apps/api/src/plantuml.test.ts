@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   ActivityDiagramSpec,
+  ClassDiagramSpec,
   SequenceDiagramSpec,
   TableDiagramSpec,
 } from "@uml-platform/contracts";
@@ -752,6 +753,88 @@ test("sequence PlantUML renders design dynamic behavior", async () => {
     plantUmlSource: artifact?.source ?? "",
   });
   assert.match(rendered.svg, /<svg/i);
+});
+
+test("sequence PlantUML renders alt branches with else separators", async () => {
+  const model: SequenceDiagramSpec = {
+    diagramKind: "sequence",
+    title: "预约顺序",
+    summary: "多分支预约处理",
+    notes: [],
+    participants: [
+      { id: "user", name: "用户", participantType: "actor" },
+      { id: "svc", name: "预约服务", participantType: "service" },
+    ],
+    messages: [
+      {
+        id: "m1",
+        type: "sync",
+        sourceId: "user",
+        targetId: "svc",
+        name: "submitReservation",
+        parameters: [],
+      },
+      {
+        id: "m2",
+        type: "return",
+        sourceId: "svc",
+        targetId: "user",
+        name: "rejectReservation",
+        parameters: [],
+      },
+    ],
+    fragments: [
+      {
+        id: "alt1",
+        type: "alt",
+        label: "预约结果",
+        messageIds: ["m1", "m2"],
+        branches: [
+          { label: "座位可用", messageIds: ["m1"] },
+          { label: "座位不可用", messageIds: ["m2"] },
+        ],
+      },
+    ],
+  };
+
+  const artifact = generateDesignPlantUmlArtifacts([model])[0];
+  assert.match(artifact?.source ?? "", /alt 座位可用/);
+  assert.match(artifact?.source ?? "", /else 座位不可用/);
+  assert.match(artifact?.source ?? "", /\nend\n/);
+});
+
+test("requirement class PlantUML hides operations while design class keeps them", () => {
+  const model: ClassDiagramSpec = {
+    diagramKind: "class",
+    title: "领域概念模型",
+    summary: "实体属性关系",
+    notes: [],
+    classes: [
+      {
+        id: "reservation",
+        name: "Reservation",
+        classKind: "entity",
+        attributes: [
+          { name: "id", type: "string", visibility: "private" },
+        ],
+        operations: [
+          {
+            name: "confirm",
+            visibility: "public",
+            parameters: [],
+          },
+        ],
+      },
+    ],
+    interfaces: [],
+    enums: [],
+    relationships: [],
+  };
+
+  const requirementArtifact = generatePlantUmlArtifacts([model])[0];
+  const designArtifact = generateDesignPlantUmlArtifacts([model])[0];
+  assert.doesNotMatch(requirementArtifact?.source ?? "", /confirm\(/);
+  assert.match(designArtifact?.source ?? "", /confirm\(\)/);
 });
 
 test("table PlantUML renders primary and foreign keys", async () => {

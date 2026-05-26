@@ -86,8 +86,8 @@ function compactCodeContextForUiMockup(codeContext: unknown) {
 const REQUIREMENT_STAGE_SEMANTICS = [
   "需求阶段模型职责：",
   "- 用例模型(usecase): 明确系统边界，直观展示“谁（角色）能做什么（用例）”。",
-  "- 领域概念模型(class): 建立领域模型，定义实体属性及其间的数量对应关系。",
-  "- 界面关系(activity): 描述 UI 的跳转逻辑与页面状态流转，例如根据登录态跳转。",
+  "- 领域概念模型(class): 只描述业务领域内的核心概念实体、属性及实体之间的关联，不表达服务、控制器、仓储或对象方法。",
+  "- 界面关系图(activity): 描述 UI 的跳转逻辑与页面状态流转，例如根据登录态跳转。",
   "- 部署模型(deployment): 描述物理架构、网络拓扑、服务器节点及通信协议。",
 ].join("\n");
 
@@ -166,7 +166,8 @@ export function buildGenerateModelsPrompt(
     "  systemBoundaries[].字段：id, name, description(可选)。",
     "  relationships[].字段：id, type(association|include|extend|generalization), sourceId, targetId, label(可选), condition(可选), description(可选)。",
     "- class: 必须包含 classes, interfaces, enums, relationships。",
-    "  classes[].字段：id, name, classKind(entity|aggregate|valueObject|service|other, 可选), stereotype(可选), description(可选), attributes(array), operations(array)。",
+    "  领域概念模型只允许输出业务名词类；禁止输出 *Service、*Controller、*Repository、*Manager 等服务/技术职责类，例如 ReservationService。classes[].operations 必须输出 [] 或省略，interfaces[].operations 必须输出 [] 或省略。",
+    "  classes[].字段：id, name, classKind(entity|aggregate|valueObject|other, 可选), stereotype(可选), description(可选), attributes(array), operations(array)。",
     "  classes[].attributes[].字段：name, type, visibility(public|protected|private|package), required(可选), multiplicity(可选), defaultValue(可选), description(可选)。",
     "  classes[].operations[].字段：name, returnType(可选), visibility(public|protected|private|package), parameters(array), description(可选)。",
     "  classes[].operations[].parameters[].字段：name, type, required(可选), direction(in|out|inout, 可选)。",
@@ -182,6 +183,7 @@ export function buildGenerateModelsPrompt(
     "    decision: id, type, name(可选), question(可选), description(可选)",
     "    merge/fork/join: id, type, name(可选), description(可选)",
     "  relationships[].字段：id, type(control_flow|object_flow), sourceId, targetId, condition(可选), guard(可选), trigger(可选), description(可选)。",
+    "  重复业务步骤必须合并为一个 activity 节点，用多条 relationships 汇入/汇出；不要复制同名片段（例如重复输出“展示座位网格分布”）。",
     "- deployment: 必须包含 nodes, databases, components, externalSystems, artifacts, relationships。",
     "  nodes[].字段：id, name, nodeType(app|server|device|container|external), environment(可选), description(可选)。",
     "  databases[].字段：id, name, engine(可选), description(可选)。",
@@ -313,7 +315,7 @@ export function buildRepairRequirementTraceabilityPrompt(
 const DESIGN_STAGE_SEMANTICS = [
   "设计阶段模型职责：",
   "- 顺序图(sequence): 动态行为层，确定对象间具体的方法调用时序，包含正常流程与异常动态行为。",
-  "- 活动图(activity): 业务逻辑层，描述全局业务逻辑的流转、并行与分支。",
+  "- 业务流程图(activity): 业务逻辑层，描述全局业务逻辑的流转、并行与分支。",
   "- 类图(class): 静态结构层，定义实体、接口、聚合根的属性、行为及静态关联（1:N、泛化等）。",
   "- 部署图(deployment): 物理部署层，展示软件组件在物理节点（K8s Pod、服务器、数据库）上的分布。",
   "- 表关系图(table): 数据库表结构层，体现表、字段、主键、外键和表间关联基数。",
@@ -325,7 +327,8 @@ const DESIGN_MODEL_SCHEMA_INSTRUCTIONS = [
   "  sequence 模型还必须包含 modelId, sourceUseCaseId, sourceUseCaseName；modelId 必须是 sequence:<sourceUseCaseId>。",
   "  participants[].字段：id, name, participantType(actor|boundary|control|entity|service|database|external), description(可选)。",
   "  messages[].字段：id, type(sync|async|return|create|destroy), sourceId, targetId, name, parameters(string[]), returnValue(可选), condition(可选), description(可选)。",
-  "  fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选)。",
+  "  fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选), branches(可选)。",
+  "  多分支 alt 必须优先输出 branches: [{label, condition(可选), messageIds}]，每个分支的 messageIds 不得交叠；渲染时 branches 会生成 PlantUML alt/else/end 分隔线。",
   "- 所有设计模型都必须包含 notes 字段，且 notes 永远是字符串数组；没有备注时输出 []，不要输出字符串。",
   "- sequence.messages[].type 只能使用 sync|async|return|create|destroy；response/reply/result 必须写 return，request/call 必须写 sync，event/notify 必须写 async。",
   "- class.classes[].classKind 只能使用 entity|aggregate|valueObject|service|other；不确定时用 other 或省略，不能输出中文、自造枚举或 controller 等非枚举值。",
@@ -335,7 +338,7 @@ const DESIGN_MODEL_SCHEMA_INSTRUCTIONS = [
   "  columns[].字段：id, name, dataType, isPrimaryKey(boolean), isForeignKey(boolean), nullable(boolean), references(可选), description(可选)。",
   "  references 字段：tableId, columnId。",
   "  relationships[].字段：id, type(one-to-one|one-to-many|many-to-many), sourceTableId, targetTableId, sourceColumnId(可选), targetColumnId(可选), label(可选), description(可选)。",
-  "- activity 表达业务逻辑层，不表达页面跳转说明。",
+  "- activity 表达业务流程图的业务逻辑层，不表达页面跳转说明；重复业务步骤必须合并为一个节点，用多条关系汇入/汇出。",
   "- class 表达静态结构层，类应包含操作；接口、服务、实体、聚合根要通过 classKind 或 stereotype 标明。",
   "- deployment 表达物理部署层，优先体现 K8s Pod、服务、数据库、外部系统及通信协议。",
   "- table 表达数据库表关系，必须从设计类图和顺序图中推导表、主键、外键与关联基数。",
@@ -385,7 +388,7 @@ export function buildGenerateDesignModelsPrompt(
     "请根据已确认需求项、需求阶段模型和全部设计阶段顺序图生成设计阶段 UML 结构化模型。",
     "返回 JSON 对象，格式必须是 {\"models\":[...],\"designModelTraceability\":[...]}。",
     "designModelTraceability 可以返回空数组 []；优先保证设计模型结构简洁完整，模型结构生成成功后由系统分批补齐可追踪关系。",
-    "本阶段生成的是下游聚合设计模型：设计类图、界面关系、部署模型、表关系图都各自保持一张总图，不按用例拆分。",
+    "本阶段生成的是下游聚合设计模型：设计类图、业务流程图、部署模型、表关系图都各自保持一张总图，不按用例拆分。",
     "如果返回 designModelTraceability，下游聚合设计模型元素由一个或多个用例顺序图推导时，upstreamDesignRefs 必须列出这些顺序图元素引用。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     DESIGN_STAGE_SEMANTICS,
@@ -398,7 +401,7 @@ export function buildGenerateDesignModelsPrompt(
     selectedDiagrams.join(", "),
     "",
     "映射规则：",
-    "- 需求阶段活动图 + 全部用例级顺序图 -> 设计阶段活动图（界面关系，业务逻辑层）。",
+    "- 需求阶段界面关系图 + 全部用例级顺序图 -> 设计阶段业务流程图（activity，业务逻辑层）。",
     "- 需求阶段类图 + 全部用例级顺序图 -> 设计阶段类图（设计类图），类是所有顺序图中的类/对象/服务的归并组合。",
     "- 需求阶段部署图 + 全部用例级顺序图 -> 设计阶段部署图（部署模型）。",
     "- 聚合设计类图 + 全部用例级顺序图 -> 设计阶段表关系图。",
@@ -1378,8 +1381,8 @@ export function buildGenerateDocumentContentPrompt(
     : [
         "标题 1：引言、系统结构、设计、尚未设计的问题。",
         "标题 2：系统概述、基线、定义与标识、参考资料、网络与硬件配置、部署设计、交互设计、结构设计、界面设计、可追踪性设计、数据库设计、其它设计。",
-        "标题 3：顺序图 1/2/…、对象与类的关系、类与类的关系、设计对象、设计类、界面关系、界面详细设计、用例与界面关系、类与表关系、数据表设计、安全/性能/其它限制设计。",
-        "图位置：顺序图、设计类图、界面关系图、部署图、表关系图分别放到对应标题 2 或标题 3 小节。",
+        "标题 3：顺序图 1/2/…、对象与类的关系、类与类的关系、设计对象、设计类、业务流程、界面详细设计、用例与业务流程关系、类与表关系、数据表设计、安全/性能/其它限制设计。",
+        "图位置：顺序图、设计类图、业务流程图、部署图、表关系图分别放到对应标题 2 或标题 3 小节。",
       ];
 
   return [

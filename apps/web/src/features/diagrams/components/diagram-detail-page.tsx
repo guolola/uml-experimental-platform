@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Dispatch, MouseEvent, SetStateAction } from "react";
+import type { Dispatch, PointerEvent, SetStateAction } from "react";
 import { toast } from "sonner";
 import {
   ExternalLink,
@@ -2565,18 +2565,21 @@ function DiagramDetailView({
   const svgCanvasRef = useRef<HTMLDivElement | null>(null);
   const panStateRef = useRef<{
     active: boolean;
+    pointerId: number | null;
     startX: number;
     startY: number;
-    scrollLeft: number;
-    scrollTop: number;
+    offsetX: number;
+    offsetY: number;
   }>({
     active: false,
+    pointerId: null,
     startX: 0,
     startY: 0,
-    scrollLeft: 0,
-    scrollTop: 0,
+    offsetX: 0,
+    offsetY: 0,
   });
   const [isPanning, setIsPanning] = useState(false);
+  const [svgPanOffset, setSvgPanOffset] = useState({ x: 0, y: 0 });
   const [elementSearch, setElementSearch] = useState("");
   const [elementKindFilter, setElementKindFilter] = useState<"all" | SemanticElementKind>(
     "all",
@@ -2644,38 +2647,49 @@ function DiagramDetailView({
   }, [svgMarkup, updateSvgScale]);
   useEffect(() => {
     panStateRef.current.active = false;
+    panStateRef.current.pointerId = null;
     setIsPanning(false);
+    setSvgPanOffset({ x: 0, y: 0 });
   }, [svgMarkup]);
-  const startCanvasPan = useCallback((event: MouseEvent<HTMLDivElement>) => {
+  const startCanvasPan = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if ((typeof event.button === "number" && event.button !== 0) || !svgMarkup) return;
 
     const canvas = svgCanvasRef.current;
     if (!canvas) return;
 
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
     panStateRef.current = {
       active: true,
+      pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      scrollLeft: canvas.scrollLeft,
-      scrollTop: canvas.scrollTop,
+      offsetX: svgPanOffset.x,
+      offsetY: svgPanOffset.y,
     };
+    window.getSelection()?.removeAllRanges();
     setIsPanning(true);
-  }, [svgMarkup]);
-  const moveCanvasPan = useCallback((event: MouseEvent<HTMLDivElement>) => {
+  }, [svgMarkup, svgPanOffset.x, svgPanOffset.y]);
+  const moveCanvasPan = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const panState = panStateRef.current;
-    if (!panState.active) return;
+    if (!panState.active || panState.pointerId !== event.pointerId) return;
 
     event.preventDefault();
-    const canvas = svgCanvasRef.current;
-    if (!canvas) return;
-
-    canvas.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
-    canvas.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+    window.getSelection()?.removeAllRanges();
+    setSvgPanOffset({
+      x: panState.offsetX + event.clientX - panState.startX,
+      y: panState.offsetY + event.clientY - panState.startY,
+    });
   }, []);
-  const stopCanvasPan = useCallback(() => {
+  const stopCanvasPan = useCallback((event?: PointerEvent<HTMLDivElement>) => {
     if (!panStateRef.current.active) return;
 
+    if (event && panStateRef.current.pointerId !== event.pointerId) return;
+    if (event) {
+      svgCanvasRef.current?.releasePointerCapture?.(event.pointerId);
+    }
     panStateRef.current.active = false;
+    panStateRef.current.pointerId = null;
     setIsPanning(false);
   }, []);
   useEffect(() => {
@@ -2971,22 +2985,27 @@ function DiagramDetailView({
                     ref={svgCanvasRef}
                     data-testid="svg-preview-canvas"
                     className={cn(
-                      "h-[560px] overflow-auto",
+                      "h-[560px] overflow-hidden select-none touch-none",
                       svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
                     )}
-                    onMouseDown={startCanvasPan}
-                    onMouseMove={moveCanvasPan}
-                    onMouseUp={stopCanvasPan}
-                    onMouseLeave={stopCanvasPan}
+                    onPointerDown={startCanvasPan}
+                    onPointerMove={moveCanvasPan}
+                    onPointerUp={stopCanvasPan}
+                    onPointerCancel={stopCanvasPan}
                   >
                       {svgMarkup ? (
-                        <div className="flex min-h-full min-w-full items-center justify-center">
+                        <div
+                          className="flex min-h-full min-w-full items-center justify-center"
+                          style={{
+                            transform: `translate(${svgPanOffset.x}px, ${svgPanOffset.y}px)`,
+                          }}
+                        >
                           <InlineSvg
                             svg={svgMarkup}
                             scale={svgScale}
                             highlightLabel={highlighted?.label}
                             highlightKey={highlightRequestId}
-                            className="w-full [&>svg]:drop-shadow-sm"
+                            className="w-full select-none [&_*]:select-none [&>svg]:drop-shadow-sm"
                           />
                         </div>
                       ) : diagramError ? (

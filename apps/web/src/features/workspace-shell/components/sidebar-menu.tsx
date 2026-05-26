@@ -26,7 +26,12 @@ import {
   Plug,
   GitBranch,
   MessageSquare,
+  Clock3,
+  Loader2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "../../../shared/ui/utils";
 import {
   DESIGN_DIAGRAM_ORDER,
@@ -55,7 +60,16 @@ type Node = {
   selectable?: boolean;
   badge?: string | number;
   badgeTooltip?: string;
+  status?: "queued" | "running" | "completed" | "failed";
+  statusTooltip?: string;
+  unavailableReason?: string;
   onSelect?: () => void;
+};
+
+type DesignSubtaskNode = {
+  id: string;
+  label: string;
+  status: Node["status"];
 };
 
 const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
@@ -124,6 +138,103 @@ function TraceBadge({
   );
 }
 
+function GenerationStatusIndicator({
+  status,
+  tooltip,
+}: {
+  status: NonNullable<Node["status"]>;
+  tooltip?: string;
+}) {
+  const label =
+    tooltip ??
+    (status === "queued"
+      ? "排队中"
+      : status === "running"
+      ? "生成中"
+      : status === "failed"
+        ? "生成失败"
+        : "已生成");
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      className="inline-flex size-5 shrink-0 items-center justify-center"
+    >
+      {status === "queued" ? (
+        <Clock3 className="size-3.5 text-muted-foreground" />
+      ) : status === "running" ? (
+        <Loader2 className="size-3.5 animate-spin text-primary" />
+      ) : status === "failed" ? (
+        <XCircle className="size-3.5 text-destructive" />
+      ) : (
+        <CheckCircle2 className="size-3.5 text-primary" />
+      )}
+    </span>
+  );
+}
+
+function sidebarStatusFromSubtaskStatus(status: string | undefined) {
+  switch (status) {
+    case "failed":
+      return "failed" as const;
+    case "completed":
+    case "pending_review":
+      return "completed" as const;
+    case "queued":
+      return "queued" as const;
+    case "running":
+    case "repairing":
+    case "rendering":
+      return "running" as const;
+    default:
+      return null;
+  }
+}
+
+function mergeSidebarStatus(
+  current: Node["status"] | undefined,
+  next: Node["status"] | null,
+) {
+  if (!next) return current;
+  if (current === "failed" || next === "failed") return "failed";
+  if (current === "running" || next === "running") return "running";
+  if (current === "queued" || next === "queued") return "queued";
+  return "completed";
+}
+
+function generationStatusTooltip(
+  label: string,
+  status: Node["status"],
+  hasExistingModel: boolean,
+) {
+  if (status === "queued") {
+    return hasExistingModel
+      ? `${label}重新生成排队中，当前图仍可查看`
+      : `${label}生成排队中`;
+  }
+  if (status === "running") {
+    return hasExistingModel
+      ? `${label}重新生成中，当前图仍可查看`
+      : `${label}生成中`;
+  }
+  if (status === "failed") return `${label}生成失败`;
+  if (status === "completed") return `${label}已生成`;
+  return undefined;
+}
+
+function designUnavailableReason(
+  status: Node["status"],
+  hasStructuredModel: boolean,
+) {
+  if (status === "failed") return "生成失败，请查看生成任务详情";
+  if (status === "queued") return "生成排队中，完成后可查看";
+  if (status === "running") return "正在生成图像，渲染完成后可查看";
+  if (status === "completed" || hasStructuredModel) {
+    return "当前只有结构化模型，SVG 尚未生成";
+  }
+  return "生成完成后可查看";
+}
+
 function TreeItem({
   node,
   depth,
@@ -154,6 +265,10 @@ function TreeItem({
   const handleSelect = () => {
     if (selectable) {
       node.onSelect?.();
+      return;
+    }
+    if (node.unavailableReason) {
+      toast.message(node.unavailableReason);
       return;
     }
     if (hasChildren) {
@@ -201,6 +316,12 @@ function TreeItem({
         {node.badge !== undefined && (
           <TraceBadge label={node.badge} tooltip={node.badgeTooltip} />
         )}
+        {node.status && (
+          <GenerationStatusIndicator
+            status={node.status}
+            tooltip={node.statusTooltip}
+          />
+        )}
       </div>
       {hasChildren && open && (
         <div>
@@ -225,6 +346,8 @@ function buildDiagramNode(
   model: ReturnType<typeof useWorkspaceSession>["models"][DiagramType],
   stale: boolean,
   failed: boolean,
+  status: Node["status"],
+  statusTooltip: string | undefined,
   openDiagram: (diagram: DiagramType) => void,
   openDiagramElement: (
     diagram: DiagramType,
@@ -248,7 +371,7 @@ function buildDiagramNode(
     })),
   }));
 
-  const badge = failed ? "失败" : detail.items.length || undefined;
+  const badge = detail.items.length || undefined;
 
   return {
     key: `diagram:${diagram}`,
@@ -272,6 +395,8 @@ function buildDiagramNode(
     ),
     children,
     badge,
+    status,
+    statusTooltip,
     onSelect: () => openDiagram(diagram),
   };
 }
@@ -280,6 +405,9 @@ function buildDesignDiagramNode(
   diagram: DesignDiagramType,
   model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
   failed: boolean,
+  status: Node["status"],
+  statusTooltip: string | undefined,
+  viewable: boolean,
   openDesignDiagram: (
     diagram: DesignDiagramType,
     modelId?: string,
@@ -294,6 +422,7 @@ function buildDesignDiagramNode(
   ) => void,
 ): Node {
   const modelId = model ? getDesignModelId(model) : diagram;
+  const canOpen = viewable && status !== "failed";
   const label =
     diagram === "sequence" && model
       ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
@@ -333,9 +462,42 @@ function buildDesignDiagramNode(
       </span>
     ),
     children,
-    badge: failed ? "失败" : undefined,
-    onSelect: () => openDesignDiagram(diagram, modelId, label),
+    selectable: canOpen,
+    status,
+    statusTooltip,
+    unavailableReason: canOpen
+      ? undefined
+      : designUnavailableReason(status, Boolean(model)),
+    onSelect: canOpen ? () => openDesignDiagram(diagram, modelId, label) : undefined,
   };
+}
+
+function buildPendingDesignDiagramNode(
+  diagram: DesignDiagramType,
+  modelId: string,
+  label: string,
+  status: Node["status"],
+  statusTooltip: string | undefined,
+): Node {
+  return {
+    key: `design-diagram:${modelId}`,
+    label,
+    icon: <Network className="size-4 text-muted-foreground" />,
+    selectable: false,
+    status,
+    statusTooltip,
+    unavailableReason: designUnavailableReason(status, false),
+  };
+}
+
+function sequenceUseCaseNodes(
+  useCaseModel: ReturnType<typeof useWorkspaceSession>["models"]["usecase"],
+) {
+  if (!useCaseModel || !("useCases" in useCaseModel)) return [];
+  return useCaseModel.useCases.map((useCase) => ({
+    id: `sequence:${useCase.id}`,
+    label: useCase.name,
+  }));
 }
 
 export function SidebarMenu() {
@@ -347,7 +509,9 @@ export function SidebarMenu() {
     diagramErrors,
     generatedDesignDiagrams,
     designModels,
+    designSvgArtifacts,
     designDiagramErrors,
+    generationTasks,
   } =
     useWorkspaceSession();
   const {
@@ -371,9 +535,86 @@ export function SidebarMenu() {
     },
     {} as Record<DesignDiagramType, Array<ReturnType<typeof useWorkspaceSession>["designModels"][string]>>,
   );
-  const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter((diagram) =>
-    generatedDesignDiagrams.includes(diagram),
+  const requirementSubtaskStatus = new Map<DiagramType, Node["status"]>();
+  const designSubtaskStatus = new Map<string, Node["status"]>();
+  const designSubtaskLabels = new Map<string, string>();
+  for (const task of generationTasks.filter((item) =>
+    item.status === "queued" || item.status === "running"
+  )) {
+    for (const subtask of task.subtasks) {
+      const status = sidebarStatusFromSubtaskStatus(subtask.status);
+      if (task.kind === "requirements" && DIAGRAM_META[subtask.id as DiagramType]) {
+        const diagram = subtask.id as DiagramType;
+        requirementSubtaskStatus.set(
+          diagram,
+          mergeSidebarStatus(requirementSubtaskStatus.get(diagram), status),
+        );
+      }
+      if (task.kind === "design") {
+        designSubtaskStatus.set(
+          subtask.id,
+          mergeSidebarStatus(designSubtaskStatus.get(subtask.id), status),
+        );
+        designSubtaskLabels.set(subtask.id, subtask.label);
+      }
+    }
+  }
+  const requirementNodeDiagrams = (Object.keys(DIAGRAM_META) as DiagramType[]).filter(
+    (diagram) =>
+      generatedDiagrams.includes(diagram) ||
+      requirementSubtaskStatus.has(diagram) ||
+      Boolean(diagramErrors[diagram]),
   );
+  const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter(
+    (diagram) =>
+      generatedDesignDiagrams.includes(diagram) ||
+      designSubtaskStatus.has(diagram) ||
+      Boolean(designDiagramErrors[diagram]) ||
+      (diagram === "sequence" &&
+        [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:"))),
+  );
+
+  const requirementStatusFor = (diagram: DiagramType): Node["status"] => {
+    if (diagramErrors[diagram]) return "failed";
+    return requirementSubtaskStatus.get(diagram) ??
+      (generatedDiagrams.includes(diagram) ? "completed" : undefined);
+  };
+  const designStatusFor = (diagram: DesignDiagramType, modelId?: string): Node["status"] => {
+    if (designDiagramErrors[diagram]) return "failed";
+    return (
+      (modelId ? designSubtaskStatus.get(modelId) : undefined) ??
+      designSubtaskStatus.get(diagram) ??
+      (generatedDesignDiagrams.includes(diagram) ? "completed" : undefined)
+    );
+  };
+  const designModelViewable = (modelId: string) =>
+    Boolean(designSvgArtifacts[modelId]);
+  const sequenceGenerationActive =
+    designSubtaskStatus.has("sequence") ||
+    [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:"));
+  const expectedSequenceNodes = sequenceGenerationActive
+    ? sequenceUseCaseNodes(models.usecase)
+    : [];
+  const sequenceNodeIds = Array.from(
+    new Set([
+      ...expectedSequenceNodes.map((node) => node.id),
+      ...designModelsByDiagram.sequence.map((model) => getDesignModelId(model)),
+      ...[...designSubtaskStatus.keys()].filter((id) => id.startsWith("sequence:")),
+    ]),
+  );
+  const sequenceSubtaskNodes: DesignSubtaskNode[] = sequenceNodeIds.map((id) => {
+    const model = designModels[id];
+    const expected = expectedSequenceNodes.find((node) => node.id === id);
+    const rawLabel =
+      model && "sourceUseCaseName" in model
+        ? model.sourceUseCaseName ?? model.title
+        : designSubtaskLabels.get(id) ?? expected?.label ?? id.replace(/^sequence:/, "");
+    return {
+      id,
+      label: rawLabel.replace(/^顺序图[：:]\s*/u, ""),
+      status: designStatusFor("sequence", id),
+    };
+  });
 
   useEffect(() => {
     const handleCompleted = (event: Event) => {
@@ -401,16 +642,23 @@ export function SidebarMenu() {
       icon: <FileText className="size-4 text-muted-foreground" />,
       onSelect: openRequirementsText,
       children: [
-        ...generatedDiagrams.map((diagram) =>
-          buildDiagramNode(
+        ...requirementNodeDiagrams.map((diagram) => {
+          const status = requirementStatusFor(diagram);
+          return buildDiagramNode(
             diagram,
             models[diagram],
             staleDiagrams.includes(diagram),
             Boolean(diagramErrors[diagram]),
+            status,
+            generationStatusTooltip(
+              DIAGRAM_META[diagram].label,
+              status,
+              Boolean(models[diagram]),
+            ),
             openDiagram,
             openDiagramElement,
-          ),
-        ),
+          );
+        }),
       ],
     },
     {
@@ -421,27 +669,78 @@ export function SidebarMenu() {
       children: [
         ...orderedDesignDiagrams.map((diagram) => {
           const diagramModels = designModelsByDiagram[diagram];
-          if (diagram === "sequence" && diagramModels.length > 1) {
+          if (
+            diagram === "sequence" &&
+            (sequenceSubtaskNodes.length > 1 ||
+              (sequenceGenerationActive && sequenceSubtaskNodes.length > 0))
+          ) {
+            const groupStatus = sequenceSubtaskNodes.reduce<Node["status"]>(
+              (current, model) =>
+                mergeSidebarStatus(
+                  current,
+                  model.status ?? null,
+                ),
+              designStatusFor(diagram),
+            );
             return {
               key: "design-diagram-group:sequence",
-              label: `${DESIGN_DIAGRAM_META.sequence.label}（${diagramModels.length}）`,
+              label: `${DESIGN_DIAGRAM_META.sequence.label}（${sequenceSubtaskNodes.length}）`,
               icon: <MessageSquare className="size-4 text-muted-foreground" />,
               selectable: false,
-              children: diagramModels.map((model) =>
-                buildDesignDiagramNode(
-                  diagram,
-                  model,
-                  Boolean(designDiagramErrors[diagram]),
-                  openDesignDiagram,
-                  openDesignDiagramElement,
+              status: groupStatus,
+              statusTooltip:
+                generationStatusTooltip(
+                  "顺序图",
+                  groupStatus,
+                  sequenceSubtaskNodes.some((node) => designModelViewable(node.id)),
                 ),
+              children: sequenceSubtaskNodes.map((node) =>
+                {
+                  const model = designModels[node.id];
+                  const status = node.status;
+                  if (!model) {
+                    return buildPendingDesignDiagramNode(
+                      diagram,
+                      node.id,
+                      node.label,
+                      status,
+                      generationStatusTooltip(node.label, status, false),
+                    );
+                  }
+                  return buildDesignDiagramNode(
+                    diagram,
+                    model,
+                    Boolean(designDiagramErrors[diagram]),
+                    status,
+                    generationStatusTooltip(
+                      model.title,
+                      status,
+                      designModelViewable(node.id),
+                    ),
+                    designModelViewable(node.id),
+                    openDesignDiagram,
+                    openDesignDiagramElement,
+                  );
+                }
               ),
             };
           }
+          const model = diagramModels[0];
+          const status = designStatusFor(
+            diagram,
+            model ? getDesignModelId(model) : undefined,
+          );
           return buildDesignDiagramNode(
             diagram,
-            diagramModels[0],
+            model,
             Boolean(designDiagramErrors[diagram]),
+            status,
+            generationStatusTooltip(
+              DESIGN_DIAGRAM_META[diagram].label,
+              status,
+              model ? designModelViewable(getDesignModelId(model)) : false,
+            ),
+            model ? designModelViewable(getDesignModelId(model)) : false,
             openDesignDiagram,
             openDesignDiagramElement,
           );

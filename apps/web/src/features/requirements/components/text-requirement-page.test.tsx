@@ -345,6 +345,33 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("0/4")).toBeInTheDocument();
   });
 
+  it("labels generated but unselected requirement models as kept", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({ id: "r1", relatedDiagrams: ["usecase"] }),
+            createRule({ id: "r2", relatedDiagrams: ["class"] }),
+            createRule({ id: "r3", relatedDiagrams: ["activity"] }),
+          ],
+          selectedDiagramTypes: ["activity"],
+          generatedDiagramTypes: ["usecase", "class"],
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    expect(
+      await screen.findByRole("button", {
+        name: /应用变更（新增1·保留2）/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /移除/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps AI repair details out of the table row and shows lightweight hints", async () => {
     const user = userEvent.setup();
     const repository = createBaseRepository({

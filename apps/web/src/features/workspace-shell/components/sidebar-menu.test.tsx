@@ -1,16 +1,60 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
   createRule,
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
+import { useWorkspaceSession } from "../../workspace-session/state";
 import { SidebarMenu } from "./sidebar-menu";
 import { WorkspaceTabsBar } from "./workspace-tabs-bar";
 
+const { toastMessage } = vi.hoisted(() => ({
+  toastMessage: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    message: toastMessage,
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+function SidebarDesignGenerationHarness() {
+  const { generateDesignDiagrams } = useWorkspaceSession();
+  return (
+    <>
+      <SidebarMenu />
+      <WorkspaceTabsBar />
+      <button type="button" onClick={() => void generateDesignDiagrams(["class"])}>
+        生成设计类图
+      </button>
+    </>
+  );
+}
+
+function SidebarSequenceGenerationHarness() {
+  const { generateDesignDiagrams } = useWorkspaceSession();
+  return (
+    <>
+      <SidebarMenu />
+      <WorkspaceTabsBar />
+      <button type="button" onClick={() => void generateDesignDiagrams(["sequence"])}>
+        生成顺序图
+      </button>
+    </>
+  );
+}
+
 describe("SidebarMenu", () => {
+  beforeEach(() => {
+    vi.mocked(toast.message).mockClear();
+  });
+
   it("renders the project workspace navigation root", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
@@ -92,8 +136,8 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
-    expect(await screen.findByText("界面关系")).toBeInTheDocument();
-    expect(screen.getByText("失败")).toBeInTheDocument();
+    expect(await screen.findByText("界面关系图")).toBeInTheDocument();
+    expect(screen.getByLabelText("界面关系图生成失败")).toBeInTheDocument();
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
   });
 
@@ -165,6 +209,13 @@ describe("SidebarMenu", () => {
               fragments: [],
             },
           },
+          designSvgArtifacts: {
+            sequence: {
+              diagramKind: "sequence",
+              svg: "<svg><text>顺序图</text></svg>",
+              renderMeta: { engine: "plantuml" },
+            },
+          },
         }),
       ),
       updateRequirementText: vi.fn(async () => {}),
@@ -203,6 +254,13 @@ describe("SidebarMenu", () => {
               participants: [],
               messages: [],
               fragments: [],
+            },
+          },
+          designSvgArtifacts: {
+            sequence: {
+              diagramKind: "sequence",
+              svg: "<svg><text>顺序图</text></svg>",
+              renderMeta: { engine: "plantuml" },
             },
           },
         }),
@@ -278,6 +336,410 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
   });
 
+  it("shows a toast when a generated design model has no SVG yet", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDesignDiagramTypes: ["class"],
+          designModels: {
+            class: {
+              diagramKind: "class",
+              title: "设计类图",
+              summary: "静态结构",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <div>
+          <SidebarMenu />
+          <WorkspaceTabsBar />
+        </div>,
+        repository,
+      ),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    expect(screen.getByLabelText("设计类图已生成")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "设计类图" }));
+
+    expect(toast.message).toHaveBeenCalledWith("当前只有结构化模型，SVG 尚未生成");
+    expect(screen.queryByRole("button", { name: "关闭 设计类图" })).not.toBeInTheDocument();
+  });
+
+  it("uses the SVG-missing toast for historical completed design nodes without artifacts", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDesignDiagramTypes: ["class"],
+          designModels: {},
+          designSvgArtifacts: {},
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(screen.getByRole("button", { name: "设计类图" }));
+
+    expect(toast.message).toHaveBeenCalledWith("当前只有结构化模型，SVG 尚未生成");
+  });
+
+  it("shows a failure toast for failed design nodes without opening a tab", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDesignDiagramTypes: ["class"],
+          designModels: {
+            class: {
+              diagramKind: "class",
+              title: "设计类图",
+              summary: "静态结构",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+          designDiagramErrors: {
+            class: {
+              stage: "render_svg",
+              message: "PlantUML 渲染失败",
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <div>
+          <SidebarMenu />
+          <WorkspaceTabsBar />
+        </div>,
+        repository,
+      ),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    expect(screen.getByLabelText("设计类图生成失败")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "设计类图" }));
+
+    expect(toast.message).toHaveBeenCalledWith("生成失败，请查看生成任务详情");
+    expect(screen.queryByRole("button", { name: "关闭 设计类图" })).not.toBeInTheDocument();
+  });
+
+  it("keeps queued design subtasks aligned with the sidebar while existing diagrams stay openable", async () => {
+    let releaseRun!: () => void;
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          rules: [createRule({ id: "r1", relatedDiagrams: ["class"] })],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例模型",
+              summary: "系统边界",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+            class: {
+              diagramKind: "class",
+              title: "领域概念模型",
+              summary: "核心实体",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+          generatedDesignDiagramTypes: ["class"],
+          designModels: {
+            class: {
+              diagramKind: "class",
+              title: "设计类图",
+              summary: "已有静态结构",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+          designSvgArtifacts: {
+            class: {
+              diagramKind: "class",
+              svg: "<svg><text>设计类图</text></svg>",
+              renderMeta: { engine: "plantuml" },
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(async () => ({ runId: "design-run-queued" })),
+      subscribeToDesignRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({
+          type: "stage_progress",
+          stage: "generate_design_models",
+          progress: 25,
+          subtaskId: "class",
+          subtaskLabel: "设计类图",
+          subtaskStatus: "queued",
+          queueReason: "project",
+          queueAhead: 1,
+          waitMs: 4_000,
+          estimatedWaitMs: 20_000,
+          message: "正在排队：设计类图",
+        });
+        await new Promise<void>((resolve) => {
+          releaseRun = resolve;
+        });
+      }),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarDesignGenerationHarness />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "生成设计类图" }));
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+
+    expect(await screen.findByRole("button", { name: "设计类图" })).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("设计类图重新生成排队中，当前图仍可查看"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("设计类图生成中")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "设计类图" }));
+    expect(await screen.findByRole("button", { name: "关闭 设计类图" })).toBeInTheDocument();
+    expect(toast.message).not.toHaveBeenCalled();
+
+    releaseRun();
+  });
+
+  it("lists all use-case sequence subtasks before they finish and only opens rendered ones", async () => {
+    let releaseRun!: () => void;
+    let emitDesignEvent!: Parameters<NonNullable<WorkspaceRepository["subscribeToDesignRun"]>>[1];
+    let currentSnapshot: Awaited<ReturnType<NonNullable<WorkspaceRepository["getDesignRunSnapshot"]>>> =
+      null;
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例模型",
+              summary: "系统边界",
+              notes: [],
+              actors: [],
+              useCases: [
+                {
+                  id: "uc_view",
+                  name: "查看活动",
+                  goal: "查看活动列表",
+                  preconditions: [],
+                  postconditions: [],
+                  supportingActorIds: [],
+                },
+                {
+                  id: "uc_create",
+                  name: "创建活动",
+                  goal: "创建活动",
+                  preconditions: [],
+                  postconditions: [],
+                  supportingActorIds: [],
+                },
+              ],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(async () => ({ runId: "design-run-sequence" })),
+      subscribeToDesignRun: vi.fn(async (_runId, onEvent) => {
+        emitDesignEvent = onEvent;
+        onEvent({ type: "queued" });
+        await new Promise<void>((resolve) => {
+          releaseRun = resolve;
+        });
+      }),
+      getDesignRunSnapshot: vi.fn(async () => currentSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarSequenceGenerationHarness />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "生成顺序图" }));
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 顺序图（2）" }));
+
+    expect(screen.getByRole("button", { name: "查看活动" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建活动" })).toBeInTheDocument();
+    expect(screen.getByLabelText("查看活动生成排队中")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "查看活动" }));
+    expect(toast.message).toHaveBeenCalledWith("生成排队中，完成后可查看");
+    expect(screen.queryByRole("button", { name: "关闭 查看活动" })).not.toBeInTheDocument();
+
+    emitDesignEvent({
+      type: "stage_progress",
+      stage: "generate_design_models",
+      progress: 45,
+      diagramKind: "sequence",
+      modelId: "sequence:uc_view",
+      subtaskId: "sequence:uc_view",
+      subtaskLabel: "顺序图：查看活动",
+      subtaskStatus: "running",
+      message: "正在生成顺序图：查看活动",
+    });
+    expect(await screen.findByLabelText("查看活动生成中")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "查看活动" }));
+    expect(toast.message).toHaveBeenLastCalledWith("正在生成图像，渲染完成后可查看");
+    expect(screen.queryByRole("button", { name: "关闭 查看活动" })).not.toBeInTheDocument();
+
+    currentSnapshot = {
+      runId: "design-run-sequence",
+      requirementText: "生成 UML",
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      rules: [],
+      requirementModels: [],
+      requirementModelTraceability: [],
+      models: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc_view",
+          sourceUseCaseId: "uc_view",
+          sourceUseCaseName: "查看活动",
+          title: "查看活动顺序图",
+          summary: "查看活动流程",
+          notes: [],
+          participants: [],
+          messages: [],
+          fragments: [],
+        },
+      ],
+      designModelTraceability: [],
+      plantUml: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc_view",
+          source: "@startuml\n@enduml",
+        },
+      ],
+      svgArtifacts: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc_view",
+          svg: "<svg><text>查看活动</text></svg>",
+          renderMeta: { engine: "plantuml" },
+        },
+      ],
+      diagramErrors: {},
+      coverageMatrix: null,
+      traceabilityMatrix: null,
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "running",
+      errorMessage: null,
+    };
+    emitDesignEvent({
+      type: "artifact_ready",
+      stage: "render_svg",
+      artifactKind: "svg",
+      diagramKind: "sequence",
+      modelId: "sequence:uc_view",
+      subtaskId: "sequence:uc_view",
+      subtaskStatus: "completed",
+    });
+
+    expect(await screen.findByLabelText("查看活动顺序图已生成")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看活动" }));
+    expect(await screen.findByRole("button", { name: "关闭 查看活动" })).toBeInTheDocument();
+
+    releaseRun();
+  });
+
   it("does not show element count badges in the design navigation", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
@@ -294,6 +756,13 @@ describe("SidebarMenu", () => {
               ],
               messages: [],
               fragments: [],
+            },
+          },
+          designSvgArtifacts: {
+            sequence: {
+              diagramKind: "sequence",
+              svg: "<svg><text>顺序图</text></svg>",
+              renderMeta: { engine: "plantuml" },
             },
           },
         }),
@@ -345,7 +814,7 @@ describe("SidebarMenu", () => {
             },
             activity: {
               diagramKind: "activity",
-              title: "界面关系",
+              title: "业务流程图",
               summary: "业务逻辑流转",
               notes: [],
               swimlanes: [],
@@ -435,10 +904,10 @@ describe("SidebarMenu", () => {
       .getAllByRole("button")
       .map((button) => button.textContent?.trim())
       .filter(Boolean);
-    expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("界面关系"));
+    expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("业务流程图"));
     expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("设计类图"));
-    expect(nodeLabels.indexOf("设计类图")).toBeLessThan(nodeLabels.indexOf("界面关系"));
-    expect(nodeLabels.indexOf("界面关系")).toBeLessThan(nodeLabels.indexOf("部署模型"));
+    expect(nodeLabels.indexOf("设计类图")).toBeLessThan(nodeLabels.indexOf("业务流程图"));
+    expect(nodeLabels.indexOf("业务流程图")).toBeLessThan(nodeLabels.indexOf("部署模型"));
     expect(nodeLabels.indexOf("部署模型")).toBeLessThan(nodeLabels.indexOf("表关系图"));
   });
 
@@ -458,6 +927,13 @@ describe("SidebarMenu", () => {
               ],
               messages: [],
               fragments: [],
+            },
+          },
+          designSvgArtifacts: {
+            sequence: {
+              diagramKind: "sequence",
+              svg: "<svg><text>顺序图</text></svg>",
+              renderMeta: { engine: "plantuml" },
             },
           },
         }),
@@ -574,6 +1050,13 @@ describe("SidebarMenu", () => {
               participants: [],
               messages: [],
               fragments: [],
+            },
+          },
+          designSvgArtifacts: {
+            sequence: {
+              diagramKind: "sequence",
+              svg: "<svg><text>顺序图</text></svg>",
+              renderMeta: { engine: "plantuml" },
             },
           },
         }),

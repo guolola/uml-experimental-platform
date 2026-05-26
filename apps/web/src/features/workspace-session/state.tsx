@@ -24,6 +24,7 @@ import type {
   AtomicRequirementField,
   RequirementQualityReport,
   RequirementQualityIssue,
+  RunEvent,
 } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_ORDER,
@@ -146,8 +147,66 @@ function requirementLabels(diagrams: DiagramType[]) {
   return orderedRequirementDiagrams(diagrams).map((diagram) => DIAGRAM_META[diagram].label);
 }
 
+function formatRequirementDiagramList(diagrams: DiagramType[]) {
+  return requirementLabels(diagrams).join("、");
+}
+
+function shouldRefreshRunSnapshotFromEvent(event: RunEvent) {
+  if (
+    event.type === "artifact_ready" &&
+    (event.artifactKind === "model" ||
+      event.artifactKind === "plantuml" ||
+      event.artifactKind === "svg")
+  ) {
+    return Boolean(event.diagramKind || event.modelId);
+  }
+  return (
+    event.type === "stage_progress" &&
+    event.subtaskStatus === "failed" &&
+    Boolean(event.diagramKind || event.modelId)
+  );
+}
+
 function designLabels(diagrams: DesignDiagramType[]) {
   return orderedDesignDiagrams(diagrams).map((diagram) => DESIGN_DIAGRAM_META[diagram].label);
+}
+
+function designGenerationSubtasks(
+  diagrams: DesignDiagramType[],
+  requirementModels: WorkspaceRecord["models"],
+): GenerationTask["subtasks"] {
+  return diagrams.flatMap((diagram) => {
+    if (diagram !== "sequence") {
+      return [
+        {
+          id: diagram,
+          label: DESIGN_DIAGRAM_META[diagram].label,
+          status: "queued" as const,
+          message: null,
+          errorMessage: null,
+        },
+      ];
+    }
+    const useCaseModel = requirementModels.usecase;
+    if (!useCaseModel || !("useCases" in useCaseModel)) {
+      return [
+        {
+          id: "sequence",
+          label: DESIGN_DIAGRAM_META.sequence.label,
+          status: "queued" as const,
+          message: null,
+          errorMessage: null,
+        },
+      ];
+    }
+    return useCaseModel.useCases.map((useCase) => ({
+      id: `sequence:${useCase.id}`,
+      label: `顺序图：${useCase.name}`,
+      status: "queued" as const,
+      message: null,
+      errorMessage: null,
+    }));
+  });
 }
 
 function analyzeRequirementGeneration(
@@ -1439,6 +1498,7 @@ export function WorkspaceSessionProvider({
     (
       snapshot: WorkspaceDesignRunSnapshot,
       requestedDiagrams: DesignDiagramType[],
+      generatedOverride?: DesignDiagramType[],
     ) => {
       const mapped = designSnapshotToMaps(snapshot);
       setSelectedDesignDiagrams((current) =>
@@ -1474,8 +1534,10 @@ export function WorkspaceSessionProvider({
           ...snapshot.diagramErrors,
         };
       });
+      const generatedDiagramsForSnapshot =
+        generatedOverride ?? requestedDiagrams;
       setGeneratedDesignDiagrams((current) =>
-        Array.from(new Set([...current, ...snapshot.selectedDiagrams])),
+        Array.from(new Set([...current, ...generatedDiagramsForSnapshot])),
       );
     },
     [],
@@ -1807,6 +1869,24 @@ export function WorkspaceSessionProvider({
           if (event.type === "completed") {
             lastCompletedSnapshot = event.snapshot as WorkspaceRunSnapshot;
           }
+          if (runId && shouldRefreshRunSnapshotFromEvent(event)) {
+            const eventDiagramKind =
+              "diagramKind" in event ? event.diagramKind : undefined;
+            const refreshMode: RunMode =
+              eventDiagramKind && eventDiagramKind !== "sequence" && eventDiagramKind !== "table"
+                ? { kind: "partial-diagrams", diagrams: [eventDiagramKind as DiagramType] }
+                : mode;
+            void repository.getRunSnapshot(runId).then((partialSnapshot) => {
+              if (
+                partialSnapshot &&
+                runController.isCurrentRun(runRequestId, "requirements")
+              ) {
+                applyRunSnapshot(partialSnapshot, baseTextVersion, refreshMode);
+              }
+            }).catch(() => {
+              // Incremental refresh is best-effort; terminal snapshot still reconciles state.
+            });
+          }
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) => ({
             ...current,
@@ -2056,13 +2136,7 @@ export function WorkspaceSessionProvider({
           providerModel,
           message: "设计生成任务已进入队列",
           startedAtMs,
-          subtasks: diagrams.map((diagram) => ({
-            id: diagram,
-            label: DESIGN_DIAGRAM_META[diagram].label,
-            status: "queued",
-            message: null,
-            errorMessage: null,
-          })),
+          subtasks: designGenerationSubtasks(diagrams, models),
         });
         setRunUiState({
           runStatus: "queued",
@@ -2105,6 +2179,27 @@ export function WorkspaceSessionProvider({
           const progress = getProgressFromEvent(event);
           if (event.type === "completed") {
             lastCompletedSnapshot = event.snapshot as WorkspaceDesignRunSnapshot;
+          }
+          if (runId && shouldRefreshRunSnapshotFromEvent(event)) {
+            void repository.getDesignRunSnapshot(runId).then((partialSnapshot) => {
+              if (
+                partialSnapshot &&
+                runController.isCurrentRun(runRequestId, "design")
+              ) {
+                const generatedKinds = Array.from(
+                  new Set(
+                    partialSnapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+                  ),
+                );
+                applyDesignRunSnapshot(
+                  partialSnapshot,
+                  requestedDiagrams,
+                  generatedKinds,
+                );
+              }
+            }).catch(() => {
+              // Incremental refresh is best-effort; terminal snapshot still reconciles state.
+            });
           }
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) => ({
@@ -3244,9 +3339,10 @@ export function WorkspaceSessionProvider({
   const designTraceabilityStale =
     generatedDesignDiagrams.length > 0 &&
     (requirementTraceabilityStale || !designTraceabilityComplete);
-  const designGenerationBlockedReason =
-    isRulesStale || staleDiagrams.length > 0
-      ? "需求模型基于旧需求规则，请先重新生成需求模型"
+  const designGenerationBlockedReason = isRulesStale
+    ? "需求规则已更新，请先重新生成需求模型"
+    : staleDiagrams.length > 0
+      ? `需求模型（${formatRequirementDiagramList(staleDiagrams)}）基于旧需求规则，请先重新生成需求模型`
       : generatedDiagrams.length > 0 && !requirementTraceabilityComplete
         ? "需求模型缺少完整元素级映射，请先重新生成需求模型"
         : null;

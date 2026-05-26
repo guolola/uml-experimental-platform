@@ -318,8 +318,8 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 3, title: "3.2.2 类与类的关系", body: ["类与类之间的继承、关联、聚合、组合或依赖关系见设计类图。"] },
       { level: 3, title: "3.2.3 设计对象", body: ["设计对象来自顺序图参与者和设计类模型。"] },
       { level: 3, title: "3.2.4 设计类", body: ["设计类包含属性、操作、职责和依赖关系。"] },
-      { level: 2, title: "3.3 界面设计", body: ["界面设计描述页面状态、跳转关系和界面职责。"], diagramKind: "activity" },
-      { level: 3, title: "3.3.1 界面关系", body: ["界面关系图描述主要界面之间的跳转。"], diagramKind: "activity" },
+      { level: 2, title: "3.3 业务流程设计", body: ["业务流程设计描述主要业务步骤、分支和协作流转。"], diagramKind: "activity" },
+      { level: 3, title: "3.3.1 业务流程", body: ["业务流程图描述设计阶段的全局业务逻辑流转。"], diagramKind: "activity" },
       { level: 3, title: "3.3.2 界面详细设计", body: ["界面详细设计将在原型实现阶段补充。"] },
       { level: 2, title: "3.4 可追踪性设计", body: [] },
       ...(pendingDesignTraceabilityRows(input).length > 0
@@ -339,8 +339,8 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         : []),
       {
         level: 3,
-        title: "3.4.1 用例与界面的关系",
-        body: ["用例与界面的关系依据需求界面关系模型和设计界面关系模型追踪。"],
+        title: "3.4.1 用例与业务流程的关系",
+        body: ["用例与业务流程的关系依据需求阶段界面关系图和设计阶段业务流程图追踪。"],
         table: {
           headers: ["编号", "用例名称", "界面名称", "备注"],
           rows: designUseCaseInterfaceRows(input),

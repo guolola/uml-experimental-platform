@@ -426,8 +426,8 @@ export const classEntitySchema = z.object({
   classKind: classKindSchema.optional(),
   stereotype: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
-  attributes: z.array(classAttributeSchema),
-  operations: z.array(classOperationSchema),
+  attributes: z.array(classAttributeSchema).default([]),
+  operations: z.array(classOperationSchema).default([]),
 });
 export type ClassEntity = z.infer<typeof classEntitySchema>;
 
@@ -435,7 +435,7 @@ export const interfaceEntitySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().min(1).optional(),
-  operations: z.array(classOperationSchema),
+  operations: z.array(classOperationSchema).default([]),
 });
 export type InterfaceEntity = z.infer<typeof interfaceEntitySchema>;
 
@@ -725,6 +725,13 @@ export const sequenceFragmentTypeSchema = z.enum([
 ]);
 export type SequenceFragmentType = z.infer<typeof sequenceFragmentTypeSchema>;
 
+export const sequenceFragmentBranchSchema = z.object({
+  label: z.string().min(1),
+  condition: z.string().min(1).optional(),
+  messageIds: z.array(z.string().min(1)),
+});
+export type SequenceFragmentBranch = z.infer<typeof sequenceFragmentBranchSchema>;
+
 export const sequenceFragmentSchema = z.object({
   id: z.string().min(1),
   type: sequenceFragmentTypeSchema,
@@ -732,6 +739,7 @@ export const sequenceFragmentSchema = z.object({
   messageIds: z.array(z.string().min(1)),
   condition: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
+  branches: z.array(sequenceFragmentBranchSchema).optional(),
 });
 export type SequenceFragment = z.infer<typeof sequenceFragmentSchema>;
 

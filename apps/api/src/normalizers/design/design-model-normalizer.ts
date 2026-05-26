@@ -18,6 +18,7 @@ import {
   normalizeDesignTraceabilityForSources,
   normalizeDesignTraceabilityWithCoverage,
 } from "../traceability/traceability-normalizer.js";
+import { dedupeActivityModel } from "../diagrams/activity-dedupe.js";
 
 function normalizeSequenceMessageType(value: unknown) {
   if (value === "async" || value === "return" || value === "create" || value === "destroy") {
@@ -52,6 +53,30 @@ function normalizeClassKind(value: unknown) {
     if (lower.includes("enum")) return "enum";
   }
   return "class";
+}
+
+function normalizeSequenceFragment(fragment: Record<string, unknown>) {
+  const branches: Array<Record<string, unknown> & { messageIds: string[] }> = ensureArray(fragment.branches)
+    .map((branch) => {
+      if (!isPlainRecord(branch)) return null;
+      return {
+        ...branch,
+        messageIds: normalizeStringArray(branch.messageIds),
+      };
+    })
+    .filter((branch): branch is Record<string, unknown> & { messageIds: string[] } => Boolean(branch));
+  const branchMessageIds = branches.flatMap((branch) => branch.messageIds);
+  const messageIds = normalizeStringArray(fragment.messageIds);
+  const next: Record<string, unknown> = {
+    ...fragment,
+    messageIds: messageIds.length > 0 ? messageIds : branchMessageIds,
+  };
+  if (branches.length > 0) {
+    next.branches = branches;
+  } else {
+    delete next.branches;
+  }
+  return next;
 }
 
 function omitNullValues(value: unknown): unknown {
@@ -114,10 +139,7 @@ function normalizeDesignDiagramModel(model: unknown) {
     });
     normalized.fragments = ensureArray(normalized.fragments).map((fragment) => {
       if (!isPlainRecord(fragment)) return fragment;
-      return {
-        ...fragment,
-        messageIds: normalizeStringArray(fragment.messageIds),
-      };
+      return normalizeSequenceFragment(fragment);
     });
   } else if (diagramKind === "class") {
     normalized.classes = ensureArray(normalized.classes).map((classItem) => {
@@ -125,9 +147,10 @@ function normalizeDesignDiagramModel(model: unknown) {
       const nextClass: Record<string, unknown> = {
         ...classItem,
         attributes: ensureArray(classItem.attributes),
-        methods: ensureArray(classItem.methods),
+        operations: ensureArray(classItem.operations ?? classItem.methods),
         stereotypes: normalizeStringArray(classItem.stereotypes),
       };
+      delete nextClass.methods;
       const classKind = normalizeClassKind(nextClass.classKind);
       if (classKind !== "class") {
         nextClass.classKind = classKind;
@@ -140,7 +163,7 @@ function normalizeDesignDiagramModel(model: unknown) {
       if (!isPlainRecord(item)) return item;
       return {
         ...item,
-        methods: ensureArray(item.methods),
+        operations: ensureArray(item.operations ?? item.methods),
       };
     });
     normalized.enums = ensureArray(normalized.enums).map((item) => {
@@ -181,7 +204,7 @@ function normalizeDesignDiagramModel(model: unknown) {
     normalized.relationships = ensureArray(normalized.relationships);
   }
 
-  return normalized;
+  return diagramKind === "activity" ? dedupeActivityModel(normalized) : normalized;
 }
 
 export function parseDesignDiagramModelsResult(
