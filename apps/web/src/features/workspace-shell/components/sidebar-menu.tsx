@@ -51,11 +51,6 @@ import {
   getSelectionKey,
   useWorkspaceShell,
 } from "../state";
-import {
-  buildDesignDiagramTraceBadge,
-  buildRequirementDiagramTraceBadge,
-  type RequirementTraceBadge,
-} from "../lib/sidebar-trace-badges";
 
 type Node = {
   key: string;
@@ -357,7 +352,6 @@ function buildDiagramNode(
   failed: boolean,
   status: Node["status"],
   statusTooltip: string | undefined,
-  traceBadge: RequirementTraceBadge | undefined,
   openDiagram: (diagram: DiagramType) => void,
   openDiagramElement: (
     diagram: DiagramType,
@@ -381,8 +375,6 @@ function buildDiagramNode(
     })),
   }));
 
-  const badge = traceBadge?.label || detail.items.length || undefined;
-
   return {
     key: `diagram:${diagram}`,
     label: DIAGRAM_META[diagram].label,
@@ -404,8 +396,7 @@ function buildDiagramNode(
       </span>
     ),
     children,
-    badge,
-    badgeTooltip: traceBadge?.fullLabel,
+    badge: detail.items.length || undefined,
     status,
     statusTooltip,
     onSelect: () => openDiagram(diagram),
@@ -418,7 +409,6 @@ function buildDesignDiagramNode(
   failed: boolean,
   status: Node["status"],
   statusTooltip: string | undefined,
-  traceBadges: string[],
   viewable: boolean,
   openDesignDiagram: (
     diagram: DesignDiagramType,
@@ -475,7 +465,6 @@ function buildDesignDiagramNode(
     ),
     children,
     selectable: canOpen,
-    badges: failed ? undefined : traceBadges,
     status,
     statusTooltip,
     unavailableReason: canOpen
@@ -491,14 +480,12 @@ function buildPendingDesignDiagramNode(
   label: string,
   status: Node["status"],
   statusTooltip: string | undefined,
-  traceBadges: string[],
 ): Node {
   return {
     key: `design-diagram:${modelId}`,
     label,
     icon: <Network className="size-4 text-muted-foreground" />,
     selectable: false,
-    badges: traceBadges,
     status,
     statusTooltip,
     unavailableReason: designUnavailableReason(status, false),
@@ -527,7 +514,6 @@ export function SidebarMenu() {
     designSvgArtifacts,
     designDiagramErrors,
     generationTasks,
-    rulesForDiagram,
   } =
     useWorkspaceSession();
   const {
@@ -679,7 +665,6 @@ export function SidebarMenu() {
               status,
               Boolean(models[diagram]),
             ),
-            buildRequirementDiagramTraceBadge(rulesForDiagram(diagram)),
             openDiagram,
             openDiagramElement,
           );
@@ -736,7 +721,6 @@ export function SidebarMenu() {
                       node.label,
                       status,
                       generationStatusTooltip(node.label, status, false),
-                      buildDesignDiagramTraceBadge(diagram),
                     );
                   }
                   return buildDesignDiagramNode(
@@ -749,7 +733,6 @@ export function SidebarMenu() {
                       status,
                       designModelViewable(node.id),
                     ),
-                    buildDesignDiagramTraceBadge(diagram),
                     designModelViewable(node.id),
                     openDesignDiagram,
                     openDesignDiagramElement,
@@ -773,7 +756,6 @@ export function SidebarMenu() {
               status,
               model ? designModelViewable(getDesignModelId(model)) : false,
             ),
-            buildDesignDiagramTraceBadge(diagram),
             model ? designModelViewable(getDesignModelId(model)) : false,
             openDesignDiagram,
             openDesignDiagramElement,
