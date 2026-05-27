@@ -533,8 +533,10 @@ export function SidebarMenu() {
   const {
     selection,
     openRequirementsText,
+    openRequirementTraceMatrix,
     openDiagram,
     openDesignHome,
+    openDesignTraceMatrix,
     openDesignDiagram,
     openDesignDiagramElement,
     openDiagramElement,
@@ -658,6 +660,12 @@ export function SidebarMenu() {
       icon: <FileText className="size-4 text-muted-foreground" />,
       onSelect: openRequirementsText,
       children: [
+        {
+          key: "requirements:trace-matrix",
+          label: "需求跟踪矩阵",
+          icon: <Network className="size-4 text-muted-foreground" />,
+          onSelect: openRequirementTraceMatrix,
+        },
         ...requirementNodeDiagrams.map((diagram) => {
           const status = requirementStatusFor(diagram);
           return buildDiagramNode(
@@ -684,6 +692,12 @@ export function SidebarMenu() {
       icon: <Palette className="size-4 text-muted-foreground" />,
       onSelect: openDesignHome,
       children: [
+        {
+          key: "design:trace-matrix",
+          label: "设计跟踪矩阵",
+          icon: <Network className="size-4 text-muted-foreground" />,
+          onSelect: openDesignTraceMatrix,
+        },
         ...orderedDesignDiagrams.map((diagram) => {
           const diagramModels = designModelsByDiagram[diagram];
           if (

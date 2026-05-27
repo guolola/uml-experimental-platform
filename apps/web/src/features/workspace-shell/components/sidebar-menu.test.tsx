@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -88,12 +88,12 @@ describe("SidebarMenu", () => {
       "text-[15px]",
       "font-semibold",
     );
-    expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "需求",
-      "设计",
-      "代码",
-      "说明书",
-    ]);
+    expect(
+      screen
+        .getAllByRole("button")
+        .map((button) => button.textContent)
+        .filter(Boolean),
+    ).toEqual(["需求", "设计", "代码", "说明书"]);
   });
 
   it("marks failed diagrams in the navigation tree", async () => {
@@ -240,7 +240,7 @@ describe("SidebarMenu", () => {
     expect(screen.getByText("用例模型")).toBeInTheDocument();
   });
 
-  it("hides traceability matrix entries from requirement and design navigation", async () => {
+  it("shows traceability matrix entries in requirement and design navigation", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -289,11 +289,15 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
-    expect(screen.queryByRole("button", { name: "需求跟踪矩阵" })).not.toBeInTheDocument();
+    const nav = await screen.findByRole("navigation", { name: "项目导航" });
 
-    await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
-    expect(screen.queryByRole("button", { name: "设计跟踪矩阵" })).not.toBeInTheDocument();
+    await userEvent.click(await within(nav).findByRole("button", { name: "展开 需求" }));
+    await userEvent.click(within(nav).getByRole("button", { name: "需求跟踪矩阵" }));
+    expect(screen.getAllByRole("button", { name: "需求跟踪矩阵" })).toHaveLength(2);
+
+    await userEvent.click(within(nav).getByRole("button", { name: "展开 设计" }));
+    await userEvent.click(within(nav).getByRole("button", { name: "设计跟踪矩阵" }));
+    expect(screen.getAllByRole("button", { name: "设计跟踪矩阵" })).toHaveLength(2);
   });
 
   it("shows upstream badges for downstream design diagrams", async () => {
