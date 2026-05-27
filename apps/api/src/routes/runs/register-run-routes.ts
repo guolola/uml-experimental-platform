@@ -9,8 +9,11 @@ import {
   artifactReadyRunEventSchema,
   queuedRunEventSchema,
   runSnapshotSchema,
+  repairRequirementRulesRequestSchema,
+  repairRequirementRulesResponseSchema,
   repairRequirementRuleRequestSchema,
   repairRequirementRuleResponseSchema,
+  requirementRuleBatchRepairSuggestionSchema,
   requirementRuleRepairSuggestionSchema,
   startCodeRunRequestSchema,
   startCodeRunResponseSchema,
@@ -28,6 +31,9 @@ import {
   type ProviderSettings,
   type ProviderSettingsInput,
   type RepairRequirementRuleRequest,
+  type RepairRequirementRuleResponse,
+  type RepairRequirementRulesRequest,
+  type RequirementRuleRepairSuggestion,
   type RequirementFieldProvenance,
   type RequirementQualityIssue,
   type RunAction,
@@ -713,33 +719,54 @@ function readableFieldText(value: unknown): string | null | undefined {
   return null;
 }
 
-function normalizeRequirementRepairSuggestionOutput(raw: unknown) {
-  if (!isPlainRecord(raw) || !isPlainRecord(raw.fields)) {
-    return raw;
+function readableConfidence(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value >= 0 && value <= 1 ? value : undefined;
   }
-  const fields = { ...raw.fields };
-  for (const field of REPAIRABLE_REQUIREMENT_FIELDS) {
-    const entry = fields[field];
-    if (!isPlainRecord(entry)) continue;
-    fields[field] = {
-      ...entry,
-      value: readableFieldText(entry.value),
-      originalValue: readableFieldText(entry.originalValue),
-    };
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const percentMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*%$/u);
+  const parsed = percentMatch
+    ? Number(percentMatch[1]) / 100
+    : Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    return undefined;
   }
-  return {
-    ...raw,
-    fields,
-  };
+  return parsed;
 }
 
-function applyRequirementRepairSuggestion(
+function normalizeRequirementRepairSuggestionOutput(raw: unknown) {
+  if (!isPlainRecord(raw)) {
+    return raw;
+  }
+  const normalized: Record<string, unknown> = { ...raw };
+  const confidence = readableConfidence(raw.confidence);
+  if (confidence === undefined) {
+    delete normalized.confidence;
+  } else {
+    normalized.confidence = confidence;
+  }
+  if (isPlainRecord(raw.fields)) {
+    const fields = { ...raw.fields };
+    for (const field of REPAIRABLE_REQUIREMENT_FIELDS) {
+      const entry = fields[field];
+      if (!isPlainRecord(entry)) continue;
+      fields[field] = {
+        ...entry,
+        value: readableFieldText(entry.value),
+        originalValue: readableFieldText(entry.originalValue),
+      };
+    }
+    normalized.fields = fields;
+  }
+  return normalized;
+}
+
+function applyParsedRequirementRepairSuggestion(
   input: RepairRequirementRuleRequest,
-  rawOutput: string,
+  suggestion: RequirementRuleRepairSuggestion,
 ) {
-  const suggestion = requirementRuleRepairSuggestionSchema.parse(
-    normalizeRequirementRepairSuggestionOutput(parseJson(rawOutput)),
-  );
   const baseline = structuredClone(input.baseline) as RepairRequirementRuleRequest["baseline"];
   const requirement = baseline.requirements.find(
     (item) => item.sourceRuleId === input.rule.id,
@@ -808,6 +835,16 @@ function applyRequirementRepairSuggestion(
   });
 }
 
+function applyRequirementRepairSuggestion(
+  input: RepairRequirementRuleRequest,
+  rawOutput: string,
+) {
+  const suggestion = requirementRuleRepairSuggestionSchema.parse(
+    normalizeRequirementRepairSuggestionOutput(parseJson(rawOutput)),
+  );
+  return applyParsedRequirementRepairSuggestion(input, suggestion);
+}
+
 function buildRequirementRuleRepairMessages(
   input: RepairRequirementRuleRequest,
 ): ChatMessage[] {
@@ -861,6 +898,145 @@ function buildRequirementRuleRepairMessages(
       ),
     },
   ];
+}
+
+function buildRequirementRulesRepairMessages(
+  input: RepairRequirementRulesRequest,
+): ChatMessage[] {
+  const targetRuleIds = new Set(input.targetRuleIds);
+  const targetRules = input.rules.filter((rule) => targetRuleIds.has(rule.id));
+  const targetRequirements = input.baseline.requirements.filter(
+    (requirement) =>
+      requirement.sourceRuleId && targetRuleIds.has(requirement.sourceRuleId),
+  );
+  const targetRequirementIds = new Set(targetRequirements.map((item) => item.id));
+  const issues = input.baseline.qualityReport.issues.filter(
+    (issue) => !issue.requirementId || targetRequirementIds.has(issue.requirementId),
+  );
+  return [
+    {
+      role: "system",
+      content:
+        "你是需求规则批量字段级修复助手。一次性为多条需求规则生成结构化字段修复候选，不改写原始需求文本，不重新生成全部规则。输出必须是 JSON。",
+    },
+    {
+      role: "user",
+      content: JSON.stringify(
+        {
+          task:
+            "根据原始需求文本、当前规则、当前 AtomicRequirement 和质量问题，为所有 targetRuleIds 生成字段级补齐建议。每条 repairs 必须带 ruleId。能从原文明确推出的字段可以 accepted；原文没有给出关键业务事实只能 pending-review，不能伪装为已确认。",
+          outputRules: [
+            "只返回 targetRuleIds 中的规则，不要返回未知 ruleId。",
+            "所有字段值必须是中文字符串或 null，不能返回数组或对象。",
+            "originalValue 必须是字符串或 null；验收标准有多条时合并为一段中文文本。",
+            "acceptanceCriteria.value 如需表达多条验收标准，请用中文分号分隔成一个字符串。",
+            "confidence 必须是 0 到 1 的数字。",
+          ],
+          outputShape: {
+            repairs: [
+              {
+                ruleId: "规则 id",
+                fields: Object.fromEntries(
+                  REPAIRABLE_REQUIREMENT_FIELDS.map((field) => [
+                    field,
+                    {
+                      source: "ai-suggested",
+                      status: "accepted 或 pending-review",
+                      value: `${REQUIREMENT_FIELD_LABELS[field]}的中文建议值`,
+                      originalValue: "原始值；没有提取到则为 null",
+                      rationale: "中文修复原因",
+                    },
+                  ]),
+                ),
+                confidence: "0 到 1 的数字",
+                status: "accepted 或 pending-review 或 conflict",
+                rationale: "中文总体修复原因",
+              },
+            ],
+          },
+          originalRequirementText: input.requirementText,
+          targetRuleIds: input.targetRuleIds,
+          currentRules: targetRules,
+          currentRequirements: targetRequirements,
+          qualityIssues: issues,
+        },
+        null,
+        2,
+      ),
+    },
+  ];
+}
+
+function applyBatchRequirementRepairSuggestions(
+  input: RepairRequirementRulesRequest,
+  rawOutput: string,
+) {
+  const rawParsed = requirementRuleBatchRepairSuggestionSchema.parse(
+    parseJson(rawOutput),
+  );
+  const repairsByRuleId = new Map<string, unknown>();
+  for (const repair of rawParsed.repairs) {
+    if (!repairsByRuleId.has(repair.ruleId)) {
+      repairsByRuleId.set(repair.ruleId, repair);
+    }
+  }
+  const candidates: Array<{
+    ruleId: string;
+    requirement: AtomicRequirement;
+    qualityReport: RepairRequirementRuleResponse["qualityReport"];
+    repairRationale: string;
+    blockingReasons: string[];
+  }> = [];
+  const failures: Array<{ ruleId: string; errorMessage: string }> = [];
+
+  for (const ruleId of input.targetRuleIds) {
+    const rule = input.rules.find((item) => item.id === ruleId);
+    const requirement = input.baseline.requirements.find(
+      (item) => item.sourceRuleId === ruleId,
+    );
+    if (!rule || !requirement) {
+      failures.push({
+        ruleId,
+        errorMessage: "当前规则没有对应的需求基线，无法批量修复",
+      });
+      continue;
+    }
+    const rawRepair = repairsByRuleId.get(ruleId);
+    if (!rawRepair) {
+      failures.push({
+        ruleId,
+        errorMessage: "模型未返回当前规则的修复候选",
+      });
+      continue;
+    }
+    try {
+      const suggestion = requirementRuleRepairSuggestionSchema.parse(
+        normalizeRequirementRepairSuggestionOutput(rawRepair),
+      );
+      const result = applyParsedRequirementRepairSuggestion(
+        {
+          projectId: input.projectId,
+          requirementText: input.requirementText,
+          rule,
+          baseline: input.baseline,
+          providerSettings: input.providerSettings,
+        },
+        suggestion,
+      );
+      candidates.push({ ruleId, ...result });
+    } catch (error) {
+      failures.push({
+        ruleId,
+        errorMessage:
+          error instanceof Error ? error.message : "模型返回内容无法解析",
+      });
+    }
+  }
+
+  return repairRequirementRulesResponseSchema.parse({
+    candidates,
+    failures,
+  });
 }
 
 function projectRecordMatchesFilters(record: RunRecord, query: unknown) {
@@ -1014,6 +1190,72 @@ export function registerRunRoutes({
           error instanceof Error
             ? `智能修复失败：${error.message}`
             : "智能修复失败：模型返回内容无法解析",
+        rawOutput,
+      };
+    }
+  });
+
+  app.post("/api/runs/requirement-rule-repairs", async (request, reply) => {
+    const metadata = await metadataForStartedRun(
+      request,
+      reply,
+      runAccessGuard,
+      "start_runs",
+    );
+    if (metadata === null) return runAccessDeniedMessage(reply);
+    const input = repairRequirementRulesRequestSchema.parse(request.body);
+    const providerSettings = await resolveProviderSettingsForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      providerConfigs,
+      resolveProjectDefaultProviderConfig,
+      allowLegacyProjectProviderSettings,
+      request,
+      reply,
+    });
+    if (!providerSettings) {
+      return {
+        message:
+          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+      };
+    }
+    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const limitCheck = await checkProviderUsageLimit({
+      usageTracker: providerUsageTracker,
+      providerConfigId,
+      metadata,
+      request,
+      taskType: "requirements_to_uml",
+      policy: providerRateLimitPolicy,
+      reply,
+    });
+    if (limitCheck !== true) return limitCheck;
+
+    let rawOutput = "";
+    try {
+      rawOutput = await collectTextResult(
+        llmTransport,
+        providerSettings,
+        buildRequirementRulesRepairMessages(input),
+        () => undefined,
+        { type: "json_object" },
+      );
+      const result = applyBatchRequirementRepairSuggestions(input, rawOutput);
+      await recordProviderUsage({
+        usageTracker: providerUsageTracker,
+        providerConfigId,
+        metadata,
+        request,
+        taskType: "requirements_to_uml",
+      });
+      return result;
+    } catch (error) {
+      reply.code(422);
+      return {
+        message:
+          error instanceof Error
+            ? `批量智能修复失败：${error.message}`
+            : "批量智能修复失败：模型返回内容无法解析",
         rawOutput,
       };
     }

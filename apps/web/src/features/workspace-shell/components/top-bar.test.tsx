@@ -179,7 +179,7 @@ describe("TopBar", () => {
     );
   });
 
-  it("keeps history out of the global top bar and opens project history from project actions", async () => {
+  it("opens local snapshots separately from project run history", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
       updateRequirementText: vi.fn(async () => {}),
@@ -211,9 +211,12 @@ describe("TopBar", () => {
       ),
     );
 
-    expect(screen.queryByRole("button", { name: "历史快照" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "历史快照" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "生成任务" }));
     expect(onOpenDrawer).toHaveBeenCalledWith("tasks");
+    await user.click(screen.getByRole("button", { name: "历史快照" }));
+    expect(await screen.findByText("暂无历史快照。完成一次生成后会自动保存。")).toBeInTheDocument();
+    expect(onOpenDrawer).not.toHaveBeenCalledWith("history");
     await user.click(screen.getByRole("button", { name: "运行历史" }));
 
     expect(toastMessage).not.toHaveBeenCalled();
@@ -886,6 +889,48 @@ describe("TopBar", () => {
     expect(screen.queryByRole("menuitem", { name: /软件设计说明书/i })).not.toBeInTheDocument();
   });
 
+  it("surfaces active project runs after reloading the workspace session", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const activeRun = {
+      runId: "server-run-active",
+      status: "running",
+      stage: "generate_models",
+      runKind: "requirements",
+    };
+
+    render(
+      withWorkspaceProviders(
+        <>
+          <ProjectWorkspaceActions
+            projectId="library-booking"
+            projectRuns={[activeRun]}
+            onOpenDrawer={() => {}}
+          />
+          <ProjectGenerationTasksDrawerContent projectRuns={[activeRun]} />
+        </>,
+        repository,
+      ),
+    );
+
+    expect(screen.getByText("生成中 50%")).toBeInTheDocument();
+    expect(screen.getByText("需求模型生成")).toBeInTheDocument();
+    expect(screen.getAllByText("生成需求模型进行中")).toHaveLength(2);
+    expect(screen.getByText("server-run-active")).toBeInTheDocument();
+  });
+
   it("shows Chinese task stages and streamed details in the task drawer", async () => {
     let completeRun!: () => void;
     const snapshot = createRunSnapshot({
@@ -949,10 +994,11 @@ describe("TopBar", () => {
     });
     await user.click(await screen.findByRole("button", { name: "开始测试任务" }));
 
-    expect(await screen.findByText("抽取需求规则")).toBeInTheDocument();
-    expect(screen.getByText("生成需求模型")).toBeInTheDocument();
-    expect(screen.getByText("生成图源码")).toBeInTheDocument();
-    expect(screen.getByText("渲染图像")).toBeInTheDocument();
+    expect((await screen.findAllByText("抽取需求规则")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("修复需求规则").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("生成需求模型").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("生成图源码").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("渲染图像").length).toBeGreaterThan(0);
     expect(screen.getByText("执行详情")).toBeInTheDocument();
     expect(screen.queryByText("用户摘要")).not.toBeInTheDocument();
     expect(screen.getByText("正在分析需求文本")).toBeInTheDocument();

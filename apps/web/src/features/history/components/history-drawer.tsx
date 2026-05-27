@@ -1,4 +1,5 @@
 import { Download, RotateCcw, Trash2, X } from "lucide-react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
@@ -30,11 +31,19 @@ export function HistoryDrawer({
 }) {
   const {
     historyItems,
+    refreshHistory,
     restoreRunHistory,
     deleteRunHistory,
     clearRunHistory,
   } = useWorkspaceSession();
   const repository = useWorkspaceRepository();
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshHistory().catch((error) => {
+      toast.error(error instanceof Error ? error.message : "历史快照刷新失败");
+    });
+  }, [open, refreshHistory]);
 
   if (!open) return null;
 

@@ -67,6 +67,7 @@ uml-run-report.md
 data/
 需求规格说明书*.docx
 软件设计说明书*.docx
+docs/e2e/evidence-*.png
 
 # release artifacts
 *.tar.gz

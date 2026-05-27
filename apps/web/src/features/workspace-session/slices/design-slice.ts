@@ -25,6 +25,9 @@ export function useDesignSlice() {
   const [generatedDesignDiagrams, setGeneratedDesignDiagrams] = useState<
     DesignDiagramType[]
   >([]);
+  const [designInputFingerprints, setDesignInputFingerprints] = useState<
+    Record<string, string>
+  >({});
 
   return {
     selectedDesignDiagrams,
@@ -41,5 +44,7 @@ export function useDesignSlice() {
     setDesignDiagramErrors,
     generatedDesignDiagrams,
     setGeneratedDesignDiagrams,
+    designInputFingerprints,
+    setDesignInputFingerprints,
   };
 }

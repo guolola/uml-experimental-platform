@@ -2022,7 +2022,10 @@ export function ProjectSectionPage({
       )}
       {!overview.loading && accessMessage}
       {!overview.loading && !accessMessage && overview.project && section === "settings" && (
-        <ProjectSettings project={overview.project} />
+        <ProjectSettings
+          project={overview.project}
+          membershipRole={overview.membership?.role ?? null}
+        />
       )}
       {!overview.loading && !accessMessage && overview.project && section === "members" && (
         <ProjectMembers project={overview.project} members={overview.members} />
@@ -2201,9 +2204,15 @@ export function ProjectWorkspaceDrawer({
   } else if (accessMessage || !overview.project) {
     content = accessMessage;
   } else if (activeDrawer === "tasks") {
-    content = <ProjectGenerationTasksDrawerContent />;
+    content = <ProjectGenerationTasksDrawerContent projectRuns={overview.runs} />;
   } else if (activeDrawer === "settings") {
-    content = <ProjectSettings project={overview.project} layout="drawer" />;
+    content = (
+      <ProjectSettings
+        project={overview.project}
+        membershipRole={overview.membership?.role ?? null}
+        layout="drawer"
+      />
+    );
   } else if (activeDrawer === "members") {
     content = (
       <ProjectMembers
@@ -2313,9 +2322,11 @@ export function ProjectWorkspaceAccessBoundary({
 
 function ProjectSettings({
   project,
+  membershipRole,
   layout = "page",
 }: {
   project: PlatformProject;
+  membershipRole?: string | null;
   layout?: "page" | "drawer";
 }) {
   const [name, setName] = useState(project.name);
@@ -2502,6 +2513,9 @@ function ProjectSettings({
   const settingGridClass =
     layout === "drawer" ? "grid min-w-0 max-w-full gap-4 overflow-hidden" : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]";
   const sectionClass = layout === "drawer" ? "min-w-0 max-w-full overflow-hidden p-4" : "";
+  const canManageProjectSettings =
+    !membershipRole || membershipRole === "owner";
+  const settingsBlockedReason = "当前项目角色不能管理项目设置。";
 
   return (
     <div className={settingGridClass}>
@@ -2515,12 +2529,19 @@ function ProjectSettings({
               </p>
             </div>
           )}
+          {!canManageProjectSettings && (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+              {settingsBlockedReason}
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="settings-project-name">项目信息</Label>
             <Input
               id="settings-project-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
+              disabled={!canManageProjectSettings}
+              title={!canManageProjectSettings ? settingsBlockedReason : undefined}
             />
           </div>
           <div className="grid gap-1.5">
@@ -2530,6 +2551,8 @@ function ProjectSettings({
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="暂无项目描述"
+              disabled={!canManageProjectSettings}
+              title={!canManageProjectSettings ? settingsBlockedReason : undefined}
             />
           </div>
           <div className="grid gap-1.5">
@@ -2539,6 +2562,7 @@ function ProjectSettings({
               value={visibility}
               onValueChange={setVisibility}
               className="h-9"
+              disabled={!canManageProjectSettings}
               options={[
                 { value: "private", label: "private" },
                 { value: "team", label: "team" },
@@ -2548,7 +2572,11 @@ function ProjectSettings({
           </div>
           <div className="grid gap-1.5">
             <Label>默认模型策略</Label>
-            <Select value={defaultProviderConfigId} onValueChange={setDefaultProviderConfigId}>
+            <Select
+              value={defaultProviderConfigId}
+              onValueChange={setDefaultProviderConfigId}
+              disabled={!canManageProjectSettings}
+            >
               <SelectTrigger className="min-w-0 max-w-full">
                 <SelectValue aria-hidden="true" className="hidden" />
                 <span
@@ -2589,6 +2617,7 @@ function ProjectSettings({
               value={courseTeam}
               onValueChange={setCourseTeam}
               className="h-9"
+              disabled={!canManageProjectSettings}
               options={ACADEMIC_BINDING_OPTIONS.map((option) => ({
                 value: option.value,
                 label: option.label,
@@ -2597,7 +2626,11 @@ function ProjectSettings({
           </div>
           <div className="grid gap-1.5">
             <Label>数据保留策略</Label>
-            <Select value={retentionPolicy} onValueChange={setRetentionPolicy}>
+            <Select
+              value={retentionPolicy}
+              onValueChange={setRetentionPolicy}
+              disabled={!canManageProjectSettings}
+            >
               <SelectTrigger className="min-w-0 max-w-full">
                 <SelectValue aria-hidden="true" className="hidden" />
                 <span
@@ -2615,7 +2648,12 @@ function ProjectSettings({
               </SelectContent>
             </Select>
           </div>
-          <Button type="button" onClick={() => void saveProject()}>
+          <Button
+            type="button"
+            onClick={() => void saveProject()}
+            disabled={!canManageProjectSettings}
+            title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+          >
             保存项目设置
           </Button>
         </div>
@@ -2626,14 +2664,32 @@ function ProjectSettings({
           当前项目状态：{currentProject.status}。删除、归档、导出会要求二次确认并记录审计。
         </p>
         <div className="mt-4 grid gap-2">
-          <Button type="button" variant="outline" onClick={() => void exportProject()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void exportProject()}
+            disabled={!canManageProjectSettings}
+            title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+          >
             数据导出
           </Button>
-          <Button type="button" variant="outline" onClick={() => void archiveProject()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void archiveProject()}
+            disabled={!canManageProjectSettings}
+            title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+          >
             <Archive className="size-4" />
             归档项目
           </Button>
-          <Button type="button" variant="outline" onClick={() => void restoreProject()}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void restoreProject()}
+            disabled={!canManageProjectSettings}
+            title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+          >
             恢复项目
           </Button>
           <div className="grid gap-1.5">
@@ -2643,12 +2699,26 @@ function ProjectSettings({
               value={newOwnerUserId}
               onChange={(event) => setNewOwnerUserId(event.target.value)}
               placeholder="输入新所有者用户 ID"
+              disabled={!canManageProjectSettings}
+              title={!canManageProjectSettings ? settingsBlockedReason : undefined}
             />
-            <Button type="button" variant="outline" onClick={() => void transferOwner()}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void transferOwner()}
+              disabled={!canManageProjectSettings}
+              title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+            >
               转移所有者
             </Button>
           </div>
-          <Button type="button" variant="destructive" onClick={() => void deleteProject()}>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void deleteProject()}
+            disabled={!canManageProjectSettings}
+            title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+          >
             删除项目
           </Button>
         </div>
@@ -3921,17 +3991,38 @@ function ProjectDocuments({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setCurrentDocuments(documents);
+  const applyDocuments = useCallback((nextDocuments: PlatformDocument[]) => {
+    setCurrentDocuments(nextDocuments);
     setNames(
       Object.fromEntries(
-        documents.map((document) => [
+        nextDocuments.map((document) => [
           document.id,
           getProjectDocumentDisplayName(document),
         ]),
       ),
     );
-  }, [documents]);
+  }, []);
+
+  useEffect(() => {
+    applyDocuments(documents);
+  }, [applyDocuments, documents]);
+
+  useEffect(() => {
+    let active = true;
+    platformApi
+      .listProjectDocuments(projectId)
+      .then((response) => {
+        if (!active) return;
+        applyDocuments(response.documents);
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : "加载项目文档失败。");
+      });
+    return () => {
+      active = false;
+    };
+  }, [applyDocuments, projectId]);
 
   const updateDocument = (document: PlatformDocument) => {
     setCurrentDocuments((current) =>
@@ -4067,7 +4158,12 @@ function ProjectDocuments({
             <div className="mt-3 grid gap-1 text-sm text-muted-foreground">
               <span>OnlyOffice：{onlyOfficeStatusLabel(document.onlyOffice?.status)}</span>
               <span>编辑锁：{document.editLock?.lockedBy ?? document.onlyOffice?.lockedBy ?? "未锁定"}</span>
-              <span>下载：{downloadStatusLabel(document.download?.status)}</span>
+              <span>
+                下载：
+                {downloadStatusLabel(
+                  document.download?.status ?? (document.status === "deleted" ? "unavailable" : "available"),
+                )}
+              </span>
               <span>大小：{document.byteLength ? `${document.byteLength} bytes` : "未记录"}</span>
             </div>
             <div className="mt-4 grid gap-1.5">
@@ -4925,7 +5021,11 @@ export function ProjectWorkspaceBanner({
         </div>
         <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
           {onOpenDrawer && (
-            <ProjectWorkspaceActions projectId={projectId} onOpenDrawer={onOpenDrawer} />
+            <ProjectWorkspaceActions
+              projectId={projectId}
+              projectRuns={overview.runs}
+              onOpenDrawer={onOpenDrawer}
+            />
           )}
           {onOpenDrawer &&
             shortcuts.map((shortcut) => {

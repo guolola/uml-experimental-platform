@@ -19,6 +19,9 @@ export function useDiagramsSlice() {
   const [diagramVersions, setDiagramVersions] = useState<
     Partial<Record<DiagramType, number>>
   >({});
+  const [diagramInputFingerprints, setDiagramInputFingerprints] = useState<
+    Partial<Record<DiagramType, string>>
+  >({});
 
   return {
     models,
@@ -37,5 +40,7 @@ export function useDiagramsSlice() {
     setGeneratedDiagrams,
     diagramVersions,
     setDiagramVersions,
+    diagramInputFingerprints,
+    setDiagramInputFingerprints,
   };
 }

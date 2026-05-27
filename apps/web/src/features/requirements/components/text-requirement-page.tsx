@@ -71,6 +71,9 @@ const REQUIREMENT_FIELD_LABELS: Record<AtomicRequirementField, string> = {
   outcome: "结果",
   acceptanceCriteria: "验收标准",
 };
+const REVIEWABLE_REQUIREMENT_FIELDS = Object.keys(
+  REQUIREMENT_FIELD_LABELS,
+) as AtomicRequirementField[];
 
 function stageRepairCopy(text: string) {
   return text.replace(/\bAI\b\s*/gu, "系统");
@@ -107,13 +110,13 @@ function requirementRowState(
   const acceptedAi = Object.values(requirement.fieldProvenance).some(
     (item) => item?.source === "ai-suggested" && item.status === "accepted",
   );
-  if (acceptedAi) return "AI已补齐";
+  if (acceptedAi) return "已确认";
   return "已生成";
 }
 
 function requirementStateTone(state: string | null) {
   if (state === "已生成") return "border-success/40 bg-success/10 text-success";
-  if (state === "AI已补齐") return "border-success/40 bg-success/10 text-success";
+  if (state === "已确认") return "border-success/40 bg-success/10 text-success";
   if (state === "有待确认提示") return "border-warning/40 bg-warning/10 text-warning";
   if (state === "存在冲突提示") return "border-destructive/40 bg-destructive/10 text-destructive";
   return "border-border bg-muted/40 text-muted-foreground";
@@ -191,6 +194,13 @@ export function TextRequirementView() {
     generatedDiagrams,
     requirementModelTraceability,
     requirementBaseline,
+    requirementReviewCandidates,
+    requirementReviewBlockedReason,
+    repairRequirementRule,
+    decideRequirementReviewCandidate,
+    canUpdateWorkspace,
+    canStartRuns,
+    workspacePermissionReason,
   } = useWorkspaceSession();
   const [query, setQuery] = useState("");
   const [defaultModel, setDefaultModel] = useState(
@@ -232,16 +242,25 @@ export function TextRequirementView() {
   }, []);
 
   const hasGeneratedRules = rules.length > 0;
+  const canEditRequirements = canUpdateWorkspace;
+  const canRunGeneration = canUpdateWorkspace && canStartRuns;
+  const editBlockedReason =
+    workspacePermissionReason ?? "当前项目角色不能编辑需求内容。";
+  const generationBlockedByPermissionReason =
+    workspacePermissionReason ?? "当前项目角色不能启动生成。";
 
   const runGenerateRules = () => {
+    if (!canRunGeneration) return;
     void generateRules();
   };
 
   const runGenerateDiagrams = (only?: DiagramType[]) => {
+    if (!canRunGeneration) return;
     void generateDiagrams(only);
   };
 
   const updateModel = (model: string) => {
+    if (!canRunGeneration) return;
     patchUserSettings({ defaultModel: model });
   };
 
@@ -256,6 +275,7 @@ export function TextRequirementView() {
   );
 
   const toggleDiagram = (diagram: DiagramType, checked: boolean) => {
+    if (!canEditRequirements) return;
     if (checked && !selectableDiagramSet.has(diagram)) {
       return;
     }
@@ -390,11 +410,18 @@ export function TextRequirementView() {
     return {
       rule,
       requirement,
+      candidate: requirementReviewCandidates[hintDetailRuleId] ?? null,
       rowState: requirementRowState(requirement, qualityIssues),
       qualityIssues,
       fieldEntries,
     };
-  }, [hintDetailRuleId, qualityIssuesByRequirementId, requirementByRuleId, rules]);
+  }, [
+    hintDetailRuleId,
+    qualityIssuesByRequirementId,
+    requirementByRuleId,
+    requirementReviewCandidates,
+    rules,
+  ]);
   const lastHintDetailRef = useRef<typeof hintDetail>(null);
   if (hintDetail) {
     lastHintDetailRef.current = hintDetail;
@@ -423,6 +450,8 @@ export function TextRequirementView() {
     if (stale) parts.push(`更新${stale}`);
     return parts.length ? `应用变更（${parts.join("·")}）` : "重新生成";
   })();
+  const generationBlockedTitle =
+    requirementReviewBlockedReason ?? undefined;
   const requirementModelRepairRecords = useMemo(() => {
     if (generatedDiagrams.length === 0 || requirementModelTraceability.length === 0) {
       return [];
@@ -459,24 +488,38 @@ export function TextRequirementView() {
       <div className="relative flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <FileText className="size-5 text-primary" />
-          <h2 className="text-xl font-semibold tracking-normal text-foreground">
+          <h2
+            id="requirement-text-heading"
+            className="text-xl font-semibold tracking-normal text-foreground"
+          >
             {mode === "empty" ? "项目需求描述" : "需求描述"}
           </h2>
         </div>
       </div>
       <textarea
         id="requirement-text"
+        aria-labelledby="requirement-text-heading"
         name="requirementText"
         value={requirementText}
-        onChange={(event) => setRequirementText(event.target.value)}
+        onChange={(event) => {
+          if (canEditRequirements) setRequirementText(event.target.value);
+        }}
         placeholder="用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则"
+        disabled={!canEditRequirements}
+        title={!canEditRequirements ? editBlockedReason : undefined}
         className={cn(
           "relative mt-3 w-full resize-y rounded-lg border border-input bg-background px-4 py-4 text-sm leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/15",
+          !canEditRequirements &&
+            "cursor-not-allowed bg-muted/40 text-muted-foreground",
           mode === "empty" ? "h-[clamp(360px,48vh,620px)] min-h-80" : "h-[240px]",
         )}
       />
       <div className="relative mt-6 flex flex-wrap items-center gap-2">
-        <ModelPicker value={defaultModel} onValueChange={updateModel} />
+        <ModelPicker
+          value={defaultModel}
+          onValueChange={updateModel}
+          disabled={!canRunGeneration}
+        />
         {isRulesStale && (
           <span className="text-[11px] text-warning">需求已修改</span>
         )}
@@ -486,15 +529,22 @@ export function TextRequirementView() {
           size="sm"
           className="ml-auto h-10 rounded-full px-6"
           onClick={() => setRequirementText("")}
-          disabled={!requirementText || generating}
+          disabled={!requirementText || generating || !canEditRequirements}
+          title={!canEditRequirements ? editBlockedReason : undefined}
         >
           清空
         </Button>
         <button
           type="button"
           onClick={runGenerateRules}
-          disabled={!requirementText.trim() || generating}
-          title={isRulesStale ? "更新需求规则" : "生成需求规则"}
+          disabled={!requirementText.trim() || generating || !canRunGeneration}
+          title={
+            !canRunGeneration
+              ? generationBlockedByPermissionReason
+              : isRulesStale
+                ? "更新需求规则"
+                : "生成需求规则"
+          }
           className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {generating ? (
@@ -558,7 +608,8 @@ export function TextRequirementView() {
             variant="outline"
             className="h-9 rounded-lg bg-background px-4"
             onClick={() => setNewRuleDialogOpen(true)}
-            disabled={generating}
+            disabled={generating || !canEditRequirements}
+            title={!canEditRequirements ? editBlockedReason : undefined}
           >
             <Plus className="size-3.5" /> 新增需求项
           </Button>
@@ -595,19 +646,43 @@ export function TextRequirementView() {
                 ? qualityIssuesByRequirementId.get(requirement.id) ?? []
                 : [];
               const rowState = requirementRowState(requirement, qualityIssues);
+              const candidate = requirementReviewCandidates[rule.id];
+              const displayRowState =
+                candidate?.status === "failed"
+                  ? "修复失败待重试"
+                  : candidate?.status === "pending"
+                    ? "修复结果待确认"
+                    : candidate?.status === "accepted" || candidate?.status === "rejected"
+                      ? "已确认"
+                    : rowState;
+              const reviewDecisionLabel =
+                candidate?.status === "accepted"
+                  ? "已采纳修复"
+                  : candidate?.status === "rejected"
+                    ? "已拒绝修复"
+                    : null;
               const hintCount = requirementHintCount(requirement) + qualityIssues.length;
-              const hasHintDetails = Boolean(requirement && hintCount > 0);
-              const statusContent = rowState ? (
+              const hasHintDetails = Boolean(
+                requirement && (hintCount > 0 || candidate),
+              );
+              const statusContent = displayRowState ? (
                 <>
                   <Badge
                     variant="outline"
                     className={cn(
                       "max-w-[112px] rounded-md px-2 py-1 text-xs",
-                      requirementStateTone(rowState),
+                      candidate?.status === "failed"
+                        ? "border-destructive/40 bg-destructive/10 text-destructive"
+                        : requirementStateTone(displayRowState),
                     )}
                   >
-                    <span className="truncate">{rowState}</span>
+                    <span className="truncate">{displayRowState}</span>
                   </Badge>
+                  {reviewDecisionLabel && (
+                    <span className="shrink-0 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[11px] text-success">
+                      {reviewDecisionLabel}
+                    </span>
+                  )}
                   {hintCount > 0 && (
                     <span
                       className="shrink-0 rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
@@ -641,7 +716,7 @@ export function TextRequirementView() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 align-middle">
-                      {rowState && (
+                      {displayRowState && (
                         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
                           {hasHintDetails ? (
                             <button
@@ -662,14 +737,16 @@ export function TextRequirementView() {
                       <input
                         type="text"
                         value={rule.text}
-                        title={rule.text}
                         onChange={(event) =>
-                          updateRequirementRule(rule.id, {
-                            text: event.target.value,
-                          })
+                          canEditRequirements
+                            ? updateRequirementRule(rule.id, {
+                                text: event.target.value,
+                              })
+                            : undefined
                         }
                         className="h-8 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-0 text-sm text-foreground outline-none transition-colors hover:border-border hover:bg-background focus:border-primary/60 focus:bg-background focus:px-2 focus:ring-2 focus:ring-primary/15"
-                        disabled={generating}
+                        disabled={generating || !canEditRequirements}
+                        title={!canEditRequirements ? editBlockedReason : rule.text}
                       />
                     </td>
                     <td className="px-6 py-3 text-right align-middle">
@@ -679,7 +756,8 @@ export function TextRequirementView() {
                         variant="ghost"
                         className="h-8 px-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => deleteRequirementRule(rule.id)}
-                        disabled={generating}
+                        disabled={generating || !canEditRequirements}
+                        title={!canEditRequirements ? editBlockedReason : undefined}
                         aria-label={`删除需求项 ${rule.id}`}
                       >
                         <Trash2 className="size-3.5" />
@@ -793,6 +871,8 @@ export function TextRequirementView() {
                   type="button"
                   key={title}
                   onClick={() => setRequirementText(templateText)}
+                  disabled={!canEditRequirements}
+                  title={!canEditRequirements ? editBlockedReason : undefined}
                   className="group rounded-lg border border-border bg-background p-2 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="flex items-center gap-2">
@@ -854,7 +934,8 @@ export function TextRequirementView() {
             variant="outline"
             className="ml-auto h-7"
             onClick={runGenerateRules}
-            disabled={generating}
+            disabled={generating || !canRunGeneration}
+            title={!canRunGeneration ? generationBlockedByPermissionReason : undefined}
           >
             <RefreshCw className="size-3.5" /> 重新生成规则
           </Button>
@@ -873,7 +954,16 @@ export function TextRequirementView() {
             variant="outline"
             className="ml-auto h-7"
             onClick={() => runGenerateDiagrams(staleDiagrams)}
-            disabled={generating}
+            disabled={
+              generating ||
+              Boolean(requirementReviewBlockedReason) ||
+              !canRunGeneration
+            }
+            title={
+              !canRunGeneration
+                ? generationBlockedByPermissionReason
+                : generationBlockedTitle
+            }
           >
             <RefreshCw className="size-3.5" /> 仅更新过时模型
           </Button>
@@ -889,6 +979,12 @@ export function TextRequirementView() {
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
               输入您的项目需求描述，系统将帮助您提取关键用例、参与者并生成初始的系统模型。
             </p>
+            {!canEditRequirements && (
+              <div className="mt-2 inline-flex max-w-3xl items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                <AlertTriangle className="size-3.5" />
+                {editBlockedReason}
+              </div>
+            )}
           </header>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]">
             <div className="grid min-w-0 gap-4">
@@ -934,11 +1030,22 @@ export function TextRequirementView() {
                   onValueChange={updateModel}
                   align="end"
                   triggerClassName="bg-card"
+                  disabled={!canRunGeneration}
                 />
                 <button
                   type="button"
                   onClick={() => runGenerateDiagrams()}
-                  disabled={selectedDiagrams.length === 0 || generating}
+                  disabled={
+                    selectedDiagrams.length === 0 ||
+                    generating ||
+                    Boolean(requirementReviewBlockedReason) ||
+                    !canRunGeneration
+                  }
+                  title={
+                    !canRunGeneration
+                      ? generationBlockedByPermissionReason
+                      : generationBlockedTitle
+                  }
                   className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {generating ? (
@@ -950,6 +1057,12 @@ export function TextRequirementView() {
                 </button>
               </div>
             </div>
+            {requirementReviewBlockedReason && (
+              <div className="flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                <AlertTriangle className="size-3.5" />
+                {requirementReviewBlockedReason}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               {DIAGRAM_ORDER.map((diagram) => {
@@ -958,13 +1071,17 @@ export function TextRequirementView() {
                 const linkedRules = rules.filter((rule) =>
                   rule.relatedDiagrams.includes(diagram),
                 );
-                const canSelectDiagram = linkedRules.length > 0;
+                const canSelectDiagram =
+                  linkedRules.length > 0 && canEditRequirements;
                 return (
                   <div
                     key={diagram}
                     role="button"
                     tabIndex={canSelectDiagram ? 0 : -1}
                     aria-disabled={!canSelectDiagram}
+                    title={
+                      !canEditRequirements ? editBlockedReason : undefined
+                    }
                     aria-label={`${checked ? "取消选择" : "选择"}${meta.label}`}
                     onClick={() => {
                       if (canSelectDiagram) {
@@ -1000,7 +1117,7 @@ export function TextRequirementView() {
                       <Checkbox
                         checked={checked}
                         onCheckedChange={(value) => toggleDiagram(diagram, !!value)}
-                        disabled={!canSelectDiagram}
+                      disabled={!canSelectDiagram}
                         aria-label={meta.label}
                       />
                     </label>
@@ -1096,9 +1213,9 @@ export function TextRequirementView() {
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>需求提示详情</DialogTitle>
+            <DialogTitle>需求规则修复确认</DialogTitle>
             <DialogDescription>
-              当前规则的字段来源、待确认项和质量提示。
+              对比修复前后的结构化需求，采纳或拒绝后都会标记为已确认。
             </DialogDescription>
           </DialogHeader>
           {visibleHintDetail && (
@@ -1125,6 +1242,77 @@ export function TextRequirementView() {
                   {visibleHintDetail.rule.text}
                 </div>
               </div>
+
+              {visibleHintDetail.candidate && (
+                <div className="mt-4">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    修复前后对比
+                  </h3>
+                  {visibleHintDetail.candidate.status === "failed" ? (
+                    <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
+                      {visibleHintDetail.candidate.errorMessage ??
+                        "当前规则修复失败，请重新修复。"}
+                    </div>
+                  ) : (
+                    <div className="mt-2 overflow-hidden rounded-lg border border-border">
+                      <div className="grid grid-cols-[120px_1fr_1fr] border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground">
+                        <div className="px-3 py-2">字段</div>
+                        <div className="px-3 py-2">修复前</div>
+                        <div className="px-3 py-2">修复后</div>
+                      </div>
+                      {REVIEWABLE_REQUIREMENT_FIELDS.map((field) => {
+                        const beforeValue = requirementFieldValue(
+                          visibleHintDetail.candidate.beforeRequirement,
+                          field,
+                        );
+                        const afterRequirement =
+                          visibleHintDetail.candidate.afterRequirement ??
+                          visibleHintDetail.candidate.beforeRequirement;
+                        const afterValue = requirementFieldValue(afterRequirement, field);
+                        const changed = beforeValue !== afterValue;
+                        return (
+                          <div
+                            key={field}
+                            className="grid grid-cols-[120px_1fr_1fr] border-b border-border last:border-b-0 text-xs leading-5"
+                          >
+                            <div className="px-3 py-2 font-medium text-foreground">
+                              {REQUIREMENT_FIELD_LABELS[field]}
+                            </div>
+                            <div className="px-3 py-2 text-muted-foreground">
+                              {beforeValue || "暂无字段值"}
+                            </div>
+                            <div
+                              className={cn(
+                                "px-3 py-2 text-foreground",
+                                changed && "bg-success/10 text-success",
+                              )}
+                            >
+                              {afterValue || "暂无字段值"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {visibleHintDetail.candidate.repairRationale && (
+                    <div className="mt-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                      {visibleHintDetail.candidate.repairRationale}
+                    </div>
+                  )}
+                  {visibleHintDetail.candidate.blockingReasons.length > 0 && (
+                    <div className="mt-2 grid gap-1">
+                      {visibleHintDetail.candidate.blockingReasons.map((reason) => (
+                        <div
+                          key={reason}
+                          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning"
+                        >
+                          {reason}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4">
                 <h3 className="text-sm font-semibold text-foreground">
@@ -1192,9 +1380,49 @@ export function TextRequirementView() {
             </div>
           )}
           <DialogFooter>
-            <Button type="button" onClick={() => setHintDetailRuleId(null)}>
-              关闭
-            </Button>
+            {visibleHintDetail?.candidate?.status === "failed" ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void repairRequirementRule(visibleHintDetail.rule.id)}
+                disabled={generating}
+              >
+                重新修复
+              </Button>
+            ) : null}
+            {visibleHintDetail?.candidate?.status === "pending" ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    void decideRequirementReviewCandidate(
+                      visibleHintDetail.rule.id,
+                      "rejected",
+                    ).then(() => setHintDetailRuleId(null))
+                  }
+                  disabled={generating}
+                >
+                  拒绝
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() =>
+                    void decideRequirementReviewCandidate(
+                      visibleHintDetail.rule.id,
+                      "accepted",
+                    ).then(() => setHintDetailRuleId(null))
+                  }
+                  disabled={generating}
+                >
+                  采纳
+                </Button>
+              </>
+            ) : (
+              <Button type="button" onClick={() => setHintDetailRuleId(null)}>
+                关闭
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1317,7 +1545,7 @@ export function TextRequirementView() {
                   setNewRuleError(null);
                 }}
                 className="h-9"
-                disabled={generating}
+                disabled={generating || !canEditRequirements}
                 options={RULE_CATEGORY_ORDER.map((category) => ({
                   value: category,
                   label: category,
@@ -1339,7 +1567,7 @@ export function TextRequirementView() {
                         toggleNewRuleDiagram(diagram, Boolean(value));
                         setNewRuleError(null);
                       }}
-                      disabled={generating}
+                      disabled={generating || !canEditRequirements}
                     />
                     {DIAGRAM_META[diagram].label}
                   </label>
@@ -1357,7 +1585,7 @@ export function TextRequirementView() {
                 }}
                 placeholder="填写这条需求项的具体内容"
                 className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-                disabled={generating}
+                disabled={generating || !canEditRequirements}
               />
             </label>
 
@@ -1379,7 +1607,7 @@ export function TextRequirementView() {
             <Button
               type="button"
               onClick={submitNewRule}
-              disabled={generating || !newRuleCanSubmit}
+              disabled={generating || !newRuleCanSubmit || !canEditRequirements}
             >
               创建需求项
             </Button>

@@ -12,6 +12,9 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
   const [rulesBasedOnTextVersion, setRulesBasedOnTextVersion] = useState<
     number | null
   >(null);
+  const [requirementInputFingerprint, setRequirementInputFingerprint] = useState<
+    string | null
+  >(null);
 
   const setRequirementText = useCallback(
     (value: string) => {
@@ -129,6 +132,8 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
     setRulesVersion,
     rulesBasedOnTextVersion,
     setRulesBasedOnTextVersion,
+    requirementInputFingerprint,
+    setRequirementInputFingerprint,
     commitRequirementRules,
     addRequirementRule,
     createRequirementRule,

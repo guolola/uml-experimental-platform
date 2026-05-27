@@ -12,6 +12,7 @@ import type {
   RequirementModelTraceabilityEntry,
   RequirementBaseline,
   RequirementQualityReport,
+  AtomicRequirement,
   RunSnapshot,
   RunStage,
   RunStatus as ContractRunStatus,
@@ -33,6 +34,17 @@ export interface ManualModelEditStatus {
   rerenderedAt?: string;
 }
 
+export interface RequirementReviewCandidate {
+  ruleId: string;
+  beforeRequirement: AtomicRequirement;
+  afterRequirement: AtomicRequirement | null;
+  repairRationale: string | null;
+  blockingReasons: string[];
+  status: "pending" | "accepted" | "rejected" | "failed";
+  errorMessage: string | null;
+  createdAt: string;
+}
+
 export interface WorkspaceRecord {
   id: string;
   name: string;
@@ -41,6 +53,7 @@ export interface WorkspaceRecord {
   rules: RequirementRule[];
   requirementBaseline: RequirementBaseline | null;
   requirementQualityReport: RequirementQualityReport | null;
+  requirementReviewCandidates: Record<string, RequirementReviewCandidate>;
   models: Partial<Record<DiagramType, DiagramModelSpec>>;
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
   generatedDiagramTypes: DiagramType[];
@@ -67,6 +80,9 @@ export interface WorkspaceRecord {
   codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
   codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
+  requirementInputFingerprint: string | null;
+  diagramInputFingerprints: Partial<Record<DiagramType, string>>;
+  designInputFingerprints: Record<string, string>;
   rulesVersion: number;
   rulesBasedOnTextVersion: number | null;
   diagramVersions: Partial<Record<DiagramType, number>>;

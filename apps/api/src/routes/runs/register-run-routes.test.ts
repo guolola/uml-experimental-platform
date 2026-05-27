@@ -318,6 +318,257 @@ test("requirement rule repair normalizes array field values from model output", 
   assert.equal(body.requirement.fieldProvenance.acceptanceCriteria.status, "accepted");
 });
 
+test("requirement rule repair normalizes string confidence from model output", async () => {
+  const rule = {
+    id: "r15",
+    category: "功能需求" as const,
+    text: "用户可以提交订单。",
+    relatedDiagrams: ["usecase" as const],
+  };
+  const baseline = buildRequirementBaseline({
+    runId: "run-baseline",
+    requirementText: rule.text,
+    rules: [rule],
+  });
+  const llmTransport: LlmTransport = {
+    async *streamChatCompletion() {
+      yield JSON.stringify({
+        fields: {
+          actor: {
+            source: "ai-suggested",
+            status: "accepted",
+            value: "用户",
+            originalValue: null,
+            rationale: "原文明确说明用户。",
+          },
+        },
+        confidence: "82%",
+        status: "accepted",
+        rationale: "补齐角色。",
+      });
+    },
+  };
+  const app = await createRunRouteTestApp({
+    llmTransport,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"] },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs/requirement-rule-repair",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: rule.text,
+      rule,
+      baseline,
+      providerSettings,
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().requirement.confidence, 0.82);
+});
+
+test("requirement rule batch repair uses one LLM call and returns candidates", async () => {
+  const rules = [
+    {
+      id: "r20",
+      category: "功能需求" as const,
+      text: "普通读者可以查询当前借出的书目。",
+      relatedDiagrams: ["usecase" as const],
+    },
+    {
+      id: "r21",
+      category: "业务规则" as const,
+      text: "管理员可以增加图书。",
+      relatedDiagrams: ["usecase" as const],
+    },
+  ];
+  const baseline = buildRequirementBaseline({
+    runId: "run-baseline",
+    requirementText: rules.map((rule) => rule.text).join("\n"),
+    rules,
+  });
+  let llmCallCount = 0;
+  const llmTransport: LlmTransport = {
+    async *streamChatCompletion() {
+      llmCallCount += 1;
+      yield JSON.stringify({
+        repairs: [
+          {
+            ruleId: "r20",
+            fields: {
+              actor: {
+                source: "ai-suggested",
+                status: "accepted",
+                value: "普通读者",
+                originalValue: null,
+                rationale: "原文明确说明普通读者。",
+              },
+            },
+            confidence: "0.82",
+            status: "accepted",
+            rationale: "补齐普通读者。",
+          },
+          {
+            ruleId: "r21",
+            fields: {
+              actor: {
+                source: "ai-suggested",
+                status: "accepted",
+                value: "管理员",
+                originalValue: null,
+                rationale: "原文明确说明管理员。",
+              },
+            },
+            confidence: 0.88,
+            status: "accepted",
+            rationale: "补齐管理员。",
+          },
+        ],
+      });
+    },
+  };
+  const app = await createRunRouteTestApp({
+    llmTransport,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"] },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs/requirement-rule-repairs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: rules.map((rule) => rule.text).join("\n"),
+      rules,
+      targetRuleIds: ["r20", "r21"],
+      baseline,
+      providerSettings,
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(llmCallCount, 1);
+  const body = response.json();
+  assert.equal(body.failures.length, 0);
+  assert.deepEqual(
+    body.candidates.map((candidate: { ruleId: string }) => candidate.ruleId),
+    ["r20", "r21"],
+  );
+  assert.equal(body.candidates[0].requirement.actor, "普通读者");
+  assert.equal(body.candidates[0].requirement.confidence, 0.82);
+  assert.equal(body.candidates[1].requirement.actor, "管理员");
+});
+
+test("requirement rule batch repair isolates missing and invalid repairs", async () => {
+  const rules = [
+    {
+      id: "r30",
+      category: "功能需求" as const,
+      text: "普通读者可以查询当前借出的书目。",
+      relatedDiagrams: ["usecase" as const],
+    },
+    {
+      id: "r31",
+      category: "业务规则" as const,
+      text: "管理员可以增加图书。",
+      relatedDiagrams: ["usecase" as const],
+    },
+    {
+      id: "r32",
+      category: "业务规则" as const,
+      text: "系统必须记录图书库存。",
+      relatedDiagrams: ["class" as const],
+    },
+  ];
+  const baseline = buildRequirementBaseline({
+    runId: "run-baseline",
+    requirementText: rules.map((rule) => rule.text).join("\n"),
+    rules,
+  });
+  const originalConfidence = baseline.requirements.find(
+    (requirement) => requirement.sourceRuleId === "r30",
+  )?.confidence;
+  const llmTransport: LlmTransport = {
+    async *streamChatCompletion() {
+      yield JSON.stringify({
+        repairs: [
+          {
+            ruleId: "r30",
+            fields: {
+              actor: {
+                source: "ai-suggested",
+                status: "accepted",
+                value: "普通读者",
+                originalValue: null,
+                rationale: "原文明确说明普通读者。",
+              },
+            },
+            confidence: "high",
+            status: "accepted",
+            rationale: "无法解析的置信度应被忽略。",
+          },
+          {
+            ruleId: "r31",
+            fields: {
+              actor: {
+                source: "ai-suggested",
+              },
+            },
+            confidence: 0.8,
+            status: "accepted",
+            rationale: "字段结构不完整。",
+          },
+        ],
+      });
+    },
+  };
+  const app = await createRunRouteTestApp({
+    llmTransport,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"] },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs/requirement-rule-repairs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: rules.map((rule) => rule.text).join("\n"),
+      rules,
+      targetRuleIds: ["r30", "r31", "r32"],
+      baseline,
+      providerSettings,
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  const body = response.json();
+  assert.deepEqual(
+    body.candidates.map((candidate: { ruleId: string }) => candidate.ruleId),
+    ["r30"],
+  );
+  assert.equal(body.candidates[0].requirement.confidence, originalConfidence);
+  assert.deepEqual(
+    body.failures.map((failure: { ruleId: string }) => failure.ruleId).sort(),
+    ["r31", "r32"],
+  );
+});
+
 test("requirement rule repair rejects invalid model output without mutating baseline", async () => {
   const rule = {
     id: "r14",

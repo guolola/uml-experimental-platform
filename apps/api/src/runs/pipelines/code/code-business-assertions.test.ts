@@ -109,3 +109,67 @@ test("buildCodeBusinessAssertionResults passes guarded behavior evidence", () =>
     true,
   );
 });
+
+test("buildCodeBusinessAssertionResults matches Chinese behavior evidence without accepting static copy", () => {
+  const calendarRule = {
+    id: "r1",
+    category: "功能需求" as const,
+    text: "系统应提供面向公众的活动安排展示功能。",
+    relatedDiagrams: ["usecase" as const],
+  };
+  const baseline = buildRequirementBaseline({
+    runId: "run-calendar",
+    requirementText: calendarRule.text,
+    rules: [calendarRule],
+    createdAt: "2026-05-27T00:00:00.000Z",
+  });
+  const calendarBusinessLogic: CodeBusinessLogic = {
+    appName: "公共活动日历",
+    domainSummary: "展示面向公众的活动安排。",
+    coreWorkflow: "系统筛选公开活动并展示活动安排。",
+    actors: [],
+    businessEntities: [],
+    pageFlows: [
+      {
+        id: "page-calendar",
+        name: "活动安排",
+        route: "/calendar",
+        purpose: "展示公开活动安排",
+        actors: ["公众"],
+        entryPoints: ["打开公开日历"],
+        userActions: ["查看活动安排"],
+        states: ["公开"],
+        sourceRefs: ["r1"],
+      },
+    ],
+    stateMachines: [],
+    permissions: [],
+    edgeCases: [],
+    frontendOperations: ["查看活动安排"],
+    plantUmlTraceability: [],
+  };
+
+  const uiOnly = buildCodeBusinessAssertionResults({
+    runId: "run-calendar-ui-only",
+    baseline,
+    businessLogic: calendarBusinessLogic,
+    files: {
+      "/src/App.tsx": "export default function App(){ return <main>面向公众的活动安排展示功能</main>; }",
+    },
+    generatedAt: "2026-05-27T00:00:00.000Z",
+  });
+  assert.equal(uiOnly.passed, false);
+
+  const implemented = buildCodeBusinessAssertionResults({
+    runId: "run-calendar-implemented",
+    baseline,
+    businessLogic: calendarBusinessLogic,
+    files: {
+      "/src/App.tsx":
+        "const activities = [{ title: '发布会', visibility: 'public' }]; export default function App(){ const publicActivities = activities.filter((activity) => activity.visibility === 'public'); return <main>{publicActivities.map((activity) => <article key={activity.title}>活动安排 {activity.title}</article>)}</main>; }",
+    },
+    generatedAt: "2026-05-27T00:00:00.000Z",
+  });
+  assert.equal(implemented.passed, true);
+  assert.equal(implemented.blockingFailureIds.length, 0);
+});

@@ -17,6 +17,7 @@ import {
 } from "../features/user-platform/components/user-platform-pages";
 
 let projectApiMode: "unauthenticated" | "authenticated" | "empty" | "forbidden" | "offline";
+let projectMembershipRole: "owner" | "editor" | "viewer";
 let loginApiMode: "failure" | "success" | "mfa-challenge" | "email-unverified";
 let authSessionMode: "authenticated" | "unauthenticated" | "offline";
 let accountMfaEnabled: boolean;
@@ -180,6 +181,7 @@ async function advanceTimersByTime(ms: number) {
 describe("App shell routes", () => {
   beforeEach(() => {
     projectApiMode = "unauthenticated";
+    projectMembershipRole = "owner";
     loginApiMode = "failure";
     authSessionMode = "authenticated";
     accountMfaEnabled = false;
@@ -654,7 +656,7 @@ describe("App shell routes", () => {
                 userId: "user-new",
                 email: "new-student@example.edu",
                 displayName: "new-student",
-                role: "owner",
+                role: projectMembershipRole,
                 status: "active",
                 invitedByUserId: null,
                 invitedAt: null,
@@ -1651,6 +1653,18 @@ describe("App shell routes", () => {
     expect(await screen.findByText(/验证邮件已发送到/)).toBeInTheDocument();
   });
 
+  it("renders the managed model settings route instead of redirecting it away", async () => {
+    projectApiMode = "authenticated";
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    window.history.pushState({}, "", "/settings/models");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(await screen.findByRole("heading", { name: "模型设置" })).toBeInTheDocument();
+    expect(screen.getByText("课程 OpenAI 托管配置")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/models");
+  });
+
   it("remembers the login email only when requested and lets users reveal the password", async () => {
     const user = userEvent.setup();
     loginApiMode = "success";
@@ -2499,11 +2513,11 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-max-size", "22");
     expect(screen.getByRole("button", { name: "生成任务" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导出" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "历史快照" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "运行历史" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "项目设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "成员" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "文档中心" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "历史快照" })).not.toBeInTheDocument();
     expect(screen.getByText("智慧图书馆预约系统")).toBeInTheDocument();
     expect(await screen.findByText("成员 4")).toBeInTheDocument();
     expect(screen.getByText("运行中 1")).toBeInTheDocument();
@@ -2581,6 +2595,54 @@ describe("App shell routes", () => {
     expect(screen.getByText("当前账号不是该项目成员，无法查看项目详情、运行历史或文档。")).toBeInTheDocument();
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 需求" })).not.toBeInTheDocument();
+  });
+
+  it("keeps requirement controls read-only when the project role lacks edit and run permissions", async () => {
+    const user = userEvent.setup();
+    projectApiMode = "authenticated";
+    authSessionMode = "authenticated";
+    const repository: WorkspaceRepository = {
+      ...createRepository(),
+      getProjectCapabilities: vi.fn(async () => [
+        "view_project",
+        "view_runs",
+        "view_documents",
+      ]),
+    };
+    window.history.pushState({}, "", "/projects/library-booking");
+
+    render(withWorkspaceProviders(<Shell />, repository));
+
+    const requirementText = await screen.findByRole("textbox", {
+      name: "项目需求描述",
+    });
+    await waitFor(() => {
+      expect(requirementText).toBeDisabled();
+    });
+    expect(screen.getByText("当前项目角色仅允许查看，不能编辑内容或启动生成。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始分析提取" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /电商系统/ })).toBeDisabled();
+
+    await user.type(requirementText, "访客不应写入需求");
+
+    expect(repository.updateRequirementText).not.toHaveBeenCalled();
+  });
+
+  it("keeps project settings read-only for viewer members", async () => {
+    projectApiMode = "authenticated";
+    authSessionMode = "authenticated";
+    projectMembershipRole = "viewer";
+    window.history.pushState({}, "", "/projects/library-booking/settings");
+
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    expect(await screen.findByRole("dialog", { name: "项目设置" })).toBeInTheDocument();
+    expect(screen.getByText("当前项目角色不能管理项目设置。")).toBeInTheDocument();
+    expect(screen.getByLabelText("项目信息")).toBeDisabled();
+    expect(screen.getByLabelText("项目描述")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存项目设置" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "数据导出" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除项目" })).toBeDisabled();
   });
 
   it("opens project workspace drawers from banner shortcuts without routing", async () => {

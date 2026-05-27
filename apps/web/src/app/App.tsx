@@ -35,6 +35,7 @@ import {
   AuthenticatedRoute,
   AuthPage,
   InvitationAcceptPage,
+  ModelSettingsPage,
   ProjectNewPage,
   ProjectWorkspaceDrawer,
   type ProjectDrawerKind,
@@ -238,8 +239,11 @@ export function Shell() {
     if (route.kind === "projects-new") {
       return <ProjectNewPage onNavigate={navigate} />;
     }
-    if (route.kind === "legacy-account" || route.kind === "legacy-settings") {
+    if (route.kind === "legacy-account") {
       return <RedirectRoute to="/projects" onNavigate={navigate} />;
+    }
+    if (route.kind === "legacy-settings") {
+      return <ModelSettingsPage onNavigate={navigate} />;
     }
     if (route.kind === "project-workspace") {
       return (

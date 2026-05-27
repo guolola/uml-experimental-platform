@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { AtomicRequirement, RequirementBaseline } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
   createRule,
@@ -36,6 +37,65 @@ describe("TextRequirementView", () => {
       restoreRunHistory: vi.fn(async () => null),
       deleteRunHistory: vi.fn(async () => []),
       clearRunHistory: vi.fn(async () => {}),
+      ...overrides,
+    };
+  }
+
+  function createAtomicRequirement(
+    overrides: Partial<AtomicRequirement> = {},
+  ): AtomicRequirement {
+    return {
+      id: "REQ-001",
+      sourceRuleId: "r1",
+      sourceFragment: "系统应允许用户提交订单。",
+      sourceLocation: { section: "input", startOffset: 0, endOffset: 12 },
+      type: "functional",
+      actor: null,
+      subject: "系统",
+      action: "允许提交",
+      object: "订单",
+      condition: null,
+      outcome: "系统创建订单",
+      confidence: 0.56,
+      status: "pending-review",
+      criticality: "high",
+      acceptanceCriteria: ["用户提交订单后系统创建订单。"],
+      priority: "must",
+      fieldProvenance: {},
+      ...overrides,
+    };
+  }
+
+  function createRequirementBaseline(
+    requirements: AtomicRequirement[],
+    overrides: Partial<RequirementBaseline> = {},
+  ): RequirementBaseline {
+    return {
+      runId: "run-baseline",
+      sourceDocumentId: "inline-requirement",
+      createdAt: "2026-05-27T00:00:00.000Z",
+      requirements,
+      assumptions: [],
+      conflicts: [],
+      qualityReport: {
+        runId: "run-baseline",
+        status: "pending-review",
+        summary: "存在待确认字段。",
+        issues: requirements[0]
+          ? [
+              {
+                id: "issue-actor",
+                requirementId: requirements[0].id,
+                severity: "warning",
+                code: "missing-actor",
+                message: "缺少参与者。",
+                blocksDownstream: true,
+              },
+            ]
+          : [],
+        blockingIssueIds: ["issue-actor"],
+        reviewRequiredRequirementIds: requirements[0] ? [requirements[0].id] : [],
+      },
       ...overrides,
     };
   }
@@ -450,18 +510,18 @@ describe("TextRequirementView", () => {
     const row = await screen.findByRole("row", {
       name: /r10.*功能\(4\)可供普通读者查找他们自己借出的书目/u,
     });
-    expect(within(row).getByText("AI已补齐")).toBeInTheDocument();
+    expect(within(row).getByText("已确认")).toBeInTheDocument();
     expect(within(row).getByText("3项")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
     expect(within(row).queryByText(/角色\/执行者：普通读者/u)).not.toBeInTheDocument();
     expect(within(row).queryByText(/修复原因：原文明确出现普通读者/u)).not.toBeInTheDocument();
     expect(within(row).queryByText(/actor|object|condition/u)).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求规则复核详情" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
 
     await user.click(within(row).getByRole("button", { name: /需求提示详情 r10/u }));
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(screen.getByRole("dialog", { name: "需求提示详情" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "需求规则修复确认" })).toBeInTheDocument();
     expect(screen.getByText("角色/执行者")).toBeInTheDocument();
     expect(screen.getByText("原文明确出现普通读者，AI 自动补齐角色/执行者字段。")).toBeInTheDocument();
   });
@@ -559,14 +619,14 @@ describe("TextRequirementView", () => {
       name: /需求提示详情 r10/u,
     });
     expect(detailsButton).not.toHaveAttribute("title");
-    expect(screen.queryByRole("dialog", { name: "需求提示详情" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
     expect(screen.queryByText("REQ-010 包含 AI 补齐待确认字段。")).not.toBeInTheDocument();
     expect(screen.queryByText("REQ-010 缺少可验证边界。")).not.toBeInTheDocument();
 
     await user.click(detailsButton);
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(screen.getByRole("dialog", { name: "需求提示详情" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "需求规则修复确认" })).toBeInTheDocument();
     expect(screen.getByText("REQ-010 包含 AI 补齐待确认字段。")).toBeInTheDocument();
     expect(screen.getByText("REQ-010 缺少可验证边界。")).toBeInTheDocument();
     expect(screen.getByText("角色/执行者")).toBeInTheDocument();
@@ -636,7 +696,7 @@ describe("TextRequirementView", () => {
     });
     expect(within(row).getByText("已生成")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /查看需求提示详情/u })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求提示详情" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
   });
 
   it("does not expose single-rule repair actions from the requirement table", async () => {
@@ -876,7 +936,7 @@ describe("TextRequirementView", () => {
     expect(within(row).getByText("2项")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
     expect(within(row).queryByText(/预定值缺少具体数值/u)).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求规则复核详情" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
   });
 
   it("toggles selectable target diagrams from the whole model card", async () => {
@@ -1115,6 +1175,100 @@ describe("TextRequirementView", () => {
     });
   });
 
+  it("shows repair candidates as before-after confirmation and accepts the repaired rule", async () => {
+    const updateRequirementBaseline = vi.fn(async () => {});
+    const updateRequirementReviewCandidates = vi.fn(async () => {});
+    const rule = createRule({
+      id: "r1",
+      category: "功能需求",
+      text: "系统应允许用户提交订单。",
+    });
+    const beforeRequirement = createAtomicRequirement({
+      fieldProvenance: {
+        actor: {
+          source: "ai-suggested",
+          status: "pending-review",
+          value: null,
+          rationale: "原文缺少明确参与者。",
+        },
+      },
+    });
+    const afterRequirement = createAtomicRequirement({
+      actor: "用户",
+      confidence: 0.84,
+      fieldProvenance: {
+        actor: {
+          source: "ai-suggested",
+          status: "accepted",
+          value: "用户",
+          rationale: "从需求文本补齐参与者。",
+        },
+      },
+    });
+    const baseline = createRequirementBaseline([beforeRequirement]);
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单需求",
+          rules: [rule],
+          rulesVersion: 1,
+          requirementBaseline: baseline,
+          requirementQualityReport: baseline.qualityReport,
+          requirementReviewCandidates: {
+            r1: {
+              ruleId: "r1",
+              beforeRequirement,
+              afterRequirement,
+              repairRationale: "补齐参与者字段。",
+              blockingReasons: ["缺少参与者"],
+              status: "pending",
+              errorMessage: null,
+              createdAt: "2026-05-27T00:00:00.000Z",
+            },
+          },
+        }),
+      ),
+      updateRequirementBaseline,
+      updateRequirementReviewCandidates,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("修复结果待确认")).toBeInTheDocument();
+    await user.click(within(table).getByRole("button", { name: "需求提示详情 r1" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "需求规则修复确认" });
+    expect(within(dialog).getByText("修复前后对比")).toBeInTheDocument();
+    expect(within(dialog).getByText("补齐参与者字段。")).toBeInTheDocument();
+    expect(within(dialog).getByText("缺少参与者")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "拒绝" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "采纳" }));
+
+    await waitFor(() => {
+      expect(updateRequirementBaseline).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requirements: [
+            expect.objectContaining({
+              actor: "用户",
+              status: "accepted",
+            }),
+          ],
+          qualityReport: expect.objectContaining({
+            issues: [],
+            reviewRequiredRequirementIds: [],
+          }),
+        }),
+      );
+    });
+    expect(updateRequirementReviewCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        r1: expect.objectContaining({ status: "accepted" }),
+      }),
+    );
+  });
+
   it("keeps requirement text editable on the same page as generated rules", async () => {
     const updateRequirementText = vi.fn(async () => {});
     const originalRule = createRule({
@@ -1299,7 +1453,7 @@ describe("TextRequirementView", () => {
     });
     const cells = within(row).getAllByRole("cell");
     expect(cells[2]).toHaveClass("px-4");
-    expect(within(cells[2]).getByText("AI已补齐")).toBeInTheDocument();
+    expect(within(cells[2]).getByText("已确认")).toBeInTheDocument();
     expect(within(cells[2]).getByText("3项")).toBeInTheDocument();
     expect(within(cells[2]).queryByText("3项提示")).not.toBeInTheDocument();
 

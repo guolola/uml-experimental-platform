@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CodeRunSnapshot } from "@uml-platform/contracts";
+import type {
+  AtomicRequirement,
+  CodeRunSnapshot,
+  RequirementBaseline,
+} from "@uml-platform/contracts";
 import {
   buildApiUrl,
   createHttpWorkspaceRepository,
@@ -14,6 +18,7 @@ import {
   buildRunMarkdownReport,
 } from "../../features/history";
 import { createRunSnapshot } from "../../test/workspace-test-utils";
+import { snapshotInputFingerprint } from "../../shared/lib/fingerprint";
 
 function createCodeRunSnapshot(
   overrides: Partial<CodeRunSnapshot> = {},
@@ -66,6 +71,52 @@ function createCodeRunSnapshot(
     errorMessage: null,
   };
   return { ...base, ...overrides };
+}
+
+function createAtomicRequirement(
+  overrides: Partial<AtomicRequirement> = {},
+): AtomicRequirement {
+  return {
+    id: "REQ-001",
+    sourceRuleId: "r1",
+    sourceFragment: "系统应允许用户提交订单。",
+    sourceLocation: { section: "input", startOffset: 0, endOffset: 12 },
+    type: "functional",
+    actor: null,
+    subject: "系统",
+    action: "允许提交",
+    object: "订单",
+    condition: null,
+    outcome: "系统创建订单",
+    confidence: 0.56,
+    status: "pending-review",
+    criticality: "high",
+    acceptanceCriteria: ["用户提交订单后系统创建订单。"],
+    priority: "must",
+    fieldProvenance: {},
+    ...overrides,
+  };
+}
+
+function createRequirementBaseline(
+  requirements: AtomicRequirement[],
+): RequirementBaseline {
+  return {
+    runId: "run-baseline",
+    sourceDocumentId: "inline-requirement",
+    requirements,
+    assumptions: [],
+    conflicts: [],
+    qualityReport: {
+      runId: "run-baseline",
+      status: "pending-review",
+      summary: "存在待确认字段。",
+      issues: [],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: requirements.map((item) => item.id),
+    },
+    createdAt: "2026-05-27T00:00:00.000Z",
+  };
 }
 
 describe("createStartRunInput", () => {
@@ -592,6 +643,97 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.requirementText).toBe("团队成员更新的需求");
   });
 
+  it("retries requirement review state saves after a project workspace conflict", async () => {
+    const reviewedRequirement = createAtomicRequirement({
+      actor: "用户",
+      status: "accepted",
+    });
+    const reviewedBaseline = createRequirementBaseline([reviewedRequirement]);
+    const candidates = {
+      r1: {
+        ruleId: "r1",
+        beforeRequirement: createAtomicRequirement(),
+        afterRequirement: reviewedRequirement,
+        repairRationale: "补齐参与者。",
+        blockingReasons: [],
+        status: "accepted" as const,
+        errorMessage: null,
+        createdAt: "2026-05-27T00:00:00.000Z",
+      },
+    };
+    let workspaceReads = 0;
+    let workspaceWrites = 0;
+    const savedBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        workspaceReads += 1;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: workspaceReads === 1 ? 1 : 2,
+            state: {
+              requirementText:
+                workspaceReads === 1 ? "原需求" : "其他成员刚更新的需求",
+              rules: [
+                {
+                  id: "r1",
+                  category: "功能需求",
+                  text: "用户提交订单。",
+                  relatedDiagrams: ["usecase"],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        workspaceWrites += 1;
+        savedBodies.push(JSON.parse(String(options.body)));
+        if (workspaceWrites === 1) {
+          return new Response(
+            JSON.stringify({
+              message: "项目已由其他成员更新，请刷新最新状态后再保存。",
+              currentVersion: 2,
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 3,
+            state: savedBodies.at(-1)?.state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.loadWorkspace();
+    await repository.updateRequirementReviewState?.(reviewedBaseline, candidates);
+
+    expect(workspaceReads).toBe(2);
+    expect(workspaceWrites).toBe(2);
+    expect(savedBodies[1]?.baseVersion).toBe(2);
+    expect((savedBodies[1]?.state as Record<string, unknown>).requirementText).toBe(
+      "其他成员刚更新的需求",
+    );
+    expect(
+      ((savedBodies[1]?.state as Record<string, unknown>).requirementBaseline as RequirementBaseline)
+        .requirements[0]?.actor,
+    ).toBe("用户");
+    expect(
+      (
+        (savedBodies[1]?.state as Record<string, unknown>)
+          .requirementReviewCandidates as typeof candidates
+      ).r1.status,
+    ).toBe("accepted");
+  });
+
   it("restores project run snapshots by fetching run detail and saving a project workspace version", async () => {
     const snapshot = createRunSnapshot({
       runId: "run-restore",
@@ -677,7 +819,7 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.requirementText).toBe("恢复后的项目需求");
   });
 
-  it("lists project run history without fetching every snapshot detail", async () => {
+  it("lists project run history by hydrating snapshot-capable runs", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith("/api/projects/library-booking/runs")) {
         return new Response(
@@ -705,8 +847,29 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.includes("/api/projects/library-booking/runs/")) {
-        throw new Error("run detail should be loaded on demand");
+      if (url.endsWith("/api/projects/library-booking/runs/run-active")) {
+        return new Response(
+          JSON.stringify({
+            run: { runId: "run-active", model: "gpt-5.4" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/runs/run-complete")) {
+        return new Response(
+          JSON.stringify({
+            run: {
+              runId: "run-complete",
+              model: "gpt-5.4",
+              startedAt: "2026-05-22T00:00:00.000Z",
+            },
+            snapshot: createRunSnapshot({
+              runId: "run-complete",
+              requirementText: "图书馆预约需求",
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
     });
@@ -715,8 +878,10 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
     const history = await repository.listRunHistory();
 
-    expect(history).toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(history).toHaveLength(1);
+    expect(history[0]?.id).toBe("run-complete");
+    expect(history[0]?.providerModel).toBe("gpt-5.4");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("persists requirement run snapshots incrementally with diagram versions", async () => {
@@ -801,11 +966,265 @@ describe("createHttpWorkspaceRepository", () => {
         options?.method === "PUT",
     );
     const body = JSON.parse(String(saveCall?.[1]?.body));
-    expect(body.state.rulesVersion).toBe(2);
-    expect(body.state.diagramVersions).toEqual({ usecase: 1, class: 2 });
+    expect(body.state.rulesVersion).toBe(1);
+    expect(body.state.diagramVersions).toEqual({ usecase: 1, class: 1 });
     expect(body.state.generatedDiagramTypes).toEqual(["usecase", "class"]);
     expect(body.state.models.usecase).toEqual(existingUseCase);
     expect(body.state.models.class).toEqual(generatedClass);
+  });
+
+  it("merges requirement model snapshots without overwriting reviewed requirements", async () => {
+    const rule = {
+      id: "r1",
+      category: "功能需求" as const,
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase" as const],
+    };
+    const reviewedRequirement = createAtomicRequirement({
+      actor: "用户",
+      status: "accepted",
+    });
+    const reviewedBaseline = createRequirementBaseline([reviewedRequirement]);
+    const staleSnapshotBaseline = createRequirementBaseline([
+      createAtomicRequirement({ actor: null, status: "pending-review" }),
+    ]);
+    const snapshot = createRunSnapshot({
+      runId: "run-usecase",
+      requirementText: "订单需求",
+      selectedDiagrams: ["usecase"],
+      rules: [rule],
+      requirementBaseline: staleSnapshotBaseline,
+      models: [
+        {
+          diagramKind: "usecase",
+          title: "用例模型",
+          summary: "用户提交订单。",
+          notes: [],
+          actors: [],
+          useCases: [],
+          systemBoundaries: [],
+          relationships: [],
+        },
+      ],
+    });
+    let savedState: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 4,
+            state: {
+              requirementText: "订单需求",
+              rules: [rule],
+              requirementBaseline: reviewedBaseline,
+              requirementQualityReport: reviewedBaseline.qualityReport,
+              requirementReviewCandidates: {
+                r1: {
+                  ruleId: "r1",
+                  beforeRequirement: createAtomicRequirement(),
+                  afterRequirement: reviewedRequirement,
+                  repairRationale: "补齐参与者。",
+                  blockingReasons: [],
+                  status: "accepted",
+                  errorMessage: null,
+                  createdAt: "2026-05-27T00:00:00.000Z",
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        savedState = JSON.parse(String(options.body)).state;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 5,
+            state: savedState,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.5",
+      durationMs: 100,
+    });
+
+    expect((savedState?.requirementBaseline as RequirementBaseline).requirements[0]?.actor).toBe(
+      "用户",
+    );
+    expect(
+      (
+        savedState?.requirementReviewCandidates as Record<
+          string,
+          { status: string }
+        >
+      ).r1.status,
+    ).toBe("accepted");
+    expect(savedState?.generatedDiagramTypes).toContain("usecase");
+    expect(
+      (savedState?.diagramInputFingerprints as Partial<Record<string, string>>).usecase,
+    ).toBeTruthy();
+  });
+
+  it("uses current reviewed rules and returned models when persisting requirement model snapshots", async () => {
+    const currentRule = {
+      id: "r1",
+      category: "功能需求" as const,
+      text: "用户提交当前订单。",
+      relatedDiagrams: ["usecase" as const],
+    };
+    const snapshotRule = {
+      ...currentRule,
+      text: "用户提交旧订单。",
+    };
+    const snapshot = createRunSnapshot({
+      runId: "run-usecase",
+      requirementText: "订单需求",
+      selectedDiagrams: [],
+      rules: [snapshotRule],
+      models: [
+        {
+          diagramKind: "usecase",
+          title: "用例模型",
+          summary: "用户提交订单。",
+          notes: [],
+          actors: [],
+          useCases: [],
+          systemBoundaries: [],
+          relationships: [],
+        },
+      ],
+    });
+    let savedState: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 4,
+            state: {
+              requirementText: "订单需求",
+              rules: [currentRule],
+              generatedDiagramTypes: [],
+              selectedDiagramTypes: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        savedState = JSON.parse(String(options.body)).state;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 5,
+            state: savedState,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.5",
+      durationMs: 100,
+    });
+
+    const expectedFingerprint = snapshotInputFingerprint({
+      requirementText: "订单需求",
+      rules: [currentRule],
+    });
+    expect(savedState?.generatedDiagramTypes).toContain("usecase");
+    expect(savedState?.selectedDiagramTypes).toContain("usecase");
+    expect(savedState?.requirementInputFingerprint).toBe(expectedFingerprint);
+    expect(
+      (savedState?.diagramInputFingerprints as Partial<Record<string, string>>).usecase,
+    ).toBe(expectedFingerprint);
+  });
+
+  it("keeps generated repair candidates when saving the rules-only run snapshot", async () => {
+    const requirement = createAtomicRequirement();
+    const baseline = createRequirementBaseline([requirement]);
+    const snapshot = createRunSnapshot({
+      runId: "run-rules",
+      requirementText: "订单需求",
+      selectedDiagrams: [],
+      rules: [
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "用户提交订单。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+      requirementBaseline: baseline,
+    });
+    let savedState: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 4,
+            state: {
+              requirementText: "订单需求",
+              requirementReviewCandidates: {
+                r1: {
+                  ruleId: "r1",
+                  beforeRequirement: requirement,
+                  afterRequirement: createAtomicRequirement({ actor: "用户" }),
+                  repairRationale: "补齐参与者。",
+                  blockingReasons: [],
+                  status: "pending",
+                  errorMessage: null,
+                  createdAt: "2026-05-27T00:00:00.000Z",
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        savedState = JSON.parse(String(options.body)).state;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 5,
+            state: savedState,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.5",
+      durationMs: 100,
+    });
+
+    expect(
+      (
+        savedState?.requirementReviewCandidates as Record<
+          string,
+          { status: string }
+        >
+      ).r1.status,
+    ).toBe("pending");
   });
 
   it("persists design run snapshots incrementally without deleting existing diagrams", async () => {
@@ -1142,6 +1561,121 @@ describe("createHttpWorkspaceRepository", () => {
 
     expect(report).not.toContain("@startuml");
     expect(report).not.toContain("```plantuml");
+  });
+
+  it("persists requirement review candidates in the mock workspace", async () => {
+    const beforeRequirement = createAtomicRequirement();
+    const afterRequirement = createAtomicRequirement({
+      actor: "用户",
+      status: "accepted",
+      confidence: 0.82,
+    });
+    const repository = createMockWorkspaceRepository({
+      requirementReviewCandidates: {
+        r1: {
+          ruleId: "r1",
+          beforeRequirement,
+          afterRequirement,
+          repairRationale: "补齐参与者。",
+          blockingReasons: ["缺少参与者"],
+          status: "pending",
+          errorMessage: null,
+          createdAt: "2026-05-27T00:00:00.000Z",
+        },
+      },
+    });
+
+    await expect(repository.loadWorkspace()).resolves.toMatchObject({
+      requirementReviewCandidates: {
+        r1: expect.objectContaining({ status: "pending" }),
+      },
+    });
+
+    await repository.updateRequirementReviewCandidates?.({
+      r1: {
+        ruleId: "r1",
+        beforeRequirement,
+        afterRequirement,
+        repairRationale: "补齐参与者。",
+        blockingReasons: ["缺少参与者"],
+        status: "accepted",
+        errorMessage: null,
+        createdAt: "2026-05-27T00:00:00.000Z",
+      },
+    });
+
+    await expect(repository.loadWorkspace()).resolves.toMatchObject({
+      requirementReviewCandidates: {
+        r1: expect.objectContaining({ status: "accepted" }),
+      },
+    });
+  });
+
+  it("posts batch requirement rule repairs through the API proxy", async () => {
+    const requirement = createAtomicRequirement();
+    const baseline = createRequirementBaseline([requirement]);
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/runs/requirement-rule-repairs")) {
+        const body = JSON.parse(String(options?.body));
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                ruleId: "r1",
+                requirement: {
+                  ...requirement,
+                  actor: "用户",
+                  status: "accepted",
+                  confidence: 0.82,
+                },
+                qualityReport: baseline.qualityReport,
+                repairRationale: "补齐参与者。",
+                blockingReasons: [],
+              },
+            ],
+            failures: [],
+            receivedTargetRuleIds: body.targetRuleIds,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const response = await repository.repairRequirementRules?.({
+      requirementText: "订单需求",
+      rules: [
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "用户可以提交订单。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+      targetRuleIds: ["r1"],
+      baseline,
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(response?.candidates[0]?.ruleId).toBe("r1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4001/api/runs/requirement-rule-repairs",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "X-UML-Project-Id": "library-booking",
+        }),
+      }),
+    );
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.projectId).toBe("library-booking");
+    expect(requestBody.targetRuleIds).toEqual(["r1"]);
   });
 });
 

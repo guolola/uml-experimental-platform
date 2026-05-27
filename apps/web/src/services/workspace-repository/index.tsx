@@ -34,6 +34,8 @@ import type {
   ManagedProviderSettings,
   RepairRequirementRuleRequest,
   RepairRequirementRuleResponse,
+  RepairRequirementRulesRequest,
+  RepairRequirementRulesResponse,
   RequirementBaseline,
 } from "@uml-platform/contracts";
 import {
@@ -72,11 +74,36 @@ import {
   type RunHistoryItem,
   type RunHistorySnapshot,
 } from "../../features/history";
+import {
+  normalizeSnapshotFingerprint,
+  snapshotInputFingerprint,
+} from "../../shared/lib/fingerprint";
 
 export { buildApiUrl } from "../api-client";
 
 const PROJECT_ID_HEADER = "X-UML-Project-Id";
 const PROJECT_REQUIRED_MESSAGE = "请先登录并进入项目";
+
+function requirementInputFingerprint(
+  requirementText: string,
+  rules: RequirementRule[],
+) {
+  return snapshotInputFingerprint({ requirementText, rules });
+}
+
+function designInputFingerprint(
+  requirementModels: DiagramModelSpec[],
+  requirementModelTraceability: RequirementModelTraceabilityEntry[],
+) {
+  return snapshotInputFingerprint({ requirementModels, requirementModelTraceability });
+}
+
+function fingerprintMatches(
+  storedFingerprint: string | null | undefined,
+  currentFingerprint: string,
+) {
+  return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
+}
 
 interface WorkspaceRepositoryOptions {
   projectId?: string | null;
@@ -140,12 +167,23 @@ export interface StartDocumentRunInput {
 
 export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceRecord>;
+  getProjectCapabilities?(): Promise<string[]>;
   updateRequirementText(text: string): Promise<void>;
   updateRequirementRules?(rules: RequirementRule[]): Promise<void>;
   updateRequirementBaseline?(baseline: RequirementBaseline): Promise<void>;
+  updateRequirementReviewCandidates?(
+    candidates: WorkspaceRecord["requirementReviewCandidates"],
+  ): Promise<void>;
+  updateRequirementReviewState?(
+    baseline: RequirementBaseline,
+    candidates: WorkspaceRecord["requirementReviewCandidates"],
+  ): Promise<void>;
   repairRequirementRule?(
     input: RepairRequirementRuleRequest,
   ): Promise<RepairRequirementRuleResponse>;
+  repairRequirementRules?(
+    input: RepairRequirementRulesRequest,
+  ): Promise<RepairRequirementRulesResponse>;
   startRun(input: StartRunInput): Promise<{ runId: string }>;
   startDesignRun?(input: StartDesignRunInput): Promise<{ runId: string }>;
   startCodeRun?(input: StartCodeRunInput): Promise<{ runId: string }>;
@@ -243,6 +281,7 @@ function createEmptyWorkspace(): WorkspaceRecord {
     rules: [],
     requirementBaseline: null,
     requirementQualityReport: null,
+    requirementReviewCandidates: {},
     models: {},
     requirementModelTraceability: [],
     generatedDiagramTypes: [],
@@ -269,6 +308,9 @@ function createEmptyWorkspace(): WorkspaceRecord {
     codeSkillResourcePlan: null,
     codeSkillContext: null,
     codeDiagnostics: [],
+    requirementInputFingerprint: null,
+    diagramInputFingerprints: {},
+    designInputFingerprints: {},
     rulesVersion: 0,
     rulesBasedOnTextVersion: null,
     diagramVersions: {},
@@ -304,6 +346,7 @@ type ProjectRunsResponse = {
   runs?: Array<{
     runId?: string;
     status?: string | null;
+    createdAt?: string | null;
     startedAt?: string | null;
     updatedAt?: string | null;
     completedAt?: string | null;
@@ -312,6 +355,10 @@ type ProjectRunsResponse = {
     canRestore?: boolean | null;
     documentDownloadAvailable?: boolean | null;
   }>;
+};
+
+type ProjectAccessResponse = {
+  capabilities?: string[];
 };
 
 function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
@@ -330,7 +377,11 @@ function applySnapshotToWorkspace(
   snapshot: RunHistorySnapshot,
 ): WorkspaceRecord {
   const next = cloneWorkspace(workspace);
-  next.requirementText = snapshot.requirementText;
+  const currentHasRequirements =
+    next.requirementText.trim().length > 0 || next.rules.length > 0;
+  if (!currentHasRequirements) {
+    next.requirementText = snapshot.requirementText;
+  }
   next.runStatus = "idle";
   next.runProgress = 0;
   next.currentStage = null;
@@ -341,10 +392,30 @@ function applySnapshotToWorkspace(
     return next;
   }
 
-  next.rules = [...snapshot.rules];
-  next.requirementBaseline = snapshot.requirementBaseline ?? next.requirementBaseline ?? null;
-  next.requirementQualityReport =
-    snapshot.requirementBaseline?.qualityReport ?? next.requirementQualityReport ?? null;
+  const snapshotRequirementFingerprint = requirementInputFingerprint(
+    snapshot.requirementText,
+    snapshot.rules,
+  );
+  const isRequirementSnapshot =
+    !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
+  const isRulesOnlyRequirementSnapshot =
+    isRequirementSnapshot &&
+    snapshot.selectedDiagrams.length === 0 &&
+    snapshot.models.length === 0 &&
+    snapshot.plantUml.length === 0 &&
+    snapshot.svgArtifacts.length === 0 &&
+    Object.keys(snapshot.diagramErrors).length === 0;
+  if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
+    next.requirementText = snapshot.requirementText;
+    next.rules = [...snapshot.rules];
+    next.requirementBaseline = snapshot.requirementBaseline ?? next.requirementBaseline ?? null;
+    next.requirementQualityReport =
+      snapshot.requirementBaseline?.qualityReport ?? next.requirementQualityReport ?? null;
+  }
+  const workspaceRequirementFingerprint = requirementInputFingerprint(
+    next.requirementText,
+    next.rules,
+  );
 
   if (isCodeRunSnapshot(snapshot)) {
     next.designModels = Object.fromEntries(
@@ -372,6 +443,15 @@ function applySnapshotToWorkspace(
     const designRecords = mapDesignSnapshotToRecords(snapshot);
     const affected = new Set(snapshot.selectedDiagrams);
     const requestedDesignDiagrams = snapshot.requestedDiagrams ?? snapshot.selectedDiagrams;
+    const requirementDiagrams = snapshot.requirementModels.map((model) => model.diagramKind);
+    const currentRequirementVersion =
+      fingerprintMatches(next.requirementInputFingerprint, workspaceRequirementFingerprint)
+        ? next.rulesVersion
+        : next.rulesVersion + 1;
+    const currentDesignFingerprint = designInputFingerprint(
+      snapshot.requirementModels,
+      snapshot.requirementModelTraceability,
+    );
     next.selectedDesignDiagramTypes = Array.from(
       new Set([...next.selectedDesignDiagramTypes, ...requestedDesignDiagrams]),
     );
@@ -385,6 +465,15 @@ function applySnapshotToWorkspace(
     next.generatedDesignDiagramTypes = Array.from(
       new Set([...next.generatedDesignDiagramTypes, ...snapshot.selectedDiagrams]),
     );
+    next.designInputFingerprints = {
+      ...next.designInputFingerprints,
+      ...Object.fromEntries(
+        Object.keys(designRecords.modelMap).map((modelId) => [
+          modelId,
+          currentDesignFingerprint,
+        ]),
+      ),
+    };
     next.designPlantUml = { ...next.designPlantUml, ...designRecords.plantUmlMap };
     next.designSvgArtifacts = { ...next.designSvgArtifacts, ...designRecords.svgMap };
     next.designDiagramErrors = clearAndMergeDiagramErrors(
@@ -401,19 +490,54 @@ function applySnapshotToWorkspace(
     next.requirementModelTraceability = mergeRequirementTraceability(
       next.requirementModelTraceability,
       snapshot.requirementModelTraceability,
-      snapshot.requirementModels.map((model) => model.diagramKind),
+      requirementDiagrams,
     );
+    next.selectedDiagramTypes = Array.from(
+      new Set([...next.selectedDiagramTypes, ...requirementDiagrams]),
+    );
+    next.generatedDiagramTypes = Array.from(
+      new Set([...next.generatedDiagramTypes, ...requirementDiagrams]),
+    );
+    next.requirementInputFingerprint = workspaceRequirementFingerprint;
+    next.rulesVersion = currentRequirementVersion;
+    next.rulesBasedOnTextVersion = 0;
+    next.diagramInputFingerprints = {
+      ...next.diagramInputFingerprints,
+      ...Object.fromEntries(
+        requirementDiagrams.map((diagram) => [diagram, workspaceRequirementFingerprint]),
+      ),
+    };
+    next.diagramVersions = {
+      ...next.diagramVersions,
+      ...Object.fromEntries(
+        requirementDiagrams.map((diagram) => [diagram, currentRequirementVersion]),
+      ),
+    };
     return next;
   }
 
   const records = mapSnapshotToRecords(snapshot);
-  const nextRulesVersion = next.rulesVersion + 1;
-  const affected = snapshot.selectedDiagrams;
+  const modelDiagrams = Object.keys(records.modelMap) as DiagramType[];
+  const artifactDiagrams = Array.from(
+    new Set([
+      ...Object.keys(records.plantUmlMap),
+      ...Object.keys(records.svgMap),
+      ...Object.keys(snapshot.diagramErrors),
+    ]),
+  ) as DiagramType[];
+  const affected = Array.from(
+    new Set([...snapshot.selectedDiagrams, ...modelDiagrams, ...artifactDiagrams]),
+  );
+  const inputChanged =
+    next.requirementInputFingerprint !== null &&
+    !fingerprintMatches(next.requirementInputFingerprint, workspaceRequirementFingerprint);
+  const nextRulesVersion = inputChanged ? next.rulesVersion + 1 : next.rulesVersion || 1;
   next.selectedDiagramTypes = Array.from(
-    new Set([...next.selectedDiagramTypes, ...snapshot.selectedDiagrams]),
+    new Set([...next.selectedDiagramTypes, ...affected]),
   );
   next.rulesVersion = nextRulesVersion;
   next.rulesBasedOnTextVersion = 0;
+  next.requirementInputFingerprint = workspaceRequirementFingerprint;
   if (affected.length === 0) {
     return next;
   }
@@ -424,7 +548,7 @@ function applySnapshotToWorkspace(
     affected,
   );
   next.generatedDiagramTypes = Array.from(
-    new Set([...next.generatedDiagramTypes, ...snapshot.selectedDiagrams]),
+    new Set([...next.generatedDiagramTypes, ...affected]),
   );
   next.plantUml = { ...next.plantUml, ...records.plantUmlMap };
   next.svgArtifacts = { ...next.svgArtifacts, ...records.svgMap };
@@ -437,7 +561,23 @@ function applySnapshotToWorkspace(
     ...next.diagramVersions,
     ...Object.fromEntries(affected.map((diagram) => [diagram, nextRulesVersion])),
   };
+  next.diagramInputFingerprints = {
+    ...next.diagramInputFingerprints,
+    ...Object.fromEntries(affected.map((diagram) => [diagram, workspaceRequirementFingerprint])),
+  };
   return next;
+}
+
+function restoreSnapshotToWorkspace(
+  workspace: WorkspaceRecord,
+  snapshot: RunHistorySnapshot,
+): WorkspaceRecord {
+  const base = {
+    ...createEmptyWorkspace(),
+    id: workspace.id,
+    name: workspace.name,
+  };
+  return applySnapshotToWorkspace(base, snapshot);
 }
 
 function clearAndMergeDiagramErrors<T extends string, V>(
@@ -829,6 +969,7 @@ export function createHttpWorkspaceRepository(
   let localRequirementText = "";
   let localRequirementRules: RequirementRule[] = [];
   let localRequirementBaseline: RequirementBaseline | null = null;
+  let localRequirementReviewCandidates: WorkspaceRecord["requirementReviewCandidates"] = {};
   let projectWorkspace: WorkspaceRecord | null = null;
   let projectWorkspaceVersion = 0;
 
@@ -875,6 +1016,26 @@ export function createHttpWorkspaceRepository(
     return cloneWorkspace(projectWorkspace);
   }
 
+  async function updateProjectWorkspace(
+    mutate: (workspace: WorkspaceRecord) => void,
+    sourceRunId?: string | null,
+  ) {
+    const current = await ensureProjectWorkspace();
+    const next = cloneWorkspace(current);
+    mutate(next);
+    try {
+      return await saveProjectWorkspace(next, sourceRunId);
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.status !== 409) {
+        throw error;
+      }
+      await loadProjectWorkspace();
+      const latest = cloneWorkspace(projectWorkspace ?? createEmptyWorkspace());
+      mutate(latest);
+      return saveProjectWorkspace(latest, sourceRunId);
+    }
+  }
+
   async function readProjectRunDetail(runId: string) {
     const scopedProjectId = requireProjectScope(projectId);
     return requestJson<ProjectRunDetailResponse>(
@@ -897,9 +1058,13 @@ export function createHttpWorkspaceRepository(
 
   async function persistSnapshotAsProjectWorkspace(
     snapshot: RunHistorySnapshot,
+    mode: "merge" | "restore" = "merge",
   ) {
     const current = await ensureProjectWorkspace();
-    const next = applySnapshotToWorkspace(current, snapshot);
+    const next =
+      mode === "restore"
+        ? restoreSnapshotToWorkspace(current, snapshot)
+        : applySnapshotToWorkspace(current, snapshot);
     try {
       return await saveProjectWorkspace(next, snapshot.runId);
     } catch (error) {
@@ -909,7 +1074,9 @@ export function createHttpWorkspaceRepository(
       await loadProjectWorkspace();
       const latest = projectWorkspace ?? createEmptyWorkspace();
       return saveProjectWorkspace(
-        applySnapshotToWorkspace(latest, snapshot),
+        mode === "restore"
+          ? restoreSnapshotToWorkspace(latest, snapshot)
+          : applySnapshotToWorkspace(latest, snapshot),
         snapshot.runId,
       );
     }
@@ -921,8 +1088,19 @@ export function createHttpWorkspaceRepository(
     const candidates = runs
       .filter((run) => run.runId && run.snapshotAvailable && run.canRestore)
       .sort(
-        (left, right) =>
-          Number(left.documentDownloadAvailable) - Number(right.documentDownloadAvailable),
+        (left, right) => {
+          const documentRank =
+            Number(left.documentDownloadAvailable) - Number(right.documentDownloadAvailable);
+          if (documentRank !== 0) return documentRank;
+          const leftTime = Date.parse(
+            left.completedAt ?? left.updatedAt ?? left.startedAt ?? "",
+          );
+          const rightTime = Date.parse(
+            right.completedAt ?? right.updatedAt ?? right.startedAt ?? "",
+          );
+          return (Number.isNaN(rightTime) ? 0 : rightTime) -
+            (Number.isNaN(leftTime) ? 0 : leftTime);
+        },
       );
     for (const run of candidates) {
       const detail = await readProjectRunDetail(run.runId!);
@@ -940,6 +1118,18 @@ export function createHttpWorkspaceRepository(
   }
 
   return {
+    async getProjectCapabilities() {
+      if (!projectId) return ["update_project", "start_runs"];
+      const scopedProjectId = requireProjectScope(projectId);
+      const response = await requestJson<ProjectAccessResponse>(
+        `/api/projects/${encodeURIComponent(scopedProjectId)}`,
+        withProjectHeaders(scopedProjectId, {
+          errorMessage: "读取项目权限失败",
+        }),
+      );
+      return response.capabilities ?? [];
+    },
+
     async loadWorkspace() {
       if (projectId) {
         return loadProjectWorkspace();
@@ -950,14 +1140,17 @@ export function createHttpWorkspaceRepository(
       workspace.requirementBaseline = localRequirementBaseline;
       workspace.requirementQualityReport =
         localRequirementBaseline?.qualityReport ?? null;
+      workspace.requirementReviewCandidates = {
+        ...localRequirementReviewCandidates,
+      };
       return workspace;
     },
 
     async updateRequirementText(text: string) {
       if (projectId) {
-        const workspace = await ensureProjectWorkspace();
-        workspace.requirementText = text;
-        await saveProjectWorkspace(workspace);
+        await updateProjectWorkspace((workspace) => {
+          workspace.requirementText = text;
+        });
         return;
       }
       localRequirementText = text;
@@ -965,9 +1158,9 @@ export function createHttpWorkspaceRepository(
 
     async updateRequirementRules(rules: RequirementRule[]) {
       if (projectId) {
-        const workspace = await ensureProjectWorkspace();
-        workspace.rules = [...rules];
-        await saveProjectWorkspace(workspace);
+        await updateProjectWorkspace((workspace) => {
+          workspace.rules = [...rules];
+        });
         return;
       }
       localRequirementRules = [...rules];
@@ -975,13 +1168,41 @@ export function createHttpWorkspaceRepository(
 
     async updateRequirementBaseline(baseline: RequirementBaseline) {
       if (projectId) {
-        const workspace = await ensureProjectWorkspace();
-        workspace.requirementBaseline = baseline;
-        workspace.requirementQualityReport = baseline.qualityReport;
-        await saveProjectWorkspace(workspace);
+        await updateProjectWorkspace((workspace) => {
+          workspace.requirementBaseline = baseline;
+          workspace.requirementQualityReport = baseline.qualityReport;
+        });
         return;
       }
       localRequirementBaseline = structuredClone(baseline) as RequirementBaseline;
+    },
+
+    async updateRequirementReviewCandidates(candidates) {
+      if (projectId) {
+        await updateProjectWorkspace((workspace) => {
+          workspace.requirementReviewCandidates =
+            structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+        });
+        return;
+      }
+      localRequirementReviewCandidates =
+        structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+    },
+
+    async updateRequirementReviewState(baseline, candidates) {
+      if (projectId) {
+        await updateProjectWorkspace((workspace) => {
+          workspace.requirementBaseline =
+            structuredClone(baseline) as RequirementBaseline;
+          workspace.requirementQualityReport = baseline.qualityReport;
+          workspace.requirementReviewCandidates =
+            structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+        });
+        return;
+      }
+      localRequirementBaseline = structuredClone(baseline) as RequirementBaseline;
+      localRequirementReviewCandidates =
+        structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
     },
 
     async repairRequirementRule(input: RepairRequirementRuleRequest) {
@@ -994,6 +1215,21 @@ export function createHttpWorkspaceRepository(
         },
         {
           errorMessage: "智能修复失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
+    },
+
+    async repairRequirementRules(input: RepairRequirementRulesRequest) {
+      const scopedProjectId = requireProjectScope(projectId);
+      return postJson<RepairRequirementRulesResponse>(
+        "/api/runs/requirement-rule-repairs",
+        {
+          ...input,
+          projectId: scopedProjectId,
+        },
+        {
+          errorMessage: "批量智能修复失败",
           headers: projectHeaders(scopedProjectId),
         },
       );
@@ -1339,7 +1575,36 @@ export function createHttpWorkspaceRepository(
     async listRunHistory() {
       if (projectId) {
         const payload = await readProjectRuns();
-        return normalizeProjectHistoryResponse(payload);
+        const normalizedHistory = normalizeProjectHistoryResponse(payload);
+        if (normalizedHistory.length > 0) return normalizedHistory;
+
+        const runsWithSnapshots = (payload.runs ?? []).filter(
+          (run) => run.runId && (run.snapshotAvailable || run.canRestore),
+        );
+        const details = await Promise.all(
+          runsWithSnapshots.map(async (run) => {
+            try {
+              const detail = await readProjectRunDetail(run.runId!);
+              if (!detail.snapshot) return null;
+              return {
+                id: detail.snapshot.runId,
+                createdAt:
+                  detail.run?.startedAt ??
+                  detail.run?.createdAt ??
+                  run.startedAt ??
+                  run.createdAt ??
+                  run.updatedAt ??
+                  new Date().toISOString(),
+                title: createRunHistoryTitle(detail.snapshot.requirementText),
+                snapshot: detail.snapshot,
+                providerModel: detail.run?.model ?? run.model ?? "默认模型",
+              } satisfies RunHistoryItem;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        return details.filter((item): item is RunHistoryItem => item !== null);
       }
       throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
@@ -1348,7 +1613,7 @@ export function createHttpWorkspaceRepository(
       if (projectId) {
         const detail = await readProjectRunDetail(id);
         if (!detail.snapshot) return null;
-        await persistSnapshotAsProjectWorkspace(detail.snapshot);
+        await persistSnapshotAsProjectWorkspace(detail.snapshot, "restore");
         return {
           id: detail.snapshot.runId,
           createdAt:
@@ -1411,6 +1676,16 @@ export function createMockWorkspaceRepository(
       : [],
     plantUml: { ...defaultWorkspace.plantUml, ...seed.plantUml },
     svgArtifacts: { ...defaultWorkspace.svgArtifacts, ...seed.svgArtifacts },
+    requirementInputFingerprint:
+      seed.requirementInputFingerprint ?? defaultWorkspace.requirementInputFingerprint,
+    requirementReviewCandidates: {
+      ...defaultWorkspace.requirementReviewCandidates,
+      ...seed.requirementReviewCandidates,
+    },
+    diagramInputFingerprints: {
+      ...defaultWorkspace.diagramInputFingerprints,
+      ...seed.diagramInputFingerprints,
+    },
     diagramVersions: {
       ...defaultWorkspace.diagramVersions,
       ...seed.diagramVersions,
@@ -1426,6 +1701,10 @@ export function createMockWorkspaceRepository(
     designSvgArtifacts: {
       ...defaultWorkspace.designSvgArtifacts,
       ...seed.designSvgArtifacts,
+    },
+    designInputFingerprints: {
+      ...defaultWorkspace.designInputFingerprints,
+      ...seed.designInputFingerprints,
     },
     rules: seed.rules ? [...seed.rules] : [],
     selectedDiagramTypes: seed.selectedDiagramTypes
@@ -1495,6 +1774,10 @@ export function createMockWorkspaceRepository(
         codeSkillResourcePlan: workspace.codeSkillResourcePlan,
         codeSkillContext: workspace.codeSkillContext,
         codeDiagnostics: [...workspace.codeDiagnostics],
+        requirementReviewCandidates: { ...workspace.requirementReviewCandidates },
+        requirementInputFingerprint: workspace.requirementInputFingerprint,
+        diagramInputFingerprints: { ...workspace.diagramInputFingerprints },
+        designInputFingerprints: { ...workspace.designInputFingerprints },
         rulesVersion: workspace.rulesVersion,
         rulesBasedOnTextVersion: workspace.rulesBasedOnTextVersion,
         diagramVersions: { ...workspace.diagramVersions },
@@ -1524,8 +1807,31 @@ export function createMockWorkspaceRepository(
       };
     },
 
+    async updateRequirementReviewCandidates(candidates) {
+      workspace = {
+        ...workspace,
+        requirementReviewCandidates:
+          structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"],
+      };
+    },
+
+    async updateRequirementReviewState(baseline, candidates) {
+      const nextBaseline = structuredClone(baseline) as RequirementBaseline;
+      workspace = {
+        ...workspace,
+        requirementBaseline: nextBaseline,
+        requirementQualityReport: nextBaseline.qualityReport,
+        requirementReviewCandidates:
+          structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"],
+      };
+    },
+
     async repairRequirementRule() {
       throw new Error("当前环境不支持单项智能修复");
+    },
+
+    async repairRequirementRules() {
+      throw new Error("当前环境不支持批量智能修复");
     },
 
     async startRun(input: StartRunInput) {
@@ -1774,30 +2080,7 @@ export function createMockWorkspaceRepository(
       if (!snapshot) {
         throw new Error("Mock run not found");
       }
-      const { modelMap, plantUmlMap, svgMap } = mapSnapshotToRecords(snapshot);
-      workspace = {
-        ...workspace,
-        requirementText: snapshot.requirementText,
-        selectedDiagramTypes: Array.from(
-          new Set([...workspace.selectedDiagramTypes, ...snapshot.selectedDiagrams]),
-        ),
-        generatedDiagramTypes: Array.from(
-          new Set([...workspace.generatedDiagramTypes, ...snapshot.selectedDiagrams]),
-        ),
-        rules: [...snapshot.rules],
-        requirementBaseline: snapshot.requirementBaseline ?? workspace.requirementBaseline,
-        requirementQualityReport:
-          snapshot.requirementBaseline?.qualityReport ??
-          workspace.requirementQualityReport,
-        models: { ...workspace.models, ...modelMap },
-        plantUml: { ...workspace.plantUml, ...plantUmlMap },
-        svgArtifacts: { ...workspace.svgArtifacts, ...svgMap },
-        diagramErrors: clearAndMergeDiagramErrors(
-          workspace.diagramErrors,
-          snapshot.diagramErrors,
-          snapshot.selectedDiagrams,
-        ),
-      };
+      workspace = applySnapshotToWorkspace(workspace, snapshot);
       return snapshot;
     },
 
@@ -1806,30 +2089,7 @@ export function createMockWorkspaceRepository(
       if (!snapshot) {
         throw new Error("Mock design run not found");
       }
-      const { modelMap, plantUmlMap, svgMap } = mapDesignSnapshotToRecords(snapshot);
-      workspace = {
-        ...workspace,
-        selectedDesignDiagramTypes: Array.from(
-          new Set([
-            ...workspace.selectedDesignDiagramTypes,
-            ...(snapshot.requestedDiagrams ?? snapshot.selectedDiagrams),
-          ]),
-        ),
-        generatedDesignDiagramTypes: Array.from(
-          new Set([
-            ...workspace.generatedDesignDiagramTypes,
-            ...snapshot.selectedDiagrams,
-          ]),
-        ),
-        designModels: { ...workspace.designModels, ...modelMap },
-        designPlantUml: { ...workspace.designPlantUml, ...plantUmlMap },
-        designSvgArtifacts: { ...workspace.designSvgArtifacts, ...svgMap },
-        designDiagramErrors: clearAndMergeDiagramErrors(
-          workspace.designDiagramErrors,
-          snapshot.diagramErrors,
-          snapshot.selectedDiagrams,
-        ),
-      };
+      workspace = applySnapshotToWorkspace(workspace, snapshot);
       return snapshot;
     },
 

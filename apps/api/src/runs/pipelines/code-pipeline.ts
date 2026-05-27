@@ -105,6 +105,7 @@ import {
 } from "../traceability/trusted-chain-traceability.js";
 
 const MAX_UI_FIDELITY_REPAIR_ROUNDS = 2;
+const MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS = 3;
 
 // route -> pipeline -> record store contract: routes enqueue a record, this pipeline mutates its snapshot and emits run events.
 export async function runCodeStagePipeline(
@@ -165,31 +166,62 @@ export async function runCodeStagePipeline(
   snapshot.codeContextHash = codeContextHash;
 
   updateStage("analyze_code_business_logic", "正在从需求、设计模型和 PlantUML 提取业务逻辑");
-  const businessLogicResult = await collectStructuredResult(
-    llmTransport,
-    providerSettings,
-    createMessages(
-      buildAnalyzeCodeBusinessLogicPrompt(
-        snapshot.requirementText,
-        snapshot.rules,
-        snapshot.designModels,
-        snapshot.designPlantUml,
-      ),
+  const businessLogicMessages = createMessages(
+    buildAnalyzeCodeBusinessLogicPrompt(
+      snapshot.requirementText,
+      snapshot.rules,
+      snapshot.designModels,
+      snapshot.designPlantUml,
     ),
-    "analyze_code_business_logic",
-    (chunk) => {
+  );
+  let businessLogicResult: ReturnType<typeof parseCodeBusinessLogicResult> | null = null;
+  let businessLogicError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS; attempt += 1) {
+    try {
+      businessLogicResult = await collectStructuredResult(
+        llmTransport,
+        providerSettings,
+        businessLogicMessages,
+        "analyze_code_business_logic",
+        (chunk) => {
+          emitEvent(
+            record,
+            llmChunkRunEventSchema.parse({
+              type: "llm_chunk",
+              stage: "analyze_code_business_logic",
+              chunk,
+            }),
+          );
+        },
+        parseCodeBusinessLogicResult,
+        getGenerateCodeBusinessLogicResponseFormat(providerSettings.model),
+        attempt,
+      );
+      businessLogicError = null;
+      break;
+    } catch (error) {
+      throwIfRunCancelled(record);
+      businessLogicError = error;
+      if (attempt >= MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS) break;
+      addCodeDiagnostic(
+        snapshot,
+        "analyze_code_business_logic",
+        `业务逻辑结构化输出解析失败，正在重试（${attempt}/${MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS}）：${formatParseError(error)}`,
+      );
       emitEvent(
         record,
-        llmChunkRunEventSchema.parse({
-          type: "llm_chunk",
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
           stage: "analyze_code_business_logic",
-          chunk,
+          progress: stageProgressValue("analyze_code_business_logic"),
+          message: `业务逻辑结构化输出解析失败，正在重试（${attempt}/${MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS}）`,
         }),
       );
-    },
-    parseCodeBusinessLogicResult,
-    getGenerateCodeBusinessLogicResponseFormat(providerSettings.model),
-  );
+    }
+  }
+  if (!businessLogicResult) {
+    throw businessLogicError ?? new Error("Code business logic structured output could not be parsed");
+  }
   throwIfRunCancelled(record);
   const businessLogic = businessLogicResult.businessLogic;
   snapshot.businessLogic = businessLogic;

@@ -3026,6 +3026,19 @@ export type RequirementRuleRepairSuggestion = z.infer<
   typeof requirementRuleRepairSuggestionSchema
 >;
 
+export const requirementRuleBatchRepairSuggestionSchema = z.object({
+  repairs: z.array(
+    z
+      .object({
+        ruleId: z.string().min(1),
+      })
+      .passthrough(),
+  ),
+});
+export type RequirementRuleBatchRepairSuggestion = z.infer<
+  typeof requirementRuleBatchRepairSuggestionSchema
+>;
+
 export const repairRequirementRuleRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
@@ -3045,6 +3058,35 @@ export const repairRequirementRuleResponseSchema = z.object({
 });
 export type RepairRequirementRuleResponse = z.infer<
   typeof repairRequirementRuleResponseSchema
+>;
+
+export const repairRequirementRulesRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
+  requirementText: z.string().min(1),
+  rules: z.array(requirementRuleSchema).min(1),
+  targetRuleIds: z.array(z.string().min(1)).min(1),
+  baseline: requirementBaselineSchema,
+  providerSettings: providerSettingsSchema.optional(),
+});
+export type RepairRequirementRulesRequest = z.infer<
+  typeof repairRequirementRulesRequestSchema
+>;
+
+export const repairRequirementRulesResponseSchema = z.object({
+  candidates: z.array(
+    repairRequirementRuleResponseSchema.extend({
+      ruleId: z.string().min(1),
+    }),
+  ),
+  failures: z.array(
+    z.object({
+      ruleId: z.string().min(1),
+      errorMessage: z.string().min(1),
+    }),
+  ),
+});
+export type RepairRequirementRulesResponse = z.infer<
+  typeof repairRequirementRulesResponseSchema
 >;
 
 export const startDesignRunRequestSchema = z.object({

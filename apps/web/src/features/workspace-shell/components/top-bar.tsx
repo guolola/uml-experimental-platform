@@ -29,6 +29,7 @@ import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
 import { useAuthenticatedRouteSession } from "../../user-platform/components/authenticated-route-session";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import { useTheme } from "../../../app/providers/theme-provider";
 import {
   DropdownMenu,
@@ -42,6 +43,7 @@ import { buildRunMarkdownReport } from "../../history";
 import { downloadTextFile } from "../../../shared/lib/download";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
+import { useWorkspaceShell } from "../state";
 import {
   SHELL_ROUTE_MODULES,
   type ShellRoutePath,
@@ -57,6 +59,7 @@ type TopBarProps = {
 type ProjectWorkspaceActionsProps = {
   projectId: string;
   onOpenDrawer: (kind: "tasks" | "history") => void;
+  projectRuns?: PlatformRunSummary[];
 };
 
 const RUN_STATUS_LABEL = {
@@ -227,6 +230,59 @@ function getTaskStages(kind: RunKind | null, activeStage: RunStage | null) {
     base.push(activeStage);
   }
   return base;
+}
+
+function normalizeRunStatus(status: string): keyof typeof RUN_STATUS_LABEL {
+  return status in RUN_STATUS_LABEL
+    ? (status as keyof typeof RUN_STATUS_LABEL)
+    : "idle";
+}
+
+function normalizeRunKind(kind: PlatformRunSummary["runKind"]): RunKind | null {
+  return kind === "requirements" ||
+    kind === "design" ||
+    kind === "code" ||
+    kind === "document"
+    ? kind
+    : null;
+}
+
+function normalizeRunStage(stage: PlatformRunSummary["stage"]): RunStage | null {
+  return stage ? (stage as RunStage) : null;
+}
+
+function isActiveProjectRun(run: PlatformRunSummary) {
+  return run.status === "queued" || run.status === "running";
+}
+
+function getProjectRunProgress(run: PlatformRunSummary) {
+  const status = normalizeRunStatus(run.status);
+  if (status === "queued") return 0;
+  if (status === "completed" || status === "failed" || status === "cancelled") {
+    return 100;
+  }
+  const stage = normalizeRunStage(run.stage);
+  const stages = getTaskStages(normalizeRunKind(run.runKind), stage);
+  const stageIndex = stage ? stages.indexOf(stage) : -1;
+  if (stageIndex < 0 || stages.length === 0) return status === "running" ? 5 : 0;
+  return Math.min(95, Math.max(5, Math.round(((stageIndex + 1) / stages.length) * 100)));
+}
+
+function formatProjectRunTitle(run: PlatformRunSummary) {
+  const kind = normalizeRunKind(run.runKind);
+  if (kind === "requirements") return "需求模型生成";
+  if (kind === "design") return "设计模型生成";
+  if (kind === "code") return "代码生成";
+  if (kind === "document") return "说明书生成";
+  return "项目生成任务";
+}
+
+function formatProjectRunMessage(run: PlatformRunSummary) {
+  const status = normalizeRunStatus(run.status);
+  if (run.errorMessage) return sanitizeTaskText(run.errorMessage);
+  if (status === "queued") return "任务正在排队";
+  const stage = normalizeRunStage(run.stage);
+  return stage ? `${formatStageLabel(stage)}进行中` : RUN_STATUS_LABEL[status];
 }
 
 const TRACE_KIND_LABELS: Record<string, string> = {
@@ -459,7 +515,11 @@ function buildStageTodoItems({
   });
 }
 
-export function ProjectGenerationTasksDrawerContent() {
+export function ProjectGenerationTasksDrawerContent({
+  projectRuns = [],
+}: {
+  projectRuns?: PlatformRunSummary[];
+} = {}) {
   const executionDetailRef = useRef<HTMLDivElement | null>(null);
   const {
     runStatus,
@@ -498,6 +558,20 @@ export function ProjectGenerationTasksDrawerContent() {
     generationTasks.find((task) => task.status === "queued" || task.status === "running") ??
     generationTasks[0] ??
     null;
+  const activeProjectRuns = useMemo(
+    () => projectRuns.filter(isActiveProjectRun),
+    [projectRuns],
+  );
+  const selectedProjectRun = selectedTask ? null : (activeProjectRuns[0] ?? null);
+  const visibleRunStatus = selectedProjectRun
+    ? normalizeRunStatus(selectedProjectRun.status)
+    : runStatus;
+  const visibleRunProgress = selectedProjectRun
+    ? getProjectRunProgress(selectedProjectRun)
+    : runProgress;
+  const visibleRunMessage = selectedProjectRun
+    ? formatProjectRunMessage(selectedProjectRun)
+    : runMessage;
   const pendingReviewSubtasks =
     selectedTask?.subtasks.filter((subtask) => subtask.status === "pending_review") ??
     [];
@@ -611,29 +685,73 @@ export function ProjectGenerationTasksDrawerContent() {
                 </div>
               </div>
             )}
+            {generationTasks.length === 0 && activeProjectRuns.length > 0 && (
+              <div className="mb-4 min-w-0 max-w-full overflow-hidden">
+                <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    任务列表
+                  </span>
+                </div>
+                <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
+                  {activeProjectRuns.map((run) => {
+                    const taskMessage = formatProjectRunMessage(run);
+                    return (
+                      <div
+                        key={run.runId}
+                        className="flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-lg border border-primary bg-primary/5 px-3 py-2 text-left text-sm"
+                      >
+                        <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                        <span className="min-w-0 flex-1 overflow-hidden">
+                          <span className="block truncate font-medium" title={formatProjectRunTitle(run)}>
+                            {formatProjectRunTitle(run)}
+                          </span>
+                          <span
+                            className="mt-0.5 block truncate text-xs text-muted-foreground"
+                            title={taskMessage}
+                          >
+                            {taskMessage}
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                          {getProjectRunProgress(run)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div
               data-testid="generation-task-status-card"
               className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-4 text-sm"
             >
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <span className="text-muted-foreground">状态</span>
-                <Badge variant={runStatus === "failed" ? "destructive" : "secondary"}>
-                  {RUN_STATUS_LABEL[runStatus]}
+                <Badge variant={visibleRunStatus === "failed" ? "destructive" : "secondary"}>
+                  {RUN_STATUS_LABEL[visibleRunStatus]}
                 </Badge>
               </div>
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <span className="text-muted-foreground">进度</span>
-                <span className="shrink-0 font-mono">{runProgress}%</span>
+                <span className="shrink-0 font-mono">{visibleRunProgress}%</span>
               </div>
               <div className="grid min-w-0 gap-1">
                 <span className="text-muted-foreground">消息</span>
                 <span
                   className="min-w-0 break-words"
-                  title={sanitizeTaskText(runMessage ?? errorMessage)}
+                  title={sanitizeTaskText(visibleRunMessage ?? errorMessage)}
                 >
-                  {sanitizeTaskText(runMessage ?? errorMessage) || "暂无进行中的任务"}
+                  {sanitizeTaskText(visibleRunMessage ?? errorMessage) || "暂无进行中的任务"}
                 </span>
               </div>
+              {selectedProjectRun?.runId && (
+                <div className="grid min-w-0 gap-1">
+                  <span className="text-muted-foreground">运行 ID</span>
+                  <span className="min-w-0 truncate font-mono text-xs" title={selectedProjectRun.runId}>
+                    {selectedProjectRun.runId}
+                  </span>
+                </div>
+              )}
               {currentRunDiagnostics.providerModel && (
                 <div className="grid min-w-0 gap-1">
                   <span className="text-muted-foreground">模型</span>
@@ -1004,7 +1122,9 @@ export function ProjectGenerationTasksDrawerContent() {
 export function ProjectWorkspaceActions({
   projectId: _projectId,
   onOpenDrawer,
+  projectRuns = [],
 }: ProjectWorkspaceActionsProps) {
+  const { openHistoryDrawer } = useWorkspaceShell();
   const {
     requirementText,
     rules,
@@ -1021,6 +1141,17 @@ export function ProjectWorkspaceActions({
     (task) => task.status === "queued" || task.status === "running",
   ).length;
   const taskIsActive = runStatus === "queued" || runStatus === "running";
+  const activeProjectRuns = projectRuns.filter(isActiveProjectRun);
+  const selectedProjectRun =
+    taskIsActive || activeTaskCount > 0 ? null : (activeProjectRuns[0] ?? null);
+  const visibleTaskIsActive = taskIsActive || activeProjectRuns.length > 0;
+  const visibleActiveTaskCount = activeTaskCount || activeProjectRuns.length;
+  const visibleRunStatus = selectedProjectRun
+    ? normalizeRunStatus(selectedProjectRun.status)
+    : runStatus;
+  const visibleRunProgress = selectedProjectRun
+    ? getProjectRunProgress(selectedProjectRun)
+    : runProgress;
 
   const currentSnapshot = (): RunSnapshot => ({
     runId: "workspace-current",
@@ -1068,7 +1199,7 @@ export function ProjectWorkspaceActions({
         aria-label="生成任务"
         onClick={() => onOpenDrawer("tasks")}
       >
-        {taskIsActive ? (
+        {visibleTaskIsActive ? (
           <Loader2 className="size-5 animate-spin text-primary" />
         ) : runStatus === "failed" ? (
           <AlertCircle className="size-5 text-destructive" />
@@ -1078,10 +1209,10 @@ export function ProjectWorkspaceActions({
           <Activity className="size-5" />
         )}
         <span className="hidden max-w-36 truncate font-semibold xl:inline">
-          {activeTaskCount > 1
-            ? `${activeTaskCount} 个任务`
-            : taskIsActive
-              ? `${RUN_STATUS_LABEL[runStatus]} ${runProgress}%`
+          {visibleActiveTaskCount > 1
+            ? `${visibleActiveTaskCount} 个任务`
+            : visibleTaskIsActive
+              ? `${RUN_STATUS_LABEL[visibleRunStatus]} ${visibleRunProgress}%`
               : RUN_STATUS_LABEL[runStatus]}
         </span>
       </Button>
@@ -1115,6 +1246,16 @@ export function ProjectWorkspaceActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-10 shrink-0 rounded-full px-4 text-sm font-medium"
+        onClick={openHistoryDrawer}
+      >
+        <History className="size-5" />
+        历史快照
+      </Button>
 
       <Button
         type="button"

@@ -76,6 +76,9 @@ const REQUIREMENT_SOURCE_ICON = {
 } satisfies Record<DiagramType, typeof Network>;
 
 type RequirementSourceStatus = Record<DiagramType, boolean>;
+type RequirementSourceDetails = RequirementSourceStatus & {
+  useCaseCount: number;
+};
 
 function sameDesignDiagramSelection(
   left: DesignDiagramType[],
@@ -86,10 +89,13 @@ function sameDesignDiagramSelection(
 
 function getDesignDiagramBlockReason(
   diagram: DesignDiagramType,
-  sourceStatus: RequirementSourceStatus,
+  sourceStatus: RequirementSourceDetails,
 ) {
   if (!sourceStatus.usecase) {
     return `缺少需求阶段${DIAGRAM_META.usecase.label}`;
+  }
+  if (diagram === "sequence" && sourceStatus.useCaseCount === 0) {
+    return "需求阶段用例模型没有可生成顺序图的用例";
   }
 
   const source = DESIGN_SOURCE_MAP[diagram];
@@ -139,12 +145,19 @@ export function DesignModelPage() {
   }, []);
 
   const sourceStatus = useMemo(
-    () => ({
-      usecase: Boolean(models.usecase),
-      activity: Boolean(models.activity),
-      class: Boolean(models.class),
-      deployment: Boolean(models.deployment),
-    }),
+    () => {
+      const useCases =
+        models.usecase && "useCases" in models.usecase && Array.isArray(models.usecase.useCases)
+          ? models.usecase.useCases
+          : [];
+      return {
+        usecase: Boolean(models.usecase),
+        activity: Boolean(models.activity),
+        class: Boolean(models.class),
+        deployment: Boolean(models.deployment),
+        useCaseCount: useCases.length,
+      };
+    },
     [models],
   );
 

@@ -215,6 +215,46 @@ describe("DesignModelPage", () => {
     expect(screen.getAllByText("缺少需求阶段用例模型").length).toBeGreaterThan(0);
   });
 
+  it("disables sequence generation when the use case model has no use cases", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: {
+              ...useCaseModel,
+              useCases: [],
+            },
+          },
+          selectedDesignDiagramTypes: ["sequence"],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("设计模型");
+    expect(screen.getByRole("checkbox", { name: /顺序图/ })).toBeDisabled();
+    expect(
+      screen.getAllByText("需求阶段用例模型没有可生成顺序图的用例").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /生成设计模型/ })).toBeDisabled();
+  });
+
   it("blocks design generation when requirement model traceability is stale", async () => {
     const startDesignRun = vi.fn();
     const repository: WorkspaceRepository = {

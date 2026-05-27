@@ -23,12 +23,14 @@ export function ModelPicker({
   align = "start",
   triggerClassName,
   fullWidth = false,
+  disabled = false,
 }: {
   value: string;
   onValueChange: (value: string) => void;
   align?: "start" | "center" | "end";
   triggerClassName?: string;
   fullWidth?: boolean;
+  disabled?: boolean;
 }) {
   const display = getModelDisplayName(value);
   const selectedVendor = getModelVendor(value);
@@ -41,9 +43,11 @@ export function ModelPicker({
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-accent",
             fullWidth && "w-full justify-between rounded-md px-3 py-2 text-left",
+            disabled && "cursor-not-allowed opacity-50 hover:bg-background",
             triggerClassName,
           )}
           title="切换模型"
+          disabled={disabled}
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <Cpu className="size-3.5 shrink-0 text-muted-foreground" />

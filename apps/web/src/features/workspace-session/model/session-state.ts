@@ -110,6 +110,7 @@ export interface WorkspaceSessionState {
   rules: RequirementRule[];
   requirementBaseline: RequirementBaseline | null;
   requirementQualityReport: RequirementQualityReport | null;
+  requirementReviewCandidates: WorkspaceRecord["requirementReviewCandidates"];
   acceptRequirementAiSuggestions: (
     ruleId: string,
     mode?: "ai-accepted" | "manual-edited",
@@ -157,6 +158,9 @@ export interface WorkspaceSessionState {
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
   codeEditVersion: number;
   updateCodeFile: (path: string, value: string) => void;
+  canUpdateWorkspace: boolean;
+  canStartRuns: boolean;
+  workspacePermissionReason: string | null;
   generatedDesignDiagrams: DesignDiagramType[];
   generatedDiagrams: DiagramType[];
   generating: boolean;
@@ -171,6 +175,10 @@ export interface WorkspaceSessionState {
   clearCompletedGenerationTasks: () => void;
   generateRules: () => Promise<void>;
   repairRequirementRule: (ruleId: string) => Promise<void>;
+  decideRequirementReviewCandidate: (
+    ruleId: string,
+    decision: "accepted" | "rejected",
+  ) => Promise<void>;
   saveRequirementModelEdit: (
     diagramKind: DiagramType,
     model: DiagramModelSpec,
@@ -202,9 +210,13 @@ export interface WorkspaceSessionState {
   textVersion: number;
   rulesVersion: number;
   rulesBasedOnTextVersion: number | null;
+  requirementInputFingerprint: string | null;
   diagramVersions: Partial<Record<DiagramType, number>>;
+  diagramInputFingerprints: Partial<Record<DiagramType, string>>;
+  designInputFingerprints: Record<string, string>;
   isRulesStale: boolean;
   staleDiagrams: DiagramType[];
+  requirementReviewBlockedReason: string | null;
   requirementTraceabilityStale: boolean;
   designTraceabilityStale: boolean;
   designGenerationBlockedReason: string | null;

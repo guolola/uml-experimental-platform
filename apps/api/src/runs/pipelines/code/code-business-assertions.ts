@@ -47,7 +47,19 @@ const DATA_PATTERN =
 const IDEMPOTENCY_PATTERN =
   /disabled|inProgress|loading|already|duplicate|重复|已存在|已处理|幂等|processed|currentStatus|status/i;
 const BEHAVIOR_PATTERN =
-  /onClick|onSubmit|useState|set[A-Z]|\bif\s*\(|\?.*:|disabled|validate|filter\s*\(|map\s*\(|submit|handle[A-Z]|保存|提交|审批|取消|登录|访问/i;
+  /onClick|onSubmit|useState|set[A-Z]|\bif\s*\(|\?.*:|disabled|validate|filter\s*\(|map\s*\(|submit|handle[A-Z]/i;
+const STOP_TOKENS = new Set([
+  "必须",
+  "需要",
+  "可以",
+  "系统",
+  "验证",
+  "提供",
+  "功能",
+  "用户",
+  "公众",
+  "面向",
+]);
 
 function acceptedRequirements(baseline: RequirementBaseline) {
   return baseline.requirements.filter((requirement) => requirement.status === "accepted");
@@ -69,14 +81,24 @@ function requirementText(requirement: AtomicRequirement) {
 }
 
 function compactTokens(requirement: AtomicRequirement) {
-  return Array.from(
-    new Set(
-      requirementText(requirement)
-        .split(/[^\p{L}\p{N}]+/u)
-        .map((part) => part.trim())
-        .filter((part) => part.length >= 2 && !["必须", "需要", "可以", "系统", "验证"].includes(part)),
-    ),
-  );
+  const tokens = new Set<string>();
+  for (const part of requirementText(requirement).split(/[^\p{L}\p{N}]+/u)) {
+    const token = part.trim();
+    if (token.length < 2 || STOP_TOKENS.has(token)) continue;
+    tokens.add(token);
+    if (!/\p{Script=Han}/u.test(token)) continue;
+    for (const match of token.matchAll(/\p{Script=Han}{2,}/gu)) {
+      const phrase = match[0];
+      for (let size = 2; size <= 4; size += 1) {
+        if (phrase.length < size) continue;
+        for (let index = 0; index <= phrase.length - size; index += 1) {
+          const gram = phrase.slice(index, index + size);
+          if (!STOP_TOKENS.has(gram)) tokens.add(gram);
+        }
+      }
+    }
+  }
+  return Array.from(tokens);
 }
 
 function sourceFiles(files: CodeRunSnapshot["files"]): FileEvidence[] {
@@ -91,12 +113,12 @@ function findEvidenceFiles(
   extraPattern: RegExp,
 ) {
   const tokens = compactTokens(requirement);
+  const minimumMatches = tokens.length >= 3 ? 2 : 1;
   return files
     .filter(({ content }) => {
       const text = content.toLowerCase();
-      const tokenMatched =
-        tokens.length === 0 ||
-        tokens.some((token) => text.includes(token.toLowerCase()));
+      const matchedTokenCount = tokens.filter((token) => text.includes(token.toLowerCase())).length;
+      const tokenMatched = tokens.length === 0 || matchedTokenCount >= minimumMatches;
       return tokenMatched && extraPattern.test(content);
     })
     .map(({ path }) => path);
