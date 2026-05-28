@@ -213,15 +213,27 @@ jobs:
             echo "Refreshing source repository in $SOURCE_DIR ..."
             cd "$SOURCE_DIR"
             git remote set-url origin "$REPO_URL"
-            git fetch --prune origin main
+            git -c http.version=HTTP/1.1 fetch --depth 1 --prune origin main
           else
             echo "Cloning source repository to $SOURCE_DIR ..."
             rm -rf "$SOURCE_DIR"
-            git clone --branch main "$REPO_URL" "$SOURCE_DIR"
+            for attempt in 1 2 3; do
+              if git -c http.version=HTTP/1.1 clone --depth 1 --branch main "$REPO_URL" "$SOURCE_DIR"; then
+                break
+              fi
+              echo "Source clone failed (attempt $attempt/3); retrying ..."
+              rm -rf "$SOURCE_DIR"
+              sleep "$((attempt * 10))"
+            done
+            if [[ ! -d "$SOURCE_DIR/.git" ]]; then
+              echo "Source clone failed after 3 attempts" >&2
+              exit 1
+            fi
             cd "$SOURCE_DIR"
           fi
 
-          git fetch --depth 1 origin "$RELEASE_SHA" || git fetch origin "$RELEASE_SHA"
+          git -c http.version=HTTP/1.1 fetch --depth 1 origin "$RELEASE_SHA" ||
+            git -c http.version=HTTP/1.1 fetch origin "$RELEASE_SHA"
           git checkout --force "$RELEASE_SHA"
           git clean -ffdx
 
