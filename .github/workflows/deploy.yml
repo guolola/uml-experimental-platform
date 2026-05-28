@@ -262,7 +262,9 @@ jobs:
 
           mkdir -p "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/releases" "$DEPLOY_PATH/shared"
 
-          tar -xzf "$RELEASE_ARCHIVE" -O scripts/deploy/baota-pm2-deploy.sh > "$DEPLOY_SCRIPT"
+          if ! tar -xzf "$RELEASE_ARCHIVE" -O ./scripts/deploy/baota-pm2-deploy.sh > "$DEPLOY_SCRIPT"; then
+            tar -xzf "$RELEASE_ARCHIVE" -O scripts/deploy/baota-pm2-deploy.sh > "$DEPLOY_SCRIPT"
+          fi
           chmod +x "$DEPLOY_SCRIPT"
           DEPLOY_PATH="$DEPLOY_PATH" \
             RELEASE_SHA="$RELEASE_SHA" \
