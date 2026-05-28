@@ -140,6 +140,48 @@ jobs:
           npm run test:render
           npm run test:web
 
+      - name: Build release archive
+        run: |
+          set -euo pipefail
+          RELEASE_ARCHIVE="${RUNNER_TEMP}/uml-platform-${GITHUB_SHA}.tar.gz"
+          BUILD_DIR="${RUNNER_TEMP}/uml-platform-release-${GITHUB_SHA}"
+          echo "RELEASE_ARCHIVE=$RELEASE_ARCHIVE" >> "$GITHUB_ENV"
+
+          echo "Building production release on GitHub runner ..."
+          npm run build:api
+          npm run build:render
+          VITE_APP_API_BASE_URL="" npm run build:web
+
+          echo "Creating release archive ..."
+          rm -rf "$BUILD_DIR" "$RELEASE_ARCHIVE"
+          mkdir -p "$BUILD_DIR"
+
+          cp package.json package-lock.json ecosystem.config.cjs "$BUILD_DIR/"
+
+          mkdir -p "$BUILD_DIR/apps/api" "$BUILD_DIR/apps/render-service" "$BUILD_DIR/apps/web"
+          cp apps/api/package.json "$BUILD_DIR/apps/api/"
+          cp apps/render-service/package.json "$BUILD_DIR/apps/render-service/"
+          cp apps/web/package.json "$BUILD_DIR/apps/web/"
+          cp -R apps/api/dist "$BUILD_DIR/apps/api/dist"
+          cp -R apps/render-service/dist "$BUILD_DIR/apps/render-service/dist"
+          cp -R apps/web/dist "$BUILD_DIR/apps/web/dist"
+
+          mkdir -p "$BUILD_DIR/packages/contracts" "$BUILD_DIR/packages/prompts"
+          cp packages/contracts/package.json "$BUILD_DIR/packages/contracts/"
+          cp packages/prompts/package.json "$BUILD_DIR/packages/prompts/"
+          cp -R packages/contracts/dist "$BUILD_DIR/packages/contracts/dist"
+          cp -R packages/prompts/dist "$BUILD_DIR/packages/prompts/dist"
+
+          mkdir -p "$BUILD_DIR/plantuml/build/libs"
+          cp plantuml/build/libs/plantuml-1.2026.3beta8.jar "$BUILD_DIR/plantuml/build/libs/"
+
+          mkdir -p "$BUILD_DIR/scripts/deploy"
+          cp scripts/deploy/baota-pm2-deploy.sh "$BUILD_DIR/scripts/deploy/"
+
+          tar -czf "$RELEASE_ARCHIVE" -C "$BUILD_DIR" .
+          rm -rf "$BUILD_DIR"
+          ls -lh "$RELEASE_ARCHIVE"
+
       - name: Configure SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -172,7 +214,6 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
-          REPO_URL: https://github.com/${{ github.repository }}.git
         run: |
           set -euo pipefail
           if [ -z "$DEPLOY_USER" ]; then
@@ -184,20 +225,35 @@ jobs:
             -o ServerAliveCountMax=6
             -o ConnectTimeout=30
           )
+          REMOTE_ARCHIVE="/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
+          echo "Uploading release archive to $DEPLOY_HOST:$REMOTE_ARCHIVE ..."
+          for attempt in 1 2 3; do
+            if scp "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
+              "$RELEASE_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ARCHIVE.tmp"; then
+              break
+            fi
+            echo "Release archive upload failed (attempt $attempt/3); retrying ..."
+            ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "rm -f '$REMOTE_ARCHIVE.tmp'" || true
+            sleep "$((attempt * 10))"
+            if [ "$attempt" -eq 3 ]; then
+              echo "Release archive upload failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' REPO_URL='$REPO_URL' bash -s" <<'REMOTE_DEPLOY'
+            "mv '$REMOTE_ARCHIVE.tmp' '$REMOTE_ARCHIVE'"
+
+          ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='$REMOTE_ARCHIVE' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
 
           NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
-          SOURCE_DIR="$DEPLOY_PATH/source"
-          BUILD_DIR="$DEPLOY_PATH/incoming/source-build-$RELEASE_SHA"
-          RELEASE_ARCHIVE="/tmp/uml-platform-$RELEASE_SHA.tar.gz"
+          DEPLOY_SCRIPT="/tmp/uml-platform-deploy-$RELEASE_SHA.sh"
 
-          command -v git >/dev/null || {
-            echo "git is required on the server" >&2
-            exit 1
-          }
           command -v node >/dev/null || {
             echo "node is required on the server" >&2
             exit 1
@@ -209,75 +265,12 @@ jobs:
 
           mkdir -p "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/releases" "$DEPLOY_PATH/shared"
 
-          if [[ -d "$SOURCE_DIR/.git" ]]; then
-            echo "Refreshing source repository in $SOURCE_DIR ..."
-            cd "$SOURCE_DIR"
-            git remote set-url origin "$REPO_URL"
-            git -c http.version=HTTP/1.1 fetch --depth 1 --prune origin main
-          else
-            echo "Cloning source repository to $SOURCE_DIR ..."
-            rm -rf "$SOURCE_DIR"
-            for attempt in 1 2 3; do
-              if git -c http.version=HTTP/1.1 clone --depth 1 --branch main "$REPO_URL" "$SOURCE_DIR"; then
-                break
-              fi
-              echo "Source clone failed (attempt $attempt/3); retrying ..."
-              rm -rf "$SOURCE_DIR"
-              sleep "$((attempt * 10))"
-            done
-            if [[ ! -d "$SOURCE_DIR/.git" ]]; then
-              echo "Source clone failed after 3 attempts" >&2
-              exit 1
-            fi
-            cd "$SOURCE_DIR"
-          fi
-
-          git -c http.version=HTTP/1.1 fetch --depth 1 origin "$RELEASE_SHA" ||
-            git -c http.version=HTTP/1.1 fetch origin "$RELEASE_SHA"
-          git checkout --force "$RELEASE_SHA"
-          git clean -ffdx
-
-          echo "Installing build dependencies from $NPM_REGISTRY ..."
-          npm ci --no-audit --no-fund --registry="$NPM_REGISTRY"
-
-          echo "Building release on server ..."
-          npm run build:api
-          npm run build:render
-          VITE_APP_API_BASE_URL="" npm run build:web
-
-          echo "Creating release archive on server ..."
-          rm -rf "$BUILD_DIR" "$RELEASE_ARCHIVE"
-          mkdir -p "$BUILD_DIR"
-
-          cp package.json package-lock.json ecosystem.config.cjs "$BUILD_DIR/"
-
-          mkdir -p "$BUILD_DIR/apps/api" "$BUILD_DIR/apps/render-service" "$BUILD_DIR/apps/web"
-          cp apps/api/package.json "$BUILD_DIR/apps/api/"
-          cp apps/render-service/package.json "$BUILD_DIR/apps/render-service/"
-          cp apps/web/package.json "$BUILD_DIR/apps/web/"
-          cp -R apps/api/dist "$BUILD_DIR/apps/api/dist"
-          cp -R apps/render-service/dist "$BUILD_DIR/apps/render-service/dist"
-          cp -R apps/web/dist "$BUILD_DIR/apps/web/dist"
-
-          mkdir -p "$BUILD_DIR/packages/contracts" "$BUILD_DIR/packages/prompts"
-          cp packages/contracts/package.json "$BUILD_DIR/packages/contracts/"
-          cp packages/prompts/package.json "$BUILD_DIR/packages/prompts/"
-          cp -R packages/contracts/dist "$BUILD_DIR/packages/contracts/dist"
-          cp -R packages/prompts/dist "$BUILD_DIR/packages/prompts/dist"
-
-          mkdir -p "$BUILD_DIR/plantuml/build/libs"
-          cp plantuml/build/libs/plantuml-1.2026.3beta8.jar "$BUILD_DIR/plantuml/build/libs/"
-
-          mkdir -p "$BUILD_DIR/scripts/deploy"
-          cp scripts/deploy/baota-pm2-deploy.sh "$BUILD_DIR/scripts/deploy/"
-
-          tar -czf "$RELEASE_ARCHIVE" -C "$BUILD_DIR" .
-          rm -rf "$BUILD_DIR"
-
-          chmod +x scripts/deploy/baota-pm2-deploy.sh
+          tar -xzf "$RELEASE_ARCHIVE" -O scripts/deploy/baota-pm2-deploy.sh > "$DEPLOY_SCRIPT"
+          chmod +x "$DEPLOY_SCRIPT"
           DEPLOY_PATH="$DEPLOY_PATH" \
             RELEASE_SHA="$RELEASE_SHA" \
             RELEASE_ARCHIVE="$RELEASE_ARCHIVE" \
             NPM_REGISTRY="$NPM_REGISTRY" \
-            bash scripts/deploy/baota-pm2-deploy.sh
+            bash "$DEPLOY_SCRIPT"
+          rm -f "$DEPLOY_SCRIPT"
           REMOTE_DEPLOY

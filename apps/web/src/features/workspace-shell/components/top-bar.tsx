@@ -43,7 +43,6 @@ import { buildRunMarkdownReport } from "../../history";
 import { downloadTextFile } from "../../../shared/lib/download";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
-import { useWorkspaceShell } from "../state";
 import {
   SHELL_ROUTE_MODULES,
   type ShellRoutePath,
@@ -1124,7 +1123,6 @@ export function ProjectWorkspaceActions({
   onOpenDrawer,
   projectRuns = [],
 }: ProjectWorkspaceActionsProps) {
-  const { openHistoryDrawer } = useWorkspaceShell();
   const {
     requirementText,
     rules,
@@ -1246,16 +1244,6 @@ export function ProjectWorkspaceActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-10 shrink-0 rounded-full px-4 text-sm font-medium"
-        onClick={openHistoryDrawer}
-      >
-        <History className="size-5" />
-        历史快照
-      </Button>
 
       <Button
         type="button"

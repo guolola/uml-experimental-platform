@@ -13,7 +13,6 @@ import {
 import { CodeGenerationPage } from "../features/code/components/code-generation-page";
 import { DesignModelPage } from "../features/design/components/design-model-page";
 import { InstructionDocumentsPage } from "../features/documents/components/instruction-documents-page";
-import { HistoryDrawer } from "../features/history/components/history-drawer";
 import { TextRequirementView } from "../features/requirements/components/text-requirement-page";
 import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
 import { MarketingHomePage } from "../features/marketing-site/components/marketing-home-page";
@@ -74,7 +73,7 @@ function getProtectedRoutePath(route: AppRoute) {
 }
 
 export function Shell() {
-  const { selection, historyDrawerOpen, closeHistoryDrawer } = useWorkspaceShell();
+  const { selection } = useWorkspaceShell();
   const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
   const [route, setRoute] = useState<AppRoute>(() =>
     typeof window === "undefined" ? { kind: "marketing-home", path: "/" } : matchAppRoute(window.location.pathname),
@@ -284,7 +283,6 @@ export function Shell() {
       ) : (
         guardedRouteContent
       )}
-      <HistoryDrawer open={historyDrawerOpen} onClose={closeHistoryDrawer} />
       <Toaster position="bottom-right" />
     </div>
   );
