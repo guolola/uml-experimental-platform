@@ -1019,7 +1019,7 @@ export function AuthPage({
   const authTextActionClass =
     "motion-action font-medium text-[#2b23ad] underline-offset-4 hover:underline";
   const authInputClass =
-    "motion-auth-input h-12 rounded-lg border-[#c7c4d6] bg-[#eff4ff] px-4 text-base leading-6 placeholder:text-[#c4c6d3] focus-visible:border-[#4441c4] focus-visible:ring-[#4441c4]/20";
+    "motion-auth-input h-12 rounded-lg !border-[#c7c4d6] !bg-white px-4 text-base leading-6 !text-[#0b1c30] placeholder:text-[#8a8da0] focus-visible:border-[#4441c4] focus-visible:ring-[#4441c4]/20 dark:!border-[#c7c4d6] dark:!bg-white dark:!text-[#0b1c30] dark:placeholder:text-[#8a8da0]";
   const submitLabel =
     path === "/login"
       ? mfaChallenge

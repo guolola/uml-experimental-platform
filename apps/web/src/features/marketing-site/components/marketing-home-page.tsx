@@ -287,7 +287,7 @@ function HomeTab({
                 <Button
                   type="button"
                   variant="outline"
-                  className="motion-action h-14 w-full max-w-[22rem] rounded-full border-2 border-[#c7c4d6] bg-[#f8f9ff] px-7 font-display text-[18px] font-semibold leading-[26px] text-[#4441c4] min-[520px]:w-auto md:h-[4.5rem] md:px-14 md:text-[20px] md:leading-[28px]"
+                  className="motion-action h-14 w-full max-w-[22rem] rounded-full border-2 !border-[#c7c4d6] !bg-white px-7 font-display text-[18px] font-semibold leading-[26px] !text-[#4441c4] hover:!bg-[#f8f9ff] min-[520px]:w-auto md:h-[4.5rem] md:px-14 md:text-[20px] md:leading-[28px] dark:!border-[#c7c4d6] dark:!bg-white dark:!text-[#4441c4] dark:hover:!bg-[#f8f9ff]"
                   onClick={() => onNavigate("/cases")}
                 >
                   查看案例项目
