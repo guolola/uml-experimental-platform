@@ -201,15 +201,17 @@ export function Shell() {
               />
             )}
             <WorkspaceTabsBar />
-            <div className="min-h-0 flex-1">{body}</div>
-            {projectId && (
-              <ProjectWorkspaceDrawer
-                projectId={projectId}
-                activeDrawer={activeDrawer}
-                onNavigate={navigate}
-                onClose={closeDrawer}
-              />
-            )}
+            <div className="relative min-h-0 flex-1 overflow-hidden">
+              <div className="h-full min-h-0">{body}</div>
+              {projectId && (
+                <ProjectWorkspaceDrawer
+                  projectId={projectId}
+                  activeDrawer={activeDrawer}
+                  onNavigate={navigate}
+                  onClose={closeDrawer}
+                />
+              )}
+            </div>
           </main>
         </ResizablePanel>
       </ResizablePanelGroup>

@@ -41,7 +41,10 @@ const PROJECT_MEMBERSHIPS: Record<
   "viewer-alpha": { view_documents: ["project-alpha"] },
 };
 
-async function createDocumentRoutesApp(rootDir: string) {
+async function createDocumentRoutesApp(
+  rootDir: string,
+  options?: { failAuditActions?: string[] },
+) {
   const app = Fastify({ logger: false });
   const documentLibrary = createFileDocumentLibrary(rootDir);
   const auditEvents: Array<{
@@ -65,6 +68,9 @@ async function createDocumentRoutesApp(rootDir: string) {
     projectMembershipGuard: async ({ projectId, userId, permission }) =>
       Boolean(PROJECT_MEMBERSHIPS[userId]?.[permission]?.includes(projectId)),
     recordAuditLog: async (event) => {
+      if (options?.failAuditActions?.includes(event.action)) {
+        throw new Error(`audit failed for ${event.action}`);
+      }
       auditEvents.push({
         action: event.action,
         outcome: event.outcome,
@@ -399,6 +405,7 @@ test("project document routes list, download, and versions only for authorized p
     });
     assert.equal(viewerDownload.statusCode, 200);
     assert.equal(viewerDownload.body, "alpha v2");
+    assert.equal(viewerDownload.headers["content-length"], "8");
 
     const crossProjectVersions = await app.inject({
       method: "GET",
@@ -433,6 +440,48 @@ test("project document routes list, download, and versions only for authorized p
     assert.deepEqual(
       viewerVersions.json().versions.map((version: { version: number }) => version.version),
       [2, 1],
+    );
+  } finally {
+    await app.close();
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("project document download remains available when authorized download audit logging fails", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "uml-document-routes-"));
+  const { app, documentLibrary, auditEvents } = await createDocumentRoutesApp(
+    rootDir,
+    { failAuditActions: ["document.download"] },
+  );
+  try {
+    const document = await documentLibrary.saveGeneratedDocument({
+      workspaceId: WORKSPACE_HEADERS["x-uml-workspace-id"],
+      projectId: "project-alpha",
+      createdByUserId: "user-alpha",
+      documentKind: "requirementsSpec",
+      sourceRunId: "run-alpha-1",
+      fileName: "需求规格说明书.docx",
+      buffer: Buffer.from("viewer file"),
+    });
+
+    const viewerDownload = await app.inject({
+      method: "GET",
+      url: `/api/projects/project-alpha/documents/${document.id}/download`,
+      headers: {
+        "x-uml-user-id": "viewer-alpha",
+      },
+    });
+
+    assert.equal(viewerDownload.statusCode, 200);
+    assert.equal(viewerDownload.body, "viewer file");
+    assert.equal(viewerDownload.headers["content-length"], "11");
+    assert.equal(
+      auditEvents.some(
+        (event) =>
+          event.action === "document.download" &&
+          event.actorUserId === "viewer-alpha",
+      ),
+      false,
     );
   } finally {
     await app.close();

@@ -930,6 +930,55 @@ function hasCompleteRequirementTraceability(
   );
 }
 
+function isRequirementDiagramStale(input: {
+  diagram: DiagramType;
+  activeRequirementFingerprint: string;
+  generatedDiagrams: DiagramType[];
+  requirementInputFingerprint: string | null;
+  diagramInputFingerprints: Partial<Record<DiagramType, string>>;
+  diagramVersions: Partial<Record<DiagramType, number>>;
+  rulesVersion: number;
+  models: Partial<Record<DiagramType, DiagramModelSpec>>;
+  requirementModelTraceability: RequirementModelTraceabilityEntry[];
+  manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"];
+}) {
+  const {
+    diagram,
+    activeRequirementFingerprint,
+    generatedDiagrams,
+    requirementInputFingerprint,
+    diagramInputFingerprints,
+    diagramVersions,
+    rulesVersion,
+    models,
+    requirementModelTraceability,
+    manualModelEditStatus,
+  } = input;
+  const diagramFingerprint = diagramInputFingerprints[diagram];
+  if (diagramFingerprint) {
+    return !fingerprintMatches(diagramFingerprint, activeRequirementFingerprint);
+  }
+  if (!generatedDiagrams.includes(diagram)) return false;
+
+  const diagramVersion = diagramVersions[diagram];
+  if (diagramVersion !== undefined) return diagramVersion !== rulesVersion;
+
+  const model = models[diagram];
+  const traceabilityForDiagram = requirementModelTraceability.filter(
+    (entry) => entry.target.diagramKind === diagram,
+  );
+  return !(
+    model &&
+    requirementInputFingerprint &&
+    fingerprintMatches(requirementInputFingerprint, activeRequirementFingerprint) &&
+    hasCompleteRequirementTraceability(
+      [model],
+      traceabilityForDiagram,
+      manualModelEditStatus,
+    )
+  );
+}
+
 function hasCompleteDesignTraceability(
   models: Array<DesignDiagramModelSpec | undefined>,
   traceability: DesignModelTraceabilityEntry[],
@@ -2846,16 +2895,19 @@ export function WorkspaceSessionProvider({
             ]),
           ),
         );
-        const currentStaleDiagrams = currentRequirementDiagrams.filter(
-          (diagram) =>
-            diagramInputFingerprints[diagram]
-              ? !fingerprintMatches(
-                  diagramInputFingerprints[diagram],
-                  activeRequirementFingerprint,
-                )
-              : !generatedDiagrams.includes(diagram)
-                ? false
-              : (diagramVersions[diagram] ?? -1) !== rulesVersion,
+        const currentStaleDiagrams = currentRequirementDiagrams.filter((diagram) =>
+          isRequirementDiagramStale({
+            diagram,
+            activeRequirementFingerprint,
+            generatedDiagrams,
+            requirementInputFingerprint,
+            diagramInputFingerprints,
+            diagramVersions,
+            rulesVersion,
+            models,
+            requirementModelTraceability,
+            manualModelEditStatus,
+          }),
         );
         const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
           Object.values(models),
@@ -3241,14 +3293,18 @@ export function WorkspaceSessionProvider({
         ),
       );
       const currentStaleDiagrams = currentRequirementDiagrams.filter((diagram) =>
-        diagramInputFingerprints[diagram]
-          ? !fingerprintMatches(
-              diagramInputFingerprints[diagram],
-              activeRequirementFingerprint,
-            )
-          : !generatedDiagrams.includes(diagram)
-            ? false
-          : (diagramVersions[diagram] ?? -1) !== rulesVersion,
+        isRequirementDiagramStale({
+          diagram,
+          activeRequirementFingerprint,
+          generatedDiagrams,
+          requirementInputFingerprint,
+          diagramInputFingerprints,
+          diagramVersions,
+          rulesVersion,
+          models,
+          requirementModelTraceability,
+          manualModelEditStatus,
+        }),
       );
       const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
         Object.values(models),
@@ -3733,14 +3789,18 @@ export function WorkspaceSessionProvider({
           ),
         );
         const currentStaleDiagrams = currentRequirementDiagrams.filter((diagram) =>
-          diagramInputFingerprints[diagram]
-            ? !fingerprintMatches(
-                diagramInputFingerprints[diagram],
-                activeRequirementFingerprint,
-              )
-            : !generatedDiagrams.includes(diagram)
-              ? false
-            : (diagramVersions[diagram] ?? -1) !== rulesVersion,
+          isRequirementDiagramStale({
+            diagram,
+            activeRequirementFingerprint,
+            generatedDiagrams,
+            requirementInputFingerprint,
+            diagramInputFingerprints,
+            diagramVersions,
+            rulesVersion,
+            models,
+            requirementModelTraceability,
+            manualModelEditStatus,
+          }),
         );
         const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
           Object.values(models),
@@ -4316,19 +4376,20 @@ export function WorkspaceSessionProvider({
     ...presentRequirementDiagrams,
   ]);
   const staleDiagrams = orderedRequirementDiagrams(
-    [...generatedRequirementDiagramSet].filter((diagram) => {
-      const diagramFingerprint = diagramInputFingerprints[diagram];
-      if (diagramFingerprint) {
-        return !fingerprintMatches(
-          diagramFingerprint,
-          currentRequirementInputFingerprint,
-        );
-      }
-      if (!generatedDiagrams.includes(diagram)) {
-        return false;
-      }
-      return (diagramVersions[diagram] ?? -1) !== rulesVersion;
-    }),
+    [...generatedRequirementDiagramSet].filter((diagram) =>
+      isRequirementDiagramStale({
+        diagram,
+        activeRequirementFingerprint: currentRequirementInputFingerprint,
+        generatedDiagrams,
+        requirementInputFingerprint,
+        diagramInputFingerprints,
+        diagramVersions,
+        rulesVersion,
+        models,
+        requirementModelTraceability,
+        manualModelEditStatus,
+      }),
+    ),
   );
   const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
     Object.values(models),

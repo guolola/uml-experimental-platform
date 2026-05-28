@@ -2683,6 +2683,24 @@ describe("App shell routes", () => {
     });
   });
 
+  it("switches project workspace drawers from banner shortcuts while a drawer is open", async () => {
+    const user = userEvent.setup();
+    projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/projects/library-booking");
+
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    expect(await screen.findByText("智慧图书馆预约系统")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "运行历史" }));
+
+    expect(await screen.findByRole("dialog", { name: "运行历史" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "文档中心" }));
+
+    expect(await screen.findByRole("dialog", { name: "文档中心" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "运行历史" })).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/projects/library-booking");
+  });
+
   it("opens project drawers from direct child routes", async () => {
     projectApiMode = "authenticated";
     window.history.pushState({}, "", "/projects/library-booking/history");

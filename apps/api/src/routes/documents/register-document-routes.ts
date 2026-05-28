@@ -387,6 +387,25 @@ export function registerDocumentRoutes({
   });
   }
 
+  async function auditDocumentBestEffort(
+    request: FastifyRequest,
+    input: Parameters<typeof auditDocument>[0],
+  ) {
+    try {
+      await auditDocument(input);
+    } catch (error) {
+      request.log.warn(
+        {
+          operation: "document.audit_best_effort_failed",
+          action: input.action,
+          documentId: input.documentId ?? null,
+          err: error,
+        },
+        "document audit logging failed after access was authorized",
+      );
+    }
+  }
+
   app.get("/api/projects/:projectId/documents", async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const projectAccess = await requireProjectAccessFromPath({
@@ -476,7 +495,7 @@ export function registerDocumentRoutes({
         },
         "project document download requested",
       );
-      await auditDocument({
+      await auditDocumentBestEffort(request, {
         actorUserId: projectAccess.userId,
         action: "document.download",
         documentId,
@@ -490,6 +509,7 @@ export function registerDocumentRoutes({
       });
 
       reply.header("Content-Type", document.mimeType);
+      reply.header("Content-Length", String(buffer.byteLength));
       reply.header(
         "Content-Disposition",
         `attachment; filename*=UTF-8''${encodeURIComponent(document.fileName)}`,
@@ -894,7 +914,7 @@ export function registerDocumentRoutes({
       },
       "document download requested",
     );
-    await auditDocument({
+    await auditDocumentBestEffort(request, {
       actorUserId: projectAccess?.userId ?? null,
       action: "document.download",
       documentId,
@@ -908,6 +928,7 @@ export function registerDocumentRoutes({
     });
 
     reply.header("Content-Type", document.mimeType);
+    reply.header("Content-Length", String(buffer.byteLength));
     reply.header(
       "Content-Disposition",
       `attachment; filename*=UTF-8''${encodeURIComponent(document.fileName)}`,

@@ -24,6 +24,7 @@ import {
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../test/workspace-test-utils";
+import { snapshotInputFingerprint } from "./lib/fingerprint";
 import { useWorkspaceSession } from "./state";
 
 const { toastMessage } = vi.hoisted(() => ({
@@ -642,6 +643,113 @@ describe("WorkspaceSessionProvider", () => {
     });
 
     expect(result.current.isRulesStale).toBe(false);
+    expect(result.current.staleDiagrams).toEqual([]);
+    expect(result.current.designGenerationBlockedReason).toBeNull();
+  });
+
+  it("keeps restored requirement models fresh when older workspaces lack per-diagram freshness metadata", async () => {
+    const rule = createRule({
+      id: "r1",
+      category: "功能需求",
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const requirementText = "订单系统需求";
+    const activeFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: [rule],
+    });
+    const usecaseModel: UseCaseDiagramSpec = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "用户提交订单。",
+      notes: [],
+      actors: [
+        {
+          id: "actor_user",
+          name: "用户",
+          actorType: "human",
+          responsibilities: ["提交订单"],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_submit",
+          name: "提交订单",
+          goal: "创建订单",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [{ id: "system", name: "订单系统" }],
+      relationships: [],
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText,
+          rules: [rule],
+          models: { usecase: usecaseModel },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "actor_user",
+                elementKind: "actor",
+                label: "用户",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_submit",
+                elementKind: "usecase",
+                label: "提交订单",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "system",
+                elementKind: "system-boundary",
+                label: "订单系统",
+              },
+            },
+          ],
+          generatedDiagramTypes: ["usecase"],
+          selectedDiagramTypes: ["usecase"],
+          requirementInputFingerprint: activeFingerprint,
+          diagramInputFingerprints: {},
+          diagramVersions: {},
+          rulesVersion: 3,
+          rulesBasedOnTextVersion: 0,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
     expect(result.current.staleDiagrams).toEqual([]);
     expect(result.current.designGenerationBlockedReason).toBeNull();
   });
