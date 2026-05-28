@@ -172,9 +172,6 @@ jobs:
           cp -R packages/contracts/dist "$BUILD_DIR/packages/contracts/dist"
           cp -R packages/prompts/dist "$BUILD_DIR/packages/prompts/dist"
 
-          mkdir -p "$BUILD_DIR/plantuml/build/libs"
-          cp plantuml/build/libs/plantuml-1.2026.3beta8.jar "$BUILD_DIR/plantuml/build/libs/"
-
           mkdir -p "$BUILD_DIR/scripts/deploy"
           cp scripts/deploy/baota-pm2-deploy.sh "$BUILD_DIR/scripts/deploy/"
 

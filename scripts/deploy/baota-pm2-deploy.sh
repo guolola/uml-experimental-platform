@@ -85,9 +85,23 @@ if [[ ! -f "$TMP_DIR/apps/web/dist/index.html" ]]; then
   exit 1
 fi
 
+PLANTUML_JAR="plantuml-1.2026.3beta8.jar"
+PLANTUML_TARGET="$TMP_DIR/plantuml/build/libs/$PLANTUML_JAR"
+PLANTUML_SHARED="$DEPLOY_PATH/shared/plantuml/$PLANTUML_JAR"
+PLANTUML_CURRENT="$DEPLOY_PATH/current/plantuml/build/libs/$PLANTUML_JAR"
 if [[ ! -f "$TMP_DIR/plantuml/build/libs/plantuml-1.2026.3beta8.jar" ]]; then
-  echo "Invalid release archive: missing PlantUML jar" >&2
-  exit 1
+  echo "Release archive does not include PlantUML jar; reusing shared server copy ..."
+  mkdir -p "$(dirname "$PLANTUML_TARGET")"
+  if [[ -f "$PLANTUML_SHARED" ]]; then
+    cp "$PLANTUML_SHARED" "$PLANTUML_TARGET"
+  elif [[ -f "$PLANTUML_CURRENT" ]]; then
+    cp "$PLANTUML_CURRENT" "$PLANTUML_TARGET"
+    mkdir -p "$(dirname "$PLANTUML_SHARED")"
+    cp "$PLANTUML_CURRENT" "$PLANTUML_SHARED"
+  else
+    echo "PlantUML jar not found in release, shared cache, or current release" >&2
+    exit 1
+  fi
 fi
 
 echo "Installing production dependencies from $NPM_REGISTRY ..."
