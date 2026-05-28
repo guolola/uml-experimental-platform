@@ -2513,7 +2513,7 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-max-size", "22");
     expect(screen.getByRole("button", { name: "生成任务" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导出" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "历史快照" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "历史快照" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "运行历史" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "项目设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "成员" })).toBeInTheDocument();

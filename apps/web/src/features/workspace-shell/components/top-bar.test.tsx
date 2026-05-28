@@ -179,7 +179,7 @@ describe("TopBar", () => {
     );
   });
 
-  it("opens local snapshots separately from project run history", async () => {
+  it("opens project run history without the removed local snapshot drawer action", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
       updateRequirementText: vi.fn(async () => {}),
@@ -214,9 +214,7 @@ describe("TopBar", () => {
     expect(screen.queryByRole("dialog", { name: "历史快照" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "生成任务" }));
     expect(onOpenDrawer).toHaveBeenCalledWith("tasks");
-    await user.click(screen.getByRole("button", { name: "历史快照" }));
-    expect(await screen.findByText("暂无历史快照。完成一次生成后会自动保存。")).toBeInTheDocument();
-    expect(onOpenDrawer).not.toHaveBeenCalledWith("history");
+    expect(screen.queryByRole("button", { name: "历史快照" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "运行历史" }));
 
     expect(toastMessage).not.toHaveBeenCalled();
