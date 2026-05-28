@@ -140,42 +140,6 @@ jobs:
           npm run test:render
           npm run test:web
 
-      - name: Build applications
-        run: |
-          npm run build:api
-          npm run build:render
-          VITE_APP_API_BASE_URL="" npm run build:web
-
-      - name: Create release archive
-        run: |
-          set -euo pipefail
-          RELEASE_DIR="release-${GITHUB_SHA}"
-          mkdir -p "$RELEASE_DIR"
-
-          cp package.json package-lock.json ecosystem.config.cjs "$RELEASE_DIR/"
-
-          mkdir -p "$RELEASE_DIR/apps/api" "$RELEASE_DIR/apps/render-service" "$RELEASE_DIR/apps/web"
-          cp apps/api/package.json "$RELEASE_DIR/apps/api/"
-          cp apps/render-service/package.json "$RELEASE_DIR/apps/render-service/"
-          cp apps/web/package.json "$RELEASE_DIR/apps/web/"
-          cp -R apps/api/dist "$RELEASE_DIR/apps/api/dist"
-          cp -R apps/render-service/dist "$RELEASE_DIR/apps/render-service/dist"
-          cp -R apps/web/dist "$RELEASE_DIR/apps/web/dist"
-
-          mkdir -p "$RELEASE_DIR/packages/contracts" "$RELEASE_DIR/packages/prompts"
-          cp packages/contracts/package.json "$RELEASE_DIR/packages/contracts/"
-          cp packages/prompts/package.json "$RELEASE_DIR/packages/prompts/"
-          cp -R packages/contracts/dist "$RELEASE_DIR/packages/contracts/dist"
-          cp -R packages/prompts/dist "$RELEASE_DIR/packages/prompts/dist"
-
-          mkdir -p "$RELEASE_DIR/plantuml/build/libs"
-          cp plantuml/build/libs/plantuml-1.2026.3beta8.jar "$RELEASE_DIR/plantuml/build/libs/"
-
-          mkdir -p "$RELEASE_DIR/scripts/deploy"
-          cp scripts/deploy/baota-pm2-deploy.sh "$RELEASE_DIR/scripts/deploy/"
-
-          tar -czf "uml-platform-${GITHUB_SHA}.tar.gz" -C "$RELEASE_DIR" .
-
       - name: Configure SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -202,11 +166,13 @@ jobs:
           echo "Scanning SSH host key for $DEPLOY_HOST:$DEPLOY_PORT ..."
           ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
-      - name: Upload release archive
+      - name: Deploy on server
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
         run: |
           set -euo pipefail
           if [ -z "$DEPLOY_USER" ]; then
@@ -218,26 +184,88 @@ jobs:
             -o ServerAliveCountMax=6
             -o ConnectTimeout=30
           )
-          scp "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
-            "uml-platform-${GITHUB_SHA}.tar.gz" \
-            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
-          scp "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
-            scripts/deploy/baota-pm2-deploy.sh \
-            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/baota-pm2-deploy.sh"
-
-      - name: Deploy on server
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
-        run: |
-          set -euo pipefail
-          SSH_OPTIONS=(
-            -o ServerAliveInterval=30
-            -o ServerAliveCountMax=6
-            -o ConnectTimeout=30
-          )
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "chmod +x /tmp/baota-pm2-deploy.sh && DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='/tmp/uml-platform-${GITHUB_SHA}.tar.gz' bash /tmp/baota-pm2-deploy.sh"
+            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' REPO_URL='$REPO_URL' bash -s" <<'REMOTE_DEPLOY'
+          set -Eeuo pipefail
+
+          NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+          SOURCE_DIR="$DEPLOY_PATH/source"
+          BUILD_DIR="$DEPLOY_PATH/incoming/source-build-$RELEASE_SHA"
+          RELEASE_ARCHIVE="/tmp/uml-platform-$RELEASE_SHA.tar.gz"
+
+          command -v git >/dev/null || {
+            echo "git is required on the server" >&2
+            exit 1
+          }
+          command -v node >/dev/null || {
+            echo "node is required on the server" >&2
+            exit 1
+          }
+          command -v npm >/dev/null || {
+            echo "npm is required on the server" >&2
+            exit 1
+          }
+
+          mkdir -p "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/releases" "$DEPLOY_PATH/shared"
+
+          if [[ -d "$SOURCE_DIR/.git" ]]; then
+            echo "Refreshing source repository in $SOURCE_DIR ..."
+            cd "$SOURCE_DIR"
+            git remote set-url origin "$REPO_URL"
+            git fetch --prune origin main
+          else
+            echo "Cloning source repository to $SOURCE_DIR ..."
+            rm -rf "$SOURCE_DIR"
+            git clone --branch main "$REPO_URL" "$SOURCE_DIR"
+            cd "$SOURCE_DIR"
+          fi
+
+          git fetch --depth 1 origin "$RELEASE_SHA" || git fetch origin "$RELEASE_SHA"
+          git checkout --force "$RELEASE_SHA"
+          git clean -ffdx
+
+          echo "Installing build dependencies from $NPM_REGISTRY ..."
+          npm ci --no-audit --no-fund --registry="$NPM_REGISTRY"
+
+          echo "Building release on server ..."
+          npm run build:api
+          npm run build:render
+          VITE_APP_API_BASE_URL="" npm run build:web
+
+          echo "Creating release archive on server ..."
+          rm -rf "$BUILD_DIR" "$RELEASE_ARCHIVE"
+          mkdir -p "$BUILD_DIR"
+
+          cp package.json package-lock.json ecosystem.config.cjs "$BUILD_DIR/"
+
+          mkdir -p "$BUILD_DIR/apps/api" "$BUILD_DIR/apps/render-service" "$BUILD_DIR/apps/web"
+          cp apps/api/package.json "$BUILD_DIR/apps/api/"
+          cp apps/render-service/package.json "$BUILD_DIR/apps/render-service/"
+          cp apps/web/package.json "$BUILD_DIR/apps/web/"
+          cp -R apps/api/dist "$BUILD_DIR/apps/api/dist"
+          cp -R apps/render-service/dist "$BUILD_DIR/apps/render-service/dist"
+          cp -R apps/web/dist "$BUILD_DIR/apps/web/dist"
+
+          mkdir -p "$BUILD_DIR/packages/contracts" "$BUILD_DIR/packages/prompts"
+          cp packages/contracts/package.json "$BUILD_DIR/packages/contracts/"
+          cp packages/prompts/package.json "$BUILD_DIR/packages/prompts/"
+          cp -R packages/contracts/dist "$BUILD_DIR/packages/contracts/dist"
+          cp -R packages/prompts/dist "$BUILD_DIR/packages/prompts/dist"
+
+          mkdir -p "$BUILD_DIR/plantuml/build/libs"
+          cp plantuml/build/libs/plantuml-1.2026.3beta8.jar "$BUILD_DIR/plantuml/build/libs/"
+
+          mkdir -p "$BUILD_DIR/scripts/deploy"
+          cp scripts/deploy/baota-pm2-deploy.sh "$BUILD_DIR/scripts/deploy/"
+
+          tar -czf "$RELEASE_ARCHIVE" -C "$BUILD_DIR" .
+          rm -rf "$BUILD_DIR"
+
+          chmod +x scripts/deploy/baota-pm2-deploy.sh
+          DEPLOY_PATH="$DEPLOY_PATH" \
+            RELEASE_SHA="$RELEASE_SHA" \
+            RELEASE_ARCHIVE="$RELEASE_ARCHIVE" \
+            NPM_REGISTRY="$NPM_REGISTRY" \
+            bash scripts/deploy/baota-pm2-deploy.sh
+          REMOTE_DEPLOY
