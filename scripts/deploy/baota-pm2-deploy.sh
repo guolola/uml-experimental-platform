@@ -135,6 +135,26 @@ echo "Reloading PM2 processes ..."
   pm2 start ecosystem.config.cjs --env production
   sleep 2
 
+  wait_for_http_health() {
+    local service_name="$1"
+    local url="$2"
+    local pm2_process="$3"
+
+    for attempt in $(seq 1 30); do
+      if curl -fsS "$url" >/dev/null; then
+        echo "$service_name health check passed"
+        return 0
+      fi
+      echo "$service_name health check is not ready yet (attempt $attempt/30)"
+      sleep 2
+    done
+
+    echo "$service_name health check failed: $url" >&2
+    pm2 status || true
+    pm2 logs "$pm2_process" --nostream --lines 80 || true
+    return 1
+  }
+
   check_pm2_cwd() {
     local process_name="$1"
     local expected_cwd="$2"
@@ -160,20 +180,10 @@ echo "Reloading PM2 processes ..."
   }
 
   echo "Checking render-service health ..."
-  if ! curl -fsS http://127.0.0.1:4002/health >/dev/null; then
-    echo "render-service health check failed" >&2
-    pm2 status || true
-    pm2 logs uml-render-service --nostream --lines 80 || true
-    exit 1
-  fi
+  wait_for_http_health "render-service" http://127.0.0.1:4002/health uml-render-service
 
   echo "Checking API health ..."
-  if ! curl -fsS http://127.0.0.1:4001/api/health >/dev/null; then
-    echo "API health check failed" >&2
-    pm2 status || true
-    pm2 logs uml-api --nostream --lines 80 || true
-    exit 1
-  fi
+  wait_for_http_health "API" http://127.0.0.1:4001/api/health uml-api
 
   echo "Checking PM2 process directories ..."
   EXPECTED_RELEASE_DIR="$(readlink -f "$RELEASE_DIR")"
