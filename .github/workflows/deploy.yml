@@ -213,10 +213,15 @@ jobs:
             echo "Missing GitHub secret: DEPLOY_USER" >&2
             exit 1
           fi
-          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
+          SSH_OPTIONS=(
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+            -o ConnectTimeout=30
+          )
+          scp "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
             "uml-platform-${GITHUB_SHA}.tar.gz" \
             "$DEPLOY_USER@$DEPLOY_HOST:/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
-          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
+          scp "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" \
             scripts/deploy/baota-pm2-deploy.sh \
             "$DEPLOY_USER@$DEPLOY_HOST:/tmp/baota-pm2-deploy.sh"
 
@@ -228,6 +233,11 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+          SSH_OPTIONS=(
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+            -o ConnectTimeout=30
+          )
+          ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "chmod +x /tmp/baota-pm2-deploy.sh && DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='/tmp/uml-platform-${GITHUB_SHA}.tar.gz' bash /tmp/baota-pm2-deploy.sh"
