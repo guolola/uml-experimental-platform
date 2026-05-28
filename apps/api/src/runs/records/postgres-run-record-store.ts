@@ -50,8 +50,28 @@ function readStage(snapshot: RunRecord["snapshot"]) {
   return snapshot.currentStage ?? "queued";
 }
 
-function readCompletedAt(record: RunRecord) {
-  if (!record.terminal) return null;
+function terminalStatusFromEvent(event: RunEvent | undefined) {
+  if (!event) return null;
+  if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
+    return event.type;
+  }
+  return null;
+}
+
+function readPersistedStatus(record: RunRecord, event?: RunEvent) {
+  const eventStatus = terminalStatusFromEvent(event);
+  if (eventStatus) return eventStatus;
+  if (record.terminal) {
+    for (let index = record.events.length - 1; index >= 0; index -= 1) {
+      const status = terminalStatusFromEvent(record.events[index]);
+      if (status) return status;
+    }
+  }
+  return record.snapshot.status;
+}
+
+function readCompletedAt(record: RunRecord, event?: RunEvent) {
+  if (!record.terminal && !terminalStatusFromEvent(event)) return null;
   return new Date().toISOString();
 }
 
@@ -228,12 +248,12 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           metadata?.userId ?? null,
           metadata?.projectId ?? null,
           readStage(snapshot),
-          snapshot.status,
+          readPersistedStatus(record, event),
           readModel(snapshot),
           null,
           JSON.stringify(snapshot),
           snapshot.errorMessage ?? null,
-          readCompletedAt(record),
+          readCompletedAt(record, event),
           metadata?.createdAt ?? new Date().toISOString(),
         ],
       );

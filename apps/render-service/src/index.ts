@@ -31,11 +31,54 @@ const DEFAULT_LOCAL_CORS_ORIGINS = [
 const DEFAULT_JAR_PATH = fileURLToPath(
   new URL("../../../plantuml/build/libs/plantuml-1.2026.3beta8.jar", import.meta.url),
 );
+const DEFAULT_JAVA_ARGS = ["-Xmx128m"];
+
+type RenderServerOptions = {
+  renderSvg?: (input: RenderSvgRequest) => Promise<RenderSvgResponse>;
+  renderPng?: (input: RenderPngRequest) => Promise<RenderPngResponse>;
+};
+
+function positiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readJavaArgs() {
+  const configured = process.env.UML_PLANTUML_JAVA_ARGS?.trim();
+  if (!configured) return DEFAULT_JAVA_ARGS;
+  return configured.split(/\s+/).filter(Boolean);
+}
+
+function createConcurrencyQueue(concurrency: number) {
+  let running = 0;
+  const queue: Array<() => void> = [];
+
+  function drain() {
+    while (running < concurrency && queue.length > 0) {
+      running += 1;
+      queue.shift()?.();
+    }
+  }
+
+  return async function enqueue<T>(task: () => Promise<T>) {
+    await new Promise<void>((resolve) => {
+      queue.push(resolve);
+      drain();
+    });
+    try {
+      return await task();
+    } finally {
+      running -= 1;
+      drain();
+    }
+  };
+}
 
 async function renderWithPlantUml(
   input: RenderSvgRequest,
   outputFormat: "svg" | "png",
   jarPath = DEFAULT_JAR_PATH,
+  javaArgs = readJavaArgs(),
 ): Promise<{ output: Buffer; stderr: string; durationMs: number }> {
   renderSvgRequestSchema.parse(input);
   const startedAt = Date.now();
@@ -44,7 +87,15 @@ async function renderWithPlantUml(
     (resolve, reject) => {
       const child = spawn(
         "java",
-        ["-jar", jarPath, outputFormat === "svg" ? "-tsvg" : "-tpng", "-charset", "UTF-8", "-pipe"],
+        [
+          ...javaArgs,
+          "-jar",
+          jarPath,
+          outputFormat === "svg" ? "-tsvg" : "-tpng",
+          "-charset",
+          "UTF-8",
+          "-pipe",
+        ],
         {
           stdio: ["pipe", "pipe", "pipe"],
         },
@@ -133,7 +184,7 @@ export async function renderPngWithPlantUml(
   });
 }
 
-export async function createRenderServiceServer() {
+export async function createRenderServiceServer(options: RenderServerOptions = {}) {
   const app = Fastify({ logger: true });
   await app.register(cors, {
     origin: createCorsOriginChecker(
@@ -154,13 +205,20 @@ export async function createRenderServiceServer() {
       status: "ok",
       jarPath: DEFAULT_JAR_PATH,
       jarAvailable,
+      renderConcurrency: positiveInteger(process.env.UML_RENDER_CONCURRENCY, 1),
+      javaArgs: readJavaArgs(),
     };
   });
+  const renderQueue = createConcurrencyQueue(
+    positiveInteger(process.env.UML_RENDER_CONCURRENCY, 1),
+  );
+  const renderSvg = options.renderSvg ?? renderSvgWithPlantUml;
+  const renderPng = options.renderPng ?? renderPngWithPlantUml;
 
   app.post("/render/svg", async (request, reply) => {
     try {
       const input = renderSvgRequestSchema.parse(request.body);
-      const result = await renderSvgWithPlantUml(input);
+      const result = await renderQueue(() => renderSvg(input));
       return result;
     } catch (error) {
       request.log.error(error);
@@ -174,7 +232,7 @@ export async function createRenderServiceServer() {
   app.post("/render/png", async (request, reply) => {
     try {
       const input = renderPngRequestSchema.parse(request.body);
-      const result = await renderPngWithPlantUml(input);
+      const result = await renderQueue(() => renderPng(input));
       return result;
     } catch (error) {
       request.log.error(error);

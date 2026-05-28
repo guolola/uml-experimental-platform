@@ -38,6 +38,11 @@ export interface SerializedRunRecordStore {
   records: SerializedRunRecord[];
 }
 
+function shouldStoreEvent(event: RunEvent) {
+  if (event.type !== "llm_chunk") return true;
+  return process.env.UML_PERSIST_LLM_CHUNKS === "true";
+}
+
 export function createRunRecordStore(
   initialState?: SerializedRunRecordStore,
 ): RunRecordStore {
@@ -73,7 +78,10 @@ export function serializeRunRecordStore(
 }
 
 export function emitEvent(record: RunRecord, event: RunEvent) {
-  record.events.push(event);
+  const storeEvent = shouldStoreEvent(event);
+  if (storeEvent) {
+    record.events.push(event);
+  }
   for (const listener of record.listeners) {
     listener(event);
   }
@@ -83,5 +91,7 @@ export function emitEvent(record: RunRecord, event: RunEvent) {
     record.terminal = true;
   }
 
-  void record.persist?.(record, event);
+  if (storeEvent) {
+    void record.persist?.(record, event);
+  }
 }

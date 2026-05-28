@@ -125,3 +125,96 @@ test("render-service applies the configured CORS origin allowlist", async () => 
     }
   }
 });
+
+test("render-service queues PlantUML work using the configured concurrency", async () => {
+  const previousConcurrency = process.env.UML_RENDER_CONCURRENCY;
+  process.env.UML_RENDER_CONCURRENCY = "1";
+  let running = 0;
+  let maxRunning = 0;
+  const completions: Array<() => void> = [];
+  const app = await createRenderServiceServer({
+    renderSvg: async (input) => {
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise<void>((resolve) => completions.push(resolve));
+      running -= 1;
+      return {
+        svg: `<svg data-kind="${input.diagramKind}"></svg>`,
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: new Date().toISOString(),
+          sourceLength: input.plantUmlSource.length,
+          durationMs: 1,
+        },
+      };
+    },
+  });
+
+  try {
+    const first = app.inject({
+      method: "POST",
+      url: "/render/svg",
+      payload: CASES[0].payload,
+    });
+    const second = app.inject({
+      method: "POST",
+      url: "/render/svg",
+      payload: CASES[1].payload,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(running, 1);
+    assert.equal(completions.length, 1);
+    completions.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(running, 1);
+    assert.equal(completions.length, 1);
+    completions.shift()?.();
+
+    const responses = await Promise.all([first, second]);
+    assert.deepEqual(
+      responses.map((response) => response.statusCode),
+      [200, 200],
+    );
+    assert.equal(maxRunning, 1);
+  } finally {
+    await app.close();
+    if (previousConcurrency === undefined) {
+      delete process.env.UML_RENDER_CONCURRENCY;
+    } else {
+      process.env.UML_RENDER_CONCURRENCY = previousConcurrency;
+    }
+  }
+});
+
+test("render-service health exposes Java memory and queue settings", async () => {
+  const previousConcurrency = process.env.UML_RENDER_CONCURRENCY;
+  const previousJavaArgs = process.env.UML_PLANTUML_JAVA_ARGS;
+  process.env.UML_RENDER_CONCURRENCY = "2";
+  process.env.UML_PLANTUML_JAVA_ARGS = "-Xmx96m";
+  const app = await createRenderServiceServer();
+
+  try {
+    const response = await app.inject({
+      method: "GET",
+      url: "/health",
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.renderConcurrency, 2);
+    assert.deepEqual(body.javaArgs, ["-Xmx96m"]);
+  } finally {
+    await app.close();
+    if (previousConcurrency === undefined) {
+      delete process.env.UML_RENDER_CONCURRENCY;
+    } else {
+      process.env.UML_RENDER_CONCURRENCY = previousConcurrency;
+    }
+    if (previousJavaArgs === undefined) {
+      delete process.env.UML_PLANTUML_JAVA_ARGS;
+    } else {
+      process.env.UML_PLANTUML_JAVA_ARGS = previousJavaArgs;
+    }
+  }
+});

@@ -206,7 +206,9 @@ test("postgres run store restores abandoned active runs as interrupted", async (
 
 test("postgres run store skips snapshot upserts for streaming progress by default", async () => {
   const previousPersistProgress = process.env.UML_PERSIST_PROGRESS_SNAPSHOT;
+  const previousPersistChunks = process.env.UML_PERSIST_LLM_CHUNKS;
   delete process.env.UML_PERSIST_PROGRESS_SNAPSHOT;
+  delete process.env.UML_PERSIST_LLM_CHUNKS;
 
   try {
     const db = new FakeRunDb();
@@ -243,12 +245,93 @@ test("postgres run store skips snapshot upserts for streaming progress by defaul
     await runs.flush();
 
     assert.equal(countRunRecordWrites(db), writesAfterInitialSave);
-    assert.equal(db.eventRows.length, 2);
+    assert.equal(record.events.length, 1);
+    assert.equal(record.events[0]?.type, "stage_progress");
+    assert.equal(db.eventRows.length, 1);
+    assert.equal(db.eventRows[0]?.payload.type, "stage_progress");
   } finally {
     if (previousPersistProgress === undefined) {
       delete process.env.UML_PERSIST_PROGRESS_SNAPSHOT;
     } else {
       process.env.UML_PERSIST_PROGRESS_SNAPSHOT = previousPersistProgress;
     }
+    if (previousPersistChunks === undefined) {
+      delete process.env.UML_PERSIST_LLM_CHUNKS;
+    } else {
+      process.env.UML_PERSIST_LLM_CHUNKS = previousPersistChunks;
+    }
   }
+});
+
+test("postgres run store can persist llm chunks for temporary diagnostics", async () => {
+  const previousPersistChunks = process.env.UML_PERSIST_LLM_CHUNKS;
+  process.env.UML_PERSIST_LLM_CHUNKS = "true";
+
+  try {
+    const db = new FakeRunDb();
+    const runs = await createPostgresRunRecordStore(db);
+    const snapshot = createEmptySnapshot("run-debug-chunks", "需求文本", ["class"], []);
+    attachProviderSettings(snapshot);
+    const record: RunRecord = {
+      snapshot,
+      events: [],
+      listeners: new Set(),
+      terminal: false,
+      metadata: {
+        userId: "user-1",
+        projectId: "project-1",
+        createdAt: "2026-05-22T00:00:00.000Z",
+      },
+    };
+
+    runs.set("run-debug-chunks", record);
+    emitEvent(record, {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "partial",
+    });
+    await runs.flush();
+
+    assert.equal(record.events[0]?.type, "llm_chunk");
+    assert.equal(db.eventRows[0]?.payload.type, "llm_chunk");
+  } finally {
+    if (previousPersistChunks === undefined) {
+      delete process.env.UML_PERSIST_LLM_CHUNKS;
+    } else {
+      process.env.UML_PERSIST_LLM_CHUNKS = previousPersistChunks;
+    }
+  }
+});
+
+test("postgres run store keeps terminal status when later persistence observes a stale snapshot", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-terminal", "需求文本", ["class"], []);
+  attachProviderSettings(snapshot);
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      userId: "user-1",
+      projectId: "project-1",
+      createdAt: "2026-05-22T00:00:00.000Z",
+    },
+  };
+
+  runs.set("run-terminal", record);
+  snapshot.status = "running";
+  emitEvent(record, { type: "completed", snapshot } as RunEvent);
+  snapshot.status = "running";
+  emitEvent(record, {
+    type: "stage_progress",
+    stage: "render_svg",
+    progress: 100,
+    message: "late progress",
+  });
+  await runs.flush();
+
+  assert.equal(db.runRows.get("run-terminal")?.status, "completed");
+  assert.ok(db.runRows.get("run-terminal")?.completed_at);
 });

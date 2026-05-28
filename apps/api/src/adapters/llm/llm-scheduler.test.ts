@@ -91,3 +91,47 @@ test("in-memory LLM scheduler cancels queued work before it calls the provider",
   await assert.rejects(queued, /cancelled/i);
   assert.equal(queuedCalled, false);
 });
+
+test("stream scheduling applies backpressure until chunks are consumed", async () => {
+  const scheduler = createInMemoryLlmScheduler({
+    globalConcurrency: 1,
+    providerConcurrency: 1,
+    projectConcurrency: 1,
+    userConcurrency: 2,
+    runConcurrency: 1,
+  });
+  const started: string[] = [];
+  let releaseFirstChunk!: () => void;
+
+  const first = scheduler.stream(
+    context({ runId: "run-1", userId: "user-1" }),
+    async function* () {
+      started.push("first");
+      yield "a";
+      await new Promise<void>((resolve) => {
+        releaseFirstChunk = resolve;
+      });
+      yield "b";
+    },
+  );
+  const second = scheduler.stream(
+    context({ runId: "run-2", userId: "user-2" }),
+    async function* () {
+      started.push("second");
+      yield "c";
+    },
+  );
+
+  const firstIterator = first[Symbol.asyncIterator]();
+  assert.equal((await firstIterator.next()).value, "a");
+  const secondIterator = second[Symbol.asyncIterator]();
+  const secondNext = secondIterator.next();
+  await Promise.resolve();
+
+  assert.deepEqual(started, ["first"]);
+  releaseFirstChunk();
+  assert.equal((await firstIterator.next()).value, "b");
+  assert.equal((await firstIterator.next()).done, true);
+  assert.equal((await secondNext).value, "c");
+  assert.deepEqual(started, ["first", "second"]);
+});

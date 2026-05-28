@@ -39,3 +39,64 @@ test("run record store serializes metadata, snapshots, and events without listen
   assert.equal(restored.get("run-1")?.events[0]?.type, "queued");
   assert.equal(restored.get("run-1")?.listeners.size, 0);
 });
+
+test("llm chunk events notify live listeners without entering run history by default", () => {
+  const previousPersistChunks = process.env.UML_PERSIST_LLM_CHUNKS;
+  delete process.env.UML_PERSIST_LLM_CHUNKS;
+
+  try {
+    const snapshot = createEmptySnapshot("run-live", "项目需求", ["usecase"]);
+    const seen: string[] = [];
+    const record = {
+      snapshot,
+      events: [],
+      listeners: new Set([(event: { type: string }) => seen.push(event.type)]),
+      terminal: false,
+    };
+
+    emitEvent(record, {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "partial",
+    });
+
+    assert.deepEqual(seen, ["llm_chunk"]);
+    assert.equal(record.events.length, 0);
+  } finally {
+    if (previousPersistChunks === undefined) {
+      delete process.env.UML_PERSIST_LLM_CHUNKS;
+    } else {
+      process.env.UML_PERSIST_LLM_CHUNKS = previousPersistChunks;
+    }
+  }
+});
+
+test("llm chunk event history can be enabled for temporary diagnostics", () => {
+  const previousPersistChunks = process.env.UML_PERSIST_LLM_CHUNKS;
+  process.env.UML_PERSIST_LLM_CHUNKS = "true";
+
+  try {
+    const snapshot = createEmptySnapshot("run-debug", "项目需求", ["usecase"]);
+    const record = {
+      snapshot,
+      events: [],
+      listeners: new Set<() => void>(),
+      terminal: false,
+    };
+
+    emitEvent(record, {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "debug",
+    });
+
+    assert.equal(record.events.length, 1);
+    assert.equal(record.events[0]?.type, "llm_chunk");
+  } finally {
+    if (previousPersistChunks === undefined) {
+      delete process.env.UML_PERSIST_LLM_CHUNKS;
+    } else {
+      process.env.UML_PERSIST_LLM_CHUNKS = previousPersistChunks;
+    }
+  }
+});

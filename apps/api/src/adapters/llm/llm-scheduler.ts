@@ -279,19 +279,33 @@ export function createInMemoryLlmScheduler(
     async *stream(context, task, onStatus) {
       const chunks: string[] = [];
       const waiters: Array<() => void> = [];
+      const spaceWaiters: Array<() => void> = [];
       let done = false;
       let failure: Error | null = null;
+      // Keep provider streaming coupled to downstream SSE/event persistence so one
+      // run cannot finish buffering thousands of chunks and release the slot early.
+      const maxBufferedChunks = 1;
       const wake = () => {
         while (waiters.length > 0) waiters.shift()?.();
+      };
+      const wakeSpace = () => {
+        while (spaceWaiters.length > 0) spaceWaiters.shift()?.();
       };
       const waitForChunk = () =>
         new Promise<void>((resolve) => {
           waiters.push(resolve);
         });
+      const waitForSpace = () =>
+        new Promise<void>((resolve) => {
+          spaceWaiters.push(resolve);
+        });
       const pump = run(
         context,
         async () => {
           for await (const chunk of task()) {
+            while (chunks.length >= maxBufferedChunks) {
+              await waitForSpace();
+            }
             chunks.push(chunk);
             wake();
           }
@@ -308,6 +322,7 @@ export function createInMemoryLlmScheduler(
       while (!done || chunks.length > 0) {
         const chunk = chunks.shift();
         if (chunk !== undefined) {
+          wakeSpace();
           yield chunk;
           continue;
         }
