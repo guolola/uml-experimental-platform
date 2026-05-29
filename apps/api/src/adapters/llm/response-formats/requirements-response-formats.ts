@@ -1,6 +1,7 @@
 // Defines JSON schema response formats for requirement model generation.
 import { type ChatCompletionResponseFormat } from "../../../llm.js";
 import { getModelCapability } from "../../../model-capabilities.js";
+import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
 
 export const modelElementRefResponseSchema = {
   type: "object",
@@ -30,7 +31,7 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
   json_schema: {
     name: "diagram_models_result",
     strict: true,
-    schema: {
+    schema: toOpenAiStrictJsonSchema({
       type: "object",
       additionalProperties: false,
       properties: {
@@ -652,7 +653,7 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
         },
       },
       required: ["models", "requirementModelTraceability"],
-    },
+    }),
   },
 };
 
@@ -669,7 +670,7 @@ export const GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRe
   json_schema: {
     name: "requirement_model_traceability_result",
     strict: true,
-    schema: {
+    schema: toOpenAiStrictJsonSchema({
       type: "object",
       additionalProperties: false,
       properties: {
@@ -687,7 +688,7 @@ export const GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRe
         },
       },
       required: ["requirementModelTraceability"],
-    },
+    }),
   },
 };
 

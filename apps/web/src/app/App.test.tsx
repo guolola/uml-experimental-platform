@@ -9,7 +9,7 @@ import {
   withWorkspaceProviders,
 } from "../test/workspace-test-utils";
 import { loadUserSettings, USER_SETTINGS_STORAGE_KEY } from "../shared/lib/user-settings";
-import { Shell } from "./App";
+import App, { Shell } from "./App";
 import { matchAppRoute } from "./app-routes";
 import {
   ProjectWorkspaceAccessBoundary,
@@ -2410,6 +2410,163 @@ describe("App shell routes", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("resets project workspace tabs before rendering a different project's content", async () => {
+    const user = userEvent.setup();
+    const requestedPaths: string[] = [];
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/projects/library-booking");
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      const method = init?.method ?? "GET";
+      requestedPaths.push(`${method} ${url.pathname}`);
+
+      if (url.pathname === "/api/auth/me") {
+        return createAuthMeResponse();
+      }
+      const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/u);
+      if (projectMatch && method === "GET") {
+        const projectId = decodeURIComponent(projectMatch[1]);
+        return new Response(
+          JSON.stringify({
+            project: {
+              id: projectId,
+              name: projectId === "library-booking" ? "智慧图书馆预约系统" : "新项目",
+              description: "真实项目数据",
+              visibility: "team",
+              status: "active",
+              ownerUserId: "user-new",
+              createdAt: "2026-05-22T01:00:00.000Z",
+              updatedAt: projectUpdatedAt,
+            },
+            membership: {
+              id: `member-${projectId}`,
+              projectId,
+              userId: "user-new",
+              email: "new-student@example.edu",
+              displayName: "new-student",
+              role: "owner",
+              status: "active",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      const scopedProjectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/(.+)$/u);
+      if (scopedProjectMatch) {
+        const [, encodedProjectId, resource] = scopedProjectMatch;
+        const projectId = decodeURIComponent(encodedProjectId);
+        if (resource === "members") {
+          return new Response(JSON.stringify({ members: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (resource === "runs") {
+          return new Response(JSON.stringify({ projectId, runs: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (resource === "workspace") {
+          return new Response(
+            JSON.stringify({
+              version: 1,
+              state: createWorkspaceRecord({ id: `workspace-${projectId}` }),
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (resource === "documents") {
+          return new Response(
+            JSON.stringify({
+              documents:
+                projectId === "library-booking"
+                  ? [
+                      {
+                        id: "doc-1",
+                        workspaceId: "workspace-library-booking",
+                        projectId,
+                        createdByUserId: "user-new",
+                        documentKind: "requirementsSpec",
+                        title: "需求规格说明书",
+                        fileName: "requirements.docx",
+                        mimeType:
+                          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        byteLength: 1234,
+                        version: 1,
+                        status: "active",
+                        onlyOffice: null,
+                        editLock: null,
+                        download: { status: "available" },
+                        sourceRunId: "run-doc",
+                        createdAt: "2026-05-22T01:00:00.000Z",
+                        updatedAt: "2026-05-22T02:00:00.000Z",
+                      },
+                    ]
+                  : [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (resource === "documents/doc-1/editor-config") {
+          return new Response(
+            JSON.stringify({
+              document: {
+                id: "doc-1",
+                projectId,
+                documentKind: "requirementsSpec",
+                fileName: "requirements.docx",
+                version: 1,
+                status: "active",
+                updatedAt: "2026-05-22T02:00:00.000Z",
+              },
+              documentServerUrl: "http://127.0.0.1:8080",
+              config: {
+                documentType: "word",
+                document: {
+                  fileType: "docx",
+                  key: "doc-1-v1",
+                  title: "requirements.docx",
+                  url: "/api/documents/doc-1/file",
+                },
+                editorConfig: {
+                  callbackUrl: "/api/documents/doc-1/onlyoffice/callback",
+                  mode: "edit",
+                  lang: "zh-CN",
+                },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+      return new Response(JSON.stringify({ message: "Unhandled test request" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("项目导航")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "说明书" }));
+    await user.click(await screen.findByRole("button", { name: "打开编辑器" }));
+    expect(await screen.findByRole("button", { name: "关闭 requirements.docx" })).toBeInTheDocument();
+
+    window.history.pushState({}, "", "/projects/next-project");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "关闭 requirements.docx" })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole("button", { name: "关闭 需求" })).toBeInTheDocument();
+    expect(
+      requestedPaths.some((path) =>
+        path.includes("/api/projects/next-project/documents/doc-1/editor-config"),
+      ),
+    ).toBe(false);
   });
 
   it("blocks anonymous workspace route access when the session is missing", async () => {

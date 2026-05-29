@@ -72,34 +72,27 @@ function getProtectedRoutePath(route: AppRoute) {
   return null;
 }
 
-export function Shell() {
+function ProjectWorkspaceShell({
+  projectId,
+  routeDrawer,
+  activeProjectDrawer,
+  onActiveProjectDrawerChange,
+  onNavigate,
+}: {
+  projectId: string;
+  routeDrawer: ProjectDrawerKind | null;
+  activeProjectDrawer: ProjectDrawerKind | null;
+  onActiveProjectDrawerChange: (drawer: ProjectDrawerKind | null) => void;
+  onNavigate: (route: string) => void;
+}) {
   const { selection } = useWorkspaceShell();
-  const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
-  const [route, setRoute] = useState<AppRoute>(() =>
-    typeof window === "undefined" ? { kind: "marketing-home", path: "/" } : matchAppRoute(window.location.pathname),
-  );
-
-  useEffect(() => {
-    const handlePopState = () => {
-      setActiveProjectDrawer(null);
-      setRoute(matchAppRoute(window.location.pathname));
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, []);
-
-  const navigate = useCallback((nextPath: string) => {
-    const nextUrl = new URL(nextPath, window.location.origin);
-    const nextLocation = `${nextUrl.pathname}${nextUrl.search}`;
-    setActiveProjectDrawer(null);
-    if (`${window.location.pathname}${window.location.search}` !== nextLocation) {
-      window.history.pushState({}, "", nextLocation);
-      window.dispatchEvent(new Event("uml-route-change"));
+  const activeDrawer = routeDrawer ?? activeProjectDrawer;
+  const closeDrawer = () => {
+    onActiveProjectDrawerChange(null);
+    if (routeDrawer) {
+      onNavigate(`/projects/${encodeURIComponent(projectId)}`);
     }
-    setRoute(matchAppRoute(nextUrl.pathname));
-  }, []);
+  };
 
   let body: ReactNode;
   switch (selection.kind) {
@@ -166,56 +159,71 @@ export function Shell() {
       break;
   }
 
-  const renderWorkspace = (projectId: string | null, routeDrawer: ProjectDrawerKind | null = null) => {
-    const activeDrawer = routeDrawer ?? activeProjectDrawer;
-    const closeDrawer = () => {
-      setActiveProjectDrawer(null);
-      if (routeDrawer && projectId) {
-        navigate(`/projects/${encodeURIComponent(projectId)}`);
-      }
-    };
+  return (
+    <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanel
+        data-testid="workspace-sidebar-panel"
+        data-default-size="10"
+        data-min-size="8"
+        data-max-size="22"
+        defaultSize={10}
+        minSize={8}
+        maxSize={22}
+      >
+        <aside className="h-full w-full border-r border-sidebar-border bg-sidebar">
+          <SidebarMenu />
+        </aside>
+      </ResizablePanel>
+      <ResizableHandle withHandle className="bg-border/70" />
+      <ResizablePanel defaultSize={90}>
+        <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
+          <ProjectWorkspaceBanner
+            projectId={projectId}
+            onOpenDrawer={onActiveProjectDrawerChange}
+          />
+          <WorkspaceTabsBar />
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className="h-full min-h-0">{body}</div>
+            <ProjectWorkspaceDrawer
+              projectId={projectId}
+              activeDrawer={activeDrawer}
+              onNavigate={onNavigate}
+              onClose={closeDrawer}
+            />
+          </div>
+        </main>
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  );
+}
 
-    return (
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
-        <ResizablePanel
-          data-testid="workspace-sidebar-panel"
-          data-default-size="10"
-          data-min-size="8"
-          data-max-size="22"
-          defaultSize={10}
-          minSize={8}
-          maxSize={22}
-        >
-          <aside className="h-full w-full border-r border-sidebar-border bg-sidebar">
-            <SidebarMenu />
-          </aside>
-        </ResizablePanel>
-        <ResizableHandle withHandle className="bg-border/70" />
-        <ResizablePanel defaultSize={90}>
-          <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
-            {projectId && (
-              <ProjectWorkspaceBanner
-                projectId={projectId}
-                onOpenDrawer={setActiveProjectDrawer}
-              />
-            )}
-            <WorkspaceTabsBar />
-            <div className="relative min-h-0 flex-1 overflow-hidden">
-              <div className="h-full min-h-0">{body}</div>
-              {projectId && (
-                <ProjectWorkspaceDrawer
-                  projectId={projectId}
-                  activeDrawer={activeDrawer}
-                  onNavigate={navigate}
-                  onClose={closeDrawer}
-                />
-              )}
-            </div>
-          </main>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    );
-  };
+export function Shell() {
+  const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
+  const [route, setRoute] = useState<AppRoute>(() =>
+    typeof window === "undefined" ? { kind: "marketing-home", path: "/" } : matchAppRoute(window.location.pathname),
+  );
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveProjectDrawer(null);
+      setRoute(matchAppRoute(window.location.pathname));
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  const navigate = useCallback((nextPath: string) => {
+    const nextUrl = new URL(nextPath, window.location.origin);
+    const nextLocation = `${nextUrl.pathname}${nextUrl.search}`;
+    setActiveProjectDrawer(null);
+    if (`${window.location.pathname}${window.location.search}` !== nextLocation) {
+      window.history.pushState({}, "", nextLocation);
+      window.dispatchEvent(new Event("uml-route-change"));
+    }
+    setRoute(matchAppRoute(nextUrl.pathname));
+  }, []);
 
   const renderRoute = () => {
     if (route.kind === "marketing-home") {
@@ -249,7 +257,15 @@ export function Shell() {
     if (route.kind === "project-workspace") {
       return (
         <ProjectWorkspaceAccessBoundary projectId={route.projectId} onNavigate={navigate}>
-          {renderWorkspace(route.projectId, route.drawer ?? null)}
+          <WorkspaceShellProvider key={route.projectId}>
+            <ProjectWorkspaceShell
+              projectId={route.projectId}
+              routeDrawer={route.drawer ?? null}
+              activeProjectDrawer={activeProjectDrawer}
+              onActiveProjectDrawerChange={setActiveProjectDrawer}
+              onNavigate={navigate}
+            />
+          </WorkspaceShellProvider>
         </ProjectWorkspaceAccessBoundary>
       );
     }
@@ -309,13 +325,11 @@ function RedirectRoute({
 export default function App() {
   return (
     <ThemeProvider>
-      <WorkspaceShellProvider>
-        <WorkspaceRepositoryProvider>
-          <WorkspaceSessionProvider>
-            <Shell />
-          </WorkspaceSessionProvider>
-        </WorkspaceRepositoryProvider>
-      </WorkspaceShellProvider>
+      <WorkspaceRepositoryProvider>
+        <WorkspaceSessionProvider>
+          <Shell />
+        </WorkspaceSessionProvider>
+      </WorkspaceRepositoryProvider>
     </ThemeProvider>
   );
 }
