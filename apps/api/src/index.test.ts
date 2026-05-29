@@ -41,6 +41,28 @@ function lastPromptText(messages: Parameters<LlmTransport["streamChatCompletion"
 
 const RULES_JSON =
   '{"rules":[{"id":"r1","category":"业务规则","text":"研究人员可以根据文本需求生成 UML 模型。","relatedDiagrams":["usecase","activity"]}]}';
+const RULES_WITH_ENUM_ALIASES_JSON = JSON.stringify({
+  rules: [
+    {
+      id: "r1",
+      category: "功能需求",
+      text: "用户选择目标日期、时间段与座位，提交预约请求。",
+      relatedDiagrams: ["外部接口"],
+    },
+    {
+      id: "r2",
+      category: "安全需求",
+      text: "接口请求做合法性校验，防止恶意预约。",
+      relatedDiagrams: ["deployment", "外部接口"],
+    },
+    {
+      id: "r3",
+      category: "性能需求",
+      text: "系统支持至少100人同时在线使用，页面加载速度小于2秒。",
+      relatedDiagrams: ["性能需求"],
+    },
+  ],
+});
 const VALID_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
@@ -1525,6 +1547,38 @@ function createMockLlmTransport(): LlmTransport {
   };
 }
 
+function createRuleNormalizerMockLlmTransport(): LlmTransport {
+  return {
+    async *streamChatCompletion({ messages, responseFormat }) {
+      const prompt = lastPromptText(messages);
+
+      if (prompt.includes("请修复下面无法编译或返回占位 SVG 的 PlantUML")) {
+        yield JSON.stringify({
+          source: [
+            "@startuml",
+            "actor 用户",
+            "usecase 预约座位",
+            "用户 --> 预约座位 : 提交",
+            "@enduml",
+          ].join("\n"),
+        });
+        return;
+      }
+
+      if (prompt.includes("抽取结构化需求规则")) {
+        yield RULES_WITH_ENUM_ALIASES_JSON;
+        return;
+      }
+
+      if (prompt.includes("生成 UML 结构化模型")) {
+        assert.equal(responseFormat?.type, "json_schema");
+      }
+
+      yield USECASE_MODEL_JSON;
+    },
+  };
+}
+
 async function withCapturedConsoleError(
   callback: (logs: string[]) => Promise<void>,
 ) {
@@ -1622,6 +1676,66 @@ test("api runs a full pipeline and streams SSE events", async () => {
         /@startuml/.test(entry.plantUmlSource ?? ""),
     ),
   );
+
+  await app.close();
+});
+
+test("api normalizes requirement rule enum aliases before contract validation", async () => {
+  const app = await createTestApiServer({
+    llmTransport: createRuleNormalizerMockLlmTransport(),
+    renderClient: async () => ({
+      svg: "<svg><text>seat reservation</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: {
+      requirementText: "共享自习室座位预约系统支持微信登录、查座、预约和签到。",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.4",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const { runId } = startResponse.json();
+
+  const eventsResponse = await app.inject({
+    method: "GET",
+    url: `/api/runs/${runId}/events`,
+  });
+  assert.equal(eventsResponse.statusCode, 200);
+  assert.match(eventsResponse.body, /"type":"completed"/);
+
+  const snapshotResponse = await app.inject({
+    method: "GET",
+    url: `/api/runs/${runId}`,
+  });
+  assert.equal(snapshotResponse.statusCode, 200);
+  const snapshot = snapshotResponse.json();
+  assert.equal(snapshot.status, "completed");
+  assert.deepEqual(
+    snapshot.rules.map((rule: { category: string }) => rule.category),
+    ["功能需求", "非功能需求", "非功能需求"],
+  );
+  assert.deepEqual(snapshot.rules[0].relatedDiagrams, [
+    "usecase",
+    "activity",
+    "class",
+  ]);
+  assert.deepEqual(snapshot.rules[1].relatedDiagrams, ["deployment"]);
+  assert.deepEqual(snapshot.rules[2].relatedDiagrams, ["deployment"]);
 
   await app.close();
 });

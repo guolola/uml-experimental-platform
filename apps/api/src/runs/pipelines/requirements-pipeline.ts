@@ -6,7 +6,6 @@ import {
   diagramErrorSchema,
   diagramModelsResultSchema,
   llmChunkRunEventSchema,
-  requirementRulesResultSchema,
   stageProgressRunEventSchema,
   stageStartedRunEventSchema,
   type DiagramError,
@@ -40,6 +39,7 @@ import {
   parseRequirementDiagramModelsResult,
   parseRequirementTraceabilityCoverageResult,
 } from "../../normalizers/requirements/requirement-model-normalizer.js";
+import { normalizeRequirementRulesResult } from "../../normalizers/requirements/requirement-rule-normalizer.js";
 import {
   formatTraceabilityMissingRefs,
   mergeRequirementTraceability,
@@ -403,7 +403,7 @@ export async function runStagePipeline(
           }),
         );
       },
-      (text) => requirementRulesResultSchema.parse(parseJson(text)),
+      (text) => normalizeRequirementRulesResult(parseJson(text)),
     );
     throwIfRunCancelled(record);
     rules = ruleResult.rules;
