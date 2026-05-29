@@ -37,6 +37,10 @@ command -v java >/dev/null || {
   echo "java is required for PlantUML rendering. Install a JRE first." >&2
   exit 1
 }
+command -v dot >/dev/null || {
+  echo "graphviz is required for PlantUML rendering. Install it first: sudo apt-get install -y graphviz" >&2
+  exit 1
+}
 
 mkdir -p "$DEPLOY_PATH/releases" "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/shared"
 

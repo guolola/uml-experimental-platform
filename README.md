@@ -146,6 +146,7 @@ cd umlExperimentalPlatform
 - Node.js 22 或更高版本
 - npm 10 或更高版本
 - Java/JRE 21 或可运行当前 PlantUML jar 的版本
+- Graphviz（PlantUML 渲染类图等图形时需要 `dot` 命令）
 
 检查方式：
 
@@ -153,6 +154,7 @@ cd umlExperimentalPlatform
 node -v
 npm -v
 java -version
+dot -V
 ```
 
 项目内置 PlantUML jar：

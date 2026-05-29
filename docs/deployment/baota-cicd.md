@@ -19,6 +19,7 @@
 node -v
 npm -v
 java -version
+dot -V
 npm i -g pm2
 pm2 -v
 ```
@@ -27,6 +28,7 @@ pm2 -v
 
 - Node.js 22.x
 - Java 17+ 或 21
+- Graphviz（提供 PlantUML 依赖的 `dot` 命令）
 - PM2 最新稳定版
 - 宝塔 Nginx
 
