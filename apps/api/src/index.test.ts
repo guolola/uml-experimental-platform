@@ -2561,6 +2561,97 @@ test("api generates explicit sequence and class dependencies for design table di
   await app.close();
 });
 
+test("api auto-fills missing table design traceability after repair attempts", async () => {
+  const classAndTable = JSON.parse(DESIGN_CLASS_AND_TABLE_JSON);
+  const classOnlyJson = JSON.stringify({
+    models: classAndTable.models.filter(
+      (model: { diagramKind: string }) => model.diagramKind === "class",
+    ),
+    designModelTraceability: classAndTable.designModelTraceability.filter(
+      (entry: { source: { diagramKind: string } }) => entry.source.diagramKind === "class",
+    ),
+  });
+  const tableOnlyJson = JSON.stringify({
+    models: classAndTable.models.filter(
+      (model: { diagramKind: string }) => model.diagramKind === "table",
+    ),
+    designModelTraceability: [],
+  });
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+        assert.equal(responseFormat?.type, "json_schema");
+        if (prompt.includes("需求阶段用例模型生成设计阶段顺序图")) {
+          yield DESIGN_SEQUENCE_JSON;
+          return;
+        }
+        if (/只生成以下设计图类型：\s*class/.test(prompt)) {
+          yield classOnlyJson;
+          return;
+        }
+        yield tableOnlyJson;
+      },
+    },
+    renderClient: async (artifact) => ({
+      svg: `<svg><text>${artifact.diagramKind}</text></svg>`,
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: artifact.source.length,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], CLASS_MODEL],
+      requirementModelTraceability: [
+        ...USECASE_REQUIREMENT_TRACEABILITY,
+        ...CLASS_REQUIREMENT_TRACEABILITY,
+      ],
+      selectedDiagrams: ["sequence", "class", "table"],
+      requestedDiagrams: ["table"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const { runId } = startResponse.json();
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/design-runs/${runId}`,
+    })
+  ).json();
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.diagramErrors.table, undefined);
+  assert.ok(
+    snapshot.designModelTraceability.some(
+      (entry: {
+        source: { diagramKind: string };
+        mappingSource?: string;
+        reviewStatus?: string;
+      }) =>
+        entry.source.diagramKind === "table" &&
+        entry.mappingSource === "auto-filled-pending-review" &&
+        entry.reviewStatus === "pending",
+    ),
+  );
+
+  await app.close();
+});
+
 test("api code runs with Claude send json_schema through file operations and reuse cached plans", async () => {
   let operationCalls = 0;
   const app = await createTestApiServer({

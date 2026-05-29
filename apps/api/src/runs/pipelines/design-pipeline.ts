@@ -510,11 +510,6 @@ async function generateDesignTraceabilityBatchWithRepair(
       });
 
       if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
-        if (accumulatedTraceability.length === 0) {
-          throw new Error(
-            `design traceability structured output failed: ${lastErrorMessage}`,
-          );
-        }
         const recoveredTraceability = mergeDesignTraceability(
           accumulatedTraceability,
           autoFillDesignTraceability(
@@ -551,6 +546,11 @@ async function generateDesignTraceabilityBatchWithRepair(
             },
           });
           return recoveredCoverage.traceability;
+        }
+        if (accumulatedTraceability.length === 0) {
+          throw new Error(
+            `design traceability structured output failed: ${lastErrorMessage}`,
+          );
         }
         throw new Error(
           `design traceability structured output failed: ${lastErrorMessage}`,
