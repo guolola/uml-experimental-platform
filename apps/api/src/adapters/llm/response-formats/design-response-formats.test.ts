@@ -6,6 +6,7 @@ import { GENERATE_DESIGN_MODELS_RESPONSE_FORMAT } from "./design-response-format
 function assertStrictObjectRequirements(schema: unknown, path = "schema") {
   if (!schema || typeof schema !== "object") return;
   const node = schema as {
+    anyOf?: unknown[];
     additionalProperties?: unknown;
     items?: unknown;
     oneOf?: unknown[];
@@ -30,11 +31,15 @@ function assertStrictObjectRequirements(schema: unknown, path = "schema") {
   for (const [index, value] of (node.oneOf ?? []).entries()) {
     assertStrictObjectRequirements(value, `${path}.oneOf.${index}`);
   }
+  for (const [index, value] of (node.anyOf ?? []).entries()) {
+    assertStrictObjectRequirements(value, `${path}.anyOf.${index}`);
+  }
 }
 
 function assertNoOneOf(schema: unknown, path = "schema") {
   if (!schema || typeof schema !== "object") return;
   const node = schema as {
+    anyOf?: unknown[];
     items?: unknown;
     oneOf?: unknown;
     properties?: Record<string, unknown>;
@@ -47,6 +52,9 @@ function assertNoOneOf(schema: unknown, path = "schema") {
   }
   if (node.items) {
     assertNoOneOf(node.items, `${path}.items`);
+  }
+  for (const [index, value] of (node.anyOf ?? []).entries()) {
+    assertNoOneOf(value, `${path}.anyOf.${index}`);
   }
 }
 

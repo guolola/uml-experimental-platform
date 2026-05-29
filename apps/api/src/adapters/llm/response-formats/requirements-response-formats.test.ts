@@ -9,11 +9,14 @@ import {
 function assertStrictObjectRequirements(schema: unknown, path = "schema") {
   if (!schema || typeof schema !== "object") return;
   const node = schema as {
+    anyOf?: unknown[];
     items?: unknown;
-    oneOf?: unknown[];
+    oneOf?: unknown;
     properties?: Record<string, unknown>;
     required?: unknown;
   };
+
+  assert.equal(node.oneOf, undefined, `${path} must not use oneOf`);
 
   if (node.properties) {
     assert.deepEqual(
@@ -29,8 +32,8 @@ function assertStrictObjectRequirements(schema: unknown, path = "schema") {
   if (node.items) {
     assertStrictObjectRequirements(node.items, `${path}.items`);
   }
-  for (const [index, value] of (node.oneOf ?? []).entries()) {
-    assertStrictObjectRequirements(value, `${path}.oneOf.${index}`);
+  for (const [index, value] of (node.anyOf ?? []).entries()) {
+    assertStrictObjectRequirements(value, `${path}.anyOf.${index}`);
   }
 }
 

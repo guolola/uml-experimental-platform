@@ -28,7 +28,11 @@ export function toOpenAiStrictJsonSchema(schema: unknown): Record<string, unknow
     next.items = toOpenAiStrictJsonSchema(next.items);
   }
   if (Array.isArray(next.oneOf)) {
-    next.oneOf = next.oneOf.map(toOpenAiStrictJsonSchema);
+    next.anyOf = next.oneOf.map(toOpenAiStrictJsonSchema);
+    delete next.oneOf;
+  }
+  if (Array.isArray(next.anyOf)) {
+    next.anyOf = next.anyOf.map(toOpenAiStrictJsonSchema);
   }
 
   if (isRecord(next.properties)) {
