@@ -142,6 +142,9 @@ describe("createStartRunInput", () => {
       requirementText: "生成 UML",
       selectedDiagrams: ["usecase"],
       rules: [],
+      providerSettings: {
+        model: "gpt-5.5",
+      },
     });
   });
 
@@ -598,6 +601,11 @@ describe("createHttpWorkspaceRepository", () => {
       String(url).includes("/api/runs/run-project-1/events"),
     );
     expect(projectRunEventsCall?.[1]?.credentials).toBe("include");
+    const startRunCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/runs"),
+    );
+    const startRunBody = JSON.parse(String(startRunCall?.[1]?.body));
+    expect(startRunBody.providerSettings).toBeUndefined();
 
     for (const [, options] of fetchMock.mock.calls) {
       const headers = options?.headers as Record<string, string>;

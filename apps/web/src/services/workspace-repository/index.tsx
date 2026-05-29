@@ -99,6 +99,23 @@ function fingerprintMatches(
   return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
 }
 
+function shouldSendProviderSettings(providerSettings: ProviderSettingsInput) {
+  return Boolean(
+    providerSettings.providerConfigId?.trim() ||
+      (providerSettings.apiBaseUrl?.trim() && providerSettings.apiKey?.trim()),
+  );
+}
+
+function runPayloadWithoutUnmanagedProviderSettings<
+  T extends { providerSettings: ProviderSettingsInput },
+>(input: T) {
+  if (shouldSendProviderSettings(input.providerSettings)) {
+    return input;
+  }
+  const { providerSettings: _providerSettings, ...payload } = input;
+  return payload;
+}
+
 interface WorkspaceRepositoryOptions {
   projectId?: string | null;
 }
@@ -114,7 +131,7 @@ export interface StartRunInput {
   requirementText: string;
   selectedDiagrams: DiagramType[];
   rules: RequirementRule[];
-  providerSettings?: ProviderSettingsInput;
+  providerSettings: ProviderSettingsInput;
 }
 
 export interface StartDesignRunInput {
@@ -129,7 +146,7 @@ export interface StartDesignRunInput {
   existingDesignModelTraceability: DesignModelTraceabilityEntry[];
   existingDesignPlantUml: DesignPlantUmlArtifact[];
   existingDesignSvgArtifacts: DesignSvgArtifact[];
-  providerSettings?: ProviderSettingsInput;
+  providerSettings: ProviderSettingsInput;
 }
 
 export interface StartCodeRunInput {
@@ -140,7 +157,7 @@ export interface StartCodeRunInput {
   designPlantUml: DesignPlantUmlArtifact[];
   existingFiles: Record<string, string>;
   generationMode: "continue" | "regenerate";
-  providerSettings?: ProviderSettingsInput;
+  providerSettings: ProviderSettingsInput;
 }
 
 export interface StartDocumentRunInput {
@@ -154,7 +171,7 @@ export interface StartDocumentRunInput {
   designModels: DesignDiagramModelSpec[];
   designPlantUml: DesignPlantUmlArtifact[];
   designSvgArtifacts: DesignSvgArtifact[];
-  providerSettings?: ProviderSettingsInput;
+  providerSettings: ProviderSettingsInput;
   useAiText: boolean;
   documentStyle?: DocumentStyleSettings;
 }
@@ -1231,33 +1248,45 @@ export function createHttpWorkspaceRepository(
 
     async startRun(input: StartRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
-      return postJson<{ runId: string }>("/api/runs", input, {
-        errorMessage: "启动生成失败",
-        headers: projectHeaders(scopedProjectId),
-      });
+      return postJson<{ runId: string }>(
+        "/api/runs",
+        runPayloadWithoutUnmanagedProviderSettings(input),
+        {
+          errorMessage: "启动生成失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
     },
 
     async startDesignRun(input: StartDesignRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
-      return postJson<{ runId: string }>("/api/design-runs", input, {
-        errorMessage: "启动设计生成失败",
-        headers: projectHeaders(scopedProjectId),
-      });
+      return postJson<{ runId: string }>(
+        "/api/design-runs",
+        runPayloadWithoutUnmanagedProviderSettings(input),
+        {
+          errorMessage: "启动设计生成失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
     },
 
     async startCodeRun(input: StartCodeRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
-      return postJson<{ runId: string }>("/api/code-runs", input, {
-        errorMessage: "启动代码生成失败",
-        headers: projectHeaders(scopedProjectId),
-      });
+      return postJson<{ runId: string }>(
+        "/api/code-runs",
+        runPayloadWithoutUnmanagedProviderSettings(input),
+        {
+          errorMessage: "启动代码生成失败",
+          headers: projectHeaders(scopedProjectId),
+        },
+      );
     },
 
     async startDocumentRun(input: StartDocumentRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
       return postJson<{ runId: string }>(
         "/api/document-runs",
-        input,
+        runPayloadWithoutUnmanagedProviderSettings(input),
         withProjectHeaders(scopedProjectId, {
           errorMessage: "启动说明书生成失败",
         }),
@@ -2436,6 +2465,9 @@ export function createStartRunInput(
       requirementText,
       selectedDiagrams,
       rules,
+      providerSettings: {
+        model,
+      },
     };
   }
 
