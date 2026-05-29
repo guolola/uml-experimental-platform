@@ -3445,7 +3445,7 @@ export const designRunSnapshotSchema = z.object({
   designModelTraceability: z.array(designModelTraceabilityEntrySchema),
   plantUml: z.array(designPlantUmlArtifactSchema),
   svgArtifacts: z.array(designSvgArtifactSchema),
-  diagramErrors: z.record(designDiagramKindSchema, diagramErrorSchema).default({}),
+  diagramErrors: z.record(z.string().min(1), diagramErrorSchema).default({}),
   designTrace: z.array(designTraceEntrySchema).default([]),
   currentStage: runStageSchema.nullable(),
   status: runStatusSchema,

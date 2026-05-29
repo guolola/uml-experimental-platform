@@ -575,7 +575,8 @@ export function SidebarMenu() {
       designSubtaskStatus.has(diagram) ||
       Boolean(designDiagramErrors[diagram]) ||
       (diagram === "sequence" &&
-        [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:"))),
+        ([...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:")) ||
+          Object.keys(designDiagramErrors).some((id) => id.startsWith("sequence:")))),
   );
 
   const requirementStatusFor = (diagram: DiagramType): Node["status"] => {
@@ -584,6 +585,7 @@ export function SidebarMenu() {
       (generatedDiagrams.includes(diagram) ? "completed" : undefined);
   };
   const designStatusFor = (diagram: DesignDiagramType, modelId?: string): Node["status"] => {
+    if (modelId && designDiagramErrors[modelId]) return "failed";
     if (designDiagramErrors[diagram]) return "failed";
     return (
       (modelId ? designSubtaskStatus.get(modelId) : undefined) ??
@@ -604,6 +606,7 @@ export function SidebarMenu() {
       ...expectedSequenceNodes.map((node) => node.id),
       ...designModelsByDiagram.sequence.map((model) => getDesignModelId(model)),
       ...[...designSubtaskStatus.keys()].filter((id) => id.startsWith("sequence:")),
+      ...Object.keys(designDiagramErrors).filter((id) => id.startsWith("sequence:")),
     ]),
   );
   const sequenceSubtaskNodes: DesignSubtaskNode[] = sequenceNodeIds.map((id) => {
@@ -726,7 +729,7 @@ export function SidebarMenu() {
                   return buildDesignDiagramNode(
                     diagram,
                     model,
-                    Boolean(designDiagramErrors[diagram]),
+                    Boolean(designDiagramErrors[node.id] ?? designDiagramErrors[diagram]),
                     status,
                     generationStatusTooltip(
                       model.title,

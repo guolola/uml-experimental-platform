@@ -2119,6 +2119,11 @@ export function WorkspaceSessionProvider({
         const next = { ...current };
         for (const diagram of snapshot.selectedDiagrams) {
           delete next[diagram];
+          for (const key of Object.keys(next)) {
+            if (key.startsWith(`${diagram}:`)) {
+              delete next[key];
+            }
+          }
         }
         return {
           ...next,

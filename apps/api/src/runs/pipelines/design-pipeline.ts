@@ -67,6 +67,7 @@ import {
 } from "../traceability/trusted-chain-traceability.js";
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
+const MAX_SEQUENCE_USE_CASE_RETRIES = 2;
 const DESIGN_TRACEABILITY_BATCH_SIZE = 24;
 const DEFAULT_DESIGN_SEQUENCE_CONCURRENCY = 2;
 const LLM_CHUNK_EVENT_LIMIT = 240;
@@ -236,8 +237,58 @@ function useCaseModelForSingleUseCase(
   };
 }
 
+type UseCaseForSequence = ReturnType<typeof useCasesFromModel>[number];
+type SequenceDesignModel = Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }>;
+
+function sequenceModelIdForUseCase(useCase: UseCaseForSequence) {
+  return `sequence:${useCase.id}`;
+}
+
+function coerceSequenceModelForUseCase(
+  result: Awaited<ReturnType<typeof generateDesignModelsWithRepair>>,
+  useCase: UseCaseForSequence,
+) {
+  const sequenceModels = result.models.filter(
+    (model): model is SequenceDesignModel => model.diagramKind === "sequence",
+  );
+  const expectedModelId = sequenceModelIdForUseCase(useCase);
+  const selected =
+    sequenceModels.find(
+      (model) =>
+        model.sourceUseCaseId === useCase.id || model.modelId === expectedModelId,
+    ) ?? sequenceModels[0];
+  if (!selected) {
+    throw new Error(`${useCase.name}顺序图生成结果为空`);
+  }
+
+  const model: SequenceDesignModel = {
+    ...selected,
+    modelId: expectedModelId,
+    sourceUseCaseId: useCase.id,
+    sourceUseCaseName: useCase.name,
+    title: selected.title?.trim() || `${useCase.name}顺序图`,
+    summary:
+      selected.summary?.trim() || `${useCase.name}用例的对象交互流程。`,
+  };
+  const designModelTraceability = result.designModelTraceability
+    .filter((entry) => entry.source.diagramKind === "sequence")
+    .map((entry) => ({
+      ...entry,
+      source: {
+        ...entry.source,
+        modelId: expectedModelId,
+        diagramKind: "sequence" as const,
+      },
+    }));
+
+  return {
+    models: [model],
+    designModelTraceability,
+  };
+}
+
 function validateUseCaseSequenceCoverage(
-  sequenceModels: Extract<DesignDiagramModelSpec, { diagramKind: "sequence" }>[],
+  sequenceModels: SequenceDesignModel[],
   useCaseModel: DiagramModelSpec,
 ) {
   const useCases = useCasesFromModel(useCaseModel);
@@ -595,7 +646,13 @@ export async function generateDesignModelsWithRepair(
   selectedDiagrams: DesignDiagramKind[],
   initialPrompt: string,
   stage: RunStage,
+  options: {
+    modelRepairAttempts?: number;
+    skipEmptyModelRepair?: boolean;
+  } = {},
 ) {
+  const modelRepairAttempts =
+    options.modelRepairAttempts ?? MAX_MODEL_REPAIR_ATTEMPTS;
   const responseFormat = getGenerateDesignModelsResponseFormat(providerSettings.model);
   let prompt = initialPrompt;
   let previousOutput = "";
@@ -603,7 +660,7 @@ export async function generateDesignModelsWithRepair(
   const traceStage =
     stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
-  for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt <= modelRepairAttempts; attempt += 1) {
     const emitLimitedChunk = createLimitedLlmChunkEmitter(record, stage);
     const content = await collectTextResult(
       llmTransport,
@@ -716,6 +773,14 @@ export async function generateDesignModelsWithRepair(
         attempt + 1,
       );
       lastErrorMessage = formatParseError(error);
+      if (
+        options.skipEmptyModelRepair &&
+        lastErrorMessage.includes("must return at least one model")
+      ) {
+        throw new Error(
+          `${stage} structured output failed: ${lastErrorMessage}`,
+        );
+      }
       appendDesignTrace(record, {
         stage: traceStage,
         attempt: attempt + 1,
@@ -724,7 +789,7 @@ export async function generateDesignModelsWithRepair(
         errorMessage: lastErrorMessage,
       });
 
-      if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
+      if (attempt === modelRepairAttempts) {
         throw new Error(
           `${stage} structured output failed: ${lastErrorMessage}`,
         );
@@ -734,11 +799,11 @@ export async function generateDesignModelsWithRepair(
         record,
         stageProgressRunEventSchema.parse({
           type: "stage_progress",
-          stage,
-          progress: stageProgressValue(stage),
-          message: `设计模型 JSON 结构不合法，正在尝试修复（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
-        }),
-      );
+            stage,
+            progress: stageProgressValue(stage),
+            message: `设计模型 JSON 结构不合法，正在尝试修复（${attempt + 1}/${modelRepairAttempts}）`,
+          }),
+        );
 
       prompt = buildRepairDesignModelsPrompt(
         requirementText,
@@ -852,7 +917,7 @@ export async function runDesignStagePipeline(
   let designModelTraceability: DesignRunSnapshot["designModelTraceability"] = [
     ...snapshot.designModelTraceability,
   ];
-  let diagramErrors: Partial<Record<DesignDiagramKind, DiagramError>> = {};
+  let diagramErrors: Record<string, DiagramError> = {};
   const publishDesignModelSnapshot = () => {
     snapshot.models = models;
     snapshot.designModelTraceability = designModelTraceability;
@@ -878,90 +943,100 @@ export async function runDesignStagePipeline(
       readDesignSequenceConcurrency(),
       async (useCase) => {
         throwIfRunCancelled(record);
+        const modelId = sequenceModelIdForUseCase(useCase);
         const scopedUseCaseModel = useCaseModelForSingleUseCase(
           useCaseModel,
           useCase.id,
         );
-        emitEvent(
-          record,
-          stageProgressRunEventSchema.parse({
-            type: "stage_progress",
-            stage: "generate_design_sequence",
-            progress: stageProgressValue("generate_design_sequence"),
-            message: `正在生成顺序图：${useCase.name}`,
-            diagramKind: "sequence",
-            modelId: `sequence:${useCase.id}`,
-            subtaskId: `sequence:${useCase.id}`,
-            subtaskLabel: `顺序图：${useCase.name}`,
-            subtaskStatus: "running",
-          }),
-        );
-        try {
-          const result = await generateDesignModelsWithRepair(
-            record,
-            providerSettings,
-            llmTransport,
-            snapshot.requirementText,
-            snapshot.rules,
-            [scopedUseCaseModel],
-            ["sequence"],
-            buildGenerateDesignSequencePrompt(
-              snapshot.requirementText,
-              snapshot.rules,
-              scopedUseCaseModel,
-            ),
-            "generate_design_sequence",
-          );
-          const modelId = `sequence:${useCase.id}`;
-          models = mergeDesignModels(models, result.models);
-          designModelTraceability = [
-            ...designModelTraceability.filter(
-              (entry) => entry.source.modelId !== modelId,
-            ),
-            ...result.designModelTraceability,
-          ];
-          delete diagramErrors.sequence;
-          publishDesignModelSnapshot();
-          emitEvent(
-            record,
-            artifactReadyRunEventSchema.parse({
-              type: "artifact_ready",
-              stage: "generate_design_sequence",
-              artifactKind: "model",
-              diagramKind: "sequence",
-              modelId,
-              subtaskId: modelId,
-              subtaskLabel: `顺序图：${useCase.name}`,
-              subtaskStatus: "running",
-            }),
-          );
-          return result;
-        } catch (error) {
-          throwIfRunCancelled(record);
-          const modelId = `sequence:${useCase.id}`;
-          const message =
-            error instanceof Error ? error.message : `${useCase.name}顺序图生成失败`;
-          diagramErrors.sequence = diagramErrorSchema.parse({
-            stage: "generate_design_sequence",
-            message,
-          });
-          publishDesignModelSnapshot();
+        let lastErrorMessage = "";
+        for (let attempt = 0; attempt <= MAX_SEQUENCE_USE_CASE_RETRIES; attempt += 1) {
           emitEvent(
             record,
             stageProgressRunEventSchema.parse({
               type: "stage_progress",
               stage: "generate_design_sequence",
               progress: stageProgressValue("generate_design_sequence"),
-              message,
+              message:
+                attempt === 0
+                  ? `正在生成顺序图：${useCase.name}`
+                  : `正在重试顺序图：${useCase.name}（${attempt}/${MAX_SEQUENCE_USE_CASE_RETRIES}）`,
               diagramKind: "sequence",
               modelId,
               subtaskId: modelId,
               subtaskLabel: `顺序图：${useCase.name}`,
-              subtaskStatus: "failed",
+              subtaskStatus: attempt === 0 ? "running" : "repairing",
             }),
           );
-          return null;
+          try {
+            const rawResult = await generateDesignModelsWithRepair(
+              record,
+              providerSettings,
+              llmTransport,
+              snapshot.requirementText,
+              snapshot.rules,
+              [scopedUseCaseModel],
+              ["sequence"],
+              buildGenerateDesignSequencePrompt(
+                snapshot.requirementText,
+                snapshot.rules,
+                scopedUseCaseModel,
+              ),
+              "generate_design_sequence",
+              { skipEmptyModelRepair: true },
+            );
+            const result = coerceSequenceModelForUseCase(rawResult, useCase);
+            models = mergeDesignModels(models, result.models);
+            designModelTraceability = [
+              ...designModelTraceability.filter(
+                (entry) => entry.source.modelId !== modelId,
+              ),
+              ...result.designModelTraceability,
+            ];
+            delete diagramErrors.sequence;
+            delete diagramErrors[modelId];
+            publishDesignModelSnapshot();
+            emitEvent(
+              record,
+              artifactReadyRunEventSchema.parse({
+                type: "artifact_ready",
+                stage: "generate_design_sequence",
+                artifactKind: "model",
+                diagramKind: "sequence",
+                modelId,
+                subtaskId: modelId,
+                subtaskLabel: `顺序图：${useCase.name}`,
+                subtaskStatus: "completed",
+              }),
+            );
+            return result;
+          } catch (error) {
+            throwIfRunCancelled(record);
+            lastErrorMessage =
+              error instanceof Error ? error.message : `${useCase.name}顺序图生成失败`;
+          }
         }
+
+        const message = lastErrorMessage || `${useCase.name}顺序图生成失败`;
+        diagramErrors[modelId] = diagramErrorSchema.parse({
+          stage: "generate_design_sequence",
+          message,
+        });
+        publishDesignModelSnapshot();
+        emitEvent(
+          record,
+          stageProgressRunEventSchema.parse({
+            type: "stage_progress",
+            stage: "generate_design_sequence",
+            progress: stageProgressValue("generate_design_sequence"),
+            message,
+            diagramKind: "sequence",
+            modelId,
+            subtaskId: modelId,
+            subtaskLabel: `顺序图：${useCase.name}`,
+            subtaskStatus: "failed",
+          }),
+        );
+        return null;
       },
     );
     throwIfRunCancelled(record);
@@ -993,7 +1068,7 @@ export async function runDesignStagePipeline(
         artifactKind: "model",
         diagramKind: "sequence",
         subtaskId: "sequence",
-        subtaskStatus: "running",
+        subtaskStatus: "completed",
       }),
     );
   }

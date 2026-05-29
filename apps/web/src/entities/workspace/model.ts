@@ -66,7 +66,7 @@ export interface WorkspaceRecord {
   generatedDesignDiagramTypes: DesignDiagramType[];
   designPlantUml: Record<string, string>;
   designSvgArtifacts: Record<string, DesignSvgArtifact>;
-  designDiagramErrors: Partial<Record<DesignDiagramType, DiagramError>>;
+  designDiagramErrors: Record<string, DiagramError>;
   manualModelEditStatus: Record<string, ManualModelEditStatus>;
   codeSpec: CodeGenerationSpec | null;
   codeBusinessLogic: CodeBusinessLogic | null;

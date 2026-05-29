@@ -99,16 +99,22 @@ function fingerprintMatches(
   return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
 }
 
-function shouldSendProviderSettings(providerSettings: ProviderSettingsInput) {
+type ProviderSettingsPresence = {
+  apiBaseUrl?: string;
+  apiKey?: string;
+  providerConfigId?: string;
+};
+
+function shouldSendProviderSettings(providerSettings?: ProviderSettingsPresence | null) {
   return Boolean(
-    providerSettings.providerConfigId?.trim() ||
-      (providerSettings.apiBaseUrl?.trim() && providerSettings.apiKey?.trim()),
+    providerSettings?.providerConfigId?.trim() ||
+      (providerSettings?.apiBaseUrl?.trim() && providerSettings?.apiKey?.trim()),
   );
 }
 
-function runPayloadWithoutUnmanagedProviderSettings<
-  T extends { providerSettings: ProviderSettingsInput },
->(input: T) {
+function runPayloadWithoutUnmanagedProviderSettings<T extends object>(
+  input: T & { providerSettings?: ProviderSettingsPresence | null },
+) {
   if (shouldSendProviderSettings(input.providerSettings)) {
     return input;
   }
@@ -599,6 +605,11 @@ function clearAndMergeDiagramErrors<T extends string, V>(
   const next = { ...current };
   for (const diagram of affected) {
     delete next[diagram];
+    for (const key of Object.keys(next)) {
+      if (key.startsWith(`${diagram}:`)) {
+        delete next[key as T];
+      }
+    }
   }
   return { ...next, ...incoming };
 }
@@ -1226,10 +1237,10 @@ export function createHttpWorkspaceRepository(
       const scopedProjectId = requireProjectScope(projectId);
       return postJson<RepairRequirementRuleResponse>(
         "/api/runs/requirement-rule-repair",
-        {
+        runPayloadWithoutUnmanagedProviderSettings({
           ...input,
           projectId: scopedProjectId,
-        },
+        }),
         {
           errorMessage: "智能修复失败",
           headers: projectHeaders(scopedProjectId),
@@ -1241,10 +1252,10 @@ export function createHttpWorkspaceRepository(
       const scopedProjectId = requireProjectScope(projectId);
       return postJson<RepairRequirementRulesResponse>(
         "/api/runs/requirement-rule-repairs",
-        {
+        runPayloadWithoutUnmanagedProviderSettings({
           ...input,
           projectId: scopedProjectId,
-        },
+        }),
         {
           errorMessage: "批量智能修复失败",
           headers: projectHeaders(scopedProjectId),

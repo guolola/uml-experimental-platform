@@ -377,7 +377,9 @@ function appendDesignDiagrams(lines: string[], snapshot: DesignRunSnapshot) {
     ...snapshot.models.map((model) => model.diagramKind),
     ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
     ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-    ...(Object.keys(snapshot.diagramErrors) as DesignDiagramType[]),
+    ...(Object.keys(snapshot.diagramErrors).map((key) =>
+      key.startsWith("sequence:") ? "sequence" : key,
+    ) as DesignDiagramType[]),
   ]);
 
   if (diagramKinds.size === 0) {
@@ -398,6 +400,18 @@ function appendDesignDiagrams(lines: string[], snapshot: DesignRunSnapshot) {
       lines.push(`- 失败阶段: \`${error.stage}\``);
       lines.push(`- 失败原因: ${error.message}`);
     }
+    lines.push("");
+  }
+
+  const sequenceErrors = Object.entries(snapshot.diagramErrors).filter(([key]) =>
+    key.startsWith("sequence:"),
+  );
+  for (const [modelId, error] of sequenceErrors) {
+    const model = snapshot.models.find((item) => item.modelId === modelId);
+    lines.push(`### ${model?.title ?? modelId}`, "");
+    lines.push("- SVG: 未生成");
+    lines.push(`- 失败阶段: \`${error.stage}\``);
+    lines.push(`- 失败原因: ${error.message}`);
     lines.push("");
   }
 }

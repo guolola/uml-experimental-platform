@@ -293,4 +293,87 @@ describe("workspace-session generation task helpers", () => {
       "sequence:uc_create",
     ]);
   });
+
+  it("marks only the missing use-case sequence subtask from model-specific errors", () => {
+    const task = createGenerationTask({
+      clientTaskId: "design-sequence-3",
+      kind: "design",
+      title: "生成设计顺序图",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-05-24T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "sequence:uc_view",
+          label: "顺序图：查看座位",
+          status: "running",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "sequence:uc_filter_date",
+          label: "顺序图：日期筛选",
+          status: "running",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const next = updateTaskFromEvent(
+      task,
+      {
+        type: "completed",
+        snapshot: {
+          runId: "run-design-sequence-partial",
+          requirementText: "共享自习室座位预约系统",
+          selectedDiagrams: ["sequence"],
+          rules: [],
+          requirementModels: [],
+          requirementModelTraceability: [],
+          models: [
+            {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_view",
+              sourceUseCaseId: "uc_view",
+              sourceUseCaseName: "查看座位",
+              title: "查看座位顺序图",
+              summary: "查看座位的对象交互流程。",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
+          ],
+          designModelTraceability: [],
+          plantUml: [],
+          svgArtifacts: [],
+          diagramErrors: {
+            "sequence:uc_filter_date": {
+              stage: "generate_design_sequence",
+              message: "日期筛选顺序图生成结果为空",
+            },
+          },
+          designTrace: [],
+          currentStage: "generate_design_sequence",
+          status: "failed",
+          errorMessage: "缺少 1 个用例顺序图：uc_filter_date:日期筛选",
+        },
+      } satisfies RunEvent,
+      {
+        queued: "设计生成任务已进入队列",
+        completed: "设计生成完成",
+      },
+    );
+
+    expect(next.title).toBe("生成设计顺序图：1/2 完成，1 个失败");
+    expect(next.subtasks).toEqual([
+      expect.objectContaining({ id: "sequence:uc_view", status: "completed" }),
+      expect.objectContaining({
+        id: "sequence:uc_filter_date",
+        status: "failed",
+        errorMessage: "日期筛选顺序图生成结果为空",
+      }),
+    ]);
+  });
 });

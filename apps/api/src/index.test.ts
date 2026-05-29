@@ -2033,6 +2033,300 @@ test("api generates design sequences with one LLM request per use case", async (
   await app.close();
 });
 
+test("api retries an empty use-case sequence result and completes coverage", async () => {
+  const useCaseModel = JSON.parse(USECASE_MODEL_JSON).models[0];
+  const multiUseCaseModel = {
+    ...useCaseModel,
+    useCases: [
+      ...useCaseModel.useCases,
+      {
+        id: "uc_filter_date",
+        name: "日期筛选",
+        goal: "按日期筛选座位状态",
+        preconditions: ["用户已进入座位查询页"],
+        postconditions: ["系统展示目标日期座位状态"],
+        primaryActorId: "actor_researcher",
+        supportingActorIds: [],
+      },
+    ],
+  };
+  const traceability = [
+    ...USECASE_REQUIREMENT_TRACEABILITY,
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "uc_filter_date",
+        elementKind: "usecase",
+        label: "日期筛选",
+      },
+    },
+  ];
+  const attemptsByUseCase = new Map<string, number>();
+  const traceSources = [
+    { elementId: "actor_researcher", elementKind: "participant", label: "研究人员" },
+    { elementId: "ui", elementKind: "participant", label: "Web 页面" },
+    { elementId: "api", elementKind: "participant", label: "编排 API" },
+    { elementId: "msg_submit", elementKind: "message", label: "submitTextRequirement" },
+    { elementId: "msg_start", elementKind: "message", label: "generateUmlModel" },
+  ];
+  const traceabilityJsonFor = (useCaseId: string, useCaseName: string) =>
+    JSON.stringify({
+      designModelTraceability: traceSources.map((source) => ({
+        source: {
+          modelId: `sequence:${useCaseId}`,
+          diagramKind: "sequence",
+          ...source,
+        },
+        targets: [
+          {
+            diagramKind: "usecase",
+            elementId: useCaseId,
+            elementKind: "usecase",
+            label: useCaseName,
+          },
+        ],
+      })),
+    });
+  const sequenceJsonFor = (useCaseId: string, useCaseName: string) =>
+    {
+      return JSON.stringify({
+        models: [
+          {
+            ...DESIGN_SEQUENCE_MODEL,
+            modelId: `sequence:${useCaseId}`,
+            sourceUseCaseId: useCaseId,
+            sourceUseCaseName: useCaseName,
+            title: `${useCaseName}顺序图`,
+          },
+        ],
+        designModelTraceability: [],
+      });
+    };
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages }) {
+        const prompt = lastPromptText(messages);
+        if (prompt.includes("请为已经生成成功的设计阶段 UML 模型补充元素级可追踪关系")) {
+          const useCaseId = prompt.includes("uc_filter_date")
+            ? "uc_filter_date"
+            : "usecase_generate";
+          yield traceabilityJsonFor(
+            useCaseId,
+            useCaseId === "uc_filter_date" ? "日期筛选" : "生成模型",
+          );
+          return;
+        }
+        const useCaseId = prompt.includes('"id": "uc_filter_date"')
+          ? "uc_filter_date"
+          : "usecase_generate";
+        const isSequencePrompt = prompt.includes("生成设计阶段顺序图结构化模型");
+        const attempt = isSequencePrompt
+          ? (attemptsByUseCase.get(useCaseId) ?? 0) + 1
+          : 1;
+        if (isSequencePrompt) attemptsByUseCase.set(useCaseId, attempt);
+        if (useCaseId === "uc_filter_date" && attempt === 1) {
+          yield JSON.stringify({ models: [], designModelTraceability: [] });
+          return;
+        }
+        yield sequenceJsonFor(
+          useCaseId,
+          useCaseId === "uc_filter_date" ? "日期筛选" : "生成模型",
+        );
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>sequence</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "用户可以按日期筛选座位状态。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: [multiUseCaseModel],
+      requirementModelTraceability: traceability,
+      selectedDiagrams: ["sequence"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  await app.inject({
+    method: "GET",
+    url: `/api/design-runs/${startResponse.json().runId}/events`,
+  });
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/design-runs/${startResponse.json().runId}`,
+    })
+  ).json();
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(attemptsByUseCase.get("uc_filter_date"), 2);
+  assert.deepEqual(
+    snapshot.models.map((model: { sourceUseCaseId: string }) => model.sourceUseCaseId).sort(),
+    ["uc_filter_date", "usecase_generate"],
+  );
+  assert.equal(snapshot.diagramErrors["sequence:uc_filter_date"], undefined);
+
+  await app.close();
+});
+
+test("api preserves successful sequences when one use-case sequence keeps failing", async () => {
+  const useCaseModel = JSON.parse(USECASE_MODEL_JSON).models[0];
+  const multiUseCaseModel = {
+    ...useCaseModel,
+    useCases: [
+      ...useCaseModel.useCases,
+      {
+        id: "uc_filter_date",
+        name: "日期筛选",
+        goal: "按日期筛选座位状态",
+        preconditions: ["用户已进入座位查询页"],
+        postconditions: ["系统展示目标日期座位状态"],
+        primaryActorId: "actor_researcher",
+        supportingActorIds: [],
+      },
+    ],
+  };
+  const traceability = [
+    ...USECASE_REQUIREMENT_TRACEABILITY,
+    {
+      ruleId: "r1",
+      target: {
+        diagramKind: "usecase",
+        elementId: "uc_filter_date",
+        elementKind: "usecase",
+        label: "日期筛选",
+      },
+    },
+  ];
+  let downstreamPromptSeen = false;
+  const traceSources = [
+    { elementId: "actor_researcher", elementKind: "participant", label: "研究人员" },
+    { elementId: "ui", elementKind: "participant", label: "Web 页面" },
+    { elementId: "api", elementKind: "participant", label: "编排 API" },
+    { elementId: "msg_submit", elementKind: "message", label: "submitTextRequirement" },
+    { elementId: "msg_start", elementKind: "message", label: "generateUmlModel" },
+  ];
+  const traceabilityJsonFor = (useCaseId: string, useCaseName: string) =>
+    JSON.stringify({
+      designModelTraceability: traceSources.map((source) => ({
+        source: {
+          modelId: `sequence:${useCaseId}`,
+          diagramKind: "sequence",
+          ...source,
+        },
+        targets: [
+          {
+            diagramKind: "usecase",
+            elementId: useCaseId,
+            elementKind: "usecase",
+            label: useCaseName,
+          },
+        ],
+      })),
+    });
+  const sequenceJsonFor = (useCaseId: string, useCaseName: string) =>
+    {
+      return JSON.stringify({
+        models: [
+          {
+            ...DESIGN_SEQUENCE_MODEL,
+            modelId: `sequence:${useCaseId}`,
+            sourceUseCaseId: "wrong-use-case",
+            sourceUseCaseName: "错误用例",
+            title: `${useCaseName}顺序图`,
+          },
+        ],
+        designModelTraceability: [],
+      });
+    };
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages }) {
+        const prompt = lastPromptText(messages);
+        if (prompt.includes("本阶段生成的是下游聚合设计模型")) {
+          downstreamPromptSeen = true;
+        }
+        if (prompt.includes("请为已经生成成功的设计阶段 UML 模型补充元素级可追踪关系")) {
+          yield traceabilityJsonFor("usecase_generate", "生成模型");
+          return;
+        }
+        if (prompt.includes('"id": "uc_filter_date"')) {
+          yield JSON.stringify({ models: [], designModelTraceability: [] });
+          return;
+        }
+        yield sequenceJsonFor("usecase_generate", "生成模型");
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>sequence</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementText: "用户可以按日期筛选座位状态。",
+      rules: JSON.parse(RULES_JSON).rules,
+      requirementModels: [multiUseCaseModel],
+      requirementModelTraceability: traceability,
+      selectedDiagrams: ["sequence", "class"],
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  await app.inject({
+    method: "GET",
+    url: `/api/design-runs/${startResponse.json().runId}/events`,
+  });
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/design-runs/${startResponse.json().runId}`,
+    })
+  ).json();
+
+  assert.equal(snapshot.status, "failed");
+  assert.match(snapshot.errorMessage, /uc_filter_date:日期筛选/);
+  assert.deepEqual(
+    snapshot.models.map((model: { sourceUseCaseId: string }) => model.sourceUseCaseId),
+    ["usecase_generate"],
+  );
+  assert.equal(snapshot.models[0].modelId, "sequence:usecase_generate");
+  assert.equal(snapshot.diagramErrors["sequence:uc_filter_date"].stage, "generate_design_sequence");
+  assert.equal(downstreamPromptSeen, false);
+
+  await app.close();
+});
+
 test("api records design PlantUML repair trace", async () => {
   let renderAttempts = 0;
   const app = await createTestApiServer({

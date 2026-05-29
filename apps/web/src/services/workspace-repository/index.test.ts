@@ -3,6 +3,7 @@ import type {
   AtomicRequirement,
   CodeRunSnapshot,
   RequirementBaseline,
+  RepairRequirementRulesRequest,
 } from "@uml-platform/contracts";
 import {
   buildApiUrl,
@@ -1764,6 +1765,51 @@ describe("createHttpWorkspaceRepository", () => {
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(requestBody.projectId).toBe("library-booking");
     expect(requestBody.targetRuleIds).toEqual(["r1"]);
+  });
+
+  it("omits unmanaged provider settings for requirement rule repairs", async () => {
+    const requirement = createAtomicRequirement();
+    const baseline = createRequirementBaseline([requirement]);
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/runs/requirement-rule-repairs")) {
+        const body = JSON.parse(String(options?.body));
+        return new Response(
+          JSON.stringify({
+            candidates: [],
+            failures: body.targetRuleIds.map((ruleId: string) => ({
+              ruleId,
+              errorMessage: "需要人工确认。",
+            })),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const unmanagedProviderSettings = {
+      model: "qwen3.5-plus",
+    } as RepairRequirementRulesRequest["providerSettings"];
+    await repository.repairRequirementRules?.({
+      requirementText: "订单需求",
+      rules: [
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "用户可以提交订单。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+      targetRuleIds: ["r1"],
+      baseline,
+      providerSettings: unmanagedProviderSettings,
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.projectId).toBe("library-booking");
+    expect(requestBody.providerSettings).toBeUndefined();
   });
 });
 
