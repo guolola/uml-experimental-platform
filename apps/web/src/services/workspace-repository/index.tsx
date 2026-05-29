@@ -114,7 +114,7 @@ export interface StartRunInput {
   requirementText: string;
   selectedDiagrams: DiagramType[];
   rules: RequirementRule[];
-  providerSettings: ProviderSettingsInput;
+  providerSettings?: ProviderSettingsInput;
 }
 
 export interface StartDesignRunInput {
@@ -129,7 +129,7 @@ export interface StartDesignRunInput {
   existingDesignModelTraceability: DesignModelTraceabilityEntry[];
   existingDesignPlantUml: DesignPlantUmlArtifact[];
   existingDesignSvgArtifacts: DesignSvgArtifact[];
-  providerSettings: ProviderSettingsInput;
+  providerSettings?: ProviderSettingsInput;
 }
 
 export interface StartCodeRunInput {
@@ -140,7 +140,7 @@ export interface StartCodeRunInput {
   designPlantUml: DesignPlantUmlArtifact[];
   existingFiles: Record<string, string>;
   generationMode: "continue" | "regenerate";
-  providerSettings: ProviderSettingsInput;
+  providerSettings?: ProviderSettingsInput;
 }
 
 export interface StartDocumentRunInput {
@@ -154,7 +154,7 @@ export interface StartDocumentRunInput {
   designModels: DesignDiagramModelSpec[];
   designPlantUml: DesignPlantUmlArtifact[];
   designSvgArtifacts: DesignSvgArtifact[];
-  providerSettings: ProviderSettingsInput;
+  providerSettings?: ProviderSettingsInput;
   useAiText: boolean;
   documentStyle?: DocumentStyleSettings;
 }
@@ -2426,6 +2426,16 @@ export function createStartRunInput(
         providerConfigId,
         model,
       },
+    };
+  }
+
+  // Production project runs should resolve credentials from the server-side
+  // project default provider config instead of sending stale plaintext settings.
+  if (import.meta.env.VITE_ENABLE_LEGACY_PROVIDER_SETTINGS !== "true") {
+    return {
+      requirementText,
+      selectedDiagrams,
+      rules,
     };
   }
 

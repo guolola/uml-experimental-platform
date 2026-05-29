@@ -121,10 +121,32 @@ function createRequirementBaseline(
 
 describe("createStartRunInput", () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     localStorage.clear();
   });
 
-  it("rejects empty api key before starting a run", () => {
+  it("omits plaintext provider settings in production so project defaults can resolve server-side", () => {
+    localStorage.setItem(
+      "uml-lab-settings",
+      JSON.stringify({
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "",
+        defaultModel: "gpt-5.5",
+        fontSize: "md",
+        autoGenerate: false,
+        showStaleBanner: true,
+      }),
+    );
+
+    expect(createStartRunInput("生成 UML", ["usecase"])).toEqual({
+      requirementText: "生成 UML",
+      selectedDiagrams: ["usecase"],
+      rules: [],
+    });
+  });
+
+  it("rejects empty legacy api key only when the explicit dev switch is enabled", () => {
+    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -142,7 +164,8 @@ describe("createStartRunInput", () => {
     );
   });
 
-  it("normalizes model provider base urls to the site root", () => {
+  it("normalizes legacy model provider base urls to the site root", () => {
+    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -166,6 +189,7 @@ describe("createStartRunInput", () => {
   });
 
   it("includes existing code files when starting a code agent run", () => {
+    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
