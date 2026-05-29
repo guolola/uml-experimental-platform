@@ -72,6 +72,8 @@ import {
 } from "./lib/notifications";
 import { createEmptyRunUiState } from "./lib/run-ui-state";
 import {
+  designInputFingerprint,
+  normalizeDesignInputFingerprint,
   normalizeSnapshotFingerprint,
   snapshotInputFingerprint,
 } from "./lib/fingerprint";
@@ -166,7 +168,7 @@ function designInputFingerprintFor(
   requirementModels: DiagramModelSpec[],
   requirementModelTraceability: RequirementModelTraceabilityEntry[],
 ) {
-  return snapshotInputFingerprint({ requirementModels, requirementModelTraceability });
+  return designInputFingerprint(requirementModels, requirementModelTraceability);
 }
 
 function fingerprintMatches(
@@ -174,6 +176,13 @@ function fingerprintMatches(
   currentFingerprint: string,
 ) {
   return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
+}
+
+function designFingerprintMatches(
+  storedFingerprint: string | null | undefined,
+  currentFingerprint: string,
+) {
+  return normalizeDesignInputFingerprint(storedFingerprint) === currentFingerprint;
 }
 
 function useCasesFromRequirementModel(model: DiagramModelSpec | undefined) {
@@ -3320,7 +3329,8 @@ export function WorkspaceSessionProvider({
         requirementModelTraceability,
       );
       const designFreshnessComplete = Object.entries(designModels).every(
-        ([modelId]) => designInputFingerprints[modelId] === activeDesignFingerprint,
+        ([modelId]) =>
+          designFingerprintMatches(designInputFingerprints[modelId], activeDesignFingerprint),
       );
       const designTraceabilityComplete = hasCompleteDesignTraceability(
         Object.values(designModels),
@@ -3816,7 +3826,8 @@ export function WorkspaceSessionProvider({
           requirementModelTraceability,
         );
         const designFreshnessComplete = Object.entries(designModels).every(
-          ([modelId]) => designInputFingerprints[modelId] === activeDesignFingerprint,
+          ([modelId]) =>
+            designFingerprintMatches(designInputFingerprints[modelId], activeDesignFingerprint),
         );
         const designTraceabilityComplete = hasCompleteDesignTraceability(
           Object.values(designModels),
@@ -4316,7 +4327,10 @@ export function WorkspaceSessionProvider({
             return sequenceModelsCoverUseCases(designModels, models.usecase);
           }
           if (diagram === "class") {
-            return designInputFingerprints.class === activeDesignFingerprint;
+            return designFingerprintMatches(
+              designInputFingerprints.class,
+              activeDesignFingerprint,
+            );
           }
           return true;
         },
@@ -4408,7 +4422,7 @@ export function WorkspaceSessionProvider({
     generatedDesignDiagrams.length === 0 ||
     Object.entries(designModels).every(
       ([modelId]) =>
-        fingerprintMatches(
+        designFingerprintMatches(
           designInputFingerprints[modelId],
           currentDesignInputFingerprint,
         ),

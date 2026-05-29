@@ -75,6 +75,7 @@ import {
   type RunHistorySnapshot,
 } from "../../features/history";
 import {
+  designInputFingerprint,
   normalizeSnapshotFingerprint,
   snapshotInputFingerprint,
 } from "../../shared/lib/fingerprint";
@@ -89,13 +90,6 @@ function requirementInputFingerprint(
   rules: RequirementRule[],
 ) {
   return snapshotInputFingerprint({ requirementText, rules });
-}
-
-function designInputFingerprint(
-  requirementModels: DiagramModelSpec[],
-  requirementModelTraceability: RequirementModelTraceabilityEntry[],
-) {
-  return snapshotInputFingerprint({ requirementModels, requirementModelTraceability });
 }
 
 function fingerprintMatches(

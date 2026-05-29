@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  designInputFingerprint,
+  normalizeDesignInputFingerprint,
   normalizeSnapshotFingerprint,
   snapshotInputFingerprint,
 } from "./fingerprint";
@@ -57,6 +59,71 @@ describe("snapshotInputFingerprint", () => {
           },
         ],
       }),
+    );
+  });
+});
+
+describe("designInputFingerprint", () => {
+  it("ignores requirement model and traceability insertion order", () => {
+    const usecaseModel = {
+      diagramKind: "usecase",
+      actors: [{ id: "actor_user", name: "用户" }],
+      useCases: [{ id: "uc_submit", name: "提交订单" }],
+    };
+    const classModel = {
+      diagramKind: "class",
+      classes: [{ id: "class_order", name: "Order" }],
+    };
+    const traceability = [
+      {
+        source: { diagramKind: "class", elementId: "class_order" },
+        targets: [{ diagramKind: "usecase", elementId: "uc_submit" }],
+      },
+      {
+        source: { diagramKind: "usecase", elementId: "uc_submit" },
+        targets: [{ diagramKind: "usecase", elementId: "actor_user" }],
+      },
+    ];
+
+    const left = designInputFingerprint(
+      [usecaseModel, classModel],
+      traceability,
+    );
+    const right = designInputFingerprint(
+      [classModel, usecaseModel],
+      [...traceability].reverse(),
+    );
+
+    expect(left).toBe(right);
+  });
+
+  it("normalizes legacy design fingerprints before comparison", () => {
+    const legacyFingerprint = snapshotInputFingerprint({
+      requirementModels: [
+        { diagramKind: "class", classes: [{ id: "class_order" }] },
+        { diagramKind: "usecase", useCases: [{ id: "uc_submit" }] },
+      ],
+      requirementModelTraceability: [
+        {
+          source: { diagramKind: "class", elementId: "class_order" },
+          targets: [{ diagramKind: "usecase", elementId: "uc_submit" }],
+        },
+      ],
+    });
+
+    expect(normalizeDesignInputFingerprint(legacyFingerprint)).toBe(
+      designInputFingerprint(
+        [
+          { diagramKind: "usecase", useCases: [{ id: "uc_submit" }] },
+          { diagramKind: "class", classes: [{ id: "class_order" }] },
+        ],
+        [
+          {
+            source: { diagramKind: "class", elementId: "class_order" },
+            targets: [{ diagramKind: "usecase", elementId: "uc_submit" }],
+          },
+        ],
+      ),
     );
   });
 });
