@@ -533,6 +533,18 @@ test("project document routes build OnlyOffice editor config without workspace c
       allowed.json().config.editorConfig.customization.uiTheme,
       "theme-classic-light",
     );
+    const fileUrl = new URL(allowed.json().config.document.url);
+    assert.equal(
+      fileUrl.pathname,
+      `/api/documents/${document.id}/file/${encodeURIComponent(document.fileName)}`,
+    );
+
+    const onlyOfficeFile = await app.inject({
+      method: "GET",
+      url: `${fileUrl.pathname}${fileUrl.search}`,
+    });
+    assert.equal(onlyOfficeFile.statusCode, 200);
+    assert.equal(onlyOfficeFile.body, "alpha editor");
 
     const viewerEditorConfig = await app.inject({
       method: "GET",

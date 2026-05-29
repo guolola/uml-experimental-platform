@@ -86,6 +86,10 @@ test("file document library persists generated documents and builds OnlyOffice c
       "theme-classic-light",
     );
     const fileUrl = (config.config.document as { url: string }).url;
+    assert.equal(
+      new URL(fileUrl).pathname,
+      `/api/documents/${saved.id}/file/${encodeURIComponent(saved.fileName)}`,
+    );
     const accessToken = new URL(fileUrl).searchParams.get("accessToken");
     assert.deepEqual(
       library.verifyOnlyOfficeAccessToken({

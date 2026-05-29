@@ -607,7 +607,9 @@ export function createFileDocumentLibrary(rootDir: string): DocumentLibrary {
     jwtSecret?: string;
   }) {
     const publicBaseUrl = normalizeBaseUrl(input.publicBaseUrl);
-    const fileUrl = `${publicBaseUrl}/api/documents/${input.document.id}/file`;
+    const fileUrl = `${publicBaseUrl}/api/documents/${input.document.id}/file/${encodeURIComponent(
+      input.document.fileName,
+    )}`;
     const callbackUrl = `${publicBaseUrl}/api/documents/${input.document.id}/onlyoffice/callback`;
     const config = {
       documentType: "word",

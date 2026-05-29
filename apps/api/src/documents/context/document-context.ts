@@ -339,8 +339,8 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         : []),
       {
         level: 3,
-        title: "3.4.1 用例与业务流程的关系",
-        body: ["用例与业务流程的关系依据需求阶段界面关系图和设计阶段业务流程图追踪。"],
+        title: "3.4.1 用例与界面的关系",
+        body: ["用例与界面的关系依据需求阶段界面关系图和设计阶段业务流程图追踪。"],
         table: {
           headers: ["编号", "用例名称", "界面名称", "备注"],
           rows: designUseCaseInterfaceRows(input),

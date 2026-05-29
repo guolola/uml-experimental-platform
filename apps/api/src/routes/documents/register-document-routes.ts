@@ -813,7 +813,7 @@ export function registerDocumentRoutes({
   });
   }
 
-  app.get("/api/documents/:documentId/file", async (request, reply) => {
+  const handleOnlyOfficeFileRequest = async (request: FastifyRequest, reply: FastifyReply) => {
     const { documentId } = request.params as { documentId: string };
     const access = documentLibrary.verifyOnlyOfficeAccessToken({
       documentId,
@@ -871,7 +871,10 @@ export function registerDocumentRoutes({
       `inline; filename*=UTF-8''${encodeURIComponent(document.fileName)}`,
     );
     return buffer;
-  });
+  };
+
+  app.get("/api/documents/:documentId/file", handleOnlyOfficeFileRequest);
+  app.get("/api/documents/:documentId/file/:fileName", handleOnlyOfficeFileRequest);
 
   if (allowLegacyWorkspaceRoutes) {
   app.get("/api/documents/:documentId/download", async (request, reply) => {
