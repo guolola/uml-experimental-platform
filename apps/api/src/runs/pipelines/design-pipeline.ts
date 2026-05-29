@@ -68,10 +68,19 @@ import {
 
 const MAX_MODEL_REPAIR_ATTEMPTS = 2;
 const DESIGN_TRACEABILITY_BATCH_SIZE = 24;
-const DESIGN_SEQUENCE_CONCURRENCY = 2;
+const DEFAULT_DESIGN_SEQUENCE_CONCURRENCY = 2;
 const LLM_CHUNK_EVENT_LIMIT = 240;
 const LLM_CHUNK_CHAR_LIMIT = 24000;
 const TRACE_RAW_OUTPUT_LIMIT = 20000;
+
+function readDesignSequenceConcurrency() {
+  const raw = process.env.UML_DESIGN_SEQUENCE_CONCURRENCY?.trim();
+  if (!raw) return DEFAULT_DESIGN_SEQUENCE_CONCURRENCY;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_DESIGN_SEQUENCE_CONCURRENCY;
+}
 
 function compactText(value: unknown) {
   return typeof value === "string" || typeof value === "number"
@@ -866,7 +875,7 @@ export async function runDesignStagePipeline(
     updateStage("generate_design_sequence", "正在生成设计顺序图");
     const sequenceResults = await mapWithConcurrency(
       useCasesFromModel(useCaseModel),
-      DESIGN_SEQUENCE_CONCURRENCY,
+      readDesignSequenceConcurrency(),
       async (useCase) => {
         throwIfRunCancelled(record);
         const scopedUseCaseModel = useCaseModelForSingleUseCase(
