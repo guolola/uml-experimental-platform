@@ -983,6 +983,7 @@ export function createHttpWorkspaceRepository(
   let localRequirementReviewCandidates: WorkspaceRecord["requirementReviewCandidates"] = {};
   let projectWorkspace: WorkspaceRecord | null = null;
   let projectWorkspaceVersion = 0;
+  let projectWorkspaceUpdateQueue: Promise<unknown> = Promise.resolve();
 
   async function loadProjectWorkspace() {
     const scopedProjectId = requireProjectScope(projectId);
@@ -1031,20 +1032,25 @@ export function createHttpWorkspaceRepository(
     mutate: (workspace: WorkspaceRecord) => void,
     sourceRunId?: string | null,
   ) {
-    const current = await ensureProjectWorkspace();
-    const next = cloneWorkspace(current);
-    mutate(next);
-    try {
-      return await saveProjectWorkspace(next, sourceRunId);
-    } catch (error) {
-      if (!(error instanceof ApiClientError) || error.status !== 409) {
-        throw error;
+    const runUpdate = async () => {
+      const current = await ensureProjectWorkspace();
+      const next = cloneWorkspace(current);
+      mutate(next);
+      try {
+        return await saveProjectWorkspace(next, sourceRunId);
+      } catch (error) {
+        if (!(error instanceof ApiClientError) || error.status !== 409) {
+          throw error;
+        }
+        await loadProjectWorkspace();
+        const latest = cloneWorkspace(projectWorkspace ?? createEmptyWorkspace());
+        mutate(latest);
+        return saveProjectWorkspace(latest, sourceRunId);
       }
-      await loadProjectWorkspace();
-      const latest = cloneWorkspace(projectWorkspace ?? createEmptyWorkspace());
-      mutate(latest);
-      return saveProjectWorkspace(latest, sourceRunId);
-    }
+    };
+    const queuedUpdate = projectWorkspaceUpdateQueue.then(runUpdate, runUpdate);
+    projectWorkspaceUpdateQueue = queuedUpdate.catch(() => undefined);
+    return queuedUpdate;
   }
 
   async function readProjectRunDetail(runId: string) {

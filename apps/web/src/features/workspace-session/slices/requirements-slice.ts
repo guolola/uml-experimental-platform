@@ -1,5 +1,5 @@
 // Owns requirement text, rule editing, and rule version bookkeeping.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiagramType } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -15,6 +15,16 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
   const [requirementInputFingerprint, setRequirementInputFingerprint] = useState<
     string | null
   >(null);
+  const pendingTextSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (pendingTextSaveRef.current) {
+        clearTimeout(pendingTextSaveRef.current);
+      }
+    },
+    [],
+  );
 
   const setRequirementText = useCallback(
     (value: string) => {
@@ -24,7 +34,13 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
         }
         return value;
       });
-      void repository.updateRequirementText(value);
+      if (pendingTextSaveRef.current) {
+        clearTimeout(pendingTextSaveRef.current);
+      }
+      pendingTextSaveRef.current = setTimeout(() => {
+        pendingTextSaveRef.current = null;
+        void repository.updateRequirementText(value);
+      }, 500);
     },
     [repository],
   );

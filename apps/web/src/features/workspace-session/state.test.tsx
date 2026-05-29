@@ -478,7 +478,9 @@ describe("WorkspaceSessionProvider", () => {
     act(() => {
       result.current.setRequirementText("订单系统需求");
     });
-    expect(repository.updateRequirementText).toHaveBeenCalledWith("订单系统需求");
+    await waitFor(() => {
+      expect(repository.updateRequirementText).toHaveBeenCalledWith("订单系统需求");
+    });
     expect(result.current.textVersion).toBe(1);
 
     await act(async () => {

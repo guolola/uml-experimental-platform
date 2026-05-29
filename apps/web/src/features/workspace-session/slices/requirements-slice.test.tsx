@@ -1,6 +1,6 @@
 // Covers requirement slice behavior independently from WorkspaceSessionProvider.
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import { useRequirementsSlice } from "./requirements-slice";
 
@@ -23,7 +23,12 @@ function createRepository(): WorkspaceRepository {
 }
 
 describe("useRequirementsSlice", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("tracks text version and persists text edits", () => {
+    vi.useFakeTimers();
     const repository = createRepository();
     const { result } = renderHook(() => useRequirementsSlice(repository));
 
@@ -31,7 +36,31 @@ describe("useRequirementsSlice", () => {
 
     expect(result.current.requirementText).toBe("新的需求");
     expect(result.current.textVersion).toBe(1);
+    expect(repository.updateRequirementText).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
     expect(repository.updateRequirementText).toHaveBeenCalledWith("新的需求");
+  });
+
+  it("coalesces rapid text edits into the latest persisted value", () => {
+    vi.useFakeTimers();
+    const repository = createRepository();
+    const { result } = renderHook(() => useRequirementsSlice(repository));
+
+    act(() => {
+      result.current.setRequirementText("此");
+      result.current.setRequirementText("此日历");
+      result.current.setRequirementText("此日历仅供公众使用");
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(repository.updateRequirementText).toHaveBeenCalledTimes(1);
+    expect(repository.updateRequirementText).toHaveBeenCalledWith(
+      "此日历仅供公众使用",
+    );
   });
 
   it("creates and updates requirement rules with stable ids", () => {

@@ -675,6 +675,62 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.requirementText).toBe("团队成员更新的需求");
   });
 
+  it("serializes concurrent project workspace saves with the latest base version", async () => {
+    const savedBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 2,
+            updatedAt: "2026-05-22T02:00:00.000Z",
+            updatedByUserId: "teacher-1",
+            state: {
+              requirementText: "已保存的项目需求",
+              rules: [],
+              selectedDiagramTypes: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+        savedBodies.push(JSON.parse(String(options.body)));
+        const nextVersion = 2 + savedBodies.length;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: nextVersion,
+            updatedAt: "2026-05-22T02:05:00.000Z",
+            updatedByUserId: "teacher-1",
+            state: savedBodies.at(-1)?.state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    await repository.loadWorkspace();
+
+    await Promise.all([
+      repository.updateRequirementText("第一次需求"),
+      repository.updateRequirementText("第二次需求"),
+    ]);
+
+    expect(savedBodies).toHaveLength(2);
+    expect(savedBodies[0]?.baseVersion).toBe(2);
+    expect(savedBodies[1]?.baseVersion).toBe(3);
+    expect((savedBodies[0]?.state as Record<string, unknown>).requirementText).toBe(
+      "第一次需求",
+    );
+    expect((savedBodies[1]?.state as Record<string, unknown>).requirementText).toBe(
+      "第二次需求",
+    );
+  });
+
   it("retries requirement review state saves after a project workspace conflict", async () => {
     const reviewedRequirement = createAtomicRequirement({
       actor: "用户",
