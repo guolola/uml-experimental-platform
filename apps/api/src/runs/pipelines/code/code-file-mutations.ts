@@ -9,6 +9,14 @@ import { normalizeFilePath } from "../../../normalizers/code/code-operation-norm
 import { emitEvent, type RunRecord } from "../../records/run-record-store.js";
 import { addCodeDiagnostic } from "./code-run-diagnostics.js";
 
+export function sanitizePrototypeFileContent(path: string, content: string) {
+  const normalizedPath = normalizeFilePath(path);
+  if (normalizedPath !== "/src/styles.css") return content;
+  return content
+    .replace(/^\s*@import\s+(?:url\()?["']?https?:\/\/[^"')\s;]+["']?\)?\s*;?\s*$/gim, "")
+    .replace(/url\(\s*["']?https?:\/\/[^"')\s]+["']?\s*\)/gi, "none");
+}
+
 export function emitCodeFileChanged(
   record: RunRecord,
   snapshot: CodeRunSnapshot,
@@ -25,22 +33,30 @@ export function emitCodeFileChanged(
     );
     return false;
   }
+  const sanitizedContent = sanitizePrototypeFileContent(normalizedPath, content);
+  if (sanitizedContent !== content) {
+    addCodeDiagnostic(
+      snapshot,
+      "write_code_files",
+      `${normalizedPath} 已移除外部样式资源引用，原型预览仅使用本地 mock 与本地样式。`,
+    );
+  }
   const previousContent = snapshot.files[normalizedPath];
-  if (previousContent === content) {
+  if (previousContent === sanitizedContent) {
     addCodeDiagnostic(snapshot, "write_code_files", `${normalizedPath} 内容未变化：${reason}`);
     return false;
   }
   snapshot.changedFileCount += 1;
   snapshot.files = {
     ...snapshot.files,
-    [normalizedPath]: content,
+    [normalizedPath]: sanitizedContent,
   };
   emitEvent(
     record,
     codeFileChangedRunEventSchema.parse({
       type: "code_file_changed",
       path: normalizedPath,
-      content,
+      content: sanitizedContent,
       reason,
     }),
   );
