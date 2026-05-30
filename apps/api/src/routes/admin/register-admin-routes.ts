@@ -42,7 +42,7 @@ import {
 } from "../../runs/records/run-actions.js";
 import type { AuthStore, UserRecord } from "../../auth/in-memory-auth-store.js";
 import { isAuthError, requireAdminSessionAuth } from "../../auth/guards.js";
-import { toProjectDto, toUserDto } from "../../auth/dto.js";
+import { toLoginEventDto, toProjectDto, toUserDto } from "../../auth/dto.js";
 import {
   getAdminHeaderActor,
   type AdminActor,
@@ -892,6 +892,35 @@ export function registerAdminRoutes({
       users: (await authStore.listUsers())
         .filter((user) => visibleUserIds === null || visibleUserIds.has(user.id))
         .map(toAdminUserDto),
+    };
+  });
+
+  sendAdminOnly(app, "/api/admin/users/:id/login-records", async (request, reply) => {
+    const actor = await requireAdminPermission(
+      request,
+      reply,
+      authStore,
+      "admin.users.read",
+    );
+    if ("message" in actor) return actor;
+
+    const { id } = request.params as { id: string };
+    const user = await authStore.getUser(id);
+    if (!user) {
+      reply.code(404);
+      return { message: "User not found" };
+    }
+
+    const visibleUserIds = await visibleUserIdsForAdmin(academicStore, authStore, actor);
+    if (visibleUserIds !== null && !visibleUserIds.has(id)) {
+      reply.code(403);
+      return { message: "User is outside admin data scope" };
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      user: toAdminUserDto(user),
+      loginRecords: (await authStore.listLoginEventsForUser(id)).map(toLoginEventDto),
     };
   });
 

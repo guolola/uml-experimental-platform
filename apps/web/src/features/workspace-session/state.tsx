@@ -1852,11 +1852,7 @@ export function WorkspaceSessionProvider({
     [],
   );
 
-  useEffect(() => {
-    let active = true;
-
-    void repository.loadWorkspace().then((workspace) => {
-      if (!active) return;
+  const applyWorkspaceRecord = useCallback((workspace: WorkspaceRecord) => {
       setRequirementTextRaw(workspace.requirementText);
       setRules(workspace.rules);
       setRequirementBaseline(workspace.requirementBaseline ?? null);
@@ -1902,6 +1898,14 @@ export function WorkspaceSessionProvider({
         errorMessage: workspace.errorMessage,
       });
       setTextVersion(0);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    void repository.loadWorkspace().then((workspace) => {
+      if (!active) return;
+      applyWorkspaceRecord(workspace);
       void repository.listRunHistory().then((items) => {
         if (active) {
           setHistoryItems(items);
@@ -1925,7 +1929,7 @@ export function WorkspaceSessionProvider({
     return () => {
       active = false;
     };
-  }, [repository]);
+  }, [applyWorkspaceRecord, repository]);
 
 
 
@@ -2384,9 +2388,14 @@ export function WorkspaceSessionProvider({
       if (!item) {
         throw new Error("历史快照不存在");
       }
+      if (!item.snapshot) {
+        applyWorkspaceRecord(await repository.loadWorkspace());
+        setHistoryItems(await repository.listRunHistory());
+        return;
+      }
       applyRestoredSnapshot(item.snapshot);
     },
-    [applyRestoredSnapshot, repository],
+    [applyRestoredSnapshot, applyWorkspaceRecord, repository],
   );
 
   const deleteRunHistory = useCallback(

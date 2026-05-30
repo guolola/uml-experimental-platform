@@ -38,6 +38,13 @@ import {
   type MailAdapter,
 } from "../../mail/mail-adapter.js";
 import type { AcademicAdminRepository } from "../../db/academic-admin-repository.js";
+import type { RunRecordStore } from "../../runs/records/run-record-store.js";
+import {
+  isRestorableRunSnapshot,
+  restoreRunSnapshotToWorkspaceState,
+} from "./workspace-snapshot-restore.js";
+
+const DEFAULT_PROJECT_WORKSPACE_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
 
 const stableProjectWorkspaceDefaults = {
   requirementText: "",
@@ -83,6 +90,18 @@ const projectWorkspaceSaveRequestSchema = z.object({
   state: z.record(z.string(), z.unknown()),
   sourceRunId: z.string().trim().min(1).nullable().optional(),
 });
+
+const projectWorkspaceRestoreRequestSchema = z.object({
+  baseVersion: z.number().int().min(0).optional(),
+  mode: z.enum(["merge", "restore"]).optional(),
+});
+
+function projectWorkspaceBodyLimitBytes() {
+  const parsed = Number(process.env.UML_PROJECT_WORKSPACE_BODY_LIMIT_BYTES);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.floor(parsed)
+    : DEFAULT_PROJECT_WORKSPACE_BODY_LIMIT_BYTES;
+}
 
 function isWorkspaceSourceRunConstraintError(error: unknown) {
   const candidate = error as { code?: unknown; constraint?: unknown };
@@ -209,12 +228,14 @@ export function registerProjectRoutes({
   mailAdapter = createMailAdapterFromEnv(),
   nodeEnv = process.env.NODE_ENV ?? null,
   academicStore,
+  runs,
 }: {
   app: FastifyInstance;
   authStore: AuthStore;
   mailAdapter?: MailAdapter;
   nodeEnv?: string | null;
   academicStore?: AcademicAdminRepository;
+  runs?: RunRecordStore;
 }) {
   app.get("/api/academic-options", async (request, reply) => {
     const auth = await requireAuth(request, reply, authStore);
@@ -301,7 +322,10 @@ export function registerProjectRoutes({
     return projectWorkspacePayload(await authStore.getProjectWorkspace(projectId));
   });
 
-  app.put("/api/projects/:projectId/workspace", async (request, reply) => {
+  app.put(
+    "/api/projects/:projectId/workspace",
+    { bodyLimit: projectWorkspaceBodyLimitBytes() },
+    async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const context = await requireProjectPermission(
       request,
@@ -347,6 +371,86 @@ export function registerProjectRoutes({
       targetId: projectId,
       outcome: "success",
       message: input.sourceRunId ? `sourceRunId=${input.sourceRunId}` : undefined,
+    });
+
+    return projectWorkspacePayload(result.workspace);
+    },
+  );
+
+  app.post("/api/projects/:projectId/runs/:runId/restore-workspace", async (request, reply) => {
+    const { projectId, runId } = request.params as {
+      projectId: string;
+      runId: string;
+    };
+    const context = await requireProjectPermission(
+      request,
+      reply,
+      authStore,
+      projectId,
+      "update_project",
+    );
+    if (isProjectPermissionError(context)) return context;
+    if (!runs) {
+      reply.code(404);
+      return { message: "Run history is not available" };
+    }
+
+    const record = runs.get(runId);
+    if (!record || record.metadata?.projectId !== projectId) {
+      reply.code(404);
+      return { message: "Run not found" };
+    }
+    if (!record.terminal) {
+      reply.code(409);
+      return { message: "运行尚未结束，暂不能恢复快照。" };
+    }
+    if (!isRestorableRunSnapshot(record.snapshot)) {
+      reply.code(400);
+      return { message: "说明书快照不能恢复为项目工作台。" };
+    }
+
+    const input = projectWorkspaceRestoreRequestSchema.parse(request.body ?? {});
+    const current = await authStore.getProjectWorkspace(projectId);
+    const state = restoreRunSnapshotToWorkspaceState({
+      currentState: current.state,
+      snapshot: record.snapshot,
+      mode: input.mode ?? "restore",
+    });
+
+    let result: Awaited<ReturnType<AuthStore["saveProjectWorkspace"]>>;
+    try {
+      result = await authStore.saveProjectWorkspace({
+        projectId,
+        baseVersion: input.baseVersion ?? current.version,
+        state,
+        updatedByUserId: context.user.id,
+        sourceRunId: runId,
+      });
+    } catch (error) {
+      if (isWorkspaceSourceRunConstraintError(error)) {
+        reply.code(400);
+        return { message: "Source run not found for project workspace" };
+      }
+      throw error;
+    }
+    if (!result.ok) {
+      reply.code(409);
+      const currentWorkspace = projectWorkspacePayload(result.workspace);
+      return {
+        message: "项目已由其他成员更新，请刷新最新状态后再恢复快照。",
+        projectId,
+        currentVersion: currentWorkspace.version,
+        workspace: currentWorkspace,
+      };
+    }
+
+    await authStore.recordAuditLog({
+      actorUserId: context.user.id,
+      action: "project.workspace.restore",
+      targetType: "project",
+      targetId: projectId,
+      outcome: "success",
+      message: `sourceRunId=${runId}`,
     });
 
     return projectWorkspacePayload(result.workspace);

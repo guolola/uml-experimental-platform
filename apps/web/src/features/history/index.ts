@@ -29,9 +29,15 @@ export interface RunHistoryItem {
   id: string;
   createdAt: string;
   title: string;
-  snapshot: RunHistorySnapshot;
+  snapshot?: RunHistorySnapshot | null;
   providerModel: string;
   durationMs?: number;
+  status?: string | null;
+  stageLabel?: string | null;
+  summary?: string | null;
+  canRestore?: boolean | null;
+  snapshotAvailable?: boolean | null;
+  documentDownloadAvailable?: boolean | null;
 }
 
 export class RunHistoryStorageError extends Error {
@@ -77,8 +83,7 @@ function safeParseHistory(value: string | null): RunHistoryItem[] {
         typeof candidate.id === "string" &&
         typeof candidate.createdAt === "string" &&
         typeof candidate.title === "string" &&
-        typeof candidate.providerModel === "string" &&
-        !!candidate.snapshot
+        typeof candidate.providerModel === "string"
       );
     });
   } catch {
@@ -225,6 +230,7 @@ export function compactRunHistorySnapshot(
 }
 
 function compactRunHistoryItem(item: RunHistoryItem): RunHistoryItem {
+  if (!item.snapshot) return item;
   return {
     ...item,
     snapshot: compactRunHistorySnapshot(item.snapshot),

@@ -460,6 +460,173 @@ test("admin endpoints expose real users, projects, and audit logs from the platf
   await app.close();
 });
 
+test("admin can view user login records without secret-bearing fields", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp();
+  const target = authStore.createUser({
+    email: "target@example.com",
+    displayName: "Target User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(target);
+  await authStore.recordLoginEvent({
+    userId: target.id,
+    email: target.email,
+    outcome: "success",
+    ipAddress: "127.0.0.1",
+    userAgent: "Mozilla/5.0 Admin Test",
+    message: "Logged in",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await authStore.recordLoginEvent({
+    userId: target.id,
+    email: target.email,
+    outcome: "failure",
+    ipAddress: "10.0.0.8",
+    userAgent: "Suspicious Agent",
+    message: "MFA code did not match",
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/admin/users/${target.id}/login-records`,
+    headers: { cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().user.email, "target@example.com");
+  assert.deepEqual(
+    response.json().loginRecords.map((event: { outcome: string }) => event.outcome),
+    ["failure", "success"],
+  );
+  assert.equal(response.json().loginRecords[1].locationLabel, "本机");
+  assert.doesNotMatch(response.body, /passwordHash|mfaSecret|uml_admin_session/i);
+
+  await app.close();
+});
+
+test("user login record admin route enforces role, data scope, and existence", async () => {
+  const app = Fastify({ logger: false });
+  const authStore = createInMemoryAuthStore();
+  const academicStore = createInMemoryAcademicAdminRepository();
+  const runs = createRunRecordStore();
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+  registerAdminRoutes({
+    app,
+    authStore,
+    runs,
+    documentLibrary: {} as DocumentLibrary,
+    providerConfigs,
+    academicStore,
+  });
+
+  const courseAdmin = authStore.createUser({
+    email: "course-admin@example.com",
+    displayName: "Course Admin",
+    passwordHash: hashPassword("password-123"),
+    systemRoles: ["course_admin"],
+  });
+  const ownerA = authStore.createUser({
+    email: "owner-a@example.com",
+    displayName: "Owner A",
+    passwordHash: hashPassword("password-123"),
+  });
+  const ownerB = authStore.createUser({
+    email: "owner-b@example.com",
+    displayName: "Owner B",
+    passwordHash: hashPassword("password-123"),
+  });
+  const regular = authStore.createUser({
+    email: "regular@example.com",
+    displayName: "Regular User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(courseAdmin);
+  assert.ok(ownerA);
+  assert.ok(ownerB);
+  assert.ok(regular);
+  authStore.updateUser(courseAdmin.id, { mfaEnabled: true, mfaSecret: "COURSEADMINMFA" });
+
+  const org = await academicStore.createOrganization({
+    name: "软件学院",
+    code: null,
+    type: "school",
+    status: "active",
+  });
+  const courseA = await academicStore.createCourse({
+    organizationId: org.id,
+    name: "软件工程 A",
+    code: null,
+    term: null,
+    status: "active",
+  });
+  const courseB = await academicStore.createCourse({
+    organizationId: org.id,
+    name: "软件工程 B",
+    code: null,
+    term: null,
+    status: "active",
+  });
+  await academicStore.createMembership({
+    targetType: "course",
+    targetId: courseA.id,
+    userId: courseAdmin.id,
+    email: courseAdmin.email,
+    displayName: courseAdmin.displayName,
+    role: "course_admin",
+    status: "active",
+  });
+  authStore.createProject({
+    ownerUserId: ownerA.id,
+    name: "课程 A 项目",
+    description: null,
+    visibility: "team",
+    organizationId: org.id,
+    courseId: courseA.id,
+  });
+  authStore.createProject({
+    ownerUserId: ownerB.id,
+    name: "课程 B 项目",
+    description: null,
+    visibility: "team",
+    organizationId: org.id,
+    courseId: courseB.id,
+  });
+  const scopedCookie = await createAdminSessionCookie(authStore, courseAdmin.id);
+  const regularCookie = await createSessionCookie(authStore, regular.id);
+
+  const allowed = await app.inject({
+    method: "GET",
+    url: `/api/admin/users/${ownerA.id}/login-records`,
+    headers: { cookie: scopedCookie },
+  });
+  const outOfScope = await app.inject({
+    method: "GET",
+    url: `/api/admin/users/${ownerB.id}/login-records`,
+    headers: { cookie: scopedCookie },
+  });
+  const missing = await app.inject({
+    method: "GET",
+    url: "/api/admin/users/missing-user/login-records",
+    headers: { cookie: scopedCookie },
+  });
+  const nonAdmin = await app.inject({
+    method: "GET",
+    url: `/api/admin/users/${ownerA.id}/login-records`,
+    headers: { cookie: regularCookie },
+  });
+
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(outOfScope.statusCode, 403);
+  assert.equal(missing.statusCode, 404);
+  assert.equal(nonAdmin.statusCode, 403);
+  assert.doesNotMatch(outOfScope.body, /owner-b@example\.com/);
+
+  await app.close();
+});
+
 test("admin organization endpoints create, read, and list v1 school/course/class/team data", async () => {
   const { app, authStore, cookie } = await createAdminSessionApp();
   const regular = authStore.createUser({

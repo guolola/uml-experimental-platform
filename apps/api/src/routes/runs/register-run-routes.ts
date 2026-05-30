@@ -1650,11 +1650,12 @@ export function registerRunRoutes({
       return { message: "Run not found" };
     }
 
+    const includeEvents = queryValue(request.query, "includeEvents") === "true";
     return {
       projectId,
       run: summarizeRunRecord(record),
       snapshot: record.snapshot,
-      events: record.events,
+      ...(includeEvents ? { events: record.events } : {}),
     };
   });
 

@@ -1680,6 +1680,13 @@ test("project run history supports detail and status filters for authorized memb
       "x-test-user-id": "user-a",
     },
   });
+  const detailWithEvents = await app.inject({
+    method: "GET",
+    url: `/api/projects/project-a/runs/${failedRunId}?includeEvents=true`,
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+  });
 
   assert.equal(completedRun.statusCode, 202);
   assert.equal(failedRun.statusCode, 202);
@@ -1691,7 +1698,8 @@ test("project run history supports detail and status filters for authorized memb
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json().snapshot.runId, failedRunId);
   assert.equal(detail.json().snapshot.status, "failed");
-  assert.equal(detail.json().events.at(-1).type, "failed");
+  assert.equal(detail.json().events, undefined);
+  assert.equal(detailWithEvents.json().events.at(-1).type, "failed");
 
   await app.close();
 });
@@ -1757,7 +1765,7 @@ test("project run cancel requires start permission, cancels scheduled work, reco
   });
   const detail = await app.inject({
     method: "GET",
-    url: `/api/projects/project-a/runs/${runId}`,
+    url: `/api/projects/project-a/runs/${runId}?includeEvents=true`,
     headers: {
       "x-test-user-id": "runner-a",
     },
@@ -1845,7 +1853,7 @@ test("project run retry and rerun create queued records and start their pipeline
   });
   const sourceDetail = await app.inject({
     method: "GET",
-    url: `/api/projects/project-a/runs/${sourceRunId}`,
+    url: `/api/projects/project-a/runs/${sourceRunId}?includeEvents=true`,
     headers: {
       "x-test-user-id": "runner-a",
     },

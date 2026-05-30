@@ -3512,7 +3512,7 @@ function ProjectHistory({
     try {
       const downloaded = await repository.downloadDocumentRun(
         runId,
-        historyItem && isDocumentRunSnapshot(historyItem.snapshot)
+        historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot)
           ? historyItem.snapshot.fileName ?? undefined
           : undefined,
       );
@@ -3783,7 +3783,7 @@ function ProjectHistory({
               const hasSnapshot = Boolean(historyItem) || Boolean(run.snapshotAvailable);
               const hasDocumentSnapshot =
                 Boolean(run.documentDownloadAvailable) ||
-                Boolean(historyItem && isDocumentRunSnapshot(historyItem.snapshot));
+                Boolean(historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot));
               const running = run.status === "running" || run.status === "queued";
               const stageLabel = getProjectRunStageLabel(run);
               const statusLabel = getProjectRunStatusLabel(run.status);
@@ -3932,7 +3932,7 @@ function ProjectHistory({
           const hasSnapshot = Boolean(historyItem) || Boolean(run.snapshotAvailable);
           const hasDocumentSnapshot =
             Boolean(run.documentDownloadAvailable) ||
-            Boolean(historyItem && isDocumentRunSnapshot(historyItem.snapshot));
+            Boolean(historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot));
           const stageLabel = getProjectRunStageLabel(run);
           const statusLabel = getProjectRunStatusLabel(run.status);
           const statusClasses = getProjectRunStatusClasses(run.status);

@@ -12,6 +12,7 @@
 | `DATABASE_URL` | 是 | PostgreSQL 连接串。真实用户、项目、run、文档元数据、审计、供应商配置和 usage/quota 都应落库；未配置时只能视为本地/临时模式。 |
 | `RENDER_SERVICE_BASE_URL` | 是 | API 调用 PlantUML render-service 的内网地址，例如 `http://127.0.0.1:4002`。 |
 | `UML_DOCUMENT_STORAGE_DIR` | 是 | DOCX 和文档二进制存储目录。生产环境必须放在 release 目录外，例如 `/www/wwwroot/uml-platform/shared/documents`。 |
+| `UML_PROJECT_WORKSPACE_BODY_LIMIT_BYTES` | 建议 | 项目工作台保存请求体上限，默认 `52428800`（50MB）。Nginx 的 `client_max_body_size` 也应同步设置为 `50m`，避免恢复旧大快照时在反代层被 413 拦截。 |
 | `UML_TRACE_RAW_OUTPUT_MAX_CHARS` | 否 | run trace 中 LLM 原始输出的单条保存上限，默认 `8000`。超长内容会保留头尾摘要并记录原始长度，避免 PostgreSQL snapshot 和日志膨胀。 |
 | `UML_PERSIST_PROGRESS_SNAPSHOT` | 否 | 是否为 `llm_chunk`/`stage_progress` 类进度事件整包保存 snapshot。生产默认不要设置或设为 `false`，仅排查恢复问题时临时设为 `true`。 |
 

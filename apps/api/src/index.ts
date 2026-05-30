@@ -418,6 +418,7 @@ export async function createApiServer(options?: {
     mailAdapter,
     nodeEnv: options?.nodeEnv ?? process.env.NODE_ENV ?? null,
     academicStore,
+    runs,
   });
   registerProviderConfigRoutes({ app, authStore, providerConfigs });
   registerAdminRoutes({

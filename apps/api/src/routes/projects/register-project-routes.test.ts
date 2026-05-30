@@ -8,14 +8,19 @@ import {
 } from "../../auth/in-memory-auth-store.js";
 import type { MailAdapter, MailMessage } from "../../mail/mail-adapter.js";
 import { registerProjectRoutes } from "./register-project-routes.js";
+import {
+  createRunRecordStore,
+  type RunRecordStore,
+} from "../../runs/records/run-record-store.js";
 
-async function createTestApp(mailAdapter?: MailAdapter) {
+async function createTestApp(mailAdapter?: MailAdapter, runs?: RunRecordStore) {
   const app = Fastify();
   const authStore = createInMemoryAuthStore();
   registerProjectRoutes({
     app,
     authStore,
     ...(mailAdapter ? { mailAdapter } : {}),
+    ...(runs ? { runs } : {}),
   });
   return { app, authStore };
 }
@@ -272,6 +277,201 @@ test("project workspace save reports invalid source run ids as bad requests", as
 
   assert.equal(response.statusCode, 400);
   assert.equal(response.json().message, "Source run not found for project workspace");
+  await app.close();
+});
+
+test("project workspace restore applies a completed design run snapshot server-side", async () => {
+  const runs = createRunRecordStore();
+  const { app, authStore } = await createTestApp(undefined, runs);
+  const owner = await registerUser({
+    authStore,
+    email: "workspace-restore-owner@example.com",
+    displayName: "Workspace Restore Owner",
+  });
+  const project = await createProject({ app, cookie: owner.cookie, name: "Workspace Restore Project" });
+  const runId = "design-restore-run";
+  const createdAt = "2026-05-30T08:00:00.000Z";
+  runs.set(runId, {
+    snapshot: {
+      runId,
+      requirementText: "用户可以筛选日期并预约座位。",
+      selectedDiagrams: ["sequence", "class", "activity", "deployment", "table"],
+      requestedDiagrams: ["sequence", "class", "activity", "deployment", "table"],
+      rules: [
+        {
+          id: "FR1",
+          category: "功能需求",
+          text: "用户可以筛选日期并预约座位。",
+          relatedDiagrams: ["usecase", "activity"],
+        },
+      ],
+      requirementBaseline: null,
+      coverageMatrix: null,
+      traceabilityMatrix: null,
+      evidencePackage: null,
+      requirementModels: [
+        {
+          diagramKind: "usecase",
+          title: "用例模型",
+          summary: "座位预约用例。",
+          notes: [],
+          actors: [],
+          useCases: [],
+          systemBoundaries: [],
+          relationships: [],
+        },
+      ],
+      requirementModelTraceability: [],
+      models: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc_filter_date",
+          sourceUseCaseId: "uc_filter_date",
+          sourceUseCaseName: "日期筛选",
+          title: "日期筛选顺序图",
+          summary: "用户筛选未来日期。",
+          notes: [],
+          participants: [],
+          messages: [],
+          fragments: [],
+        },
+        {
+          diagramKind: "class",
+          modelId: "class",
+          title: "设计类图",
+          summary: "预约领域类。",
+          notes: [],
+          classes: [],
+          interfaces: [],
+          enums: [],
+          relationships: [],
+        },
+        {
+          diagramKind: "activity",
+          modelId: "activity",
+          title: "活动图",
+          summary: "预约流程。",
+          notes: [],
+          swimlanes: [],
+          nodes: [],
+          relationships: [],
+        },
+        {
+          diagramKind: "deployment",
+          modelId: "deployment",
+          title: "部署图",
+          summary: "小程序部署。",
+          notes: [],
+          nodes: [],
+          databases: [],
+          components: [],
+          externalSystems: [],
+          artifacts: [],
+          relationships: [],
+        },
+        {
+          diagramKind: "table",
+          modelId: "table",
+          title: "表关系图",
+          summary: "预约数据表。",
+          notes: [],
+          tables: [
+            {
+              id: "reservation",
+              name: "预约表",
+              columns: [
+                {
+                  id: "id",
+                  name: "ID",
+                  dataType: "uuid",
+                  isPrimaryKey: true,
+                  isForeignKey: false,
+                  nullable: false,
+                },
+              ],
+            },
+          ],
+          relationships: [],
+        },
+      ],
+      designModelTraceability: [],
+      plantUml: [
+        {
+          modelId: "sequence:uc_filter_date",
+          diagramKind: "sequence",
+          source: "@startuml\n@enduml",
+        },
+        { modelId: "class", diagramKind: "class", source: "@startuml\n@enduml" },
+        { modelId: "activity", diagramKind: "activity", source: "@startuml\n@enduml" },
+        { modelId: "deployment", diagramKind: "deployment", source: "@startuml\n@enduml" },
+        { modelId: "table", diagramKind: "table", source: "@startuml\n@enduml" },
+      ],
+      svgArtifacts: [
+        {
+          modelId: "sequence:uc_filter_date",
+          diagramKind: "sequence",
+          svg: "<svg />",
+          renderMeta: {
+            engine: "plantuml",
+            generatedAt: createdAt,
+            sourceLength: 16,
+            durationMs: 1,
+          },
+        },
+      ],
+      diagramErrors: {},
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      errorMessage: null,
+    },
+    events: [],
+    listeners: new Set(),
+    terminal: true,
+    metadata: { projectId: project.id, userId: owner.user.id, createdAt },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/projects/${project.id}/runs/${runId}/restore-workspace`,
+    headers: { cookie: owner.cookie },
+    payload: { mode: "restore" },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const state = response.json().state as {
+    requirementText: string;
+    selectedDesignDiagramTypes: string[];
+    generatedDesignDiagramTypes: string[];
+    designModels: Record<string, unknown>;
+    designPlantUml: Record<string, string>;
+    designSvgArtifacts: Record<string, unknown>;
+  };
+  assert.equal(state.requirementText, "用户可以筛选日期并预约座位。");
+  assert.deepEqual(state.selectedDesignDiagramTypes, [
+    "sequence",
+    "class",
+    "activity",
+    "deployment",
+    "table",
+  ]);
+  assert.deepEqual(state.generatedDesignDiagramTypes, [
+    "sequence",
+    "class",
+    "activity",
+    "deployment",
+    "table",
+  ]);
+  assert.ok(state.designModels["sequence:uc_filter_date"]);
+  assert.ok(state.designModels.class);
+  assert.ok(state.designModels.activity);
+  assert.ok(state.designModels.deployment);
+  assert.ok(state.designModels.table);
+  assert.equal(state.designPlantUml["sequence:uc_filter_date"], "@startuml\n@enduml");
+  assert.ok(state.designSvgArtifacts["sequence:uc_filter_date"]);
+
+  const logs = await authStore.listAuditLogs();
+  assert.ok(logs.some((entry) => entry.action === "project.workspace.restore"));
   await app.close();
 });
 

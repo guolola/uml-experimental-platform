@@ -284,6 +284,7 @@ export interface WorkspaceRepository {
     meta: { providerModel: string; durationMs?: number },
   ): Promise<RunHistoryItem>;
   listRunHistory(): Promise<RunHistoryItem[]>;
+  getRunHistoryItem?(id: string): Promise<RunHistoryItem | null>;
   restoreRunHistory(id: string): Promise<RunHistoryItem | null>;
   deleteRunHistory(id: string): Promise<RunHistoryItem[]>;
   clearRunHistory(): Promise<void>;
@@ -353,8 +354,17 @@ type ProjectRunDetailResponse = {
   run?: {
     runId?: string;
     model?: string | null;
+    status?: string | null;
+    stage?: string | null;
+    runKind?: string | null;
+    documentKind?: string | null;
+    snapshotAvailable?: boolean | null;
+    canRestore?: boolean | null;
+    documentDownloadAvailable?: boolean | null;
     startedAt?: string | null;
     createdAt?: string | null;
+    completedAt?: string | null;
+    updatedAt?: string | null;
   };
   snapshot?: RunHistorySnapshot;
 };
@@ -363,6 +373,9 @@ type ProjectRunsResponse = {
   runs?: Array<{
     runId?: string;
     status?: string | null;
+    stage?: string | null;
+    runKind?: string | null;
+    documentKind?: string | null;
     createdAt?: string | null;
     startedAt?: string | null;
     updatedAt?: string | null;
@@ -969,19 +982,90 @@ function normalizeProjectHistoryResponse(payload: unknown): RunHistoryItem[] {
   const record = payload as {
     history?: RunHistoryItem[];
     items?: RunHistoryItem[];
-    runs?: Array<Partial<RunHistoryItem> & { snapshot?: RunHistorySnapshot }>;
+    runs?: ProjectRunsResponse["runs"];
   };
-  const candidates = record.history ?? record.items ?? record.runs ?? [];
-  return candidates.filter((item): item is RunHistoryItem => {
-    return (
-      !!item &&
-      typeof item.id === "string" &&
-      typeof item.createdAt === "string" &&
-      typeof item.title === "string" &&
-      typeof item.providerModel === "string" &&
-      !!item.snapshot
-    );
-  });
+  const persisted = record.history ?? record.items;
+  if (persisted) {
+    return persisted.filter((item): item is RunHistoryItem => {
+      return (
+        !!item &&
+        typeof item.id === "string" &&
+        typeof item.createdAt === "string" &&
+        typeof item.title === "string" &&
+        typeof item.providerModel === "string"
+      );
+    });
+  }
+  return (record.runs ?? [])
+    .map((run) => projectRunSummaryToHistoryItem(run))
+    .filter((item): item is RunHistoryItem => item !== null);
+}
+
+function projectRunSummaryToHistoryItem(
+  run: NonNullable<ProjectRunsResponse["runs"]>[number] | ProjectRunDetailResponse["run"],
+  snapshot?: RunHistorySnapshot | null,
+): RunHistoryItem | null {
+  const runId = run?.runId?.trim();
+  if (!runId) return null;
+  const createdAt =
+    run.completedAt ??
+    run.startedAt ??
+    run.createdAt ??
+    run.updatedAt ??
+    new Date().toISOString();
+  const title = snapshot
+    ? createRunHistoryTitle(snapshot.requirementText)
+    : projectRunStageTitle(run);
+  return {
+    id: runId,
+    createdAt,
+    title,
+    snapshot: snapshot ?? null,
+    providerModel: run.model ?? "默认模型",
+    status: run.status ?? null,
+    stageLabel: snapshot ? null : projectRunKindLabel(run),
+    summary: snapshot ? null : projectRunSummary(run),
+    canRestore: run.canRestore ?? Boolean(snapshot),
+    snapshotAvailable: run.snapshotAvailable ?? Boolean(snapshot),
+    documentDownloadAvailable: run.documentDownloadAvailable ?? false,
+  };
+}
+
+function projectRunStageTitle(run: ProjectRunDetailResponse["run"]) {
+  if (!run) return "运行历史";
+  if (run.documentKind === "requirementsSpec") return "生成需求规格说明书";
+  if (run.documentKind === "softwareDesignSpec") return "生成软件设计说明书";
+  const stage = run.stage ?? "";
+  if (stage === "render_svg") {
+    return run.runKind === "design" ? "渲染设计图表" : "渲染需求图表";
+  }
+  if (stage.includes("sequence")) return "生成顺序图";
+  if (stage.includes("design")) return "生成设计模型";
+  if (stage.includes("code")) return "生成代码原型";
+  if (stage.includes("document")) return "生成说明书";
+  if (stage.includes("extract_rules")) return "抽取需求规则";
+  if (stage.includes("generate_models")) return "生成需求模型";
+  if (run.runKind === "design") return "设计模型生成";
+  if (run.runKind === "code") return "代码原型生成";
+  if (run.runKind === "document") return "说明书生成";
+  return "需求模型生成";
+}
+
+function projectRunKindLabel(run: ProjectRunDetailResponse["run"]) {
+  if (!run) return "运行阶段";
+  if (run.runKind === "design") return "设计阶段";
+  if (run.runKind === "code") return "代码原型";
+  if (run.runKind === "document") return "说明书";
+  return "需求阶段";
+}
+
+function projectRunSummary(run: ProjectRunDetailResponse["run"]) {
+  const parts = [
+    run?.stage ? `阶段 ${run.stage}` : null,
+    run?.snapshotAvailable ? "快照可恢复" : null,
+    run?.documentDownloadAvailable ? "文档可下载" : null,
+  ].filter(Boolean);
+  return parts.join(" · ") || "运行摘要";
 }
 
 export function createHttpWorkspaceRepository(
@@ -1074,6 +1158,29 @@ export function createHttpWorkspaceRepository(
     );
   }
 
+  async function restoreProjectWorkspaceFromRun(runId: string) {
+    const scopedProjectId = requireProjectScope(projectId);
+    const response = await requestJson<ProjectWorkspaceResponse>(
+      `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}/restore-workspace`,
+      withProjectHeaders(scopedProjectId, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "restore",
+        }),
+        errorMessage: "恢复项目工作台快照失败",
+      }),
+    );
+    projectWorkspaceVersion = response.version;
+    projectWorkspace = mergeWorkspaceState(response.state);
+    return cloneWorkspace(projectWorkspace);
+  }
+
+  async function readProjectRunHistoryItem(runId: string) {
+    const detail = await readProjectRunDetail(runId);
+    return projectRunSummaryToHistoryItem(detail.run, detail.snapshot ?? null);
+  }
+
   async function readProjectRuns() {
     const scopedProjectId = requireProjectScope(projectId);
     return requestJson<ProjectRunsResponse>(
@@ -1131,15 +1238,16 @@ export function createHttpWorkspaceRepository(
         },
       );
     for (const run of candidates) {
-      const detail = await readProjectRunDetail(run.runId!);
-      if (!detail.snapshot || isDocumentRunSnapshot(detail.snapshot)) continue;
-      projectWorkspace = applySnapshotToWorkspace(projectWorkspace, detail.snapshot);
       try {
-        await saveProjectWorkspace(projectWorkspace, detail.snapshot.runId);
+        await restoreProjectWorkspaceFromRun(run.runId!);
       } catch (error) {
-        if (!(error instanceof ApiClientError) || (error.status !== 403 && error.status !== 409)) {
+        if (
+          !(error instanceof ApiClientError) ||
+          (error.status !== 400 && error.status !== 403 && error.status !== 409)
+        ) {
           throw error;
         }
+        continue;
       }
       return;
     }
@@ -1615,55 +1723,27 @@ export function createHttpWorkspaceRepository(
     async listRunHistory() {
       if (projectId) {
         const payload = await readProjectRuns();
-        const normalizedHistory = normalizeProjectHistoryResponse(payload);
-        if (normalizedHistory.length > 0) return normalizedHistory;
-
-        const runsWithSnapshots = (payload.runs ?? []).filter(
-          (run) => run.runId && (run.snapshotAvailable || run.canRestore),
-        );
-        const details = await Promise.all(
-          runsWithSnapshots.map(async (run) => {
-            try {
-              const detail = await readProjectRunDetail(run.runId!);
-              if (!detail.snapshot) return null;
-              return {
-                id: detail.snapshot.runId,
-                createdAt:
-                  detail.run?.startedAt ??
-                  detail.run?.createdAt ??
-                  run.startedAt ??
-                  run.createdAt ??
-                  run.updatedAt ??
-                  new Date().toISOString(),
-                title: createRunHistoryTitle(detail.snapshot.requirementText),
-                snapshot: detail.snapshot,
-                providerModel: detail.run?.model ?? run.model ?? "默认模型",
-              } satisfies RunHistoryItem;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        return details.filter((item): item is RunHistoryItem => item !== null);
+        return normalizeProjectHistoryResponse(payload);
       }
       throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
 
+    async getRunHistoryItem(id) {
+      if (projectId) {
+        return readProjectRunHistoryItem(id);
+      }
+      return loadRunHistory().find((item) => item.id === id) ?? null;
+    },
+
     async restoreRunHistory(id) {
       if (projectId) {
-        const detail = await readProjectRunDetail(id);
-        if (!detail.snapshot) return null;
-        await persistSnapshotAsProjectWorkspace(detail.snapshot, "restore");
-        return {
-          id: detail.snapshot.runId,
-          createdAt:
-            detail.run?.startedAt ??
-            detail.run?.createdAt ??
-            new Date().toISOString(),
-          title: createRunHistoryTitle(detail.snapshot.requirementText),
-          snapshot: detail.snapshot,
-          providerModel: detail.run?.model ?? "默认模型",
-        };
+        await restoreProjectWorkspaceFromRun(id);
+        return projectRunSummaryToHistoryItem({
+          runId: id,
+          status: "completed",
+          snapshotAvailable: true,
+          canRestore: true,
+        });
       }
       throw new Error(PROJECT_REQUIRED_MESSAGE);
     },
@@ -2375,6 +2455,10 @@ export function createMockWorkspaceRepository(
 
     async listRunHistory() {
       return loadRunHistory();
+    },
+
+    async getRunHistoryItem(id) {
+      return loadRunHistory().find((item) => item.id === id) ?? null;
     },
 
     async restoreRunHistory(id) {

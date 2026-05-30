@@ -709,7 +709,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(
+        JSON.stringify({ message: `unexpected request ${String(url)} ${options?.method ?? "GET"}` }),
+        { status: 500 },
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -823,7 +826,7 @@ describe("createHttpWorkspaceRepository", () => {
     ).toBe("accepted");
   });
 
-  it("restores project run snapshots by fetching run detail and saving a project workspace version", async () => {
+  it("restores project run snapshots through the server without uploading the workspace", async () => {
     const snapshot = createRunSnapshot({
       runId: "run-restore",
       requirementText: "恢复后的项目需求",
@@ -854,6 +857,20 @@ describe("createHttpWorkspaceRepository", () => {
             },
             snapshot,
             events: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/runs/run-restore/restore-workspace") &&
+        options?.method === "POST"
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 5,
+            updatedAt: "2026-05-22T02:05:00.000Z",
+            state: { requirementText: "恢复后的项目需求" },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -895,20 +912,27 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
     const item = await repository.restoreRunHistory("run-restore");
 
-    expect(item?.snapshot.requirementText).toBe("恢复后的项目需求");
+    expect(item?.snapshot).toBeNull();
+    const restoreCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/runs/run-restore/restore-workspace") &&
+        options?.method === "POST",
+    );
+    expect(restoreCall).toBeTruthy();
+    expect(JSON.parse(String(restoreCall?.[1]?.body))).toEqual({ mode: "restore" });
     const saveCall = fetchMock.mock.calls.find(
       ([url, options]) =>
         String(url).endsWith("/api/projects/library-booking/workspace") &&
         options?.method === "PUT",
     );
-    expect(saveCall).toBeTruthy();
-    const body = JSON.parse(String(saveCall?.[1]?.body));
-    expect(body.baseVersion).toBe(4);
-    expect(body.sourceRunId).toBe("run-restore");
-    expect(body.state.requirementText).toBe("恢复后的项目需求");
+    expect(saveCall).toBeFalsy();
+    const detailCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/projects/library-booking/runs/run-restore"),
+    );
+    expect(detailCall).toBeFalsy();
   });
 
-  it("lists project run history by hydrating snapshot-capable runs", async () => {
+  it("lists project run history from summaries without hydrating run details", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith("/api/projects/library-booking/runs")) {
         return new Response(
@@ -967,10 +991,11 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
     const history = await repository.listRunHistory();
 
-    expect(history).toHaveLength(1);
-    expect(history[0]?.id).toBe("run-complete");
-    expect(history[0]?.providerModel).toBe("gpt-5.4");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(history).toHaveLength(2);
+    expect(history.map((item) => item.id)).toEqual(["run-active", "run-complete"]);
+    expect(history[0]?.snapshot).toBeNull();
+    expect(history[1]?.providerModel).toBe("默认模型");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("persists requirement run snapshots incrementally with diagram versions", async () => {

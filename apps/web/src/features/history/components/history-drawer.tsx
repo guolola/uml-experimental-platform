@@ -53,6 +53,13 @@ export function HistoryDrawer({
     onClose();
   };
 
+  const loadHistorySnapshot = async (id: string) => {
+    const existing = historyItems.find((item) => item.id === id);
+    if (existing?.snapshot) return existing.snapshot;
+    const detail = await repository.getRunHistoryItem?.(id);
+    return detail?.snapshot ?? null;
+  };
+
   const downloadDocument = async (id: string, defaultFileName?: string | null) => {
     if (!repository.downloadDocumentRun) {
       toast.error("当前仓储不支持重新下载说明书");
@@ -107,9 +114,13 @@ export function HistoryDrawer({
           ) : (
             <div className="flex flex-col gap-2">
               {historyItems.map((item) => {
-                const succeeded = item.snapshot.status === "completed";
-                const stageLabel = getRunHistorySnapshotLabel(item.snapshot);
-                const snapshotSummary = getRunHistorySnapshotSummary(item.snapshot);
+                const succeeded = (item.snapshot?.status ?? item.status) === "completed";
+                const stageLabel = item.snapshot
+                  ? getRunHistorySnapshotLabel(item.snapshot)
+                  : item.stageLabel ?? "运行阶段";
+                const snapshotSummary = item.snapshot
+                  ? getRunHistorySnapshotSummary(item.snapshot)
+                  : item.summary ?? (item.snapshotAvailable ? "快照可恢复" : "无快照");
                 return (
                   <article
                     key={item.id}
@@ -125,7 +136,7 @@ export function HistoryDrawer({
                             variant={succeeded ? "secondary" : "destructive"}
                             className="shrink-0 font-mono"
                           >
-                            {item.snapshot.status}
+                            {item.snapshot?.status ?? item.status ?? "unknown"}
                           </Badge>
                           <Badge variant="outline" className="shrink-0">
                             {stageLabel}
@@ -139,7 +150,7 @@ export function HistoryDrawer({
                           )}
                           <span>{snapshotSummary}</span>
                         </div>
-                        {item.snapshot.errorMessage && (
+                        {item.snapshot?.errorMessage && (
                           <div className="mt-2 text-xs text-destructive">
                             {item.snapshot.errorMessage}
                           </div>
@@ -160,18 +171,25 @@ export function HistoryDrawer({
                           size="icon"
                           className="size-8"
                           title="导出 Markdown"
-                          onClick={() => {
+                          onClick={() => void (async () => {
+                            const snapshot = await loadHistorySnapshot(item.id);
+                            if (!snapshot) {
+                              toast.error("该运行暂未保存可导出的快照");
+                              return;
+                            }
                             downloadTextFile(
                               `${item.id}.md`,
-                              buildRunMarkdownReport(item.snapshot),
+                              buildRunMarkdownReport(snapshot),
                               "text/markdown",
                             );
                             toast.success("已导出运行报告");
-                          }}
+                          })()}
                         >
                           <Download className="size-4" />
                         </Button>
-                        {isDocumentRunSnapshot(item.snapshot) && succeeded && (
+                        {(item.documentDownloadAvailable ||
+                          (item.snapshot && isDocumentRunSnapshot(item.snapshot))) &&
+                          succeeded && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -180,7 +198,7 @@ export function HistoryDrawer({
                             onClick={() =>
                               void downloadDocument(
                                 item.id,
-                                isDocumentRunSnapshot(item.snapshot)
+                                item.snapshot && isDocumentRunSnapshot(item.snapshot)
                                   ? item.snapshot.fileName
                                   : undefined,
                               )
