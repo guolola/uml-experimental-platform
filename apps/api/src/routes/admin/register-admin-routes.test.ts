@@ -20,7 +20,12 @@ import {
   type RunRecord,
   type RunRecordStore,
 } from "../../runs/records/run-record-store.js";
-import { createEmptySnapshot } from "../../runs/records/snapshots.js";
+import {
+  createEmptyCodeSnapshot,
+  createEmptyDesignSnapshot,
+  createEmptyDocumentSnapshot,
+  createEmptySnapshot,
+} from "../../runs/records/snapshots.js";
 import { createInMemoryAcademicAdminRepository } from "../../db/academic-admin-repository.js";
 import { registerAdminRoutes } from "./register-admin-routes.js";
 import type { AdminRiskEvent } from "./register-admin-routes.js";
@@ -77,6 +82,9 @@ function putRunRecord(
     projectId: string;
     status: RunRecord["snapshot"]["status"];
     terminal?: boolean;
+    completedAt?: string;
+    userId?: string;
+    model?: string;
   },
 ) {
   const snapshot = createEmptySnapshot(
@@ -87,6 +95,11 @@ function putRunRecord(
   snapshot.status = input.status;
   snapshot.currentStage = input.status === "queued" ? null : "generate_models";
   snapshot.errorMessage = input.status === "failed" ? "LLM failed" : null;
+  if (input.model) {
+    (snapshot as unknown as { providerSettings?: { model: string } }).providerSettings = {
+      model: input.model,
+    };
+  }
   runs.set(input.runId, {
     snapshot,
     events: [],
@@ -94,8 +107,10 @@ function putRunRecord(
     terminal: input.terminal ?? (input.status === "failed" || input.status === "cancelled"),
     metadata: {
       projectId: input.projectId,
-      userId: "source-user",
+      userId: input.userId ?? "source-user",
+      model: input.model,
       createdAt: "2026-05-22T00:00:00.000Z",
+      completedAt: input.completedAt,
     },
   });
 }
@@ -1769,12 +1784,30 @@ test("admin cancel calls the scheduler and retry starts the new run pipeline", a
   await app.close();
 });
 
-test("admin run detail endpoint exposes diagnostic snapshot and events with read scope", async () => {
+test("admin run detail endpoint exposes readable run metadata and artifact summary", async () => {
   const runs = createRunRecordStore();
+  const { app, authStore, cookie } = await createAdminSessionApp({
+    runRecordStore: runs,
+  });
+  const operator = authStore.createUser({
+    email: "run-operator@example.com",
+    displayName: "运行操作者",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(operator);
+  const { project } = authStore.createProject({
+    ownerUserId: operator.id,
+    name: "可读项目名称",
+    description: "运行详情应展示项目名",
+    visibility: "private",
+  });
   putRunRecord(runs, {
     runId: "run-diagnostic",
-    projectId: "project-a",
+    projectId: project.id,
+    userId: operator.id,
     status: "failed",
+    completedAt: "2026-05-22T00:01:30.000Z",
+    model: "gpt-admin-readable",
   });
   const record = runs.get("run-diagnostic");
   assert.ok(record);
@@ -1783,10 +1816,6 @@ test("admin run detail endpoint exposes diagnostic snapshot and events with read
     { type: "stage_started", stage: "generate_models" },
     { type: "failed", stage: "generate_models", message: "LLM failed" },
   );
-
-  const { app, authStore, cookie } = await createAdminSessionApp({
-    runRecordStore: runs,
-  });
   const auditor = authStore.createUser({
     email: "run-auditor@example.com",
     displayName: "Run Auditor",
@@ -1813,11 +1842,123 @@ test("admin run detail endpoint exposes diagnostic snapshot and events with read
 
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json().run.id, "run-diagnostic");
+  assert.equal(detail.json().run.taskType, "requirements_to_uml");
+  assert.equal(detail.json().run.projectId, project.id);
+  assert.equal(detail.json().run.projectName, "可读项目名称");
+  assert.equal(detail.json().run.operatorId, operator.id);
+  assert.equal(detail.json().run.operatorName, "运行操作者");
+  assert.equal(detail.json().run.model, "gpt-admin-readable");
+  assert.equal(detail.json().run.createdAt, "2026-05-22T00:00:00.000Z");
+  assert.equal(detail.json().run.completedAt, "2026-05-22T00:01:30.000Z");
+  assert.equal(detail.json().run.durationMs, 90_000);
+  assert.equal(detail.json().run.artifactSummary.title, "需求建模生成结果");
+  assert.equal(detail.json().run.artifactSummary.metrics[1].label, "模型");
   assert.equal(detail.json().run.diagnostics.eventCount, 3);
   assert.equal(detail.json().run.diagnostics.errorMessage, "LLM failed");
-  assert.equal(detail.json().run.snapshot.requirementText, "需求 run-diagnostic");
-  assert.equal(detail.json().run.events.at(-1).type, "failed");
   assert.equal(auditorDetail.statusCode, 200);
+
+  await app.close();
+});
+
+test("admin run list classifies run kinds and returns readable summaries", async () => {
+  const runs = createRunRecordStore();
+  const { app, authStore, cookie } = await createAdminRouteTestApp({ runs });
+  const operator = authStore.createUser({
+    email: "operator@example.com",
+    displayName: "任务操作者",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(operator);
+  const { project } = authStore.createProject({
+    ownerUserId: operator.id,
+    name: "任务项目",
+    description: "四类任务归类测试",
+    visibility: "private",
+  });
+  const snapshots: Array<{ snapshot: RunRecord["snapshot"]; expectedType: string; expectedTitle: string }> = [
+    {
+      snapshot: createEmptySnapshot("run-req", "需求建模文本", ["usecase"]),
+      expectedType: "requirements_to_uml",
+      expectedTitle: "需求建模生成结果",
+    },
+    {
+      snapshot: createEmptyDesignSnapshot("run-design", {
+        requirementText: "设计建模文本",
+        selectedDiagrams: ["sequence"],
+        requestedDiagrams: ["sequence"],
+        rules: [],
+        requirementModels: [],
+        requirementModelTraceability: [],
+      }),
+      expectedType: "design_modeling",
+      expectedTitle: "设计建模生成结果",
+    },
+    {
+      snapshot: createEmptyCodeSnapshot("run-code", {
+        requirementText: "代码原型文本",
+        rules: [],
+        designModels: [],
+        existingFiles: { "/src/App.tsx": "export default function App() { return null; }" },
+      }),
+      expectedType: "code_generation",
+      expectedTitle: "代码原型生成结果",
+    },
+    {
+      snapshot: createEmptyDocumentSnapshot("run-doc", {
+        documentKind: "requirementsSpec",
+        requirementText: "文档生成文本",
+      }),
+      expectedType: "document_generation",
+      expectedTitle: "文档生成结果",
+    },
+  ];
+
+  for (const { snapshot } of snapshots) {
+    snapshot.status = "completed";
+    snapshot.currentStage = "completed";
+    (snapshot as unknown as { providerSettings?: { model: string } }).providerSettings = {
+      model: "gpt-admin-readable",
+    };
+    runs.set(snapshot.runId, {
+      snapshot,
+      events: [],
+      listeners: new Set(),
+      terminal: true,
+      metadata: {
+        projectId: project.id,
+        userId: operator.id,
+        createdAt: "2026-05-22T00:00:00.000Z",
+        completedAt: "2026-05-22T00:00:05.000Z",
+      },
+    });
+  }
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/admin/runs",
+    headers: { cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const listedRuns = response.json().runs as Array<{
+    id: string;
+    taskType: string;
+    model: string;
+    projectName: string;
+    operatorName: string;
+    durationMs: number;
+    artifactSummary: { title: string };
+  }>;
+  for (const { snapshot, expectedType, expectedTitle } of snapshots) {
+    const run = listedRuns.find((item) => item.id === snapshot.runId);
+    assert.ok(run);
+    assert.equal(run.taskType, expectedType);
+    assert.equal(run.model, "gpt-admin-readable");
+    assert.equal(run.projectName, "任务项目");
+    assert.equal(run.operatorName, "任务操作者");
+    assert.equal(run.durationMs, 5_000);
+    assert.equal(run.artifactSummary.title, expectedTitle);
+  }
 
   await app.close();
 });

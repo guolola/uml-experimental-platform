@@ -446,6 +446,196 @@ function disabledProviderCostEstimate() {
   } as const;
 }
 
+type AdminRunTaskType =
+  | "requirements_to_uml"
+  | "design_modeling"
+  | "code_generation"
+  | "document_generation"
+  | "unknown";
+
+type AdminRunArtifactSummary = {
+  title: string;
+  description: string;
+  metrics: Array<{ label: string; value: string | number }>;
+  artifacts: Array<{ label: string; count: number; detail?: string }>;
+  notes: string[];
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function arrayLength(value: unknown) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function objectKeyCount(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? Object.keys(value).length
+    : 0;
+}
+
+function readProviderModel(snapshot: RunRecord["snapshot"]) {
+  const settings = asRecord(asRecord(snapshot).providerSettings);
+  return typeof settings.model === "string" && settings.model.trim()
+    ? settings.model
+    : null;
+}
+
+function taskTypeForSnapshot(snapshot: RunRecord["snapshot"]): AdminRunTaskType {
+  if ("documentKind" in snapshot) return "document_generation";
+  if ("files" in snapshot) return "code_generation";
+  if ("designModelTraceability" in snapshot) return "design_modeling";
+  if ("models" in snapshot || "plantUml" in snapshot || "svgArtifacts" in snapshot) {
+    return "requirements_to_uml";
+  }
+  return "unknown";
+}
+
+function documentKindLabel(kind: unknown) {
+  if (kind === "requirementsSpec") return "需求规格说明书";
+  if (kind === "softwareDesignSpec") return "软件设计说明书";
+  return "文档";
+}
+
+function formatBytes(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "未记录";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function buildRunArtifactSummary(snapshot: RunRecord["snapshot"]): AdminRunArtifactSummary {
+  const source = asRecord(snapshot);
+  const taskType = taskTypeForSnapshot(snapshot);
+  if (taskType === "document_generation") {
+    return {
+      title: "文档生成结果",
+      description: `${documentKindLabel(source.documentKind)}${typeof source.fileName === "string" ? `：${source.fileName}` : ""}`,
+      metrics: [
+        { label: "文档类型", value: documentKindLabel(source.documentKind) },
+        { label: "文件大小", value: formatBytes(source.byteLength) },
+        { label: "章节数", value: arrayLength(source.sections) },
+        { label: "缺失产物", value: arrayLength(source.missingArtifacts) },
+      ],
+      artifacts: [
+        { label: "DOCX 文档", count: source.documentId ? 1 : 0, detail: typeof source.fileName === "string" ? source.fileName : undefined },
+      ],
+      notes: [
+        source.documentId ? `文档 ID：${source.documentId}` : "后台未返回文档 ID",
+        arrayLength(source.missingArtifacts) > 0
+          ? `缺失产物：${(source.missingArtifacts as string[]).join("、")}`
+          : "未发现缺失产物",
+      ],
+    };
+  }
+
+  if (taskType === "code_generation") {
+    const files = asRecord(source.files);
+    const dependencies = asRecord(source.dependencies);
+    return {
+      title: "代码原型生成结果",
+      description: typeof source.entryFile === "string" ? `入口文件：${source.entryFile}` : "后台未返回入口文件",
+      metrics: [
+        { label: "生成文件", value: Object.keys(files).length },
+        { label: "依赖", value: Object.keys(dependencies).length },
+        { label: "质量诊断", value: arrayLength(source.qualityDiagnostics) },
+        { label: "变更文件", value: typeof source.changedFileCount === "number" ? source.changedFileCount : Object.keys(files).length },
+      ],
+      artifacts: [
+        { label: "代码文件", count: Object.keys(files).length, detail: Object.keys(files).slice(0, 4).join("、") || undefined },
+        { label: "业务逻辑", count: source.businessLogic ? 1 : 0 },
+        { label: "UI 蓝图", count: source.uiBlueprint || source.uiIr ? 1 : 0 },
+      ],
+      notes: [
+        source.codeGenerationMode ? `生成模式：${source.codeGenerationMode}` : "后台未返回生成模式",
+        source.repairLoopSummary ? "包含修复循环摘要" : "未返回修复循环摘要",
+      ],
+    };
+  }
+
+  if (taskType === "design_modeling") {
+    return {
+      title: "设计建模生成结果",
+      description: "从需求模型生成设计模型、设计 PlantUML 和设计 SVG。",
+      metrics: [
+        { label: "设计模型", value: arrayLength(source.models) },
+        { label: "设计 PlantUML", value: arrayLength(source.plantUml) },
+        { label: "设计 SVG", value: arrayLength(source.svgArtifacts) },
+        { label: "关联需求模型", value: arrayLength(source.requirementModels) },
+      ],
+      artifacts: [
+        { label: "设计模型", count: arrayLength(source.models) },
+        { label: "PlantUML", count: arrayLength(source.plantUml) },
+        { label: "SVG/PNG", count: arrayLength(source.svgArtifacts) },
+      ],
+      notes: [
+        arrayLength(source.requestedDiagrams) > 0
+          ? `请求图类型：${(source.requestedDiagrams as string[]).join("、")}`
+          : "后台未返回请求图类型",
+        objectKeyCount(source.diagramErrors) > 0 ? "存在图生成错误" : "未发现图生成错误",
+      ],
+    };
+  }
+
+  return {
+    title: "需求建模生成结果",
+    description: "从需求文本生成 UML 模型、PlantUML 和 SVG/PNG。",
+    metrics: [
+      { label: "需求长度", value: typeof source.requirementText === "string" ? source.requirementText.length : "未记录" },
+      { label: "模型", value: arrayLength(source.models) },
+      { label: "PlantUML", value: arrayLength(source.plantUml) },
+      { label: "SVG/PNG", value: arrayLength(source.svgArtifacts) },
+    ],
+    artifacts: [
+      { label: "UML 模型", count: arrayLength(source.models) },
+      { label: "PlantUML", count: arrayLength(source.plantUml) },
+      { label: "SVG/PNG", count: arrayLength(source.svgArtifacts) },
+    ],
+    notes: [
+      source.coverageMatrix ? "已生成覆盖矩阵" : "未返回覆盖矩阵",
+      source.traceabilityMatrix ? "已生成追踪矩阵" : "未返回追踪矩阵",
+      objectKeyCount(source.diagramErrors) > 0 ? "存在图生成错误" : "未发现图生成错误",
+    ],
+  };
+}
+
+function calculateDurationMs(createdAt?: string, completedAt?: string) {
+  if (!createdAt || !completedAt) return null;
+  const start = new Date(createdAt).getTime();
+  const end = new Date(completedAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return end - start;
+}
+
+async function buildAdminRunDto(record: RunRecord, authStore: AuthStore) {
+  const projectId = typeof record.metadata?.projectId === "string" ? record.metadata.projectId : null;
+  const operatorId = typeof record.metadata?.userId === "string" ? record.metadata.userId : null;
+  const [project, operator] = await Promise.all([
+    projectId ? authStore.getProject(projectId) : Promise.resolve(null),
+    operatorId ? authStore.getUser(operatorId) : Promise.resolve(null),
+  ]);
+  const createdAt = record.metadata?.createdAt ?? null;
+  const completedAt = record.metadata?.completedAt ?? null;
+  return {
+    id: record.snapshot.runId,
+    status: record.snapshot.status,
+    currentStage: record.snapshot.currentStage,
+    errorMessage: record.snapshot.errorMessage,
+    taskType: taskTypeForSnapshot(record.snapshot),
+    model: readProviderModel(record.snapshot) ?? record.metadata?.model ?? null,
+    projectId,
+    projectName: project?.name ?? null,
+    operatorId,
+    operatorName: operator?.displayName ?? operator?.email ?? null,
+    createdAt,
+    completedAt,
+    durationMs: calculateDurationMs(createdAt ?? undefined, completedAt ?? undefined),
+    artifactSummary: buildRunArtifactSummary(record.snapshot),
+    metadata: record.metadata ?? null,
+  };
+}
+
 const ADMIN_ROLE_NAMES: Record<AdminRole, string> = {
   super_admin: "超级管理员",
   system_operator: "系统运维",
@@ -1617,20 +1807,14 @@ export function registerAdminRoutes({
         );
     return {
       generatedAt: new Date().toISOString(),
-      runs: Array.from(runs.values())
+      runs: await Promise.all(Array.from(runs.values())
         .filter(
           (record) =>
             visibleProjectIds === null ||
             (record.metadata?.projectId &&
               visibleProjectIds.has(String(record.metadata.projectId))),
         )
-        .map((record) => ({
-          id: record.snapshot.runId,
-          status: record.snapshot.status,
-          currentStage: record.snapshot.currentStage,
-          errorMessage: record.snapshot.errorMessage,
-          metadata: record.metadata ?? null,
-        })),
+        .map((record) => buildAdminRunDto(record, authStore))),
     };
   });
 
@@ -1699,6 +1883,7 @@ export function registerAdminRoutes({
     return {
       generatedAt: new Date().toISOString(),
       run: {
+        ...(await buildAdminRunDto(access.record, authStore)),
         id: access.record.snapshot.runId,
         status: access.record.snapshot.status,
         currentStage: access.record.snapshot.currentStage,

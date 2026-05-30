@@ -22,7 +22,9 @@ export type RunRecordStore = Map<string, RunRecord>;
 export interface RunRecordMetadata {
   userId?: string;
   projectId?: string;
+  model?: string;
   createdAt: string;
+  completedAt?: string;
 }
 
 export interface SerializedRunRecord {
@@ -89,6 +91,10 @@ export function emitEvent(record: RunRecord, event: RunEvent) {
   // completed/failed/cancelled are terminal events; SSE subscribers can close after them.
   if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
     record.terminal = true;
+    record.metadata = {
+      ...(record.metadata ?? { createdAt: new Date().toISOString() }),
+      completedAt: record.metadata?.completedAt ?? new Date().toISOString(),
+    };
   }
 
   if (storeEvent) {

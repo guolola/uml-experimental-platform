@@ -10,6 +10,7 @@ interface RunRecordRow {
   snapshot: RunRecord["snapshot"];
   status: string;
   stage: string;
+  model: string | null;
   error_message: string | null;
   created_at: Date | string;
   completed_at: Date | string | null;
@@ -71,16 +72,19 @@ function readPersistedStatus(record: RunRecord, event?: RunEvent) {
 }
 
 function readCompletedAt(record: RunRecord, event?: RunEvent) {
+  if (record.metadata?.completedAt) return record.metadata.completedAt;
   if (!record.terminal && !terminalStatusFromEvent(event)) return null;
   return new Date().toISOString();
 }
 
 function createMetadata(row: RunRecordRow): RunRecordMetadata | undefined {
-  if (!row.user_id && !row.project_id) return undefined;
+  if (!row.user_id && !row.project_id && !row.completed_at && !row.model) return undefined;
   return {
     userId: row.user_id ?? undefined,
     projectId: row.project_id ?? undefined,
+    model: row.model ?? undefined,
     createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
+    completedAt: toIsoString(row.completed_at),
   };
 }
 
@@ -143,7 +147,7 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
 
   async restore() {
     const records = await this.db.query<RunRecordRow>(`
-      select id, user_id, project_id, snapshot, status, stage, error_message, created_at, completed_at
+      select id, user_id, project_id, snapshot, status, stage, model, error_message, created_at, completed_at
       from run_records
       order by created_at asc
     `);
