@@ -510,6 +510,10 @@ function diagramKindLabel(kind: unknown) {
   return typeof kind === "string" && kind.trim() ? kind : "模型图";
 }
 
+function stringOrNumber(value: unknown): string | number | undefined {
+  return typeof value === "string" || typeof value === "number" ? value : undefined;
+}
+
 function readProviderModel(snapshot: RunRecord["snapshot"]) {
   const settings = asRecord(asRecord(snapshot).providerSettings);
   return typeof settings.model === "string" && settings.model.trim()
@@ -651,7 +655,7 @@ function buildRunArtifactItems(
   for (const [index, rule] of (Array.isArray(source.rules) ? source.rules : []).entries()) {
     const record = asRecord(rule);
     add({
-      key: record.id ?? index,
+      key: stringOrNumber(record.id) ?? index,
       type: "需求规则",
       title: typeof record.text === "string" ? record.text : `需求规则 ${index + 1}`,
       previewAvailable: false,
@@ -663,7 +667,7 @@ function buildRunArtifactItems(
     const diagramKind = typeof record.diagramKind === "string" ? record.diagramKind : undefined;
     const type = taskType === "design_modeling" ? "设计模型" : "UML 模型";
     add({
-      key: record.id ?? record.modelId ?? diagramKind ?? index,
+      key: stringOrNumber(record.id) ?? stringOrNumber(record.modelId) ?? diagramKind ?? index,
       type,
       title: typeof record.title === "string" ? record.title : `${diagramKindLabel(diagramKind)}模型`,
       diagramKind,
@@ -746,7 +750,7 @@ function buildRunArtifactItems(
   for (const [index, diagnostic] of (Array.isArray(source.qualityDiagnostics) ? source.qualityDiagnostics : Array.isArray(source.diagnostics) ? source.diagnostics : []).entries()) {
     const record = asRecord(diagnostic);
     add({
-      key: record.id ?? index,
+      key: stringOrNumber(record.id) ?? index,
       type: "质量检查",
       title: typeof record.message === "string" ? record.message : `质量检查 ${index + 1}`,
       previewAvailable: false,
@@ -754,7 +758,7 @@ function buildRunArtifactItems(
   }
   if (source.documentId || source.fileName) {
     add({
-      key: source.documentId ?? source.fileName ?? "document",
+      key: stringOrNumber(source.documentId) ?? stringOrNumber(source.fileName) ?? "document",
       type: "DOCX 文档",
       title: typeof source.fileName === "string" ? source.fileName : documentKindLabel(source.documentKind),
       previewAvailable: false,
