@@ -461,6 +461,23 @@ type AdminRunArtifactSummary = {
   notes: string[];
 };
 
+type AdminRunArtifactItem = {
+  id: string;
+  type: string;
+  title: string;
+  diagramKind?: string;
+  modelId?: string;
+  sourceLength?: number;
+  renderMeta?: unknown;
+  previewAvailable: boolean;
+  preview?: {
+    kind: "svg";
+    svg: string;
+    renderMeta?: unknown;
+  };
+  meta?: Record<string, string | number | boolean | null>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
@@ -473,6 +490,24 @@ function objectKeyCount(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? Object.keys(value).length
     : 0;
+}
+
+function artifactIdPart(value: unknown) {
+  return String(value ?? "item")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "item";
+}
+
+function diagramKindLabel(kind: unknown) {
+  if (kind === "usecase") return "用例图";
+  if (kind === "class") return "类图";
+  if (kind === "activity") return "活动图";
+  if (kind === "deployment") return "部署图";
+  if (kind === "sequence") return "时序图";
+  if (kind === "table") return "数据表";
+  return typeof kind === "string" && kind.trim() ? kind : "模型图";
 }
 
 function readProviderModel(snapshot: RunRecord["snapshot"]) {
@@ -600,6 +635,139 @@ function buildRunArtifactSummary(snapshot: RunRecord["snapshot"]): AdminRunArtif
   };
 }
 
+function buildRunArtifactItems(
+  snapshot: RunRecord["snapshot"],
+  options: { includePreviews?: boolean } = {},
+): AdminRunArtifactItem[] {
+  const runId = snapshot.runId;
+  const source = asRecord(snapshot);
+  const taskType = taskTypeForSnapshot(snapshot);
+  const items: AdminRunArtifactItem[] = [];
+  const add = (item: Omit<AdminRunArtifactItem, "id"> & { key: string | number }) => {
+    const { key, ...rest } = item;
+    items.push({ id: `${runId}:${artifactIdPart(rest.type)}:${artifactIdPart(key)}`, ...rest });
+  };
+
+  for (const [index, rule] of (Array.isArray(source.rules) ? source.rules : []).entries()) {
+    const record = asRecord(rule);
+    add({
+      key: record.id ?? index,
+      type: "需求规则",
+      title: typeof record.text === "string" ? record.text : `需求规则 ${index + 1}`,
+      previewAvailable: false,
+    });
+  }
+
+  for (const [index, model] of (Array.isArray(source.models) ? source.models : []).entries()) {
+    const record = asRecord(model);
+    const diagramKind = typeof record.diagramKind === "string" ? record.diagramKind : undefined;
+    const type = taskType === "design_modeling" ? "设计模型" : "UML 模型";
+    add({
+      key: record.id ?? record.modelId ?? diagramKind ?? index,
+      type,
+      title: typeof record.title === "string" ? record.title : `${diagramKindLabel(diagramKind)}模型`,
+      diagramKind,
+      modelId: typeof record.modelId === "string" ? record.modelId : typeof record.id === "string" ? record.id : undefined,
+      previewAvailable: false,
+    });
+  }
+
+  for (const [index, artifact] of (Array.isArray(source.plantUml) ? source.plantUml : []).entries()) {
+    const record = asRecord(artifact);
+    const diagramKind = typeof record.diagramKind === "string" ? record.diagramKind : undefined;
+    const modelId = typeof record.modelId === "string" ? record.modelId : undefined;
+    const plantUmlSource = typeof record.source === "string" ? record.source : "";
+    add({
+      key: `${diagramKind ?? index}:${modelId ?? index}`,
+      type: "PlantUML",
+      title: `${diagramKindLabel(diagramKind)} PlantUML`,
+      diagramKind,
+      modelId,
+      sourceLength: plantUmlSource.length || undefined,
+      previewAvailable: false,
+    });
+  }
+
+  for (const [index, artifact] of (Array.isArray(source.svgArtifacts) ? source.svgArtifacts : []).entries()) {
+    const record = asRecord(artifact);
+    const diagramKind = typeof record.diagramKind === "string" ? record.diagramKind : undefined;
+    const modelId = typeof record.modelId === "string" ? record.modelId : undefined;
+    const svg = typeof record.svg === "string" ? record.svg : "";
+    const renderMeta = record.renderMeta;
+    add({
+      key: `${diagramKind ?? index}:${modelId ?? index}`,
+      type: "SVG/PNG",
+      title: `${diagramKindLabel(diagramKind)}模型图`,
+      diagramKind,
+      modelId,
+      renderMeta,
+      previewAvailable: Boolean(svg),
+      preview: options.includePreviews && svg
+        ? { kind: "svg", svg, renderMeta }
+        : undefined,
+    });
+  }
+
+  if (source.coverageMatrix) {
+    add({
+      key: "coverage",
+      type: "覆盖矩阵",
+      title: "覆盖矩阵",
+      previewAvailable: false,
+    });
+  }
+  if (source.traceabilityMatrix) {
+    const matrix = asRecord(source.traceabilityMatrix);
+    add({
+      key: "traceability",
+      type: "追踪矩阵",
+      title: "追踪矩阵",
+      previewAvailable: false,
+      meta: {
+        links: arrayLength(matrix.links),
+        diagnostics: arrayLength(matrix.diagnostics),
+      },
+    });
+  }
+
+  const files = asRecord(source.files);
+  for (const [path, content] of Object.entries(files)) {
+    add({
+      key: path,
+      type: "代码文件",
+      title: path,
+      sourceLength: typeof content === "string" ? content.length : undefined,
+      previewAvailable: false,
+    });
+  }
+  if (source.businessLogic) {
+    add({ key: "business-logic", type: "业务逻辑", title: "业务逻辑摘要", previewAvailable: false });
+  }
+  for (const [index, diagnostic] of (Array.isArray(source.qualityDiagnostics) ? source.qualityDiagnostics : Array.isArray(source.diagnostics) ? source.diagnostics : []).entries()) {
+    const record = asRecord(diagnostic);
+    add({
+      key: record.id ?? index,
+      type: "质量检查",
+      title: typeof record.message === "string" ? record.message : `质量检查 ${index + 1}`,
+      previewAvailable: false,
+    });
+  }
+  if (source.documentId || source.fileName) {
+    add({
+      key: source.documentId ?? source.fileName ?? "document",
+      type: "DOCX 文档",
+      title: typeof source.fileName === "string" ? source.fileName : documentKindLabel(source.documentKind),
+      previewAvailable: false,
+      meta: {
+        documentId: typeof source.documentId === "string" ? source.documentId : null,
+        size: typeof source.byteLength === "number" ? source.byteLength : null,
+      },
+    });
+  }
+
+  return items;
+}
+
 function calculateDurationMs(createdAt?: string, completedAt?: string) {
   if (!createdAt || !completedAt) return null;
   const start = new Date(createdAt).getTime();
@@ -608,7 +776,11 @@ function calculateDurationMs(createdAt?: string, completedAt?: string) {
   return end - start;
 }
 
-async function buildAdminRunDto(record: RunRecord, authStore: AuthStore) {
+async function buildAdminRunDto(
+  record: RunRecord,
+  authStore: AuthStore,
+  options: { includeArtifactPreviews?: boolean } = {},
+) {
   const projectId = typeof record.metadata?.projectId === "string" ? record.metadata.projectId : null;
   const operatorId = typeof record.metadata?.userId === "string" ? record.metadata.userId : null;
   const [project, operator] = await Promise.all([
@@ -632,6 +804,9 @@ async function buildAdminRunDto(record: RunRecord, authStore: AuthStore) {
     completedAt,
     durationMs: calculateDurationMs(createdAt ?? undefined, completedAt ?? undefined),
     artifactSummary: buildRunArtifactSummary(record.snapshot),
+    artifactItems: buildRunArtifactItems(record.snapshot, {
+      includePreviews: options.includeArtifactPreviews,
+    }),
     metadata: record.metadata ?? null,
   };
 }
@@ -1805,16 +1980,22 @@ export function registerAdminRoutes({
             (project) => project.id,
           ),
         );
+    const visibleRuns = Array.from(runs.values())
+      .filter(
+        (record) =>
+          visibleProjectIds === null ||
+          (record.metadata?.projectId &&
+            visibleProjectIds.has(String(record.metadata.projectId))),
+      )
+      .sort((left, right) => {
+        const leftTime = new Date(left.metadata?.createdAt ?? 0).getTime();
+        const rightTime = new Date(right.metadata?.createdAt ?? 0).getTime();
+        return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+      });
+
     return {
       generatedAt: new Date().toISOString(),
-      runs: await Promise.all(Array.from(runs.values())
-        .filter(
-          (record) =>
-            visibleProjectIds === null ||
-            (record.metadata?.projectId &&
-              visibleProjectIds.has(String(record.metadata.projectId))),
-        )
-        .map((record) => buildAdminRunDto(record, authStore))),
+      runs: await Promise.all(visibleRuns.map((record) => buildAdminRunDto(record, authStore))),
     };
   });
 
@@ -1883,7 +2064,7 @@ export function registerAdminRoutes({
     return {
       generatedAt: new Date().toISOString(),
       run: {
-        ...(await buildAdminRunDto(access.record, authStore)),
+        ...(await buildAdminRunDto(access.record, authStore, { includeArtifactPreviews: true })),
         id: access.record.snapshot.runId,
         status: access.record.snapshot.status,
         currentStage: access.record.snapshot.currentStage,

@@ -1811,6 +1811,26 @@ test("admin run detail endpoint exposes readable run metadata and artifact summa
   });
   const record = runs.get("run-diagnostic");
   assert.ok(record);
+  record.snapshot.models.push({
+    diagramKind: "usecase",
+    title: "登录用例",
+    summary: "用户登录",
+    notes: [],
+    actors: [],
+    useCases: [],
+    relationships: [],
+  });
+  record.snapshot.plantUml.push({ diagramKind: "usecase", source: "@startuml\n@enduml" });
+  record.snapshot.svgArtifacts.push({
+    diagramKind: "usecase",
+    svg: "<svg><text>登录用例</text></svg>",
+    renderMeta: {
+      engine: "plantuml",
+      generatedAt: "2026-05-22T00:01:10.000Z",
+      sourceLength: 16,
+      durationMs: 42,
+    },
+  });
   record.events.push(
     { type: "queued" },
     { type: "stage_started", stage: "generate_models" },
@@ -1853,6 +1873,12 @@ test("admin run detail endpoint exposes readable run metadata and artifact summa
   assert.equal(detail.json().run.durationMs, 90_000);
   assert.equal(detail.json().run.artifactSummary.title, "需求建模生成结果");
   assert.equal(detail.json().run.artifactSummary.metrics[1].label, "模型");
+  assert.ok(
+    detail.json().run.artifactItems.some(
+      (item: { type: string; preview?: { svg?: string } }) =>
+        item.type === "SVG/PNG" && item.preview?.svg === "<svg><text>登录用例</text></svg>",
+    ),
+  );
   assert.equal(detail.json().run.diagnostics.eventCount, 3);
   assert.equal(detail.json().run.diagnostics.errorMessage, "LLM failed");
   assert.equal(auditorDetail.statusCode, 200);
@@ -1875,11 +1901,12 @@ test("admin run list classifies run kinds and returns readable summaries", async
     description: "四类任务归类测试",
     visibility: "private",
   });
-  const snapshots: Array<{ snapshot: RunRecord["snapshot"]; expectedType: string; expectedTitle: string }> = [
+  const snapshots: Array<{ snapshot: RunRecord["snapshot"]; expectedType: string; expectedTitle: string; createdAt: string }> = [
     {
       snapshot: createEmptySnapshot("run-req", "需求建模文本", ["usecase"]),
       expectedType: "requirements_to_uml",
       expectedTitle: "需求建模生成结果",
+      createdAt: "2026-05-22T00:00:00.000Z",
     },
     {
       snapshot: createEmptyDesignSnapshot("run-design", {
@@ -1892,6 +1919,7 @@ test("admin run list classifies run kinds and returns readable summaries", async
       }),
       expectedType: "design_modeling",
       expectedTitle: "设计建模生成结果",
+      createdAt: "2026-05-22T00:03:00.000Z",
     },
     {
       snapshot: createEmptyCodeSnapshot("run-code", {
@@ -1902,6 +1930,7 @@ test("admin run list classifies run kinds and returns readable summaries", async
       }),
       expectedType: "code_generation",
       expectedTitle: "代码原型生成结果",
+      createdAt: "2026-05-22T00:02:00.000Z",
     },
     {
       snapshot: createEmptyDocumentSnapshot("run-doc", {
@@ -1910,15 +1939,38 @@ test("admin run list classifies run kinds and returns readable summaries", async
       }),
       expectedType: "document_generation",
       expectedTitle: "文档生成结果",
+      createdAt: "2026-05-22T00:01:00.000Z",
     },
   ];
 
-  for (const { snapshot } of snapshots) {
+  for (const { snapshot, createdAt } of snapshots) {
     snapshot.status = "completed";
     snapshot.currentStage = "completed";
     (snapshot as unknown as { providerSettings?: { model: string } }).providerSettings = {
       model: "gpt-admin-readable",
     };
+    if ("models" in snapshot && "plantUml" in snapshot && "svgArtifacts" in snapshot) {
+      (snapshot.models as unknown[]).push({
+        diagramKind: snapshot.runId === "run-design" ? "sequence" : "usecase",
+        title: snapshot.runId === "run-design" ? "提交设计时序图" : "登录用例图",
+        summary: "测试模型",
+        notes: [],
+      });
+      (snapshot.plantUml as unknown[]).push({
+        diagramKind: snapshot.runId === "run-design" ? "sequence" : "usecase",
+        source: "@startuml\n@enduml",
+      });
+      (snapshot.svgArtifacts as unknown[]).push({
+        diagramKind: snapshot.runId === "run-design" ? "sequence" : "usecase",
+        svg: `<svg><text>${snapshot.runId}</text></svg>`,
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: createdAt,
+          sourceLength: 16,
+          durationMs: 12,
+        },
+      });
+    }
     runs.set(snapshot.runId, {
       snapshot,
       events: [],
@@ -1927,8 +1979,8 @@ test("admin run list classifies run kinds and returns readable summaries", async
       metadata: {
         projectId: project.id,
         userId: operator.id,
-        createdAt: "2026-05-22T00:00:00.000Z",
-        completedAt: "2026-05-22T00:00:05.000Z",
+        createdAt,
+        completedAt: new Date(new Date(createdAt).getTime() + 5_000).toISOString(),
       },
     });
   }
@@ -1948,7 +2000,9 @@ test("admin run list classifies run kinds and returns readable summaries", async
     operatorName: string;
     durationMs: number;
     artifactSummary: { title: string };
+    artifactItems: Array<{ type: string; preview?: unknown; previewAvailable: boolean }>;
   }>;
+  assert.deepEqual(listedRuns.map((item) => item.id), ["run-design", "run-code", "run-doc", "run-req"]);
   for (const { snapshot, expectedType, expectedTitle } of snapshots) {
     const run = listedRuns.find((item) => item.id === snapshot.runId);
     assert.ok(run);
@@ -1958,6 +2012,10 @@ test("admin run list classifies run kinds and returns readable summaries", async
     assert.equal(run.operatorName, "任务操作者");
     assert.equal(run.durationMs, 5_000);
     assert.equal(run.artifactSummary.title, expectedTitle);
+    if (snapshot.runId === "run-req" || snapshot.runId === "run-design") {
+      assert.ok(run.artifactItems.some((item) => item.type === "SVG/PNG" && item.previewAvailable));
+      assert.ok(run.artifactItems.every((item) => !item.preview));
+    }
   }
 
   await app.close();
