@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
-import type { ProjectPermission, ProviderSettings, RunEvent } from "@uml-platform/contracts";
+import { ZodError } from "zod";
+import type {
+  ProjectPermission,
+  ProviderSettings,
+  RunEvent,
+} from "@uml-platform/contracts";
 import type { LlmTransport } from "../../llm.js";
 import {
   createInMemoryLlmScheduler,
@@ -31,7 +36,7 @@ import { createGenerationUsageService } from "../../generation/generation-usage.
 import { buildRequirementBaseline } from "../../runs/baselines/requirement-baseline.js";
 import { buildEvidencePackage } from "../../runs/evidence/evidence-package.js";
 
-const providerSettings: ProviderSettings = {
+const plaintextProviderSettings: ProviderSettings = {
   apiBaseUrl: "https://ai.comfly.org",
   apiKey: "sk-test",
   model: "gpt-5.5",
@@ -102,7 +107,6 @@ async function createRunRouteTestApp(options?: {
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   providerUsageTracker?: ProviderUsageTracker;
   llmTransport?: LlmTransport;
-  allowLegacyProjectProviderSettings?: boolean;
   completeRuns?: boolean;
   documentLibrary?: DocumentLibrary;
   llmScheduler?: LlmScheduler;
@@ -120,7 +124,6 @@ async function createRunRouteTestContext(options?: {
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   providerUsageTracker?: ProviderUsageTracker;
   llmTransport?: LlmTransport;
-  allowLegacyProjectProviderSettings?: boolean;
   completeRuns?: boolean;
   documentLibrary?: DocumentLibrary;
   llmScheduler?: LlmScheduler;
@@ -130,6 +133,20 @@ async function createRunRouteTestContext(options?: {
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
 }) {
   const app = Fastify({ logger: false });
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof ZodError) {
+      reply.code(400).send({
+        message: error.issues
+          .map((issue) => {
+            const path = issue.path.length > 0 ? issue.path.join(".") : "request";
+            return `${path}: ${issue.message}`;
+          })
+          .join("; "),
+      });
+      return;
+    }
+    throw error;
+  });
   const runs = createRunRecordStore();
   const noOpLlmTransport = options?.llmTransport ?? ({} as LlmTransport);
   const noOpRenderClient = (async () => {
@@ -137,6 +154,24 @@ async function createRunRouteTestContext(options?: {
   }) as RenderClient;
   const noOpPngRenderClient = noOpRenderClient as PngRenderClient;
   const noOpDocumentLibrary = options?.documentLibrary ?? ({} as DocumentLibrary);
+  const defaultProviderConfigs =
+    options?.providerConfigs ??
+    createProviderConfigStore({
+      baseUrlAllowlist: ["https://ai.comfly.org"],
+      secret: "test-secret",
+    });
+  const defaultProvider =
+    options?.providerConfigs
+      ? null
+      : await defaultProviderConfigs.create({
+          name: "测试托管模型",
+          provider: "openai-compatible",
+          baseUrl: "https://ai.comfly.org",
+          apiKey: "sk-managed-test",
+          defaultModel: "gpt-5.5",
+          allowedModels: ["gpt-5.5"],
+          createdBy: "test",
+        });
   const completeQueuedRun = async (record: RunRecord) => {
     if (options?.completeRuns === false) return;
     record.snapshot.status = "completed";
@@ -160,13 +195,13 @@ async function createRunRouteTestContext(options?: {
     runDocumentStagePipeline: options?.runDocumentStagePipeline ?? (async () => undefined),
     addCodeDiagnostic: () => undefined,
     runAccessGuard: options?.runAccessGuard,
-    providerConfigs: options?.providerConfigs,
-    resolveProjectDefaultProviderConfig: options?.resolveProjectDefaultProviderConfig,
+    providerConfigs: defaultProviderConfigs,
+    resolveProjectDefaultProviderConfig:
+      options?.resolveProjectDefaultProviderConfig ??
+      (defaultProvider ? async () => defaultProvider.id : undefined),
     providerUsageTracker: options?.providerUsageTracker,
     generationUsage: options?.generationUsage,
     llmScheduler: options?.llmScheduler,
-    allowLegacyProjectProviderSettings:
-      options?.allowLegacyProjectProviderSettings ?? true,
   });
 
   return { app, runs };
@@ -210,6 +245,7 @@ test("requirement rule repair returns only the updated current requirement", asy
             originalValue: null,
             rationale: "主体与角色一致。",
           },
+          action: null,
         },
         confidence: 0.82,
         status: "accepted",
@@ -235,7 +271,6 @@ test("requirement rule repair returns only the updated current requirement", asy
       requirementText: "普通读者只能查询其自己当前借出的书目。",
       rule,
       baseline,
-      providerSettings,
     },
   });
 
@@ -301,7 +336,6 @@ test("requirement rule repair normalizes array field values from model output", 
       requirementText: rule.text,
       rule,
       baseline,
-      providerSettings,
     },
   });
 
@@ -331,7 +365,8 @@ test("requirement rule repair normalizes string confidence from model output", a
     rules: [rule],
   });
   const llmTransport: LlmTransport = {
-    async *streamChatCompletion() {
+    async *streamChatCompletion({ responseFormat }) {
+      assert.equal(responseFormat?.type, "json_schema");
       yield JSON.stringify({
         fields: {
           actor: {
@@ -366,7 +401,6 @@ test("requirement rule repair normalizes string confidence from model output", a
       requirementText: rule.text,
       rule,
       baseline,
-      providerSettings,
     },
   });
 
@@ -396,7 +430,8 @@ test("requirement rule batch repair uses one LLM call and returns candidates", a
   });
   let llmCallCount = 0;
   const llmTransport: LlmTransport = {
-    async *streamChatCompletion() {
+    async *streamChatCompletion({ responseFormat }) {
+      assert.equal(responseFormat?.type, "json_schema");
       llmCallCount += 1;
       yield JSON.stringify({
         repairs: [
@@ -453,7 +488,6 @@ test("requirement rule batch repair uses one LLM call and returns candidates", a
       rules,
       targetRuleIds: ["r20", "r21"],
       baseline,
-      providerSettings,
     },
   });
 
@@ -552,7 +586,6 @@ test("requirement rule batch repair isolates missing and invalid repairs", async
       rules,
       targetRuleIds: ["r30", "r31", "r32"],
       baseline,
-      providerSettings,
     },
   });
 
@@ -604,7 +637,6 @@ test("requirement rule repair rejects invalid model output without mutating base
       requirementText: rule.text,
       rule,
       baseline,
-      providerSettings,
     },
   });
 
@@ -630,7 +662,6 @@ test("project run snapshots reject unauthenticated and cross-project users", asy
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   assert.equal(startResponse.statusCode, 202);
@@ -669,7 +700,6 @@ test("project run starts reject frontend plaintext provider credentials", async 
     runAccessGuard: createTestRunAccessGuard({
       "user-a": { start_runs: ["project-a"] },
     }),
-    allowLegacyProjectProviderSettings: false,
   });
 
   const response = await app.inject({
@@ -682,12 +712,12 @@ test("project run starts reject frontend plaintext provider credentials", async 
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
+      providerSettings: plaintextProviderSettings,
     },
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.json().message, /provider config/i);
+  assert.match(response.json().message, /providerSettings\.providerConfigId/i);
 
   await app.close();
 });
@@ -857,7 +887,6 @@ test("project run starts derive provider settings from the project default confi
     providerConfigs,
     resolveProjectDefaultProviderConfig: async (projectId) =>
       projectId === "project-a" ? provider.id : null,
-    allowLegacyProjectProviderSettings: false,
   });
 
   const response = await app.inject({
@@ -904,7 +933,6 @@ test("project run starts reject managed provider models not allowed by the confi
       "user-a": { start_runs: ["project-a"], view_runs: ["project-a"] },
     }),
     providerConfigs,
-    allowLegacyProjectProviderSettings: false,
     completeRuns: false,
   });
 
@@ -934,7 +962,6 @@ test("project run starts reject managed provider models not allowed by the confi
 
 test("anonymous run starts are rejected before provider compatibility checks", async () => {
   const app = await createRunRouteTestApp({
-    allowLegacyProjectProviderSettings: false,
   });
 
   const response = await app.inject({
@@ -943,7 +970,6 @@ test("anonymous run starts are rejected before provider compatibility checks", a
     payload: {
       requirementText: "匿名本地工作台需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
 
@@ -1055,7 +1081,6 @@ test("project run SSE rejects cross-project users before opening the stream", as
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const { runId } = startResponse.json();
@@ -1133,7 +1158,6 @@ test("project run starts require start_runs permission", async () => {
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
 
@@ -1165,7 +1189,6 @@ test("project run history lists only runs for an authorized project member", asy
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const projectB = await app.inject({
@@ -1178,7 +1201,6 @@ test("project run history lists only runs for an authorized project member", asy
       projectId: "project-b",
       requirementText: "项目 B 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   assert.equal(projectA.statusCode, 202);
@@ -1242,9 +1264,12 @@ test("project run history exposes run kind for each snapshot type", async () => 
     {
       snapshot: {
         ...createEmptyDesignSnapshot("run-design", {
-          requirementText: "需求",
           selectedDiagrams: ["sequence"],
-          rules: [],
+          requirementBaseline: buildRequirementBaseline({
+            runId: "run-design",
+            requirementText: "需求",
+            rules: [],
+          }),
           requirementModels: [],
           requirementModelTraceability: [],
         }),
@@ -1328,7 +1353,6 @@ test("project run history exposes snapshot and document capabilities without emb
         view_documents: ["project-a"],
       },
     }),
-    allowLegacyProjectProviderSettings: true,
     runDocumentStagePipeline: async (record) => {
       record.documentBuffer = Buffer.from("requirements document");
       Object.assign(record.snapshot, {
@@ -1361,7 +1385,6 @@ test("project run history exposes snapshot and document capabilities without emb
       designModels: [],
       designPlantUml: [],
       designSvgArtifacts: [],
-      providerSettings,
       useAiText: false,
     },
   });
@@ -1415,7 +1438,6 @@ test("document run download falls back to persisted project document after run b
         return documentId === "doc-persisted" ? persistedDocument : null;
       },
     } as DocumentLibrary,
-    allowLegacyProjectProviderSettings: true,
     runDocumentStagePipeline: async (record) => {
       Object.assign(record.snapshot, {
         status: "completed",
@@ -1447,7 +1469,6 @@ test("document run download falls back to persisted project document after run b
       designModels: [],
       designPlantUml: [],
       designSvgArtifacts: [],
-      providerSettings,
       useAiText: false,
     },
   });
@@ -1491,7 +1512,6 @@ test("project run history marks terminal running records as interrupted", async 
       projectId: "project-a",
       requirementText: "中断的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const runId = response.json().runId as string;
@@ -1540,7 +1560,6 @@ test("project run history deletes only authorized terminal project records", asy
       projectId: "project-a",
       requirementText: "待删除的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const runId = startResponse.json().runId as string;
@@ -1609,7 +1628,6 @@ test("project document runs do not require legacy workspace credentials", async 
       designModels: [],
       designPlantUml: [],
       designSvgArtifacts: [],
-      providerSettings,
       useAiText: true,
     },
   });
@@ -1640,7 +1658,6 @@ test("project run history supports detail and status filters for authorized memb
       projectId: "project-a",
       requirementText: "已完成的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const failedRun = await app.inject({
@@ -1653,7 +1670,6 @@ test("project run history supports detail and status filters for authorized memb
       projectId: "project-a",
       requirementText: "失败的需求",
       selectedDiagrams: ["class"],
-      providerSettings,
     },
   });
   const failedRunId = failedRun.json().runId as string;
@@ -1737,7 +1753,6 @@ test("project run cancel requires start permission, cancels scheduled work, reco
       projectId: "project-a",
       requirementText: "可取消的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const runId = startResponse.json().runId as string;
@@ -1818,7 +1833,6 @@ test("project run retry and rerun create queued records and start their pipeline
       projectId: "project-a",
       requirementText: "需要重试的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   const sourceRunId = startResponse.json().runId as string;
@@ -2016,8 +2030,6 @@ test("blocked evidence package prevents downstream design run start", async () =
     headers: { "x-test-user-id": "reviewer-a" },
     payload: {
       projectId: "project-a",
-      requirementText: "系统响应时间不超过2秒。",
-      rules: [],
       requirementBaseline: baseline,
       requirementModels: [minimalUseCaseModel],
       requirementModelTraceability: [
@@ -2032,7 +2044,6 @@ test("blocked evidence package prevents downstream design run start", async () =
         },
       ],
       selectedDiagrams: ["sequence"],
-      providerSettings,
       evidencePackage,
     },
   });
@@ -2077,7 +2088,6 @@ test("guest project run starts return 429 after the visitor daily generation lim
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   assert.equal(first.statusCode, 202);
@@ -2090,7 +2100,6 @@ test("guest project run starts return 429 after the visitor daily generation lim
       projectId: "project-a",
       requirementText: "项目 A 的需求",
       selectedDiagrams: ["usecase"],
-      providerSettings,
     },
   });
   assert.equal(second.statusCode, 429);
@@ -2143,8 +2152,18 @@ test("design LLM scheduler completion marks the subtask completed", async () => 
     headers: { "x-test-user-id": "reviewer-a" },
     payload: {
       projectId: "project-a",
-      requirementText: "系统支持查看活动。",
-      rules: [],
+      requirementBaseline: buildRequirementBaseline({
+        runId: "run-design-scheduler",
+        requirementText: "系统支持查看活动。",
+        rules: [
+          {
+            id: "REQ-001",
+            category: "功能需求",
+            text: "系统支持查看活动。",
+            relatedDiagrams: ["usecase"],
+          },
+        ],
+      }),
       requirementModels: [minimalUseCaseModel],
       requirementModelTraceability: [
         {
@@ -2158,7 +2177,6 @@ test("design LLM scheduler completion marks the subtask completed", async () => 
         },
       ],
       selectedDiagrams: ["class"],
-      providerSettings,
     },
   });
 

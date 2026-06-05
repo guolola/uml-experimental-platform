@@ -1,7 +1,6 @@
 // Normalizes design LLM diagram models before validating the public contract.
 import {
   designDiagramModelsResultSchema,
-  designModelTraceabilityEntrySchema,
   type DesignDiagramModelSpec,
   type DiagramModelSpec,
   type ModelElementRef,
@@ -17,8 +16,10 @@ import {
   formatTraceabilityMissingRefs,
   normalizeDesignTraceabilityForSources,
   normalizeDesignTraceabilityWithCoverage,
+  sanitizeTraceabilityEntries,
 } from "../traceability/traceability-normalizer.js";
 import { dedupeActivityModel } from "../diagrams/activity-dedupe.js";
+import { normalizeLongDiagramTextField } from "../diagrams/relationship-labels.js";
 
 function normalizeSequenceMessageType(value: unknown) {
   if (value === "async" || value === "return" || value === "create" || value === "destroy") {
@@ -43,16 +44,23 @@ function normalizeSequenceMessageType(value: unknown) {
 }
 
 function normalizeClassKind(value: unknown) {
-  if (value === "interface" || value === "abstract" || value === "enum") {
+  if (
+    value === "entity" ||
+    value === "aggregate" ||
+    value === "valueObject" ||
+    value === "service" ||
+    value === "other"
+  ) {
     return value;
   }
   if (typeof value === "string") {
-    const lower = value.toLowerCase();
-    if (lower.includes("interface")) return "interface";
-    if (lower.includes("abstract")) return "abstract";
-    if (lower.includes("enum")) return "enum";
+    const lower = value.toLowerCase().replace(/[\s_\-]+/g, "");
+    if (lower.includes("aggregate")) return "aggregate";
+    if (lower.includes("valueobject") || lower.includes("vo")) return "valueObject";
+    if (lower.includes("service")) return "service";
+    if (lower.includes("entity") || lower.includes("domain")) return "entity";
   }
-  return "class";
+  return undefined;
 }
 
 function normalizeSequenceFragment(fragment: Record<string, unknown>) {
@@ -93,6 +101,51 @@ function omitNullValues(value: unknown): unknown {
   return next;
 }
 
+function normalizeRelationshipDisplayFields(
+  relationship: Record<string, unknown>,
+  diagramKind: unknown,
+) {
+  if (diagramKind === "activity") {
+    normalizeLongDiagramTextField(relationship, "condition", 14);
+    normalizeLongDiagramTextField(relationship, "guard", 14);
+    normalizeLongDiagramTextField(relationship, "trigger", 14);
+    return relationship;
+  }
+  normalizeLongDiagramTextField(
+    relationship,
+    "label",
+    diagramKind === "deployment" || diagramKind === "table" ? 16 : 18,
+  );
+  return relationship;
+}
+
+function normalizeSequenceDisplayFields(record: Record<string, unknown>) {
+  record.messages = ensureArray(record.messages).map((message) => {
+    if (!isPlainRecord(message)) return message;
+    const next = { ...message };
+    normalizeLongDiagramTextField(next, "name", 20);
+    normalizeLongDiagramTextField(next, "condition", 14);
+    return next;
+  });
+  record.fragments = ensureArray(record.fragments).map((fragment) => {
+    if (!isPlainRecord(fragment)) return fragment;
+    const next = { ...fragment };
+    normalizeLongDiagramTextField(next, "label", 16);
+    normalizeLongDiagramTextField(next, "condition", 14);
+    if (Array.isArray(next.branches)) {
+      next.branches = next.branches.map((branch) => {
+        if (!isPlainRecord(branch)) return branch;
+        const nextBranch = { ...branch };
+        normalizeLongDiagramTextField(nextBranch, "label", 14);
+        normalizeLongDiagramTextField(nextBranch, "condition", 14);
+        return nextBranch;
+      });
+    }
+    return next;
+  });
+  return record;
+}
+
 function normalizeDesignDiagramModel(model: unknown) {
   if (!isPlainRecord(model)) return model;
 
@@ -121,8 +174,8 @@ function normalizeDesignDiagramModel(model: unknown) {
     }
     if (typeof normalized.title !== "string" || !normalized.title.trim()) {
       normalized.title = sourceUseCaseName
-        ? `${sourceUseCaseName}顺序图`
-        : `${sourceUseCaseId || "设计"}顺序图`;
+        ? `${sourceUseCaseName}用例实现设计`
+        : `${sourceUseCaseId || "设计"}用例实现设计`;
     }
     if (typeof normalized.summary !== "string" || !normalized.summary.trim()) {
       const title = typeof normalized.title === "string" ? normalized.title.trim() : "";
@@ -141,6 +194,7 @@ function normalizeDesignDiagramModel(model: unknown) {
       if (!isPlainRecord(fragment)) return fragment;
       return normalizeSequenceFragment(fragment);
     });
+    normalizeSequenceDisplayFields(normalized);
   } else if (diagramKind === "class") {
     normalized.classes = ensureArray(normalized.classes).map((classItem) => {
       if (!isPlainRecord(classItem)) return classItem;
@@ -152,7 +206,7 @@ function normalizeDesignDiagramModel(model: unknown) {
       };
       delete nextClass.methods;
       const classKind = normalizeClassKind(nextClass.classKind);
-      if (classKind !== "class") {
+      if (classKind) {
         nextClass.classKind = classKind;
       } else {
         delete nextClass.classKind;
@@ -173,25 +227,44 @@ function normalizeDesignDiagramModel(model: unknown) {
         literals: normalizeStringArray(item.literals),
       };
     });
-    normalized.relationships = ensureArray(normalized.relationships);
+    normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
+      isPlainRecord(relationship)
+        ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)
+        : relationship,
+    );
   } else if (diagramKind === "activity") {
     normalized.swimlanes = ensureArray(normalized.swimlanes);
     normalized.nodes = ensureArray(normalized.nodes).map((node) => {
       if (!isPlainRecord(node)) return node;
+      if (node.type === "activity") {
+        return {
+          ...node,
+          input: normalizeStringArray("input" in node ? node.input : []),
+          output: normalizeStringArray("output" in node ? node.output : []),
+        };
+      }
       return {
         ...node,
         input: "input" in node ? normalizeStringArray(node.input) : node.input,
         output: "output" in node ? normalizeStringArray(node.output) : node.output,
       };
     });
-    normalized.relationships = ensureArray(normalized.relationships);
+    normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
+      isPlainRecord(relationship)
+        ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)
+        : relationship,
+    );
   } else if (diagramKind === "deployment") {
     normalized.nodes = ensureArray(normalized.nodes);
     normalized.databases = ensureArray(normalized.databases);
     normalized.components = ensureArray(normalized.components);
     normalized.externalSystems = ensureArray(normalized.externalSystems);
     normalized.artifacts = ensureArray(normalized.artifacts);
-    normalized.relationships = ensureArray(normalized.relationships);
+    normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
+      isPlainRecord(relationship)
+        ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)
+        : relationship,
+    );
   } else if (diagramKind === "table") {
     normalized.tables = ensureArray(normalized.tables).map((table) => {
       if (!isPlainRecord(table)) return table;
@@ -201,7 +274,11 @@ function normalizeDesignDiagramModel(model: unknown) {
         indexes: ensureArray(table.indexes),
       };
     });
-    normalized.relationships = ensureArray(normalized.relationships);
+    normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
+      isPlainRecord(relationship)
+        ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)
+        : relationship,
+    );
   }
 
   return diagramKind === "activity" ? dedupeActivityModel(normalized) : normalized;
@@ -300,9 +377,7 @@ export function parseDesignTraceabilityCoverageResult(
 ) {
   const parsed = omitNullValues(parseJson<unknown>(value));
   const rawTraceability = isPlainRecord(parsed)
-    ? designModelTraceabilityEntrySchema
-        .array()
-        .parse(ensureArray(parsed.designModelTraceability))
+    ? sanitizeTraceabilityEntries(parsed.designModelTraceability)
     : [];
   return normalizeCompleteDesignTraceability(
     rawTraceability,
@@ -318,9 +393,7 @@ export function parseDesignTraceabilityCoverageForSources(
 ) {
   const parsed = omitNullValues(parseJson<unknown>(value));
   const rawTraceability = isPlainRecord(parsed)
-    ? designModelTraceabilityEntrySchema
-        .array()
-        .parse(ensureArray(parsed.designModelTraceability))
+    ? sanitizeTraceabilityEntries(parsed.designModelTraceability)
     : [];
   return normalizeDesignTraceabilityForSources(
     rawTraceability,

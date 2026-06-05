@@ -12,11 +12,10 @@ import {
 import { GlobalSettingsPanel } from "./global-settings-panel";
 
 type SettingsDialogProps = {
-  allowLegacyProvider?: boolean;
   onNavigate?: (route: string) => void;
 };
 
-export function SettingsDialog({ allowLegacyProvider = false, onNavigate }: SettingsDialogProps) {
+export function SettingsDialog({ onNavigate }: SettingsDialogProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -42,7 +41,6 @@ export function SettingsDialog({ allowLegacyProvider = false, onNavigate }: Sett
 
         <GlobalSettingsPanel
           active={open}
-          allowLegacyProvider={allowLegacyProvider}
           onNavigate={(route) => {
             setOpen(false);
             onNavigate?.(route);

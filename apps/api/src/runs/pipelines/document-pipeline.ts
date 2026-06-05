@@ -19,6 +19,7 @@ import {
 import { type LlmTransport } from "../../llm.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import { type PngRenderClient } from "../../adapters/render/png-render-client.js";
+import { getDocumentContentResponseFormat } from "../../adapters/llm/response-formats/index.js";
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import {
   buildDocumentContext,
@@ -42,6 +43,24 @@ import {
 
 const MAX_DOCUMENT_CONTENT_REPAIR_ATTEMPTS = 2;
 
+function normalizeDocumentContentOutput(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const record = raw as { sections?: unknown };
+  if (!Array.isArray(record.sections)) return raw;
+  return {
+    ...record,
+    sections: record.sections.map((section) => {
+      if (!section || typeof section !== "object" || Array.isArray(section)) {
+        return section;
+      }
+      const next = { ...(section as Record<string, unknown>) };
+      if (next.table === null) delete next.table;
+      if (next.diagramKind === null) delete next.diagramKind;
+      return next;
+    }),
+  };
+}
+
 // LLM structured output repair keeps the document sections wire shape stable across retries.
 async function generateDocumentSectionsWithRepair(
   record: RunRecord,
@@ -53,6 +72,7 @@ async function generateDocumentSectionsWithRepair(
   let prompt = buildGenerateDocumentContentPrompt(input.documentKind, context);
   let previousOutput = "";
   let lastErrorMessage = "";
+  const responseFormat = getDocumentContentResponseFormat(providerSettings.model);
 
   for (
     let attempt = 0;
@@ -73,11 +93,14 @@ async function generateDocumentSectionsWithRepair(
           }),
         );
       },
+      responseFormat,
     );
     previousOutput = content;
 
     try {
-      return documentContentResultSchema.parse(parseJson(content)).sections;
+      return documentContentResultSchema.parse(
+        normalizeDocumentContentOutput(parseJson(content)),
+      ).sections;
     } catch (error) {
       logFailedStructuredOutput(
         "generate_document_text",

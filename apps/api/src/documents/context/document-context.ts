@@ -6,6 +6,7 @@ import {
   type DocumentKind,
   type DocumentSection,
   type StartDocumentRunRequest,
+  type UseCaseDiagramSpec,
 } from "@uml-platform/contracts";
 
 export function documentTitle(documentKind: DocumentKind) {
@@ -16,7 +17,7 @@ export function documentTitle(documentKind: DocumentKind) {
 
 export function expectedDocumentDiagramKinds(documentKind: DocumentKind) {
   return documentKind === "requirementsSpec"
-    ? ["usecase", "class", "deployment", "activity"]
+    ? ["usecase", "class", "activity", "deployment", "prototype", "analysis"]
     : ["sequence", "class", "activity", "deployment", "table"];
 }
 
@@ -29,8 +30,10 @@ function compactJoin(values: Array<string | undefined>, fallback = "当前阶段
   return filtered.length > 0 ? filtered.join("；") : fallback;
 }
 
-function useCaseModels(input: StartDocumentRunRequest) {
-  return input.requirementModels.filter((model) => model.diagramKind === "usecase");
+function useCaseModels(input: StartDocumentRunRequest): UseCaseDiagramSpec[] {
+  return input.requirementModels.filter(
+    (model): model is UseCaseDiagramSpec => model.diagramKind === "usecase",
+  );
 }
 
 function requirementClassModel(input: StartDocumentRunRequest) {
@@ -77,7 +80,7 @@ function pendingDesignTraceabilityRows(input: StartDocumentRunRequest) {
     ]);
 }
 
-function requirementUseCases(input: StartDocumentRunRequest) {
+function requirementUseCases(input: StartDocumentRunRequest): UseCaseDiagramSpec["useCases"] {
   const useCases = useCaseModels(input).flatMap((model) => model.useCases);
   return useCases.length > 0
     ? useCases
@@ -86,9 +89,11 @@ function requirementUseCases(input: StartDocumentRunRequest) {
           id: "UC-1",
           name: "名称",
           goal: "当前阶段未明确",
+          description: "当前阶段未明确",
           preconditions: [],
           postconditions: [],
           supportingActorIds: [],
+          eventFlows: [],
         },
       ];
 }
@@ -275,9 +280,9 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         { level: 3, title: "3.2.2 类的描述", body: ["类的属性、操作和职责见领域概念模型。"] },
         { level: 3, title: "3.2.3 类与类的关系", body: ["类之间的关联、继承、聚合或组合关系见领域概念模型。"] },
         { level: 2, title: "3.3 运行需求", body: [] },
-        { level: 3, title: "3.3.1 网络和设备需求", body: ["网络拓扑和设备需求依据部署模型描述。"], diagramKind: "deployment" },
+        { level: 3, title: "3.3.1 网络和设备需求", body: ["网络拓扑和设备需求依据部署需求模型描述。"], diagramKind: "deployment" },
         { level: 3, title: "3.3.2 支持软件与部署需求", body: ["支持软件与部署约束依据部署节点和组件关系描述。"] },
-        { level: 2, title: "3.4 界面需求", body: ["界面关系图描述主要界面状态和跳转关系。"], diagramKind: "activity" },
+        { level: 2, title: "3.4 界面需求", body: ["原型界面关系描述主要界面、模块、入口点和跳转关系。"], diagramKind: "prototype" },
         { level: 2, title: "3.5 其它需求", body: [] },
         { level: 3, title: "3.5.1 性能需求", body: ["当前阶段未明确。"] },
         { level: 3, title: "3.5.2 安全需求", body: ["当前阶段未明确。"] },
@@ -296,30 +301,30 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 1, title: "1 引言", body: [] },
       { level: 2, title: "1.1 系统概述", body: [input.requirementText] },
       { level: 2, title: "1.2 基线", body: ["本文档以当前需求模型、设计模型和设计图为基线。"] },
-      { level: 2, title: "1.3 定义与标识", body: ["设计对象、设计类、顺序图和数据库表均来自平台生成的设计阶段产物。"] },
+      { level: 2, title: "1.3 定义与标识", body: ["设计对象、设计类、用例实现设计和数据库表均来自平台生成的设计阶段产物。"] },
       { level: 2, title: "1.4 参考资料", body: ["参考资料包括需求规格、需求模型、设计模型和 UML 图像产物。"] },
       { level: 1, title: "2 系统结构", body: [] },
       { level: 2, title: "2.1 网络与硬件配置", body: ["网络与硬件配置依据部署设计模型描述。"] },
       { level: 2, title: "2.2 部署设计", body: ["部署设计描述组件、节点、数据库和外部系统之间的关系。"], diagramKind: "deployment" },
       { level: 2, title: "2.3 其它约束", body: ["当前阶段未明确。"] },
       { level: 1, title: "3 设计", body: [] },
-      { level: 2, title: "3.1 交互设计", body: ["交互设计通过顺序图描述对象与对象、参与者与对象之间的关系。"] },
+      { level: 2, title: "3.1 交互设计", body: ["交互设计通过用例实现设计描述对象与对象、参与者与对象之间的关系。"] },
       ...requirementUseCases(input).map((useCase, index) => ({
         level: 3 as const,
-        title: `3.1.${index + 1} 顺序图${index + 1}：${useCase.id}：${useCase.name}`,
+        title: `3.1.${index + 1} 用例实现设计${index + 1}：${useCase.id}：${useCase.name}`,
         body: [
           `描述：${useCase.goal}`,
-          "顺序图（协作图）按时序说明消息内容、格式、目的，以及对发送对象与接收对象的影响。",
+          "用例实现设计按时序说明消息内容、格式、目的，以及对发送对象与接收对象的影响。",
         ],
         diagramKind: index === 0 ? "sequence" : undefined,
       })),
       { level: 2, title: "3.2 结构设计", body: ["结构设计通过设计类图描述对象、设计类及其关系。"], diagramKind: "class" },
       { level: 3, title: "3.2.1 对象与类的关系", body: ["对象与类的关系依据设计类图识别。"] },
       { level: 3, title: "3.2.2 类与类的关系", body: ["类与类之间的继承、关联、聚合、组合或依赖关系见设计类图。"] },
-      { level: 3, title: "3.2.3 设计对象", body: ["设计对象来自顺序图参与者和设计类模型。"] },
+      { level: 3, title: "3.2.3 设计对象", body: ["设计对象来自用例实现设计参与者和设计类模型。"] },
       { level: 3, title: "3.2.4 设计类", body: ["设计类包含属性、操作、职责和依赖关系。"] },
-      { level: 2, title: "3.3 业务流程设计", body: ["业务流程设计描述主要业务步骤、分支和协作流转。"], diagramKind: "activity" },
-      { level: 3, title: "3.3.1 业务流程", body: ["业务流程图描述设计阶段的全局业务逻辑流转。"], diagramKind: "activity" },
+      { level: 2, title: "3.3 界面关系设计", body: ["界面关系设计描述原型界面、模块、入口点和用例实现之间的跳转与状态流转。"], diagramKind: "activity" },
+      { level: 3, title: "3.3.1 界面关系", body: ["界面关系图描述设计阶段的界面跳转、表单提交和状态流转。"], diagramKind: "activity" },
       { level: 3, title: "3.3.2 界面详细设计", body: ["界面详细设计将在原型实现阶段补充。"] },
       { level: 2, title: "3.4 可追踪性设计", body: [] },
       ...(pendingDesignTraceabilityRows(input).length > 0
@@ -340,7 +345,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       {
         level: 3,
         title: "3.4.1 用例与界面的关系",
-        body: ["用例与界面的关系依据需求阶段界面关系图和设计阶段业务流程图追踪。"],
+        body: ["用例与界面的关系依据需求阶段原型界面关系和设计阶段界面关系图追踪。"],
         table: {
           headers: ["编号", "用例名称", "界面名称", "备注"],
           rows: designUseCaseInterfaceRows(input),
@@ -349,7 +354,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       {
         level: 3,
         title: "3.4.2 用例与对象、类的关系",
-        body: ["用例与对象、类的关系依据顺序图和设计类图追踪。"],
+        body: ["用例与对象、类的关系依据用例实现设计和设计类图追踪。"],
         table: {
           headers: ["编号", "用例名称", "对象名称", "设计类名称", "备注"],
           rows: designUseCaseObjectClassRows(input),
@@ -435,14 +440,18 @@ export function diagramSvgKindsForDocument(input: StartDocumentRunRequest) {
   return new Set(artifacts.map((artifact) => artifact.diagramKind));
 }
 
-export function documentDiagramLabel(diagramKind: string) {
+export function documentDiagramLabel(diagramKind: string, sectionTitle?: string) {
+  const title = sectionTitle?.replace(LEADING_NUMBER_PATTERN, "").trim();
+  if (title) return title;
   const labels: Record<string, string> = {
     usecase: "总体用例图",
-    class: "类图",
-    activity: "流程与界面关系图",
-    deployment: "部署图",
-    sequence: "顺序图",
-    table: "表关系图",
+    class: "领域概念模型",
+    activity: "总体业务流程",
+    deployment: "部署需求模型",
+    prototype: "原型界面关系",
+    analysis: "需求分析模型",
+    sequence: "用例实现设计",
+    table: "数据库设计",
   };
   return labels[diagramKind] ?? "UML 图";
 }

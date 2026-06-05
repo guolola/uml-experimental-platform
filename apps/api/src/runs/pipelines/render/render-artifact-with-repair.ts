@@ -13,6 +13,7 @@ import {
 } from "@uml-platform/contracts";
 import { JSON_ONLY_SYSTEM_PROMPT, buildRepairPlantUmlPrompt } from "@uml-platform/prompts";
 import { type ChatMessage, type LlmTransport } from "../../../llm.js";
+import { getRepairPlantUmlResponseFormat } from "../../../adapters/llm/response-formats/index.js";
 import { type AnyPlantUmlArtifact, type RenderClient } from "../../../adapters/render/render-client.js";
 import { emitEvent, type RunRecord } from "../../records/run-record-store.js";
 import { formatParseError, parseJson } from "../../../normalizers/json/parse-json.js";
@@ -66,6 +67,7 @@ export async function renderArtifactWithRepair(
 > {
   let currentArtifact = artifact;
   let lastErrorMessage = "";
+  const responseFormat = getRepairPlantUmlResponseFormat(providerSettings.model);
 
   for (let attempt = 0; attempt <= MAX_PLANTUML_REPAIR_ATTEMPTS; attempt += 1) {
     try {
@@ -119,6 +121,14 @@ export async function renderArtifactWithRepair(
           stage: "render_svg",
           progress: stageProgressValue("render_svg"),
           message: `PlantUML 编译失败，正在尝试修复（${attempt + 1}/${MAX_PLANTUML_REPAIR_ATTEMPTS}）`,
+          diagramKind: currentArtifact.diagramKind,
+          modelId:
+            "modelId" in currentArtifact ? currentArtifact.modelId : undefined,
+          subtaskId:
+            "modelId" in currentArtifact
+              ? currentArtifact.modelId ?? currentArtifact.diagramKind
+              : currentArtifact.diagramKind,
+          subtaskStatus: "repairing",
         }),
       );
 
@@ -143,7 +153,7 @@ export async function renderArtifactWithRepair(
             }),
           );
         },
-        undefined,
+        responseFormat,
       );
       appendDesignTrace(record, {
         stage: "render_svg",

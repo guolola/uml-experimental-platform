@@ -27,6 +27,10 @@ import {
 import { snapshotInputFingerprint } from "./lib/fingerprint";
 import { useWorkspaceSession } from "./state";
 
+type StartDesignRunInput = Parameters<
+  NonNullable<WorkspaceRepository["startDesignRun"]>
+>[0];
+
 const { toastMessage } = vi.hoisted(() => ({
   toastMessage: vi.fn(),
 }));
@@ -1469,6 +1473,7 @@ describe("WorkspaceSessionProvider", () => {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           requirementText: "订单需求",
+          requirementBaseline: createRequirementBaseline([createAtomicRequirement()]),
           rulesVersion: 1,
           diagramVersions: { usecase: 1, class: 1 },
           generatedDiagramTypes: ["usecase", "class"],
@@ -1563,6 +1568,10 @@ describe("WorkspaceSessionProvider", () => {
         requestedDiagrams: ["class"],
       }),
     );
+    const input = (startDesignRun.mock.calls[0] as unknown as [StartDesignRunInput] | undefined)?.[0];
+    expect(input).not.toHaveProperty("requirementText");
+    expect(input).not.toHaveProperty("rules");
+    expect(input).toHaveProperty("requirementBaseline");
   });
 
   it("saves manual requirement model edits and clears the mapping warning after rerender", async () => {
@@ -2132,6 +2141,7 @@ describe("WorkspaceSessionProvider", () => {
         createWorkspaceRecord({
           requirementText: "图书馆管理系统",
           rules: snapshot.rules,
+          requirementBaseline: createRequirementBaseline([createAtomicRequirement()]),
           rulesVersion: 1,
           rulesBasedOnTextVersion: 0,
           diagramVersions: { usecase: 1, class: 1 },
@@ -2224,6 +2234,10 @@ describe("WorkspaceSessionProvider", () => {
         ]),
       }),
     );
+    const input = vi.mocked(repository.startDesignRun).mock.calls[0]?.[0];
+    expect(input).not.toHaveProperty("requirementText");
+    expect(input).not.toHaveProperty("rules");
+    expect(input).toHaveProperty("requirementBaseline");
     expect(Object.keys(result.current.designModels).sort()).toEqual([
       "class",
       "sequence:uc_borrow",

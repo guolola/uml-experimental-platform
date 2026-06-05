@@ -1,6 +1,7 @@
 import type {
   ActivityDiagramSpec,
   ActivityNode,
+  AnalysisSequenceDiagramSpec,
   ClassDiagramSpec,
   ClassEntity,
   ClassRelationship,
@@ -8,6 +9,8 @@ import type {
   DeploymentDiagramSpec,
   DeploymentRelationship,
   DiagramModelSpec,
+  PrototypeInterfaceDiagramSpec,
+  PrototypeInterfaceRelationship,
   SequenceDiagramSpec,
   SequenceMessage,
   TableDiagramSpec,
@@ -40,7 +43,10 @@ export type SemanticElementKind =
   | "message"
   | "fragment"
   | "table"
-  | "table-column";
+  | "table-column"
+  | "screen"
+  | "module"
+  | "entry-point";
 
 export interface DetailField {
   label: string;
@@ -105,6 +111,9 @@ export const SEMANTIC_KIND_META: Record<
   fragment: { label: "组合片段", shortLabel: "片段" },
   table: { label: "表", shortLabel: "表" },
   "table-column": { label: "字段", shortLabel: "字段" },
+  screen: { label: "页面", shortLabel: "页面" },
+  module: { label: "模块", shortLabel: "模块" },
+  "entry-point": { label: "入口点", shortLabel: "入口" },
 };
 
 function pushField(fields: DetailField[], label: string, value?: string | null) {
@@ -116,6 +125,52 @@ function pushField(fields: DetailField[], label: string, value?: string | null) 
 
 function joinList(values: string[]) {
   return values.length > 0 ? values.join("、") : "";
+}
+
+function compactList(values: Array<string | undefined | null>) {
+  return values.filter((value): value is string => Boolean(value?.trim()));
+}
+
+function looksAscii(value: string) {
+  return /^[A-Za-z0-9_.:-]+$/.test(value.trim());
+}
+
+function englishNameFrom(record: Record<string, unknown>, fallback: string) {
+  const explicit = typeof record.englishName === "string" ? record.englishName.trim() : "";
+  if (explicit) return explicit;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (name && looksAscii(name)) return name;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  return id || fallback;
+}
+
+function chineseNameFrom(record: Record<string, unknown>, fallback: string) {
+  const explicit = typeof record.chineseName === "string" ? record.chineseName.trim() : "";
+  if (explicit) return explicit;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  return name || fallback;
+}
+
+function constraintsFrom(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string => typeof item === "string" && Boolean(item.trim()),
+      )
+    : [];
+}
+
+function normalizedDetailFields(
+  record: Record<string, unknown>,
+  fallback: string,
+  typeValue: string,
+  constraints: string[] = [],
+): DetailField[] {
+  return [
+    { label: "中文名称", value: chineseNameFrom(record, fallback) },
+    { label: "英文名称", value: englishNameFrom(record, fallback) },
+    { label: "类型", value: typeValue || "未标明" },
+    { label: "约束", value: constraints.length > 0 ? joinList(constraints) : "无" },
+  ];
 }
 
 function nonEmptyGroups(groups: DiagramDetailGroup[]) {
@@ -163,6 +218,34 @@ function tableRelationshipLabel(relation: TableRelationship) {
   return meta[relation.type];
 }
 
+function eventFlowSummary(useCase: UseCaseDiagramSpec["useCases"][number]) {
+  const flows = useCase.eventFlows ?? [];
+  if (flows.length === 0) return "";
+  const typeLabel: Record<string, string> = {
+    main: "主事件流",
+    alternative: "备选事件流",
+    exception: "异常事件流",
+  };
+  return flows
+    .map((flow) => {
+      const steps = flow.steps.length > 0 ? `${flow.steps.length}步` : "未列步骤";
+      return `${typeLabel[flow.flowType] ?? flow.flowType}:${flow.name}(${steps})`;
+    })
+    .join("；");
+}
+
+function prototypeRelationshipLabel(relation: PrototypeInterfaceRelationship) {
+  const meta: Record<PrototypeInterfaceRelationship["type"], string> = {
+    navigation: "导航",
+    contains: "包含",
+    opens: "打开",
+    submits: "提交",
+    returns: "返回",
+    "depends-on": "依赖",
+  };
+  return meta[relation.type];
+}
+
 function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel {
   const items: DiagramDetailItem[] = [
     ...model.actors.map((actor) => ({
@@ -195,6 +278,9 @@ function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel 
           : []),
         ...(useCase.supportingActorIds.length > 0
           ? [{ label: "协作参与者", value: joinList(useCase.supportingActorIds) }]
+          : []),
+        ...(eventFlowSummary(useCase)
+          ? [{ label: "事件流", value: eventFlowSummary(useCase) }]
           : []),
       ],
     })),
@@ -245,30 +331,19 @@ function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel 
 }
 
 function buildClassFields(entity: ClassEntity) {
-  return [
-    ...(entity.classKind ? [{ label: "类别", value: entity.classKind }] : []),
-    ...(entity.stereotype ? [{ label: "构造型", value: entity.stereotype }] : []),
-    ...(entity.attributes.length > 0
-      ? [
-          {
-            label: "属性",
-            value: entity.attributes
-              .map((attribute) => `${attribute.name}: ${attribute.type}`)
-              .join("；"),
-          },
-        ]
-      : []),
-    ...(entity.operations.length > 0
-      ? [
-          {
-            label: "操作",
-            value: entity.operations
-              .map((operation) => operation.name)
-              .join("、"),
-          },
-        ]
-      : []),
-  ];
+  const constraints = compactList([
+    ...constraintsFrom(entity.constraints),
+    entity.stereotype ? `构造型:${entity.stereotype}` : undefined,
+    entity.classKind ? `类别:${entity.classKind}` : undefined,
+    entity.attributes.length > 0 ? `属性:${entity.attributes.length}个` : undefined,
+    entity.operations.length > 0 ? `操作:${entity.operations.length}个` : undefined,
+  ]);
+  return normalizedDetailFields(
+    entity as unknown as Record<string, unknown>,
+    entity.name,
+    entity.type ?? entity.classKind ?? entity.stereotype ?? "class",
+    constraints,
+  );
 }
 
 function buildClassDetailModel(model: ClassDiagramSpec): DiagramDetailModel {
@@ -285,15 +360,15 @@ function buildClassDetailModel(model: ClassDiagramSpec): DiagramDetailModel {
       id: entity.id,
       label: entity.name,
       description: entity.description,
-      fields:
-        entity.operations.length > 0
-          ? [
-              {
-                label: "操作",
-                value: entity.operations.map((operation) => operation.name).join("、"),
-              },
-            ]
-          : [],
+      fields: normalizedDetailFields(
+        entity as unknown as Record<string, unknown>,
+        entity.name,
+        entity.type ?? "interface",
+        compactList([
+          ...constraintsFrom(entity.constraints),
+          entity.operations.length > 0 ? `操作:${entity.operations.length}个` : undefined,
+        ]),
+      ),
     })),
     ...model.enums.map((entity) => ({
       kind: "enum" as const,
@@ -558,6 +633,67 @@ function buildDeploymentDetailModel(model: DeploymentDiagramSpec): DiagramDetail
   };
 }
 
+function mapPrototypeNodeKind(
+  node: PrototypeInterfaceDiagramSpec["nodes"][number],
+): SemanticElementKind {
+  return node.nodeType;
+}
+
+function buildPrototypeDetailModel(
+  model: PrototypeInterfaceDiagramSpec,
+): DiagramDetailModel {
+  const items: DiagramDetailItem[] = model.nodes.map((node) => {
+    const fields: DetailField[] = [];
+    pushField(fields, "路径", node.route);
+    if (node.sourceUseCaseIds.length > 0) {
+      fields.push({ label: "关联用例", value: joinList(node.sourceUseCaseIds) });
+    }
+    if (node.sourceRequirementIds.length > 0) {
+      fields.push({ label: "关联需求", value: joinList(node.sourceRequirementIds) });
+    }
+    return {
+      kind: mapPrototypeNodeKind(node),
+      id: node.id,
+      label: node.name,
+      description: node.description,
+      fields,
+    };
+  });
+
+  const relationships: DiagramRelationshipDetail[] = model.relationships.map(
+    (relation) => {
+      const fields: DetailField[] = [];
+      pushField(fields, "标签", relation.label);
+      pushField(fields, "触发", relation.trigger);
+      pushField(fields, "条件", relation.condition);
+      pushField(fields, "说明", relation.description);
+      return {
+        id: relation.id,
+        kind: "relationship",
+        label: relation.label ?? `${relation.sourceId} -> ${relation.targetId}`,
+        typeLabel: prototypeRelationshipLabel(relation),
+        sourceId: relation.sourceId,
+        targetId: relation.targetId,
+        fields,
+      };
+    },
+  );
+
+  return {
+    items,
+    groups: nonEmptyGroups([
+      { kind: "screen", label: "页面", items: items.filter((item) => item.kind === "screen") },
+      { kind: "module", label: "模块", items: items.filter((item) => item.kind === "module") },
+      {
+        kind: "entry-point",
+        label: "入口点",
+        items: items.filter((item) => item.kind === "entry-point"),
+      },
+    ]),
+    relationships,
+  };
+}
+
 function sequenceMessageTypeLabel(type: SequenceMessage["type"]) {
   const meta: Record<SequenceMessage["type"], string> = {
     sync: "同步调用",
@@ -569,7 +705,9 @@ function sequenceMessageTypeLabel(type: SequenceMessage["type"]) {
   return meta[type];
 }
 
-function buildSequenceDetailModel(model: SequenceDiagramSpec): DiagramDetailModel {
+function buildSequenceDetailModel(
+  model: SequenceDiagramSpec | AnalysisSequenceDiagramSpec,
+): DiagramDetailModel {
   const items: DiagramDetailItem[] = [
     ...model.participants.map((participant) => ({
       kind: "participant" as const,
@@ -654,42 +792,36 @@ function buildTableDetailModel(model: TableDiagramSpec): DiagramDetailModel {
     id: table.id,
     label: table.name,
     description: table.description,
-    fields: [
-      {
-        label: "字段",
-        value: table.columns
-          .map((column) => {
-            const markers = [
-              column.isPrimaryKey ? "PK" : "",
-              column.isForeignKey ? "FK" : "",
-            ].filter(Boolean);
-            return `${column.name}: ${column.dataType}${markers.length > 0 ? ` (${markers.join("/")})` : ""}`;
-          })
-          .join("；"),
-      },
-    ],
+    fields: normalizedDetailFields(
+      table as unknown as Record<string, unknown>,
+      table.name,
+      table.type ?? "数据表",
+      compactList([
+        ...constraintsFrom(table.constraints),
+        table.columns.length > 0 ? `字段:${table.columns.length}个` : undefined,
+        table.columns.some((column) => column.isPrimaryKey) ? "包含主键" : undefined,
+        table.columns.some((column) => column.isForeignKey) ? "包含外键" : undefined,
+      ]),
+    ),
   }));
 
   const columnItems: DiagramDetailItem[] = model.tables.flatMap((table) =>
     table.columns.map((column) => {
-      const fields: DetailField[] = [
-        { label: "所属表", value: table.name },
-        { label: "类型", value: column.dataType },
-        { label: "可空", value: column.nullable ? "是" : "否" },
-      ];
-      if (column.isPrimaryKey) {
-        fields.push({ label: "主键", value: "是" });
-      }
-      if (column.isForeignKey) {
-        fields.push({ label: "外键", value: "是" });
-      }
-      if (column.references) {
-        fields.push({
-          label: "引用",
-          value: `${column.references.tableId}.${column.references.columnId}`,
-        });
-      }
-      pushField(fields, "说明", column.description);
+      const constraints = compactList([
+        ...constraintsFrom(column.constraints),
+        column.isPrimaryKey ? "PK" : undefined,
+        column.isForeignKey ? "FK" : undefined,
+        column.nullable === false ? "NOT NULL" : "nullable",
+        column.references
+          ? `引用:${column.references.tableId}.${column.references.columnId}`
+          : undefined,
+      ]);
+      const fields = normalizedDetailFields(
+        column as unknown as Record<string, unknown>,
+        column.name,
+        column.dataType,
+        constraints,
+      );
       return {
         kind: "table-column" as const,
         id: `${table.id}.${column.id}`,
@@ -748,6 +880,10 @@ export function buildDiagramDetailModel(
       return buildActivityDetailModel(model);
     case "deployment":
       return buildDeploymentDetailModel(model);
+    case "prototype":
+      return buildPrototypeDetailModel(model);
+    case "analysis":
+      return buildSequenceDetailModel(model);
     case "table":
       return buildTableDetailModel(model);
   }

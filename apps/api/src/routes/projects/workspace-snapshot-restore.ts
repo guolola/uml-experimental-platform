@@ -176,9 +176,9 @@ function applySnapshotToWorkspaceState(
       snapshot.selectedDiagrams,
     );
     next.models = {
-      ...recordValue(next.models),
+      ...clearScopedRecords(recordValue(next.models), requirementDiagrams),
       ...Object.fromEntries(
-        snapshot.requirementModels.map((model) => [model.diagramKind, model]),
+        snapshot.requirementModels.map((model) => [getRequirementModelId(model), model]),
       ),
     };
     next.requirementModelTraceability = mergeRequirementTraceability(
@@ -221,11 +221,13 @@ function applySnapshotToWorkspaceState(
   }
 
   const records = mapRequirementSnapshotToRecords(snapshot);
-  const modelDiagrams = Object.keys(records.modelMap) as DiagramKind[];
+  const modelDiagrams = uniqueStrings(
+    snapshot.models.map((model) => model.diagramKind),
+  ) as DiagramKind[];
   const artifactDiagrams = uniqueStrings([
-    ...Object.keys(records.plantUmlMap),
-    ...Object.keys(records.svgMap),
-    ...Object.keys(snapshot.diagramErrors),
+    ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+    ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+    ...Object.keys(snapshot.diagramErrors).map((key) => key.split(":")[0] ?? key),
   ]) as DiagramKind[];
   const affected = uniqueStrings([
     ...snapshot.selectedDiagrams,
@@ -254,7 +256,10 @@ function applySnapshotToWorkspaceState(
     return next;
   }
 
-  next.models = { ...recordValue(next.models), ...records.modelMap };
+  next.models = {
+    ...clearScopedRecords(recordValue(next.models), affected),
+    ...records.modelMap,
+  };
   next.requirementModelTraceability = mergeRequirementTraceability(
     arrayValue(
       next.requirementModelTraceability,
@@ -266,8 +271,14 @@ function applySnapshotToWorkspaceState(
     ...stringArrayValue(next.generatedDiagramTypes),
     ...affected,
   ]);
-  next.plantUml = { ...recordValue(next.plantUml), ...records.plantUmlMap };
-  next.svgArtifacts = { ...recordValue(next.svgArtifacts), ...records.svgMap };
+  next.plantUml = {
+    ...clearScopedRecords(recordValue(next.plantUml), affected),
+    ...records.plantUmlMap,
+  };
+  next.svgArtifacts = {
+    ...clearScopedRecords(recordValue(next.svgArtifacts), affected),
+    ...records.svgMap,
+  };
   next.diagramErrors = clearAndMergeDiagramErrors(
     recordValue(next.diagramErrors),
     snapshot.diagramErrors,
@@ -308,20 +319,37 @@ function getDesignArtifactId(
   return artifact.modelId ?? artifact.diagramKind;
 }
 
+function getRequirementModelId(
+  model: Pick<DiagramModelSpec, "diagramKind"> & { modelId?: string | null },
+) {
+  return model.modelId ?? model.diagramKind;
+}
+
+function getRequirementArtifactId(
+  artifact: Pick<PlantUmlArtifact | SvgArtifact, "diagramKind"> & {
+    modelId?: string | null;
+  },
+) {
+  return artifact.modelId ?? artifact.diagramKind;
+}
+
 function mapRequirementSnapshotToRecords(snapshot: RunSnapshot) {
   return {
     modelMap: Object.fromEntries(
-      snapshot.models.map((model: DiagramModelSpec) => [model.diagramKind, model]),
+      snapshot.models.map((model: DiagramModelSpec) => [
+        getRequirementModelId(model),
+        model,
+      ]),
     ),
     plantUmlMap: Object.fromEntries(
       snapshot.plantUml.map((artifact: PlantUmlArtifact) => [
-        artifact.diagramKind,
+        getRequirementArtifactId(artifact),
         artifact.source,
       ]),
     ),
     svgMap: Object.fromEntries(
       snapshot.svgArtifacts.map((artifact: SvgArtifact) => [
-        artifact.diagramKind,
+        getRequirementArtifactId(artifact),
         artifact,
       ]),
     ),
@@ -363,6 +391,22 @@ function clearAndMergeDiagramErrors<T extends string>(
     }
   }
   return { ...next, ...incoming };
+}
+
+function clearScopedRecords(
+  current: Record<string, unknown>,
+  affected: readonly string[],
+) {
+  const next = { ...current };
+  for (const diagram of affected) {
+    delete next[diagram];
+    for (const key of Object.keys(next)) {
+      if (key.startsWith(`${diagram}:`)) {
+        delete next[key];
+      }
+    }
+  }
+  return next;
 }
 
 function mergeRequirementTraceability(

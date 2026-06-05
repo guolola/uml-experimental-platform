@@ -19,7 +19,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
     tabId: "requirements",
     artifactTypes: ["requirementText", "requirementRule", "requirementModel"],
     prerequisiteStepIds: [],
-    emptyState: "输入需求文本后可生成需求规则和 UML 模型",
+    emptyState: "输入需求文本后可生成需求规则和 UML模型",
   },
   {
     id: "diagrams",
@@ -38,6 +38,15 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
     artifactTypes: ["designModel", "designPlantUml", "designSvg"],
     prerequisiteStepIds: ["diagrams"],
     emptyState: "先生成需求模型后进入设计阶段",
+  },
+  {
+    id: "testing",
+    label: "测试",
+    route: "/workspace",
+    tabId: "test",
+    artifactTypes: ["blackBoxTestCase", "testCoverageRelation"],
+    prerequisiteStepIds: ["design"],
+    emptyState: "先生成用例模型和设计模型后生成测试用例",
   },
   {
     id: "code",
@@ -63,7 +72,7 @@ export const SHELL_ROUTE_MODULES = [
   {
     label: "工作台",
     route: "/workspace" as const,
-    description: "进入 UML 实验平台工作区。",
+    description: "进入软件工程实训平台工作区。",
   },
   {
     label: "考试",

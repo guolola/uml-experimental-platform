@@ -16,6 +16,8 @@ import {
   Plus,
   Pencil,
   Trash2,
+  PanelRightOpen,
+  X,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../shared/ui/tabs";
@@ -36,6 +38,7 @@ import {
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
   getDesignModelId,
+  getRequirementModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -51,15 +54,18 @@ import {
 
 export function DiagramView({
   type,
+  modelId,
   highlightedElement,
 }: {
   type: DiagramType;
+  modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
 }) {
   return (
     <DiagramDetailView
       stage="requirements"
       type={type}
+      modelId={modelId}
       highlightedElement={highlightedElement}
     />
   );
@@ -343,24 +349,24 @@ function designSourceLabel(
   if (diagram === "sequence") {
     const useCaseName = stringValue(model?.sourceUseCaseName).trim();
     if (useCaseName) {
-      return `来源：需求阶段用例模型（用例：${useCaseName}）`;
+      return `来源：需求阶段用例模型事件流 + 需求分析模型（用例：${useCaseName}）`;
     }
     const useCaseId = stringValue(model?.sourceUseCaseId).trim();
     if (useCaseId) {
-      return `来源：需求阶段用例模型（用例ID：${useCaseId}）`;
+      return `来源：需求阶段用例模型事件流 + 需求分析模型（用例ID：${useCaseId}）`;
     }
-    return "来源：需求阶段用例模型（具体用例未标明）";
+    return "来源：需求阶段用例模型事件流 + 需求分析模型（具体用例未标明）";
   }
   if (diagram === "activity") {
-    return "来源：需求阶段界面关系图 + 设计阶段顺序图";
+    return "来源：需求阶段原型界面关系 + 设计阶段用例实现设计";
   }
   if (diagram === "class") {
-    return "来源：需求阶段领域概念模型 + 设计阶段顺序图";
+    return "来源：需求阶段领域概念模型 + 设计阶段用例实现设计";
   }
   if (diagram === "deployment") {
-    return "来源：需求阶段部署模型 + 设计阶段顺序图";
+    return "来源：需求阶段部署需求模型 + 设计阶段用例实现设计";
   }
-  return "来源：设计阶段设计类图 + 设计阶段顺序图";
+  return "来源：设计阶段设计类图 + 设计阶段用例实现设计";
 }
 
 function requirementSourceLabel(rules: Array<{ id?: string }>) {
@@ -2130,7 +2136,7 @@ function ModelEditPanel({
                 没有匹配的元素，请调整搜索或类型筛选。
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 {filteredElements.map((el) => {
                   const editable = editableItemsById.get(el.id);
                   const active = selectedElement?.kind === el.kind && selectedElement.id === el.id;
@@ -2152,7 +2158,7 @@ function ModelEditPanel({
                         onSelectElement(el);
                       }}
                       className={cn(
-                        "min-h-40 cursor-pointer rounded-lg border p-4 text-left text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "min-h-[8.75rem] cursor-pointer overflow-hidden rounded-lg border p-2.5 text-left text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         active
                           ? "border-primary bg-primary/10"
                           : "border-border bg-card hover:bg-accent/40",
@@ -2216,14 +2222,14 @@ function ModelEditPanel({
                           ) : null}
                         </div>
                       </div>
-                      <div className="mt-4 truncate text-base font-semibold text-foreground">
+                      <div className="mt-2 line-clamp-1 min-w-0 break-words text-sm font-semibold leading-5 text-foreground">
                         {el.label}
                       </div>
-                      <div className="mt-2 line-clamp-3 min-h-[3.75rem] text-xs leading-5 text-muted-foreground">
+                      <div className="mt-1.5 line-clamp-2 min-h-10 text-[11px] leading-5 text-muted-foreground">
                         {el.description || "暂无说明。"}
                       </div>
-                      <div className="mt-4 border-t border-border pt-3">
-                        <div className="truncate text-xs text-muted-foreground">
+                      <div className="mt-2 border-t border-border pt-2">
+                        <div className="line-clamp-1 break-words text-[11px] text-muted-foreground">
                           {fieldSummary || "暂无字段"}
                         </div>
                         <div className="mt-1 font-mono text-[10px] text-muted-foreground">
@@ -2587,17 +2593,25 @@ function DiagramDetailView({
       : Object.values(designModels).find((entry) => entry.diagramKind === designType)
     : undefined;
   const designArtifactId = designModel ? getDesignModelId(designModel) : modelId ?? designType;
+  const requirementModel = !isDesign
+    ? modelId
+      ? models[modelId]
+      : models[requirementType]
+    : undefined;
+  const requirementArtifactId = requirementModel
+    ? getRequirementModelId(requirementModel)
+    : modelId ?? requirementType;
   const source = isDesign
     ? designPlantUml[designArtifactId] ?? ""
-    : plantUml[requirementType] ?? "";
-  const model = isDesign ? designModel : models[requirementType];
+    : plantUml[requirementArtifactId] ?? plantUml[requirementType] ?? "";
+  const model = isDesign ? designModel : requirementModel;
   const svgMarkup = isDesign
     ? designSvgArtifacts[designArtifactId]?.svg ?? ""
-    : svgArtifacts[requirementType]?.svg ?? "";
+    : svgArtifacts[requirementArtifactId]?.svg ?? svgArtifacts[requirementType]?.svg ?? "";
   const diagramError = isDesign
     ? designDiagramErrors[designType] ?? null
-    : diagramErrors[requirementType] ?? null;
-  const statusKey = isDesign ? designArtifactId : requirementType;
+    : diagramErrors[requirementArtifactId] ?? diagramErrors[requirementType] ?? null;
+  const statusKey = isDesign ? designArtifactId : requirementArtifactId;
   const editStatus = manualModelEditStatus[statusKey];
   const [draft, setDraft] = useState<Record<string, unknown> | null>(() =>
     model ? cloneDraftModel(model) : null,
@@ -2636,13 +2650,19 @@ function DiagramDetailView({
     id: string;
   } | null>(null);
   const [highlightRequestId, setHighlightRequestId] = useState(0);
+  const [isOverviewPanelOpen, setIsOverviewPanelOpen] = useState(() =>
+    Boolean(highlightedElement),
+  );
+  const overviewPanelDismissedRef = useRef(false);
   useEffect(() => {
     const nextDraft = model ? cloneDraftModel(model) : null;
     setDraft(nextDraft);
     persistedDraftFingerprintRef.current = draftFingerprint(nextDraft);
     setSaveStatus("idle");
     setLocalHighlightedElement(null);
-  }, [model, statusKey]);
+    overviewPanelDismissedRef.current = false;
+    setIsOverviewPanelOpen(Boolean(highlightedElement));
+  }, [highlightedElement, model, statusKey]);
   const setDraftField = useCallback((key: string, value: unknown) => {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
   }, []);
@@ -2792,6 +2812,9 @@ function DiagramDetailView({
   const selectElementInDiagram = useCallback((element: DiagramDetailItem) => {
     setLocalHighlightedElement({ kind: element.kind, id: element.id });
     setHighlightRequestId((current) => current + 1);
+    if (!overviewPanelDismissedRef.current) {
+      setIsOverviewPanelOpen(true);
+    }
   }, []);
   const relatedRelationships = useMemo(
     () => relationships.filter((relation) => isRelationConnectedTo(relation, highlighted)),
@@ -2837,6 +2860,13 @@ function DiagramDetailView({
     if (group.kind === "message" || group.kind === "table-column") return false;
     return group.items.length > 0;
   });
+  const highlightedElementKey = highlightedElement
+    ? `${highlightedElement.kind}:${highlightedElement.id}`
+    : "";
+  useEffect(() => {
+    if (!highlightedElementKey || overviewPanelDismissedRef.current) return;
+    setIsOverviewPanelOpen(true);
+  }, [highlightedElementKey]);
   const modelTitle = getModelText(draft ?? model, "title", meta.label);
   const modelSummary = getModelText(draft ?? model, "summary", meta.description);
   const designSourceText = isDesign
@@ -2848,8 +2878,43 @@ function DiagramDetailView({
     ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
     : editStatus?.warning ??
       "手动修改会更新当前模型结构，可能不再完全对应原始需求或上游用例。修改保存后会基于当前结构自动更新此图。";
-  const diagramActions = svgMarkup ? (
+  const overviewPanelId = `model-overview-${stage}-${statusKey}`.replace(/[^A-Za-z0-9_-]/g, "-");
+  const openOverviewPanel = useCallback(() => {
+    overviewPanelDismissedRef.current = false;
+    setIsOverviewPanelOpen(true);
+  }, []);
+  const closeOverviewPanel = useCallback(() => {
+    overviewPanelDismissedRef.current = true;
+    setIsOverviewPanelOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!isOverviewPanelOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeOverviewPanel();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeOverviewPanel, isOverviewPanelOpen]);
+  const diagramActions = (
     <div className="flex flex-wrap items-center gap-1">
+      <Button
+        variant={isOverviewPanelOpen ? "secondary" : "outline"}
+        size="sm"
+        className="h-8"
+        onClick={isOverviewPanelOpen ? closeOverviewPanel : openOverviewPanel}
+        aria-label={isOverviewPanelOpen ? "收起模型概览" : "打开模型概览"}
+        aria-expanded={isOverviewPanelOpen}
+        aria-controls={overviewPanelId}
+      >
+        <PanelRightOpen className="size-3.5" /> 模型概览
+      </Button>
+      {svgMarkup ? (
+        <>
       <Button
         variant="outline"
         size="sm"
@@ -2915,8 +2980,10 @@ function DiagramDetailView({
       >
         <Download className="size-3.5" /> JSON
       </Button>
+        </>
+      ) : null}
     </div>
-  ) : null;
+  );
 
   useEffect(() => {
     setElementSearch("");
@@ -3049,8 +3116,11 @@ function DiagramDetailView({
             </div>
 
             <TabsContent value="diagram" className="m-0 p-0">
-              <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-background">
+              <div className="p-5">
+                <section
+                  data-testid="diagram-preview-section"
+                  className="w-full min-w-0 overflow-hidden rounded-xl border border-border bg-background"
+                >
                   <div className="flex flex-col gap-3 rounded-t-xl border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">预览</h3>
@@ -3060,18 +3130,19 @@ function DiagramDetailView({
                     </div>
                     {diagramActions}
                   </div>
-                  <div
-                    ref={svgCanvasRef}
-                    data-testid="svg-preview-canvas"
-                    className={cn(
-                      "h-[560px] overflow-hidden select-none touch-none",
-                      svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
-                    )}
-                    onPointerDown={startCanvasPan}
-                    onPointerMove={moveCanvasPan}
-                    onPointerUp={stopCanvasPan}
-                    onPointerCancel={stopCanvasPan}
-                  >
+                  <div className="relative">
+                    <div
+                      ref={svgCanvasRef}
+                      data-testid="svg-preview-canvas"
+                      className={cn(
+                        "h-[560px] overflow-hidden select-none touch-none",
+                        svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
+                      )}
+                      onPointerDown={startCanvasPan}
+                      onPointerMove={moveCanvasPan}
+                      onPointerUp={stopCanvasPan}
+                      onPointerCancel={stopCanvasPan}
+                    >
                       {svgMarkup ? (
                         <div
                           className="flex min-h-full min-w-full items-center justify-center"
@@ -3104,123 +3175,146 @@ function DiagramDetailView({
                           尚未生成 SVG
                         </div>
                       )}
-                  </div>
-                </section>
-
-                <aside className="flex flex-col gap-5">
-                  {highlighted ? (
-                    <>
-                      <section className="rounded-xl border border-border bg-background p-4 shadow-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs uppercase tracking-wider text-primary">
-                            focus
-                          </span>
-                          <Badge variant="secondary" className="font-mono">
-                            {SEMANTIC_KIND_META[highlighted.kind].label}
-                          </Badge>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                            {highlighted.label}
-                          </span>
+                    </div>
+                    {isOverviewPanelOpen ? (
+                      <aside
+                        id={overviewPanelId}
+                        role="complementary"
+                        aria-label={highlighted ? "焦点元素详情" : "模型概览"}
+                        className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-1.5rem)] w-[min(22rem,calc(100%-1.5rem))] flex-col gap-3 overflow-auto rounded-xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur sm:w-80"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="text-sm font-semibold text-foreground">
+                            {highlighted ? "焦点元素" : "模型概览"}
+                          </h3>
                           <Button
+                            type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8"
-                            onClick={() => {
-                              if (localHighlightedElement) {
-                                setLocalHighlightedElement(null);
-                                return;
-                              }
-                              if (isDesign) {
-                                openDesignDiagram(
-                                  designType,
-                                  designArtifactId,
-                                  getModelText(model, "title", meta.label),
-                                );
-                              } else {
-                                openDiagram(requirementType);
-                              }
-                            }}
+                            className="h-8 px-2"
+                            aria-label="关闭模型概览"
+                            onClick={closeOverviewPanel}
                           >
-                            清除高亮
+                            <X className="size-3.5" />
                           </Button>
                         </div>
-                        <div className="mt-4 text-xs text-muted-foreground">
-                          <div className="font-medium text-foreground">职责与属性</div>
-                          {highlighted.description && (
-                            <div className="mt-1 leading-relaxed">{highlighted.description}</div>
-                          )}
-                          {highlighted.fields.length > 0 ? (
-                            <div className="mt-2 flex flex-col gap-1.5">
-                              {highlighted.fields.slice(0, 6).map((field) => (
-                                <div key={`${highlighted.id}:focus:${field.label}`}>
-                                  <span>{field.label}：</span>
-                                  <span className="text-foreground">{field.value}</span>
+                        {highlighted ? (
+                          <>
+                            <section className="rounded-lg border border-border bg-background p-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-xs uppercase tracking-wider text-primary">
+                                  focus
+                                </span>
+                                <Badge variant="secondary" className="font-mono">
+                                  {SEMANTIC_KIND_META[highlighted.kind].label}
+                                </Badge>
+                                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                                  {highlighted.label}
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => {
+                                    if (localHighlightedElement) {
+                                      setLocalHighlightedElement(null);
+                                      return;
+                                    }
+                                    if (isDesign) {
+                                      openDesignDiagram(
+                                        designType,
+                                        designArtifactId,
+                                        getModelText(model, "title", meta.label),
+                                      );
+                                    } else {
+                                      openDiagram(
+                                        requirementType,
+                                        requirementArtifactId,
+                                        getModelText(model, "title", meta.label),
+                                      );
+                                    }
+                                  }}
+                                >
+                                  清除高亮
+                                </Button>
+                              </div>
+                              <div className="mt-4 text-xs text-muted-foreground">
+                                <div className="font-medium text-foreground">职责与属性</div>
+                                {highlighted.description && (
+                                  <div className="mt-1 leading-relaxed">{highlighted.description}</div>
+                                )}
+                                {highlighted.fields.length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-1.5">
+                                    {highlighted.fields.slice(0, 6).map((field) => (
+                                      <div key={`${highlighted.id}:focus:${field.label}`}>
+                                        <span>{field.label}：</span>
+                                        <span className="text-foreground">{field.value}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : !highlighted.description ? (
+                                  <div className="mt-1">暂无额外属性。</div>
+                                ) : null}
+                                {!isDesign && sourceRules.length > 0 && (
+                                  <div className="mt-3">
+                                    来源规则：{sourceRules.slice(0, 3).map((rule) => rule.id).join("、")}
+                                    {sourceRules.length > 3 ? ` +${sourceRules.length - 3}` : ""}
+                                  </div>
+                                )}
+                              </div>
+                            </section>
+                            <section className="rounded-lg border border-border bg-background p-3">
+                              <h4 className="text-sm font-semibold text-foreground">相关关系与元素</h4>
+                              <div className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                                相关关系 {relatedRelationships.length} 条
+                                {relatedItems.length > 0
+                                  ? `，关联元素 ${relatedItems.map((item) => item.label).slice(0, 4).join("、")}`
+                                  : "。"}
+                              </div>
+                              {relatedRelationships[0] && (
+                                <div className="mt-3 truncate text-sm text-foreground">
+                                  {getRelationDisplayLabel(relatedRelationships[0], itemsById)}
+                                </div>
+                              )}
+                            </section>
+                          </>
+                        ) : (
+                          <section className="rounded-lg border border-border bg-background p-3">
+                            <div className="flex flex-col gap-3">
+                              {summaryGroups.slice(0, 6).map((group) => (
+                                <div
+                                  key={`overview:${group.kind}`}
+                                  className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 last:border-0 last:pb-0"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm text-foreground">
+                                      {SEMANTIC_KIND_META[group.kind].label}
+                                    </div>
+                                    <div className="truncate text-xs text-muted-foreground">
+                                      {group.items.slice(0, 3).map((item) => item.label).join("、") || "暂无元素"}
+                                    </div>
+                                  </div>
+                                  <Badge variant="secondary" className="font-mono">
+                                    {group.items.length}
+                                  </Badge>
                                 </div>
                               ))}
-                            </div>
-                          ) : !highlighted.description ? (
-                            <div className="mt-1">暂无额外属性。</div>
-                          ) : null}
-                          {!isDesign && sourceRules.length > 0 && (
-                            <div className="mt-3">
-                              来源规则：{sourceRules.slice(0, 3).map((rule) => rule.id).join("、")}
-                              {sourceRules.length > 3 ? ` +${sourceRules.length - 3}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      </section>
-                      <section className="rounded-xl border border-border bg-background p-4 shadow-sm">
-                        <h3 className="text-sm font-semibold text-foreground">相关关系与元素</h3>
-                        <div className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                          相关关系 {relatedRelationships.length} 条
-                          {relatedItems.length > 0
-                            ? `，关联元素 ${relatedItems.map((item) => item.label).slice(0, 4).join("、")}`
-                            : "。"}
-                        </div>
-                        {relatedRelationships[0] && (
-                          <div className="mt-3 truncate text-sm text-foreground">
-                            {getRelationDisplayLabel(relatedRelationships[0], itemsById)}
-                          </div>
-                        )}
-                      </section>
-                    </>
-                  ) : (
-                    <>
-                      <section className="rounded-xl border border-border bg-background p-4 shadow-sm">
-                        <h3 className="text-sm font-semibold text-foreground">模型概览</h3>
-                        <div className="mt-4 flex flex-col gap-3">
-                          {summaryGroups.slice(0, 6).map((group) => (
-                            <div
-                              key={`overview:${group.kind}`}
-                              className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 last:border-0 last:pb-0"
-                            >
-                              <div className="min-w-0">
-                                <div className="truncate text-sm text-foreground">
-                                  {SEMANTIC_KIND_META[group.kind].label}
+                              <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 last:border-0 last:pb-0">
+                                <div>
+                                  <div className="text-sm text-foreground">关系</div>
+                                  <div className="text-xs text-muted-foreground">结构化连接</div>
                                 </div>
-                                <div className="truncate text-xs text-muted-foreground">
-                                  {group.items.slice(0, 3).map((item) => item.label).join("、") || "暂无元素"}
-                                </div>
+                                <Badge variant="secondary" className="font-mono">
+                                  {relationships.length}
+                                </Badge>
                               </div>
-                              <Badge variant="secondary" className="font-mono">
-                                {group.items.length}
-                              </Badge>
                             </div>
-                          ))}
-                          <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 last:border-0 last:pb-0">
-                            <div>
-                              <div className="text-sm text-foreground">关系</div>
-                              <div className="text-xs text-muted-foreground">结构化连接</div>
-                            </div>
-                            <Badge variant="secondary" className="font-mono">
-                              {relationships.length}
-                            </Badge>
-                          </div>
-                        </div>
-                      </section>
-                    </>
-                  )}
-                </aside>
+                          </section>
+                        )}
+                      </aside>
+                    ) : null}
+                  </div>
+                </section>
               </div>
               <div className="px-5 pb-5">
                 <div className="mb-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
@@ -3328,7 +3422,7 @@ function DiagramDetailView({
                     没有匹配的元素，请调整搜索或类型筛选。
                   </div>
                 ) : (
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                     {filteredElements.map((el) => {
                             const active =
                               highlighted &&
@@ -3357,39 +3451,40 @@ function DiagramDetailView({
                                         el.kind,
                                         el.id,
                                         el.label,
+                                        requirementArtifactId,
                                       )
                                 }
                                 className={cn(
-                                  "min-h-32 rounded-xl border p-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                  "min-h-[8.5rem] overflow-hidden rounded-lg border p-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                   active
                                     ? "border-primary bg-primary/15 text-primary"
                                     : "border-border bg-card text-foreground hover:bg-accent",
                                 )}
                               >
                                 <span className="flex items-start justify-between gap-3">
-                                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
+                                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-[10px] font-semibold text-primary">
                                     {SEMANTIC_KIND_META[el.kind].shortLabel}
                                   </span>
                                   <Badge variant="secondary" className="shrink-0 text-[10px]">
                                     {SEMANTIC_KIND_META[el.kind].label}
                                   </Badge>
                                 </span>
-                                <span className="mt-4 block min-w-0 truncate text-base font-semibold text-foreground">
+                                <span className="mt-2 block min-w-0 line-clamp-1 break-words text-sm font-semibold leading-5 text-foreground">
                                   {el.label}
                                 </span>
                                 {el.description && (
-                                  <span className="mt-2 line-clamp-3 block min-h-[3.75rem] text-xs leading-5 text-muted-foreground">
+                                  <span className="mt-1.5 line-clamp-2 block min-h-10 text-[11px] leading-5 text-muted-foreground">
                                     {el.description}
                                   </span>
                                 )}
                                 {!el.description && (
-                                  <span className="mt-2 line-clamp-3 block min-h-[3.75rem] text-xs leading-5 text-muted-foreground">
+                                  <span className="mt-1.5 line-clamp-2 block min-h-10 text-[11px] leading-5 text-muted-foreground">
                                     暂无说明。
                                   </span>
                                 )}
-                                <span className="mt-4 block border-t border-border pt-3">
-                                  <span className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                                    <span className="min-w-0 truncate">
+                                <span className="mt-2 block border-t border-border pt-2">
+                                  <span className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                                    <span className="min-w-0 line-clamp-1 break-words">
                                       {el.fields.length > 0
                                         ? fieldSummary
                                         : "暂无字段"}

@@ -181,11 +181,51 @@ function parseDeployment(source: string): DiagramElement[] {
   return uniqById(out);
 }
 
+function parsePrototype(source: string): DiagramElement[] {
+  const out: DiagramElement[] = [];
+  const lines = getStrippedLines(source);
+  for (const line of lines) {
+    let m = line.match(/^package\s+(?:"([^"]+)"|(\S+))(?:\s+as\s+(\S+))?/i);
+    if (m) {
+      const label = m[1] ?? m[2];
+      out.push({ id: m[3] ?? label, kind: "package", label });
+      continue;
+    }
+    m = line.match(/^interface\s+(?:"([^"]+)"|(\S+))(?:\s+as\s+(\S+))?/i);
+    if (m) {
+      const label = m[1] ?? m[2];
+      out.push({ id: m[3] ?? label, kind: "interface", label });
+      continue;
+    }
+    m = line.match(/^component\s+(?:"([^"]+)"|(\S+))(?:\s+as\s+(\S+))?/i);
+    if (m) {
+      const label = m[1] ?? m[2];
+      out.push({ id: m[3] ?? label, kind: "component", label });
+      continue;
+    }
+  }
+  return uniqById(out);
+}
+
+function parseAnalysis(source: string): DiagramElement[] {
+  const out: DiagramElement[] = [];
+  const lines = getStrippedLines(source);
+  for (const line of lines) {
+    const m = line.match(/^(actor|boundary|control|entity|database|participant)\s+(?:"([^"]+)"|(\S+))(?:\s+as\s+(\S+))?/i);
+    if (!m) continue;
+    const label = m[2] ?? m[3];
+    out.push({ id: m[4] ?? label, kind: "participant", label });
+  }
+  return uniqById(out);
+}
+
 const PARSERS: Record<DiagramType, (s: string) => DiagramElement[]> = {
   activity: parseActivity,
   usecase: parseUseCase,
   class: parseClass,
   deployment: parseDeployment,
+  prototype: parsePrototype,
+  analysis: parseAnalysis,
 };
 
 export function parseElements(type: DiagramType, source: string): DiagramElement[] {

@@ -5,6 +5,8 @@ export const diagramKindSchema = z.enum([
   "class",
   "activity",
   "deployment",
+  "prototype",
+  "analysis",
 ]);
 export type DiagramKind = z.infer<typeof diagramKindSchema>;
 
@@ -339,6 +341,42 @@ export const useCaseActorSchema = z.object({
 });
 export type UseCaseActor = z.infer<typeof useCaseActorSchema>;
 
+export const useCaseEventFlowTypeSchema = z.enum([
+  "main",
+  "alternative",
+  "exception",
+]);
+export type UseCaseEventFlowType = z.infer<typeof useCaseEventFlowTypeSchema>;
+
+export const useCaseEventFlowStepActorSchema = z.enum([
+  "actor",
+  "system",
+  "external",
+]);
+export type UseCaseEventFlowStepActor = z.infer<
+  typeof useCaseEventFlowStepActorSchema
+>;
+
+export const useCaseEventFlowStepSchema = z.object({
+  order: z.number().int().min(1),
+  actor: useCaseEventFlowStepActorSchema,
+  actorAction: z.string().min(1).optional(),
+  systemAction: z.string().min(1).optional(),
+  expectedResult: z.string().min(1).optional(),
+  sourceRequirementId: z.string().min(1).optional(),
+});
+export type UseCaseEventFlowStep = z.infer<typeof useCaseEventFlowStepSchema>;
+
+export const useCaseEventFlowSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  flowType: useCaseEventFlowTypeSchema,
+  trigger: z.string().min(1).optional(),
+  condition: z.string().min(1).optional(),
+  steps: z.array(useCaseEventFlowStepSchema).default([]),
+});
+export type UseCaseEventFlow = z.infer<typeof useCaseEventFlowSchema>;
+
 export const useCaseSpecSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -348,6 +386,7 @@ export const useCaseSpecSchema = z.object({
   postconditions: noteListSchema,
   primaryActorId: z.string().min(1).optional(),
   supportingActorIds: z.array(z.string().min(1)),
+  eventFlows: z.array(useCaseEventFlowSchema).default([]),
 });
 export type UseCaseSpec = z.infer<typeof useCaseSpecSchema>;
 
@@ -394,7 +433,10 @@ export type ClassKind = z.infer<typeof classKindSchema>;
 
 export const classAttributeSchema = z.object({
   name: z.string().min(1),
+  chineseName: z.string().min(1).optional(),
+  englishName: z.string().min(1).optional(),
   type: z.string().min(1),
+  constraints: z.array(z.string().min(1)).default([]),
   visibility: visibilitySchema,
   required: z.boolean().optional(),
   multiplicity: z.string().min(1).optional(),
@@ -423,6 +465,10 @@ export type ClassOperation = z.infer<typeof classOperationSchema>;
 export const classEntitySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  chineseName: z.string().min(1).optional(),
+  englishName: z.string().min(1).optional(),
+  type: z.string().min(1).optional(),
+  constraints: z.array(z.string().min(1)).default([]),
   classKind: classKindSchema.optional(),
   stereotype: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
@@ -434,6 +480,10 @@ export type ClassEntity = z.infer<typeof classEntitySchema>;
 export const interfaceEntitySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  chineseName: z.string().min(1).optional(),
+  englishName: z.string().min(1).optional(),
+  type: z.string().min(1).optional(),
+  constraints: z.array(z.string().min(1)).default([]),
   description: z.string().min(1).optional(),
   operations: z.array(classOperationSchema).default([]),
 });
@@ -757,6 +807,74 @@ export const sequenceDiagramSpecSchema = z.object({
 });
 export type SequenceDiagramSpec = z.infer<typeof sequenceDiagramSpecSchema>;
 
+export const analysisSequenceDiagramSpecSchema = sequenceDiagramSpecSchema.extend({
+  diagramKind: z.literal("analysis"),
+});
+export type AnalysisSequenceDiagramSpec = z.infer<
+  typeof analysisSequenceDiagramSpecSchema
+>;
+
+export const prototypeInterfaceNodeTypeSchema = z.enum([
+  "screen",
+  "module",
+  "entry-point",
+]);
+export type PrototypeInterfaceNodeType = z.infer<
+  typeof prototypeInterfaceNodeTypeSchema
+>;
+
+export const prototypeInterfaceNodeSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  nodeType: prototypeInterfaceNodeTypeSchema,
+  route: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  sourceUseCaseIds: z.array(z.string().min(1)).default([]),
+  sourceRequirementIds: z.array(z.string().min(1)).default([]),
+});
+export type PrototypeInterfaceNode = z.infer<
+  typeof prototypeInterfaceNodeSchema
+>;
+
+export const prototypeInterfaceRelationshipTypeSchema = z.enum([
+  "navigation",
+  "contains",
+  "opens",
+  "submits",
+  "returns",
+  "depends-on",
+]);
+export type PrototypeInterfaceRelationshipType = z.infer<
+  typeof prototypeInterfaceRelationshipTypeSchema
+>;
+
+export const prototypeInterfaceRelationshipSchema = z.object({
+  id: z.string().min(1),
+  type: prototypeInterfaceRelationshipTypeSchema,
+  sourceId: z.string().min(1),
+  targetId: z.string().min(1),
+  label: z.string().min(1).optional(),
+  trigger: z.string().min(1).optional(),
+  condition: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+});
+export type PrototypeInterfaceRelationship = z.infer<
+  typeof prototypeInterfaceRelationshipSchema
+>;
+
+export const prototypeInterfaceDiagramSpecSchema = z.object({
+  diagramKind: z.literal("prototype"),
+  modelId: z.string().min(1).optional(),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  notes: noteListSchema,
+  nodes: z.array(prototypeInterfaceNodeSchema),
+  relationships: z.array(prototypeInterfaceRelationshipSchema),
+});
+export type PrototypeInterfaceDiagramSpec = z.infer<
+  typeof prototypeInterfaceDiagramSpecSchema
+>;
+
 export const tableColumnReferenceSchema = z.object({
   tableId: z.string().min(1),
   columnId: z.string().min(1),
@@ -766,7 +884,10 @@ export type TableColumnReference = z.infer<typeof tableColumnReferenceSchema>;
 export const tableColumnSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  chineseName: z.string().min(1).optional(),
+  englishName: z.string().min(1).optional(),
   dataType: z.string().min(1),
+  constraints: z.array(z.string().min(1)).default([]),
   isPrimaryKey: z.boolean().default(false),
   isForeignKey: z.boolean().default(false),
   nullable: z.boolean().default(true),
@@ -778,6 +899,10 @@ export type TableColumn = z.infer<typeof tableColumnSchema>;
 export const tableSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  chineseName: z.string().min(1).optional(),
+  englishName: z.string().min(1).optional(),
+  type: z.string().min(1).optional(),
+  constraints: z.array(z.string().min(1)).default([]),
   description: z.string().min(1).optional(),
   columns: z.array(tableColumnSchema).min(1),
 });
@@ -818,6 +943,8 @@ export const diagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
   classDiagramSpecSchema,
   activityDiagramSpecSchema,
   deploymentDiagramSpecSchema,
+  prototypeInterfaceDiagramSpecSchema,
+  analysisSequenceDiagramSpecSchema,
 ]);
 export type DiagramModelSpec = z.infer<typeof diagramModelSpecSchema>;
 
@@ -874,7 +1001,66 @@ export const designDiagramModelsResultSchema = z.object({
 });
 export type DesignDiagramModelsResult = z.infer<typeof designDiagramModelsResultSchema>;
 
+export const testScenarioTypeSchema = z.enum([
+  "normal",
+  "alternative",
+  "exception",
+  "boundary",
+  "decision-table",
+]);
+export type TestScenarioType = z.infer<typeof testScenarioTypeSchema>;
+
+export const testPrioritySchema = z.enum(["P0", "P1", "P2", "P3"]);
+export type TestPriority = z.infer<typeof testPrioritySchema>;
+
+export const blackBoxTestStepSchema = z.object({
+  order: z.number().int().min(1),
+  action: z.string().min(1),
+  expectedResult: z.string().min(1),
+});
+export type BlackBoxTestStep = z.infer<typeof blackBoxTestStepSchema>;
+
+export const blackBoxTestCaseSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  sourceRequirementId: z.string().min(1).optional(),
+  sourceRequirementText: z.string().min(1).optional(),
+  sourceUseCaseId: z.string().min(1).optional(),
+  sourceUseCaseName: z.string().min(1).optional(),
+  scenarioType: testScenarioTypeSchema,
+  priority: testPrioritySchema,
+  preconditions: z.array(z.string().min(1)).default([]),
+  testData: z.array(z.string().min(1)).default([]),
+  steps: z.array(blackBoxTestStepSchema).min(1),
+  expectedResults: z.array(z.string().min(1)).default([]),
+});
+export type BlackBoxTestCase = z.infer<typeof blackBoxTestCaseSchema>;
+
+export const testCoverageStatusSchema = z.enum([
+  "covered",
+  "partially-covered",
+  "pending-review",
+]);
+export type TestCoverageStatus = z.infer<typeof testCoverageStatusSchema>;
+
+export const testCoverageRelationSchema = z.object({
+  testCaseId: z.string().min(1),
+  requirementIds: z.array(z.string().min(1)).default([]),
+  useCaseIds: z.array(z.string().min(1)).default([]),
+  designModelRefs: z.array(modelElementRefSchema).default([]),
+  coverageStatus: testCoverageStatusSchema,
+  rationale: z.string().min(1),
+});
+export type TestCoverageRelation = z.infer<typeof testCoverageRelationSchema>;
+
+export const testGenerationResultSchema = z.object({
+  testCases: z.array(blackBoxTestCaseSchema),
+  coverageRelations: z.array(testCoverageRelationSchema),
+});
+export type TestGenerationResult = z.infer<typeof testGenerationResultSchema>;
+
 export const plantUmlArtifactSchema = z.object({
+  modelId: z.string().min(1).optional(),
   diagramKind: diagramKindSchema,
   source: z.string().min(1),
 });
@@ -893,6 +1079,7 @@ export const repairPlantUmlResultSchema = z.object({
 export type RepairPlantUmlResult = z.infer<typeof repairPlantUmlResultSchema>;
 
 export const svgArtifactSchema = z.object({
+  modelId: z.string().min(1).optional(),
   diagramKind: diagramKindSchema,
   svg: z.string().min(1),
   renderMeta: z.object({
@@ -923,10 +1110,7 @@ export const managedProviderSettingsSchema = z.object({
 });
 export type ManagedProviderSettings = z.infer<typeof managedProviderSettingsSchema>;
 
-export const providerSettingsSchema = z.union([
-  resolvedProviderSettingsSchema,
-  managedProviderSettingsSchema,
-]);
+export const providerSettingsSchema = managedProviderSettingsSchema;
 export type ProviderSettingsInput = z.infer<typeof providerSettingsSchema>;
 
 export const imageProviderSettingsSchema = resolvedProviderSettingsSchema.extend({
@@ -1024,6 +1208,108 @@ export type ProviderConfigTestResponse = z.infer<
   typeof providerConfigTestResponseSchema
 >;
 
+export const systemNoticeTypeSchema = z.enum([
+  "model_update",
+  "feature_update",
+  "important",
+  "maintenance",
+]);
+export type SystemNoticeType = z.infer<typeof systemNoticeTypeSchema>;
+
+export const systemNoticeStatusSchema = z.enum([
+  "draft",
+  "published",
+  "archived",
+]);
+export type SystemNoticeStatus = z.infer<typeof systemNoticeStatusSchema>;
+
+export const systemNoticeContentBlockSchema = z
+  .object({
+    kind: z.enum(["paragraph", "list_item"]),
+    text: z.string().trim().min(1).max(2000),
+  })
+  .strict();
+export type SystemNoticeContentBlock = z.infer<
+  typeof systemNoticeContentBlockSchema
+>;
+
+export const systemNoticeDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().trim().min(1).max(240),
+    type: systemNoticeTypeSchema,
+    icon: z.string().trim().min(1).max(8).nullable(),
+    contentBlocks: z.array(systemNoticeContentBlockSchema).default([]),
+    status: systemNoticeStatusSchema,
+    publishedAt: optionalNullableTimestampSchema,
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    unread: z.boolean().optional(),
+  })
+  .strict();
+export type SystemNoticeDto = z.infer<typeof systemNoticeDtoSchema>;
+
+export const systemNoticeListResponseSchema = z
+  .object({
+    generatedAt: z.string().min(1),
+    notices: z.array(systemNoticeDtoSchema),
+    unreadCount: z.number().int().min(0).default(0),
+  })
+  .strict();
+export type SystemNoticeListResponse = z.infer<
+  typeof systemNoticeListResponseSchema
+>;
+
+export const systemNoticeCreateRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(240),
+    type: systemNoticeTypeSchema,
+    icon: z
+      .preprocess(
+        (value) =>
+          typeof value === "string" && value.trim() === "" ? null : value,
+        z.string().trim().min(1).max(8).nullable().optional(),
+      )
+      .default(null),
+    contentBlocks: z.array(systemNoticeContentBlockSchema).default([]),
+    status: systemNoticeStatusSchema.default("draft"),
+    publishedAt: optionalNullableTimestampSchema.default(null),
+  })
+  .strict();
+export type SystemNoticeCreateRequest = z.infer<
+  typeof systemNoticeCreateRequestSchema
+>;
+
+export const systemNoticeUpdateRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(240).optional(),
+    type: systemNoticeTypeSchema.optional(),
+    icon: z
+      .preprocess(
+        (value) =>
+          typeof value === "string" && value.trim() === "" ? null : value,
+        z.string().trim().min(1).max(8).nullable().optional(),
+      )
+      .optional(),
+    contentBlocks: z.array(systemNoticeContentBlockSchema).optional(),
+    status: systemNoticeStatusSchema.optional(),
+    publishedAt: optionalNullableTimestampSchema.optional(),
+  })
+  .strict();
+export type SystemNoticeUpdateRequest = z.infer<
+  typeof systemNoticeUpdateRequestSchema
+>;
+
+export const systemNoticeReadRequestSchema = z
+  .object({
+    noticeIds: z.array(z.string().min(1)).optional(),
+  })
+  .strict()
+  .default({});
+export type SystemNoticeReadRequest = z.infer<
+  typeof systemNoticeReadRequestSchema
+>;
+
 const emailAddressSchema = z
   .string()
   .trim()
@@ -1079,6 +1365,8 @@ export const adminPermissionSchema = z.enum([
   "admin.rate_limits.write",
   "admin.system_health.read",
   "admin.prompt_runtime.write",
+  "admin.system_notices.read",
+  "admin.system_notices.write",
 ]);
 export type AdminPermission = z.infer<typeof adminPermissionSchema>;
 
@@ -1127,6 +1415,8 @@ export const adminRolePermissions = {
     "admin.rate_limits.read",
     "admin.system_health.read",
     "admin.prompt_runtime.write",
+    "admin.system_notices.read",
+    "admin.system_notices.write",
   ],
   course_admin: [
     "admin.metrics.read",
@@ -3002,6 +3292,10 @@ export const startRunRequestSchema = z.object({
   requirementText: z.string().min(1),
   selectedDiagrams: z.array(diagramKindSchema),
   rules: z.array(requirementRuleSchema).default([]),
+  contextModels: z.array(diagramModelSpecSchema).default([]),
+  contextRequirementModelTraceability: z
+    .array(requirementModelTraceabilityEntrySchema)
+    .default([]),
   providerSettings: providerSettingsSchema.optional(),
 });
 export type StartRunRequest = z.infer<typeof startRunRequestSchema>;
@@ -3089,22 +3383,22 @@ export type RepairRequirementRulesResponse = z.infer<
   typeof repairRequirementRulesResponseSchema
 >;
 
-export const startDesignRunRequestSchema = z.object({
-  projectId: z.string().min(1).optional(),
-  requirementText: z.string().min(1),
-  rules: z.array(requirementRuleSchema),
-  requirementBaseline: requirementBaselineSchema.nullable().optional(),
-  evidencePackage: evidencePackageSchema.nullable().optional(),
-  requirementModels: z.array(diagramModelSpecSchema),
-  requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema).min(1),
-  selectedDiagrams: z.array(designDiagramKindSchema).min(1),
-  requestedDiagrams: z.array(designDiagramKindSchema).optional(),
-  existingDesignModels: z.array(designDiagramModelSpecSchema).default([]),
-  existingDesignModelTraceability: z.array(designModelTraceabilityEntrySchema).default([]),
-  existingDesignPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
-  existingDesignSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
-  providerSettings: providerSettingsSchema.optional(),
-});
+export const startDesignRunRequestSchema = z
+  .object({
+    projectId: z.string().min(1).optional(),
+    requirementBaseline: requirementBaselineSchema,
+    evidencePackage: evidencePackageSchema.nullable().optional(),
+    requirementModels: z.array(diagramModelSpecSchema),
+    requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema).min(1),
+    selectedDiagrams: z.array(designDiagramKindSchema).min(1),
+    requestedDiagrams: z.array(designDiagramKindSchema).optional(),
+    existingDesignModels: z.array(designDiagramModelSpecSchema).default([]),
+    existingDesignModelTraceability: z.array(designModelTraceabilityEntrySchema).default([]),
+    existingDesignPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
+    existingDesignSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
+    providerSettings: providerSettingsSchema.optional(),
+  })
+  .strict();
 export type StartDesignRunRequest = z.infer<typeof startDesignRunRequestSchema>;
 
 export const startCodeRunRequestSchema = z.object({
@@ -3285,6 +3579,7 @@ export const runStageSchema = z.enum([
   "generate_models",
   "generate_design_sequence",
   "generate_design_models",
+  "generate_tests",
   "analyze_code_business_logic",
   "analyze_code_product",
   "plan_code_ui",
@@ -3591,6 +3886,7 @@ export const artifactReadyRunEventSchema = z.object({
     "model",
     "plantuml",
     "svg",
+    "testCases",
     "codeSpec",
     "codeFiles",
     "businessLogic",
@@ -3768,3 +4064,140 @@ export const renderPngResponseSchema = z.object({
   renderMeta: svgArtifactSchema.shape.renderMeta,
 });
 export type RenderPngResponse = z.infer<typeof renderPngResponseSchema>;
+
+export const paymentChannelSchema = z.enum(["wechat_native", "alipay_page"]);
+export type PaymentChannel = z.infer<typeof paymentChannelSchema>;
+
+export const billingSkuKindSchema = z.enum(["time_pass", "credit_pack"]);
+export type BillingSkuKind = z.infer<typeof billingSkuKindSchema>;
+
+export const billingOrderStatusSchema = z.enum([
+  "pending",
+  "paid",
+  "expired",
+  "closed",
+  "failed",
+  "refund_pending",
+  "refunded",
+]);
+export type BillingOrderStatus = z.infer<typeof billingOrderStatusSchema>;
+
+export const billingSkuDtoSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  kind: billingSkuKindSchema,
+  description: z.string().min(1),
+  durationDays: z.number().int().positive().nullable(),
+  creditAmount: z.number().int().positive().nullable(),
+  amountCents: z.number().int().positive(),
+  currency: z.literal("CNY"),
+  active: z.boolean(),
+  sortOrder: z.number().int(),
+});
+export type BillingSkuDto = z.infer<typeof billingSkuDtoSchema>;
+
+export const billingSkuListResponseSchema = z.object({
+  skus: z.array(billingSkuDtoSchema),
+});
+export type BillingSkuListResponse = z.infer<typeof billingSkuListResponseSchema>;
+
+export const billingActivePassSchema = z.object({
+  skuCode: z.string().min(1),
+  name: z.string().min(1),
+  validFrom: z.string().min(1),
+  validUntil: z.string().min(1),
+  remainingDailyStarts: z.number().int().min(0),
+});
+export type BillingActivePass = z.infer<typeof billingActivePassSchema>;
+
+export const billingSignupBonusSchema = z.object({
+  granted: z.boolean(),
+  creditAmount: z.number().int().min(0),
+  validUntil: z.string().min(1).nullable(),
+});
+export type BillingSignupBonus = z.infer<typeof billingSignupBonusSchema>;
+
+export const billingPassDailyUsageSchema = z.object({
+  usedToday: z.number().int().min(0),
+  limit: z.number().int().positive(),
+});
+export type BillingPassDailyUsage = z.infer<typeof billingPassDailyUsageSchema>;
+
+export const billingSoftLimitSchema = z.object({
+  passDailyLimit: z.number().int().positive(),
+  passConcurrentLimit: z.number().int().positive(),
+});
+export type BillingSoftLimit = z.infer<typeof billingSoftLimitSchema>;
+
+export const billingOrderStatusDtoSchema = z.object({
+  orderId: z.string().min(1),
+  merchantOrderNo: z.string().min(1),
+  sku: billingSkuDtoSchema,
+  amountCents: z.number().int().positive(),
+  currency: z.literal("CNY"),
+  channel: paymentChannelSchema,
+  status: billingOrderStatusSchema,
+  createdAt: z.string().min(1),
+  expiresAt: z.string().min(1),
+  paidAt: z.string().min(1).nullable(),
+});
+export type BillingOrderStatusDto = z.infer<typeof billingOrderStatusDtoSchema>;
+
+export const billingSummarySchema = z.object({
+  creditBalance: z.number().int(),
+  activePass: billingActivePassSchema.nullable(),
+  signupBonus: billingSignupBonusSchema,
+  passDailyUsage: billingPassDailyUsageSchema,
+  softLimit: billingSoftLimitSchema,
+  recentOrders: z.array(billingOrderStatusDtoSchema),
+});
+export type BillingSummary = z.infer<typeof billingSummarySchema>;
+
+export const createPaymentOrderRequestSchema = z
+  .object({
+    skuCode: z.string().min(1),
+    channel: paymentChannelSchema,
+    returnUrl: z.string().url().optional(),
+  })
+  .strict();
+export type CreatePaymentOrderRequest = z.infer<
+  typeof createPaymentOrderRequestSchema
+>;
+
+export const createPaymentOrderResponseSchema = z.object({
+  orderId: z.string().min(1),
+  merchantOrderNo: z.string().min(1),
+  status: billingOrderStatusSchema,
+  amountCents: z.number().int().positive(),
+  currency: z.literal("CNY"),
+  expiresAt: z.string().min(1),
+  channel: paymentChannelSchema,
+  codeUrl: z.string().min(1).optional(),
+  paymentFormHtml: z.string().min(1).optional(),
+  redirectUrl: z.string().url().optional(),
+});
+export type CreatePaymentOrderResponse = z.infer<
+  typeof createPaymentOrderResponseSchema
+>;
+
+export const billingEntitlementFailureReasonSchema = z.enum([
+  "no_entitlement",
+  "pass_soft_limit",
+  "negative_balance",
+]);
+export type BillingEntitlementFailureReason = z.infer<
+  typeof billingEntitlementFailureReasonSchema
+>;
+
+export const billingEntitlementErrorResponseSchema = z.object({
+  message: z.string().min(1),
+  reason: billingEntitlementFailureReasonSchema,
+  billingSummary: billingSummarySchema,
+  payCta: z.object({
+    label: z.string().min(1),
+    href: z.string().min(1),
+  }),
+});
+export type BillingEntitlementErrorResponse = z.infer<
+  typeof billingEntitlementErrorResponseSchema
+>;

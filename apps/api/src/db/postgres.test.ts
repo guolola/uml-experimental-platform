@@ -7,6 +7,7 @@ import {
 } from "./postgres.js";
 import {
   baseSchemaSql,
+  billingAndPaymentsSql,
   migrationTableName,
   migrations,
   providerConfigStoreSql,
@@ -137,6 +138,28 @@ test("provider config migration includes secure view fields and usage dimensions
 
   assert.match(providerConfigStoreSql, /create table if not exists provider_usage_events/i);
   assert.match(providerConfigStoreSql, /user_id.*project_id.*provider_config_id.*task_type/is);
+});
+
+test("billing migration creates payment, entitlement, and reservation records", () => {
+  for (const table of [
+    "billing_skus",
+    "payment_orders",
+    "payment_notifications",
+    "billing_entitlement_ledger",
+    "billing_usage_reservations",
+  ]) {
+    assert.match(
+      billingAndPaymentsSql,
+      new RegExp(`create table if not exists ${table}`, "i"),
+    );
+  }
+  assert.match(billingAndPaymentsSql, /billing_usage_reservations\s*\([^;]*run_id text not null unique/is);
+  assert.match(billingAndPaymentsSql, /billing_signup_bonus_unique/i);
+  assert.match(billingAndPaymentsSql, /credits_500/i);
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /011_billing_and_payments/,
+  );
 });
 
 test("migration runner creates its ledger and skips already applied migrations", async () => {

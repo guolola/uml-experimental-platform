@@ -20,10 +20,16 @@ const DEFAULT_SELECTION: WorkspaceSelection = {
 
 export type WorkspaceSelection =
   | { kind: "requirements-text"; label: string }
-  | { kind: "requirement-trace-matrix"; label: string }
-  | { kind: "diagram"; diagram: DiagramType; label: string }
+  | { kind: "requirement-trace-matrix"; diagram: DiagramType; modelId?: string; label: string }
+  | { kind: "diagram"; diagram: DiagramType; modelId?: string; label: string }
   | { kind: "design-home"; label: string }
-  | { kind: "design-trace-matrix"; label: string }
+  | {
+      kind: "design-trace-matrix";
+      diagram: DesignDiagramType;
+      modelId?: string;
+      label: string;
+    }
+  | { kind: "test-home"; label: string }
   | {
       kind: "design-diagram";
       diagram: DesignDiagramType;
@@ -43,6 +49,7 @@ export type WorkspaceSelection =
   | {
       kind: "diagram-element";
       diagram: DiagramType;
+      modelId?: string;
       elementKind: string;
       elementId: string;
       label: string;
@@ -69,12 +76,21 @@ interface WorkspaceShellState {
   closeOtherWorkspaceTabs: (tabId: string) => void;
   closeWorkspaceTabsByStage: (tabId: string) => void;
   openRequirementsText: () => void;
-  openRequirementTraceMatrix: () => void;
+  openRequirementTraceMatrix: (
+    diagram: DiagramType,
+    modelId?: string,
+    label?: string,
+  ) => void;
   openHistoryDrawer: () => void;
   closeHistoryDrawer: () => void;
-  openDiagram: (diagram: DiagramType) => void;
+  openDiagram: (diagram: DiagramType, modelId?: string, label?: string) => void;
   openDesignHome: () => void;
-  openDesignTraceMatrix: () => void;
+  openDesignTraceMatrix: (
+    diagram: DesignDiagramType,
+    modelId?: string,
+    label?: string,
+  ) => void;
+  openTestHome: () => void;
   openDesignDiagram: (
     diagram: DesignDiagramType,
     modelId?: string,
@@ -94,6 +110,7 @@ interface WorkspaceShellState {
     elementKind: string,
     elementId: string,
     label: string,
+    modelId?: string,
   ) => void;
   openWorkspacePlaceholder: (
     workspaceId: WorkspacePlaceholderId,
@@ -108,14 +125,16 @@ function tabIdForSelection(selection: WorkspaceSelection) {
     case "requirements-text":
       return "requirements";
     case "requirement-trace-matrix":
-      return "requirements:trace-matrix";
+      return `requirements:trace-matrix:${selection.modelId ?? selection.diagram}`;
     case "diagram":
     case "diagram-element":
-      return `diagram:${selection.diagram}`;
+      return `diagram:${selection.modelId ?? selection.diagram}`;
     case "design-home":
       return "design";
     case "design-trace-matrix":
-      return "design:trace-matrix";
+      return `design:trace-matrix:${selection.modelId ?? selection.diagram}`;
+    case "test-home":
+      return "test";
     case "design-diagram":
     case "design-diagram-element":
       return `design-diagram:${selection.modelId ?? selection.diagram}`;
@@ -133,14 +152,16 @@ function tabLabelForSelection(selection: WorkspaceSelection) {
     case "requirements-text":
       return "需求";
     case "requirement-trace-matrix":
-      return "需求跟踪矩阵";
+      return selection.label;
     case "diagram":
     case "diagram-element":
-      return DIAGRAM_META[selection.diagram].label;
+      return selection.label || DIAGRAM_META[selection.diagram].label;
     case "design-home":
       return "设计";
     case "design-trace-matrix":
-      return "设计跟踪矩阵";
+      return selection.label;
+    case "test-home":
+      return "测试";
     case "design-diagram":
     case "design-diagram-element":
       return selection.label || DESIGN_DIAGRAM_META[selection.diagram].label;
@@ -173,6 +194,8 @@ function stageForSelection(selection: WorkspaceSelection) {
     case "design-diagram":
     case "design-diagram-element":
       return "design";
+    case "test-home":
+      return "test";
     case "documents-home":
     case "document-editor":
       return "documents";
@@ -260,10 +283,16 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     openWorkspaceTab({ kind: "requirements-text", label: "需求" });
   }, [openWorkspaceTab]);
 
-  const openRequirementTraceMatrix = useCallback(() => {
+  const openRequirementTraceMatrix = useCallback((
+    diagram: DiagramType,
+    modelId?: string,
+    label?: string,
+  ) => {
     openWorkspaceTab({
       kind: "requirement-trace-matrix",
-      label: "需求跟踪矩阵",
+      diagram,
+      modelId,
+      label: label ? `跟踪矩阵 · ${label}` : `跟踪矩阵 · ${DIAGRAM_META[diagram].label}`,
     });
   }, [openWorkspaceTab]);
 
@@ -275,11 +304,12 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     setHistoryDrawerOpen(false);
   }, []);
 
-  const openDiagram = useCallback((diagram: DiagramType) => {
+  const openDiagram = useCallback((diagram: DiagramType, modelId?: string, label?: string) => {
     openWorkspaceTab({
       kind: "diagram",
       diagram,
-      label: DIAGRAM_META[diagram].label,
+      modelId,
+      label: label ?? DIAGRAM_META[diagram].label,
     });
   }, [openWorkspaceTab]);
 
@@ -287,11 +317,21 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     openWorkspaceTab({ kind: "design-home", label: "设计" });
   }, [openWorkspaceTab]);
 
-  const openDesignTraceMatrix = useCallback(() => {
+  const openDesignTraceMatrix = useCallback((
+    diagram: DesignDiagramType,
+    modelId?: string,
+    label?: string,
+  ) => {
     openWorkspaceTab({
       kind: "design-trace-matrix",
-      label: "设计跟踪矩阵",
+      diagram,
+      modelId,
+      label: label ? `跟踪矩阵 · ${label}` : `跟踪矩阵 · ${DESIGN_DIAGRAM_META[diagram].label}`,
     });
+  }, [openWorkspaceTab]);
+
+  const openTestHome = useCallback(() => {
+    openWorkspaceTab({ kind: "test-home", label: "测试" });
   }, [openWorkspaceTab]);
 
   const openDesignDiagram = useCallback((
@@ -344,10 +384,12 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       elementKind: string,
       elementId: string,
       label: string,
+      modelId?: string,
     ) => {
       openWorkspaceTab({
         kind: "diagram-element",
         diagram,
+        modelId,
         elementKind,
         elementId,
         label,
@@ -385,6 +427,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openDiagram,
       openDesignHome,
       openDesignTraceMatrix,
+      openTestHome,
       openDesignDiagram,
       openDocumentsHome,
       openDocumentEditor,
@@ -407,6 +450,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openDiagram,
       openDesignHome,
       openDesignTraceMatrix,
+      openTestHome,
       openDesignDiagram,
       openDocumentsHome,
       openDocumentEditor,
@@ -438,13 +482,15 @@ export function getSelectionKey(selection: WorkspaceSelection) {
     case "requirements-text":
       return "requirements";
     case "requirement-trace-matrix":
-      return "requirements:trace-matrix";
+      return `requirements:trace-matrix:${selection.modelId ?? selection.diagram}`;
     case "diagram":
-      return `diagram:${selection.diagram}`;
+      return `diagram:${selection.modelId ?? selection.diagram}`;
     case "design-home":
       return "design";
     case "design-trace-matrix":
-      return "design:trace-matrix";
+      return `design:trace-matrix:${selection.modelId ?? selection.diagram}`;
+    case "test-home":
+      return "test";
     case "design-diagram":
       return `design-diagram:${selection.modelId ?? selection.diagram}`;
     case "documents-home":
@@ -454,7 +500,7 @@ export function getSelectionKey(selection: WorkspaceSelection) {
     case "design-diagram-element":
       return `design-diagram-element:${selection.modelId ?? selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "diagram-element":
-      return `diagram-element:${selection.diagram}:${selection.elementKind}:${selection.elementId}`;
+      return `diagram-element:${selection.modelId ?? selection.diagram}:${selection.elementKind}:${selection.elementId}`;
     case "workspace-placeholder":
       return `workspace:${selection.workspaceId}`;
   }

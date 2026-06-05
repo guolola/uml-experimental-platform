@@ -126,6 +126,59 @@ function timeoutError(timeoutMs: number) {
   return new Error(`LLM request timed out after ${timeoutMs}ms`);
 }
 
+function effectiveResponseFormat(
+  responseFormat: ChatCompletionResponseFormat | null | undefined,
+) {
+  if (responseFormat === null) return null;
+  return responseFormat ?? { type: "json_object" as const };
+}
+
+function isJsonSchemaResponseFormat(
+  responseFormat: ChatCompletionResponseFormat | null,
+): responseFormat is JsonSchemaResponseFormat {
+  return responseFormat?.type === "json_schema";
+}
+
+function shouldRetryJsonSchemaAsJsonObject(status: number, detail: string | null) {
+  if (status !== 400 && status !== 422) return false;
+  const normalized = (detail ?? "").toLowerCase();
+  if (!normalized) return false;
+  const mentionsSchema =
+    normalized.includes("response_format") ||
+    normalized.includes("json_schema") ||
+    normalized.includes("json schema") ||
+    normalized.includes("schema") ||
+    normalized.includes("strict");
+  const looksUnsupported =
+    normalized.includes("unsupported") ||
+    normalized.includes("not support") ||
+    normalized.includes("not supported") ||
+    normalized.includes("does not support") ||
+    normalized.includes("invalid") ||
+    normalized.includes("unrecognized") ||
+    normalized.includes("unknown") ||
+    normalized.includes("not allowed") ||
+    normalized.includes("not permitted");
+  return mentionsSchema && looksUnsupported;
+}
+
+function formatHttpLlmError(status: number, detail: string | null) {
+  return detail
+    ? `LLM request failed with HTTP ${status}: ${detail}`
+    : `LLM request failed with HTTP ${status}`;
+}
+
+function warnJsonSchemaFallback(model: string, status: number, detail: string | null) {
+  console.warn(
+    [
+      "[llm-json-schema-fallback]",
+      `model=${model}`,
+      `status=${status}`,
+      `reason=${summarizeErrorText(detail ?? "") ?? "provider rejected json_schema"}`,
+    ].join(" "),
+  );
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -241,11 +294,14 @@ export function createRealLlmTransport(
       );
       const responseTimeoutMs =
         options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
-      const abortController = new AbortController();
-      const response = await withTimeout(
+      const requestResponseFormat = effectiveResponseFormat(responseFormat);
+      let activeAbortController = new AbortController();
+      const fetchCompletion = (
+        nextResponseFormat: ChatCompletionResponseFormat | null,
+      ) => withTimeout(
         fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
           method: "POST",
-          signal: abortController.signal,
+          signal: activeAbortController.signal,
           headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
@@ -256,21 +312,36 @@ export function createRealLlmTransport(
             messages,
             stream: true,
             temperature: 0.2,
-            ...(responseFormat === null
+            ...(nextResponseFormat === null
               ? {}
-              : { response_format: responseFormat ?? { type: "json_object" } }),
+              : { response_format: nextResponseFormat }),
             tools: [],
             tool_choice: "none",
           }),
         }),
         responseTimeoutMs,
-        () => abortController.abort(),
+        () => activeAbortController.abort(),
       );
+      let response = await fetchCompletion(requestResponseFormat);
+
+      if (!response.ok) {
+        const detail = await readErrorDetail(response);
+        if (
+          isJsonSchemaResponseFormat(requestResponseFormat) &&
+          shouldRetryJsonSchemaAsJsonObject(response.status, detail)
+        ) {
+          warnJsonSchemaFallback(providerSettings.model, response.status, detail);
+          activeAbortController = new AbortController();
+          response = await fetchCompletion({ type: "json_object" });
+        } else {
+          throw new Error(formatHttpLlmError(response.status, detail));
+        }
+      }
 
       for await (const text of withIdleTimeout(
         parseChatCompletionSse(response),
         responseTimeoutMs,
-        () => abortController.abort(),
+        () => activeAbortController.abort(),
       )) {
         yield text;
       }

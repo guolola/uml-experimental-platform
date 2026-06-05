@@ -18,6 +18,7 @@ export interface PlatformUser {
   status: string;
   emailVerified: boolean;
   mfaEnabled: boolean;
+  systemRoles?: string[];
 }
 
 export interface PlatformProject {

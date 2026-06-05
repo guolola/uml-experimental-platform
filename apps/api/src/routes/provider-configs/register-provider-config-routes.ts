@@ -7,6 +7,7 @@ import {
   providerConfigTestResponseSchema,
 } from "@uml-platform/contracts";
 import { getModelCapability } from "../../model-capabilities.js";
+import { getHealthcheckResponseFormat } from "../../adapters/llm/response-formats/index.js";
 import {
   isAuthError,
   isProjectPermissionError,
@@ -148,7 +149,7 @@ async function testProviderConfig({
         messages: [{ role: "user", content: "只回复 JSON：{\"ok\":true}" }],
         stream: false,
         temperature: 0,
-        response_format: { type: "json_object" },
+        response_format: getHealthcheckResponseFormat(testModel),
         tools: [],
         tool_choice: "none",
       }),

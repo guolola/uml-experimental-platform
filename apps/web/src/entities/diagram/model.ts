@@ -24,14 +24,24 @@ export const DIAGRAM_META: Record<
     description: "领域实体、属性与关联",
   },
   activity: {
-    label: "界面关系图",
+    label: "总体业务流程",
     english: "Activity Diagram",
-    description: "界面跳转与操作流程",
+    description: "跨角色业务活动、分支与流转",
   },
   deployment: {
-    label: "部署模型",
+    label: "部署需求模型",
     english: "Deployment Diagram",
-    description: "物理节点与网络拓扑",
+    description: "部署约束、节点与网络拓扑",
+  },
+  prototype: {
+    label: "原型界面关系",
+    english: "Prototype Interface Relationship",
+    description: "页面、模块、入口点与跳转关系",
+  },
+  analysis: {
+    label: "需求分析模型",
+    english: "Requirement Analysis Sequence",
+    description: "基于用例事件流的需求交互分析",
   },
 };
 
@@ -40,6 +50,8 @@ export const DIAGRAM_ORDER: DiagramType[] = [
   "class",
   "activity",
   "deployment",
+  "prototype",
+  "analysis",
 ];
 
 export const DESIGN_DIAGRAM_META: Record<
@@ -47,14 +59,14 @@ export const DESIGN_DIAGRAM_META: Record<
   { label: string; english: string; description: string }
 > = {
   sequence: {
-    label: "顺序图",
+    label: "用例实现设计",
     english: "Sequence Diagram",
-    description: "对象间的方法调用时序与动态行为",
+    description: "基于事件流的对象调用时序与动态行为",
   },
   activity: {
-    label: "业务流程图",
+    label: "界面关系图",
     english: "Activity Diagram",
-    description: "全局业务逻辑流转、并行与分支",
+    description: "界面节点、状态与跳转关系",
   },
   class: {
     label: "设计类图",
@@ -62,12 +74,12 @@ export const DESIGN_DIAGRAM_META: Record<
     description: "实体、接口、聚合根及静态关联",
   },
   deployment: {
-    label: "部署模型",
+    label: "部署设计",
     english: "Deployment Diagram",
     description: "组件在 Pod、服务器、数据库上的分布",
   },
   table: {
-    label: "表关系图",
+    label: "数据库设计",
     english: "Table Relationship Diagram",
     description: "数据库表、主键、外键与表间关联",
   },
@@ -91,4 +103,16 @@ export function getDesignArtifactId(
   artifact: Pick<DesignPlantUmlArtifact | DesignSvgArtifact, "diagramKind" | "modelId">,
 ) {
   return artifact.modelId ?? artifact.diagramKind;
+}
+
+export function getRequirementModelId(
+  model: { diagramKind?: DiagramKind | string; modelId?: string },
+) {
+  return model.modelId ?? model.diagramKind ?? "unknown";
+}
+
+export function getRequirementArtifactId(
+  artifact: { diagramKind?: DiagramKind | string; modelId?: string },
+) {
+  return artifact.modelId ?? artifact.diagramKind ?? "unknown";
 }

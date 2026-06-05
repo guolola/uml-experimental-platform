@@ -27,6 +27,8 @@ const DIAGRAM_KINDS: readonly DiagramKind[] = [
   "class",
   "activity",
   "deployment",
+  "prototype",
+  "analysis",
 ];
 
 const RULE_CATEGORY_SET = new Set<string>(RULE_CATEGORIES);
@@ -110,11 +112,17 @@ function diagramFromAlias(value: unknown): DiagramKind | null {
   const label = normalizeLabel(text);
   if (["usecase", "usecases", "用例", "用例图"].includes(label)) return "usecase";
   if (["class", "classes", "类", "类图", "领域模型", "数据模型"].includes(label)) return "class";
-  if (["activity", "activities", "活动", "活动图", "流程", "流程图", "业务流程"].includes(label)) {
+  if (["activity", "activities", "活动", "活动图", "流程", "流程图", "业务流程", "总体业务流程"].includes(label)) {
     return "activity";
   }
   if (["deployment", "deploy", "部署", "部署图", "架构图", "运行环境"].includes(label)) {
     return "deployment";
+  }
+  if (["prototype", "原型", "界面关系", "原型界面关系", "页面关系", "ui关系"].includes(label)) {
+    return "prototype";
+  }
+  if (["analysis", "需求分析", "需求分析模型", "分析模型", "分析顺序图"].includes(label)) {
+    return "analysis";
   }
   return null;
 }
@@ -131,6 +139,7 @@ function inferRelatedDiagrams(ruleText: string, category: RuleCategory): Diagram
   ) {
     add("usecase");
     add("activity");
+    add("analysis");
   }
   if (
     category === "数据需求" ||
@@ -151,10 +160,11 @@ function inferRelatedDiagrams(ruleText: string, category: RuleCategory): Diagram
   }
   if (category === "界面需求") {
     add("usecase");
-    add("activity");
+    add("prototype");
   }
   if (category === "异常处理") {
     add("activity");
+    add("analysis");
     add("usecase");
   }
 

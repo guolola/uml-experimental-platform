@@ -30,6 +30,7 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  ClipboardCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../../shared/ui/utils";
@@ -38,6 +39,7 @@ import {
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
   getDesignModelId,
+  getRequirementModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -98,6 +100,9 @@ const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
   fragment: <GitBranch className="size-3.5 text-muted-foreground" />,
   table: <Database className="size-3.5 text-muted-foreground" />,
   "table-column": <TypeIcon className="size-3.5 text-muted-foreground" />,
+  screen: <Palette className="size-3.5 text-muted-foreground" />,
+  module: <Layers className="size-3.5 text-muted-foreground" />,
+  "entry-point": <Plug className="size-3.5 text-muted-foreground" />,
 };
 
 function TraceBadge({
@@ -201,6 +206,61 @@ function mergeSidebarStatus(
   if (current === "running" || next === "running") return "running";
   if (current === "queued" || next === "queued") return "queued";
   return "completed";
+}
+
+const STAGE_SCOPED_SUBTASK_PREFIXES = [
+  "generate_models",
+  "generate_design_sequence",
+  "generate_design_models",
+  "generate_plantuml",
+  "render_svg",
+] as const;
+
+function scopedSubtaskInfo(id: string) {
+  const prefix = STAGE_SCOPED_SUBTASK_PREFIXES.find((candidate) =>
+    id.startsWith(`${candidate}:`),
+  );
+  if (!prefix) return null;
+  const priority =
+    prefix === "render_svg" ? 3 : prefix === "generate_plantuml" ? 2 : 1;
+  return {
+    rawId: id.slice(prefix.length + 1),
+    priority,
+  };
+}
+
+function setSubtaskStatus(
+  statuses: Map<string, Node["status"]>,
+  labels: Map<string, string>,
+  rawStatusPriorities: Map<string, number>,
+  id: string,
+  label: string,
+  status: Node["status"] | null,
+) {
+  statuses.set(id, mergeSidebarStatus(statuses.get(id), status));
+  labels.set(id, label);
+  // Generation tasks scope repeated pipeline phases by stage; the sidebar groups
+  // by model id, so keep a raw-id alias for rendering and regeneration states.
+  const scoped = scopedSubtaskInfo(id);
+  if (scoped) {
+    const effectivePriority = status === "queued" ? 0 : scoped.priority;
+    const previousPriority = rawStatusPriorities.get(scoped.rawId) ?? 0;
+    rawStatusPriorities.set(
+      scoped.rawId,
+      Math.max(previousPriority, effectivePriority),
+    );
+    const rawStatus =
+      effectivePriority > previousPriority
+        ? mergeSidebarStatus(undefined, status)
+        : effectivePriority === previousPriority
+          ? mergeSidebarStatus(statuses.get(scoped.rawId), status)
+          : statuses.get(scoped.rawId);
+    statuses.set(
+      scoped.rawId,
+      rawStatus,
+    );
+    labels.set(scoped.rawId, label);
+  }
 }
 
 function generationStatusTooltip(
@@ -347,37 +407,60 @@ function TreeItem({
 
 function buildDiagramNode(
   diagram: DiagramType,
-  model: ReturnType<typeof useWorkspaceSession>["models"][DiagramType],
+  model: ReturnType<typeof useWorkspaceSession>["models"][string] | undefined,
   stale: boolean,
   failed: boolean,
   status: Node["status"],
   statusTooltip: string | undefined,
-  openDiagram: (diagram: DiagramType) => void,
+  openDiagram: (diagram: DiagramType, modelId?: string, label?: string) => void,
+  openRequirementTraceMatrix: (
+    diagram: DiagramType,
+    modelId?: string,
+    label?: string,
+  ) => void,
   openDiagramElement: (
     diagram: DiagramType,
     elementKind: string,
     elementId: string,
     label: string,
+    modelId?: string,
   ) => void,
 ): Node {
+  const modelId = model ? getRequirementModelId(model) : diagram;
+  const label =
+    diagram === "analysis" && model
+      ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
+      : DIAGRAM_META[diagram].label;
   const detail = buildDiagramDetailModel(model);
-  const children: Node[] = detail.groups.map((group) => ({
-    key: `diagram-group:${diagram}:${group.kind}`,
-    label: SEMANTIC_KIND_META[group.kind].label,
-    selectable: false,
-    badge: group.items.length,
-    children: group.items.map((element) => ({
-      key: `diagram-element:${diagram}:${element.kind}:${element.id}`,
-      label: element.label,
-      icon: KIND_ICON[element.kind],
-      onSelect: () =>
-        openDiagramElement(diagram, element.kind, element.id, element.label),
+  const children: Node[] = [
+    ...(model
+      ? [
+          {
+            key: `requirements:trace-matrix:${modelId}`,
+            label: "跟踪矩阵",
+            icon: <Network className="size-3.5 text-muted-foreground" />,
+            onSelect: () => openRequirementTraceMatrix(diagram, modelId, label),
+          },
+        ]
+      : []),
+    ...detail.groups.map((group) => ({
+      key: `diagram-group:${modelId}:${group.kind}`,
+      label: SEMANTIC_KIND_META[group.kind].label,
+      selectable: false,
+      badge: group.items.length,
+      children: group.items.map((element) => ({
+        key: `diagram-element:${modelId}:${element.kind}:${element.id}`,
+        label: element.label,
+        icon: KIND_ICON[element.kind],
+        onSelect: () =>
+          openDiagramElement(diagram, element.kind, element.id, element.label, modelId),
+      })),
     })),
-  }));
+  ];
 
   return {
-    key: `diagram:${diagram}`,
-    label: DIAGRAM_META[diagram].label,
+    key: `diagram:${modelId}`,
+    label,
     icon: (
       <span className="relative inline-flex">
         <Network className="size-4 text-muted-foreground" />
@@ -399,7 +482,30 @@ function buildDiagramNode(
     badge: detail.items.length || undefined,
     status,
     statusTooltip,
-    onSelect: () => openDiagram(diagram),
+    onSelect: () => openDiagram(diagram, modelId, label),
+  };
+}
+
+function buildPendingRequirementDiagramNode(
+  diagram: DiagramType,
+  modelId: string,
+  label: string,
+  status: Node["status"],
+  statusTooltip: string | undefined,
+): Node {
+  return {
+    key: `diagram:${modelId}`,
+    label,
+    icon: <Network className="size-4 text-muted-foreground" />,
+    selectable: false,
+    status,
+    statusTooltip,
+    unavailableReason:
+      status === "failed"
+        ? "生成失败，请查看生成任务详情"
+        : status === "queued"
+          ? "生成排队中，完成后可查看"
+          : "正在生成图像，渲染完成后可查看",
   };
 }
 
@@ -411,6 +517,11 @@ function buildDesignDiagramNode(
   statusTooltip: string | undefined,
   viewable: boolean,
   openDesignDiagram: (
+    diagram: DesignDiagramType,
+    modelId?: string,
+    label?: string,
+  ) => void,
+  openDesignTraceMatrix: (
     diagram: DesignDiagramType,
     modelId?: string,
     label?: string,
@@ -430,24 +541,36 @@ function buildDesignDiagramNode(
       ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
       : DESIGN_DIAGRAM_META[diagram].label;
   const detail = buildDiagramDetailModel(model);
-  const children: Node[] = detail.groups.map((group) => ({
-    key: `design-diagram-group:${modelId}:${group.kind}`,
-    label: SEMANTIC_KIND_META[group.kind].label,
-    selectable: false,
-    children: group.items.map((element) => ({
-      key: `design-diagram-element:${modelId}:${element.kind}:${element.id}`,
-      label: element.label,
-      icon: KIND_ICON[element.kind],
-      onSelect: () =>
-        openDesignDiagramElement(
-          diagram,
-          element.kind,
-          element.id,
-          element.label,
-          modelId,
-        ),
+  const children: Node[] = [
+    ...(model
+      ? [
+          {
+            key: `design:trace-matrix:${modelId}`,
+            label: "跟踪矩阵",
+            icon: <Network className="size-3.5 text-muted-foreground" />,
+            onSelect: () => openDesignTraceMatrix(diagram, modelId, label),
+          },
+        ]
+      : []),
+    ...detail.groups.map((group) => ({
+      key: `design-diagram-group:${modelId}:${group.kind}`,
+      label: SEMANTIC_KIND_META[group.kind].label,
+      selectable: false,
+      children: group.items.map((element) => ({
+        key: `design-diagram-element:${modelId}:${element.kind}:${element.id}`,
+        label: element.label,
+        icon: KIND_ICON[element.kind],
+        onSelect: () =>
+          openDesignDiagramElement(
+            diagram,
+            element.kind,
+            element.id,
+            element.label,
+            modelId,
+          ),
+      })),
     })),
-  }));
+  ];
 
   return {
     key: `design-diagram:${modelId}`,
@@ -502,6 +625,16 @@ function sequenceUseCaseNodes(
   }));
 }
 
+function analysisUseCaseNodes(
+  useCaseModel: ReturnType<typeof useWorkspaceSession>["models"]["usecase"],
+) {
+  if (!useCaseModel || !("useCases" in useCaseModel)) return [];
+  return useCaseModel.useCases.map((useCase) => ({
+    id: `analysis:${useCase.id}`,
+    label: useCase.name,
+  }));
+}
+
 export function SidebarMenu() {
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
@@ -509,6 +642,7 @@ export function SidebarMenu() {
     models,
     staleDiagrams,
     diagramErrors,
+    svgArtifacts,
     generatedDesignDiagrams,
     designModels,
     designSvgArtifacts,
@@ -523,6 +657,7 @@ export function SidebarMenu() {
     openDiagram,
     openDesignHome,
     openDesignTraceMatrix,
+    openTestHome,
     openDesignDiagram,
     openDesignDiagramElement,
     openDiagramElement,
@@ -530,6 +665,16 @@ export function SidebarMenu() {
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
   const selectedKey = getSelectionKey(selection);
+  const requirementModelsByDiagram = (Object.keys(DIAGRAM_META) as DiagramType[]).reduce(
+    (acc, diagram) => {
+      acc[diagram] = Object.values(models).filter(
+        (model): model is NonNullable<typeof model> =>
+          Boolean(model) && model.diagramKind === diagram,
+      );
+      return acc;
+    },
+    {} as Record<DiagramType, Array<NonNullable<ReturnType<typeof useWorkspaceSession>["models"][string]>>>,
+  );
   const designModelsByDiagram = DESIGN_DIAGRAM_ORDER.reduce(
     (acc, diagram) => {
       acc[diagram] = Object.values(designModels).filter(
@@ -539,35 +684,47 @@ export function SidebarMenu() {
     },
     {} as Record<DesignDiagramType, Array<ReturnType<typeof useWorkspaceSession>["designModels"][string]>>,
   );
-  const requirementSubtaskStatus = new Map<DiagramType, Node["status"]>();
+  const requirementSubtaskStatus = new Map<string, Node["status"]>();
+  const requirementSubtaskLabels = new Map<string, string>();
+  const requirementRawStatusPriorities = new Map<string, number>();
   const designSubtaskStatus = new Map<string, Node["status"]>();
   const designSubtaskLabels = new Map<string, string>();
+  const designRawStatusPriorities = new Map<string, number>();
   for (const task of generationTasks.filter((item) =>
     item.status === "queued" || item.status === "running"
   )) {
     for (const subtask of task.subtasks) {
       const status = sidebarStatusFromSubtaskStatus(subtask.status);
-      if (task.kind === "requirements" && DIAGRAM_META[subtask.id as DiagramType]) {
-        const diagram = subtask.id as DiagramType;
-        requirementSubtaskStatus.set(
-          diagram,
-          mergeSidebarStatus(requirementSubtaskStatus.get(diagram), status),
+      if (task.kind === "requirements") {
+        setSubtaskStatus(
+          requirementSubtaskStatus,
+          requirementSubtaskLabels,
+          requirementRawStatusPriorities,
+          subtask.id,
+          subtask.label,
+          status,
         );
       }
       if (task.kind === "design") {
-        designSubtaskStatus.set(
+        setSubtaskStatus(
+          designSubtaskStatus,
+          designSubtaskLabels,
+          designRawStatusPriorities,
           subtask.id,
-          mergeSidebarStatus(designSubtaskStatus.get(subtask.id), status),
+          subtask.label,
+          status,
         );
-        designSubtaskLabels.set(subtask.id, subtask.label);
       }
     }
   }
   const requirementNodeDiagrams = (Object.keys(DIAGRAM_META) as DiagramType[]).filter(
     (diagram) =>
+      requirementModelsByDiagram[diagram].length > 0 ||
       generatedDiagrams.includes(diagram) ||
       requirementSubtaskStatus.has(diagram) ||
-      Boolean(diagramErrors[diagram]),
+      [...requirementSubtaskStatus.keys()].some((id) => id.startsWith(`${diagram}:`)) ||
+      Boolean(diagramErrors[diagram]) ||
+      Object.keys(diagramErrors).some((id) => id.startsWith(`${diagram}:`)),
   );
   const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter(
     (diagram) =>
@@ -579,11 +736,44 @@ export function SidebarMenu() {
           Object.keys(designDiagramErrors).some((id) => id.startsWith("sequence:")))),
   );
 
-  const requirementStatusFor = (diagram: DiagramType): Node["status"] => {
+  const requirementStatusFor = (diagram: DiagramType, modelId?: string): Node["status"] => {
+    if (modelId && diagramErrors[modelId]) return "failed";
     if (diagramErrors[diagram]) return "failed";
-    return requirementSubtaskStatus.get(diagram) ??
-      (generatedDiagrams.includes(diagram) ? "completed" : undefined);
+    return (
+      (modelId ? requirementSubtaskStatus.get(modelId) : undefined) ??
+      requirementSubtaskStatus.get(diagram) ??
+      (generatedDiagrams.includes(diagram) ? "completed" : undefined)
+    );
   };
+  const requirementModelViewable = (modelId: string) =>
+    Boolean(svgArtifacts[modelId]);
+  const analysisGenerationActive =
+    requirementSubtaskStatus.has("analysis") ||
+    [...requirementSubtaskStatus.keys()].some((id) => id.startsWith("analysis:"));
+  const expectedAnalysisNodes = analysisGenerationActive
+    ? analysisUseCaseNodes(models.usecase)
+    : [];
+  const analysisNodeIds = Array.from(
+    new Set([
+      ...expectedAnalysisNodes.map((node) => node.id),
+      ...requirementModelsByDiagram.analysis.map((model) => getRequirementModelId(model)),
+      ...[...requirementSubtaskStatus.keys()].filter((id) => id.startsWith("analysis:")),
+      ...Object.keys(diagramErrors).filter((id) => id.startsWith("analysis:")),
+    ]),
+  );
+  const analysisSubtaskNodes: DesignSubtaskNode[] = analysisNodeIds.map((id) => {
+    const model = models[id];
+    const expected = expectedAnalysisNodes.find((node) => node.id === id);
+    const rawLabel =
+      model && "sourceUseCaseName" in model
+        ? model.sourceUseCaseName ?? model.title
+        : requirementSubtaskLabels.get(id) ?? expected?.label ?? id.replace(/^analysis:/, "");
+    return {
+      id,
+      label: rawLabel.replace(/^需求分析模型[：:]\s*/u, ""),
+      status: requirementStatusFor("analysis", id),
+    };
+  });
   const designStatusFor = (diagram: DesignDiagramType, modelId?: string): Node["status"] => {
     if (modelId && designDiagramErrors[modelId]) return "failed";
     if (designDiagramErrors[diagram]) return "failed";
@@ -618,7 +808,7 @@ export function SidebarMenu() {
         : designSubtaskLabels.get(id) ?? expected?.label ?? id.replace(/^sequence:/, "");
     return {
       id,
-      label: rawLabel.replace(/^顺序图[：:]\s*/u, ""),
+      label: rawLabel.replace(/^(?:顺序图|用例实现设计)[：:]\s*/u, ""),
       status: designStatusFor("sequence", id),
     };
   });
@@ -649,26 +839,74 @@ export function SidebarMenu() {
       icon: <FileText className="size-4 text-muted-foreground" />,
       onSelect: openRequirementsText,
       children: [
-        {
-          key: "requirements:trace-matrix",
-          label: "需求跟踪矩阵",
-          icon: <Network className="size-4 text-muted-foreground" />,
-          onSelect: openRequirementTraceMatrix,
-        },
         ...requirementNodeDiagrams.map((diagram) => {
-          const status = requirementStatusFor(diagram);
+          if (
+            diagram === "analysis" &&
+            (analysisSubtaskNodes.length > 1 ||
+              (analysisGenerationActive && analysisSubtaskNodes.length > 0))
+          ) {
+            const groupStatus = analysisSubtaskNodes.reduce<Node["status"]>(
+              (current, model) =>
+                mergeSidebarStatus(current, model.status ?? null),
+              requirementStatusFor(diagram),
+            );
+            return {
+              key: "diagram-group:analysis",
+              label: `${DIAGRAM_META.analysis.label}（${analysisSubtaskNodes.length}）`,
+              icon: <MessageSquare className="size-4 text-muted-foreground" />,
+              selectable: false,
+              status: groupStatus,
+              statusTooltip: generationStatusTooltip(
+                DIAGRAM_META.analysis.label,
+                groupStatus,
+                analysisSubtaskNodes.some((node) => requirementModelViewable(node.id)),
+              ),
+              children: analysisSubtaskNodes.map((node) => {
+                const model = models[node.id];
+                const status = node.status;
+                if (!model) {
+                  return buildPendingRequirementDiagramNode(
+                    diagram,
+                    node.id,
+                    node.label,
+                    status,
+                    generationStatusTooltip(node.label, status, false),
+                  );
+                }
+                return buildDiagramNode(
+                  diagram,
+                  model,
+                  staleDiagrams.includes(diagram),
+                  Boolean(diagramErrors[node.id] ?? diagramErrors[diagram]),
+                  status,
+                  generationStatusTooltip(
+                    model.title,
+                    status,
+                    requirementModelViewable(node.id),
+                  ),
+                  openDiagram,
+                  openRequirementTraceMatrix,
+                  openDiagramElement,
+                );
+              }),
+            };
+          }
+          const model = requirementModelsByDiagram[diagram][0] ?? models[diagram];
+          const modelId = model ? getRequirementModelId(model) : undefined;
+          const status = requirementStatusFor(diagram, modelId);
           return buildDiagramNode(
             diagram,
-            models[diagram],
+            model,
             staleDiagrams.includes(diagram),
-            Boolean(diagramErrors[diagram]),
+            Boolean((modelId ? diagramErrors[modelId] : undefined) ?? diagramErrors[diagram]),
             status,
             generationStatusTooltip(
               DIAGRAM_META[diagram].label,
               status,
-              Boolean(models[diagram]),
+              modelId ? requirementModelViewable(modelId) : Boolean(model),
             ),
             openDiagram,
+            openRequirementTraceMatrix,
             openDiagramElement,
           );
         }),
@@ -680,12 +918,6 @@ export function SidebarMenu() {
       icon: <Palette className="size-4 text-muted-foreground" />,
       onSelect: openDesignHome,
       children: [
-        {
-          key: "design:trace-matrix",
-          label: "设计跟踪矩阵",
-          icon: <Network className="size-4 text-muted-foreground" />,
-          onSelect: openDesignTraceMatrix,
-        },
         ...orderedDesignDiagrams.map((diagram) => {
           const diagramModels = designModelsByDiagram[diagram];
           if (
@@ -709,7 +941,7 @@ export function SidebarMenu() {
               status: groupStatus,
               statusTooltip:
                 generationStatusTooltip(
-                  "顺序图",
+                  DESIGN_DIAGRAM_META.sequence.label,
                   groupStatus,
                   sequenceSubtaskNodes.some((node) => designModelViewable(node.id)),
                 ),
@@ -738,6 +970,7 @@ export function SidebarMenu() {
                     ),
                     designModelViewable(node.id),
                     openDesignDiagram,
+                    openDesignTraceMatrix,
                     openDesignDiagramElement,
                   );
                 }
@@ -761,10 +994,17 @@ export function SidebarMenu() {
             ),
             model ? designModelViewable(getDesignModelId(model)) : false,
             openDesignDiagram,
+            openDesignTraceMatrix,
             openDesignDiagramElement,
           );
         }),
       ],
+    },
+    {
+      key: "test",
+      label: "测试",
+      icon: <ClipboardCheck className="size-4 text-muted-foreground" />,
+      onSelect: openTestHome,
     },
     {
       key: "workspace:code",

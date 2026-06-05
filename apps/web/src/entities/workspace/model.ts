@@ -54,12 +54,15 @@ export interface WorkspaceRecord {
   requirementBaseline: RequirementBaseline | null;
   requirementQualityReport: RequirementQualityReport | null;
   requirementReviewCandidates: Record<string, RequirementReviewCandidate>;
-  models: Partial<Record<DiagramType, DiagramModelSpec>>;
+  models: Partial<Record<DiagramType, DiagramModelSpec>> &
+    Record<string, DiagramModelSpec | undefined>;
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
   generatedDiagramTypes: DiagramType[];
-  plantUml: Partial<Record<DiagramType, string>>;
-  svgArtifacts: Partial<Record<DiagramType, SvgArtifact>>;
-  diagramErrors: Partial<Record<DiagramType, DiagramError>>;
+  plantUml: Partial<Record<DiagramType, string>> & Record<string, string | undefined>;
+  svgArtifacts: Partial<Record<DiagramType, SvgArtifact>> &
+    Record<string, SvgArtifact | undefined>;
+  diagramErrors: Partial<Record<DiagramType, DiagramError>> &
+    Record<string, DiagramError | undefined>;
   selectedDesignDiagramTypes: DesignDiagramType[];
   designModels: Record<string, DesignDiagramModelSpec>;
   designModelTraceability: DesignModelTraceabilityEntry[];

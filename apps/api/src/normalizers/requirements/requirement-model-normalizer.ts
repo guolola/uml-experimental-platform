@@ -1,7 +1,6 @@
 // Normalizes requirement LLM diagram models before validating the public contract.
 import {
   diagramModelsResultSchema,
-  requirementModelTraceabilityEntrySchema,
   type DiagramModelSpec,
   type RequirementRule,
 } from "@uml-platform/contracts";
@@ -14,8 +13,10 @@ import {
 import {
   formatTraceabilityMissingRefs,
   normalizeRequirementTraceabilityWithCoverage,
+  sanitizeTraceabilityEntries,
 } from "../traceability/traceability-normalizer.js";
 import { dedupeActivityModel } from "../diagrams/activity-dedupe.js";
+import { normalizeLongDiagramTextField } from "../diagrams/relationship-labels.js";
 
 function isRequirementServiceClass(classItem: Record<string, unknown>) {
   const classKind = typeof classItem.classKind === "string" ? classItem.classKind.toLowerCase() : "";
@@ -44,6 +45,9 @@ function normalizeRequirementModelElementMaps(model: Record<string, unknown>) {
     "components",
     "externalSystems",
     "artifacts",
+    "participants",
+    "messages",
+    "fragments",
   ]) {
     candidates.push(...ensureArray(model[key]));
   }
@@ -63,6 +67,84 @@ function normalizeRequirementModelElementMaps(model: Record<string, unknown>) {
   return { byName, byId };
 }
 
+function omitNullValues(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitNullValues);
+  }
+  if (!isPlainRecord(value)) return value;
+
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === null) continue;
+    next[key] = omitNullValues(item);
+  }
+  return next;
+}
+
+function normalizeSequenceMessageType(value: unknown) {
+  if (value === "async" || value === "return" || value === "create" || value === "destroy") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    if (lower.includes("return") || lower.includes("response") || lower.includes("reply")) {
+      return "return";
+    }
+    if (lower.includes("async") || lower.includes("event") || lower.includes("message")) {
+      return "async";
+    }
+    if (lower.includes("create")) return "create";
+    if (lower.includes("destroy") || lower.includes("delete")) return "destroy";
+  }
+  return "sync";
+}
+
+function normalizeSequenceFragment(fragment: Record<string, unknown>) {
+  const branches = ensureArray(fragment.branches)
+    .map((branch) => {
+      if (!isPlainRecord(branch)) return null;
+      return {
+        ...branch,
+        messageIds: normalizeStringArray(branch.messageIds),
+      };
+    })
+    .filter(Boolean);
+  const branchMessageIds = branches.flatMap((branch) =>
+    isPlainRecord(branch) ? normalizeStringArray(branch.messageIds) : [],
+  );
+  const messageIds = normalizeStringArray(fragment.messageIds);
+  const next: Record<string, unknown> = {
+    ...fragment,
+    messageIds: messageIds.length > 0 ? messageIds : branchMessageIds,
+  };
+  if (branches.length > 0) {
+    next.branches = branches;
+  } else {
+    delete next.branches;
+  }
+  return next;
+}
+
+function normalizeEventFlows(value: unknown) {
+  return ensureArray(value).map((flow) => {
+    if (!isPlainRecord(flow)) return flow;
+    return {
+      ...flow,
+      steps: ensureArray(flow.steps).map((step, index) =>
+        isPlainRecord(step)
+          ? {
+              ...step,
+              order:
+                typeof step.order === "number" && Number.isFinite(step.order)
+                  ? step.order
+                  : index + 1,
+            }
+          : step,
+      ),
+    };
+  });
+}
+
 function resolveRequirementEndpoint(
   value: unknown,
   maps: ReturnType<typeof normalizeRequirementModelElementMaps>,
@@ -78,6 +160,7 @@ function resolveRequirementEndpoint(
 function normalizeRequirementRelationship(
   relationship: unknown,
   maps: ReturnType<typeof normalizeRequirementModelElementMaps>,
+  diagramKind: unknown,
 ) {
   if (!isPlainRecord(relationship)) return null;
   const normalized: Record<string, unknown> = { ...relationship };
@@ -111,15 +194,59 @@ function normalizeRequirementRelationship(
   if ("port" in normalized && normalized.port !== undefined && normalized.port !== null) {
     normalized.port = String(normalized.port);
   }
+  normalizeRelationshipDisplayFields(normalized, diagramKind);
   return normalized;
+}
+
+function normalizeRelationshipDisplayFields(
+  relationship: Record<string, unknown>,
+  diagramKind: unknown,
+) {
+  if (diagramKind === "activity") {
+    normalizeLongDiagramTextField(relationship, "condition", 14);
+    normalizeLongDiagramTextField(relationship, "guard", 14);
+    normalizeLongDiagramTextField(relationship, "trigger", 14);
+    return relationship;
+  }
+  normalizeLongDiagramTextField(relationship, "label", diagramKind === "deployment" ? 16 : 18);
+  return relationship;
+}
+
+function normalizeSequenceDisplayFields(record: Record<string, unknown>) {
+  record.messages = ensureArray(record.messages).map((message) => {
+    if (!isPlainRecord(message)) return message;
+    const next = { ...message };
+    normalizeLongDiagramTextField(next, "name", 20);
+    normalizeLongDiagramTextField(next, "condition", 14);
+    return next;
+  });
+  record.fragments = ensureArray(record.fragments).map((fragment) => {
+    if (!isPlainRecord(fragment)) return fragment;
+    const next = { ...fragment };
+    normalizeLongDiagramTextField(next, "label", 16);
+    normalizeLongDiagramTextField(next, "condition", 14);
+    if (Array.isArray(next.branches)) {
+      next.branches = next.branches.map((branch) => {
+        if (!isPlainRecord(branch)) return branch;
+        const nextBranch = { ...branch };
+        normalizeLongDiagramTextField(nextBranch, "label", 14);
+        normalizeLongDiagramTextField(nextBranch, "condition", 14);
+        return nextBranch;
+      });
+    }
+    return next;
+  });
+  return record;
 }
 
 function normalizeRequirementDiagramModel(model: unknown) {
   if (!isPlainRecord(model)) return model;
-  const diagramKind = model.diagramKind;
+  const cleaned = omitNullValues(model);
+  if (!isPlainRecord(cleaned)) return cleaned;
+  const diagramKind = cleaned.diagramKind;
   const normalized: Record<string, unknown> = {
-    ...model,
-    notes: normalizeStringArray(model.notes),
+    ...cleaned,
+    notes: normalizeStringArray(cleaned.notes),
   };
 
   if (diagramKind === "usecase") {
@@ -135,6 +262,7 @@ function normalizeRequirementDiagramModel(model: unknown) {
             preconditions: normalizeStringArray(useCase.preconditions),
             postconditions: normalizeStringArray(useCase.postconditions),
             supportingActorIds: normalizeStringArray(useCase.supportingActorIds),
+            eventFlows: normalizeEventFlows(useCase.eventFlows),
           }
         : useCase,
     );
@@ -150,7 +278,15 @@ function normalizeRequirementDiagramModel(model: unknown) {
         }
         const nextClass: Record<string, unknown> = {
           ...classItem,
-          attributes: ensureArray(classItem.attributes),
+          constraints: normalizeStringArray(classItem.constraints),
+          attributes: ensureArray(classItem.attributes).map((attribute) =>
+            isPlainRecord(attribute)
+              ? {
+                  ...attribute,
+                  constraints: normalizeStringArray(attribute.constraints),
+                }
+              : attribute,
+          ),
           operations: [],
           stereotypes: normalizeStringArray(classItem.stereotypes),
         };
@@ -163,7 +299,11 @@ function normalizeRequirementDiagramModel(model: unknown) {
       .filter(Boolean);
     normalized.interfaces = ensureArray(normalized.interfaces).map((interfaceItem) =>
       isPlainRecord(interfaceItem)
-        ? { ...interfaceItem, operations: [] }
+        ? {
+            ...interfaceItem,
+            constraints: normalizeStringArray(interfaceItem.constraints),
+            operations: [],
+          }
         : interfaceItem,
     );
     normalized.enums = ensureArray(normalized.enums).map((enumItem) =>
@@ -200,11 +340,57 @@ function normalizeRequirementDiagramModel(model: unknown) {
     normalized.components = ensureArray(normalized.components);
     normalized.externalSystems = ensureArray(normalized.externalSystems);
     normalized.artifacts = ensureArray(normalized.artifacts);
+    normalized.relationships = ensureArray(normalized.relationships);
+  } else if (diagramKind === "prototype") {
+    normalized.nodes = ensureArray(normalized.nodes).map((node) =>
+      isPlainRecord(node)
+        ? {
+            ...node,
+            sourceUseCaseIds: normalizeStringArray(node.sourceUseCaseIds),
+            sourceRequirementIds: normalizeStringArray(node.sourceRequirementIds),
+          }
+        : node,
+    );
+    normalized.relationships = ensureArray(normalized.relationships);
+  } else if (diagramKind === "analysis") {
+    const sourceUseCaseId =
+      typeof normalized.sourceUseCaseId === "string"
+        ? normalized.sourceUseCaseId.trim()
+        : "";
+    const sourceUseCaseName =
+      typeof normalized.sourceUseCaseName === "string"
+        ? normalized.sourceUseCaseName.trim()
+        : "";
+    if (sourceUseCaseId && typeof normalized.modelId !== "string") {
+      normalized.modelId = `analysis:${sourceUseCaseId}`;
+    }
+    if (typeof normalized.title !== "string" || !normalized.title.trim()) {
+      normalized.title = sourceUseCaseName
+        ? `${sourceUseCaseName}需求分析模型`
+        : `${sourceUseCaseId || "需求"}分析模型`;
+    }
+    if (typeof normalized.summary !== "string" || !normalized.summary.trim()) {
+      normalized.summary = `${sourceUseCaseName || sourceUseCaseId || "该用例"}的需求阶段交互分析。`;
+    }
+    normalized.participants = ensureArray(normalized.participants);
+    normalized.messages = ensureArray(normalized.messages).map((message) =>
+      isPlainRecord(message)
+        ? {
+            ...message,
+            type: normalizeSequenceMessageType(message.type),
+            parameters: normalizeStringArray(message.parameters),
+          }
+        : message,
+    );
+    normalized.fragments = ensureArray(normalized.fragments).map((fragment) =>
+      isPlainRecord(fragment) ? normalizeSequenceFragment(fragment) : fragment,
+    );
+    normalizeSequenceDisplayFields(normalized);
   }
 
   const maps = normalizeRequirementModelElementMaps(normalized);
   normalized.relationships = ensureArray(normalized.relationships)
-    .map((relationship) => normalizeRequirementRelationship(relationship, maps))
+    .map((relationship) => normalizeRequirementRelationship(relationship, maps, diagramKind))
     .filter(Boolean);
 
   return diagramKind === "activity" ? dedupeActivityModel(normalized) : normalized;
@@ -251,12 +437,13 @@ function assertCompleteRequirementTraceability(
 }
 
 function parseRequirementDiagramModelsOnlyFromParsed(parsed: unknown) {
-  const normalized = isPlainRecord(parsed)
+  const cleaned = omitNullValues(parsed);
+  const normalized = isPlainRecord(cleaned)
     ? {
-        ...parsed,
-        models: ensureArray(parsed.models).map(normalizeRequirementDiagramModel),
+        ...cleaned,
+        models: ensureArray(cleaned.models).map(normalizeRequirementDiagramModel),
       }
-    : parsed;
+    : cleaned;
   const result = diagramModelsResultSchema
     .omit({ requirementModelTraceability: true })
     .parse(normalized);
@@ -292,11 +479,9 @@ export function parseRequirementTraceabilityCoverageResult(
   rules: RequirementRule[],
   models: DiagramModelSpec[],
 ) {
-  const parsed = parseJson<unknown>(value);
+  const parsed = omitNullValues(parseJson<unknown>(value));
   const rawTraceability = isPlainRecord(parsed)
-    ? requirementModelTraceabilityEntrySchema
-        .array()
-        .parse(ensureArray(parsed.requirementModelTraceability))
+    ? sanitizeTraceabilityEntries(parsed.requirementModelTraceability)
     : [];
   return normalizeRequirementTraceabilityWithCoverage(rawTraceability, rules, models);
 }

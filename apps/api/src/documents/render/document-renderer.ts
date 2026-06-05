@@ -320,7 +320,10 @@ export async function renderDocumentBuffer(
         });
         bodyChildren.push(createPngImageParagraph(rendered.png, section.title));
         bodyChildren.push(
-          createFigureCaption(`图 ${documentDiagramLabel(section.diagramKind)}`, style),
+          createFigureCaption(
+            `图 ${documentDiagramLabel(section.diagramKind, section.title)}`,
+            style,
+          ),
         );
       } catch (error) {
         missingArtifacts.push(

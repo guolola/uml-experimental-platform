@@ -54,10 +54,18 @@ import {
   adminQuotaCreateRequestSchema,
   providerConfigListResponseSchema,
   providerConfigTestRequestSchema,
+  systemNoticeCreateRequestSchema,
+  systemNoticeListResponseSchema,
+  systemNoticeReadRequestSchema,
+  systemNoticeUpdateRequestSchema,
   authLoginRequestSchema,
   authRegisterRequestSchema,
   authSessionResponseSchema,
+  billingOrderStatusDtoSchema,
+  billingSkuDtoSchema,
+  createPaymentOrderRequestSchema,
   adminUserDtoSchema,
+  paymentChannelSchema,
   projectCreateRequestSchema,
   projectDtoSchema,
   projectUpdateRequestSchema,
@@ -72,6 +80,51 @@ import {
   startRunRequestSchema,
   userDtoSchema,
 } from "./index.js";
+
+test("contracts describe system notice content and admin permissions", () => {
+  const created = systemNoticeCreateRequestSchema.parse({
+    title: "MiniMax M3 模型上线",
+    type: "model_update",
+    icon: "",
+    status: "published",
+    publishedAt: "2026-06-01T09:00:00.000Z",
+    contentBlocks: [
+      { kind: "paragraph", text: "模型已经可用于生成任务。" },
+      { kind: "list_item", text: "请在模型设置中选择新模型。" },
+    ],
+  });
+  assert.equal(created.icon, null);
+  assert.equal(created.contentBlocks[1].kind, "list_item");
+
+  const list = systemNoticeListResponseSchema.parse({
+    generatedAt: "2026-06-05T00:00:00.000Z",
+    unreadCount: 1,
+    notices: [
+      {
+        id: "notice-1",
+        title: created.title,
+        type: created.type,
+        icon: null,
+        contentBlocks: created.contentBlocks,
+        status: "published",
+        publishedAt: created.publishedAt,
+        createdAt: "2026-06-01T09:00:00.000Z",
+        updatedAt: "2026-06-01T09:00:00.000Z",
+        unread: true,
+      },
+    ],
+  });
+  assert.equal(list.notices[0].unread, true);
+
+  assert.throws(() =>
+    systemNoticeUpdateRequestSchema.parse({
+      contentBlocks: [{ kind: "html", text: "<script>alert(1)</script>" }],
+    }),
+  );
+  assert.deepEqual(systemNoticeReadRequestSchema.parse({}), {});
+  assert.ok(adminRolePermissions.super_admin.includes("admin.system_notices.write"));
+  assert.ok(adminRolePermissions.system_operator.includes("admin.system_notices.read"));
+});
 
 test("contracts describe structured model rerender requests", () => {
   const request = renderStructuredModelRequestSchema.parse({
@@ -126,6 +179,79 @@ test("contracts describe structured model rerender requests", () => {
   });
 
   assert.match(response.plantUmlSource, /@startuml/);
+});
+
+test("contracts describe billing SKUs and payment order boundaries", () => {
+  const sku = billingSkuDtoSchema.parse({
+    code: "time_month",
+    name: "月卡",
+    kind: "time_pass",
+    description: "30 天通行卡",
+    durationDays: 30,
+    creditAmount: null,
+    amountCents: 9900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 30,
+  });
+  assert.equal(sku.amountCents, 9900);
+  assert.equal(paymentChannelSchema.parse("wechat_native"), "wechat_native");
+
+  const request = createPaymentOrderRequestSchema.parse({
+    skuCode: "credits_100",
+    channel: "alipay_page",
+    returnUrl: "https://example.com/account/billing",
+  });
+  assert.equal(request.skuCode, "credits_100");
+
+  assert.throws(() =>
+    createPaymentOrderRequestSchema.parse({
+      skuCode: "credits_100",
+      channel: "bank_transfer",
+    }),
+  );
+  assert.throws(() =>
+    createPaymentOrderRequestSchema.parse({
+      skuCode: "credits_100",
+      channel: "wechat_native",
+      amountCents: 1,
+    }),
+  );
+});
+
+test("contracts enumerate user-visible billing order statuses", () => {
+  for (const status of [
+    "pending",
+    "paid",
+    "expired",
+    "failed",
+    "refunded",
+  ]) {
+    const parsed = billingOrderStatusDtoSchema.parse({
+      orderId: `order-${status}`,
+      merchantOrderNo: `UML${status}`,
+      sku: {
+        code: "credits_10",
+        name: "10 次包",
+        kind: "credit_pack",
+        description: "10 次 AI 生成次数",
+        durationDays: null,
+        creditAmount: 10,
+        amountCents: 990,
+        currency: "CNY",
+        active: true,
+        sortOrder: 110,
+      },
+      amountCents: 990,
+      currency: "CNY",
+      channel: "wechat_native",
+      status,
+      createdAt: "2026-06-05T00:00:00.000Z",
+      expiresAt: "2026-06-05T00:15:00.000Z",
+      paidAt: status === "paid" ? "2026-06-05T00:02:00.000Z" : null,
+    });
+    assert.equal(parsed.status, status);
+  }
 });
 
 test("contracts describe source-attributed requirement baselines", () => {
@@ -932,16 +1058,42 @@ test("contracts validate representative stage payloads", () => {
 });
 
 test("contracts accept existing design context for incremental design runs", () => {
-  const parsed = startDesignRunRequestSchema.parse({
-    requirementText: "图书馆管理系统",
-    rules: [
+  const requirementBaseline = requirementBaselineSchema.parse({
+    runId: "run-baseline",
+    sourceDocumentId: "inline-requirement",
+    createdAt: "2026-06-05T00:00:00.000Z",
+    requirements: [
       {
-        id: "r1",
-        category: "功能需求",
-        text: "管理员可以借书和还书。",
-        relatedDiagrams: ["usecase"],
+        id: "REQ-001",
+        sourceRuleId: "r1",
+        sourceFragment: "管理员可以借书和还书。",
+        type: "functional",
+        actor: "管理员",
+        subject: "管理员",
+        action: "借书和还书",
+        object: "图书",
+        condition: null,
+        outcome: "完成借还书登记",
+        confidence: 0.9,
+        status: "accepted",
+        criticality: "high",
+        acceptanceCriteria: ["管理员完成借还书登记。"],
+        fieldProvenance: {},
       },
     ],
+    assumptions: [],
+    conflicts: [],
+    qualityReport: {
+      runId: "run-baseline",
+      status: "passed",
+      summary: "需求基线已确认。",
+      issues: [],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: [],
+    },
+  });
+  const parsed = startDesignRunRequestSchema.parse({
+    requirementBaseline,
     requirementModels: [
       {
         diagramKind: "usecase",
@@ -1048,15 +1200,58 @@ test("contracts accept existing design context for incremental design runs", () 
 
   assert.equal(parsed.selectedDiagrams[0], "table");
   assert.equal(parsed.requestedDiagrams?.[0], "table");
+  assert.equal(parsed.requirementBaseline.requirements[0]?.id, "REQ-001");
   assert.equal(parsed.existingDesignModels?.[0]?.diagramKind, "sequence");
+  assert.throws(
+    () =>
+      startDesignRunRequestSchema.parse({
+        ...parsed,
+        requirementText: "图书馆管理系统",
+        rules: [],
+      }),
+    /Unrecognized key/,
+  );
 });
 
 test("start run contracts accept optional project context", () => {
   const baseProviderSettings = {
-    apiBaseUrl: "https://ai.comfly.org",
-    apiKey: "sk-test",
+    providerConfigId: "provider-config-1",
     model: "gpt-5.5",
   };
+  const requirementBaseline = requirementBaselineSchema.parse({
+    runId: "run-project",
+    sourceDocumentId: "inline-requirement",
+    createdAt: "2026-06-05T00:00:00.000Z",
+    requirements: [
+      {
+        id: "REQ-001",
+        sourceRuleId: "r1",
+        sourceFragment: "生成设计模型",
+        type: "functional",
+        actor: "用户",
+        subject: "用户",
+        action: "生成",
+        object: "设计模型",
+        condition: null,
+        outcome: "形成设计模型",
+        confidence: 0.9,
+        status: "accepted",
+        criticality: "high",
+        acceptanceCriteria: ["用户可以生成设计模型。"],
+        fieldProvenance: {},
+      },
+    ],
+    assumptions: [],
+    conflicts: [],
+    qualityReport: {
+      runId: "run-project",
+      status: "passed",
+      summary: "需求基线已确认。",
+      issues: [],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: [],
+    },
+  });
   assert.equal(
     startRunRequestSchema.parse({
       projectId: "project-a",
@@ -1069,15 +1264,7 @@ test("start run contracts accept optional project context", () => {
   assert.equal(
     startDesignRunRequestSchema.parse({
       projectId: "project-a",
-      requirementText: "项目需求",
-      rules: [
-        {
-          id: "r1",
-          category: "功能需求",
-          text: "生成设计模型",
-          relatedDiagrams: ["usecase"],
-        },
-      ],
+      requirementBaseline,
       requirementModels: [
         {
           diagramKind: "usecase",
@@ -1981,8 +2168,7 @@ test("contracts accept optional document export style settings", () => {
     documentKind: "requirementsSpec",
     requirementText: "生成需求说明书。",
     providerSettings: {
-      apiBaseUrl: "https://ai.comfly.org",
-      apiKey: "sk-test",
+      providerConfigId: "provider-config-1",
       model: "gpt-5.5",
     },
     documentStyle: style,

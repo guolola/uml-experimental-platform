@@ -146,6 +146,27 @@ node "K8s 集群" {
 [Nginx] --> [App] : HTTP
 [App] --> DB
 @enduml`,
+  prototype: `@startuml
+left to right direction
+interface "首页入口" as home_entry
+package "用户模块" as user_module
+component "登录页" as login_screen
+component "订单页" as order_screen
+home_entry --> login_screen : 打开
+login_screen --> order_screen : 登录成功
+user_module *--> login_screen
+user_module *--> order_screen
+@enduml`,
+  analysis: `@startuml
+autonumber
+actor "用户" as user
+boundary "界面" as ui
+control "系统" as system
+user -> ui: 提交请求()
+ui -> system: 校验并处理()
+system --> ui: 返回结果
+ui --> user: 展示反馈
+@enduml`,
 };
 
 export function getMockPlantUmlTemplate(type: DiagramType) {

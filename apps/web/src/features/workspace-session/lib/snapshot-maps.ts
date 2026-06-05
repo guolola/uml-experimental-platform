@@ -5,18 +5,23 @@ import type {
   WorkspaceDesignRunSnapshot,
   WorkspaceRunSnapshot,
 } from "../../../entities/workspace/model";
-import { getDesignArtifactId, getDesignModelId } from "../../../entities/diagram/model";
+import {
+  getDesignArtifactId,
+  getDesignModelId,
+  getRequirementArtifactId,
+  getRequirementModelId,
+} from "../../../entities/diagram/model";
 
 export function snapshotToMaps(snapshot: WorkspaceRunSnapshot) {
   return {
     models: Object.fromEntries(
-      snapshot.models.map((model) => [model.diagramKind, model]),
+      snapshot.models.map((model) => [getRequirementModelId(model), model]),
     ) as WorkspaceRecord["models"],
     plantUml: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [artifact.diagramKind, artifact.source]),
+      snapshot.plantUml.map((artifact) => [getRequirementArtifactId(artifact), artifact.source]),
     ) as WorkspaceRecord["plantUml"],
     svgArtifacts: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [artifact.diagramKind, artifact]),
+      snapshot.svgArtifacts.map((artifact) => [getRequirementArtifactId(artifact), artifact]),
     ) as WorkspaceRecord["svgArtifacts"],
   };
 }

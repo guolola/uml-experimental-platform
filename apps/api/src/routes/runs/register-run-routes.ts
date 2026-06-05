@@ -77,10 +77,15 @@ import type {
 } from "../../provider-configs/provider-usage-tracker.js";
 import { resolveProviderRateLimitPolicy } from "../../provider-configs/provider-usage-tracker.js";
 import type { GenerationUsageService } from "../../generation/generation-usage.js";
+import type { BillingService } from "../../billing/billing-service.js";
 import { RUN_ROUTE_CONFIG } from "./run-route-config.js";
 import { parseJson } from "../../normalizers/json/parse-json.js";
 import { rebuildRequirementBaselineQualityReport } from "../../runs/baselines/requirement-baseline.js";
 import { collectTextResult } from "../../runs/pipelines/shared/structured-output.js";
+import {
+  getRepairRequirementRuleResponseFormat,
+  getRepairRequirementRulesResponseFormat,
+} from "../../adapters/llm/response-formats/index.js";
 
 type RequirementPipeline = (
   record: RunRecord,
@@ -278,7 +283,6 @@ async function resolveProviderSettingsForRun({
   metadata,
   providerConfigs,
   resolveProjectDefaultProviderConfig,
-  allowLegacyProjectProviderSettings,
   request,
   reply,
 }: {
@@ -286,7 +290,6 @@ async function resolveProviderSettingsForRun({
   metadata: RunRecordMetadata | undefined;
   providerConfigs?: ProviderConfigStore;
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
-  allowLegacyProjectProviderSettings: boolean;
   request: FastifyRequest;
   reply: FastifyReply;
 }): Promise<ProviderSettings | null> {
@@ -355,12 +358,8 @@ async function resolveProviderSettingsForRun({
     };
   }
 
-  if (!allowLegacyProjectProviderSettings) {
-    reply.code(400);
-    return null;
-  }
-
-  return providerSettings;
+  reply.code(400);
+  return null;
 }
 
 function providerConfigIdFromSettings(providerSettings: ProviderSettingsInput | undefined) {
@@ -719,6 +718,35 @@ function readableFieldText(value: unknown): string | null | undefined {
   return null;
 }
 
+async function reserveBillingRunUsage({
+  billingEntitlements,
+  metadata,
+  runId,
+  taskType,
+  reply,
+}: {
+  billingEntitlements?: Pick<BillingService, "reserveRunUsage">;
+  metadata?: RunRecordMetadata;
+  runId: string;
+  taskType: ProviderTaskType;
+  reply: FastifyReply;
+}) {
+  if (!billingEntitlements) return true;
+  if (!metadata?.userId) {
+    reply.code(401);
+    return { message: "Authentication required" };
+  }
+  const decision = await billingEntitlements.reserveRunUsage({
+    runId,
+    userId: metadata.userId,
+    projectId: metadata.projectId,
+    taskType,
+  });
+  if (decision.allowed) return true;
+  reply.code(decision.statusCode);
+  return decision.error;
+}
+
 function readableConfidence(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value >= 0 && value <= 1 ? value : undefined;
@@ -751,6 +779,10 @@ function normalizeRequirementRepairSuggestionOutput(raw: unknown) {
     const fields = { ...raw.fields };
     for (const field of REPAIRABLE_REQUIREMENT_FIELDS) {
       const entry = fields[field];
+      if (entry === null) {
+        delete fields[field];
+        continue;
+      }
       if (!isPlainRecord(entry)) continue;
       fields[field] = {
         ...entry,
@@ -760,6 +792,8 @@ function normalizeRequirementRepairSuggestionOutput(raw: unknown) {
     }
     normalized.fields = fields;
   }
+  if (raw.status === null) delete normalized.status;
+  if (raw.rationale === null) delete normalized.rationale;
   return normalized;
 }
 
@@ -1069,11 +1103,9 @@ export function registerRunRoutes({
   resolveProjectDefaultProviderConfig,
   providerUsageTracker,
   generationUsage,
+  billingEntitlements,
   providerRateLimitPolicy = resolveProviderRateLimitPolicy(),
   llmScheduler,
-  allowLegacyProjectProviderSettings =
-    process.env.NODE_ENV !== "production" &&
-    process.env.UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS === "true",
 }: {
   app: FastifyInstance;
   runs: RunRecordStore;
@@ -1096,9 +1128,12 @@ export function registerRunRoutes({
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   providerUsageTracker?: ProviderUsageTracker;
   generationUsage?: GenerationUsageService;
+  billingEntitlements?: Pick<
+    BillingService,
+    "reserveRunUsage" | "confirmRunUsage" | "releaseRunUsage"
+  >;
   providerRateLimitPolicy?: ProviderRateLimitPolicy;
   llmScheduler?: LlmScheduler;
-  allowLegacyProjectProviderSettings?: boolean;
 }) {
   const startRecordPipeline = ({
     record,
@@ -1126,6 +1161,7 @@ export function registerRunRoutes({
       runDocumentStagePipeline,
       addCodeDiagnostic,
       documentInput,
+      billingEntitlements,
     });
   };
 
@@ -1143,14 +1179,12 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
-        message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+        message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
@@ -1172,7 +1206,7 @@ export function registerRunRoutes({
         providerSettings,
         buildRequirementRuleRepairMessages(input),
         () => undefined,
-        { type: "json_object" },
+        getRepairRequirementRuleResponseFormat(providerSettings.model),
       );
       const result = applyRequirementRepairSuggestion(input, rawOutput);
       await recordProviderUsage({
@@ -1209,14 +1243,13 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
         message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+          "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
@@ -1238,7 +1271,7 @@ export function registerRunRoutes({
         providerSettings,
         buildRequirementRulesRepairMessages(input),
         () => undefined,
-        { type: "json_object" },
+        getRepairRequirementRulesResponseFormat(providerSettings.model),
       );
       const result = applyBatchRequirementRepairSuggestions(input, rawOutput);
       await recordProviderUsage({
@@ -1275,14 +1308,12 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
-        message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+        message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
@@ -1303,6 +1334,15 @@ export function registerRunRoutes({
       reply,
     });
     if (limitCheck !== true) return limitCheck;
+    const runId = randomUUID();
+    const billingCheck = await reserveBillingRunUsage({
+      billingEntitlements,
+      metadata,
+      runId,
+      taskType: "requirements_to_uml",
+      reply,
+    });
+    if (billingCheck !== true) return billingCheck;
     await recordProviderUsage({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1317,13 +1357,16 @@ export function registerRunRoutes({
       taskType: "requirements_to_uml",
       providerConfigId,
     });
-    const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptySnapshot(
         runId,
         input.requirementText,
         input.selectedDiagrams,
         input.rules,
+        {
+          models: input.contextModels,
+          requirementModelTraceability: input.contextRequirementModelTraceability,
+        },
       ),
       events: [],
       listeners: new Set(),
@@ -1365,14 +1408,12 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
-        message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+        message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
@@ -1393,6 +1434,15 @@ export function registerRunRoutes({
       reply,
     });
     if (limitCheck !== true) return limitCheck;
+    const runId = randomUUID();
+    const billingCheck = await reserveBillingRunUsage({
+      billingEntitlements,
+      metadata,
+      runId,
+      taskType: "design_modeling",
+      reply,
+    });
+    if (billingCheck !== true) return billingCheck;
     await recordProviderUsage({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1407,7 +1457,6 @@ export function registerRunRoutes({
       taskType: "design_modeling",
       providerConfigId,
     });
-    const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptyDesignSnapshot(runId, input),
       events: [],
@@ -1449,14 +1498,12 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
-        message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+        message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
@@ -1477,6 +1524,15 @@ export function registerRunRoutes({
       reply,
     });
     if (limitCheck !== true) return limitCheck;
+    const runId = randomUUID();
+    const billingCheck = await reserveBillingRunUsage({
+      billingEntitlements,
+      metadata,
+      runId,
+      taskType: "code_generation",
+      reply,
+    });
+    if (billingCheck !== true) return billingCheck;
     await recordProviderUsage({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1491,7 +1547,6 @@ export function registerRunRoutes({
       taskType: "code_generation",
       providerConfigId,
     });
-    const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptyCodeSnapshot(runId, input),
       events: [],
@@ -1537,14 +1592,12 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
-        message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+        message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
@@ -1580,6 +1633,15 @@ export function registerRunRoutes({
       reply.code(400);
       return { message: "请先在设计页生成设计模型，再导出软件设计说明书" };
     }
+    const runId = randomUUID();
+    const billingCheck = await reserveBillingRunUsage({
+      billingEntitlements,
+      metadata,
+      runId,
+      taskType: "document_generation",
+      reply,
+    });
+    if (billingCheck !== true) return billingCheck;
     await recordGenerationUsage({
       generationUsage,
       runAccessGuard,
@@ -1588,7 +1650,6 @@ export function registerRunRoutes({
       providerConfigId,
     });
 
-    const runId = randomUUID();
     const record: RunRecord = {
       snapshot: createEmptyDocumentSnapshot(runId, input),
       events: [],
@@ -1792,6 +1853,7 @@ export function registerRunRoutes({
     }
 
     llmScheduler?.cancelRun(runId);
+    await billingEntitlements?.releaseRunUsage(runId);
     return cancelRunRecord(record, runId);
   });
 
@@ -1838,14 +1900,12 @@ export function registerRunRoutes({
       metadata,
       providerConfigs,
       resolveProjectDefaultProviderConfig,
-      allowLegacyProjectProviderSettings,
       request,
       reply,
     });
     if (!providerSettings) {
       return {
-        message:
-          "Runs must use an admin-managed provider config with an allowed model; plaintext provider settings require an explicit local dev/test switch",
+        message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
     const providerConfigId = providerConfigIdFromSettings(providerSettingsInput);
@@ -1867,6 +1927,15 @@ export function registerRunRoutes({
       reply,
     });
     if (limitCheck !== true) return limitCheck;
+    const newRunId = randomUUID();
+    const billingCheck = await reserveBillingRunUsage({
+      billingEntitlements,
+      metadata,
+      runId: newRunId,
+      taskType,
+      reply,
+    });
+    if (billingCheck !== true) return billingCheck;
     await recordProviderUsage({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1888,6 +1957,7 @@ export function registerRunRoutes({
       action,
       sourceRunId: runId,
       actorUserId: access.userId,
+      runId: newRunId,
     });
     const newRecord = runs.get(result.runId);
     if (newRecord) {

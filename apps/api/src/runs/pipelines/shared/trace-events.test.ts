@@ -12,6 +12,7 @@ import {
   appendDesignTrace,
   appendRequirementTrace,
 } from "./trace-events.js";
+import { buildEmptyRequirementBaseline } from "../../baselines/requirement-baseline.js";
 
 function createRecord(snapshot: RunRecord["snapshot"]): RunRecord {
   return {
@@ -59,9 +60,8 @@ test("appendDesignTrace leaves short rawOutput unchanged", () => {
 
   try {
     const snapshot = createEmptyDesignSnapshot("design-trace", {
-      requirementText: "需求文本",
       selectedDiagrams: ["sequence"],
-      rules: [],
+      requirementBaseline: buildEmptyRequirementBaseline({ runId: "design-trace" }),
       requirementModels: [],
       requirementModelTraceability: [],
     });

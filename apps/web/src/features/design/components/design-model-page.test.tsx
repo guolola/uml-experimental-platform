@@ -4,11 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { DesignRunSnapshot } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
+  createRequirementBaseline,
   createRule,
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
 import { DesignModelPage } from "./design-model-page";
+
+type StartDesignRunInput = Parameters<
+  NonNullable<WorkspaceRepository["startDesignRun"]>
+>[0];
 
 const useCaseModel = {
   diagramKind: "usecase" as const,
@@ -41,18 +46,122 @@ const classModel = {
   relationships: [],
 };
 
+const analysisModel = {
+  diagramKind: "analysis" as const,
+  modelId: "analysis:uc",
+  sourceUseCaseId: "uc",
+  sourceUseCaseName: "生成模型",
+  title: "生成模型需求分析模型",
+  summary: "按用例事件流生成的需求分析顺序图",
+  notes: [],
+  participants: [],
+  messages: [],
+  fragments: [],
+};
+
+const prototypeModel = {
+  diagramKind: "prototype" as const,
+  modelId: "proto-1",
+  title: "原型界面关系",
+  summary: "页面入口",
+  notes: [],
+  pages: [],
+  modules: [],
+  entryPoints: [],
+  relationships: [],
+};
+
 describe("DesignModelPage", () => {
+  it("treats per-use-case analysis models as available requirement sources", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+            "analysis:uc": analysisModel,
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    const sourceRegion = await screen.findByRole("heading", { name: "需求阶段来源" });
+    const sourceGrid = sourceRegion.closest("section");
+
+    const analysisSourceCard = within(sourceGrid as HTMLElement)
+      .getByText("需求分析模型")
+      .closest("div");
+
+    expect(analysisSourceCard).toHaveTextContent("可用");
+  });
+
+  it("treats generated prototype model aliases as available requirement sources", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+            "proto-1": prototypeModel,
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    const sourceRegion = await screen.findByRole("heading", { name: "需求阶段来源" });
+    const sourceGrid = sourceRegion.closest("section");
+
+    const prototypeSourceCard = within(sourceGrid as HTMLElement)
+      .getByText("原型界面关系")
+      .closest("div");
+
+    expect(prototypeSourceCard).toHaveTextContent("可用");
+  });
+
   it("keeps downstream design selection separate and confirms missing sequence dependency", async () => {
     const snapshot: DesignRunSnapshot = {
       runId: "design-run",
       requirementText: "生成 UML",
       selectedDiagrams: ["sequence", "activity"],
       rules: [],
+      requirementBaseline: createRequirementBaseline(),
       requirementModels: [useCaseModel],
       models: [
         {
           diagramKind: "sequence",
-          title: "顺序图",
+          title: "用例实现设计",
           summary: "动态行为",
           notes: [],
           participants: [{ id: "actor", name: "用户", participantType: "actor" }],
@@ -84,18 +193,43 @@ describe("DesignModelPage", () => {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           requirementText: "生成 UML",
+          requirementBaseline: createRequirementBaseline(),
+          rulesVersion: 1,
           models: {
             usecase: useCaseModel,
-            activity: {
-              diagramKind: "activity",
-              title: "需求活动图",
-              summary: "业务流转",
-              notes: [],
-              swimlanes: [],
-              nodes: [],
-              relationships: [],
-            },
+            prototype: prototypeModel,
           },
+          generatedDiagramTypes: ["usecase", "prototype"],
+          diagramVersions: { usecase: 1, prototype: 1 },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "actor",
+                elementKind: "actor",
+                label: "用户",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc",
+                elementKind: "usecase",
+                label: "生成模型",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "system",
+                elementKind: "system-boundary",
+                label: "平台",
+              },
+            },
+          ],
         }),
       ),
       updateRequirementText: vi.fn(async () => {}),
@@ -118,14 +252,14 @@ describe("DesignModelPage", () => {
 
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "选择业务流程图" }));
-    expect(screen.getByRole("checkbox", { name: /顺序图/ })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /业务流程图/ })).toBeChecked();
-    expect(screen.getByText("来源：需求阶段界面关系图 + 设计阶段顺序图")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "选择界面关系图" }));
+    expect(screen.getByRole("checkbox", { name: /用例实现设计/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /界面关系图/ })).toBeChecked();
+    expect(screen.getByText("来源：需求阶段原型界面关系 + 设计阶段用例实现设计")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
     const confirmation = await screen.findByRole("dialog", { name: "确认生成设计模型" });
     expect(within(confirmation).getByText("依赖补齐")).toBeInTheDocument();
-    expect(within(confirmation).getByText("顺序图")).toBeInTheDocument();
+    expect(within(confirmation).getByText("用例实现设计")).toBeInTheDocument();
     await userEvent.click(within(confirmation).getByRole("button", { name: "确认生成" }));
 
     await waitFor(() => {
@@ -136,6 +270,53 @@ describe("DesignModelPage", () => {
         }),
       );
     });
+    const input = (startDesignRun.mock.calls[0] as unknown as [StartDesignRunInput] | undefined)?.[0];
+    expect(input).not.toHaveProperty("requirementText");
+    expect(input).not.toHaveProperty("rules");
+    expect(input).toHaveProperty("requirementBaseline");
+  });
+
+  it("does not allow interface relation design from requirement activity alone", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          requirementBaseline: createRequirementBaseline(),
+          models: {
+            usecase: useCaseModel,
+            activity: {
+              diagramKind: "activity",
+              title: "需求活动图",
+              summary: "业务流转",
+              notes: [],
+              swimlanes: [],
+              nodes: [],
+              relationships: [],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("设计模型");
+    expect(screen.getByRole("checkbox", { name: /界面关系图/ })).toBeDisabled();
+    expect(screen.getAllByText("缺少需求阶段原型界面关系").length).toBeGreaterThan(0);
   });
 
   it("disables design diagrams when their prerequisite requirement models are missing", async () => {
@@ -248,9 +429,9 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await screen.findByText("设计模型");
-    expect(screen.getByRole("checkbox", { name: /顺序图/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /用例实现设计/ })).toBeDisabled();
     expect(
-      screen.getAllByText("需求阶段用例模型没有可生成顺序图的用例").length,
+      screen.getAllByText("需求阶段用例模型没有可生成用例实现设计的用例").length,
     ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /生成设计模型/ })).toBeDisabled();
   });
@@ -345,7 +526,7 @@ describe("DesignModelPage", () => {
               modelId: "sequence:uc_view",
               sourceUseCaseId: "uc_view",
               sourceUseCaseName: "查看活动",
-              title: "查看活动顺序图",
+              title: "查看活动用例实现设计",
               summary: "查看活动动态行为",
               notes: [],
               participants: [],
@@ -357,7 +538,7 @@ describe("DesignModelPage", () => {
               modelId: "sequence:uc_create",
               sourceUseCaseId: "uc_create",
               sourceUseCaseName: "创建活动",
-              title: "创建活动顺序图",
+              title: "创建活动用例实现设计",
               summary: "创建活动动态行为",
               notes: [],
               participants: [],
@@ -401,10 +582,10 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     const sequenceCheckbox = await screen.findByRole("checkbox", {
-      name: /顺序图/,
+      name: /用例实现设计/,
     });
     expect(sequenceCheckbox).toBeChecked();
-    expect(screen.getByText("2 个用例顺序图")).toBeInTheDocument();
+    expect(screen.getByText("2 个用例实现设计")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /查看/ }));
 
@@ -427,7 +608,7 @@ describe("DesignModelPage", () => {
               modelId: "sequence:uc",
               sourceUseCaseId: "uc",
               sourceUseCaseName: "生成模型",
-              title: "生成模型顺序图",
+              title: "生成模型用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [
@@ -510,6 +691,7 @@ describe("DesignModelPage", () => {
       requirementText: "生成 UML",
       selectedDiagrams: ["sequence", "class", "table"],
       rules: [],
+      requirementBaseline: createRequirementBaseline(),
       requirementModels: [useCaseModel, classModel],
       models: [],
       plantUml: [],
@@ -525,6 +707,7 @@ describe("DesignModelPage", () => {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           requirementText: "生成 UML",
+          requirementBaseline: createRequirementBaseline(),
           models: {
             usecase: useCaseModel,
             class: classModel,
@@ -551,14 +734,14 @@ describe("DesignModelPage", () => {
 
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
-    await userEvent.click(await screen.findByRole("checkbox", { name: /表关系图/ }));
-    expect(screen.getByRole("checkbox", { name: /顺序图/ })).not.toBeChecked();
+    await userEvent.click(await screen.findByRole("checkbox", { name: /数据库设计/ }));
+    expect(screen.getByRole("checkbox", { name: /用例实现设计/ })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /设计类图/ })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /表关系图/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /数据库设计/ })).toBeChecked();
     await userEvent.click(screen.getByRole("button", { name: /生成设计模型/ }));
     const confirmation = await screen.findByRole("dialog", { name: "确认生成设计模型" });
     expect(within(confirmation).getByText("依赖补齐")).toBeInTheDocument();
-    expect(within(confirmation).getByText("顺序图、设计类图")).toBeInTheDocument();
+    expect(within(confirmation).getByText("用例实现设计、设计类图")).toBeInTheDocument();
     await userEvent.click(within(confirmation).getByRole("button", { name: "确认生成" }));
 
     await waitFor(() => {
@@ -569,5 +752,9 @@ describe("DesignModelPage", () => {
         }),
       );
     });
+    const input = (startDesignRun.mock.calls[0] as unknown as [StartDesignRunInput] | undefined)?.[0];
+    expect(input).not.toHaveProperty("requirementText");
+    expect(input).not.toHaveProperty("rules");
+    expect(input).toHaveProperty("requirementBaseline");
   });
 });

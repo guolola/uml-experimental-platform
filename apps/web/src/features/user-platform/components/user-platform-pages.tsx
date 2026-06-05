@@ -59,7 +59,6 @@ import { downloadBlobFile, downloadTextFile } from "../../../shared/lib/download
 import {
   DEFAULT_USER_SETTINGS,
   loadUserSettings,
-  normalizeApiBaseUrl,
   patchUserSettings,
   saveUserSettings,
   type UserSettings,
@@ -69,7 +68,6 @@ import {
   resolveProviderModel,
 } from "../../../shared/lib/provider-config-models";
 import type { AuthRoutePath } from "../../../app/app-routes";
-import { ModelSettingsFields, maskApiKey } from "../../settings/components/model-settings-fields";
 import {
   ProjectGenerationTasksDrawerContent,
   ProjectWorkspaceActions,
@@ -134,9 +132,6 @@ function writeRememberedLoginEmail(email: string, remember: boolean) {
   localStorage.removeItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY);
 }
 
-function legacyProviderSettingsEnabled() {
-  return import.meta.env.VITE_ENABLE_LEGACY_PROVIDER_SETTINGS === "true";
-}
 export type ProjectDrawerKind = "tasks" | "members" | "history" | "documents" | "settings";
 
 type AcademicBindingOption = {
@@ -629,7 +624,7 @@ function AuthSecurityPanel() {
             </div>
 
             <div>
-              <div className="mb-2 text-sm font-medium leading-5 text-[#0b1c30]">UML 模型预览</div>
+              <div className="mb-2 text-sm font-medium leading-5 text-[#0b1c30]">UML模型预览</div>
               <div className="grid gap-2 rounded-lg border border-[#c7c4d6]/30 bg-[#eff4ff]/70 p-3">
                 <div className="flex gap-2">
                   <div className="h-12 flex-1 rounded border border-[#4441c4]/40 bg-white/60 p-1">
@@ -725,11 +720,13 @@ function AuthenticatedRouteContent({
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
   const lastVerifiedAtRef = useRef(0);
+  const hasVerifiedSession =
+    Boolean(authSession) && verifiedRouteKey !== undefined;
   const hasFreshSession =
-    Boolean(authSession) &&
-    verifiedRouteKey !== undefined &&
+    hasVerifiedSession &&
     Date.now() - lastVerifiedAtRef.current < AUTH_ROUTE_SESSION_GRACE_MS;
-  const effectiveChecking = checking || (!hasFreshSession && verifiedRouteKey !== routeKey);
+  const effectiveChecking =
+    !hasVerifiedSession && (checking || verifiedRouteKey !== routeKey);
   const overlayActive = effectiveChecking || childLoading.active;
   const overlayMessage = childLoading.message ?? "正在校验登录状态...";
   const loadingTransition = useLoadingTransition(overlayActive);
@@ -804,7 +801,10 @@ function AuthenticatedRouteContent({
           variant="fullscreen"
           phase={loadingTransition.phase}
           progress={loadingTransition.progress}
-          className="absolute inset-0 z-50"
+          className={cn(
+            "absolute inset-0 z-50",
+            !overlayActive && "pointer-events-none",
+          )}
         />
       )}
     </div>
@@ -1006,9 +1006,9 @@ export function AuthPage({
     "/reset-password": "重置密码",
   };
   const descriptions: Record<AuthRoutePath, string> = {
-    "/login": "输入账号信息，进入软件工程实验平台。",
+    "/login": "输入账号信息，进入软件工程实训平台。",
     "/register": "创建账号后，请先完成邮箱验证再进入项目空间。",
-    "/verify-email": "请确认您的电子邮箱以继续使用软件工程实验平台。",
+    "/verify-email": "请确认您的电子邮箱以继续使用软件工程实训平台。",
     "/forgot-password": "请输入您注册时使用的电子邮箱地址，我们将向您发送一封包含密码重置链接的邮件。",
     "/reset-password": "请输入您的新密码。为保证安全，建议使用包含字母、数字和符号的强密码。",
   };
@@ -1060,7 +1060,7 @@ export function AuthPage({
               onClick={() => onNavigate("/")}
               aria-label="返回官网"
             >
-              <div className="font-display text-[32px] font-semibold leading-10 text-[#4441c4]">软件工程实验平台</div>
+              <div className="font-display text-[32px] font-semibold leading-10 text-[#4441c4]">软件工程实训平台</div>
               <div className="mt-2 text-base leading-6 text-[#464554]">
                 {path === "/login" ? "欢迎回来，请登录以继续。" : "面向课程实验与项目协作的智能研发空间"}
               </div>
@@ -1418,6 +1418,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
   const [scope, setScope] = useState("all");
   const [sort, setSort] = useState("recent");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const createDialogLocationRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1494,6 +1495,34 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
     }
     setCreateDialogOpen(true);
   };
+
+  useEffect(() => {
+    createDialogLocationRef.current = createDialogOpen
+      ? `${window.location.pathname}${window.location.search}`
+      : null;
+  }, [createDialogOpen]);
+
+  useEffect(() => {
+    const closeIfLocationChanged = () => {
+      const openedAt = createDialogLocationRef.current;
+      if (!openedAt) return;
+      const currentLocation = `${window.location.pathname}${window.location.search}`;
+      if (currentLocation !== openedAt) {
+        setCreateDialogOpen(false);
+      }
+    };
+    const closeForRouteChange = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      if (!detail || typeof detail.path !== "string") return;
+      closeIfLocationChanged();
+    };
+    window.addEventListener("uml-route-change", closeForRouteChange);
+    window.addEventListener("popstate", closeIfLocationChanged);
+    return () => {
+      window.removeEventListener("uml-route-change", closeForRouteChange);
+      window.removeEventListener("popstate", closeIfLocationChanged);
+    };
+  }, []);
 
   if (loading) {
     if (coordinatedLoading) {
@@ -2812,6 +2841,7 @@ function getProjectRunStageLabel(run: PlatformRunSummary) {
   if (!normalized) return "等待开始";
   if (normalized.includes("extract_rules")) return "提取需求规则";
   if (normalized.includes("generate_models")) return "生成需求模型";
+  if (normalized.includes("generate_tests")) return "生成测试用例";
   if (normalized.includes("generate_design")) return "生成设计模型";
   if (normalized.includes("generate_plantuml")) {
     if (runKind === "design") return "生成设计 PlantUML";
@@ -4653,11 +4683,7 @@ export function AccountSecurityPage({ onNavigate }: { onNavigate: Navigate }) {
 }
 
 export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
-  const repository = useWorkspaceRepository();
-  const allowLegacyProviderSettings = legacyProviderSettingsEnabled();
   const [settings, setSettings] = useState<UserSettings>(() => loadUserSettings());
-  const [showKey, setShowKey] = useState(false);
-  const [showLegacyProvider, setShowLegacyProvider] = useState(false);
   const [providerConfigs, setProviderConfigs] = useState<PlatformProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(true);
   const [testing, setTesting] = useState(false);
@@ -4683,8 +4709,6 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
               ...current,
               providerConfigId: selected.id,
               defaultModel: resolveProviderModel(selected, current.defaultModel),
-              apiKey: "",
-              apiBaseUrl: "",
             };
           });
         }
@@ -4692,11 +4716,7 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
       .catch((error) => {
         if (!active) return;
         if (error instanceof PlatformApiError && error.status === 401) {
-          setStatus(
-            allowLegacyProviderSettings
-              ? "需要登录后加载托管 Provider 配置；legacy/dev Provider 仅限显式开发模式。"
-              : "需要登录后加载托管 Provider 配置。",
-          );
+          setStatus("需要登录后加载托管 Provider 配置。");
           return;
         }
         if (error instanceof PlatformApiError && error.status === 403) {
@@ -4720,22 +4740,21 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
 
   const save = () => {
     try {
+      if (!settings.providerConfigId) {
+        setStatus("请先选择托管供应商配置。");
+        toast.error("请先选择托管供应商配置");
+        return;
+      }
       saveUserSettings({
         ...settings,
-        defaultModel: settings.providerConfigId
-          ? resolveProviderModel(selectedProviderConfig, settings.defaultModel)
-          : settings.defaultModel,
-        apiKey: settings.providerConfigId ? "" : settings.apiKey,
-        apiBaseUrl: settings.providerConfigId
-          ? ""
-          : normalizeApiBaseUrl(settings.apiBaseUrl),
+        defaultModel: resolveProviderModel(selectedProviderConfig, settings.defaultModel),
       });
       setSettings(loadUserSettings());
       setStatus("模型配置已保存。");
       toast.success("模型配置已保存");
     } catch {
-      setStatus("API Base URL 不是合法地址。");
-      toast.error("API Base URL 不是合法地址");
+      setStatus("模型配置保存失败。");
+      toast.error("模型配置保存失败");
     }
   };
 
@@ -4748,26 +4767,17 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
     setTesting(true);
     setStatus("");
     try {
-      if (settings.providerConfigId) {
-        const result = await platformApi.testProviderConfig(
-          settings.providerConfigId,
-          resolveProviderModel(selectedProviderConfig, settings.defaultModel),
-        );
-        if (result.ok === false) {
-          throw new Error(result.message ?? "托管配置连接测试失败。");
-        }
-        setStatus(`连接成功：${result.message ?? "托管配置可用"}`);
-        return;
-      }
-      if (!allowLegacyProviderSettings) {
+      if (!settings.providerConfigId) {
         throw new Error("请先选择托管供应商配置。");
       }
-      const result = await repository.testProviderSettings({
-        apiBaseUrl: normalizeApiBaseUrl(settings.apiBaseUrl),
-        apiKey: settings.apiKey,
-        model: settings.defaultModel,
-      });
-      setStatus(`连接成功：${result.capability.modeLabel}`);
+      const result = await platformApi.testProviderConfig(
+        settings.providerConfigId,
+        resolveProviderModel(selectedProviderConfig, settings.defaultModel),
+      );
+      if (result.ok === false) {
+        throw new Error(result.message ?? "托管配置连接测试失败。");
+      }
+      setStatus(`连接成功：${result.message ?? "托管配置可用"}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "连接测试失败。");
     } finally {
@@ -4775,7 +4785,6 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
     }
   };
 
-  const maskedKey = useMemo(() => maskApiKey(settings.apiKey), [settings.apiKey]);
   const selectedProviderConfig = providerConfigs.find(
     (config) => config.id === settings.providerConfigId,
   );
@@ -4788,14 +4797,12 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
           <h1>模型设置</h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
             登录态优先使用服务端托管 Provider Config。API Key 不作为主要路径写入本地；
-            {allowLegacyProviderSettings
-              ? "legacy/dev 备选仅用于显式本地开发兼容。"
-              : "普通登录态不会保存或回显明文 API Key。"}
+            普通登录态不会保存或回显明文 API Key。
           </p>
         </div>
         <Badge variant="secondary">
           <KeyRound className="mr-1 size-3.5" />
-          {selectedProviderConfig?.maskedKey ?? maskedKey}
+          {selectedProviderConfig?.maskedKey ?? "未选择托管配置"}
         </Badge>
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -4816,8 +4823,6 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
                       defaultModel: value
                         ? resolveProviderModel(selected, current.defaultModel)
                         : current.defaultModel,
-                      apiBaseUrl: value ? "" : current.apiBaseUrl,
-                      apiKey: value ? "" : current.apiKey,
                     };
                   })
                 }
@@ -4826,7 +4831,7 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
                 options={[
                   {
                     value: "",
-                    label: providerLoading ? "正在加载托管配置" : "不使用托管配置",
+                    label: providerLoading ? "正在加载托管配置" : "请选择托管配置",
                   },
                   ...providerConfigs.map((config) => ({
                     value: config.id,
@@ -4869,23 +4874,6 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
                 </span>
               )}
             </div>
-            {allowLegacyProviderSettings && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowLegacyProvider((value) => !value)}
-              >
-                {showLegacyProvider ? "隐藏 legacy/dev 备选" : "显示 legacy/dev 备选"}
-              </Button>
-            )}
-            {allowLegacyProviderSettings && showLegacyProvider && (
-              <ModelSettingsFields
-                settings={settings}
-                showKey={showKey}
-                onToggleKey={() => setShowKey((value) => !value)}
-                onChange={update}
-              />
-            )}
           </div>
           <Separator className="my-5" />
           <div className="flex flex-wrap gap-2">
@@ -4894,16 +4882,10 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
               type="button"
               variant="outline"
               onClick={testConnection}
-              disabled={
-                testing ||
-                (!settings.providerConfigId &&
-                  (!allowLegacyProviderSettings ||
-                    !settings.apiBaseUrl.trim() ||
-                    !settings.apiKey.trim()))
-              }
+              disabled={testing || !settings.providerConfigId}
             >
               {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-              {settings.providerConfigId ? "测试托管配置" : "测试连接"}
+              测试托管配置
             </Button>
             <Button type="button" variant="ghost" onClick={reset}>
               <RotateCw className="size-4" />
@@ -4955,16 +4937,12 @@ export function ProjectWorkspaceBanner({
         patchUserSettings({
           providerConfigId: defaultProviderConfigId,
           defaultModel: config?.defaultModel ?? loadUserSettings().defaultModel,
-          apiBaseUrl: "",
-          apiKey: "",
         });
       })
       .catch(() => {
         if (!active) return;
         patchUserSettings({
           providerConfigId: defaultProviderConfigId,
-          apiBaseUrl: "",
-          apiKey: "",
         });
       });
     return () => {

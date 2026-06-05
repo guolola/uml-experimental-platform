@@ -161,6 +161,129 @@ test("createRealLlmTransport forwards json_schema response_format when provided"
   }
 });
 
+test("createRealLlmTransport retries unsupported json_schema requests with JSON mode", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const requestBodies: string[] = [];
+  const warnings: string[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(String(init?.body ?? ""));
+    if (requestBodies.length === 1) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              "response_format json_schema is not supported by this provider",
+          },
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+    return createResponseFromSse([
+      'data: {"choices":[{"delta":{"content":"{\\"ok\\":true}"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+  }) as typeof fetch;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map((item) => String(item)).join(" "));
+  };
+
+  try {
+    const transport = createRealLlmTransport();
+    const chunks: string[] = [];
+    for await (const chunk of transport.streamChatCompletion({
+      providerSettings: {
+        apiBaseUrl: "https://ai.comfly.org",
+        apiKey: "sk-test",
+        model: "provider-json-only",
+      },
+      messages: [{ role: "user", content: "test" }],
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "healthcheck",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: { ok: { type: "boolean" } },
+            required: ["ok"],
+          },
+        },
+      },
+    })) {
+      chunks.push(chunk);
+    }
+
+    assert.deepEqual(chunks, ['{"ok":true}']);
+    assert.equal(requestBodies.length, 2);
+    assert.equal(JSON.parse(requestBodies[0]).response_format.type, "json_schema");
+    assert.equal(JSON.parse(requestBodies[1]).response_format.type, "json_object");
+    assert.match(warnings.join("\n"), /\[llm-json-schema-fallback\]/);
+    assert.doesNotMatch(warnings.join("\n"), /sk-test/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
+
+test("createRealLlmTransport does not downgrade auth failures", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: "invalid api key",
+        },
+      }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const transport = createRealLlmTransport();
+    await assert.rejects(
+      async () => {
+        for await (const _chunk of transport.streamChatCompletion({
+          providerSettings: {
+            apiBaseUrl: "https://ai.comfly.org",
+            apiKey: "sk-test",
+            model: "gpt-5.5",
+          },
+          messages: [{ role: "user", content: "test" }],
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "healthcheck",
+              strict: true,
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: { ok: { type: "boolean" } },
+                required: ["ok"],
+              },
+            },
+          },
+        })) {
+          // noop
+        }
+      },
+      /LLM request failed with HTTP 401: invalid api key/,
+    );
+    assert.equal(fetchCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createRealLlmTransport times out a stalled streaming response", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>

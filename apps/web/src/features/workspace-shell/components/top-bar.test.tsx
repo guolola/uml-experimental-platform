@@ -249,6 +249,7 @@ describe("TopBar", () => {
       "考试",
       "教程",
       "关于",
+      "购买",
     ]);
     expect(within(banner).queryByRole("button", { name: "工作台" })).not.toBeInTheDocument();
     expect(within(banner).queryByRole("button", { name: "需求" })).not.toBeInTheDocument();
@@ -259,15 +260,64 @@ describe("TopBar", () => {
     await user.click(within(banner).getByRole("button", { name: "考试" }));
     await user.click(within(banner).getByRole("button", { name: "教程" }));
     await user.click(within(banner).getByRole("button", { name: "关于" }));
+    await user.click(within(banner).getByRole("button", { name: "购买" }));
 
     expect(onNavigate).toHaveBeenCalledWith("/projects");
     expect(onNavigate).toHaveBeenCalledWith("/exam");
     expect(onNavigate).toHaveBeenCalledWith("/tutorial");
     expect(onNavigate).toHaveBeenCalledWith("/about");
+    expect(onNavigate).toHaveBeenCalledWith("/account/billing");
     expect(screen.queryByRole("button", { name: "关闭 工作台" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 考试" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 教程" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 关于" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关闭 购买" })).not.toBeInTheDocument();
+  });
+
+  it("marks account billing active and closes account modal on route changes", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <TopBarHarness currentRoute="/account/billing" />,
+        repository,
+      ),
+    );
+
+    expect(screen.getByRole("button", { name: "购买" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await user.click(screen.getByRole("button", { name: "登录" }));
+    expect(await screen.findByRole("dialog", { name: "登录账号" })).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).not.toBeNull();
+
+    window.history.pushState({}, "", "/projects");
+    window.dispatchEvent(
+      new CustomEvent("uml-route-change", {
+        detail: { path: "/projects", location: "/projects" },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "登录账号" })).not.toBeInTheDocument();
+    });
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
   });
 
   it("matches the current top-bar action sizing", async () => {
@@ -994,9 +1044,15 @@ describe("TopBar", () => {
 
     expect((await screen.findAllByText("抽取需求规则")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("修复需求规则").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("生成需求模型").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("生成图源码").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("渲染图像").length).toBeGreaterThan(0);
+    const stageSection = screen.getByText("链路阶段").parentElement?.parentElement;
+    expect(stageSection).toBeTruthy();
+    expect(within(stageSection as HTMLElement).getAllByText("抽取需求规则").length).toBeGreaterThan(
+      0,
+    );
+    expect(within(stageSection as HTMLElement).getByText("修复需求规则")).toBeInTheDocument();
+    expect(within(stageSection as HTMLElement).queryByText("生成需求模型")).not.toBeInTheDocument();
+    expect(within(stageSection as HTMLElement).queryByText("生成图源码")).not.toBeInTheDocument();
+    expect(within(stageSection as HTMLElement).queryByText("渲染图像")).not.toBeInTheDocument();
     expect(screen.getByText("执行详情")).toBeInTheDocument();
     expect(screen.queryByText("用户摘要")).not.toBeInTheDocument();
     expect(screen.getByText("正在分析需求文本")).toBeInTheDocument();
@@ -1006,6 +1062,20 @@ describe("TopBar", () => {
     expect(screen.queryByText("stage_started")).not.toBeInTheDocument();
 
     completeRun();
+    await waitFor(() => {
+      expect(screen.getAllByText("生成完成").length).toBeGreaterThan(0);
+    });
+    const completedStageSection = screen.getByText("链路阶段").parentElement?.parentElement;
+    expect(completedStageSection).toBeTruthy();
+    expect(
+      within(completedStageSection as HTMLElement).queryByText("生成需求模型"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(completedStageSection as HTMLElement).queryByText("生成图源码"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(completedStageSection as HTMLElement).queryByText("渲染图像"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders model subtasks inside the pipeline stage todo list", async () => {
@@ -1117,9 +1187,12 @@ describe("TopBar", () => {
     const stageSection = screen.getByText("链路阶段").parentElement?.parentElement;
     expect(stageSection).toBeTruthy();
     expect(within(stageSection as HTMLElement).getByText("生成需求模型")).toBeInTheDocument();
-    expect(within(stageSection as HTMLElement).getByText("用例模型")).toBeInTheDocument();
-    expect(within(stageSection as HTMLElement).getByText("领域概念模型")).toBeInTheDocument();
-    expect(within(stageSection as HTMLElement).getByText("界面关系")).toBeInTheDocument();
+    expect(within(stageSection as HTMLElement).getByText("生成图源码")).toBeInTheDocument();
+    expect(within(stageSection as HTMLElement).getByText("渲染图像")).toBeInTheDocument();
+    expect(within(stageSection as HTMLElement).getAllByText("用例模型")).toHaveLength(3);
+    expect(within(stageSection as HTMLElement).getAllByText("领域概念模型")).toHaveLength(3);
+    expect(within(stageSection as HTMLElement).getAllByText("界面关系")).toHaveLength(1);
+    expect(within(stageSection as HTMLElement).getAllByText("总体业务流程")).toHaveLength(2);
     expect(
       within(stageSection as HTMLElement).getByText("有 1 条追踪关系需复核"),
     ).toBeInTheDocument();
@@ -1129,7 +1202,7 @@ describe("TopBar", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText("模型子任务")).not.toBeInTheDocument();
-    expect(screen.getAllByText("用例模型")).toHaveLength(1);
+    expect(screen.getAllByText("用例模型")).toHaveLength(3);
 
     completeRun();
     const updatedStageSection = screen.getByText("链路阶段").parentElement?.parentElement;

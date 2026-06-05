@@ -18,6 +18,7 @@ import {
   DIAGRAM_META,
   DIAGRAM_ORDER,
   getDesignModelId,
+  getRequirementModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -33,6 +34,11 @@ import { useWorkspaceSession } from "../../workspace-session/state";
 
 type MatrixMode = "requirements" | "design";
 type RowStatus = "mapped" | "unmapped";
+export type MatrixScope = {
+  diagramKind: DiagramKind | DesignDiagramKind;
+  modelId?: string;
+  label?: string;
+};
 
 type ElementRow = {
   id: string;
@@ -41,6 +47,7 @@ type ElementRow = {
   typeLabel: string;
   groupKey: string;
   groupLabel: string;
+  scopeKey: string;
   status: RowStatus;
   mappingNote: string | null;
   requirementRules: RequirementRule[];
@@ -87,9 +94,28 @@ function isBusinessTraceabilityKind(kind: string) {
 
 function refsForRequirementModels(
   models: ReturnType<typeof useWorkspaceSession>["models"],
+  scope?: MatrixScope,
 ) {
-  return DIAGRAM_ORDER.flatMap((diagram) => {
-    const detail = buildDiagramDetailModel(models[diagram]);
+  const scopedModels = uniqueBy(
+    Object.values(models)
+      .filter((model): model is NonNullable<typeof model> => Boolean(model))
+      .filter((model) => {
+        if (!scope) return true;
+        const modelId = getRequirementModelId(model);
+        return scope.modelId
+          ? modelId === scope.modelId
+          : model.diagramKind === scope.diagramKind;
+      }),
+    getRequirementModelId,
+  ).sort((left, right) => {
+    const leftOrder = DIAGRAM_ORDER.indexOf(left.diagramKind as DiagramType);
+    const rightOrder = DIAGRAM_ORDER.indexOf(right.diagramKind as DiagramType);
+    return leftOrder - rightOrder || getRequirementModelId(left).localeCompare(getRequirementModelId(right));
+  });
+  return scopedModels.flatMap((model) => {
+    const diagram = model.diagramKind as DiagramKind;
+    const modelId = getRequirementModelId(model);
+    const detail = buildDiagramDetailModel(model);
     const items = detail.items.filter((item) =>
       isBusinessTraceabilityKind(item.kind),
     );
@@ -100,10 +126,11 @@ function refsForRequirementModels(
         (businessIds.has(relationship.sourceId) &&
           businessIds.has(relationship.targetId)),
     );
-    return [
+    return uniqueBy([
       ...items.map((item) => ({
         ref: {
           diagramKind: diagram as DiagramKind,
+          modelId,
           elementId: item.id,
           elementKind: item.kind,
           label: item.label,
@@ -114,6 +141,7 @@ function refsForRequirementModels(
       ...relationships.map((relationship) => ({
         ref: {
           diagramKind: diagram as DiagramKind,
+          modelId,
           elementId: relationship.id,
           elementKind: "relationship",
           label: relationship.label,
@@ -121,14 +149,21 @@ function refsForRequirementModels(
         typeLabel: relationship.typeLabel,
         description: `${relationship.sourceId} -> ${relationship.targetId}`,
       })),
-    ];
+    ], (entry) => refKey(entry.ref));
   });
 }
 
 function refsForDesignModels(
   models: ReturnType<typeof useWorkspaceSession>["designModels"],
+  scope?: MatrixScope,
 ) {
-  return Object.values(models).flatMap((model) => {
+  return Object.values(models).filter((model) => {
+    if (!scope) return true;
+    const modelId = getDesignModelId(model);
+    return scope.modelId
+      ? modelId === scope.modelId
+      : model.diagramKind === scope.diagramKind;
+  }).flatMap((model) => {
     const diagram = model.diagramKind;
     const modelId = getDesignModelId(model);
     const detail = buildDiagramDetailModel(model);
@@ -181,6 +216,7 @@ function buildRequirementRows(
   rules: RequirementRule[],
   models: ReturnType<typeof useWorkspaceSession>["models"],
   traceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
+  scope?: MatrixScope,
 ): ElementRow[] {
   const rulesById = new Map(rules.map((rule) => [rule.id.toLowerCase(), rule]));
   const traceByTarget = new Map<string, RequirementRule[]>();
@@ -191,15 +227,16 @@ function buildRequirementRows(
     traceByTarget.set(key, [...(traceByTarget.get(key) ?? []), rule]);
   }
 
-  return refsForRequirementModels(models).map(({ ref, typeLabel, description }) => {
+  return refsForRequirementModels(models, scope).map(({ ref, typeLabel, description }) => {
     const mappedRules = uniqueBy(traceByTarget.get(refKey(ref)) ?? [], (rule) => rule.id);
     return {
       id: refKey(ref),
       label: ref.label,
       subtitle: description || `${requirementGroupLabel(ref.diagramKind)} · ${typeLabel}`,
       typeLabel,
-      groupKey: ref.diagramKind,
+      groupKey: ref.modelId ?? ref.diagramKind,
       groupLabel: requirementGroupLabel(ref.diagramKind),
+      scopeKey: ref.modelId ?? ref.diagramKind,
       status: mappedRules.length > 0 ? "mapped" : "unmapped",
       mappingNote: null,
       requirementRules: mappedRules,
@@ -218,6 +255,7 @@ function buildDesignRows(
   designModels: ReturnType<typeof useWorkspaceSession>["designModels"],
   requirementTraceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
   designTraceability: ReturnType<typeof useWorkspaceSession>["designModelTraceability"],
+  scope?: MatrixScope,
 ): ElementRow[] {
   const requirementRefMap = new Map(
     refsForRequirementModels(requirementModels).map(({ ref }) => [refKey(ref), ref]),
@@ -238,7 +276,7 @@ function buildDesignRows(
     traceBySource.set(entry.source.elementId ? refKey(entry.source) : "", entry);
   }
 
-  return refsForDesignModels(designModels).map(({ ref, typeLabel, description }) => {
+  return refsForDesignModels(designModels, scope).map(({ ref, typeLabel, description }) => {
     const traceEntry = traceBySource.get(refKey(ref));
     const targets = uniqueBy<ModelElementRef>(
       (traceEntry?.targets ?? [])
@@ -260,6 +298,7 @@ function buildDesignRows(
       typeLabel,
       groupKey: ref.diagramKind,
       groupLabel: designGroupLabel(ref.diagramKind),
+      scopeKey: ref.modelId ?? ref.diagramKind,
       status: targets.length > 0 ? "mapped" : "unmapped",
       mappingNote:
         traceEntry?.mappingSource === "auto-filled-pending-review" ||
@@ -281,7 +320,7 @@ function buildDesignRows(
           : []),
         ...upstreamDesignElements.map(
           (target) =>
-            `来源顺序图：${target.modelId ?? designGroupLabel(target.diagramKind)} / ${target.label}`,
+            `来源用例实现设计：${target.modelId ?? designGroupLabel(target.diagramKind)} / ${target.label}`,
         ),
         ...targets.map(
           (target) =>
@@ -367,7 +406,13 @@ function StatusBadge({ status }: { status: RowStatus }) {
   );
 }
 
-export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
+export function TraceabilityMatrixPage({
+  mode,
+  scope,
+}: {
+  mode: MatrixMode;
+  scope?: MatrixScope;
+}) {
   const {
     rules,
     models,
@@ -393,8 +438,9 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
             designModels,
             requirementModelTraceability,
             designModelTraceability,
+            scope,
           )
-        : buildRequirementRows(rules, models, requirementModelTraceability),
+        : buildRequirementRows(rules, models, requirementModelTraceability, scope),
     [
       designModelTraceability,
       designModels,
@@ -402,6 +448,7 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
       models,
       requirementModelTraceability,
       rules,
+      scope,
     ],
   );
   const groupOptions = useMemo(() => buildGroupOptions(rows), [rows]);
@@ -451,10 +498,19 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
 
-  const title = isDesign ? "设计跟踪矩阵" : "需求跟踪矩阵";
-  const description = isDesign
-    ? "查看设计模型元素到需求模型元素的真实映射链路。"
-    : "查看需求模型元素到需求规则的真实映射链路。";
+  const scopeLabel =
+    scope?.label ??
+    (isDesign
+      ? designGroupLabel(scope?.diagramKind ?? "sequence")
+      : requirementGroupLabel(scope?.diagramKind ?? "usecase"));
+  const title = scope ? `跟踪矩阵 · ${scopeLabel}` : isDesign ? "设计跟踪矩阵" : "需求跟踪矩阵";
+  const description = scope
+    ? isDesign
+      ? `只显示${scopeLabel}到需求模型元素的真实映射链路。`
+      : `只显示${scopeLabel}到需求规则的真实映射链路。`
+    : isDesign
+      ? "查看设计模型元素到需求模型元素的真实映射链路。"
+      : "查看需求模型元素到需求规则的真实映射链路。";
   const groupFilterLabel = isDesign ? "按设计模型类型筛选" : "按需求模型类型筛选";
   const pageRangeStart = filteredRows.length === 0 ? 0 : pageStart + 1;
   const pageRangeEnd = Math.min(pageStart + pageSize, filteredRows.length);
@@ -522,23 +578,25 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                     {filteredRows.length}/{rows.length}
                   </Badge>
                 </div>
-                <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                  分类
-                  <SelectControl
-                    aria-label={groupFilterLabel}
-                    value={groupFilter}
-                    onValueChange={setGroupFilter}
-                    className="h-8 min-w-32 text-sm"
-                    size="sm"
-                    options={[
-                      { value: ALL_GROUPS, label: isDesign ? "全部模型" : "全部模型" },
-                      ...groupOptions.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      })),
-                    ]}
-                  />
-                </label>
+                {!scope && (
+                  <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                    分类
+                    <SelectControl
+                      aria-label={groupFilterLabel}
+                      value={groupFilter}
+                      onValueChange={setGroupFilter}
+                      className="h-8 min-w-32 text-sm"
+                      size="sm"
+                      options={[
+                        { value: ALL_GROUPS, label: isDesign ? "全部模型" : "全部模型" },
+                        ...groupOptions.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        })),
+                      ]}
+                    />
+                  </label>
+                )}
               </div>
 
               {rows.length === 0 ? (
@@ -565,7 +623,7 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                         </th>
                         {isDesign && (
                           <th className="w-[22%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                            来源顺序图 / 映射需求元素
+                            来源用例实现设计 / 映射需求元素
                           </th>
                         )}
                         <th className="w-[20%] border-b border-r border-border px-4 py-4 text-left font-medium">
@@ -625,7 +683,7 @@ export function TraceabilityMatrixPage({ mode }: { mode: MatrixMode }) {
                                         ? `${ref.modelId.replace(/^sequence:/, "")} · ${ref.label}`
                                         : ref.label,
                                     )}
-                                    emptyText="未记录来源顺序图"
+                                    emptyText="未记录来源用例实现设计"
                                   />
                                   <ChipList
                                     items={row.requirementElements.map((ref) => ref.label)}

@@ -6,10 +6,74 @@ import { XIcon } from "lucide-react";
 
 import { cn } from "./utils";
 
+function removeOrphanDialogSideEffects() {
+  if (typeof document === "undefined") return;
+  if (
+    document.querySelector(
+      '[data-slot="dialog-content"][data-state="open"]',
+    )
+  ) {
+    return;
+  }
+  document.querySelectorAll('[data-slot="dialog-overlay"]').forEach((node) => {
+    node.remove();
+  });
+  if (document.body.style.pointerEvents === "none") {
+    document.body.style.removeProperty("pointer-events");
+  }
+  if (document.body.getAttribute("data-scroll-locked") === "1") {
+    document.body.removeAttribute("data-scroll-locked");
+  }
+  document
+    .querySelectorAll('[data-aria-hidden="true"][aria-hidden="true"]')
+    .forEach((node) => {
+      node.removeAttribute("aria-hidden");
+      node.removeAttribute("data-aria-hidden");
+    });
+}
+
+function cleanupOrphanDialogSideEffects(delayMs = 260) {
+  if (typeof window === "undefined") return;
+  if (delayMs <= 0) {
+    removeOrphanDialogSideEffects();
+    return;
+  }
+  window.setTimeout(removeOrphanDialogSideEffects, delayMs);
+}
+
 function Dialog({
+  open,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      onOpenChange?.(nextOpen);
+      if (!nextOpen) {
+        cleanupOrphanDialogSideEffects();
+      }
+    },
+    [onOpenChange],
+  );
+
+  React.useEffect(() => {
+    if (open === false) {
+      cleanupOrphanDialogSideEffects();
+    }
+  }, [open]);
+
+  React.useEffect(() => {
+    return () => cleanupOrphanDialogSideEffects(0);
+  }, []);
+
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      open={open}
+      onOpenChange={handleOpenChange}
+      {...props}
+    />
+  );
 }
 
 function DialogTrigger({
@@ -48,10 +112,13 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    hideCloseButton?: boolean;
+    overlayClassName?: string;
+  }
+>(({ className, children, hideCloseButton = false, overlayClassName, ...props }, ref) => (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         ref={ref}
         data-slot="dialog-content"
@@ -62,13 +129,15 @@ const DialogContent = React.forwardRef<
         {...props}
       >
         {children}
-        <DialogPrimitive.Close
-          data-slot="dialog-close"
-          className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-        >
-          <XIcon />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        {!hideCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </DialogPortal>
   ));

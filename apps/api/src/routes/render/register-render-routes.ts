@@ -1,8 +1,9 @@
 // Registers render/provider endpoints and delegates external calls to adapters.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
+  designDiagramModelSpecSchema,
+  diagramModelSpecSchema,
   type ProjectPermission,
-  resolvedProviderSettingsSchema,
   renderPngRequestSchema,
   renderPngResponseSchema,
   renderStructuredModelRequestSchema,
@@ -10,7 +11,6 @@ import {
   renderSvgRequestSchema,
   renderSvgResponseSchema,
 } from "@uml-platform/contracts";
-import { getModelCapability } from "../../model-capabilities.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
 import {
@@ -24,8 +24,6 @@ export function registerRenderRoutes({
   pngRenderClient,
   resolveUserId,
   projectMembershipGuard,
-  allowLegacyPlaintextProviderTest = false,
-  nodeEnv,
 }: {
   app: FastifyInstance;
   renderClient: RenderClient;
@@ -36,8 +34,6 @@ export function registerRenderRoutes({
     userId: string;
     permission: ProjectPermission;
   }) => Promise<boolean>;
-  allowLegacyPlaintextProviderTest?: boolean;
-  nodeEnv?: string | null;
 }) {
   async function requireRenderProjectAccess(
     request: FastifyRequest,
@@ -93,10 +89,18 @@ export function registerRenderRoutes({
 
     const input = renderStructuredModelRequestSchema.parse(request.body);
     try {
+      const isRequirementOnlyModel =
+        input.model.diagramKind === "usecase" ||
+        input.model.diagramKind === "prototype" ||
+        input.model.diagramKind === "analysis";
+      const designModel = designDiagramModelSpecSchema.safeParse(input.model);
+      const requirementModel = diagramModelSpecSchema.safeParse(input.model);
       const [artifact] =
-        input.model.diagramKind === "usecase"
-          ? generatePlantUmlArtifacts([input.model])
-          : generateDesignPlantUmlArtifacts([input.model]);
+        isRequirementOnlyModel || !designModel.success
+          ? requirementModel.success
+            ? generatePlantUmlArtifacts([requirementModel.data])
+            : []
+          : generateDesignPlantUmlArtifacts([designModel.data]);
       if (!artifact) {
         reply.code(400);
         return { message: "模型无法生成 PlantUML" };
@@ -142,75 +146,12 @@ export function registerRenderRoutes({
   });
 
   app.post("/api/provider/test", async (request, reply) => {
-    const legacyProviderTestAllowed =
-      allowLegacyPlaintextProviderTest &&
-      (nodeEnv === "development" || nodeEnv === "test");
-    if (!legacyProviderTestAllowed) {
-      reply.code(403);
-      return {
-        ok: false,
-        message:
-          "Plaintext apiBaseUrl/apiKey provider tests are disabled. Use a managed Provider configuration instead.",
-      };
-    }
-
-    const providerSettings = resolvedProviderSettingsSchema.parse(request.body);
-    const capability = getModelCapability(providerSettings.model);
-    const response = await fetch(
-      new URL("/v1/chat/completions", providerSettings.apiBaseUrl).toString(),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${providerSettings.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: providerSettings.model,
-          messages: [
-            {
-              role: "user",
-              content: "只回复 JSON：{\"ok\":true}",
-            },
-          ],
-          stream: false,
-          temperature: 0,
-          response_format: { type: "json_object" },
-          tools: [],
-          tool_choice: "none",
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      let message = `Provider test failed with HTTP ${response.status}`;
-      try {
-        const payload = (await response.json()) as {
-          message?: string;
-          error?: { message?: string };
-        };
-        message = payload.error?.message ?? payload.message ?? message;
-      } catch {
-        try {
-          const text = await response.text();
-          if (text.trim()) {
-            message = `${message}: ${text.trim().slice(0, 240)}`;
-          }
-        } catch {
-          // Keep the status-based message.
-        }
-      }
-      reply.code(response.status >= 400 && response.status < 500 ? 400 : 502);
-      return {
-        ok: false,
-        message,
-        capability,
-      };
-    }
-
+    void request;
+    reply.code(403);
     return {
-      ok: true,
-      message: "Provider connection ok",
-      capability,
+      ok: false,
+      message:
+        "Plaintext apiBaseUrl/apiKey provider tests are disabled. Use a managed Provider configuration instead.",
     };
   });
 }

@@ -45,6 +45,7 @@ import { registerDocumentRoutes } from "./routes/documents/register-document-rou
 import { registerProjectRoutes } from "./routes/projects/register-project-routes.js";
 import { registerProviderConfigRoutes } from "./routes/provider-configs/register-provider-config-routes.js";
 import { registerRenderRoutes } from "./routes/render/register-render-routes.js";
+import { registerSystemNoticeRoutes } from "./routes/system-notices/register-system-notice-routes.js";
 import {
   registerRunRoutes,
   type RunAccessContext,
@@ -63,7 +64,20 @@ import {
 import { createPostgresProviderConfigRepository } from "./provider-configs/postgres-provider-config-repository.js";
 import { createProviderUsageTracker } from "./provider-configs/provider-usage-tracker.js";
 import { createGenerationUsageService } from "./generation/generation-usage.js";
+import { createInMemoryBillingRepository } from "./billing/in-memory-billing-repository.js";
+import { createPostgresBillingRepository } from "./billing/postgres-billing-repository.js";
+import {
+  createBillingService,
+  type BillingService,
+} from "./billing/billing-service.js";
+import { createPaymentProviderRegistry } from "./adapters/payments/payment-adapter-registry.js";
+import { registerBillingRoutes } from "./routes/billing/register-billing-routes.js";
 import { createPostgresRunRecordStore } from "./runs/records/postgres-run-record-store.js";
+import {
+  createInMemorySystemNoticeStore,
+  type SystemNoticeStore,
+} from "./system-notices/records/system-notice-store.js";
+import { createPostgresSystemNoticeStore } from "./system-notices/records/postgres-system-notice-store.js";
 import {
   createRunRecordStore,
   type RunRecord,
@@ -108,8 +122,6 @@ const DEFAULT_PROVIDER_BASE_URL_ALLOWLIST = (
   .split(",")
   .map((url) => url.trim())
   .filter(Boolean);
-const DEFAULT_ALLOW_LEGACY_PLAINTEXT_PROVIDER_TEST =
-  process.env.UML_ALLOW_LEGACY_PROVIDER_TEST === "true";
 const DEFAULT_DEV_ADMIN_MFA_SECRET = "JBSWY3DPEHPK3PXP";
 
 
@@ -133,9 +145,11 @@ export async function createApiServer(options?: {
   documentLibrary?: DocumentLibrary;
   mailAdapter?: MailAdapter;
   llmScheduler?: LlmScheduler;
-  allowLegacyPlaintextProviderTest?: boolean;
   testRunAccessContext?: RunAccessContext;
   nodeEnv?: string | null;
+  billingService?: BillingService;
+  disableBillingEntitlementGuard?: boolean;
+  systemNoticeStore?: SystemNoticeStore;
 }) {
   const runtimeNodeEnv = options?.nodeEnv ?? process.env.NODE_ENV ?? null;
   // Test-only fallback used by API integration tests that construct run records
@@ -256,7 +270,25 @@ export async function createApiServer(options?: {
       : fileDocumentLibrary);
   const mailAdapter = options?.mailAdapter ?? createMailAdapterFromEnv();
   const providerUsageTracker = pool ? createProviderUsageTracker(pool) : undefined;
+  const systemNoticeStore =
+    options?.systemNoticeStore ??
+    (pool
+      ? createPostgresSystemNoticeStore(pool)
+      : createInMemorySystemNoticeStore());
   const generationUsage = createGenerationUsageService({ providerUsageTracker });
+  const billingRepository = pool
+    ? createPostgresBillingRepository(pool)
+    : createInMemoryBillingRepository();
+  const billingService =
+    options?.billingService ??
+    createBillingService({
+      repository: billingRepository,
+      paymentProviders: createPaymentProviderRegistry({
+        nodeEnv: runtimeNodeEnv,
+      }),
+      nodeEnv: runtimeNodeEnv,
+    });
+  await billingService.ensureSkuCatalog();
   const academicStore = pool
     ? createPostgresAcademicAdminRepository(pool)
     : createInMemoryAcademicAdminRepository();
@@ -338,7 +370,7 @@ export async function createApiServer(options?: {
       return { input, resolved: null, providerConfigId: null };
     }
     if (!isManagedProviderSettings(input)) {
-      return { input, resolved: input as ProviderSettings, providerConfigId: null };
+      return { input, resolved: null, providerConfigId: null };
     }
     const config = await providerConfigs.get(input.providerConfigId);
     if (
@@ -403,7 +435,13 @@ export async function createApiServer(options?: {
   };
 
   registerHealthRoutes({ app, healthPayload, versionPayload });
-  registerAuthRoutes({ app, authStore, mailAdapter });
+  registerAuthRoutes({
+    app,
+    authStore,
+    mailAdapter,
+    billingEntitlements: billingService,
+  });
+  registerBillingRoutes({ app, authStore, billingService });
   registerAccountRoutes({
     app,
     authStore,
@@ -421,6 +459,11 @@ export async function createApiServer(options?: {
     runs,
   });
   registerProviderConfigRoutes({ app, authStore, providerConfigs });
+  registerSystemNoticeRoutes({
+    app,
+    authStore,
+    systemNotices: systemNoticeStore,
+  });
   registerAdminRoutes({
     app,
     authStore,
@@ -483,6 +526,9 @@ export async function createApiServer(options?: {
     },
     providerUsageTracker,
     generationUsage,
+    billingEntitlements: options?.disableBillingEntitlementGuard
+      ? undefined
+      : billingService,
     runAccessGuard: {
       async resolveRunAccess(request) {
         const projectIdHeader = request.headers["x-uml-project-id"];
@@ -516,10 +562,6 @@ export async function createApiServer(options?: {
     pngRenderClient,
     resolveUserId: activeUserIdFromRequest,
     projectMembershipGuard,
-    allowLegacyPlaintextProviderTest:
-      options?.allowLegacyPlaintextProviderTest ??
-      DEFAULT_ALLOW_LEGACY_PLAINTEXT_PROVIDER_TEST,
-    nodeEnv: runtimeNodeEnv,
   });
 
   return app;

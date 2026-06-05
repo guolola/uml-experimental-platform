@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   ActivityDiagramSpec,
+  AnalysisSequenceDiagramSpec,
   ClassDiagramSpec,
+  DeploymentDiagramSpec,
+  PrototypeInterfaceDiagramSpec,
   SequenceDiagramSpec,
   TableDiagramSpec,
+  UseCaseDiagramSpec,
 } from "@uml-platform/contracts";
 import { renderSvgWithPlantUml } from "../../render-service/src/index.js";
 import {
@@ -837,6 +841,48 @@ test("requirement class PlantUML hides operations while design class keeps them"
   assert.match(designArtifact?.source ?? "", /confirm\(\)/);
 });
 
+test("requirement analysis PlantUML keeps per-use-case model id", () => {
+  const model: AnalysisSequenceDiagramSpec = {
+    diagramKind: "analysis",
+    modelId: "analysis:uc_reserve",
+    sourceUseCaseId: "uc_reserve",
+    sourceUseCaseName: "预约座位",
+    title: "预约座位需求分析模型",
+    summary: "基于用例事件流的交互分析",
+    notes: [],
+    participants: [
+      {
+        id: "customer",
+        name: "客户",
+        participantType: "actor",
+      },
+      {
+        id: "system",
+        name: "预约系统",
+        participantType: "control",
+      },
+    ],
+    messages: [
+      {
+        id: "msg_select",
+        order: 1,
+        sourceId: "customer",
+        targetId: "system",
+        type: "sync",
+        name: "选择日期和座位",
+        parameters: ["日期", "座位"],
+      },
+    ],
+    fragments: [],
+  };
+
+  const artifact = generatePlantUmlArtifacts([model])[0];
+
+  assert.equal(artifact?.diagramKind, "analysis");
+  assert.equal(artifact?.modelId, "analysis:uc_reserve");
+  assert.match(artifact?.source ?? "", /customer -> system: 选择日期和座位/);
+});
+
 test("table PlantUML renders primary and foreign keys", async () => {
   const model: TableDiagramSpec = {
     diagramKind: "table",
@@ -904,4 +950,266 @@ test("table PlantUML renders primary and foreign keys", async () => {
     plantUmlSource: artifact?.source ?? "",
   });
   assert.match(rendered.svg, /<svg/i);
+});
+
+test("PlantUML renders compact relationship labels without long explanations", () => {
+  const longExplanation = "客户端通过HTTPS访问后端接口，覆盖登录、查座、预约、签到与预约查看。";
+  const deployment: DeploymentDiagramSpec = {
+    diagramKind: "deployment",
+    title: "部署设计",
+    summary: "部署拓扑",
+    notes: [],
+    nodes: [
+      { id: "mini", name: "微信小程序客户端", nodeType: "device" },
+      { id: "gateway", name: "API网关", nodeType: "server" },
+    ],
+    databases: [],
+    components: [],
+    externalSystems: [],
+    artifacts: [],
+    relationships: [
+      {
+        id: "rel_gateway",
+        type: "communication",
+        sourceId: "mini",
+        targetId: "gateway",
+        label: "加密业务访问",
+        protocol: "HTTPS",
+        port: "443",
+        description: longExplanation,
+      },
+    ],
+  };
+  const prototype: PrototypeInterfaceDiagramSpec = {
+    diagramKind: "prototype",
+    title: "原型界面关系",
+    summary: "页面关系",
+    notes: [],
+    nodes: [
+      {
+        id: "list",
+        name: "设备列表页",
+        nodeType: "screen",
+        sourceUseCaseIds: [],
+        sourceRequirementIds: [],
+      },
+      {
+        id: "detail",
+        name: "设备详情页",
+        nodeType: "screen",
+        sourceUseCaseIds: [],
+        sourceRequirementIds: [],
+      },
+    ],
+    relationships: [
+      {
+        id: "rel_detail",
+        type: "navigation",
+        sourceId: "list",
+        targetId: "detail",
+        label: "打开设备详情页面并携带筛选条件、分页状态和预约入口上下文",
+        trigger: "用户点击设备卡片并保留分页状态",
+        condition: "用户已登录且设备仍可预约",
+        description: longExplanation,
+      },
+    ],
+  };
+  const usecase: UseCaseDiagramSpec = {
+    diagramKind: "usecase",
+    title: "用例模型",
+    summary: "用例关系",
+    notes: [],
+    actors: [
+      {
+        id: "patient",
+        name: "患者",
+        actorType: "human",
+        responsibilities: [],
+      },
+    ],
+    useCases: [
+      {
+        id: "pay",
+        name: "线上缴费",
+        goal: "完成缴费",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+        eventFlows: [],
+      },
+      {
+        id: "view",
+        name: "查看处方",
+        goal: "查看缴费后的处方",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+        eventFlows: [],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [
+      {
+        id: "uc_ext",
+        type: "extend",
+        sourceId: "pay",
+        targetId: "view",
+        label: "缴费成功后",
+        condition: "已完成线上缴费且处方已生成",
+      },
+    ],
+  };
+  const classModel: ClassDiagramSpec = {
+    diagramKind: "class",
+    title: "设计类图",
+    summary: "类关系",
+    notes: [],
+    classes: [
+      { id: "reservation", name: "Reservation", attributes: [], operations: [] },
+      { id: "device", name: "Device", attributes: [], operations: [] },
+    ],
+    interfaces: [],
+    enums: [],
+    relationships: [
+      {
+        id: "rel_class",
+        type: "association",
+        sourceId: "reservation",
+        targetId: "device",
+        label: "关联设备",
+        description: longExplanation,
+      },
+    ],
+  };
+  const activity: ActivityDiagramSpec = {
+    diagramKind: "activity",
+    title: "界面关系图",
+    summary: "流程",
+    notes: [],
+    swimlanes: [],
+    nodes: [
+      { id: "start", type: "start", name: "开始" },
+      { id: "choose", type: "decision", question: "是否允许预约？" },
+      { id: "reserve", type: "activity", name: "提交预约", input: [], output: [] },
+      { id: "reject", type: "activity", name: "返回不可预约", input: [], output: [] },
+      { id: "merge", type: "merge" },
+      { id: "end", type: "end", name: "结束" },
+    ],
+    relationships: [
+      { id: "r1", type: "control_flow", sourceId: "start", targetId: "choose" },
+      {
+        id: "r2",
+        type: "control_flow",
+        sourceId: "choose",
+        targetId: "reserve",
+        guard: "库存可用且用户没有超期未归还设备并且当前时间段未被占用",
+      },
+      {
+        id: "r3",
+        type: "control_flow",
+        sourceId: "choose",
+        targetId: "reject",
+        guard: "不允许",
+      },
+      { id: "r4", type: "control_flow", sourceId: "reserve", targetId: "merge" },
+      { id: "r5", type: "control_flow", sourceId: "reject", targetId: "merge" },
+      { id: "r6", type: "control_flow", sourceId: "merge", targetId: "end" },
+    ],
+  };
+  const sequence: SequenceDiagramSpec = {
+    diagramKind: "sequence",
+    title: "用例实现设计",
+    summary: "消息",
+    notes: [],
+    participants: [
+      { id: "student", name: "学生", participantType: "actor" },
+      { id: "service", name: "预约服务", participantType: "service" },
+    ],
+    messages: [
+      {
+        id: "m1",
+        type: "sync",
+        sourceId: "student",
+        targetId: "service",
+        name: "提交预约请求并校验库存、时段、超期状态和审计信息",
+        parameters: ["设备编号", "预约时段", "申请说明", "审计上下文"],
+        condition: "库存可用且时段未被占用并且学生无超期设备",
+      },
+    ],
+    fragments: [
+      {
+        id: "alt1",
+        type: "alt",
+        label: "预约结果",
+        messageIds: ["m1"],
+        condition: "库存可用且时段未被占用并且学生无超期设备",
+      },
+    ],
+  };
+  const table: TableDiagramSpec = {
+    diagramKind: "table",
+    title: "数据库设计",
+    summary: "表关系",
+    notes: [],
+    tables: [
+      {
+        id: "device",
+        name: "device",
+        columns: [
+          {
+            id: "id",
+            name: "id",
+            dataType: "uuid",
+            isPrimaryKey: true,
+            isForeignKey: false,
+            nullable: false,
+          },
+        ],
+      },
+      {
+        id: "reservation",
+        name: "reservation",
+        columns: [
+          {
+            id: "id",
+            name: "id",
+            dataType: "uuid",
+            isPrimaryKey: true,
+            isForeignKey: false,
+            nullable: false,
+          },
+        ],
+      },
+    ],
+    relationships: [
+      {
+        id: "rel_table",
+        type: "one-to-many",
+        sourceTableId: "device",
+        targetTableId: "reservation",
+        label: "设备与预约记录之间的一对多历史追踪关系，覆盖预约、取消、借出与归还",
+      },
+    ],
+  };
+
+  const sources = [
+    ...generatePlantUmlArtifacts([deployment, prototype, usecase]),
+    ...generateDesignPlantUmlArtifacts([classModel, activity, sequence, table]),
+  ].map((artifact) => artifact.source);
+
+  const combined = sources.join("\n\n");
+  assert.match(combined, /加密业务访问 \/ HTTPS:443/);
+  assert.match(combined, /打开设备详情页面/);
+  assert.match(combined, /关联设备/);
+  assert.match(combined, /库存可用且用户/);
+  assert.match(combined, /提交预约请求/);
+  assert.match(combined, /设备与预约记录/);
+  assert.doesNotMatch(combined, /覆盖登录、查座、预约、签到与预约查看/);
+  assert.doesNotMatch(combined, /分页状态/);
+  assert.doesNotMatch(combined, /触发:/);
+  assert.doesNotMatch(combined, /条件:/);
+  assert.doesNotMatch(combined, /已完成线上缴费/);
+  assert.doesNotMatch(combined, /当前时间段未被占用/);
+  assert.doesNotMatch(combined, /审计信息/);
+  assert.doesNotMatch(combined, /借出与归还/);
 });

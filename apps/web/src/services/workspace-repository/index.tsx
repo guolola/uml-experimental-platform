@@ -31,7 +31,6 @@ import type {
   RunEvent,
   RunSnapshot,
   SvgArtifact,
-  ManagedProviderSettings,
   RepairRequirementRuleRequest,
   RepairRequirementRuleResponse,
   RepairRequirementRulesRequest,
@@ -41,6 +40,8 @@ import type {
 import {
   getDesignArtifactId,
   getDesignModelId,
+  getRequirementArtifactId,
+  getRequirementModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../entities/diagram/model";
@@ -51,7 +52,6 @@ import type {
 import type { RequirementRule } from "../../entities/requirement-rule/model";
 import {
   loadUserSettings,
-  normalizeApiBaseUrl,
 } from "../../shared/lib/user-settings";
 import type { ModelCapability } from "../../shared/lib/model-catalog";
 import {
@@ -100,16 +100,11 @@ function fingerprintMatches(
 }
 
 type ProviderSettingsPresence = {
-  apiBaseUrl?: string;
-  apiKey?: string;
   providerConfigId?: string;
 };
 
 function shouldSendProviderSettings(providerSettings?: ProviderSettingsPresence | null) {
-  return Boolean(
-    providerSettings?.providerConfigId?.trim() ||
-      (providerSettings?.apiBaseUrl?.trim() && providerSettings?.apiKey?.trim()),
-  );
+  return Boolean(providerSettings?.providerConfigId?.trim());
 }
 
 function runPayloadWithoutUnmanagedProviderSettings<T extends object>(
@@ -127,9 +122,7 @@ interface WorkspaceRepositoryOptions {
 }
 
 export interface ProviderSettingsInput {
-  apiBaseUrl?: ProviderSettings["apiBaseUrl"];
-  apiKey?: ProviderSettings["apiKey"];
-  providerConfigId?: ManagedProviderSettings["providerConfigId"];
+  providerConfigId?: string;
   model: ProviderSettings["model"];
 }
 
@@ -137,12 +130,13 @@ export interface StartRunInput {
   requirementText: string;
   selectedDiagrams: DiagramType[];
   rules: RequirementRule[];
+  contextModels: DiagramModelSpec[];
+  contextRequirementModelTraceability: RequirementModelTraceabilityEntry[];
   providerSettings: ProviderSettingsInput;
 }
 
 export interface StartDesignRunInput {
-  requirementText: string;
-  rules: RequirementRule[];
+  requirementBaseline: RequirementBaseline;
   evidencePackage?: EvidencePackage | null;
   requirementModels: DiagramModelSpec[];
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
@@ -293,7 +287,7 @@ export interface WorkspaceRepository {
 function createEmptyWorkspace(): WorkspaceRecord {
   return {
     id: "workspace-default",
-    name: "软件工程实验平台",
+    name: "软件工程实训平台",
     requirementText: "",
     selectedDiagramTypes: [],
     rules: [],
@@ -512,9 +506,9 @@ function applySnapshotToWorkspace(
       snapshot.selectedDiagrams,
     );
     next.models = {
-      ...next.models,
+      ...clearRequirementScopedRecord(next.models, requirementDiagrams),
       ...(Object.fromEntries(
-        snapshot.requirementModels.map((model) => [model.diagramKind, model]),
+        snapshot.requirementModels.map((model) => [getRequirementModelId(model), model]),
       ) as WorkspaceRecord["models"]),
     };
     next.requirementModelTraceability = mergeRequirementTraceability(
@@ -547,11 +541,17 @@ function applySnapshotToWorkspace(
   }
 
   const records = mapSnapshotToRecords(snapshot);
-  const modelDiagrams = Object.keys(records.modelMap) as DiagramType[];
+  const modelDiagrams = Array.from(
+    new Set(
+      Object.values(records.modelMap)
+        .map((model) => model?.diagramKind)
+        .filter((diagram): diagram is DiagramType => Boolean(diagram)),
+    ),
+  );
   const artifactDiagrams = Array.from(
     new Set([
-      ...Object.keys(records.plantUmlMap),
-      ...Object.keys(records.svgMap),
+      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
       ...Object.keys(snapshot.diagramErrors),
     ]),
   ) as DiagramType[];
@@ -571,7 +571,10 @@ function applySnapshotToWorkspace(
   if (affected.length === 0) {
     return next;
   }
-  next.models = { ...next.models, ...records.modelMap };
+  next.models = {
+    ...clearRequirementScopedRecord(next.models, affected),
+    ...records.modelMap,
+  };
   next.requirementModelTraceability = mergeRequirementTraceability(
     next.requirementModelTraceability,
     snapshot.requirementModelTraceability ?? [],
@@ -580,8 +583,14 @@ function applySnapshotToWorkspace(
   next.generatedDiagramTypes = Array.from(
     new Set([...next.generatedDiagramTypes, ...affected]),
   );
-  next.plantUml = { ...next.plantUml, ...records.plantUmlMap };
-  next.svgArtifacts = { ...next.svgArtifacts, ...records.svgMap };
+  next.plantUml = {
+    ...clearRequirementScopedRecord(next.plantUml, affected),
+    ...records.plantUmlMap,
+  };
+  next.svgArtifacts = {
+    ...clearRequirementScopedRecord(next.svgArtifacts, affected),
+    ...records.svgMap,
+  };
   next.diagramErrors = clearAndMergeDiagramErrors(
     next.diagramErrors,
     snapshot.diagramErrors,
@@ -627,6 +636,23 @@ function clearAndMergeDiagramErrors<T extends string, V>(
   return { ...next, ...incoming };
 }
 
+function clearRequirementScopedRecord<T>(
+  current: Record<string, T | undefined>,
+  affectedDiagrams: readonly DiagramType[],
+) {
+  const affected = new Set(affectedDiagrams);
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      if (affected.has(key as DiagramType)) return false;
+      for (const diagram of affected) {
+        if (key.startsWith(`${diagram}:`)) return false;
+      }
+      const diagramKind = (value as { diagramKind?: string } | undefined)?.diagramKind;
+      return !diagramKind || !affected.has(diagramKind as DiagramType);
+    }),
+  ) as Record<string, T | undefined>;
+}
+
 function mergeRequirementTraceability(
   current: WorkspaceRecord["requirementModelTraceability"],
   incoming: WorkspaceRecord["requirementModelTraceability"],
@@ -654,14 +680,14 @@ function stableWorkspaceState(workspace: WorkspaceRecord): Partial<WorkspaceReco
 function mapSnapshotToRecords(snapshot: RunSnapshot) {
   return {
     modelMap: Object.fromEntries(
-      snapshot.models.map((model) => [model.diagramKind, model]),
-    ) as Partial<Record<DiagramType, DiagramModelSpec>>,
+      snapshot.models.map((model) => [getRequirementModelId(model), model]),
+    ) as WorkspaceRecord["models"],
     plantUmlMap: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [artifact.diagramKind, artifact.source]),
-    ) as Partial<Record<DiagramType, string>>,
+      snapshot.plantUml.map((artifact) => [getRequirementArtifactId(artifact), artifact.source]),
+    ) as WorkspaceRecord["plantUml"],
     svgMap: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [artifact.diagramKind, artifact]),
-    ) as Partial<Record<DiagramType, SvgArtifact>>,
+      snapshot.svgArtifacts.map((artifact) => [getRequirementArtifactId(artifact), artifact]),
+    ) as WorkspaceRecord["svgArtifacts"],
   };
 }
 
@@ -1039,7 +1065,8 @@ function projectRunStageTitle(run: ProjectRunDetailResponse["run"]) {
   if (stage === "render_svg") {
     return run.runKind === "design" ? "渲染设计图表" : "渲染需求图表";
   }
-  if (stage.includes("sequence")) return "生成顺序图";
+  if (stage.includes("generate_tests")) return "生成测试用例";
+  if (stage.includes("sequence")) return "生成用例实现设计";
   if (stage.includes("design")) return "生成设计模型";
   if (stage.includes("code")) return "生成代码原型";
   if (stage.includes("document")) return "生成说明书";
@@ -1638,12 +1665,13 @@ export function createHttpWorkspaceRepository(
       );
     },
 
-    async saveRequirementModelEdit(diagramKind, model, status) {
+    async saveRequirementModelEdit(_diagramKind, model, status) {
       const workspace = await ensureProjectWorkspace();
-      workspace.models = { ...workspace.models, [diagramKind]: model };
+      const modelKey = getRequirementModelId(model);
+      workspace.models = { ...workspace.models, [modelKey]: model };
       workspace.manualModelEditStatus = {
         ...workspace.manualModelEditStatus,
-        [diagramKind]: status,
+        [modelKey]: status,
       };
       await saveProjectWorkspace(workspace);
     },
@@ -1983,10 +2011,11 @@ export function createMockWorkspaceRepository(
       const runId = `design-run-${Math.random().toString(36).slice(2, 10)}`;
       const snapshot: DesignRunSnapshot = {
         runId,
-        requirementText: input.requirementText,
+        requirementText: "",
         selectedDiagrams: input.selectedDiagrams,
         requestedDiagrams: input.requestedDiagrams,
-        rules: input.rules,
+        rules: [],
+        requirementBaseline: input.requirementBaseline,
         requirementModels: input.requirementModels,
         requirementModelTraceability: input.requirementModelTraceability,
         models: Object.values(workspace.designModels),
@@ -2384,13 +2413,14 @@ export function createMockWorkspaceRepository(
       };
     },
 
-    async saveRequirementModelEdit(diagramKind, model, status) {
+    async saveRequirementModelEdit(_diagramKind, model, status) {
+      const modelKey = getRequirementModelId(model);
       workspace = {
         ...workspace,
-        models: { ...workspace.models, [diagramKind]: model },
+        models: { ...workspace.models, [modelKey]: model },
         manualModelEditStatus: {
           ...workspace.manualModelEditStatus,
-          [diagramKind]: status,
+          [modelKey]: status,
         },
       };
     },
@@ -2537,10 +2567,22 @@ export function createStartRunInput(
   requirementText: string,
   selectedDiagrams: DiagramType[],
   rules: RequirementRule[] = [],
+  contextModels: DiagramModelSpec[] = [],
+  contextRequirementModelTraceability: RequirementModelTraceabilityEntry[] = [],
 ): StartRunInput {
+  const providerSettings = createProviderSettingsInput();
+  return {
+    requirementText,
+    selectedDiagrams,
+    rules,
+    contextModels,
+    contextRequirementModelTraceability,
+    providerSettings,
+  };
+}
+
+function createProviderSettingsInput(): ProviderSettingsInput {
   const settings = loadUserSettings();
-  const rawApiBaseUrl = settings.apiBaseUrl.trim();
-  const apiKey = settings.apiKey.trim();
   const providerConfigId = settings.providerConfigId.trim();
   const model = settings.defaultModel.trim();
 
@@ -2549,57 +2591,16 @@ export function createStartRunInput(
   }
   if (providerConfigId) {
     return {
-      requirementText,
-      selectedDiagrams,
-      rules,
-      providerSettings: {
-        providerConfigId,
-        model,
-      },
-    };
-  }
-
-  // Production project runs should resolve credentials from the server-side
-  // project default provider config instead of sending stale plaintext settings.
-  if (import.meta.env.VITE_ENABLE_LEGACY_PROVIDER_SETTINGS !== "true") {
-    return {
-      requirementText,
-      selectedDiagrams,
-      rules,
-      providerSettings: {
-        model,
-      },
-    };
-  }
-
-  if (!rawApiBaseUrl) {
-    throw new Error("请先在设置中选择托管供应商配置，或在显式 legacy/dev 备选中填写 API Base URL");
-  }
-  let apiBaseUrl = "";
-  try {
-    apiBaseUrl = normalizeApiBaseUrl(rawApiBaseUrl);
-  } catch {
-    throw new Error("设置中的 API Base URL 不是合法地址");
-  }
-  if (!apiKey) {
-    throw new Error("请先在设置中选择托管供应商配置，或在显式 legacy/dev 备选中填写 API Key");
-  }
-
-  return {
-    requirementText,
-    selectedDiagrams,
-    rules,
-    providerSettings: {
-      apiBaseUrl,
-      apiKey,
+      providerConfigId,
       model,
-    },
-  };
+    };
+  }
+
+  return { model };
 }
 
 export function createStartDesignRunInput(
-  requirementText: string,
-  rules: RequirementRule[],
+  requirementBaseline: RequirementBaseline,
   requirementModels: DiagramModelSpec[],
   requirementModelTraceability: RequirementModelTraceabilityEntry[],
   selectedDiagrams: DesignDiagramType[],
@@ -2609,10 +2610,8 @@ export function createStartDesignRunInput(
   existingDesignPlantUml: DesignPlantUmlArtifact[] = [],
   existingDesignSvgArtifacts: DesignSvgArtifact[] = [],
 ): StartDesignRunInput {
-  const base = createStartRunInput(requirementText, []);
   return {
-    requirementText,
-    rules,
+    requirementBaseline,
     requirementModels,
     requirementModelTraceability,
     selectedDiagrams,
@@ -2621,7 +2620,7 @@ export function createStartDesignRunInput(
     existingDesignModelTraceability,
     existingDesignPlantUml,
     existingDesignSvgArtifacts,
-    providerSettings: base.providerSettings,
+    providerSettings: createProviderSettingsInput(),
   };
 }
 

@@ -139,6 +139,94 @@ describe("TraceabilityMatrixPage", () => {
     expect(screen.getByText("R1 [业务规则] 用户必须登录后才能提交订单。")).toBeInTheDocument();
   });
 
+  it("scopes requirement matrices to a specific analysis model id", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["analysis"],
+        rules: [
+          createRule({
+            id: "r1",
+            category: "功能需求",
+            text: "用户可以提交订单。",
+            relatedDiagrams: ["analysis"],
+          }),
+        ],
+        models: {
+          "analysis:submit-order": {
+            diagramKind: "analysis",
+            modelId: "analysis:submit-order",
+            sourceUseCaseId: "submit-order",
+            sourceUseCaseName: "提交订单",
+            title: "提交订单需求分析模型",
+            summary: "提交订单事件流",
+            notes: [],
+            participants: [
+              { id: "customer", name: "客户", participantType: "actor" },
+              { id: "order-system", name: "订单系统", participantType: "control" },
+            ],
+            messages: [
+              {
+                id: "msg-submit",
+                sourceId: "customer",
+                targetId: "order-system",
+                type: "sync",
+                name: "提交订单",
+                parameters: [],
+              },
+            ],
+            fragments: [],
+          },
+          "analysis:cancel-order": {
+            diagramKind: "analysis",
+            modelId: "analysis:cancel-order",
+            sourceUseCaseId: "cancel-order",
+            sourceUseCaseName: "取消订单",
+            title: "取消订单需求分析模型",
+            summary: "取消订单事件流",
+            notes: [],
+            participants: [
+              { id: "cancel-system", name: "取消订单系统", participantType: "control" },
+            ],
+            messages: [],
+            fragments: [],
+          },
+        },
+        requirementModelTraceability: [
+          {
+            ruleId: "r1",
+            target: {
+              modelId: "analysis:submit-order",
+              diagramKind: "analysis",
+              elementId: "msg-submit",
+              elementKind: "message",
+              label: "提交订单",
+            },
+          },
+        ],
+      }),
+    );
+
+    render(
+      withWorkspaceProviders(
+        <TraceabilityMatrixPage
+          mode="requirements"
+          scope={{
+            diagramKind: "analysis",
+            modelId: "analysis:submit-order",
+            label: "提交订单",
+          }}
+        />,
+        repository,
+      ),
+    );
+
+    expect(await screen.findByText("跟踪矩阵 · 提交订单")).toBeInTheDocument();
+    const table = await findMatrixTableByText("提交订单");
+    expect(within(table).getByText("订单系统")).toBeInTheDocument();
+    expect(within(table).getByText("R1")).toBeInTheDocument();
+    expect(within(table).queryByText("取消订单系统")).not.toBeInTheDocument();
+  });
+
   it("shows design elements mapped to requirement model elements and derived rules", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
@@ -170,7 +258,7 @@ describe("TraceabilityMatrixPage", () => {
             modelId: "sequence:submit-order",
             sourceUseCaseId: "submit-order",
             sourceUseCaseName: "提交订单",
-            title: "提交订单顺序图",
+            title: "提交订单用例实现设计",
             summary: "订单提交时序",
             notes: [],
             participants: [
@@ -242,7 +330,7 @@ describe("TraceabilityMatrixPage", () => {
     expect(within(row!).getByText("R2")).toBeInTheDocument();
     expect(within(row!).getByText("已映射")).toBeInTheDocument();
     await userEvent.click(row!);
-    expect(screen.getByText("来源顺序图：sequence:submit-order / 认证服务")).toBeInTheDocument();
+    expect(screen.getByText("来源用例实现设计：sequence:submit-order / 认证服务")).toBeInTheDocument();
     expect(screen.getByText("需求元素：领域概念模型 / UserDomain")).toBeInTheDocument();
   });
 
@@ -284,7 +372,7 @@ describe("TraceabilityMatrixPage", () => {
         designModels: {
           sequence: {
             diagramKind: "sequence",
-            title: "顺序图",
+            title: "用例实现设计",
             summary: "登录时序",
             notes: [],
             participants: [

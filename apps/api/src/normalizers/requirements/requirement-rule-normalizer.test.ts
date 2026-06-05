@@ -57,5 +57,10 @@ test("infers related diagrams when model returns only invalid diagram labels", (
 
   assert.equal(result.rules[0]?.category, "非功能需求");
   assert.deepEqual(result.rules[0]?.relatedDiagrams, ["deployment"]);
-  assert.deepEqual(result.rules[1]?.relatedDiagrams, ["usecase", "activity", "class"]);
+  assert.deepEqual(result.rules[1]?.relatedDiagrams, [
+    "usecase",
+    "activity",
+    "analysis",
+    "class",
+  ]);
 });

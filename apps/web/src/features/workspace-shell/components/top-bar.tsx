@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -43,6 +43,7 @@ import { buildRunMarkdownReport } from "../../history";
 import { downloadTextFile } from "../../../shared/lib/download";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
+import { SystemNoticeButton } from "../../system-notices/components/system-notice-dialog";
 import {
   SHELL_ROUTE_MODULES,
   type ShellRoutePath,
@@ -53,6 +54,8 @@ export type { ShellRoutePath };
 type TopBarProps = {
   currentRoute: string | null;
   onNavigate: (route: string) => void;
+  accountDialogOpen?: boolean;
+  onAccountDialogOpenChange?: (open: boolean) => void;
 };
 
 type ProjectWorkspaceActionsProps = {
@@ -95,6 +98,8 @@ const REQUIREMENT_DIAGRAM_KINDS = [
   "class",
   "activity",
   "deployment",
+  "prototype",
+  "analysis",
 ] as const satisfies readonly DiagramKind[];
 const DESIGN_DIAGRAM_KINDS = [
   "sequence",
@@ -107,8 +112,9 @@ const DESIGN_DIAGRAM_KINDS = [
 const STAGE_LABELS: Record<RunStage, string> = {
   extract_rules: "抽取需求规则",
   generate_models: "生成需求模型",
-  generate_design_sequence: "生成设计顺序图",
+  generate_design_sequence: "生成用例实现设计",
   generate_design_models: "生成设计模型",
+  generate_tests: "生成测试用例",
   analyze_code_business_logic: "分析业务逻辑",
   analyze_code_product: "分析业务背景",
   plan_code_ui: "规划界面方案",
@@ -177,8 +183,9 @@ function sanitizeTaskText(text: string | null | undefined) {
   const replacements = [
     ["extract_rules", "抽取需求规则"],
     ["generate_models", "生成需求模型"],
-    ["generate_design_sequence", "生成设计顺序图"],
+    ["generate_design_sequence", "生成用例实现设计"],
     ["generate_design_models", "生成设计模型"],
+    ["generate_tests", "生成测试用例"],
     ["analyze_code_business_logic", "分析业务逻辑"],
     ["analyze_code_product", "分析业务背景"],
     ["plan_code_ui", "规划界面方案"],
@@ -393,20 +400,86 @@ function formatSubtaskDetail(subtask: VisibleSubtask) {
   if (subtask.status === "pending_review") {
     return `有 ${subtask.pendingReviewCount ?? 1} 条追踪关系需复核`;
   }
-  return sanitizeTaskText(subtask.errorMessage ?? subtask.message ?? "");
+  const detail = sanitizeTaskText(subtask.errorMessage ?? subtask.message ?? "");
+  if (
+    subtask.status === "completed" &&
+    (!detail ||
+      detail === "等待执行" ||
+      detail.includes("正在生成") ||
+      detail.includes("正在渲染") ||
+      detail.includes("正在修复") ||
+      detail.includes("开始执行") ||
+      detail.includes("排队中"))
+  ) {
+    return "已完成";
+  }
+  return detail;
+}
+
+function isRequirementRuleSubtask(subtaskId: string) {
+  return subtaskId === "extract_rules" || subtaskId === "repair_rules";
+}
+
+function isRequirementRulesTask(task: VisibleGenerationTask | null) {
+  return Boolean(
+    task &&
+      task.kind === "requirements" &&
+      task.subtasks.some((subtask) => isRequirementRuleSubtask(subtask.id)),
+  );
+}
+
+const STAGE_SCOPED_SUBTASK_STAGES = [
+  "generate_models",
+  "generate_design_sequence",
+  "generate_design_models",
+  "generate_plantuml",
+  "render_svg",
+] as const satisfies readonly RunStage[];
+
+function splitScopedSubtaskId(id: string) {
+  const stage = STAGE_SCOPED_SUBTASK_STAGES.find((candidate) =>
+    id.startsWith(`${candidate}:`),
+  );
+  if (!stage) return null;
+  return {
+    stage,
+    rawId: id.slice(stage.length + 1),
+  };
+}
+
+function rawSubtaskId(id: string) {
+  return splitScopedSubtaskId(id)?.rawId ?? id;
+}
+
+function retryDiagramId(id: string) {
+  return rawSubtaskId(id).split(":")[0] ?? rawSubtaskId(id);
 }
 
 function getSubtaskStage(
   taskKind: VisibleGenerationTask["kind"],
   subtaskId: string,
 ): RunStage | null {
+  const scoped = splitScopedSubtaskId(subtaskId);
+  if (scoped) return scoped.stage;
+  if (isRequirementRuleSubtask(subtaskId)) return "extract_rules";
   if (taskKind === "requirements") return "generate_models";
   if (taskKind === "design") {
-    return subtaskId === "sequence"
+    return subtaskId === "sequence" || subtaskId.startsWith("sequence:")
       ? "generate_design_sequence"
       : "generate_design_models";
   }
   return null;
+}
+
+function getVisibleTaskStages(
+  kind: RunKind | null,
+  activeStage: RunStage | null,
+  selectedTask: VisibleGenerationTask | null,
+): RunStage[] {
+  if (isRequirementRulesTask(selectedTask)) {
+    return ["extract_rules"];
+  }
+  return getTaskStages(kind, activeStage);
 }
 
 function isActiveSubtask(status: VisibleSubtask["status"]) {
@@ -539,14 +612,6 @@ export function ProjectGenerationTasksDrawerContent({
     () => currentRunDiagnostics.events.slice(-6).reverse(),
     [currentRunDiagnostics.events],
   );
-  const taskStages = useMemo(
-    () =>
-      getTaskStages(
-        currentRunDiagnostics.runKind,
-        currentRunDiagnostics.activeStage,
-      ),
-    [currentRunDiagnostics.activeStage, currentRunDiagnostics.runKind],
-  );
   const uiMockup = currentRunDiagnostics.uiMockup;
   const uiMockupImage = uiMockup?.imageUrl ?? uiMockup?.imageDataUrl ?? null;
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
@@ -557,6 +622,15 @@ export function ProjectGenerationTasksDrawerContent({
     generationTasks.find((task) => task.status === "queued" || task.status === "running") ??
     generationTasks[0] ??
     null;
+  const taskStages = useMemo(
+    () =>
+      getVisibleTaskStages(
+        currentRunDiagnostics.runKind,
+        currentRunDiagnostics.activeStage,
+        selectedTask,
+      ),
+    [currentRunDiagnostics.activeStage, currentRunDiagnostics.runKind, selectedTask],
+  );
   const activeProjectRuns = useMemo(
     () => projectRuns.filter(isActiveProjectRun),
     [projectRuns],
@@ -574,6 +648,10 @@ export function ProjectGenerationTasksDrawerContent({
   const pendingReviewSubtasks =
     selectedTask?.subtasks.filter((subtask) => subtask.status === "pending_review") ??
     [];
+  const pendingReviewCount = pendingReviewSubtasks.reduce(
+    (sum, subtask) => sum + (subtask.pendingReviewCount ?? 1),
+    0,
+  );
   const stageTodoItems = useMemo(
     () =>
       buildStageTodoItems({
@@ -586,18 +664,19 @@ export function ProjectGenerationTasksDrawerContent({
   );
   const retrySubtask = (subtaskId: string) => {
     if (!selectedTask || taskIsActive) return;
+    const diagramId = retryDiagramId(subtaskId);
     if (
       selectedTask.kind === "requirements" &&
-      REQUIREMENT_DIAGRAM_KINDS.includes(subtaskId as DiagramKind)
+      REQUIREMENT_DIAGRAM_KINDS.includes(diagramId as DiagramKind)
     ) {
-      void generateDiagrams([subtaskId as DiagramKind]);
+      void generateDiagrams([diagramId as DiagramKind]);
       return;
     }
     if (
       selectedTask.kind === "design" &&
-      DESIGN_DIAGRAM_KINDS.includes(subtaskId as DesignDiagramKind)
+      DESIGN_DIAGRAM_KINDS.includes(diagramId as DesignDiagramKind)
     ) {
-      void generateDesignDiagrams([subtaskId as DesignDiagramKind]);
+      void generateDesignDiagrams([diagramId as DesignDiagramKind]);
     }
   };
 
@@ -777,11 +856,9 @@ export function ProjectGenerationTasksDrawerContent({
 
             {pendingReviewSubtasks.length > 0 && (
               <div className="mt-5 min-w-0 max-w-full overflow-hidden rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-warning">
-                有 {pendingReviewSubtasks.reduce(
-                  (sum, subtask) => sum + (subtask.pendingReviewCount ?? 1),
-                  0,
-                )}{" "}
-                条追踪关系由系统自动补齐，需复核后再视为确认结果。
+                {isRequirementRulesTask(selectedTask)
+                  ? `有 ${pendingReviewCount} 条需求规则修复候选需确认，确认后才能继续生成模型。`
+                  : `有 ${pendingReviewCount} 条追踪关系由系统自动补齐，需复核后再视为确认结果。`}
               </div>
             )}
 
@@ -1258,12 +1335,24 @@ export function ProjectWorkspaceActions({
   );
 }
 
-export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
+export function TopBar({
+  currentRoute,
+  onNavigate,
+  accountDialogOpen: controlledAccountDialogOpen,
+  onAccountDialogOpenChange,
+}: TopBarProps) {
   const { theme, toggle } = useTheme();
   const authSession = useAuthenticatedRouteSession();
+  const [uncontrolledAccountDialogOpen, setUncontrolledAccountDialogOpen] =
+    useState(false);
+  const accountDialogOpen =
+    controlledAccountDialogOpen ?? uncontrolledAccountDialogOpen;
+  const setAccountDialogOpen =
+    onAccountDialogOpenChange ?? setUncontrolledAccountDialogOpen;
   const navItems = [
     { route: "/projects", label: "项目" },
     ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace"),
+    { route: "/account/billing", label: "购买" },
   ];
 
   return (
@@ -1273,7 +1362,7 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
           <Boxes className="size-4 text-white" />
         </span>
         <span className="whitespace-nowrap text-[18px] font-semibold leading-7 tracking-[-0.45px]">
-          软件工程实验平台
+          软件工程实训平台
         </span>
       </div>
 
@@ -1297,16 +1386,22 @@ export function TopBar({ currentRoute, onNavigate }: TopBarProps) {
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
-      <Button
-        variant="ghost"
-        size="icon"
-        className={topBarActionButtonClass}
-        onClick={toggle}
-        title={theme === "dark" ? "切换到浅色" : "切换到深色"}
-      >
-        {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
-      </Button>
-      <AccountDialog onNavigate={onNavigate} initialUser={authSession?.user ?? null} />
+        <SystemNoticeButton className={topBarActionButtonClass} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className={topBarActionButtonClass}
+          onClick={toggle}
+          title={theme === "dark" ? "切换到浅色" : "切换到深色"}
+        >
+          {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
+        </Button>
+        <AccountDialog
+          open={accountDialogOpen}
+          onOpenChange={setAccountDialogOpen}
+          onNavigate={onNavigate}
+          initialUser={authSession?.user ?? null}
+        />
       </div>
     </header>
   );

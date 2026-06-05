@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { ThemeProvider } from "../app/providers/theme-provider";
-import type { RunSnapshot } from "@uml-platform/contracts";
+import type {
+  AtomicRequirement,
+  RequirementBaseline,
+  RunSnapshot,
+} from "@uml-platform/contracts";
 import type { RequirementRule } from "../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../entities/workspace/model";
 import { WorkspaceShellProvider } from "../features/workspace-shell/state";
@@ -75,6 +79,45 @@ export function createRule(
   };
 }
 
+export function createRequirementBaseline(
+  overrides: Partial<RequirementBaseline> = {},
+): RequirementBaseline {
+  const requirement: AtomicRequirement = {
+    id: "REQ-001",
+    sourceRuleId: "r1",
+    sourceFragment: "用户必须登录后才能访问主要功能。",
+    type: "functional",
+    actor: "用户",
+    subject: "用户",
+    action: "访问",
+    object: "主要功能",
+    condition: "用户已登录",
+    outcome: "系统允许访问主要功能",
+    confidence: 0.9,
+    status: "accepted",
+    criticality: "high",
+    acceptanceCriteria: ["用户登录后可以访问主要功能。"],
+    fieldProvenance: {},
+  };
+  return {
+    runId: "run-baseline",
+    sourceDocumentId: "inline-requirement",
+    createdAt: "2026-06-05T00:00:00.000Z",
+    requirements: [requirement],
+    assumptions: [],
+    conflicts: [],
+    qualityReport: {
+      runId: "run-baseline",
+      status: "passed",
+      summary: "需求基线已确认。",
+      issues: [],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: [],
+    },
+    ...overrides,
+  };
+}
+
 export function createRunSnapshot(
   overrides: Partial<RunSnapshot> = {},
 ): RunSnapshot {
@@ -102,11 +145,7 @@ export function withWorkspaceProviders(
   if (!localStorage.getItem(USER_SETTINGS_STORAGE_KEY)) {
     localStorage.setItem(
       USER_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        ...DEFAULT_USER_SETTINGS,
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "test-api-key",
-      }),
+      JSON.stringify(DEFAULT_USER_SETTINGS),
     );
   }
 

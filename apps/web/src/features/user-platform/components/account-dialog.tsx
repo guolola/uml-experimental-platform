@@ -1,5 +1,5 @@
 // Hosts the top-bar account modal for profile, MFA, sessions, and login-state actions.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Camera,
@@ -16,6 +16,7 @@ import {
   Shield,
   ShieldCheck,
   User,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { GlobalSettingsPanel } from "../../settings/components/global-settings-panel";
@@ -50,6 +51,8 @@ import { MfaSetupPanel } from "./mfa-setup-panel";
 type AccountDialogProps = {
   onNavigate: (route: string) => void;
   initialUser?: PlatformUser | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 const AVATAR_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -128,8 +131,23 @@ function AvatarPreview({
   return <span>{initials(user)}</span>;
 }
 
-export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogProps) {
-  const [open, setOpen] = useState(false);
+export function AccountDialog({
+  onNavigate,
+  initialUser = null,
+  open: controlledOpen,
+  onOpenChange,
+}: AccountDialogProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setDialogOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) {
+        setUncontrolledOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
+    },
+    [controlledOpen, onOpenChange],
+  );
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<PlatformUser | null>(initialUser);
   const [displayName, setDisplayName] = useState(initialUser?.displayName ?? "");
@@ -151,6 +169,8 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
   const [status, setStatus] = useState("");
   const [activeTab, setActiveTab] = useState("profile");
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const dialogContentRef = useRef<HTMLDivElement | null>(null);
+  const openLocationRef = useRef<string | null>(null);
   const userId = user?.id ?? null;
 
   useEffect(() => {
@@ -230,6 +250,34 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
   const visibleEvents = events.slice(0, ACCOUNT_SESSION_RECORD_LIMIT);
 
   useEffect(() => {
+    openLocationRef.current = open
+      ? `${window.location.pathname}${window.location.search}`
+      : null;
+  }, [open]);
+
+  useEffect(() => {
+    const closeIfLocationChanged = () => {
+      const openedAt = openLocationRef.current;
+      if (!openedAt) return;
+      const currentLocation = `${window.location.pathname}${window.location.search}`;
+      if (currentLocation !== openedAt) {
+        setDialogOpen(false);
+      }
+    };
+    const closeForRouteChange = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      if (!detail || typeof detail.path !== "string") return;
+      closeIfLocationChanged();
+    };
+    window.addEventListener("uml-route-change", closeForRouteChange);
+    window.addEventListener("popstate", closeIfLocationChanged);
+    return () => {
+      window.removeEventListener("uml-route-change", closeForRouteChange);
+      window.removeEventListener("popstate", closeIfLocationChanged);
+    };
+  }, [setDialogOpen]);
+
+  useEffect(() => {
     return () => {
       if (avatarPreviewUrl && typeof URL.revokeObjectURL === "function") {
         URL.revokeObjectURL(avatarPreviewUrl);
@@ -275,6 +323,19 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
     });
     setAvatarFile(file);
   };
+
+  const closeAccountDialog = () => {
+    setDialogOpen(false);
+  };
+
+  const keepAccountDialogOpen = useCallback(() => {
+    dialogContentRef.current?.focus({ preventScroll: true });
+    setDialogOpen(true);
+    window.setTimeout(() => {
+      setDialogOpen(true);
+      dialogContentRef.current?.focus({ preventScroll: true });
+    }, 0);
+  }, [setDialogOpen]);
 
   const saveProfile = async () => {
     try {
@@ -349,7 +410,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
       URL.revokeObjectURL(avatarPreviewUrl);
     }
     setAvatarPreviewUrl("");
-    setOpen(false);
+    setDialogOpen(false);
     onNavigate("/login");
     notifyAuthSessionChanged();
   };
@@ -378,6 +439,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
   const confirmMfa = async () => {
     try {
       const response = await platformApi.confirmMfa({ code: mfaCode });
+      keepAccountDialogOpen();
       setMfaEnabled(response.mfa.enabled);
       setMfaSetup(null);
       setMfaCode("");
@@ -396,6 +458,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
 
     try {
       const response = await platformApi.updateMfa({ enabled: false, code: trimmedCode });
+      keepAccountDialogOpen();
       setMfaEnabled(response.mfa.enabled);
       setDisableCode("");
       toast.success("MFA 已停用");
@@ -405,7 +468,12 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) setDialogOpen(true);
+      }}
+    >
       <DialogTrigger
         type="button"
         className={cn(
@@ -426,7 +494,24 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
         <span className="max-w-24 truncate">{title}</span>
         {user ? <ShieldCheck className="size-5 text-muted-foreground" /> : <LogIn className="size-5 text-muted-foreground" />}
       </DialogTrigger>
-      <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-[900px]">
+      <DialogContent
+        ref={dialogContentRef}
+        hideCloseButton
+        tabIndex={-1}
+        className="max-h-[88vh] overflow-hidden p-0 sm:max-w-[900px]"
+        onInteractOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
+      >
+        <button
+          type="button"
+          data-slot="dialog-close"
+          className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 z-10 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+          onClick={closeAccountDialog}
+        >
+          <X />
+          <span className="sr-only">Close</span>
+        </button>
         {!user ? (
           <div className="grid gap-4 p-6">
             <DialogHeader>
@@ -438,7 +523,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
             </div>
             <Button
               onClick={() => {
-                setOpen(false);
+                setDialogOpen(false);
                 onNavigate("/login");
               }}
             >
@@ -856,7 +941,7 @@ export function AccountDialog({ onNavigate, initialUser = null }: AccountDialogP
                 <GlobalSettingsPanel
                   active={open && activeTab === "global"}
                   onNavigate={(route) => {
-                    setOpen(false);
+                    setDialogOpen(false);
                     onNavigate(route);
                   }}
                 />

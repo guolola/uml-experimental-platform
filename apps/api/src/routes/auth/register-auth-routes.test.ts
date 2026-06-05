@@ -52,6 +52,7 @@ test("auth registration issues an email verification token and verify-email mark
     },
   });
   assert.equal(registered.statusCode, 201);
+  const cookie = getSessionCookie(registered);
   assert.equal(registered.json().user.emailVerified, false);
   assert.equal(typeof registered.json().verification.devToken, "string");
 
@@ -64,6 +65,15 @@ test("auth registration issues an email verification token and verify-email mark
   });
   assert.equal(verified.statusCode, 200);
   assert.equal(verified.json().user.emailVerified, true);
+
+  const summary = await app.inject({
+    method: "GET",
+    url: "/api/billing/summary",
+    headers: { cookie },
+  });
+  assert.equal(summary.statusCode, 200);
+  assert.equal(summary.json().signupBonus.granted, true);
+  assert.equal(summary.json().creditBalance, 5);
 
   const reused = await app.inject({
     method: "POST",

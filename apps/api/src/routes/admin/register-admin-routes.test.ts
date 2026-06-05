@@ -26,6 +26,7 @@ import {
   createEmptyDocumentSnapshot,
   createEmptySnapshot,
 } from "../../runs/records/snapshots.js";
+import { buildRequirementBaseline } from "../../runs/baselines/requirement-baseline.js";
 import { createInMemoryAcademicAdminRepository } from "../../db/academic-admin-repository.js";
 import { registerAdminRoutes } from "./register-admin-routes.js";
 import type { AdminRiskEvent } from "./register-admin-routes.js";
@@ -1910,10 +1911,13 @@ test("admin run list classifies run kinds and returns readable summaries", async
     },
     {
       snapshot: createEmptyDesignSnapshot("run-design", {
-        requirementText: "设计建模文本",
         selectedDiagrams: ["sequence"],
         requestedDiagrams: ["sequence"],
-        rules: [],
+        requirementBaseline: buildRequirementBaseline({
+          runId: "run-design",
+          requirementText: "设计建模文本",
+          rules: [],
+        }),
         requirementModels: [],
         requirementModelTraceability: [],
       }),

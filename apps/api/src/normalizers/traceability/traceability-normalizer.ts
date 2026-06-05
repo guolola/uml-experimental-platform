@@ -31,6 +31,27 @@ function compactString(value: unknown) {
     : "";
 }
 
+function omitNullValues(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitNullValues);
+  }
+  if (!isPlainRecord(value)) return value;
+
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === null) continue;
+    next[key] = omitNullValues(item);
+  }
+  return next;
+}
+
+// Keeps malformed LLM traceability entries recoverable until the ref resolver can evaluate them.
+export function sanitizeTraceabilityEntries(value: unknown): unknown[] {
+  const cleaned = omitNullValues(value);
+  if (Array.isArray(cleaned)) return cleaned;
+  return isPlainRecord(cleaned) ? [cleaned] : [];
+}
+
 function normalizeMappingSource(
   value: unknown,
 ): DesignModelTraceabilityEntry["mappingSource"] {
@@ -58,6 +79,54 @@ function normalizeConfidence(
 function refKey(diagramKind: string, elementId: string, modelId?: string) {
   const scope = compactString(modelId) || diagramKind;
   return `${scope}:${diagramKind}:${elementId}`.toLowerCase();
+}
+
+function normalizeTraceabilityDiagramKind(value: unknown) {
+  const raw = compactString(value).toLowerCase().replace(/[\s_]+/g, "-");
+  switch (raw) {
+    case "usecase":
+    case "use-case":
+    case "usecase-diagram":
+    case "use-case-diagram":
+      return "usecase";
+    case "class":
+    case "class-diagram":
+    case "domain-class":
+    case "domain-model":
+      return "class";
+    case "activity":
+    case "activity-diagram":
+    case "business-flow":
+    case "business-process":
+      return "activity";
+    case "deployment":
+    case "deployment-diagram":
+    case "deployment-requirement":
+      return "deployment";
+    case "prototype":
+    case "prototype-diagram":
+    case "prototype-interface":
+    case "interface-relation":
+      return "prototype";
+    case "analysis":
+    case "analysis-sequence":
+    case "requirement-analysis":
+    case "requirement-analysis-sequence":
+    case "sequence-analysis":
+      return "analysis";
+    case "sequence":
+    case "sequence-diagram":
+    case "usecase-realization":
+    case "use-case-realization":
+      return "sequence";
+    case "table":
+    case "database":
+    case "database-design":
+    case "table-diagram":
+      return "table";
+    default:
+      return "";
+  }
 }
 
 function refEntryKey(
@@ -103,6 +172,19 @@ function activityNodeKind(nodeType: unknown) {
       return "join-node";
     default:
       return "activity-node";
+  }
+}
+
+function prototypeNodeKind(nodeType: unknown) {
+  switch (nodeType) {
+    case "screen":
+      return "screen";
+    case "module":
+      return "module";
+    case "entry-point":
+      return "entry-point";
+    default:
+      return "interface-node";
   }
 }
 
@@ -152,7 +234,9 @@ export function collectModelRefs(
         const kind =
           key === "nodes" && diagramKind === "activity"
             ? activityNodeKind(item.type)
-            : defaultKind;
+            : key === "nodes" && diagramKind === "prototype"
+              ? prototypeNodeKind(item.nodeType)
+              : defaultKind;
         const beforeCount = refs.length;
         if (isBusinessElementKind(kind)) {
           addRef(refs, diagramKind, item.id, kind, item.name ?? item.label, modelId);
@@ -247,9 +331,19 @@ function collectRelationshipEndpointRefs(
 
 function resolveRef(raw: unknown, maps: RefMaps) {
   if (!isPlainRecord(raw)) return null;
-  const diagramKind = compactString(raw.diagramKind);
-  const elementId = compactString(raw.elementId ?? raw.id);
-  const modelId = compactString(raw.modelId);
+  const diagramKind = normalizeTraceabilityDiagramKind(
+    raw.diagramKind ?? raw.diagram ?? raw.diagramType ?? raw.modelKind,
+  );
+  const elementId = compactString(
+    raw.elementId ??
+      raw.elementID ??
+      raw.element_id ??
+      raw.refId ??
+      raw.sourceId ??
+      raw.targetId ??
+      raw.id,
+  );
+  const modelId = compactString(raw.modelId ?? raw.modelID ?? raw.model_id);
   if (!diagramKind || !elementId) return null;
   const direct = maps.byKey.get(refKey(diagramKind, elementId, modelId || undefined));
   if (direct) return direct;
@@ -279,7 +373,15 @@ export function formatTraceabilityMissingRefs(
   const label = scope === "requirement" ? "需求元素" : "设计元素";
   const preview = missingRefs
     .slice(0, 8)
-    .map((ref) => `${ref.diagramKind}:${ref.elementId}`)
+    .map((ref) =>
+      [
+        ref.modelId ? `${ref.modelId} |` : "",
+        `${ref.diagramKind}:${ref.elementId}`,
+        ref.label ? `| ${ref.label}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
     .join("、");
   const suffix = missingRefs.length > 8 ? ` 等 ${missingRefs.length} 个` : "";
   return `缺少 ${missingRefs.length} 个${label}映射：${preview}${suffix}`;
@@ -312,6 +414,47 @@ export function normalizeRequirementTraceabilityWithCoverage(
     traceability.map((entry) => entry.target),
   );
   return { traceability, missingTargets };
+}
+
+function scoreRequirementRuleForTarget(
+  rule: RequirementRule,
+  target: ModelElementRef,
+) {
+  const ruleText = `${rule.id} ${rule.category} ${rule.text}`.toLowerCase();
+  const targetLabel = target.label.toLowerCase();
+  const targetId = target.elementId.toLowerCase();
+  let score = rule.relatedDiagrams.some((diagram) => diagram === target.diagramKind)
+    ? 10
+    : 0;
+  if (targetLabel && ruleText.includes(targetLabel)) score += 8;
+  if (targetId && ruleText.includes(targetId)) score += 6;
+  for (const token of targetLabel.split(/[\s:：,，.。;；/\\|_\-]+/)) {
+    if (token.length >= 2 && ruleText.includes(token)) score += 2;
+  }
+  return score;
+}
+
+export function autoFillRequirementTraceability(
+  missingTargets: ModelElementRef[],
+  rules: RequirementRule[],
+): RequirementModelTraceabilityEntry[] {
+  if (rules.length === 0) return [];
+  return missingTargets.flatMap((target): RequirementModelTraceabilityEntry[] => {
+    const candidates = rules.filter((rule) =>
+      rule.relatedDiagrams.some((diagram) => diagram === target.diagramKind),
+    );
+    const fallback = candidates[0] ?? rules[0];
+    if (!fallback) return [];
+    const best = (candidates.length > 0 ? candidates : rules).reduce(
+      (current, rule) =>
+        scoreRequirementRuleForTarget(rule, target) >
+        scoreRequirementRuleForTarget(current, target)
+          ? rule
+          : current,
+      fallback,
+    );
+    return [{ ruleId: best.id, target }];
+  });
 }
 
 export function normalizeDesignTraceability(

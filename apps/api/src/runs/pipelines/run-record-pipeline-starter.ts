@@ -21,6 +21,7 @@ import type { ProviderTaskType } from "../../provider-configs/provider-usage-tra
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { isRunCancelled, isRunCancelledError } from "../records/run-cancellation.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
+import type { BillingService } from "../../billing/billing-service.js";
 
 type RequirementPipeline = (
   record: RunRecord,
@@ -55,10 +56,12 @@ type DocumentPipeline = (
 const LLM_SUBTASK_LABELS: Record<string, string> = {
   usecase: "用例模型",
   class: "类模型",
-  activity: "界面关系",
-  deployment: "部署模型",
-  sequence: "顺序图",
-  table: "表关系图",
+  activity: "总体业务流程",
+  deployment: "部署需求模型",
+  prototype: "原型界面关系",
+  analysis: "需求分析模型",
+  sequence: "用例实现设计",
+  table: "数据库设计",
 };
 
 const KNOWN_LLM_DIAGRAM_KINDS = new Set([
@@ -66,6 +69,8 @@ const KNOWN_LLM_DIAGRAM_KINDS = new Set([
   "class",
   "activity",
   "deployment",
+  "prototype",
+  "analysis",
   "sequence",
   "table",
 ]);
@@ -82,7 +87,8 @@ function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
   const diagramKind =
     selected?.length === 1 && KNOWN_LLM_DIAGRAM_KINDS.has(selected[0]!)
       ? selected[0]!
-      : prompt.includes("生成设计阶段顺序图结构化模型")
+      : prompt.includes("生成设计阶段用例实现设计") ||
+          prompt.includes("生成设计阶段顺序图结构化模型")
         ? "sequence"
         : null;
   if (!diagramKind) return {};
@@ -204,6 +210,27 @@ function createRunLlmTransport({
   });
 }
 
+function createEntitlementConfirmingTransport({
+  record,
+  transport,
+  billingEntitlements,
+}: {
+  record: RunRecord;
+  transport: LlmTransport;
+  billingEntitlements?: Pick<BillingService, "confirmRunUsage">;
+}): LlmTransport {
+  if (!billingEntitlements) return transport;
+  let confirmation: Promise<unknown> | null = null;
+  return {
+    async *streamChatCompletion(input) {
+      // Billing confirmation happens exactly once, at the first real LLM call.
+      confirmation ??= billingEntitlements.confirmRunUsage(record.snapshot.runId);
+      await confirmation;
+      yield* transport.streamChatCompletion(input);
+    },
+  };
+}
+
 export function handleRunPipelineError(
   record: RunRecord,
   error: unknown,
@@ -249,6 +276,7 @@ export function startRunRecordPipeline({
   runDocumentStagePipeline,
   addCodeDiagnostic,
   documentInput,
+  billingEntitlements,
 }: {
   record: RunRecord;
   providerSettings: ProviderSettings;
@@ -263,6 +291,7 @@ export function startRunRecordPipeline({
   runCodeStagePipeline: CodePipeline;
   runDocumentStagePipeline: DocumentPipeline;
   documentInput?: StartDocumentRunRequest;
+  billingEntitlements?: Pick<BillingService, "confirmRunUsage" | "releaseRunUsage">;
   addCodeDiagnostic: (
     snapshot: CodeRunSnapshot,
     stage: RunStage,
@@ -279,6 +308,12 @@ export function startRunRecordPipeline({
     llmScheduler,
   });
 
+  const entitlementTransport = createEntitlementConfirmingTransport({
+    record,
+    transport: scheduledTransport,
+    billingEntitlements,
+  });
+
   const runPromise =
     taskType === "document_generation"
       ? runDocumentStagePipeline(
@@ -287,21 +322,23 @@ export function startRunRecordPipeline({
           documentLibrary,
           projectDocumentWorkspaceId(record.metadata?.projectId ?? "default"),
           providerSettings,
-          scheduledTransport,
+          entitlementTransport,
           pngRenderClient,
         )
       : taskType === "code_generation"
-        ? runCodeStagePipeline(record, providerSettings, scheduledTransport)
+        ? runCodeStagePipeline(record, providerSettings, entitlementTransport)
         : taskType === "design_modeling"
           ? runDesignStagePipeline(
               record,
               providerSettings,
-              scheduledTransport,
+              entitlementTransport,
               renderClient,
             )
-          : runStagePipeline(record, providerSettings, scheduledTransport, renderClient);
+          : runStagePipeline(record, providerSettings, entitlementTransport, renderClient);
 
-  void runPromise.catch((error) =>
-    handleRunPipelineError(record, error, addCodeDiagnostic),
-  );
+  void runPromise
+    .catch((error) => handleRunPipelineError(record, error, addCodeDiagnostic))
+    .finally(() => {
+      void billingEntitlements?.releaseRunUsage(record.snapshot.runId);
+    });
 }

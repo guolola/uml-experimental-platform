@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { RequirementBaseline, RequirementRule } from "@uml-platform/contracts";
 import {
   buildAnalyzeCodeBusinessLogicPrompt,
   buildGenerateCodeAppBlueprintPrompt,
@@ -19,6 +20,7 @@ import {
   buildGenerateDocumentContentPrompt,
   buildGenerateDesignModelsPrompt,
   buildGenerateModelsPrompt,
+  buildGenerateRequirementAnalysisPrompt,
   buildRepairCodeFileOperationsPrompt,
   buildRepairDesignModelsPrompt,
   buildRepairDesignTraceabilityPrompt,
@@ -27,8 +29,53 @@ import {
   buildVerifyCodeUiFidelityPrompt,
 } from "./index.js";
 
+const sampleRules: RequirementRule[] = [
+  {
+    id: "r1",
+    category: "功能需求",
+    text: "用户可以提交需求",
+    relatedDiagrams: ["usecase", "class", "activity", "deployment", "prototype", "analysis"],
+  },
+];
+
+const sampleBaseline: RequirementBaseline = {
+  runId: "run-1",
+  sourceDocumentId: "inline-requirement",
+  requirements: [
+    {
+      id: "REQ-001",
+      sourceFragment: "用户可以提交需求",
+      type: "functional",
+      actor: "用户",
+      subject: "用户",
+      action: "提交",
+      object: "需求",
+      condition: null,
+      outcome: "需求被系统接收",
+      confidence: 0.9,
+      status: "accepted",
+      criticality: "critical",
+      acceptanceCriteria: ["验证用户可以提交需求"],
+      fieldProvenance: {},
+      priority: "must",
+      sourceRuleId: "r1",
+    },
+  ],
+  assumptions: [],
+  conflicts: [],
+  qualityReport: {
+    runId: "run-1",
+    status: "passed",
+    summary: "需求基线已通过",
+    issues: [],
+    blockingIssueIds: [],
+    reviewRequiredRequirementIds: [],
+  },
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
+
 test("requirement model prompts include requirement-stage responsibilities", () => {
-  const prompt = buildGenerateModelsPrompt("用户登录后进入首页", [], [
+  const prompt = buildGenerateModelsPrompt(sampleRules, sampleBaseline, [
     "usecase",
     "class",
     "activity",
@@ -40,29 +87,59 @@ test("requirement model prompts include requirement-stage responsibilities", () 
   assert.match(prompt, /领域概念模型\(class\): 只描述业务领域内的核心概念实体/);
   assert.match(prompt, /禁止输出 \*Service/);
   assert.match(prompt, /operations 必须输出 \[\] 或省略/);
-  assert.match(prompt, /界面关系图\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
+  assert.match(prompt, /总体业务流程\(activity\): 描述跨角色的业务活动/);
   assert.match(prompt, /重复业务步骤必须合并为一个 activity 节点/);
-  assert.match(prompt, /部署模型\(deployment\): 描述物理架构、网络拓扑、服务器节点及通信协议/);
+  assert.match(prompt, /部署需求模型\(deployment\): 描述需求阶段可识别的部署约束/);
   assert.match(prompt, /JSON 必须完整合法/);
   assert.match(prompt, /sourceId 和 targetId/);
   assert.match(prompt, /port.*字符串/);
+  assert.match(prompt, /图上关系短标签约束/);
+  assert.match(prompt, /不能塞进图上的 label\/name\/condition\/guard\/trigger/);
+  assert.match(prompt, /label 写“加密访问”/);
   assert.match(prompt, /requirementModelTraceability 可以返回空数组/);
   assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
+  assert.match(prompt, /RequirementBaseline（结构化需求事实和约束）/);
+  assert.doesNotMatch(prompt, /原始需求：/);
+  assert.doesNotMatch(prompt, /用户登录后进入首页/);
 });
 
 test("requirement repair prompt preserves requirement-stage responsibilities", () => {
   const prompt = buildRepairModelsPrompt(
-    "用户登录后进入首页",
-    [],
+    sampleRules,
+    sampleBaseline,
     ["activity"],
     '{"models":[]}',
     "models.0.nodes: Required",
   );
 
   assert.match(prompt, /需求阶段模型职责/);
-  assert.match(prompt, /界面关系图\(activity\): 描述 UI 的跳转逻辑与页面状态流转/);
+  assert.match(prompt, /总体业务流程\(activity\): 描述跨角色的业务活动/);
   assert.match(prompt, /relationships\[\] 必须显式包含 sourceId 和 targetId/);
   assert.match(prompt, /deployment\.relationships\[\]\.port 必须是字符串/);
+});
+
+test("single requirement model prompts forbid cross-diagram substitutions", () => {
+  const classPrompt = buildGenerateModelsPrompt(sampleRules, sampleBaseline, ["class"]);
+  assert.match(classPrompt, /领域概念模型\(class\) 单图生成任务/);
+  assert.match(classPrompt, /models\.length 必须为 1/);
+  assert.match(classPrompt, /models\[0\]\.diagramKind 必须严格等于 "class"/);
+  assert.match(classPrompt, /禁止输出其它任何 diagramKind/);
+  assert.match(classPrompt, /禁止输出 swimlanes\/nodes 作为主结构/);
+  assert.match(classPrompt, /禁止生成总体业务流程/);
+
+  const deploymentRepairPrompt = buildRepairModelsPrompt(
+    sampleRules,
+    sampleBaseline,
+    ["deployment"],
+    '{"models":[{"diagramKind":"prototype","nodes":[]}]}',
+    "expected deployment, received prototype",
+  );
+  assert.match(deploymentRepairPrompt, /部署需求模型\(deployment\) 单图生成任务/);
+  assert.match(deploymentRepairPrompt, /models\[0\]\.diagramKind 必须严格等于 "deployment"/);
+  assert.match(deploymentRepairPrompt, /必须丢弃错图/);
+  assert.match(deploymentRepairPrompt, /禁止输出原型界面 screen\/module\/entry-point 结构/);
+  assert.doesNotMatch(deploymentRepairPrompt, /prototype: 必须包含 nodes, relationships/);
+  assert.doesNotMatch(deploymentRepairPrompt, /nodeType\(screen\|module\|entry-point\)/);
 });
 
 test("requirement traceability prompts only ask for element mappings", () => {
@@ -86,8 +163,8 @@ test("requirement traceability prompts only ask for element mappings", () => {
     relationships: [],
   };
   const prompt = buildGenerateRequirementTraceabilityPrompt(
-    "用户提交需求",
     [{ id: "r1", category: "功能需求", text: "用户可以提交需求", relatedDiagrams: ["usecase"] }],
+    sampleBaseline,
     [model],
   );
 
@@ -97,11 +174,15 @@ test("requirement traceability prompts only ask for element mappings", () => {
   assert.match(prompt, /禁止把 requirements、requirement、design、model、traceability、page/);
   assert.match(prompt, /每一个需求业务元素和 relationship 都必须至少映射到一条需求规则/);
   assert.match(prompt, /不要为 system-boundary、swimlane、start\/end\/merge\/fork\/join/);
+  assert.match(prompt, /allowedTargets（唯一可引用目标清单/);
+  assert.match(prompt, /target 必须从 allowedTargets 清单原样复制/);
+  assert.match(prompt, /"elementId": "uc1"/);
+  assert.match(prompt, /禁止返回 null，直接省略 modelId/);
   assert.doesNotMatch(prompt, /返回格式必须是 \{"models"/);
 
   const repairPrompt = buildRepairRequirementTraceabilityPrompt(
-    "用户提交需求",
     [],
+    sampleBaseline,
     [model],
     "{}",
     "requirementModelTraceability: Required",
@@ -117,13 +198,14 @@ test("requirement traceability prompts only ask for element mappings", () => {
   assert.match(repairPrompt, /不要修改模型；只修复映射数组/);
   assert.match(repairPrompt, /必须补齐的缺失业务元素清单/);
   assert.match(repairPrompt, /"elementId": "uc1"/);
+  assert.match(repairPrompt, /allowedTargets（唯一可引用目标清单/);
+  assert.match(repairPrompt, /包含 modelId 的目标必须保留 modelId/);
   assert.match(repairPrompt, /如果错误提示包含非法 diagramKind/);
 });
 
 test("design model prompt keeps design-stage activity semantics", () => {
   const prompt = buildGenerateDesignModelsPrompt(
-    "用户登录后进入首页",
-    [],
+    sampleBaseline,
     [],
     [
       {
@@ -143,29 +225,35 @@ test("design model prompt keeps design-stage activity semantics", () => {
   );
 
   assert.match(prompt, /设计阶段模型职责/);
-  assert.match(prompt, /业务流程图\(activity\): 业务逻辑层，描述全局业务逻辑的流转、并行与分支/);
-  assert.match(prompt, /activity 表达业务流程图的业务逻辑层，不表达页面跳转说明/);
+  assert.match(prompt, /界面关系图\(activity\): 界面交互层/);
+  assert.match(prompt, /activity 表达设计阶段界面关系图/);
   assert.match(prompt, /多分支 alt 必须优先输出 branches/);
   assert.match(prompt, /PlantUML alt\/else\/end 分隔线/);
+  assert.match(prompt, /图上关系短标签约束/);
+  assert.match(prompt, /deployment 的 protocol、port 必须分别写入 protocol、port 字段/);
   assert.match(prompt, /notes 永远是字符串数组/);
   assert.match(prompt, /response\/reply\/result 必须写 return/);
   assert.match(prompt, /classKind 只能使用 entity\|aggregate\|valueObject\|service\|other/);
-  assert.match(prompt, /全部设计阶段顺序图/);
+  assert.match(prompt, /全部用例实现设计/);
   assert.match(prompt, /modelId/);
   assert.match(prompt, /sourceUseCaseId/);
   assert.match(prompt, /下游聚合设计模型/);
   assert.match(prompt, /designModelTraceability 可以返回空数组/);
   assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
+  assert.match(prompt, /设计阶段禁止使用原始需求文本或需求规则列表作为事实来源/);
+  assert.match(prompt, /RequirementBaseline（只用于约束和验收边界）/);
+  assert.doesNotMatch(prompt, /原始需求：/);
+  assert.doesNotMatch(prompt, /用户登录后进入首页/);
 
   const repairPrompt = buildRepairDesignModelsPrompt(
-    "用户登录后进入首页",
-    [],
+    sampleBaseline,
     ["sequence"],
     '{"models":[]}',
     "models.0.notes: Required",
   );
   assert.match(repairPrompt, /按错误路径逐项修复/);
   assert.match(repairPrompt, /不要改变原有业务语义/);
+  assert.match(repairPrompt, /图上关系短标签约束/);
 });
 
 test("design sequence prompt requires one sequence per use case", () => {
@@ -196,9 +284,9 @@ test("design sequence prompt requires one sequence per use case", () => {
     systemBoundaries: [],
     relationships: [],
   };
-  const prompt = buildGenerateDesignSequencePrompt("活动日历", [], useCaseModel);
+  const prompt = buildGenerateDesignSequencePrompt(sampleBaseline, useCaseModel);
 
-  assert.match(prompt, /每个 useCase 必须生成一个独立顺序图/);
+  assert.match(prompt, /每个 useCase 必须生成一个独立用例实现设计/);
   assert.match(prompt, /models\.length 必须等于 useCases\.length/);
   assert.match(prompt, /modelId = sequence:<useCaseId>/);
   assert.match(prompt, /sourceUseCaseId/);
@@ -207,6 +295,59 @@ test("design sequence prompt requires one sequence per use case", () => {
   assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
   assert.match(prompt, /"id": "uc_view"/);
   assert.match(prompt, /"id": "uc_create"/);
+  assert.doesNotMatch(prompt, /原始需求：/);
+  assert.doesNotMatch(prompt, /活动日历/);
+});
+
+test("requirement analysis prompt scopes one sequence to one use case event flow", () => {
+  const useCaseModel = {
+    diagramKind: "usecase" as const,
+    title: "用例模型",
+    summary: "系统边界",
+    notes: [],
+    actors: [{ id: "customer", name: "客户", actorType: "human" as const, responsibilities: [] }],
+    useCases: [
+      {
+        id: "uc_reserve",
+        name: "预约座位",
+        goal: "完成座位预约",
+        preconditions: ["用户已登录"],
+        postconditions: ["预约记录已创建"],
+        supportingActorIds: [],
+        eventFlows: [
+          {
+            id: "flow_main",
+            name: "主成功场景",
+            type: "main" as const,
+            steps: [
+              {
+                order: 1,
+                actorAction: "客户选择日期和座位",
+                systemResponse: "系统校验座位可用并创建预约",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const prompt = buildGenerateRequirementAnalysisPrompt(
+    sampleRules,
+    sampleBaseline,
+    useCaseModel,
+  );
+
+  assert.match(prompt, /models 只包含 diagramKind 为 analysis 的需求分析模型/);
+  assert.match(prompt, /你必须且只能输出一个 analysis 模型/);
+  assert.match(prompt, /modelId 必须是 analysis:<sourceUseCaseId>/);
+  assert.match(prompt, /必须来自该 useCase\.eventFlows/);
+  assert.match(prompt, /单用例需求阶段用例模型（唯一分析来源）/);
+  assert.match(prompt, /"id": "uc_reserve"/);
+  assert.match(prompt, /"actorAction": "客户选择日期和座位"/);
+  assert.doesNotMatch(prompt, /原始需求：/);
+  assert.doesNotMatch(prompt, /客户预约自习室座位/);
 });
 
 test("design traceability prompts only ask for design-to-requirement mappings", () => {
@@ -251,8 +392,7 @@ test("design traceability prompts only ask for design-to-requirement mappings", 
     fragments: [],
   };
   const prompt = buildGenerateDesignTraceabilityPrompt(
-    "用户提交需求",
-    [],
+    sampleBaseline,
     [requirementModel],
     [designModel],
     [
@@ -278,8 +418,7 @@ test("design traceability prompts only ask for design-to-requirement mappings", 
   assert.doesNotMatch(prompt, /返回格式必须是 \{"models"/);
 
   const repairPrompt = buildRepairDesignTraceabilityPrompt(
-    "用户提交需求",
-    [],
+    sampleBaseline,
     [requirementModel],
     [designModel],
     "{}",
@@ -676,7 +815,7 @@ test("code generation prompts use business background theme and modular files", 
   });
 
   assert.match(specPrompt, /theme 必须描述业务领域主题/);
-  assert.match(specPrompt, /不是 UML 实验平台主题/);
+  assert.match(specPrompt, /不是软件工程实训平台主题/);
   assert.match(businessLogicPrompt, /businessLogic/);
   assert.match(businessLogicPrompt, /PlantUML/);
   assert.match(businessLogicPrompt, /不是 skill/);
@@ -701,7 +840,7 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /businessLogic\.pageFlows/);
   assert.match(operationsPrompt, /\/src\/domain\/types\.ts/);
   assert.match(operationsPrompt, /\/src\/data\/mock-data\.ts/);
-  assert.match(operationsPrompt, /不能默认套 UML 实验平台风格/);
+  assert.match(operationsPrompt, /不能默认套软件工程实训平台风格/);
   assert.match(operationsPrompt, /当前启用的 Skill 摘要/);
   assert.match(operationsPrompt, /Skill 资源查询计划/);
   assert.match(operationsPrompt, /视觉方向（必须执行）/);

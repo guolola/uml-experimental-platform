@@ -20,6 +20,7 @@ import {
   MessageCircle,
   Activity,
   Eye,
+  X,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
@@ -201,6 +202,8 @@ export function TextRequirementView() {
     canUpdateWorkspace,
     canStartRuns,
     workspacePermissionReason,
+    billingGenerationBlock,
+    clearBillingGenerationBlock,
   } = useWorkspaceSession();
   const [query, setQuery] = useState("");
   const [defaultModel, setDefaultModel] = useState(
@@ -983,6 +986,36 @@ export function TextRequirementView() {
               <div className="mt-2 inline-flex max-w-3xl items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 <AlertTriangle className="size-3.5" />
                 {editBlockedReason}
+              </div>
+            )}
+            {billingGenerationBlock && (
+              <div className="mt-2 flex max-w-4xl flex-wrap items-center gap-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-foreground">
+                <AlertTriangle className="size-4 text-warning" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{billingGenerationBlock.message}</div>
+                  <div className="text-xs text-muted-foreground">
+                    可用次数 {billingGenerationBlock.billingSummary.creditBalance}，
+                    {billingGenerationBlock.billingSummary.activePass
+                      ? `通行卡今日 ${billingGenerationBlock.billingSummary.passDailyUsage.usedToday}/${billingGenerationBlock.billingSummary.softLimit.passDailyLimit}`
+                      : "当前没有有效通行卡"}
+                  </div>
+                </div>
+                <Button asChild size="sm" className="h-8">
+                  <a href="/pricing">购买权益</a>
+                </Button>
+                <Button asChild size="sm" variant="outline" className="h-8 bg-card">
+                  <a href="/account/billing">账单</a>
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  aria-label="关闭权益提示"
+                  onClick={clearBillingGenerationBlock}
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
             )}
           </header>

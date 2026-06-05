@@ -15,6 +15,7 @@ import { DesignModelPage } from "../features/design/components/design-model-page
 import { InstructionDocumentsPage } from "../features/documents/components/instruction-documents-page";
 import { TextRequirementView } from "../features/requirements/components/text-requirement-page";
 import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
+import { TestModelPage } from "../features/testing/components/test-model-page";
 import { MarketingHomePage } from "../features/marketing-site/components/marketing-home-page";
 import { SidebarMenu } from "../features/workspace-shell/components/sidebar-menu";
 import {
@@ -42,6 +43,10 @@ import {
   ProjectsIndexPage,
   ProjectWorkspaceBanner,
 } from "../features/user-platform/components/user-platform-pages";
+import {
+  AccountBillingPage,
+  AlipayReturnPage,
+} from "../features/user-platform/components/billing-pages";
 
 function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
   const meta = findShellRouteModule(route);
@@ -64,6 +69,8 @@ function getProtectedRoutePath(route: AppRoute) {
     route.kind === "projects-index" ||
     route.kind === "projects-new" ||
     route.kind === "project-workspace" ||
+    route.kind === "account-billing" ||
+    route.kind === "alipay-return" ||
     route.kind === "legacy-account" ||
     route.kind === "legacy-settings"
   ) {
@@ -100,12 +107,22 @@ function ProjectWorkspaceShell({
       body = <TextRequirementView />;
       break;
     case "requirement-trace-matrix":
-      body = <TraceabilityMatrixPage mode="requirements" />;
+      body = (
+        <TraceabilityMatrixPage
+          mode="requirements"
+          scope={{
+            diagramKind: selection.diagram,
+            modelId: selection.modelId,
+            label: selection.label.replace(/^跟踪矩阵 · /u, ""),
+          }}
+        />
+      );
       break;
     case "diagram-element":
       body = (
         <DiagramView
           type={selection.diagram}
+          modelId={selection.modelId}
           highlightedElement={{
             kind: selection.elementKind,
             id: selection.elementId,
@@ -114,13 +131,31 @@ function ProjectWorkspaceShell({
       );
       break;
     case "diagram":
-      body = <DiagramView type={selection.diagram} highlightedElement={null} />;
+      body = (
+        <DiagramView
+          type={selection.diagram}
+          modelId={selection.modelId}
+          highlightedElement={null}
+        />
+      );
       break;
     case "design-home":
       body = <DesignModelPage />;
       break;
     case "design-trace-matrix":
-      body = <TraceabilityMatrixPage mode="design" />;
+      body = (
+        <TraceabilityMatrixPage
+          mode="design"
+          scope={{
+            diagramKind: selection.diagram,
+            modelId: selection.modelId,
+            label: selection.label.replace(/^跟踪矩阵 · /u, ""),
+          }}
+        />
+      );
+      break;
+    case "test-home":
+      body = <TestModelPage />;
       break;
     case "design-diagram":
       body = (
@@ -199,6 +234,7 @@ function ProjectWorkspaceShell({
 
 export function Shell() {
   const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [route, setRoute] = useState<AppRoute>(() =>
     typeof window === "undefined" ? { kind: "marketing-home", path: "/" } : matchAppRoute(window.location.pathname),
   );
@@ -220,7 +256,11 @@ export function Shell() {
     setActiveProjectDrawer(null);
     if (`${window.location.pathname}${window.location.search}` !== nextLocation) {
       window.history.pushState({}, "", nextLocation);
-      window.dispatchEvent(new Event("uml-route-change"));
+      window.dispatchEvent(
+        new CustomEvent("uml-route-change", {
+          detail: { path: nextUrl.pathname, location: nextLocation },
+        }),
+      );
     }
     setRoute(matchAppRoute(nextUrl.pathname));
   }, []);
@@ -247,6 +287,12 @@ export function Shell() {
     }
     if (route.kind === "projects-new") {
       return <ProjectNewPage onNavigate={navigate} />;
+    }
+    if (route.kind === "account-billing") {
+      return <AccountBillingPage onNavigate={navigate} />;
+    }
+    if (route.kind === "alipay-return") {
+      return <AlipayReturnPage onNavigate={navigate} />;
     }
     if (route.kind === "legacy-account") {
       return <RedirectRoute to="/projects" onNavigate={navigate} />;
@@ -284,6 +330,8 @@ export function Shell() {
         <TopBar
           currentRoute={route.path}
           onNavigate={navigate}
+          accountDialogOpen={accountDialogOpen}
+          onAccountDialogOpenChange={setAccountDialogOpen}
         />
       )}
       {routeContent}

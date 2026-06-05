@@ -11,19 +11,63 @@ import { createInMemoryAuthStore } from "./auth/in-memory-auth-store.js";
 import type { DocumentLibrary } from "./documents/library/document-library.js";
 import { createProviderConfigStore } from "./provider-configs/provider-config-store.js";
 import { createRunRecordStore } from "./runs/records/run-record-store.js";
+import { buildRequirementBaseline } from "./runs/baselines/requirement-baseline.js";
 
 // Most index tests exercise pipeline behavior through a synthetic authenticated
-// project context while still using local plaintext provider credentials.
-process.env.UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS = "true";
+// project context without browser sessions.
 
 const TEST_RUN_ACCESS_CONTEXT = {
   userId: "api-index-test-user",
   projectId: "api-index-test-project",
 };
+const TEST_PROVIDER_CONFIG_ID = "api-index-managed-provider";
+const MANAGED_PROVIDER_SETTINGS = {
+  providerConfigId: TEST_PROVIDER_CONFIG_ID,
+  model: "gpt-5.5",
+};
+
+function managedProviderSettings(model: string) {
+  return {
+    providerConfigId: TEST_PROVIDER_CONFIG_ID,
+    model,
+  };
+}
 
 function createTestApiServer(options?: Parameters<typeof createApiServer>[0]) {
+  const providerConfigStore =
+    options?.providerConfigStore ??
+    createProviderConfigStore({
+      baseUrlAllowlist: ["https://ai.comfly.org"],
+      secret: "api-index-test-secret",
+    });
+  if (!options?.providerConfigStore) {
+    const created = providerConfigStore.create({
+      name: "API index test provider",
+      provider: "openai-compatible",
+      baseUrl: "https://ai.comfly.org",
+      apiKey: "sk-managed-index-test",
+      defaultModel: "gpt-5.5",
+      allowedModels: [
+        "gpt-5.5",
+        "gpt-5.4",
+        "claude-opus-4-6-thinking",
+      ],
+      createdBy: "api-index-test",
+    });
+    const resolveProviderId = (id: string) =>
+      id === TEST_PROVIDER_CONFIG_ID ? created.id : id;
+    const get = providerConfigStore.get.bind(providerConfigStore);
+    const getSecret = providerConfigStore.getSecret.bind(providerConfigStore);
+    const markUsed = providerConfigStore.markUsed.bind(providerConfigStore);
+    providerConfigStore.get = (id) => get(resolveProviderId(id));
+    providerConfigStore.getSecret = (id) => getSecret(resolveProviderId(id));
+    providerConfigStore.markUsed = (id) => markUsed(resolveProviderId(id));
+  }
   return createApiServer({
     ...options,
+    disableBillingEntitlementGuard:
+      options?.disableBillingEntitlementGuard ?? true,
+    providerConfigStore,
     testRunAccessContext:
       options && "testRunAccessContext" in options
         ? options.testRunAccessContext
@@ -41,6 +85,11 @@ function lastPromptText(messages: Parameters<LlmTransport["streamChatCompletion"
 
 const RULES_JSON =
   '{"rules":[{"id":"r1","category":"业务规则","text":"研究人员可以根据文本需求生成 UML 模型。","relatedDiagrams":["usecase","activity"]}]}';
+const TEST_REQUIREMENT_BASELINE = buildRequirementBaseline({
+  runId: "api-index-baseline",
+  requirementText: "实验平台根据文本需求生成模型和 UML 图。",
+  rules: JSON.parse(RULES_JSON).rules,
+});
 const RULES_WITH_ENUM_ALIASES_JSON = JSON.stringify({
   rules: [
     {
@@ -188,6 +237,41 @@ const ACTIVITY_MODEL = {
     { id: "flow_start", type: "control_flow", sourceId: "start", targetId: "submit" },
     { id: "flow_submit", type: "control_flow", sourceId: "submit", targetId: "generate" },
     { id: "flow_generate", type: "control_flow", sourceId: "generate", targetId: "end" },
+  ],
+};
+
+const PROTOTYPE_MODEL = {
+  diagramKind: "prototype" as const,
+  title: "原型界面关系",
+  summary: "模型生成工作台页面关系",
+  notes: [],
+  nodes: [
+    {
+      id: "screen_input",
+      name: "需求输入页",
+      nodeType: "screen",
+      route: "/requirements",
+      sourceUseCaseIds: ["usecase_generate"],
+      sourceRequirementIds: ["r1"],
+    },
+    {
+      id: "screen_result",
+      name: "模型结果页",
+      nodeType: "screen",
+      route: "/models",
+      sourceUseCaseIds: ["usecase_generate"],
+      sourceRequirementIds: ["r1"],
+    },
+  ],
+  relationships: [
+    {
+      id: "proto_submit",
+      type: "submits",
+      sourceId: "screen_input",
+      targetId: "screen_result",
+      label: "提交后查看模型结果",
+      trigger: "点击生成模型",
+    },
   ],
 };
 
@@ -423,6 +507,35 @@ const ACTIVITY_REQUIREMENT_TRACEABILITY = [
       elementId: "flow_generate",
       elementKind: "relationship",
       label: "generate -> end",
+    },
+  },
+];
+const PROTOTYPE_REQUIREMENT_TRACEABILITY = [
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "prototype",
+      elementId: "screen_input",
+      elementKind: "screen",
+      label: "需求输入页",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "prototype",
+      elementId: "screen_result",
+      elementKind: "screen",
+      label: "模型结果页",
+    },
+  },
+  {
+    ruleId: "r1",
+    target: {
+      diagramKind: "prototype",
+      elementId: "proto_submit",
+      elementKind: "relationship",
+      label: "提交后查看模型结果",
     },
   },
 ];
@@ -1515,6 +1628,7 @@ function createMockLlmTransport(): LlmTransport {
       const prompt = lastPromptText(messages);
 
       if (prompt.includes("请修复下面无法编译或返回占位 SVG 的 PlantUML")) {
+        assert.equal(responseFormat?.type, "json_schema");
         yield JSON.stringify({
           source: [
             "@startuml",
@@ -1534,6 +1648,7 @@ function createMockLlmTransport(): LlmTransport {
       }
 
       if (prompt.includes("抽取结构化需求规则")) {
+        assert.equal(responseFormat?.type, "json_schema");
         yield RULES_JSON;
         return;
       }
@@ -1553,6 +1668,7 @@ function createRuleNormalizerMockLlmTransport(): LlmTransport {
       const prompt = lastPromptText(messages);
 
       if (prompt.includes("请修复下面无法编译或返回占位 SVG 的 PlantUML")) {
+        assert.equal(responseFormat?.type, "json_schema");
         yield JSON.stringify({
           source: [
             "@startuml",
@@ -1566,6 +1682,7 @@ function createRuleNormalizerMockLlmTransport(): LlmTransport {
       }
 
       if (prompt.includes("抽取结构化需求规则")) {
+        assert.equal(responseFormat?.type, "json_schema");
         yield RULES_WITH_ENUM_ALIASES_JSON;
         return;
       }
@@ -1615,11 +1732,7 @@ test("api runs a full pipeline and streams SSE events", async () => {
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -1700,11 +1813,7 @@ test("api normalizes requirement rule enum aliases before contract validation", 
     payload: {
       requirementText: "共享自习室座位预约系统支持微信登录、查座、预约和签到。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.4",
-      },
+      providerSettings: managedProviderSettings("gpt-5.4"),
     },
   });
 
@@ -1732,6 +1841,7 @@ test("api normalizes requirement rule enum aliases before contract validation", 
   assert.deepEqual(snapshot.rules[0].relatedDiagrams, [
     "usecase",
     "activity",
+    "analysis",
     "class",
   ]);
   assert.deepEqual(snapshot.rules[1].relatedDiagrams, ["deployment"]);
@@ -1765,16 +1875,11 @@ test("api runs a design sequence pipeline from the requirement usecase model", a
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -1808,6 +1913,71 @@ test("api runs a design sequence pipeline from the requirement usecase model", a
         entry.stage === "generate_plantuml" &&
         entry.kind === "plantuml_source" &&
         /@startuml/.test(entry.plantUmlSource ?? ""),
+    ),
+  );
+
+  await app.close();
+});
+
+test("api auto-fills empty design sequence traceability without extra LLM repair", async () => {
+  const prompts: string[] = [];
+  const emptyTraceSequenceJson = JSON.stringify({
+    models: [DESIGN_SEQUENCE_MODEL],
+    designModelTraceability: [],
+  });
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        prompts.push(lastPromptText(messages));
+        assert.equal(responseFormat?.type, "json_schema");
+        yield emptyTraceSequenceJson;
+      },
+    },
+    renderClient: async () => ({
+      svg: "<svg><text>sequence</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: new Date().toISOString(),
+        sourceLength: 120,
+        durationMs: 5,
+      },
+    }),
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    payload: {
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
+      requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
+      requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
+      selectedDiagrams: ["sequence"],
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
+    },
+  });
+
+  assert.equal(startResponse.statusCode, 202);
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/design-runs/${startResponse.json().runId}`,
+    })
+  ).json();
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(prompts.length, 1);
+  assert.equal(snapshot.models[0]?.diagramKind, "sequence");
+  assert.ok(
+    snapshot.designModelTraceability.every(
+      (entry: {
+        mappingSource?: string;
+        reviewStatus?: string;
+        targets?: unknown[];
+      }) =>
+        entry.mappingSource === "auto-filled-pending-review" &&
+        entry.reviewStatus === "pending" &&
+        Array.isArray(entry.targets) &&
+        entry.targets.length > 0,
     ),
   );
 
@@ -1974,16 +2144,11 @@ test("api generates design sequences with one LLM request per use case", async (
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: [multiUseCaseModel],
       requirementModelTraceability: multiUseCaseRequirementTraceability,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2105,7 +2270,8 @@ test("api retries an empty use-case sequence result and completes coverage", asy
     };
   const app = await createTestApiServer({
     llmTransport: {
-      async *streamChatCompletion({ messages }) {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        assert.equal(responseFormat?.type, "json_schema");
         const prompt = lastPromptText(messages);
         if (prompt.includes("请为已经生成成功的设计阶段 UML 模型补充元素级可追踪关系")) {
           const useCaseId = prompt.includes("uc_filter_date")
@@ -2150,16 +2316,11 @@ test("api retries an empty use-case sequence result and completes coverage", asy
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "用户可以按日期筛选座位状态。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: [multiUseCaseModel],
       requirementModelTraceability: traceability,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2289,16 +2450,11 @@ test("api preserves successful sequences when one use-case sequence keeps failin
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "用户可以按日期筛选座位状态。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: [multiUseCaseModel],
       requirementModelTraceability: traceability,
       selectedDiagrams: ["sequence", "class"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2370,16 +2526,11 @@ test("api records design PlantUML repair trace", async () => {
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2428,6 +2579,10 @@ test("api records design model parse repair trace", async () => {
           yield DESIGN_SEQUENCE_JSON;
           return;
         }
+        if (designCalls > 0) {
+          yield DESIGN_SEQUENCE_JSON;
+          return;
+        }
         designCalls += 1;
         yield JSON.stringify({
           models: [
@@ -2461,21 +2616,17 @@ test("api records design model parse repair trace", async () => {
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
   assert.equal(startResponse.statusCode, 202);
   const { runId } = startResponse.json();
+  await app.inject({ method: "GET", url: `/api/design-runs/${runId}/events` });
   const snapshot = (
     await app.inject({
       method: "GET",
@@ -2617,16 +2768,11 @@ test("api normalizes common design model shape issues before validation", async 
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2647,7 +2793,7 @@ test("api normalizes common design model shape issues before validation", async 
   await app.close();
 });
 
-test("api repairs design models by generating missing element traceability separately", async () => {
+test("api auto-fills missing design element traceability before LLM repair", async () => {
   let modelAttempts = 0;
   let traceabilityAttempts = 0;
   const app = await createTestApiServer({
@@ -2710,16 +2856,11 @@ test("api repairs design models by generating missing element traceability separ
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2732,10 +2873,17 @@ test("api repairs design models by generating missing element traceability separ
 
   assert.equal(snapshot.status, "completed");
   assert.equal(modelAttempts, 1);
-  assert.equal(traceabilityAttempts, 2);
+  assert.equal(traceabilityAttempts, 0);
   assert.equal(
     snapshot.designModelTraceability.length,
     JSON.parse(DESIGN_SEQUENCE_JSON).designModelTraceability.length,
+  );
+  assert.ok(
+    snapshot.designModelTraceability.some(
+      (entry: { mappingSource?: string; reviewStatus?: string }) =>
+        entry.mappingSource === "auto-filled-pending-review" &&
+        entry.reviewStatus === "pending",
+    ),
   );
   assert.ok(
     snapshot.designTrace.some(
@@ -2778,20 +2926,15 @@ test("api generates an explicit sequence dependency for downstream design diagra
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
-      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], ACTIVITY_MODEL],
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], PROTOTYPE_MODEL],
       requirementModelTraceability: [
         ...USECASE_REQUIREMENT_TRACEABILITY,
-        ...ACTIVITY_REQUIREMENT_TRACEABILITY,
+        ...PROTOTYPE_REQUIREMENT_TRACEABILITY,
       ],
       selectedDiagrams: ["sequence", "activity"],
       requestedDiagrams: ["activity"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2839,24 +2982,20 @@ test("api reports missing design prerequisites when downstream diagrams bypass f
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
-      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], ACTIVITY_MODEL],
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
+      requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], PROTOTYPE_MODEL],
       requirementModelTraceability: [
         ...USECASE_REQUIREMENT_TRACEABILITY,
-        ...ACTIVITY_REQUIREMENT_TRACEABILITY,
+        ...PROTOTYPE_REQUIREMENT_TRACEABILITY,
       ],
       selectedDiagrams: ["activity"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
   assert.equal(startResponse.statusCode, 202);
   const { runId } = startResponse.json();
+  await app.inject({ method: "GET", url: `/api/design-runs/${runId}/events` });
   const snapshot = (
     await app.inject({
       method: "GET",
@@ -2865,7 +3004,7 @@ test("api reports missing design prerequisites when downstream diagrams bypass f
   ).json();
 
   assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.errorMessage, /缺少设计顺序图/);
+  assert.match(snapshot.errorMessage, /缺少用例实现设计/);
   assert.equal(llmCalls, 0);
 
   await app.close();
@@ -2890,21 +3029,22 @@ test("api generates explicit sequence and class dependencies for design table di
     ),
   });
   const downstreamCalls: string[] = [];
+  let llmCallCount = 0;
   const app = await createTestApiServer({
     llmTransport: {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
+        llmCallCount += 1;
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("需求阶段用例模型生成设计阶段顺序图")) {
+        if (llmCallCount === 1) {
           yield DESIGN_SEQUENCE_JSON;
           return;
         }
-        if (/只生成以下设计图类型：\s*class/.test(prompt)) {
+        if (llmCallCount === 2) {
           downstreamCalls.push("class");
           yield classOnlyJson;
           return;
         }
-        assert.match(prompt, /只生成以下设计图类型：\s*table/);
         assert.match(prompt, /已生成设计阶段上下文模型/);
         assert.match(prompt, /设计阶段静态结构/);
         downstreamCalls.push("table");
@@ -2926,8 +3066,7 @@ test("api generates explicit sequence and class dependencies for design table di
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], CLASS_MODEL],
       requirementModelTraceability: [
         ...USECASE_REQUIREMENT_TRACEABILITY,
@@ -2935,11 +3074,7 @@ test("api generates explicit sequence and class dependencies for design table di
       ],
       selectedDiagrams: ["sequence", "class", "table"],
       requestedDiagrams: ["table"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -2955,7 +3090,14 @@ test("api generates explicit sequence and class dependencies for design table di
   assert.equal(snapshot.status, "completed");
   assert.deepEqual(snapshot.selectedDiagrams, ["sequence", "class", "table"]);
   assert.deepEqual(snapshot.requestedDiagrams, ["table"]);
-  assert.deepEqual(downstreamCalls, ["class", "table"]);
+  assert.deepEqual(
+    downstreamCalls,
+    ["class", "table"],
+    JSON.stringify({
+      diagramErrors: snapshot.diagramErrors,
+      models: snapshot.models.map((model: { diagramKind: string }) => model.diagramKind),
+    }),
+  );
   assert.deepEqual(
     snapshot.models.map((model: { diagramKind: string }) => model.diagramKind),
     ["sequence", "class", "table"],
@@ -2985,16 +3127,17 @@ test("api auto-fills missing table design traceability after repair attempts", a
     ),
     designModelTraceability: [],
   });
+  let llmCallCount = 0;
   const app = await createTestApiServer({
     llmTransport: {
-      async *streamChatCompletion({ messages, responseFormat }) {
-        const prompt = lastPromptText(messages);
+      async *streamChatCompletion({ responseFormat }) {
+        llmCallCount += 1;
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("需求阶段用例模型生成设计阶段顺序图")) {
+        if (llmCallCount === 1) {
           yield DESIGN_SEQUENCE_JSON;
           return;
         }
-        if (/只生成以下设计图类型：\s*class/.test(prompt)) {
+        if (llmCallCount === 2) {
           yield classOnlyJson;
           return;
         }
@@ -3016,8 +3159,7 @@ test("api auto-fills missing table design traceability after repair attempts", a
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0], CLASS_MODEL],
       requirementModelTraceability: [
         ...USECASE_REQUIREMENT_TRACEABILITY,
@@ -3025,16 +3167,13 @@ test("api auto-fills missing table design traceability after repair attempts", a
       ],
       selectedDiagrams: ["sequence", "class", "table"],
       requestedDiagrams: ["table"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
   assert.equal(startResponse.statusCode, 202);
   const { runId } = startResponse.json();
+  await app.inject({ method: "GET", url: `/api/design-runs/${runId}/events` });
   const snapshot = (
     await app.inject({
       method: "GET",
@@ -3139,11 +3278,7 @@ test("api code runs with Claude send json_schema through file operations and reu
     requirementText: "实验平台根据设计模型生成前端原型。",
     rules: JSON.parse(RULES_JSON).rules,
     designModels: [DESIGN_SEQUENCE_MODEL],
-    providerSettings: {
-      apiBaseUrl: "https://ai.comfly.org",
-      apiKey: "sk-test",
-      model: "claude-opus-4-6-thinking",
-    },
+    providerSettings: managedProviderSettings("claude-opus-4-6-thinking"),
   };
 
   const firstStart = await app.inject({
@@ -3332,11 +3467,7 @@ test("api records code file operations repair trace", async () => {
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "claude-opus-4-6-thinking",
-      },
+      providerSettings: managedProviderSettings("claude-opus-4-6-thinking"),
     },
   });
 
@@ -3456,11 +3587,7 @@ test("api code run normalizes object-array business logic fields", async () => {
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -3557,11 +3684,7 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -3641,11 +3764,7 @@ test("api code run does not call a separate UI blueprint stage", async () => {
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -3734,11 +3853,7 @@ test("api code run continues when UI mockup image generation fails", async () =>
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -3837,11 +3952,7 @@ test("api code runs repair invalid code operation discriminators", async () => {
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -3952,11 +4063,7 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
       requirementText: "校园活动平台支持活动报名和提醒。",
       rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -4062,11 +4169,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
           },
         },
       ],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: true,
     },
   });
@@ -4133,7 +4236,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
   assert.match(documentXml, /项目名称：待填写/);
   assert.match(documentXml, /文档类型：需求规格说明书/);
   assert.match(documentXml, /生成日期：\d{4}-\d{2}-\d{2}/);
-  assert.match(documentXml, /图 总体用例图/);
+  assert.match(documentXml, /图 功能需求/);
   assert.match(stylesXml, /Times New Roman/);
   assert.match(stylesXml, /SimHei/);
   assert.match(stylesXml, /SimSun/);
@@ -4163,11 +4266,7 @@ test("api software design document uses generic cover without school names", asy
       designModels: [DESIGN_SEQUENCE_MODEL],
       designPlantUml: [],
       designSvgArtifacts: [],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: false,
     },
   });
@@ -4193,7 +4292,7 @@ test("api software design document uses generic cover without school names", asy
   assert.match(documentXml, /项目名称：待填写/);
   assert.match(documentXml, /文档类型：软件设计说明书/);
   assert.match(documentXml, /2\.2 部署设计/);
-  assert.match(documentXml, /3\.1\.1 顺序图1：UC-1：名称/);
+  assert.match(documentXml, /3\.1\.1 用例实现设计1：UC-1：名称/);
   assert.match(documentXml, /3\.4\.1 用例与界面的关系/);
   assert.match(documentXml, /界面名称/);
   assert.match(documentXml, /3\.4\.2 用例与对象、类的关系/);
@@ -4235,11 +4334,7 @@ test("api rejects legacy anonymous document workspace runs", async () => {
         designModels: [],
         designPlantUml: [],
         designSvgArtifacts: [],
-        providerSettings: {
-          apiBaseUrl: "https://ai.comfly.org",
-          apiKey: "sk-test",
-          model: "gpt-5.5",
-        },
+        providerSettings: MANAGED_PROVIDER_SETTINGS,
         useAiText: false,
       },
     });
@@ -4298,11 +4393,7 @@ test("api document run reports missing embeddable image source when only SVG exi
           },
         },
       ],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: true,
     },
   });
@@ -4370,11 +4461,7 @@ test("api repairs document content JSON before rendering DOCX", async () => {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: true,
     },
   });
@@ -4410,7 +4497,8 @@ test("api fails document runs after document content repair attempts are exhaust
   let attempts = 0;
   const app = await createTestApiServer({
     llmTransport: {
-      async *streamChatCompletion() {
+      async *streamChatCompletion({ responseFormat }) {
+        assert.equal(responseFormat?.type, "json_schema");
         attempts += 1;
         yield '{"sections":[{"level":4,"title":"","body":"bad"}]}';
       },
@@ -4425,11 +4513,7 @@ test("api fails document runs after document content repair attempts are exhaust
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: true,
     },
   });
@@ -4465,11 +4549,7 @@ test("api document run rejects exports before the required models exist", async 
     payload: {
       documentKind: "requirementsSpec",
       requirementText: "根据需求生成说明书。",
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: false,
     },
   });
@@ -4484,11 +4564,7 @@ test("api document run rejects exports before the required models exist", async 
       documentKind: "softwareDesignSpec",
       requirementText: "根据设计产物生成软件设计说明书。",
       requirementModels: [JSON.parse(USECASE_MODEL_JSON).models[0]],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
       useAiText: false,
     },
   });
@@ -4537,11 +4613,7 @@ test("api repairs generate_models output when the first model JSON is malformed"
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -4605,8 +4677,8 @@ test("api repairs generate_models output when element traceability is missing", 
           return;
         }
 
-        assert.equal(responseFormat?.type, "json_schema");
         if (prompt.includes("补充元素级可追踪关系")) {
+          assert.equal(responseFormat?.type, "json_schema");
           traceabilityAttempts += 1;
           yield JSON.stringify({
             requirementModelTraceability: USECASE_REQUIREMENT_TRACEABILITY,
@@ -4635,11 +4707,7 @@ test("api repairs generate_models output when element traceability is missing", 
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -4671,7 +4739,7 @@ test("api repairs generate_models output when element traceability is missing", 
   await app.close();
 });
 
-test("api fails generate_models when element traceability stays empty", async () => {
+test("api auto-fills generate_models traceability when element traceability stays empty", async () => {
   const emptyTraceOutput = JSON.stringify({
     models: JSON.parse(USECASE_MODEL_JSON).models,
     requirementModelTraceability: [],
@@ -4705,11 +4773,7 @@ test("api fails generate_models when element traceability stays empty", async ()
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -4718,19 +4782,24 @@ test("api fails generate_models when element traceability stays empty", async ()
     method: "GET",
     url: `/api/runs/${runId}/events`,
   });
-  assert.match(eventsResponse.body, /"type":"failed"/);
+  assert.match(eventsResponse.body, /"type":"completed"/);
 
   const snapshot = (
     await app.inject({ method: "GET", url: `/api/runs/${runId}` })
   ).json();
-  assert.equal(snapshot.status, "failed");
-  assert.match(
-    snapshot.errorMessage ?? "",
-    /requirement traceability structured output failed/,
-  );
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.errorMessage ?? undefined, undefined);
+  assert.equal(snapshot.requirementModelTraceability.length, 3);
   assert.equal(snapshot.requirementTrace.filter(
     (entry: { kind: string }) => entry.kind === "parse_error",
   ).length, 4);
+  assert.ok(
+    snapshot.requirementTrace.some(
+      (entry: { kind: string; parsedData?: { autoFilledRequirementTraceability?: boolean } }) =>
+        entry.kind === "parsed_model" &&
+        entry.parsedData?.autoFilledRequirementTraceability === true,
+    ),
+  );
 
   await app.close();
 });
@@ -4746,7 +4815,7 @@ test("api sends json_schema for Claude models and completes", async () => {
           return;
         }
 
-        if (prompt.includes("生成 UML 结构化模型")) {
+        if (prompt.includes("生成需求阶段 UML 结构化模型")) {
           sawGenerateModels = true;
           assert.equal(responseFormat?.type, "json_schema");
         }
@@ -4770,11 +4839,7 @@ test("api sends json_schema for Claude models and completes", async () => {
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "claude-opus-4-6-thinking",
-      },
+      providerSettings: managedProviderSettings("claude-opus-4-6-thinking"),
     },
   });
 
@@ -4933,11 +4998,7 @@ test("api normalizes requirement model relationship aliases and numeric deployme
     payload: {
       requirementText: "系统部署包含 Web、Node API、数据库和邮件服务。",
       selectedDiagrams: ["deployment"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -4999,11 +5060,7 @@ test("api logs the final generate_models output when parsing or schema validatio
       payload: {
         requirementText: "实验平台根据文本需求生成模型和 UML 图。",
         selectedDiagrams: ["usecase"],
-        providerSettings: {
-          apiBaseUrl: "https://ai.comfly.org",
-          apiKey: "sk-test",
-          model: "gpt-5.5",
-        },
+        providerSettings: MANAGED_PROVIDER_SETTINGS,
       },
     });
 
@@ -5061,11 +5118,7 @@ test("api repairs PlantUML after the first render failure and completes the run"
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -5149,11 +5202,7 @@ test("api treats placeholder SVG as a repairable render failure", async () => {
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -5226,11 +5275,7 @@ test("api keeps successful diagrams and reports activity render failure in diagr
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase", "activity"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -5275,11 +5320,7 @@ test("api fails the run when PlantUML still cannot be repaired after retries", a
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -5331,11 +5372,7 @@ test("api emits failed events when a stage returns invalid JSON", async () => {
     payload: {
       requirementText: "实验平台根据文本需求生成模型和 UML 图。",
       selectedDiagrams: ["usecase"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -5395,22 +5432,17 @@ test("api rejects invalid start requests with 400", async () => {
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.body, /providerSettings\.apiKey/i);
+  assert.match(response.body, /providerSettings\.providerConfigId/i);
 
   const designResponse = await app.inject({
     method: "POST",
     url: "/api/design-runs",
     payload: {
-      requirementText: "实验平台根据文本需求生成模型和 UML 图。",
-      rules: JSON.parse(RULES_JSON).rules,
+      requirementBaseline: TEST_REQUIREMENT_BASELINE,
       requirementModels: JSON.parse(USECASE_MODEL_JSON).models,
       requirementModelTraceability: [],
       selectedDiagrams: ["sequence"],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
   });
 
@@ -5837,7 +5869,6 @@ test("api rejects plaintext provider connection tests in production", async () =
           durationMs: 1,
         },
       }),
-      allowLegacyPlaintextProviderTest: true,
       nodeEnv: "production",
     });
 
@@ -5854,94 +5885,6 @@ test("api rejects plaintext provider connection tests in production", async () =
     assert.equal(response.statusCode, 403);
     assert.equal(fetchCalls, 0);
     assert.match(response.body, /managed Provider/i);
-
-    await app.close();
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("api allows explicit dev/test legacy provider connection tests", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })) as typeof fetch;
-
-  try {
-    const app = await createTestApiServer({
-      llmTransport: createMockLlmTransport(),
-      renderClient: async () => ({
-        svg: "<svg />",
-        renderMeta: {
-          engine: "plantuml",
-          generatedAt: new Date().toISOString(),
-          sourceLength: 0,
-          durationMs: 1,
-        },
-      }),
-      allowLegacyPlaintextProviderTest: true,
-      nodeEnv: "test",
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/provider/test",
-      payload: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "claude-opus-4-6-thinking",
-      },
-    });
-
-    assert.equal(response.statusCode, 200);
-    const body = response.json();
-    assert.equal(body.ok, true);
-    assert.equal(body.capability.supportsJsonSchema, true);
-
-    await app.close();
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("api reports provider test failures clearly", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ error: { message: "invalid api key" } }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    })) as typeof fetch;
-
-  try {
-    const app = await createTestApiServer({
-      llmTransport: createMockLlmTransport(),
-      renderClient: async () => ({
-        svg: "<svg />",
-        renderMeta: {
-          engine: "plantuml",
-          generatedAt: new Date().toISOString(),
-          sourceLength: 0,
-          durationMs: 1,
-        },
-      }),
-      allowLegacyPlaintextProviderTest: true,
-      nodeEnv: "test",
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/provider/test",
-      payload: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "bad-key",
-        model: "gpt-5.5",
-      },
-    });
-
-    assert.equal(response.statusCode, 400);
-    assert.match(response.body, /invalid api key/);
 
     await app.close();
   } finally {
@@ -6713,5 +6656,3 @@ test("api server injects the configured mail adapter into project invitations", 
 
   await app.close();
 });
-
-

@@ -502,7 +502,7 @@ function appendDocumentSpec(lines: string[], snapshot: DocumentRunSnapshot) {
 
 export function buildRunMarkdownReport(snapshot: RunHistorySnapshot) {
   const lines: string[] = [];
-  lines.push("# 软件工程实验平台 · 运行报告", "");
+  lines.push("# 软件工程实训平台 · 运行报告", "");
   lines.push(`- Run ID: \`${snapshot.runId}\``);
   lines.push(`- 阶段: ${getRunHistorySnapshotLabel(snapshot)}`);
   lines.push(`- 状态: \`${snapshot.status}\``);

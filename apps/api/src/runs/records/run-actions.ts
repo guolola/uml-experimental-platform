@@ -14,6 +14,7 @@ import {
   createEmptyDocumentSnapshot,
   createEmptySnapshot,
 } from "./snapshots.js";
+import { buildEmptyRequirementBaseline } from "../baselines/requirement-baseline.js";
 import {
   emitEvent,
   type RunRecord,
@@ -47,10 +48,9 @@ function createQueuedSnapshotFromSource(
 
   if ("designModelTraceability" in source) {
     return createEmptyDesignSnapshot(newRunId, {
-      requirementText: source.requirementText,
       selectedDiagrams: source.selectedDiagrams,
-      rules: source.rules,
-      requirementBaseline: source.requirementBaseline,
+      requirementBaseline:
+        source.requirementBaseline ?? buildEmptyRequirementBaseline({ runId: newRunId }),
       requirementModels: source.requirementModels,
       requirementModelTraceability: source.requirementModelTraceability,
     });
@@ -101,6 +101,7 @@ export function createQueuedRunFromSource({
   action,
   sourceRunId,
   actorUserId,
+  runId = randomUUID(),
 }: {
   runs: RunRecordStore;
   source: RunRecord;
@@ -108,8 +109,8 @@ export function createQueuedRunFromSource({
   action: Extract<RunAction, "retry" | "rerun">;
   sourceRunId: string;
   actorUserId?: string;
+  runId?: string;
 }): RunActionResult {
-  const runId = randomUUID();
   const record: RunRecord = {
     snapshot: createQueuedSnapshotFromSource(source.snapshot, runId),
     events: [],

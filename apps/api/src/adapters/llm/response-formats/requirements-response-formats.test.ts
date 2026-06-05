@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   GENERATE_MODELS_RESPONSE_FORMAT,
   GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT,
+  getGenerateModelsResponseFormat,
 } from "./requirements-response-formats.js";
 
 function assertStrictObjectRequirements(schema: unknown, path = "schema") {
@@ -42,4 +43,18 @@ test("requirement model response formats are valid for OpenAI strict JSON Schema
   assertStrictObjectRequirements(
     GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT.json_schema.schema,
   );
+});
+
+test("requirement model response format narrows single selected diagram kind", () => {
+  const format = getGenerateModelsResponseFormat("gpt-5.4", ["deployment"]);
+  assert.ok(format);
+  const variants = (
+    format.json_schema.schema.properties as {
+      models: { items: { anyOf: Array<{ properties: { diagramKind: { enum: string[] } } }> } };
+    }
+  ).models.items.anyOf;
+
+  assert.equal(variants.length, 1);
+  assert.deepEqual(variants[0]?.properties.diagramKind.enum, ["deployment"]);
+  assert.match(format.json_schema.name, /deployment/);
 });

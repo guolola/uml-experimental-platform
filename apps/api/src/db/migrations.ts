@@ -332,6 +332,27 @@ create table if not exists rate_limit_policies (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists system_notices (
+  id text primary key,
+  title text not null,
+  notice_type text not null,
+  icon text,
+  content_blocks jsonb not null default '[]'::jsonb,
+  status text not null default 'draft',
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (notice_type in ('model_update', 'feature_update', 'important', 'maintenance')),
+  check (status in ('draft', 'published', 'archived'))
+);
+
+create table if not exists system_notice_reads (
+  user_id text not null references users(id) on delete cascade,
+  notice_id text not null references system_notices(id) on delete cascade,
+  read_at timestamptz not null default now(),
+  primary key (user_id, notice_id)
+);
+
 create index if not exists sessions_user_id_idx on sessions(user_id);
 create index if not exists login_events_user_id_created_at_idx on login_events(user_id, created_at desc);
 create index if not exists auth_tokens_user_type_idx on auth_tokens(user_id, type, expires_at desc);
@@ -352,6 +373,8 @@ create index if not exists provider_configs_scope_idx on provider_configs(scope_
 create index if not exists provider_secrets_config_status_idx on provider_secrets(provider_config_id, status);
 create index if not exists provider_usage_dimensions_idx on provider_usage_events(user_id, project_id, provider_config_id, task_type, created_at desc);
 create index if not exists rate_limit_policies_lookup_idx on rate_limit_policies(scope_type, scope_id, provider_config_id, task_type, enabled);
+create index if not exists system_notices_status_published_idx on system_notices(status, published_at desc, created_at desc);
+create index if not exists system_notice_reads_user_idx on system_notice_reads(user_id, read_at desc);
 create index if not exists run_records_project_created_at_idx on run_records(project_id, created_at desc);
 create index if not exists run_records_user_created_at_idx on run_records(user_id, created_at desc);
 create index if not exists run_events_run_id_sequence_idx on run_events(run_id, sequence);
@@ -595,6 +618,171 @@ create table if not exists project_workspace_states (
 create index if not exists project_workspace_states_updated_at_idx on project_workspace_states(updated_at desc);
 `;
 
+export const billingAndPaymentsSql = `
+create table if not exists billing_skus (
+  id text primary key,
+  code text not null unique,
+  kind text not null,
+  name text not null,
+  description text not null,
+  duration_days integer,
+  credit_amount integer,
+  amount_cents integer not null,
+  currency text not null default 'CNY',
+  active boolean not null default true,
+  sort_order integer not null default 0,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (kind in ('time_pass', 'credit_pack')),
+  check (currency = 'CNY'),
+  check (amount_cents > 0),
+  check (
+    (kind = 'time_pass' and duration_days is not null and duration_days > 0 and credit_amount is null) or
+    (kind = 'credit_pack' and credit_amount is not null and credit_amount > 0 and duration_days is null)
+  )
+);
+
+create table if not exists payment_orders (
+  id text primary key,
+  merchant_order_no text not null unique,
+  user_id text not null references users(id) on delete cascade,
+  sku_id text not null references billing_skus(id),
+  provider text not null,
+  amount_cents integer not null,
+  currency text not null default 'CNY',
+  status text not null default 'pending',
+  provider_transaction_id text,
+  provider_payload_json jsonb not null default '{}'::jsonb,
+  client_return_url text,
+  expires_at timestamptz not null,
+  paid_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (provider in ('wechat_native', 'alipay_page')),
+  check (status in ('pending', 'paid', 'expired', 'closed', 'failed', 'refund_pending', 'refunded')),
+  check (amount_cents > 0),
+  check (currency = 'CNY')
+);
+
+create table if not exists payment_notifications (
+  id text primary key,
+  provider text not null,
+  merchant_order_no text,
+  provider_event_id text,
+  provider_transaction_id text,
+  notification_status text not null,
+  verified boolean not null default false,
+  sanitized_payload_json jsonb not null default '{}'::jsonb,
+  error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (provider in ('wechat_native', 'alipay_page')),
+  check (notification_status in ('received', 'verified', 'rejected', 'duplicate', 'processed', 'ignored', 'failed'))
+);
+
+create table if not exists billing_entitlement_ledger (
+  id text primary key,
+  user_id text not null references users(id) on delete cascade,
+  source_type text not null,
+  source_id text,
+  sku_id text references billing_skus(id),
+  credit_delta integer not null default 0,
+  valid_from timestamptz,
+  valid_until timestamptz,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (source_type in ('purchase', 'signup_bonus', 'usage', 'refund', 'admin_adjustment', 'reversal'))
+);
+
+create table if not exists billing_usage_reservations (
+  id text primary key,
+  run_id text not null unique,
+  user_id text not null references users(id) on delete cascade,
+  project_id text,
+  task_type text not null,
+  reservation_kind text not null,
+  credit_delta integer not null default 0,
+  status text not null default 'reserved',
+  ledger_entry_id text references billing_entitlement_ledger(id) on delete set null,
+  metadata_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  confirmed_at timestamptz,
+  released_at timestamptz,
+  check (reservation_kind in ('time_pass', 'credit')),
+  check (status in ('reserved', 'confirmed', 'released'))
+);
+
+alter table payment_orders add column if not exists client_return_url text;
+alter table payment_notifications add column if not exists error_message text;
+alter table billing_usage_reservations add column if not exists project_id text;
+alter table billing_usage_reservations add column if not exists credit_delta integer not null default 0;
+alter table billing_usage_reservations add column if not exists metadata_json jsonb not null default '{}'::jsonb;
+
+create unique index if not exists payment_orders_provider_transaction_id_unique
+  on payment_orders(provider, provider_transaction_id)
+  where provider_transaction_id is not null;
+create unique index if not exists payment_notifications_event_unique
+  on payment_notifications(provider, provider_event_id)
+  where provider_event_id is not null;
+create unique index if not exists billing_signup_bonus_unique
+  on billing_entitlement_ledger(user_id, source_type, (metadata_json->>'bonusType'))
+  where source_type = 'signup_bonus';
+create unique index if not exists billing_purchase_ledger_unique
+  on billing_entitlement_ledger(source_type, source_id)
+  where source_type in ('purchase', 'refund') and source_id is not null;
+create unique index if not exists billing_usage_ledger_unique
+  on billing_entitlement_ledger(source_type, source_id)
+  where source_type = 'usage' and source_id is not null;
+create index if not exists payment_orders_user_created_idx on payment_orders(user_id, created_at desc);
+create index if not exists payment_orders_status_expires_idx on payment_orders(status, expires_at);
+create index if not exists billing_ledger_user_created_idx on billing_entitlement_ledger(user_id, created_at desc);
+create index if not exists billing_ledger_validity_idx on billing_entitlement_ledger(user_id, valid_from, valid_until);
+create index if not exists billing_reservations_user_status_idx on billing_usage_reservations(user_id, status, created_at desc);
+
+insert into billing_skus (
+  id, code, kind, name, description, duration_days, credit_amount, amount_cents, currency, active, sort_order, metadata_json
+)
+values
+  ('sku_time_day', 'time_day', 'time_pass', '日卡', '1 天 AI 生成通行卡', 1, null, 990, 'CNY', true, 10, '{"default":true}'::jsonb),
+  ('sku_time_week', 'time_week', 'time_pass', '周卡', '7 天 AI 生成通行卡', 7, null, 3900, 'CNY', true, 20, '{"default":true}'::jsonb),
+  ('sku_time_month', 'time_month', 'time_pass', '月卡', '30 天 AI 生成通行卡', 30, null, 9900, 'CNY', true, 30, '{"default":true}'::jsonb),
+  ('sku_time_year', 'time_year', 'time_pass', '年卡', '365 天 AI 生成通行卡', 365, null, 99900, 'CNY', true, 40, '{"default":true}'::jsonb),
+  ('sku_credits_10', 'credits_10', 'credit_pack', '10 次包', '10 次 AI 生成次数包，默认不过期', null, 10, 990, 'CNY', true, 110, '{"default":true}'::jsonb),
+  ('sku_credits_50', 'credits_50', 'credit_pack', '50 次包', '50 次 AI 生成次数包，默认不过期', null, 50, 3900, 'CNY', true, 120, '{"default":true}'::jsonb),
+  ('sku_credits_100', 'credits_100', 'credit_pack', '100 次包', '100 次 AI 生成次数包，默认不过期', null, 100, 6900, 'CNY', true, 130, '{"default":true}'::jsonb),
+  ('sku_credits_500', 'credits_500', 'credit_pack', '500 次包', '500 次 AI 生成次数包，默认不过期', null, 500, 29900, 'CNY', true, 140, '{"default":true}'::jsonb)
+on conflict (code) do nothing;
+`;
+
+export const systemNoticesSql = `
+create table if not exists system_notices (
+  id text primary key,
+  title text not null,
+  notice_type text not null,
+  icon text,
+  content_blocks jsonb not null default '[]'::jsonb,
+  status text not null default 'draft',
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (notice_type in ('model_update', 'feature_update', 'important', 'maintenance')),
+  check (status in ('draft', 'published', 'archived'))
+);
+
+create table if not exists system_notice_reads (
+  user_id text not null references users(id) on delete cascade,
+  notice_id text not null references system_notices(id) on delete cascade,
+  read_at timestamptz not null default now(),
+  primary key (user_id, notice_id)
+);
+
+create index if not exists system_notices_status_published_idx on system_notices(status, published_at desc, created_at desc);
+create index if not exists system_notice_reads_user_idx on system_notice_reads(user_id, read_at desc);
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -635,6 +823,14 @@ export const migrations = [
   {
     id: "010_project_workspace_state",
     sql: projectWorkspaceStateSql,
+  },
+  {
+    id: "011_billing_and_payments",
+    sql: billingAndPaymentsSql,
+  },
+  {
+    id: "012_system_notices",
+    sql: systemNoticesSql,
   },
 ] as const;
 

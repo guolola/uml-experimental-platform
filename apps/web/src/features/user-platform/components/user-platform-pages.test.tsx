@@ -116,10 +116,10 @@ describe("ModelSettingsPage", () => {
     expect(await screen.findByText("模型配置已保存。")).toBeInTheDocument();
     expect(loadUserSettings()).toMatchObject({
       providerConfigId: "managed-openai",
-      apiBaseUrl: "",
-      apiKey: "",
       defaultModel: "gpt-5.5",
     });
+    expect(loadUserSettings()).not.toHaveProperty("apiBaseUrl");
+    expect(loadUserSettings()).not.toHaveProperty("apiKey");
   });
 
   it("shows clear auth errors without falling back to admin provider mocks", async () => {
@@ -160,25 +160,6 @@ describe("ModelSettingsPage", () => {
     });
   });
 
-  it("keeps plaintext legacy provider fields behind an explicit dev env switch", async () => {
-    const user = userEvent.setup();
-    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ providerConfigs: [] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
-    );
-
-    render(withWorkspaceProviders(<ModelSettingsPage onNavigate={() => {}} />, createRepository()));
-
-    expect(await screen.findByRole("button", { name: "显示 legacy/dev 备选" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "显示 legacy/dev 备选" }));
-    expect(screen.getByLabelText("API Key")).toBeInTheDocument();
-  });
 });
 
 describe("ProjectWorkspaceDrawer", () => {

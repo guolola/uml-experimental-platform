@@ -21,6 +21,11 @@ import {
 import { createRunSnapshot } from "../../test/workspace-test-utils";
 import { snapshotInputFingerprint } from "../../shared/lib/fingerprint";
 
+const managedProviderSettings = {
+  providerConfigId: "provider-config-1",
+  model: "gpt-5.5",
+};
+
 function createCodeRunSnapshot(
   overrides: Partial<CodeRunSnapshot> = {},
 ): CodeRunSnapshot {
@@ -143,33 +148,15 @@ describe("createStartRunInput", () => {
       requirementText: "生成 UML",
       selectedDiagrams: ["usecase"],
       rules: [],
+      contextModels: [],
+      contextRequirementModelTraceability: [],
       providerSettings: {
         model: "gpt-5.5",
       },
     });
   });
 
-  it("rejects empty legacy api key only when the explicit dev switch is enabled", () => {
-    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
-    localStorage.setItem(
-      "uml-lab-settings",
-      JSON.stringify({
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "",
-        defaultModel: "gpt-5.5",
-        fontSize: "md",
-        autoGenerate: false,
-        showStaleBanner: true,
-      }),
-    );
-
-    expect(() => createStartRunInput("生成 UML", ["usecase"])).toThrow(
-      "请先在设置中选择托管供应商配置，或在显式 legacy/dev 备选中填写 API Key",
-    );
-  });
-
-  it("normalizes legacy model provider base urls to the site root", () => {
-    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
+  it("ignores stale plaintext provider settings even when they are still in local storage", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -185,15 +172,37 @@ describe("createStartRunInput", () => {
 
     expect(createStartRunInput("生成 UML", ["usecase"])).toMatchObject({
       providerSettings: {
+        model: "gpt-5.5",
+      },
+    });
+    expect(createStartRunInput("生成 UML", ["usecase"]).providerSettings).not.toHaveProperty(
+      "apiKey",
+    );
+  });
+
+  it("includes only managed provider config references when selected", () => {
+    localStorage.setItem(
+      "uml-lab-settings",
+      JSON.stringify({
+        providerConfigId: "provider-config-1",
         apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-demo",
+        apiKey: "sk-stale",
+        defaultModel: "gpt-5.5",
+        fontSize: "md",
+        autoGenerate: false,
+        showStaleBanner: true,
+      }),
+    );
+
+    expect(createStartRunInput("生成 UML", ["usecase"])).toMatchObject({
+      providerSettings: {
+        providerConfigId: "provider-config-1",
         model: "gpt-5.5",
       },
     });
   });
 
   it("includes existing code files when starting a code agent run", () => {
-    vi.stubEnv("VITE_ENABLE_LEGACY_PROVIDER_SETTINGS", "true");
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -227,9 +236,9 @@ describe("createStartRunInput", () => {
 
     expect(input.existingFiles["/src/App.tsx"]).toContain("return null");
     expect(input.providerSettings).toMatchObject({
-      apiBaseUrl: "https://ai.comfly.org",
-      apiKey: "sk-demo",
+      model: "gpt-5.5",
     });
+    expect(input.providerSettings).not.toHaveProperty("apiKey");
     expect("imageProviderSettings" in input).toBe(false);
   });
 });
@@ -456,11 +465,7 @@ describe("createHttpWorkspaceRepository", () => {
         designModels: [],
         designPlantUml: [],
         designSvgArtifacts: [],
-        providerSettings: {
-          apiBaseUrl: "https://ai.comfly.org",
-          apiKey: "sk-demo",
-          model: "gpt-5.5",
-        },
+        providerSettings: managedProviderSettings,
         useAiText: true,
       }),
     ).rejects.toThrow("请先登录并进入项目");
@@ -575,11 +580,7 @@ describe("createHttpWorkspaceRepository", () => {
       designModels: [],
       designPlantUml: [],
       designSvgArtifacts: [],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-demo",
-        model: "gpt-5.5",
-      },
+      providerSettings: managedProviderSettings,
       useAiText: true,
     });
     await repository.listDocuments!();
@@ -1084,7 +1085,7 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.diagramVersions).toEqual({ usecase: 1, class: 1 });
     expect(body.state.generatedDiagramTypes).toEqual(["usecase", "class"]);
     expect(body.state.models.usecase).toEqual(existingUseCase);
-    expect(body.state.models.class).toEqual(generatedClass);
+    expect(body.state.models["req-class"]).toEqual(generatedClass);
   });
 
   it("merges requirement model snapshots without overwriting reviewed requirements", async () => {
@@ -1433,11 +1434,7 @@ describe("createHttpWorkspaceRepository", () => {
       designModels: [],
       designPlantUml: [],
       designSvgArtifacts: [],
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-demo",
-        model: "gpt-5.5",
-      },
+      providerSettings: managedProviderSettings,
       useAiText: true,
     };
 
@@ -1770,11 +1767,7 @@ describe("createHttpWorkspaceRepository", () => {
       ],
       targetRuleIds: ["r1"],
       baseline,
-      providerSettings: {
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-test",
-        model: "gpt-5.5",
-      },
+      providerSettings: managedProviderSettings,
     });
 
     expect(response?.candidates[0]?.ruleId).toBe("r1");

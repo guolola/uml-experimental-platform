@@ -1,5 +1,5 @@
 // Maintains per-run task state so concurrent generation jobs keep separate progress and logs.
-import type { RunEvent } from "@uml-platform/contracts";
+import type { RunEvent, RunStage } from "@uml-platform/contracts";
 import type {
   GenerationTask,
   GenerationTaskKind,
@@ -78,10 +78,18 @@ export function createGenerationTask(input: {
 }
 
 function subtaskStatusFromEvent(event: RunEvent): GenerationSubtask["status"] {
+  if (event.type === "artifact_ready") {
+    if (
+      event.artifactKind === "model" ||
+      event.artifactKind === "plantuml" ||
+      event.artifactKind === "svg"
+    ) {
+      return "completed";
+    }
+    return event.subtaskStatus ?? "running";
+  }
   if ("subtaskStatus" in event && event.subtaskStatus) return event.subtaskStatus;
   if (event.type === "failed") return "failed";
-  if (event.type === "artifact_ready" && event.artifactKind === "svg") return "completed";
-  if (event.type === "artifact_ready") return "running";
   if (event.type === "stage_progress" && event.message?.includes("修复")) {
     return "repairing";
   }
@@ -91,13 +99,158 @@ function subtaskStatusFromEvent(event: RunEvent): GenerationSubtask["status"] {
   return "running";
 }
 
-function subtaskIdFromEvent(event: RunEvent) {
+const STAGE_SCOPED_SUBTASK_STAGES = [
+  "generate_models",
+  "generate_design_sequence",
+  "generate_design_models",
+  "generate_plantuml",
+  "render_svg",
+] as const satisfies readonly RunStage[];
+
+type StageScopedSubtaskStage = (typeof STAGE_SCOPED_SUBTASK_STAGES)[number];
+
+function isStageScopedSubtaskStage(
+  stage: RunStage | undefined,
+): stage is StageScopedSubtaskStage {
+  return Boolean(
+    stage &&
+      STAGE_SCOPED_SUBTASK_STAGES.includes(stage as StageScopedSubtaskStage),
+  );
+}
+
+function splitScopedSubtaskId(id: string) {
+  const stage = STAGE_SCOPED_SUBTASK_STAGES.find((candidate) =>
+    id.startsWith(`${candidate}:`),
+  );
+  if (!stage) return null;
+  return {
+    stage,
+    rawId: id.slice(stage.length + 1),
+  };
+}
+
+function rawSubtaskIdFromEvent(event: RunEvent) {
   if ("subtaskId" in event && event.subtaskId) return event.subtaskId;
   if ("modelId" in event && event.modelId) return event.modelId;
   if ("diagramKind" in event && event.diagramKind) return event.diagramKind;
   if (event.type !== "stage_progress" || !event.message) return null;
-  const match = event.message.match(/(?:正在生成|正在渲染|正在修复)：([a-z]+)/i);
+  const match = event.message.match(/(?:正在生成|正在渲染|正在修复)：([a-z][\w:-]*)/i);
   return match?.[1] ?? null;
+}
+
+function subtaskIdFromEvent(event: RunEvent) {
+  const rawId = rawSubtaskIdFromEvent(event);
+  if (!rawId) return null;
+  if (!("stage" in event) || !isStageScopedSubtaskStage(event.stage)) {
+    return rawId;
+  }
+  const scoped = splitScopedSubtaskId(rawId);
+  return scoped?.stage === event.stage ? rawId : `${event.stage}:${rawId}`;
+}
+
+function subtaskMatchesEvent(
+  subtask: GenerationSubtask,
+  scopedSubtaskId: string,
+  rawSubtaskId: string,
+) {
+  if (subtask.id === scopedSubtaskId) return true;
+  return !splitScopedSubtaskId(subtask.id) && subtask.id === rawSubtaskId;
+}
+
+const EXPANDABLE_AGGREGATE_SUBTASK_IDS = ["analysis", "sequence"] as const;
+
+function isExpandableAggregateSubtaskId(id: string) {
+  return EXPANDABLE_AGGREGATE_SUBTASK_IDS.includes(
+    id as (typeof EXPANDABLE_AGGREGATE_SUBTASK_IDS)[number],
+  );
+}
+
+function subtaskStageAndRawId(subtaskId: string) {
+  const scoped = splitScopedSubtaskId(subtaskId);
+  return {
+    stage: scoped?.stage ?? null,
+    rawId: scoped?.rawId ?? subtaskId,
+  };
+}
+
+function hasExpandedSubtasks(
+  subtasks: GenerationSubtask[],
+  aggregateSubtaskId: string,
+) {
+  const aggregate = subtaskStageAndRawId(aggregateSubtaskId);
+  if (!isExpandableAggregateSubtaskId(aggregate.rawId)) return false;
+  return subtasks.some((subtask) => {
+    if (subtask.id === aggregateSubtaskId) return false;
+    const candidate = subtaskStageAndRawId(subtask.id);
+    return (
+      candidate.stage === aggregate.stage &&
+      candidate.rawId.startsWith(`${aggregate.rawId}:`)
+    );
+  });
+}
+
+function removeExpandedAggregatePlaceholders(
+  subtasks: GenerationSubtask[],
+) {
+  return subtasks.filter((subtask) => !hasExpandedSubtasks(subtasks, subtask.id));
+}
+
+function isAggregateCompletionForExpandedSubtasks(
+  event: RunEvent,
+  rawSubtaskId: string | null,
+  subtasks: GenerationSubtask[],
+) {
+  if (
+    !rawSubtaskId ||
+    !isExpandableAggregateSubtaskId(rawSubtaskId) ||
+    event.type !== "artifact_ready" ||
+    event.subtaskStatus !== "completed" ||
+    !("stage" in event)
+  ) {
+    return false;
+  }
+  return subtasks.some((subtask) => {
+    const scoped = splitScopedSubtaskId(subtask.id);
+    const rawId = scoped?.rawId ?? subtask.id;
+    return (
+      rawId.startsWith(`${rawSubtaskId}:`) &&
+      (!scoped || scoped.stage === event.stage)
+    );
+  });
+}
+
+function expandableAggregatePrefix(rawSubtaskId: string) {
+  const [prefix] = rawSubtaskId.split(":");
+  return isExpandableAggregateSubtaskId(prefix) ? prefix : null;
+}
+
+function shouldInsertUnmatchedSubtask(
+  event: RunEvent,
+  subtaskId: string,
+  rawSubtaskId: string | null,
+  subtasks: GenerationSubtask[],
+) {
+  if (!("stage" in event) || !isStageScopedSubtaskStage(event.stage)) {
+    return true;
+  }
+  const hasScopedSubtasksForStage = subtasks.some((subtask) => {
+    const scoped = splitScopedSubtaskId(subtask.id);
+    return scoped?.stage === event.stage;
+  });
+  if (!hasScopedSubtasksForStage) return true;
+  if (!rawSubtaskId) return false;
+  const raw = subtaskStageAndRawId(subtaskId).rawId;
+  const aggregatePrefix = expandableAggregatePrefix(rawSubtaskId) ?? expandableAggregatePrefix(raw);
+  if (!aggregatePrefix) return false;
+  return subtasks.some((subtask) => {
+    const scoped = splitScopedSubtaskId(subtask.id);
+    if (scoped?.stage !== event.stage) return false;
+    const plannedRawId = scoped.rawId;
+    return (
+      plannedRawId === aggregatePrefix ||
+      plannedRawId.startsWith(`${aggregatePrefix}:`)
+    );
+  });
 }
 
 function updateSubtasksFromEvent(
@@ -105,14 +258,9 @@ function updateSubtasksFromEvent(
   event: RunEvent,
 ): GenerationSubtask[] {
   const subtaskId = subtaskIdFromEvent(event);
+  const rawSubtaskId = rawSubtaskIdFromEvent(event);
   if (!subtaskId) return subtasks;
-  if (
-    subtaskId === "sequence" &&
-    event.type === "artifact_ready" &&
-    "subtaskStatus" in event &&
-    event.subtaskStatus === "completed" &&
-    subtasks.some((subtask) => subtask.id.startsWith("sequence:"))
-  ) {
+  if (isAggregateCompletionForExpandedSubtasks(event, rawSubtaskId, subtasks)) {
     return subtasks;
   }
   const hasExplicitSubtaskStatus =
@@ -120,7 +268,9 @@ function updateSubtasksFromEvent(
   const nextStatus = subtaskStatusFromEvent(event);
   let matched = false;
   const next = subtasks.map((subtask) => {
-    if (subtask.id !== subtaskId) return subtask;
+    if (!rawSubtaskId || !subtaskMatchesEvent(subtask, subtaskId, rawSubtaskId)) {
+      return subtask;
+    }
     matched = true;
     const status =
       !hasExplicitSubtaskStatus &&
@@ -152,8 +302,11 @@ function updateSubtasksFromEvent(
         "queueReason" in event ? event.queueReason ?? subtask.queueReason : subtask.queueReason,
     };
   });
-  if (matched) return next;
-  return [
+  if (matched) return removeExpandedAggregatePlaceholders(next);
+  if (!shouldInsertUnmatchedSubtask(event, subtaskId, rawSubtaskId, subtasks)) {
+    return removeExpandedAggregatePlaceholders(next);
+  }
+  return removeExpandedAggregatePlaceholders([
     ...next,
     {
       id: subtaskId,
@@ -168,16 +321,38 @@ function updateSubtasksFromEvent(
         "estimatedWaitMs" in event ? event.estimatedWaitMs : undefined,
       queueReason: "queueReason" in event ? event.queueReason : undefined,
     },
-  ];
+  ]);
 }
 
 function collectCompletedSubtaskIds(snapshot: unknown) {
   const ids = new Set<string>();
   if (!isRecord(snapshot)) return ids;
+  const addCompletedId = (stage: StageScopedSubtaskStage, id: unknown) => {
+    if (typeof id !== "string" || !id.trim()) return;
+    const normalized = id.trim();
+    ids.add(normalized);
+    ids.add(`${stage}:${normalized}`);
+  };
+  const isDesignSnapshot = Array.isArray(snapshot.requirementModels);
   if (Array.isArray(snapshot.models)) {
     for (const model of snapshot.models as Array<{ diagramKind?: string; modelId?: string }>) {
-      if (model.diagramKind) ids.add(model.diagramKind);
-      if (model.modelId) ids.add(model.modelId);
+      const stage: StageScopedSubtaskStage =
+        isDesignSnapshot && model.diagramKind === "sequence"
+          ? "generate_design_sequence"
+          : isDesignSnapshot
+            ? "generate_design_models"
+            : "generate_models";
+      addCompletedId(stage, model.diagramKind);
+      addCompletedId(stage, model.modelId);
+    }
+  }
+  if (Array.isArray(snapshot.plantUml)) {
+    for (const artifact of snapshot.plantUml as Array<{
+      diagramKind?: string;
+      modelId?: string;
+    }>) {
+      addCompletedId("generate_plantuml", artifact.diagramKind);
+      addCompletedId("generate_plantuml", artifact.modelId);
     }
   }
   if (Array.isArray(snapshot.svgArtifacts)) {
@@ -185,11 +360,36 @@ function collectCompletedSubtaskIds(snapshot: unknown) {
       diagramKind?: string;
       modelId?: string;
     }>) {
-      if (artifact.diagramKind) ids.add(artifact.diagramKind);
-      if (artifact.modelId) ids.add(artifact.modelId);
+      addCompletedId("render_svg", artifact.diagramKind);
+      addCompletedId("render_svg", artifact.modelId);
     }
   }
   return ids;
+}
+
+function errorForSubtask(
+  errors: Record<string, { message?: string; stage?: string }>,
+  subtaskId: string,
+) {
+  const scoped = splitScopedSubtaskId(subtaskId);
+  const candidates = [subtaskId, scoped?.rawId].filter(
+    (id): id is string => Boolean(id),
+  );
+  for (const id of candidates) {
+    const error = errors[id];
+    if (!error) continue;
+    if (!scoped || !error.stage || error.stage === scoped.stage) {
+      return error;
+    }
+  }
+  return undefined;
+}
+
+function pendingReviewStageForSource(source?: { diagramKind?: string; modelId?: string }) {
+  if (!source?.diagramKind) return null;
+  return source.diagramKind === "sequence"
+    ? "generate_design_sequence"
+    : "generate_design_models";
 }
 
 function updateSubtasksFromCompletedSnapshot(
@@ -216,15 +416,23 @@ function updateSubtasksFromCompletedSnapshot(
       }
       const diagramKind = entry.source?.diagramKind;
       const modelId = entry.source?.modelId;
+      const stage = pendingReviewStageForSource(entry.source);
       for (const id of [modelId, diagramKind]) {
         if (!id) continue;
         pendingReviewByDiagram.set(id, (pendingReviewByDiagram.get(id) ?? 0) + 1);
+        if (stage) {
+          const scopedId = `${stage}:${id}`;
+          pendingReviewByDiagram.set(
+            scopedId,
+            (pendingReviewByDiagram.get(scopedId) ?? 0) + 1,
+          );
+        }
       }
     }
   }
   const existingIds = new Set(subtasks.map((subtask) => subtask.id));
   const next = subtasks.map((subtask) => {
-    const error = errors[subtask.id];
+    const error = errorForSubtask(errors, subtask.id);
     if (error) {
       return {
         ...subtask,
@@ -246,6 +454,9 @@ function updateSubtasksFromCompletedSnapshot(
 
   for (const [id, error] of Object.entries(errors)) {
     if (existingIds.has(id)) continue;
+    if (subtasks.some((subtask) => errorForSubtask({ [id]: error }, subtask.id))) {
+      continue;
+    }
     next.push({
       id,
       label: id,

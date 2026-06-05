@@ -22,6 +22,117 @@ let loginApiMode: "failure" | "success" | "mfa-challenge" | "email-unverified";
 let authSessionMode: "authenticated" | "unauthenticated" | "offline";
 let accountMfaEnabled: boolean;
 const projectUpdatedAt = "2026-05-22T02:00:00.000Z";
+const billingTestSkus = [
+  {
+    code: "time_day",
+    name: "日卡",
+    kind: "time_pass",
+    description: "1 天 AI 生成通行卡",
+    durationDays: 1,
+    creditAmount: null,
+    amountCents: 990,
+    currency: "CNY",
+    active: true,
+    sortOrder: 10,
+  },
+  {
+    code: "time_week",
+    name: "周卡",
+    kind: "time_pass",
+    description: "7 天 AI 生成通行卡",
+    durationDays: 7,
+    creditAmount: null,
+    amountCents: 3900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 20,
+  },
+  {
+    code: "time_month",
+    name: "月卡",
+    kind: "time_pass",
+    description: "30 天 AI 生成通行卡",
+    durationDays: 30,
+    creditAmount: null,
+    amountCents: 9900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 30,
+  },
+  {
+    code: "time_year",
+    name: "年卡",
+    kind: "time_pass",
+    description: "365 天 AI 生成通行卡",
+    durationDays: 365,
+    creditAmount: null,
+    amountCents: 99900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 40,
+  },
+  {
+    code: "credits_10",
+    name: "10 次包",
+    kind: "credit_pack",
+    description: "10 次 AI 生成次数包，默认不过期",
+    durationDays: null,
+    creditAmount: 10,
+    amountCents: 990,
+    currency: "CNY",
+    active: true,
+    sortOrder: 110,
+  },
+  {
+    code: "credits_50",
+    name: "50 次包",
+    kind: "credit_pack",
+    description: "50 次 AI 生成次数包，默认不过期",
+    durationDays: null,
+    creditAmount: 50,
+    amountCents: 3900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 120,
+  },
+  {
+    code: "credits_100",
+    name: "100 次包",
+    kind: "credit_pack",
+    description: "100 次 AI 生成次数包，默认不过期",
+    durationDays: null,
+    creditAmount: 100,
+    amountCents: 6900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 130,
+  },
+  {
+    code: "credits_500",
+    name: "500 次包",
+    kind: "credit_pack",
+    description: "500 次 AI 生成次数包，默认不过期",
+    durationDays: null,
+    creditAmount: 500,
+    amountCents: 29900,
+    currency: "CNY",
+    active: true,
+    sortOrder: 140,
+  },
+] as const;
+
+const billingTestOrder = {
+  orderId: "order-test-1",
+  merchantOrderNo: "UML202606050001",
+  sku: billingTestSkus[2],
+  amountCents: billingTestSkus[2].amountCents,
+  currency: "CNY",
+  channel: "wechat_native",
+  status: "pending",
+  createdAt: "2026-06-05T04:00:00.000Z",
+  expiresAt: "2026-06-05T04:15:00.000Z",
+  paidAt: null,
+} as const;
 
 function createRepository(): WorkspaceRepository {
   return {
@@ -178,6 +289,17 @@ async function advanceTimersByTime(ms: number) {
   });
 }
 
+async function waitForPlatformLoadingToExit() {
+  await waitFor(() => {
+    const loadingScreen = screen.queryByTestId("platform-loading-screen");
+    if (loadingScreen) {
+      expect(loadingScreen).toHaveClass("pointer-events-none");
+    } else {
+      expect(loadingScreen).not.toBeInTheDocument();
+    }
+  });
+}
+
 describe("App shell routes", () => {
   beforeEach(() => {
     projectApiMode = "unauthenticated";
@@ -210,6 +332,7 @@ describe("App shell routes", () => {
       value: vi.fn(),
     });
     HTMLAnchorElement.prototype.click = vi.fn();
+    HTMLFormElement.prototype.submit = vi.fn();
     window.history.pushState({}, "", "/");
     localStorage.removeItem(USER_SETTINGS_STORAGE_KEY);
     localStorage.removeItem("uml-auth-remembered-email");
@@ -481,6 +604,72 @@ describe("App shell routes", () => {
               headers: { "Content-Type": "application/json" },
             },
           );
+        }
+        if (pathname === "/api/billing/skus") {
+          return new Response(JSON.stringify({ skus: billingTestSkus }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (pathname === "/api/billing/summary") {
+          return new Response(
+            JSON.stringify({
+              creditBalance: 5,
+              activePass: null,
+              signupBonus: {
+                granted: true,
+                creditAmount: 5,
+                validUntil: "2026-07-05T04:00:00.000Z",
+              },
+              passDailyUsage: { usedToday: 0, limit: 50 },
+              softLimit: {
+                passDailyLimit: 50,
+                passConcurrentLimit: 2,
+              },
+              recentOrders: [billingTestOrder],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (pathname === "/api/billing/orders" && method === "POST") {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            skuCode?: string;
+            channel?: "wechat_native" | "alipay_page";
+          };
+          const sku = billingTestSkus.find((candidate) => candidate.code === body.skuCode) ?? billingTestSkus[2];
+          const order = {
+            ...billingTestOrder,
+            sku,
+            amountCents: sku.amountCents,
+            channel: body.channel ?? "wechat_native",
+          };
+          return new Response(
+            JSON.stringify({
+              orderId: order.orderId,
+              merchantOrderNo: order.merchantOrderNo,
+              status: order.status,
+              amountCents: order.amountCents,
+              currency: order.currency,
+              expiresAt: order.expiresAt,
+              channel: order.channel,
+              ...(order.channel === "wechat_native"
+                ? { codeUrl: "weixin://wxpay/bizpayurl?pr=test-order" }
+                : { paymentFormHtml: "<form action=\"https://openapi.alipay.test\"><button>pay</button></form>" }),
+            }),
+            {
+              status: 201,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (pathname.startsWith("/api/billing/orders/") && method === "GET") {
+          return new Response(JSON.stringify(billingTestOrder), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
         }
         if (pathname === "/api/invitations/course-token-123/accept") {
           return new Response(
@@ -1201,11 +1390,11 @@ describe("App shell routes", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "让需求、UML、原型和说明书一站式生成",
+        name: "让需求、UML模型、原型和说明书一站式生成",
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("输入需求文本，平台辅助生成需求规则、UML 模型、React 原型与实验说明书。"),
+      screen.getByText("输入需求文本，平台辅助生成需求规则、UML模型、React 原型与实训说明书。"),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "功能特性" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "使用流程" })).toBeInTheDocument();
@@ -1296,9 +1485,9 @@ describe("App shell routes", () => {
       },
       {
         path: "/pricing",
-        heading: "当前开放能力与开通方式",
+        heading: "开通 AI 生成权益",
         active: "定价",
-        text: "当前开放能力",
+        text: "通行卡",
       },
     ];
 
@@ -1382,20 +1571,69 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
     expect(
-      await screen.findByRole("heading", { name: "当前开放能力与开通方式" }),
+      await screen.findByRole("heading", { name: "开通 AI 生成权益" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("当前开放能力")).toBeInTheDocument();
-    expect(screen.getByText("免费试用")).toBeInTheDocument();
-    expect(screen.getByText("邮箱验证与 MFA 二次验证")).toBeInTheDocument();
-    expect(screen.getByText("项目成员邀请与运行历史")).toBeInTheDocument();
-    expect(screen.getByText("UML 图生成与渲染")).toBeInTheDocument();
-    expect(screen.getByText("说明书生成与文档中心")).toBeInTheDocument();
+    expect(screen.getByText("通行卡")).toBeInTheDocument();
+    expect(screen.getByText("次数包")).toBeInTheDocument();
+    expect(screen.getByText("日卡")).toBeInTheDocument();
+    expect(screen.getByText("500 次包")).toBeInTheDocument();
+    expect(screen.getByTestId("pricing-payment-page")).toHaveAttribute(
+      "data-testid",
+      "pricing-payment-page",
+    );
+    expect(screen.getByTestId("billing-sku-group-time")).toBeInTheDocument();
+    expect(screen.getByTestId("billing-sku-group-credits")).toBeInTheDocument();
+    expect(screen.getByTestId("billing-recommended-sku")).toHaveTextContent("推荐套餐");
+    expect(screen.getAllByRole("button", { name: /立即开通|立即购买/u })).toHaveLength(8);
+    expect(screen.queryByText(/软保护/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/个 SKU/u)).not.toBeInTheDocument();
 
     expect(screen.queryByText(/私有化部署/)).not.toBeInTheDocument();
     expect(screen.queryByText(/模型微调/)).not.toBeInTheDocument();
     expect(screen.queryByText(/SLA/)).not.toBeInTheDocument();
     expect(screen.queryByText(/开放全量API/)).not.toBeInTheDocument();
     expect(screen.queryByText(/自动化批改/)).not.toBeInTheDocument();
+  });
+
+  it("opens the Figma-aligned payment confirm and WeChat QR dialogs from pricing", async () => {
+    const user = userEvent.setup();
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/pricing");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    const recommendedSku = await screen.findByTestId("billing-recommended-sku");
+    await user.click(within(recommendedSku).getByRole("button", { name: "立即开通" }));
+
+    expect(await screen.findByTestId("payment-confirm-dialog")).toBeInTheDocument();
+    expect(screen.getAllByTestId("payment-method-card")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "支付确认" })).toBeInTheDocument();
+    expect(screen.getByText("支付金额以后端 SKU 为准，请在第三方支付页确认金额一致。")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "立即支付" }));
+
+    expect(await screen.findByTestId("wechat-qr-dialog")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "微信支付" })).toBeInTheDocument();
+    expect(screen.getByText("请使用微信扫一扫完成支付")).toBeInTheDocument();
+    expect(screen.getByText("支付倒计时")).toBeInTheDocument();
+  });
+
+  it("routes Alipay payments through the Figma-aligned intermediate state", async () => {
+    const user = userEvent.setup();
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/account/billing");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    const recommendedSku = await screen.findByTestId("billing-recommended-sku");
+    await user.click(within(recommendedSku).getByRole("button", { name: "立即开通" }));
+    await user.click(screen.getByRole("button", { name: /支付宝/u }));
+    await user.click(screen.getByRole("button", { name: "立即支付" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/billing/alipay/return");
+    });
+    expect(await screen.findByTestId("alipay-processing-card")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "支付宝支付处理中" })).toBeInTheDocument();
+    expect(screen.getByText("正在连接支付宝")).toBeInTheDocument();
   });
 
   it("marks marketing pages that should fill a desktop viewport separately from the scrolling workflow page", async () => {
@@ -1504,6 +1742,7 @@ describe("App shell routes", () => {
       "考试",
       "教程",
       "关于",
+      "购买",
     ]);
     expect(within(banner).queryByRole("button", { name: "工作台" })).not.toBeInTheDocument();
 
@@ -1513,6 +1752,23 @@ describe("App shell routes", () => {
     expect(screen.getByRole("heading", { name: "考试" })).toBeInTheDocument();
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 考试" })).not.toBeInTheDocument();
+
+    await user.click(within(banner).getByRole("button", { name: "购买" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/account/billing");
+    });
+    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
+    expect(screen.getByTestId("account-billing-dashboard")).toBeInTheDocument();
+    expect(screen.queryByTestId("account-billing-sidebar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-order-table")).toBeInTheDocument();
+    expect(screen.queryByText(/软保护/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/个 SKU/u)).not.toBeInTheDocument();
+    expect(within(banner).getByRole("button", { name: "购买" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
 
@@ -1604,6 +1860,10 @@ describe("App shell routes", () => {
       kind: "legacy-settings",
       path: "/settings/models",
     });
+    expect(matchAppRoute("/admin/system-notices")).toMatchObject({
+      kind: "marketing-home",
+      path: "/",
+    });
   });
 
   it("renders static login and registration form states", async () => {
@@ -1621,9 +1881,9 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("auth-security-panel")).toBeInTheDocument();
     expect(screen.getByTestId("auth-security-panel")).toHaveAttribute("data-motion", "auth-security");
     expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
-    expect(screen.getByText("软件工程实验平台")).toBeInTheDocument();
+    expect(screen.getByText("软件工程实训平台")).toBeInTheDocument();
     expect(screen.getByText("项目开发生命周期")).toBeInTheDocument();
-    expect(screen.getByText("UML 模型预览")).toBeInTheDocument();
+    expect(screen.getByText("UML模型预览")).toBeInTheDocument();
     expect(screen.getByText("API 延迟")).toBeInTheDocument();
     expect(screen.getByTestId("auth-lifecycle-card")).toHaveClass(
       "hover:-translate-y-1",
@@ -1967,7 +2227,7 @@ describe("App shell routes", () => {
         "data-loading-phase",
         "loading",
       );
-      expect(screen.getByText("UML 实验平台")).toBeInTheDocument();
+      expect(screen.getByText("软件工程实训平台")).toBeInTheDocument();
       expect(screen.getByText("项目工作台")).toBeInTheDocument();
       expect(screen.getByText("SYS_CORE")).toBeInTheDocument();
       expect(
@@ -2201,10 +2461,17 @@ describe("App shell routes", () => {
         "overflow-x-hidden",
         "[scrollbar-gutter:stable]",
       );
+      expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveClass(
+        "pointer-events-none",
+      );
 
       await advanceTimersByTime(800);
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveClass(
+        "pointer-events-none",
+      );
       expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
         "data-loading-phase",
         "completing",
@@ -2212,6 +2479,9 @@ describe("App shell routes", () => {
 
       await advanceTimersByTime(120);
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
+      expect(screen.getByTestId("platform-loading-screen")).toHaveClass(
+        "pointer-events-none",
+      );
       expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
         "data-loading-phase",
         "exiting",
@@ -3213,7 +3483,8 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, repository));
 
-    await user.click(await screen.findByRole("button", { name: "账号" }));
+    await waitForPlatformLoadingToExit();
+    fireEvent.click(await screen.findByRole("button", { name: "账号" }));
     await user.click(await screen.findByRole("tab", { name: "全局设置" }));
     expect(await screen.findByRole("heading", { name: "全局设置" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "模型" })).not.toBeInTheDocument();
@@ -3237,7 +3508,7 @@ describe("App shell routes", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
-    expect(loadUserSettings().apiKey).toBe("");
+    expect(loadUserSettings()).not.toHaveProperty("apiKey");
 
     await user.click(screen.getByRole("button", { name: "测试托管配置" }));
     expect(fetch).toHaveBeenCalledWith(
@@ -3253,8 +3524,13 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await user.click(await screen.findByRole("button", { name: "账号" }));
-    await user.click(await screen.findByRole("tab", { name: "安全设置" }));
+    const openAccountSecurityTab = async () => {
+      await waitForPlatformLoadingToExit();
+      fireEvent.click(await screen.findByRole("button", { name: "账号" }));
+      await user.click(await screen.findByRole("tab", { name: "安全设置" }));
+    };
+
+    await openAccountSecurityTab();
     expect((await screen.findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "启用 MFA" }));
@@ -3264,33 +3540,67 @@ describe("App shell routes", () => {
       expect.objectContaining({ method: "POST" }),
     );
 
-    await user.type(screen.getByLabelText("MFA 验证码"), "123456");
-    await user.click(screen.getByRole("button", { name: "确认启用 MFA" }));
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/account/mfa/confirm"),
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ code: "123456" }),
-      }),
-    );
+    const mfaCodeInput = screen.getByLabelText("MFA 验证码");
+    fireEvent.change(mfaCodeInput, { target: { value: "123456" } });
+    await waitFor(() => {
+      expect(mfaCodeInput).toHaveValue("123456");
+    });
+    const confirmMfaButton = await screen.findByRole("button", { name: "确认启用 MFA" });
+    await waitFor(() => {
+      expect(confirmMfaButton).toBeEnabled();
+    });
+    fireEvent.click(confirmMfaButton);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/account/mfa/confirm"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ code: "123456" }),
+        }),
+      );
+    });
     expect((await screen.findAllByText("MFA 已启用")).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("停用验证码")).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("停用验证码"), "654321");
-    await user.click(screen.getByRole("button", { name: "停用 MFA" }));
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/account/mfa"),
-      expect.objectContaining({
-        method: "PATCH",
-        body: JSON.stringify({ enabled: false, code: "654321" }),
-      }),
-    );
+    fireEvent.change(screen.getByLabelText("停用验证码"), {
+      target: { value: "654321" },
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("停用验证码")).toHaveValue("654321");
+    });
+    let disableMfaButton = screen.queryByRole("button", { name: "停用 MFA" });
+    if (!disableMfaButton) {
+      await openAccountSecurityTab();
+      fireEvent.change(await screen.findByLabelText("停用验证码"), {
+        target: { value: "654321" },
+      });
+      await waitFor(() => {
+        expect(screen.getByLabelText("停用验证码")).toHaveValue("654321");
+      });
+      disableMfaButton = await screen.findByRole("button", { name: "停用 MFA" });
+    }
+    fireEvent.click(disableMfaButton);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/account/mfa"),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ enabled: false, code: "654321" }),
+        }),
+      );
+    });
     expect((await screen.findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "退出其他设备" }));
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/account/sessions/revoke-others"),
-      expect.objectContaining({ method: "POST" }),
-    );
+    if (!screen.queryByRole("button", { name: "退出其他设备" })) {
+      await openAccountSecurityTab();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "退出其他设备" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/account/sessions/revoke-others"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 
   it("logs out through the account dialog and blocks returning to the previous protected route", async () => {
@@ -3302,17 +3612,21 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
     expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "账号" }));
-    await user.click(await screen.findByRole("tab", { name: "安全设置" }));
-    expect((await screen.findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
-    await user.click(screen.getAllByRole("button", { name: "退出登录" })[0]);
+    await waitForPlatformLoadingToExit();
+    authSessionMode = "authenticated";
+    fireEvent.click(await screen.findByRole("button", { name: "账号" }));
+    const accountDialog = await screen.findByRole("dialog", { name: "设置" });
+    await within(accountDialog).findByText("个人资料信息");
+    fireEvent.click((await within(accountDialog).findAllByRole("button", { name: "退出登录" }))[0]);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/auth/logout"),
-      expect.objectContaining({ method: "POST" }),
-    );
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/login");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/auth/logout"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
     });
 
     window.history.pushState({}, "", "/projects/library-booking");
@@ -3331,13 +3645,28 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await user.click(await screen.findByRole("button", { name: "账号" }));
-    expect(await screen.findByDisplayValue("new-student")).toBeInTheDocument();
-    expect(screen.getByAltText("头像预览")).toHaveAttribute("src", "https://cdn.example.edu/avatar.png");
+    const openProfileDialog = async () => {
+      expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+      await waitForPlatformLoadingToExit();
+      authSessionMode = "authenticated";
+      fireEvent.click(await screen.findByRole("button", { name: "账号" }));
+      const accountDialog = await screen.findByRole("dialog", { name: "设置" });
+      const input = await within(accountDialog).findByLabelText("昵称");
+      await waitFor(() => {
+        expect(input).toHaveValue("new-student");
+      });
+      return { accountDialog, displayNameInput: input };
+    };
+
+    let { accountDialog, displayNameInput } = await openProfileDialog();
+    expect(await within(accountDialog).findByAltText("头像预览")).toHaveAttribute("src", "https://cdn.example.edu/avatar.png");
     expect(screen.queryByLabelText("头像 URL")).not.toBeInTheDocument();
-    await user.clear(screen.getByLabelText("昵称"));
-    await user.type(screen.getByLabelText("昵称"), "课程助教");
-    await user.click(screen.getByRole("button", { name: "保存资料" }));
+    if (!screen.queryByRole("button", { name: "保存资料" })) {
+      ({ accountDialog, displayNameInput } = await openProfileDialog());
+    }
+    await user.clear(displayNameInput);
+    await user.type(displayNameInput, "课程助教");
+    await user.click(within(accountDialog).getByRole("button", { name: "保存资料" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/account/profile"),

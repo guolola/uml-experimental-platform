@@ -49,6 +49,10 @@ export function createEmptySnapshot(
   requirementText: string,
   selectedDiagrams: DiagramKind[],
   rules: RequirementRule[] = [],
+  context: {
+    models?: DiagramModelSpec[];
+    requirementModelTraceability?: RunSnapshot["requirementModelTraceability"];
+  } = {},
 ): RunSnapshot {
   const requirementBaseline = rules.length > 0
     ? buildRequirementBaseline({ runId, requirementText, rules })
@@ -62,8 +66,8 @@ export function createEmptySnapshot(
     coverageMatrix: null,
     traceabilityMatrix: null,
     evidencePackage: null,
-    models: [],
-    requirementModelTraceability: [],
+    models: context.models ?? [],
+    requirementModelTraceability: context.requirementModelTraceability ?? [],
     plantUml: [],
     svgArtifacts: [],
     diagramErrors: {},
@@ -77,10 +81,8 @@ export function createEmptySnapshot(
 export function createEmptyDesignSnapshot(
   runId: string,
   input: {
-    requirementText: string;
     selectedDiagrams: DesignDiagramKind[];
-    rules: RequirementRule[];
-    requirementBaseline?: RequirementBaseline | null;
+    requirementBaseline: RequirementBaseline;
     requirementModels: DiagramModelSpec[];
     requirementModelTraceability: RunSnapshot["requirementModelTraceability"];
     requestedDiagrams?: DesignDiagramKind[];
@@ -90,17 +92,9 @@ export function createEmptyDesignSnapshot(
     existingDesignSvgArtifacts?: DesignRunSnapshot["svgArtifacts"];
   },
 ): DesignRunSnapshot {
-  const requirementBaseline = input.requirementBaseline ??
-    (input.rules.length > 0
-      ? buildRequirementBaseline({
-          runId,
-          requirementText: input.requirementText,
-          rules: input.rules,
-        })
-      : buildEmptyRequirementBaseline({ runId }));
   return designRunSnapshotSchema.parse({
     runId,
-    requirementText: input.requirementText,
+    requirementText: "",
     selectedDiagrams: DESIGN_DIAGRAM_ORDER.filter((diagram) =>
       input.selectedDiagrams.includes(diagram),
     ),
@@ -109,8 +103,8 @@ export function createEmptyDesignSnapshot(
           input.requestedDiagrams?.includes(diagram),
         )
       : undefined,
-    rules: input.rules,
-    requirementBaseline,
+    rules: [],
+    requirementBaseline: input.requirementBaseline,
     coverageMatrix: null,
     traceabilityMatrix: null,
     evidencePackage: null,

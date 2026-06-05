@@ -255,6 +255,27 @@ create table if not exists rate_limit_policies (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists system_notices (
+  id text primary key,
+  title text not null,
+  notice_type text not null,
+  icon text,
+  content_blocks jsonb not null default '[]'::jsonb,
+  status text not null default 'draft',
+  published_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (notice_type in ('model_update', 'feature_update', 'important', 'maintenance')),
+  check (status in ('draft', 'published', 'archived'))
+);
+
+create table if not exists system_notice_reads (
+  user_id text not null references users(id) on delete cascade,
+  notice_id text not null references system_notices(id) on delete cascade,
+  read_at timestamptz not null default now(),
+  primary key (user_id, notice_id)
+);
+
 create table if not exists run_records (
   id text primary key,
   user_id text references users(id) on delete set null,
@@ -351,6 +372,8 @@ create index if not exists provider_usage_dimensions_idx on provider_usage_event
 create index if not exists provider_usage_ip_idx on provider_usage_events(ip_address, provider_config_id, task_type, created_at desc);
 create index if not exists provider_usage_organization_idx on provider_usage_events(organization_id, provider_config_id, task_type, created_at desc);
 create index if not exists rate_limit_policies_lookup_idx on rate_limit_policies(scope_type, scope_id, provider_config_id, task_type, enabled);
+create index if not exists system_notices_status_published_idx on system_notices(status, published_at desc, created_at desc);
+create index if not exists system_notice_reads_user_idx on system_notice_reads(user_id, read_at desc);
 create index if not exists run_records_project_created_at_idx on run_records(project_id, created_at desc);
 create index if not exists run_records_user_created_at_idx on run_records(user_id, created_at desc);
 create index if not exists run_events_run_id_sequence_idx on run_events(run_id, sequence);

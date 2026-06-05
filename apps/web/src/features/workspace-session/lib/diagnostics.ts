@@ -37,8 +37,9 @@ export function formatStageForDiagnostics(stage: RunStage | null) {
   const labels: Record<RunStage, string> = {
     extract_rules: "抽取需求规则",
     generate_models: "生成需求模型",
-    generate_design_sequence: "生成设计顺序图",
+    generate_design_sequence: "生成用例实现设计",
     generate_design_models: "生成设计模型",
+    generate_tests: "生成测试用例",
     analyze_code_business_logic: "分析业务逻辑",
     analyze_code_product: "分析业务背景",
     plan_code_ui: "规划界面方案",
@@ -70,8 +71,9 @@ export function sanitizeDiagnosticText(text: string) {
   const replacements = [
     ["extract_rules", "抽取需求规则"],
     ["generate_models", "生成需求模型"],
-    ["generate_design_sequence", "生成设计顺序图"],
+    ["generate_design_sequence", "生成用例实现设计"],
     ["generate_design_models", "生成设计模型"],
+    ["generate_tests", "生成测试用例"],
     ["analyze_code_business_logic", "分析业务逻辑"],
     ["analyze_code_product", "分析业务背景"],
     ["plan_code_ui", "规划界面方案"],

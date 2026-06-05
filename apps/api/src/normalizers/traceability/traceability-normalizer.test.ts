@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  autoFillRequirementTraceability,
   deriveDesignRelationshipTraceability,
   formatTraceabilityMissingRefs,
   normalizeDesignTraceability,
@@ -91,6 +92,96 @@ test("requirement traceability keeps valid rule-to-element refs and drops invali
   assert.equal(normalized[0]?.target.label, "UserDomain");
 });
 
+test("requirement traceability normalizes safe diagram aliases", () => {
+  const normalized = normalizeRequirementTraceability(
+    [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "domain-model",
+          elementId: "domain-user",
+          elementKind: "class",
+          label: "UserDomain",
+        },
+      },
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "requirements",
+          elementId: "domain-user",
+          elementKind: "class",
+          label: "UserDomain",
+        },
+      },
+    ],
+    [rule],
+    [requirementModel],
+  );
+
+  assert.equal(normalized.length, 1);
+  assert.equal(normalized[0]?.target.diagramKind, "class");
+  assert.equal(normalized[0]?.target.elementId, "domain-user");
+});
+
+test("requirement traceability requires model ids only when duplicate analysis ids are ambiguous", () => {
+  const analysisModels = ["uc_search", "uc_borrow"].map((useCaseId) => ({
+    diagramKind: "analysis" as const,
+    modelId: `analysis:${useCaseId}`,
+    sourceUseCaseId: useCaseId,
+    sourceUseCaseName: useCaseId,
+    title: `${useCaseId}分析`,
+    summary: "分析",
+    notes: [],
+    participants: [
+      { id: "actor", name: "参与者", participantType: "actor" as const },
+    ],
+    messages: [],
+    fragments: [],
+  }));
+  const analysisRule = {
+    ...rule,
+    relatedDiagrams: ["analysis" as const],
+  };
+
+  const ambiguous = normalizeRequirementTraceabilityWithCoverage(
+    [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "requirement-analysis",
+          elementId: "actor",
+          elementKind: "participant",
+          label: "参与者",
+        },
+      },
+    ],
+    [analysisRule],
+    analysisModels,
+  );
+  assert.equal(ambiguous.traceability.length, 0);
+  assert.equal(ambiguous.missingTargets.length, 2);
+
+  const scoped = normalizeRequirementTraceabilityWithCoverage(
+    [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "requirement-analysis",
+          modelId: "analysis:uc_search",
+          elementId: "actor",
+          elementKind: "participant",
+          label: "参与者",
+        },
+      },
+    ],
+    [analysisRule],
+    analysisModels,
+  );
+  assert.equal(scoped.traceability.length, 1);
+  assert.equal(scoped.traceability[0]?.target.modelId, "analysis:uc_search");
+  assert.equal(scoped.missingTargets.length, 1);
+});
+
 test("requirement traceability reports uncovered model elements and relationships", () => {
   const normalized = normalizeRequirementTraceabilityWithCoverage(
     [
@@ -117,6 +208,28 @@ test("requirement traceability reports uncovered model elements and relationship
     formatTraceabilityMissingRefs("requirement", normalized.missingTargets),
     /缺少 1 个需求元素映射：class:rel-user-order/,
   );
+});
+
+test("requirement traceability can auto-fill uncovered refs from related rules", () => {
+  const classRule = {
+    id: "r2",
+    category: "数据需求" as const,
+    text: "系统应管理用户领域对象。",
+    relatedDiagrams: ["class" as const],
+  };
+  const coverage = normalizeRequirementTraceabilityWithCoverage(
+    [],
+    [rule, classRule],
+    [requirementModel],
+  );
+  const recovered = normalizeRequirementTraceabilityWithCoverage(
+    autoFillRequirementTraceability(coverage.missingTargets, [rule, classRule]),
+    [rule, classRule],
+    [requirementModel],
+  );
+
+  assert.equal(recovered.missingTargets.length, 0);
+  assert.ok(recovered.traceability.every((entry) => entry.ruleId === "r2"));
 });
 
 test("requirement traceability coverage ignores structural activity elements", () => {

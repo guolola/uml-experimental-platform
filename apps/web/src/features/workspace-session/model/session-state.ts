@@ -14,6 +14,7 @@ import type {
   CodeUiMockup,
   CodeUiReferenceSpec,
   DesignTraceEntry,
+  BillingEntitlementErrorResponse,
   RequirementTraceEntry,
   RequirementBaseline,
   AtomicRequirementField,
@@ -168,6 +169,8 @@ export interface WorkspaceSessionState {
   runProgress: number;
   runMessage: string | null;
   errorMessage: string | null;
+  billingGenerationBlock: BillingEntitlementErrorResponse | null;
+  clearBillingGenerationBlock: () => void;
   generationTasks: GenerationTask[];
   visibleGenerationTask: GenerationTask | null;
   selectedGenerationTaskId: string | null;

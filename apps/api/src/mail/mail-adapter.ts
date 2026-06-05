@@ -81,7 +81,7 @@ export function buildTokenMail({
       purpose,
       token,
       expiresAt,
-      subject: "重置 UML 平台密码",
+      subject: "重置软件工程实训平台密码",
       text: `请使用以下短期 token 重置密码：${token}\n过期时间：${expiresAt}\n如果不是你本人操作，请忽略这封邮件。`,
     };
   }
@@ -94,10 +94,10 @@ export function buildTokenMail({
       purpose,
       token,
       expiresAt,
-      subject: `项目邀请：${projectName ?? "UML 平台项目"}`,
+      subject: `项目邀请：${projectName ?? "软件工程实训平台项目"}`,
       text: invitationUrl
-        ? `你被邀请加入项目「${projectName ?? "UML 平台项目"}」。\n\n请点击以下链接接受邀请：${invitationUrl}\n\n如果链接无法打开，请在注册页的邀请码中粘贴以下邀请 token：${token}\n过期时间：${expiresAt}`
-        : `你被邀请加入项目「${projectName ?? "UML 平台项目"}」。请在注册页的邀请码中粘贴以下邀请 token：${token}\n过期时间：${expiresAt}`,
+        ? `你被邀请加入项目「${projectName ?? "软件工程实训平台项目"}」。\n\n请点击以下链接接受邀请：${invitationUrl}\n\n如果链接无法打开，请在注册页的邀请码中粘贴以下邀请 token：${token}\n过期时间：${expiresAt}`
+        : `你被邀请加入项目「${projectName ?? "软件工程实训平台项目"}」。请在注册页的邀请码中粘贴以下邀请 token：${token}\n过期时间：${expiresAt}`,
     };
   }
   const verificationUrl = buildPublicWebUrl(
@@ -108,7 +108,7 @@ export function buildTokenMail({
     purpose,
     token,
     expiresAt,
-    subject: "验证 UML 平台邮箱",
+    subject: "验证软件工程实训平台邮箱",
     text: verificationUrl
       ? `请点击以下链接验证邮箱：${verificationUrl}\n\n如果链接无法打开，请在验证邮箱页面粘贴以下短期 token：${token}\n过期时间：${expiresAt}`
       : `请在验证邮箱页面粘贴以下短期 token：${token}\n过期时间：${expiresAt}`,

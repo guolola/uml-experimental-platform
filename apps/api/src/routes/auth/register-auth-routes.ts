@@ -39,10 +39,14 @@ export function registerAuthRoutes({
   app,
   authStore,
   mailAdapter = createMailAdapterFromEnv(),
+  billingEntitlements,
 }: {
   app: FastifyInstance;
   authStore: AuthStore;
   mailAdapter?: MailAdapter;
+  billingEntitlements?: {
+    grantSignupBonus(userId: string): Promise<void>;
+  };
 }) {
   app.post("/api/auth/register", async (request, reply) => {
     const input = authRegisterRequestSchema.parse(request.body);
@@ -406,6 +410,7 @@ export function registerAuthRoutes({
       targetId: user.id,
       outcome: "success",
     });
+    await billingEntitlements?.grantSignupBonus(user.id);
     return { user: toUserDto(user) };
   });
 

@@ -7,6 +7,7 @@ import {
   createEmptyDocumentSnapshot,
   createEmptySnapshot,
 } from "./snapshots.js";
+import { buildRequirementBaseline } from "../baselines/requirement-baseline.js";
 
 const rule = {
   id: "r1",
@@ -24,23 +25,33 @@ test("createEmptySnapshot produces a RequirementBaseline for requirements runs",
 });
 
 test("createEmptyDesignSnapshot carries a RequirementBaseline into design runs", () => {
-  const snapshot = createEmptyDesignSnapshot("design-1", {
+  const requirementBaseline = buildRequirementBaseline({
+    runId: "design-1",
     requirementText: rule.text,
-    selectedDiagrams: ["sequence"],
     rules: [rule],
+  });
+  const snapshot = createEmptyDesignSnapshot("design-1", {
+    selectedDiagrams: ["sequence"],
+    requirementBaseline,
     requirementModels: [],
     requirementModelTraceability: [],
   });
 
   assert.equal(snapshot.requirementBaseline?.requirements[0]?.id, "REQ-001");
+  assert.equal(snapshot.requirementText, "");
+  assert.deepEqual(snapshot.rules, []);
 });
 
 test("createEmptyDesignSnapshot preserves the requested design selection", () => {
-  const snapshot = createEmptyDesignSnapshot("design-append", {
+  const requirementBaseline = buildRequirementBaseline({
+    runId: "design-append",
     requirementText: rule.text,
+    rules: [rule],
+  });
+  const snapshot = createEmptyDesignSnapshot("design-append", {
     selectedDiagrams: ["class"],
     requestedDiagrams: ["class"],
-    rules: [rule],
+    requirementBaseline,
     requirementModels: [],
     requirementModelTraceability: [],
   });

@@ -36,7 +36,7 @@ export function buildRequirementDiagramTraceBadge(
 const DESIGN_UPSTREAM_BADGES: Record<DesignDiagramType, string[]> = {
   sequence: [DIAGRAM_META.usecase.label],
   class: [DIAGRAM_META.class.label, DESIGN_DIAGRAM_META.sequence.label],
-  activity: [DIAGRAM_META.activity.label, DESIGN_DIAGRAM_META.sequence.label],
+  activity: [DIAGRAM_META.prototype.label, DESIGN_DIAGRAM_META.sequence.label],
   deployment: [DIAGRAM_META.deployment.label, DESIGN_DIAGRAM_META.sequence.label],
   table: [DIAGRAM_META.class.label, DESIGN_DIAGRAM_META.sequence.label],
 };

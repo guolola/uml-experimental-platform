@@ -1,7 +1,6 @@
 // Renders the Figma-aligned public website pages while keeping app workspace logic separate.
 import {
   ArrowRight,
-  CheckCircle2,
   FileText,
   Network,
   ShieldCheck,
@@ -11,6 +10,7 @@ import type { MarketingRoutePath } from "../../../app/app-routes";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
+import { PricingBillingPage } from "../../user-platform/components/billing-pages";
 import { useAuthSession } from "../../user-platform/lib/use-auth-session";
 import type { PlatformUser } from "../../user-platform/services/platform-api";
 import {
@@ -19,7 +19,6 @@ import {
   footerLinks,
   heroTrustPoints,
   marketingNavItems,
-  pricingPlans,
   referenceStandards,
   workflowSteps,
 } from "../model/marketing-content";
@@ -50,9 +49,9 @@ function MarketingHeader({
           type="button"
           className="motion-brand max-w-[58vw] break-words font-display text-left text-[22px] font-black leading-[28px] tracking-normal text-[#4441c4] sm:text-[28px] sm:leading-[36px] md:max-w-none md:text-[32px] md:leading-[40px]"
           onClick={() => onNavigate("/")}
-          aria-label="软件工程实验平台官网"
+          aria-label="软件工程实训平台官网"
         >
-          软件工程实验平台
+          软件工程实训平台
         </button>
         <nav className="hidden items-center gap-8 md:flex" aria-label="官网导航">
           {marketingNavItems.map((item) => (
@@ -107,8 +106,8 @@ function MarketingFooter() {
     <footer data-testid="marketing-footer" data-motion="marketing-footer" className="motion-footer border-t border-[#c7c4d6] bg-white">
       <div className={`${wideContent} flex items-center justify-between gap-6 ${pagePadding} py-[clamp(0.85rem,1.4vh,1.25rem)] text-sm text-[#464554]`}>
         <div className="grid gap-2">
-          <div className="font-display text-[18px] font-semibold leading-[26px] text-[#0b1c30]">软件工程实验平台</div>
-          <p>© 2026 软件工程实验平台。保留所有权利。</p>
+          <div className="font-display text-[18px] font-semibold leading-[26px] text-[#0b1c30]">软件工程实训平台</div>
+          <p>© 2026 软件工程实训平台。保留所有权利。</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-6">
           {footerLinks.map((link) => (
@@ -262,17 +261,17 @@ function HomeTab({
             <div className="grid min-w-0 max-w-full gap-[clamp(2rem,3.4vh,3.25rem)]">
               <div className="motion-rise motion-delay-2 grid gap-4">
                 <h1
-                  aria-label="让需求、UML、原型和说明书一站式生成"
+                  aria-label="让需求、UML模型、原型和说明书一站式生成"
                   className="max-w-[820px] break-words font-display text-[32px] font-semibold leading-[40px] tracking-normal text-[#0b1c30] [overflow-wrap:anywhere] md:text-[clamp(3.75rem,4vw,5rem)] md:font-bold md:leading-[1.12]"
                 >
-                  <span className="block md:inline">让需求、UML、</span>
+                  <span className="block md:inline">让需求、UML模型、</span>
                   <span className="block md:inline">原型和说明书</span>
                   <span className="block bg-gradient-to-r from-[#4441c4] to-[#7c4ce6] bg-clip-text text-transparent">
                     一站式生成
                   </span>
                 </h1>
                 <p className="max-w-[22rem] break-all text-[clamp(1rem,1.1vw,1.25rem)] font-normal leading-[1.6] text-[#464554] md:max-w-3xl md:break-words">
-                  输入需求文本，平台辅助生成需求规则、UML 模型、React 原型与实验说明书。
+                  输入需求文本，平台辅助生成需求规则、UML模型、React 原型与实训说明书。
                 </p>
               </div>
               <div className="motion-rise motion-delay-3 flex flex-col gap-4 pt-4 min-[520px]:flex-row min-[520px]:flex-wrap">
@@ -329,7 +328,7 @@ function FeaturesTab() {
           </span>
         </h1>
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-4xl text-[16px] font-normal leading-[24px] text-[#464554]">
-          软件工程实验平台提供从需求分析到代码原型和说明书导出的阶段化工具链。平台通过大模型推理与结构化输出，把需求文本沉淀为可追踪、可渲染、可修复的实验产物。
+          软件工程实训平台提供从需求分析到代码原型和说明书导出的阶段化工具链。平台通过大模型推理与结构化输出，把需求文本沉淀为可追踪、可渲染、可修复的实训产物。
         </p>
         <div className={`${wideContent} mt-[clamp(2rem,4vh,4rem)] grid gap-[clamp(1.25rem,1.5vw,2rem)] md:grid-cols-2 xl:grid-cols-3`}>
           {features.map(({ title, shortTitle, description, icon: Icon }, index) => (
@@ -362,7 +361,7 @@ function WorkflowTab() {
             智能研发实验全链路
           </h1>
           <p className="motion-rise motion-delay-2 w-full break-all text-[16px] font-normal leading-[24px] text-[#464554] md:break-words">
-            软件工程实验平台提供从需求输入到 UML、React 原型和 DOCX 说明书导出的标准化流程，通过大模型推理与结构化校验保留每一步实验产物。
+            软件工程实训平台提供从需求输入到 UML模型、React 原型和 DOCX 说明书导出的标准化流程，通过大模型推理与结构化校验保留每一步实训产物。
           </p>
         </div>
       </section>
@@ -416,7 +415,7 @@ function CasesTab() {
           探索工程验证案例
         </h1>
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-5xl text-[16px] font-normal leading-[24px] text-[#464554]">
-          通过常见课程与原型验证场景，体验软件工程实验平台如何在需求分析、架构设计与代码原型环节沉淀结构化实验产物。
+          通过常见课程与原型验证场景，体验软件工程实训平台如何在需求分析、架构设计与代码原型环节沉淀结构化实训产物。
         </p>
         <div className="mx-auto mt-[clamp(2.5rem,5vh,5rem)] grid w-full max-w-[1500px] gap-[clamp(1.5rem,2vw,2.25rem)] md:grid-cols-2">
           {caseStudies.map((study, index) => (
@@ -450,57 +449,9 @@ function PricingTab({
   onNavigate,
   authUser,
 }: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
-  const signedIn = Boolean(authUser);
-
   return (
     <MarketingFitPage>
-      <section className={`flex flex-1 flex-col justify-center bg-[#f8f9ff] ${pagePadding} py-[clamp(3rem,6vh,5.5rem)] text-center`}>
-        <h1 className="motion-rise motion-delay-1 font-display text-[24px] font-semibold leading-[32px] tracking-normal text-[#0b1c30] md:text-[48px] md:font-bold md:leading-[56px]">
-          当前开放能力与开通方式
-        </h1>
-        <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-5xl text-[16px] font-normal leading-[24px] text-[#464554]">
-          定价页先用于说明当前已经开放的真实能力。后续课程、团队或机构开通会以实际交付范围为准，不在此承诺尚未上线的套餐功能。
-        </p>
-        <div className="mx-auto mt-[clamp(2.5rem,5vh,5rem)] grid w-full max-w-[1500px] gap-[clamp(1.5rem,2vw,2.25rem)] lg:grid-cols-3">
-          {pricingPlans.map((plan, index) => (
-            <article
-              key={plan.name}
-              style={{ "--motion-delay": `${220 + index * 100}ms` } as CSSProperties}
-              className={
-                plan.highlighted
-                  ? "motion-card relative rounded-xl border-2 border-[#5d5cde] bg-white p-[clamp(1.75rem,2.2vw,2.75rem)] text-left shadow-xl shadow-[#5d5cde]/10"
-                  : "motion-card rounded-xl border border-[#c7c4d6] bg-white p-[clamp(1.75rem,2.2vw,2.75rem)] text-left shadow-[0_4px_20px_rgba(0,0,0,0.05)]"
-              }
-            >
-              {plan.highlighted && (
-                <Badge className="absolute right-6 top-6 bg-[#5d5cde] text-white hover:bg-[#5d5cde]">推荐</Badge>
-              )}
-              <h2 className="font-display text-[20px] font-semibold leading-[28px] text-[#0b1c30]">{plan.name}</h2>
-              <p className="mt-3 min-h-10 text-[16px] font-normal leading-[24px] text-[#464554]">{plan.description}</p>
-              <div className="mt-8 flex items-end gap-2">
-                <span className="font-display text-[48px] font-bold leading-[56px] text-[#0b1c30]">{plan.price}</span>
-                {plan.cadence && <span className="pb-3 text-sm text-[#464554]">{plan.cadence}</span>}
-              </div>
-              <ul className="mt-7 grid gap-4 text-[16px] font-normal leading-[24px] text-[#464554]">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-center gap-3">
-                    <CheckCircle2 className="size-4 text-[#4441c4]" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <Button
-                type="button"
-                variant={plan.highlighted ? "default" : "outline"}
-                className={plan.highlighted ? "motion-action mt-8 h-11 w-full rounded-lg bg-[#5d5cde]" : "motion-action mt-8 h-11 w-full rounded-lg"}
-                onClick={() => onNavigate(signedIn ? "/projects" : plan.name === "免费版" ? "/register" : "/login")}
-              >
-                {plan.action}
-              </Button>
-            </article>
-          ))}
-        </div>
-      </section>
+      <PricingBillingPage signedIn={Boolean(authUser)} onNavigate={onNavigate} />
     </MarketingFitPage>
   );
 }

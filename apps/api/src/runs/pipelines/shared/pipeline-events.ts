@@ -11,6 +11,8 @@ export function stageProgressValue(stage: RunStage) {
       return 45;
     case "generate_design_models":
       return 70;
+    case "generate_tests":
+      return 75;
     case "analyze_code_business_logic":
       return 18;
     case "analyze_code_product":

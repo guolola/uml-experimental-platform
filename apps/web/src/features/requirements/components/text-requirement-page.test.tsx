@@ -402,7 +402,7 @@ describe("TextRequirementView", () => {
     expect(classDiagramCheckbox).toBeDisabled();
     expect(classDiagramCheckbox).not.toBeChecked();
     expect(screen.getAllByText("缺少对应需求规则").length).toBeGreaterThan(0);
-    expect(screen.getByText("0/4")).toBeInTheDocument();
+    expect(screen.getByText("0/6")).toBeInTheDocument();
   });
 
   it("labels generated but unselected requirement models as kept", async () => {

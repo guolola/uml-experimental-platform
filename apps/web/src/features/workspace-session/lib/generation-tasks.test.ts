@@ -294,6 +294,160 @@ describe("workspace-session generation task helpers", () => {
     ]);
   });
 
+  it("replaces aggregate analysis placeholders when per-use-case analysis subtasks appear", () => {
+    const task = createGenerationTask({
+      clientTaskId: "requirements-analysis-1",
+      kind: "requirements",
+      title: "需求模型生成",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "generate_models:analysis",
+          label: "需求分析模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:analysis",
+          label: "需求分析模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:analysis",
+          label: "需求分析模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const modelStarted = updateTaskFromEvent(
+      task,
+      {
+        type: "stage_progress",
+        stage: "generate_models",
+        progress: 35,
+        diagramKind: "analysis",
+        subtaskId: "analysis:uc_view",
+        subtaskLabel: "需求分析模型：查看预约",
+        subtaskStatus: "running",
+        message: "正在生成需求分析模型：查看预约",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(modelStarted.subtasks.map((subtask) => subtask.id)).toEqual([
+      "generate_plantuml:analysis",
+      "render_svg:analysis",
+      "generate_models:analysis:uc_view",
+    ]);
+
+    const plantUmlReady = updateTaskFromEvent(
+      modelStarted,
+      {
+        type: "artifact_ready",
+        stage: "generate_plantuml",
+        artifactKind: "plantuml",
+        diagramKind: "analysis",
+        modelId: "analysis:uc_view",
+        subtaskId: "analysis:uc_view",
+        subtaskLabel: "查看预约需求分析模型",
+        subtaskStatus: "completed",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(plantUmlReady.subtasks.map((subtask) => subtask.id)).toEqual([
+      "render_svg:analysis",
+      "generate_models:analysis:uc_view",
+      "generate_plantuml:analysis:uc_view",
+    ]);
+  });
+
+  it("does not add unplanned preserved model artifacts to partial rerun tasks", () => {
+    const task = createGenerationTask({
+      clientTaskId: "requirements-analysis-partial-1",
+      kind: "requirements",
+      title: "需求模型生成",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "generate_models:analysis:uc_view",
+          label: "需求分析模型：查看预约",
+          status: "completed",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:analysis:uc_view",
+          label: "需求分析模型：查看预约",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:analysis:uc_view",
+          label: "需求分析模型：查看预约",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const afterPreservedPlantUml = updateTaskFromEvent(
+      task,
+      {
+        type: "artifact_ready",
+        stage: "generate_plantuml",
+        artifactKind: "plantuml",
+        diagramKind: "usecase",
+        subtaskId: "usecase",
+        subtaskStatus: "completed",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    const afterPreservedSvg = updateTaskFromEvent(
+      afterPreservedPlantUml,
+      {
+        type: "artifact_ready",
+        stage: "render_svg",
+        artifactKind: "svg",
+        diagramKind: "usecase",
+        subtaskId: "usecase",
+        subtaskStatus: "completed",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(afterPreservedSvg.subtasks.map((subtask) => subtask.id)).toEqual([
+      "generate_models:analysis:uc_view",
+      "generate_plantuml:analysis:uc_view",
+      "render_svg:analysis:uc_view",
+    ]);
+  });
+
   it("marks only the missing use-case sequence subtask from model-specific errors", () => {
     const task = createGenerationTask({
       clientTaskId: "design-sequence-3",
@@ -373,6 +527,188 @@ describe("workspace-session generation task helpers", () => {
         id: "sequence:uc_filter_date",
         status: "failed",
         errorMessage: "日期筛选顺序图生成结果为空",
+      }),
+    ]);
+  });
+
+  it("keeps model, PlantUML, and SVG subtasks separate for the same diagram", () => {
+    const task = createGenerationTask({
+      clientTaskId: "requirements-segmented-1",
+      kind: "requirements",
+      title: "需求模型生成",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "generate_models:deployment",
+          label: "部署需求模型",
+          status: "running",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:deployment",
+          label: "部署需求模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:deployment",
+          label: "部署需求模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const modelReady = updateTaskFromEvent(
+      task,
+      {
+        type: "artifact_ready",
+        stage: "generate_models",
+        artifactKind: "model",
+        diagramKind: "deployment",
+        subtaskId: "deployment",
+        subtaskStatus: "completed",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(modelReady.subtasks).toEqual([
+      expect.objectContaining({ id: "generate_models:deployment", status: "completed" }),
+      expect.objectContaining({ id: "generate_plantuml:deployment", status: "queued" }),
+      expect.objectContaining({ id: "render_svg:deployment", status: "queued" }),
+    ]);
+
+    const plantUmlReady = updateTaskFromEvent(
+      modelReady,
+      {
+        type: "artifact_ready",
+        stage: "generate_plantuml",
+        artifactKind: "plantuml",
+        diagramKind: "deployment",
+        subtaskId: "deployment",
+        subtaskStatus: "rendering",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(plantUmlReady.subtasks).toEqual([
+      expect.objectContaining({ id: "generate_models:deployment", status: "completed" }),
+      expect.objectContaining({ id: "generate_plantuml:deployment", status: "completed" }),
+      expect.objectContaining({ id: "render_svg:deployment", status: "queued" }),
+    ]);
+
+    const repairing = updateTaskFromEvent(
+      plantUmlReady,
+      {
+        type: "stage_progress",
+        stage: "render_svg",
+        progress: 95,
+        message: "PlantUML 编译失败，正在尝试修复（1/2）",
+        diagramKind: "deployment",
+        subtaskId: "deployment",
+        subtaskStatus: "repairing",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(repairing.title).toBe("需求模型生成：2/3 完成");
+    expect(repairing.subtasks).toEqual([
+      expect.objectContaining({ id: "generate_models:deployment", status: "completed" }),
+      expect.objectContaining({ id: "generate_plantuml:deployment", status: "completed" }),
+      expect.objectContaining({ id: "render_svg:deployment", status: "repairing" }),
+    ]);
+  });
+
+  it("applies terminal snapshot errors to the matching stage-scoped subtask only", () => {
+    const task = createGenerationTask({
+      clientTaskId: "requirements-segmented-2",
+      kind: "requirements",
+      title: "需求模型生成",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-06-05T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "generate_models:deployment",
+          label: "部署需求模型",
+          status: "completed",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:deployment",
+          label: "部署需求模型",
+          status: "completed",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:deployment",
+          label: "部署需求模型",
+          status: "rendering",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const next = updateTaskFromEvent(
+      task,
+      {
+        type: "completed",
+        snapshot: {
+          runId: "run-segmented-terminal",
+          requirementText: "部署到 Web 和数据库服务器",
+          selectedDiagrams: ["deployment"],
+          rules: [],
+          models: [{ diagramKind: "deployment", title: "部署需求模型" }],
+          requirementModelTraceability: [],
+          plantUml: [
+            {
+              diagramKind: "deployment",
+              source: "@startuml\n@enduml",
+            },
+          ],
+          svgArtifacts: [],
+          diagramErrors: {
+            deployment: {
+              stage: "render_svg",
+              message: "PlantUML repair failed",
+            },
+          },
+          requirementTrace: [],
+          currentStage: "render_svg",
+          status: "completed",
+          errorMessage: null,
+        },
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(next.subtasks).toEqual([
+      expect.objectContaining({ id: "generate_models:deployment", status: "completed" }),
+      expect.objectContaining({ id: "generate_plantuml:deployment", status: "completed" }),
+      expect.objectContaining({
+        id: "render_svg:deployment",
+        status: "failed",
+        errorMessage: "PlantUML repair failed",
       }),
     ]);
   });

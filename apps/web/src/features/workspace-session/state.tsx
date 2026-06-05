@@ -10,7 +10,9 @@ import {
 } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { billingEntitlementErrorResponseSchema } from "@uml-platform/contracts";
 import type {
+  BillingEntitlementErrorResponse,
   DocumentKind,
   DocumentStyleSettings,
   DocumentRunSnapshot,
@@ -32,6 +34,7 @@ import {
   DIAGRAM_ORDER,
   DIAGRAM_META,
   getDesignModelId,
+  getRequirementModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../entities/diagram/model";
@@ -107,6 +110,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../shared/ui/dialog";
+import { ApiClientError } from "../../services/api-client";
 
 
 
@@ -247,8 +251,82 @@ function cancelledRunMessage(snapshot?: { errorMessage?: string | null }) {
   return snapshot?.errorMessage ?? "任务已取消";
 }
 
+function parseBillingEntitlementError(
+  error: unknown,
+): BillingEntitlementErrorResponse | null {
+  if (!(error instanceof ApiClientError)) return null;
+  if (error.status !== 402 && error.status !== 429) return null;
+  const parsed = billingEntitlementErrorResponseSchema.safeParse(error.payload);
+  return parsed.success ? parsed.data : null;
+}
+
+function billingEntitlementDialogTitle(block: BillingEntitlementErrorResponse) {
+  if (block.reason === "pass_soft_limit") return "已触发通行卡软保护";
+  if (block.reason === "negative_balance") return "权益余额异常";
+  return "需要开通生成权益";
+}
+
+function billingEntitlementDialogDetails(block: BillingEntitlementErrorResponse) {
+  const details = [
+    `可用次数：${block.billingSummary.creditBalance}`,
+  ];
+  const dailyLimit = block.billingSummary.softLimit.passDailyLimit;
+  const usedToday = block.billingSummary.passDailyUsage.usedToday;
+  if (block.billingSummary.activePass) {
+    details.push(`通行卡今日使用：${usedToday}/${dailyLimit}`);
+  }
+  details.push(block.payCta.label);
+  return details;
+}
+
 function designLabels(diagrams: DesignDiagramType[]) {
   return orderedDesignDiagrams(diagrams).map((diagram) => DESIGN_DIAGRAM_META[diagram].label);
+}
+
+type DiagramGenerationStage =
+  | "generate_models"
+  | "generate_design_sequence"
+  | "generate_design_models"
+  | "generate_plantuml"
+  | "render_svg";
+
+function scopedGenerationSubtask(input: {
+  stage: DiagramGenerationStage;
+  id: string;
+  label: string;
+  status?: GenerationTask["subtasks"][number]["status"];
+}): GenerationTask["subtasks"][number] {
+  return {
+    id: `${input.stage}:${input.id}`,
+    label: input.label,
+    status: input.status ?? "queued",
+    message: null,
+    errorMessage: null,
+  };
+}
+
+function stagedDiagramSubtasks(input: {
+  modelStage: DiagramGenerationStage;
+  id: string;
+  label: string;
+}): GenerationTask["subtasks"] {
+  return [
+    scopedGenerationSubtask({
+      stage: input.modelStage,
+      id: input.id,
+      label: input.label,
+    }),
+    scopedGenerationSubtask({
+      stage: "generate_plantuml",
+      id: input.id,
+      label: input.label,
+    }),
+    scopedGenerationSubtask({
+      stage: "render_svg",
+      id: input.id,
+      label: input.label,
+    }),
+  ];
 }
 
 function designGenerationSubtasks(
@@ -257,35 +335,57 @@ function designGenerationSubtasks(
 ): GenerationTask["subtasks"] {
   return diagrams.flatMap((diagram) => {
     if (diagram !== "sequence") {
-      return [
-        {
-          id: diagram,
-          label: DESIGN_DIAGRAM_META[diagram].label,
-          status: "queued" as const,
-          message: null,
-          errorMessage: null,
-        },
-      ];
+      return stagedDiagramSubtasks({
+        modelStage: "generate_design_models",
+        id: diagram,
+        label: DESIGN_DIAGRAM_META[diagram].label,
+      });
     }
     const useCaseModel = requirementModels.usecase;
     if (!useCaseModel || !("useCases" in useCaseModel)) {
-      return [
-        {
-          id: "sequence",
-          label: DESIGN_DIAGRAM_META.sequence.label,
-          status: "queued" as const,
-          message: null,
-          errorMessage: null,
-        },
-      ];
+      return stagedDiagramSubtasks({
+        modelStage: "generate_design_sequence",
+        id: "sequence",
+        label: DESIGN_DIAGRAM_META.sequence.label,
+      });
     }
-    return useCaseModel.useCases.map((useCase) => ({
-      id: `sequence:${useCase.id}`,
-      label: `顺序图：${useCase.name}`,
-      status: "queued" as const,
-      message: null,
-      errorMessage: null,
-    }));
+    return useCaseModel.useCases.flatMap((useCase) =>
+      stagedDiagramSubtasks({
+        modelStage: "generate_design_sequence",
+        id: `sequence:${useCase.id}`,
+        label: `用例实现设计：${useCase.name}`,
+      }),
+    );
+  });
+}
+
+function requirementGenerationSubtasks(
+  diagrams: DiagramType[],
+  requirementModels: WorkspaceRecord["models"],
+): GenerationTask["subtasks"] {
+  return diagrams.flatMap((diagram) => {
+    if (diagram !== "analysis") {
+      return stagedDiagramSubtasks({
+        modelStage: "generate_models",
+        id: diagram,
+        label: DIAGRAM_META[diagram].label,
+      });
+    }
+    const useCaseModel = requirementModels.usecase;
+    if (!useCaseModel || !("useCases" in useCaseModel)) {
+      return stagedDiagramSubtasks({
+        modelStage: "generate_models",
+        id: "analysis",
+        label: DIAGRAM_META.analysis.label,
+      });
+    }
+    return useCaseModel.useCases.flatMap((useCase) =>
+      stagedDiagramSubtasks({
+        modelStage: "generate_models",
+        id: `analysis:${useCase.id}`,
+        label: `需求分析模型：${useCase.name}`,
+      }),
+    );
   });
 }
 
@@ -752,6 +852,35 @@ function refKey(diagramKind: string, elementId: string, modelId?: string) {
   return `${scope}:${diagramKind}:${elementId}`.toLowerCase();
 }
 
+function clearRequirementScopedRecord<T>(
+  current: Record<string, T>,
+  affectedDiagrams: readonly DiagramType[],
+) {
+  const affected = new Set(affectedDiagrams);
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      if (affected.has(key as DiagramType)) return false;
+      for (const diagram of affected) {
+        if (key.startsWith(`${diagram}:`)) return false;
+      }
+      const diagramKind = (value as { diagramKind?: string } | undefined)?.diagramKind;
+      return !diagramKind || !affected.has(diagramKind as DiagramType);
+    }),
+  ) as Record<string, T>;
+}
+
+function diagramsFromRequirementSnapshot(snapshot: WorkspaceRunSnapshot) {
+  return Array.from(
+    new Set([
+      ...snapshot.selectedDiagrams,
+      ...snapshot.models.map((model) => model.diagramKind),
+      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+      ...Object.keys(snapshot.diagramErrors),
+    ]),
+  ) as DiagramType[];
+}
+
 function compactRefValue(value: unknown) {
   return typeof value === "string" || typeof value === "number"
     ? String(value).trim()
@@ -1138,6 +1267,8 @@ export function WorkspaceSessionProvider({
   const { currentRunDiagnostics, setCurrentRunDiagnostics } =
     useRunDiagnosticsSlice();
   const [runUiState, setRunUiState] = useState(createEmptyRunUiState);
+  const [billingGenerationBlock, setBillingGenerationBlock] =
+    useState<BillingEntitlementErrorResponse | null>(null);
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
   const [selectedGenerationTaskId, setSelectedGenerationTaskId] =
     useState<string | null>(null);
@@ -1961,15 +2092,7 @@ export function WorkspaceSessionProvider({
         !fingerprintMatches(requirementInputFingerprint, activeRequirementFingerprint);
       const nextRulesVersion = inputChanged ? rulesVersion + 1 : rulesVersion || 1;
       const mapped = snapshotToMaps(snapshot);
-      const snapshotDiagrams = Array.from(
-        new Set([
-          ...snapshot.selectedDiagrams,
-          ...(Object.keys(mapped.models) as DiagramType[]),
-          ...(Object.keys(mapped.plantUml) as DiagramType[]),
-          ...(Object.keys(mapped.svgArtifacts) as DiagramType[]),
-          ...(Object.keys(snapshot.diagramErrors) as DiagramType[]),
-        ]),
-      );
+      const snapshotDiagrams = diagramsFromRequirementSnapshot(snapshot);
 
       if (mode.kind === "rules-only") {
         setRules(snapshot.rules);
@@ -1990,6 +2113,11 @@ export function WorkspaceSessionProvider({
         const next = { ...current };
         for (const diagram of affected) {
           delete next[diagram];
+          for (const key of Object.keys(next)) {
+            if (key.startsWith(`${diagram}:`)) {
+              delete next[key as DiagramType];
+            }
+          }
         }
         for (const [diagram, error] of Object.entries(snapshot.diagramErrors)) {
           next[diagram as DiagramType] = error;
@@ -2005,12 +2133,9 @@ export function WorkspaceSessionProvider({
         const affected = mode.kind === "partial-diagrams"
           ? mode.diagrams
           : snapshot.selectedDiagrams;
-        const next = { ...current };
-        for (const diagram of affected) {
-          delete next[diagram];
-        }
-        for (const [diagram, model] of Object.entries(mapped.models)) {
-          next[diagram as DiagramType] = model;
+        const next = clearRequirementScopedRecord(current, affected);
+        for (const [modelId, model] of Object.entries(mapped.models)) {
+          next[modelId] = model;
         }
         return next;
       });
@@ -2031,12 +2156,9 @@ export function WorkspaceSessionProvider({
         const affected = mode.kind === "partial-diagrams"
           ? mode.diagrams
           : snapshotDiagrams;
-        const next = { ...current };
-        for (const diagram of affected) {
-          delete next[diagram];
-        }
-        for (const [diagram, source] of Object.entries(mapped.plantUml)) {
-          next[diagram as DiagramType] = source;
+        const next = clearRequirementScopedRecord(current, affected);
+        for (const [modelId, source] of Object.entries(mapped.plantUml)) {
+          next[modelId] = source;
         }
         return next;
       });
@@ -2045,12 +2167,9 @@ export function WorkspaceSessionProvider({
         const affected = mode.kind === "partial-diagrams"
           ? mode.diagrams
           : snapshotDiagrams;
-        const next = { ...current };
-        for (const diagram of affected) {
-          delete next[diagram];
-        }
-        for (const [diagram, artifact] of Object.entries(mapped.svgArtifacts)) {
-          next[diagram as DiagramType] = artifact;
+        const next = clearRequirementScopedRecord(current, affected);
+        for (const [modelId, artifact] of Object.entries(mapped.svgArtifacts)) {
+          next[modelId] = artifact;
         }
         return next;
       });
@@ -2152,6 +2271,29 @@ export function WorkspaceSessionProvider({
     [],
   );
 
+  const clearBillingGenerationBlock = useCallback(() => {
+    setBillingGenerationBlock(null);
+  }, []);
+
+  const openBillingEntitlementDialog = useCallback(
+    (
+      block: BillingEntitlementErrorResponse,
+      input: { runId?: string | null; stageLabel: string },
+    ) => {
+      setBillingGenerationBlock(block);
+      openGenerationResultDialog({
+        title: billingEntitlementDialogTitle(block),
+        tone: block.reason === "negative_balance" ? "destructive" : "warning",
+        message: block.message,
+        details: billingEntitlementDialogDetails(block),
+        runId: input.runId,
+        stageLabel: input.stageLabel,
+        targetLabel: "生成权益",
+      });
+    },
+    [openGenerationResultDialog],
+  );
+
 
 
   const applyRestoredSnapshot = useCallback((snapshot: RunHistorySnapshot) => {
@@ -2219,7 +2361,7 @@ export function WorkspaceSessionProvider({
     } else if (isDesignRunSnapshot(snapshot)) {
       const mapped = designSnapshotToMaps(snapshot);
       const restoredRequirementModels = Object.fromEntries(
-        snapshot.requirementModels.map((model) => [model.diagramKind, model]),
+        snapshot.requirementModels.map((model) => [getRequirementModelId(model), model]),
       ) as WorkspaceRecord["models"];
       const restoredRequirementDiagrams = snapshot.requirementModels.map(
         (model) => model.diagramKind,
@@ -2463,6 +2605,12 @@ export function WorkspaceSessionProvider({
               rule.text.trim() &&
               rule.relatedDiagrams.length > 0,
           ),
+          mode.kind === "rules-only"
+            ? []
+            : Object.values(models).filter(
+                (model): model is DiagramModelSpec => Boolean(model),
+              ),
+          mode.kind === "rules-only" ? [] : requirementModelTraceability,
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -2489,13 +2637,7 @@ export function WorkspaceSessionProvider({
                     errorMessage: null,
                   },
                 ]
-              : diagrams.map((diagram) => ({
-                  id: diagram,
-                  label: DIAGRAM_META[diagram].label,
-                  status: "queued",
-                  message: null,
-                  errorMessage: null,
-                })),
+              : requirementGenerationSubtasks(diagrams, models),
         });
         setRunUiState({
           runStatus: "queued",
@@ -2795,7 +2937,8 @@ export function WorkspaceSessionProvider({
           notifyGenerationResultStale();
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "生成失败";
+        const billingBlock = parseBillingEntitlementError(error);
+        const detail = billingBlock?.message ?? (error instanceof Error ? error.message : "生成失败");
         if (clientTaskId) {
           updateGenerationTask(clientTaskId, (task) => ({
             ...task,
@@ -2830,16 +2973,23 @@ export function WorkspaceSessionProvider({
           runStatus: "failed",
           runProgress: 100,
           runMessage: null,
-          errorMessage: error instanceof Error ? error.message : "生成失败",
+          errorMessage: detail,
         });
-        openGenerationResultDialog({
-          title: "生成失败",
-          tone: "destructive",
-          message: detail,
-          details: ["请在当前页面查看问题并重新处理。"],
-          runId,
-          stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
-        });
+        if (billingBlock) {
+          openBillingEntitlementDialog(billingBlock, {
+            runId,
+            stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+          });
+        } else {
+          openGenerationResultDialog({
+            title: "生成失败",
+            tone: "destructive",
+            message: detail,
+            details: ["请在当前页面查看问题并重新处理。"],
+            runId,
+            stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+          });
+        }
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt: new Date().toISOString(),
@@ -2849,15 +2999,16 @@ export function WorkspaceSessionProvider({
               id: `${new Date().toISOString()}:failed-local`,
               at: new Date().toISOString(),
               label: "failed",
-              detail: error instanceof Error ? error.message : "生成失败",
+              detail,
             },
           ].slice(-80),
         }));
-        notifyGenerationFailed(error instanceof Error ? `生成失败：${error.message}` : "生成失败");
+        notifyGenerationFailed(`生成失败：${detail}`);
       }
     },
     [
       applyRunSnapshot,
+      openBillingEntitlementDialog,
       openGenerationResultDialog,
       persistRequirementReviewCandidates,
       repository,
@@ -2957,9 +3108,11 @@ export function WorkspaceSessionProvider({
         ) {
           throw new Error("当前仓储未实现设计阶段生成能力");
         }
+        if (!requirementBaseline) {
+          throw new Error("请先生成并确认需求规则，形成需求基线后再生成设计模型");
+        }
         const startInput = createStartDesignRunInput(
-          requirementText,
-          rules,
+          requirementBaseline,
           Object.values(models).filter(
             (model): model is DiagramModelSpec => Boolean(model),
           ),
@@ -3168,7 +3321,10 @@ export function WorkspaceSessionProvider({
           notifyGenerationResultStale();
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "设计生成失败";
+        const billingBlock = parseBillingEntitlementError(error);
+        const detail =
+          billingBlock?.message ??
+          (error instanceof Error ? error.message : "设计生成失败");
         if (clientTaskId) {
           updateGenerationTask(clientTaskId, (task) => ({
             ...task,
@@ -3203,16 +3359,23 @@ export function WorkspaceSessionProvider({
           runStatus: "failed",
           runProgress: 100,
           runMessage: null,
-          errorMessage: error instanceof Error ? error.message : "设计生成失败",
+          errorMessage: detail,
         });
-        openGenerationResultDialog({
-          title: "生成失败",
-          tone: "destructive",
-          message: detail,
-          details: ["设计生成未通过，请在设计模型页面查看问题并重新处理。"],
-          runId,
-          stageLabel: "设计模型",
-        });
+        if (billingBlock) {
+          openBillingEntitlementDialog(billingBlock, {
+            runId,
+            stageLabel: "设计模型",
+          });
+        } else {
+          openGenerationResultDialog({
+            title: "生成失败",
+            tone: "destructive",
+            message: detail,
+            details: ["设计生成未通过，请在设计模型页面查看问题并重新处理。"],
+            runId,
+            stageLabel: "设计模型",
+          });
+        }
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt: new Date().toISOString(),
@@ -3222,12 +3385,12 @@ export function WorkspaceSessionProvider({
               id: `${new Date().toISOString()}:failed-local`,
               at: new Date().toISOString(),
               label: "failed",
-              detail: error instanceof Error ? error.message : "设计生成失败",
+              detail,
             },
           ].slice(-80),
         }));
         notifyGenerationFailed(
-          error instanceof Error ? `设计生成失败：${error.message}` : "设计生成失败",
+          `设计生成失败：${detail}`,
         );
       }
     },
@@ -3638,7 +3801,10 @@ export function WorkspaceSessionProvider({
         notifyGenerationResultStale();
       }
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "代码生成失败";
+      const billingBlock = parseBillingEntitlementError(error);
+      const detail =
+        billingBlock?.message ??
+        (error instanceof Error ? error.message : "代码生成失败");
       if (clientTaskId) {
         updateGenerationTask(clientTaskId, (task) => ({
           ...task,
@@ -3673,16 +3839,23 @@ export function WorkspaceSessionProvider({
         runStatus: "failed",
         runProgress: 100,
         runMessage: null,
-        errorMessage: error instanceof Error ? error.message : "代码生成失败",
+        errorMessage: detail,
       });
-      openGenerationResultDialog({
-        title: "生成失败",
-        tone: "destructive",
-        message: detail,
-        details: ["请在代码页面查看问题并重新处理。"],
-        runId,
-        stageLabel: "代码原型",
-      });
+      if (billingBlock) {
+        openBillingEntitlementDialog(billingBlock, {
+          runId,
+          stageLabel: "代码原型",
+        });
+      } else {
+        openGenerationResultDialog({
+          title: "生成失败",
+          tone: "destructive",
+          message: detail,
+          details: ["请在代码页面查看问题并重新处理。"],
+          runId,
+          stageLabel: "代码原型",
+        });
+      }
       setCurrentRunDiagnostics((current) => ({
         ...current,
         finishedAt: new Date().toISOString(),
@@ -3692,13 +3865,11 @@ export function WorkspaceSessionProvider({
             id: `${new Date().toISOString()}:failed-local`,
             at: new Date().toISOString(),
             label: "failed",
-            detail: error instanceof Error ? error.message : "代码生成失败",
+            detail,
           },
         ].slice(-80),
       }));
-      notifyGenerationFailed(
-        error instanceof Error ? `代码生成失败：${error.message}` : "代码生成失败",
-      );
+      notifyGenerationFailed(`代码生成失败：${detail}`);
     }
   }, [
     applyCodeRunSnapshot,
@@ -3714,6 +3885,7 @@ export function WorkspaceSessionProvider({
     generatedDiagrams,
     manualModelEditStatus,
     models,
+    openBillingEntitlementDialog,
     openGenerationResultDialog,
     repository,
     requirementBaseline,
@@ -4020,7 +4192,10 @@ export function WorkspaceSessionProvider({
         });
         return snapshot;
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "说明书生成失败";
+        const billingBlock = parseBillingEntitlementError(error);
+        const detail =
+          billingBlock?.message ??
+          (error instanceof Error ? error.message : "说明书生成失败");
         if (clientTaskId) {
           updateGenerationTask(clientTaskId, (task) => ({
             ...task,
@@ -4047,16 +4222,23 @@ export function WorkspaceSessionProvider({
           runStatus: "failed",
           runProgress: 100,
           runMessage: null,
-          errorMessage: error instanceof Error ? error.message : "说明书生成失败",
+          errorMessage: detail,
         });
-        openGenerationResultDialog({
-          title: "生成失败",
-          tone: "destructive",
-          message: detail,
-          details: ["说明书生成未通过，请在说明书页面查看问题并重新处理。"],
-          runId,
-          stageLabel: "说明书",
-        });
+        if (billingBlock) {
+          openBillingEntitlementDialog(billingBlock, {
+            runId,
+            stageLabel: "说明书",
+          });
+        } else {
+          openGenerationResultDialog({
+            title: "生成失败",
+            tone: "destructive",
+            message: detail,
+            details: ["说明书生成未通过，请在说明书页面查看问题并重新处理。"],
+            runId,
+            stageLabel: "说明书",
+          });
+        }
         setCurrentRunDiagnostics((current) => ({
           ...current,
           finishedAt: new Date().toISOString(),
@@ -4066,15 +4248,11 @@ export function WorkspaceSessionProvider({
               id: `${new Date().toISOString()}:failed-local-document`,
               at: new Date().toISOString(),
               label: "任务失败",
-              detail: error instanceof Error ? error.message : "说明书生成失败",
+              detail,
             },
           ].slice(-80),
         }));
-        notifyGenerationFailed(
-          error instanceof Error
-            ? `说明书生成失败：${error.message}`
-            : "说明书生成失败",
-        );
+        notifyGenerationFailed(`说明书生成失败：${detail}`);
         return null;
       }
     },
@@ -4090,6 +4268,7 @@ export function WorkspaceSessionProvider({
       generatedDiagrams,
       manualModelEditStatus,
       models,
+      openBillingEntitlementDialog,
       openGenerationResultDialog,
       plantUml,
       repository,
@@ -4167,8 +4346,9 @@ export function WorkspaceSessionProvider({
   const saveRequirementModelEdit = useCallback(
     async (diagramKind: DiagramType, model: DiagramModelSpec) => {
       const status = createManualEditStatus("dirty");
-      setModels((current) => ({ ...current, [diagramKind]: model }));
-      setManualModelEditStatus((current) => ({ ...current, [diagramKind]: status }));
+      const modelKey = getRequirementModelId(model);
+      setModels((current) => ({ ...current, [modelKey]: model }));
+      setManualModelEditStatus((current) => ({ ...current, [modelKey]: status }));
       await repository.saveRequirementModelEdit?.(diagramKind, model, status);
     },
     [createManualEditStatus, repository],
@@ -4194,6 +4374,7 @@ export function WorkspaceSessionProvider({
       if (!model) {
         throw new Error("当前需求模型不存在，无法重绘");
       }
+      const modelKey = getRequirementModelId(model);
       if (!repository.renderStructuredModel) {
         throw new Error("当前环境不支持结构化模型重绘");
       }
@@ -4201,21 +4382,23 @@ export function WorkspaceSessionProvider({
       const status = createManualEditStatus("rerendered");
       const svgArtifact = {
         diagramKind,
+        modelId: "modelId" in model ? model.modelId : undefined,
         svg: rendered.svg,
         renderMeta: rendered.renderMeta,
       };
-      setPlantUml((current) => ({ ...current, [diagramKind]: rendered.plantUmlSource }));
-      setSvgArtifacts((current) => ({ ...current, [diagramKind]: svgArtifact }));
+      setPlantUml((current) => ({ ...current, [modelKey]: rendered.plantUmlSource }));
+      setSvgArtifacts((current) => ({ ...current, [modelKey]: svgArtifact }));
       setDiagramErrors((current) => {
         const next = { ...current };
+        delete next[modelKey];
         delete next[diagramKind];
         return next;
       });
       setGeneratedDiagrams((current) =>
         current.includes(diagramKind) ? current : [...current, diagramKind],
       );
-      setManualModelEditStatus((current) => ({ ...current, [diagramKind]: status }));
-      await repository.saveManualModelRerender?.(diagramKind, status, {
+      setManualModelEditStatus((current) => ({ ...current, [modelKey]: status }));
+      await repository.saveManualModelRerender?.(modelKey, status, {
         plantUmlSource: rendered.plantUmlSource,
         svgArtifact,
       });
@@ -4317,6 +4500,7 @@ export function WorkspaceSessionProvider({
     [
       confirmGeneration,
       models,
+      openBillingEntitlementDialog,
       openGenerationResultDialog,
       requirementBaseline,
       requirementReviewCandidates,
@@ -4549,6 +4733,8 @@ export function WorkspaceSessionProvider({
       runProgress: visibleRunProgress,
       runMessage: visibleRunMessage,
       errorMessage: visibleErrorMessage,
+      billingGenerationBlock,
+      clearBillingGenerationBlock,
       generationTasks,
       visibleGenerationTask,
       selectedGenerationTaskId: visibleGenerationTask?.clientTaskId ?? null,
@@ -4638,6 +4824,8 @@ export function WorkspaceSessionProvider({
       visibleRunProgress,
       visibleRunMessage,
       visibleErrorMessage,
+      billingGenerationBlock,
+      clearBillingGenerationBlock,
       generationTasks,
       visibleGenerationTask,
       selectGenerationTask,

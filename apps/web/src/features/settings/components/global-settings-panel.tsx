@@ -8,11 +8,9 @@ import { Label } from "../../../shared/ui/label";
 import { Switch } from "../../../shared/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../shared/ui/select";
 import { useTheme } from "../../../app/providers/theme-provider";
-import { useWorkspaceRepository } from "../../../services/workspace-repository";
 import {
   DEFAULT_USER_SETTINGS,
   loadUserSettings,
-  normalizeApiBaseUrl,
   saveUserSettings,
   type UserSettings,
 } from "../../../shared/lib/user-settings";
@@ -25,41 +23,29 @@ import {
   PlatformApiError,
   type PlatformProviderConfig,
 } from "../../user-platform/services/platform-api";
-import { ModelSettingsFields, maskApiKey } from "./model-settings-fields";
 
 type GlobalSettingsPanelProps = {
   active: boolean;
-  allowLegacyProvider?: boolean;
   onNavigate?: (route: string) => void;
   onSaved?: () => void;
 };
 
-function canUseDevLegacyProvider() {
-  return import.meta.env.VITE_ENABLE_LEGACY_PROVIDER_SETTINGS === "true";
-}
-
 export function GlobalSettingsPanel({
   active,
-  allowLegacyProvider = false,
   onNavigate,
   onSaved,
 }: GlobalSettingsPanelProps) {
   const { theme, toggle } = useTheme();
-  const repository = useWorkspaceRepository();
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
-  const [showKey, setShowKey] = useState(false);
-  const [showLegacyProvider, setShowLegacyProvider] = useState(false);
   const [providerConfigs, setProviderConfigs] = useState<PlatformProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
   const [testing, setTesting] = useState(false);
-  const legacyAllowed = allowLegacyProvider || canUseDevLegacyProvider();
 
   useEffect(() => {
     if (!active) return;
     setSettings(loadUserSettings());
-    setShowLegacyProvider(false);
     setProviderLoading(true);
     setProviderStatus("");
     setAuthRequired(false);
@@ -87,8 +73,6 @@ export function GlobalSettingsPanel({
                   ...current,
                   providerConfigId: selected.id,
                   defaultModel: resolveProviderModel(selected, current.defaultModel),
-                  apiKey: "",
-                  apiBaseUrl: "",
                 };
               });
             }
@@ -107,7 +91,7 @@ export function GlobalSettingsPanel({
         setAuthRequired(true);
         setProviderStatus(
           error instanceof PlatformApiError && error.status === 401
-            ? "未登录时不能使用模型配置；legacy/dev Provider 仅限显式开发模式。"
+            ? "未登录时不能使用模型配置。"
             : "无法校验登录状态，请先登录或确认 API 服务可用。",
         );
       })
@@ -133,26 +117,18 @@ export function GlobalSettingsPanel({
 
   const save = () => {
     try {
-      if (settings.providerConfigId) {
-        saveUserSettings({
-          ...settings,
-          defaultModel: resolveProviderModel(selectedProvider, settings.defaultModel),
-          apiKey: "",
-          apiBaseUrl: "",
-        });
-      } else if (legacyAllowed) {
-        saveUserSettings({
-          ...settings,
-          apiBaseUrl: normalizeApiBaseUrl(settings.apiBaseUrl),
-        });
-      } else {
+      if (!settings.providerConfigId) {
         toast.error("登录态必须选择托管 Provider 配置");
         return;
       }
+      saveUserSettings({
+        ...settings,
+        defaultModel: resolveProviderModel(selectedProvider, settings.defaultModel),
+      });
       toast.success("设置已保存");
       onSaved?.();
     } catch {
-      toast.error("API Base URL 不是合法地址");
+      toast.error("设置保存失败");
     }
   };
 
@@ -164,24 +140,15 @@ export function GlobalSettingsPanel({
   const testConnection = async () => {
     setTesting(true);
     try {
-      if (settings.providerConfigId) {
-        const result = await platformApi.testProviderConfig(
-          settings.providerConfigId,
-          resolveProviderModel(selectedProvider, settings.defaultModel),
-        );
-        toast.success(result.message ?? "托管配置连接成功");
-        return;
-      }
-      if (!legacyAllowed) {
+      if (!settings.providerConfigId) {
         toast.error("登录态必须测试托管 Provider 配置");
         return;
       }
-      const result = await repository.testProviderSettings({
-        apiBaseUrl: normalizeApiBaseUrl(settings.apiBaseUrl),
-        apiKey: settings.apiKey,
-        model: settings.defaultModel,
-      });
-      toast.success(`连接成功：${result.capability.modeLabel}`);
+      const result = await platformApi.testProviderConfig(
+        settings.providerConfigId,
+        resolveProviderModel(selectedProvider, settings.defaultModel),
+      );
+      toast.success(result.message ?? "托管配置连接成功");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "连接测试失败");
     } finally {
@@ -189,8 +156,7 @@ export function GlobalSettingsPanel({
     }
   };
 
-  const legacyReady = settings.apiBaseUrl.trim() && settings.apiKey.trim();
-  const canTest = settings.providerConfigId ? true : legacyAllowed && legacyReady;
+  const canTest = Boolean(settings.providerConfigId);
 
   if (authRequired) {
     return (
@@ -231,8 +197,6 @@ export function GlobalSettingsPanel({
                   defaultModel: providerConfigId
                     ? resolveProviderModel(config, current.defaultModel)
                     : current.defaultModel,
-                  apiBaseUrl: providerConfigId ? "" : current.apiBaseUrl,
-                  apiKey: providerConfigId ? "" : current.apiKey,
                 }));
               }}
               disabled={providerLoading || providerConfigs.length === 0}
@@ -245,7 +209,7 @@ export function GlobalSettingsPanel({
                 <SelectValue placeholder={providerLoading ? "正在加载托管配置" : "选择托管配置"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">不使用托管配置</SelectItem>
+                <SelectItem value="__none__">请选择托管配置</SelectItem>
                 {providerConfigs.map((config) => (
                   <SelectItem key={config.id} value={config.id}>
                     {config.name}
@@ -293,28 +257,6 @@ export function GlobalSettingsPanel({
               </span>
             )}
           </div>
-          {legacyAllowed && (
-            <div className="rounded-md border border-dashed border-border p-3">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 px-2 text-xs"
-                onClick={() => setShowLegacyProvider((value) => !value)}
-              >
-                {showLegacyProvider ? "隐藏 legacy/dev 备选" : "显示 legacy/dev 备选"}
-              </Button>
-              {showLegacyProvider && (
-                <div className="mt-3">
-                  <ModelSettingsFields
-                    settings={settings}
-                    showKey={showKey}
-                    onToggleKey={() => setShowKey((value) => !value)}
-                    onChange={update}
-                  />
-                </div>
-              )}
-            </div>
-          )}
         </section>
 
         <section className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
@@ -374,18 +316,13 @@ export function GlobalSettingsPanel({
         </Button>
         <Button variant="outline" onClick={testConnection} disabled={testing || !canTest}>
           {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-          {settings.providerConfigId ? "测试托管配置" : "测试连接"}
+          测试托管配置
         </Button>
         <Button onClick={save}>
           <KeyRound className="size-4" />
           保存
         </Button>
       </div>
-      {settings.providerConfigId && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          当前使用托管配置，保存时会清空本地 API Key：{maskApiKey(settings.apiKey)}
-        </p>
-      )}
     </>
   );
 }

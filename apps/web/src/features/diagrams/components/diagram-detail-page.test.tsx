@@ -84,7 +84,7 @@ describe("DiagramView", () => {
 
     render(withWorkspaceProviders(<DiagramView type="activity" />, repository));
 
-    expect(await screen.findByText("界面关系图 生成失败")).toBeInTheDocument();
+    expect(await screen.findByText("总体业务流程 生成失败")).toBeInTheDocument();
     expect(
       screen.getByText(/PlantUML repair failed for activity: Syntax Error\?/),
     ).toBeInTheDocument();
@@ -140,6 +140,56 @@ describe("DiagramView", () => {
     expect(screen.queryByText("溯源·需求规则")).not.toBeInTheDocument();
     expect(screen.queryByText("用户可以查看公开活动。")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
+  });
+
+  it("loads requirement diagram details by model id", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["analysis"],
+        models: {
+          "analysis:submit-order": {
+            diagramKind: "analysis",
+            modelId: "analysis:submit-order",
+            sourceUseCaseId: "submit-order",
+            sourceUseCaseName: "提交订单",
+            title: "提交订单需求分析模型",
+            summary: "提交订单事件流",
+            notes: [],
+            participants: [
+              { id: "customer", name: "客户", participantType: "actor" },
+            ],
+            messages: [],
+            fragments: [],
+          },
+        },
+        plantUml: {
+          "analysis:submit-order": "@startuml\nactor 客户\n@enduml",
+        },
+        svgArtifacts: {
+          "analysis:submit-order": {
+            diagramKind: "analysis",
+            modelId: "analysis:submit-order",
+            svg: "<svg><text>提交订单需求分析模型 SVG</text></svg>",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    render(
+      withWorkspaceProviders(
+        <DiagramView type="analysis" modelId="analysis:submit-order" />,
+        repository,
+      ),
+    );
+
+    expect(await screen.findByDisplayValue("提交订单需求分析模型")).toBeInTheDocument();
+    expect(screen.getByText("提交订单需求分析模型 SVG")).toBeInTheDocument();
   });
 
   it("shows requirement rule sources below the requirement model summary", async () => {
@@ -206,7 +256,7 @@ describe("DiagramView", () => {
             modelId: "sequence:borrow",
             sourceUseCaseId: "uc_borrow",
             sourceUseCaseName: "借出图书",
-            title: "借出图书顺序图",
+            title: "借出图书用例实现设计",
             summary: "借出图书流程",
             notes: [],
             participants: [],
@@ -232,7 +282,7 @@ describe("DiagramView", () => {
     );
 
     expect(
-      await screen.findByText("来源：需求阶段用例模型（用例：借出图书）"),
+      await screen.findByText("来源：需求阶段用例模型事件流 + 需求分析模型（用例：借出图书）"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重新生成当前图" })).not.toBeInTheDocument();
     namedView.unmount();
@@ -246,7 +296,7 @@ describe("DiagramView", () => {
             diagramKind: "sequence",
             modelId: "sequence:uc_only",
             sourceUseCaseId: "uc_only",
-            title: "顺序图",
+            title: "用例实现设计",
             summary: "无用例名",
             notes: [],
             participants: [],
@@ -272,7 +322,7 @@ describe("DiagramView", () => {
     );
 
     expect(
-      await screen.findByText("来源：需求阶段用例模型（用例ID：uc_only）"),
+      await screen.findByText("来源：需求阶段用例模型事件流 + 需求分析模型（用例ID：uc_only）"),
     ).toBeInTheDocument();
     idView.unmount();
 
@@ -283,7 +333,7 @@ describe("DiagramView", () => {
         designModels: {
           sequence: {
             diagramKind: "sequence",
-            title: "顺序图",
+            title: "用例实现设计",
             summary: "缺少用例信息",
             notes: [],
             participants: [],
@@ -305,7 +355,7 @@ describe("DiagramView", () => {
     );
 
     expect(
-      await screen.findByText("来源：需求阶段用例模型（具体用例未标明）"),
+      await screen.findByText("来源：需求阶段用例模型事件流 + 需求分析模型（具体用例未标明）"),
     ).toBeInTheDocument();
     missingView.unmount();
 
@@ -316,7 +366,7 @@ describe("DiagramView", () => {
         designModels: {
           activity: {
             diagramKind: "activity",
-            title: "业务流程图",
+            title: "界面关系图",
             summary: "业务流程",
             notes: [],
             swimlanes: [],
@@ -336,7 +386,7 @@ describe("DiagramView", () => {
     render(withWorkspaceProviders(<DesignDiagramView type="activity" />, activityRepository));
 
     expect(
-      await screen.findByText("来源：需求阶段界面关系图 + 设计阶段顺序图"),
+      await screen.findByText("来源：需求阶段原型界面关系 + 设计阶段用例实现设计"),
     ).toBeInTheDocument();
   });
 
@@ -402,7 +452,7 @@ describe("DiagramView", () => {
         designModels: {
           activity: {
             diagramKind: "activity",
-            title: "业务流程图",
+            title: "界面关系图",
             summary: "业务流程",
             notes: [],
             swimlanes: [],
@@ -545,6 +595,72 @@ describe("DiagramView", () => {
     expect(screen.getByText("125%")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "缩小 SVG" }));
     expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+
+  it("keeps the SVG preview full width while opening and closing the model overview overlay", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        plantUml: {
+          class: "@startuml\nclass Book\n@enduml",
+        },
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "图书馆核心概念",
+            notes: [],
+            classes: [
+              {
+                id: "book",
+                name: "Book",
+                description: "图书",
+                classKind: "entity",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [
+              {
+                id: "rel_book_user",
+                type: "association",
+                sourceId: "book",
+                targetId: "book",
+                label: "自关联",
+              },
+            ],
+          },
+        },
+        svgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: "<svg><text>Book</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="class" />, repository));
+
+    expect(await screen.findByTestId("diagram-preview-section")).toHaveClass("w-full");
+    expect(screen.queryByRole("complementary", { name: "模型概览" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "打开模型概览" }));
+    const panel = await screen.findByRole("complementary", { name: "模型概览" });
+    expect(within(panel).getByText("类")).toBeInTheDocument();
+    expect(within(panel).getByText("关系")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "模型概览" })).not.toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "打开模型概览" }));
+    await userEvent.click(await screen.findByRole("button", { name: "关闭模型概览" }));
+    expect(screen.queryByRole("complementary", { name: "模型概览" })).not.toBeInTheDocument();
   });
 
   it("zooms only the SVG canvas on ctrl wheel and prevents page zoom", async () => {
@@ -1274,7 +1390,7 @@ describe("DiagramView", () => {
         designModels: {
           table: {
             diagramKind: "table",
-            title: "表关系图",
+            title: "数据库设计",
             summary: "订单表",
             notes: [],
             tables: [
@@ -1388,7 +1504,7 @@ describe("DiagramView", () => {
           "sequence:login": {
             diagramKind: "sequence",
             modelId: "sequence:login",
-            title: "登录顺序图",
+            title: "登录用例实现设计",
             summary: "登录流程",
             notes: [],
             participants: [

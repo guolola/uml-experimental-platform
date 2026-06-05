@@ -16,6 +16,8 @@ export type AppRoute =
   | { kind: "auth"; path: AuthRoutePath }
   | { kind: "invitation-accept"; path: "/invitations/accept" }
   | { kind: "legacy-account"; path: "/account" | "/account/security" }
+  | { kind: "account-billing"; path: "/account/billing" }
+  | { kind: "alipay-return"; path: "/billing/alipay/return" }
   | { kind: "legacy-settings"; path: "/settings/models" }
   | { kind: "projects-index"; path: "/projects" }
   | { kind: "projects-new"; path: "/projects/new" }
@@ -57,6 +59,14 @@ export function matchAppRoute(pathname: string): AppRoute {
 
   if (pathname === "/invitations/accept") {
     return { kind: "invitation-accept", path: "/invitations/accept" };
+  }
+
+  if (pathname === "/billing/alipay/return") {
+    return { kind: "alipay-return", path: "/billing/alipay/return" };
+  }
+
+  if (pathname === "/account/billing") {
+    return { kind: "account-billing", path: "/account/billing" };
   }
 
   if (pathname === "/account" || pathname === "/account/security") {

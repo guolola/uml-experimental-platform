@@ -2,6 +2,7 @@ import type {
   ActivityDiagramSpec,
   ActivityRelationship,
   ActivityNode,
+  AnalysisSequenceDiagramSpec,
   ClassAttribute,
   ClassDiagramSpec,
   ClassEntity,
@@ -13,6 +14,8 @@ import type {
   DesignPlantUmlArtifact,
   DiagramModelSpec,
   PlantUmlArtifact,
+  PrototypeInterfaceDiagramSpec,
+  PrototypeInterfaceRelationship,
   SequenceDiagramSpec,
   SequenceMessage,
   TableDiagramSpec,
@@ -20,6 +23,10 @@ import type {
   UseCaseDiagramSpec,
   UseCaseRelationship,
 } from "@uml-platform/contracts";
+import {
+  compactDiagramText,
+  shortDiagramLabel,
+} from "./normalizers/diagrams/relationship-labels.js";
 
 function safeAlias(value: string) {
   return value.replace(/[^A-Za-z0-9_]/g, "_") || "node";
@@ -29,12 +36,23 @@ function quoteLabel(label: string) {
   return `"${label.replace(/"/g, "'")}"`;
 }
 
+function shortLabelPart(value: unknown, maxLength = 18) {
+  const label = shortDiagramLabel(value, maxLength);
+  return label || undefined;
+}
+
 function appendNotes(lines: string[], notes: string[]) {
   if (notes.length === 0) {
     return;
   }
+  const diagramNotes = notes
+    .map((note) => shortDiagramLabel(compactDiagramText(note), 40))
+    .filter((note) => note.length > 0);
+  if (diagramNotes.length === 0) {
+    return;
+  }
   lines.push("note right");
-  for (const note of notes) {
+  for (const note of diagramNotes) {
     lines.push(note);
   }
   lines.push("end note");
@@ -43,20 +61,16 @@ function appendNotes(lines: string[], notes: string[]) {
 function renderUseCaseRelationship(relation: UseCaseRelationship) {
   const source = safeAlias(relation.sourceId);
   const target = safeAlias(relation.targetId);
-  const labelParts = [
-    relation.label,
-    relation.condition ? `条件: ${relation.condition}` : undefined,
-    relation.description,
-  ].filter(Boolean);
+  const labelParts = [shortLabelPart(relation.label)].filter(Boolean);
   const suffix = labelParts.length > 0 ? ` : ${labelParts.join(" | ")}` : "";
 
   switch (relation.type) {
     case "association":
       return `${source} --> ${target}${suffix}`;
     case "include":
-      return `${source} ..> ${target} : <<include>>${suffix ? ` ${labelParts.join(" | ")}` : ""}`.trim();
+      return `${source} ..> ${target} : <<include>>${labelParts.length > 0 ? ` ${labelParts.join(" | ")}` : ""}`.trim();
     case "extend":
-      return `${source} ..> ${target} : <<extend>>${suffix ? ` ${labelParts.join(" | ")}` : ""}`.trim();
+      return `${source} ..> ${target} : <<extend>>${labelParts.length > 0 ? ` ${labelParts.join(" | ")}` : ""}`.trim();
     case "generalization":
       return `${source} --|> ${target}${suffix}`;
   }
@@ -179,12 +193,7 @@ function renderClassRelationship(relation: ClassRelationship) {
       break;
   }
 
-  const labelParts = [
-    relation.label,
-    relation.sourceRole ? `源角色: ${relation.sourceRole}` : undefined,
-    relation.targetRole ? `目标角色: ${relation.targetRole}` : undefined,
-    relation.description,
-  ].filter(Boolean);
+  const labelParts = [shortLabelPart(relation.label, 16)].filter(Boolean);
 
   const suffix = labelParts.length > 0 ? ` : ${labelParts.join(" | ")}` : "";
   return `${source}${leftMultiplicity} ${arrow}${rightMultiplicity} ${target}${suffix}`;
@@ -369,13 +378,14 @@ function renderActivity(model: ActivityDiagramSpec) {
   }
 
   function branchLabel(relation: ActivityRelationship, fallback: string) {
-    return (
+    return shortDiagramLabel(
       relation.guard ??
-      relation.condition ??
-      relation.trigger ??
-      relation.description ??
-      fallback
-    );
+        relation.condition ??
+        relation.trigger ??
+        relation.description ??
+        fallback,
+      14,
+    ) || fallback;
   }
 
   function escapeConditionLabel(value: string) {
@@ -614,6 +624,14 @@ function renderActivity(model: ActivityDiagramSpec) {
   return `${lines.join("\n")}\n@enduml`;
 }
 
+function deploymentConnectionLabel(relation: DeploymentRelationship) {
+  const label = shortLabelPart(relation.label, 16);
+  const protocol = shortDiagramLabel(relation.protocol, 10);
+  const port = compactDiagramText(relation.port);
+  const endpoint = protocol && port ? `${protocol}:${port}` : protocol || (port ? `端口:${port}` : "");
+  return [label, endpoint || undefined].filter(Boolean).join(" / ");
+}
+
 function renderDeploymentRelationship(relation: DeploymentRelationship) {
   const source = safeAlias(relation.sourceId);
   const target = safeAlias(relation.targetId);
@@ -633,13 +651,8 @@ function renderDeploymentRelationship(relation: DeploymentRelationship) {
       break;
   }
 
-  const labelParts = [
-    relation.label,
-    relation.protocol ? `协议: ${relation.protocol}` : undefined,
-    relation.port ? `端口: ${relation.port}` : undefined,
-    relation.description,
-  ].filter(Boolean);
-  const suffix = labelParts.length > 0 ? ` : ${labelParts.join(" | ")}` : "";
+  const label = deploymentConnectionLabel(relation);
+  const suffix = label ? ` : ${label}` : "";
   return `${source} ${arrow} ${target}${suffix}`;
 }
 
@@ -685,7 +698,12 @@ function renderDeployment(model: DeploymentDiagramSpec) {
   return `${lines.join("\n")}\n@enduml`;
 }
 
-function participantKeyword(type: SequenceDiagramSpec["participants"][number]["participantType"]) {
+type SequenceLikeDiagramSpec = Pick<
+  SequenceDiagramSpec | AnalysisSequenceDiagramSpec,
+  "participants" | "messages" | "fragments" | "notes"
+>;
+
+function participantKeyword(type: SequenceLikeDiagramSpec["participants"][number]["participantType"]) {
   switch (type) {
     case "actor":
       return "actor";
@@ -720,13 +738,22 @@ function sequenceArrow(message: SequenceMessage) {
 }
 
 function sequenceMessageLabel(message: SequenceMessage) {
-  const params = message.parameters.length > 0 ? `(${message.parameters.join(", ")})` : "()";
-  const returnValue = message.returnValue ? `: ${message.returnValue}` : "";
-  const condition = message.condition ? ` [${message.condition}]` : "";
-  return `${message.name}${params}${returnValue}${condition}`;
+  const visibleParams = message.parameters.slice(0, 3).map((parameter) =>
+    shortDiagramLabel(parameter, 18),
+  );
+  const paramsSuffix = message.parameters.length > visibleParams.length ? ", …" : "";
+  const params =
+    visibleParams.length > 0 ? `(${visibleParams.join(", ")}${paramsSuffix})` : "()";
+  const returnValue = message.returnValue
+    ? `: ${shortDiagramLabel(message.returnValue, 14)}`
+    : "";
+  const condition = message.condition
+    ? ` [${shortDiagramLabel(message.condition, 14)}]`
+    : "";
+  return `${shortDiagramLabel(message.name, 20) || message.name}${params}${returnValue}${condition}`;
 }
 
-function renderSequence(model: SequenceDiagramSpec) {
+function renderSequence(model: SequenceLikeDiagramSpec) {
   const lines = ["@startuml", "autonumber"];
 
   for (const participant of model.participants) {
@@ -773,8 +800,11 @@ function renderSequence(model: SequenceDiagramSpec) {
     }
   };
 
-  const branchLabel = (branch: NonNullable<SequenceDiagramSpec["fragments"][number]["branches"]>[number]) =>
-    branch.condition ? `${branch.label} [${branch.condition}]` : branch.label;
+  const branchLabel = (branch: NonNullable<SequenceDiagramSpec["fragments"][number]["branches"]>[number]) => {
+    const label = shortDiagramLabel(branch.label, 14) || branch.label;
+    const condition = branch.condition ? shortDiagramLabel(branch.condition, 14) : "";
+    return condition ? `${label} [${condition}]` : label;
+  };
 
   const renderBranchFragment = (fragment: SequenceDiagramSpec["fragments"][number]) => {
     const branches = fragment.branches ?? [];
@@ -804,8 +834,8 @@ function renderSequence(model: SequenceDiagramSpec) {
 
     for (const fragment of fragmentStarts.get(message.id) ?? []) {
       const label = fragment.condition
-        ? `${fragment.label} [${fragment.condition}]`
-        : fragment.label;
+        ? `${shortDiagramLabel(fragment.label, 16) || fragment.label} [${shortDiagramLabel(fragment.condition, 14)}]`
+        : shortDiagramLabel(fragment.label, 16) || fragment.label;
       lines.push(`${fragment.type} ${label}`);
     }
 
@@ -821,9 +851,55 @@ function renderSequence(model: SequenceDiagramSpec) {
   return `${lines.join("\n")}\n@enduml`;
 }
 
+function prototypeRelationshipArrow(relation: PrototypeInterfaceRelationship) {
+  switch (relation.type) {
+    case "contains":
+      return "*-->";
+    case "returns":
+      return "<--";
+    case "depends-on":
+      return "..>";
+    case "opens":
+    case "submits":
+    case "navigation":
+      return "-->";
+  }
+}
+
+function prototypeRelationshipLabel(relation: PrototypeInterfaceRelationship) {
+  return shortLabelPart(relation.label, 16) ?? "";
+}
+
+function renderPrototype(model: PrototypeInterfaceDiagramSpec) {
+  const lines = ["@startuml", "left to right direction", "skinparam componentStyle rectangle"];
+
+  for (const node of model.nodes) {
+    const alias = safeAlias(node.id);
+    const label = node.route ? `${node.name}\\n${node.route}` : node.name;
+    if (node.nodeType === "module") {
+      lines.push(`package ${quoteLabel(label)} as ${alias}`);
+    } else if (node.nodeType === "entry-point") {
+      lines.push(`interface ${quoteLabel(label)} as ${alias}`);
+    } else {
+      lines.push(`component ${quoteLabel(label)} as ${alias}`);
+    }
+  }
+
+  for (const relation of model.relationships) {
+    const label = prototypeRelationshipLabel(relation);
+    const suffix = label ? ` : ${label}` : "";
+    lines.push(
+      `${safeAlias(relation.sourceId)} ${prototypeRelationshipArrow(relation)} ${safeAlias(relation.targetId)}${suffix}`,
+    );
+  }
+
+  appendNotes(lines, model.notes);
+  return `${lines.join("\n")}\n@enduml`;
+}
+
 function tableRelationshipLabel(relation: TableRelationship) {
   if (relation.label) {
-    return relation.label;
+    return shortDiagramLabel(relation.label, 16);
   }
   switch (relation.type) {
     case "one-to-one":
@@ -896,20 +972,35 @@ export function generatePlantUmlArtifacts(
   models: DiagramModelSpec[],
 ): PlantUmlArtifact[] {
   return models.map((model) => {
+    const modelId = "modelId" in model ? model.modelId : undefined;
     switch (model.diagramKind) {
       case "usecase":
-        return { diagramKind: model.diagramKind, source: renderUseCase(model) };
+        return { modelId, diagramKind: model.diagramKind, source: renderUseCase(model) };
       case "class":
         return {
+          modelId,
           diagramKind: model.diagramKind,
           source: renderClass(model, { includeOperations: false }),
         };
       case "activity":
-        return { diagramKind: model.diagramKind, source: renderActivity(model) };
+        return { modelId, diagramKind: model.diagramKind, source: renderActivity(model) };
       case "deployment":
         return {
+          modelId,
           diagramKind: model.diagramKind,
           source: renderDeployment(model),
+        };
+      case "prototype":
+        return {
+          modelId,
+          diagramKind: model.diagramKind,
+          source: renderPrototype(model),
+        };
+      case "analysis":
+        return {
+          modelId,
+          diagramKind: model.diagramKind,
+          source: renderSequence(model),
         };
     }
   });

@@ -69,7 +69,7 @@ export const WORKFLOW_MANIFEST: WorkflowStepDefinition[] = [
     id: "design",
     label: "软件设计",
     runKind: "design",
-    inputArtifactTypes: ["requirementText", "requirementRule", "requirementModel"],
+    inputArtifactTypes: ["requirementBaseline", "requirementModel"],
     outputArtifactTypes: ["designModel", "designPlantUml", "designSvg"],
     prerequisites: [hasRequirementModels],
   },

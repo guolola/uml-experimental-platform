@@ -1,9 +1,10 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
+  createRequirementBaseline,
   createRule,
   createWorkspaceRecord,
   withWorkspaceProviders,
@@ -44,7 +45,7 @@ function SidebarSequenceGenerationHarness() {
       <SidebarMenu />
       <WorkspaceTabsBar />
       <button type="button" onClick={() => void generateDesignDiagrams(["sequence"])}>
-        生成顺序图
+        生成用例实现设计
       </button>
     </>
   );
@@ -93,7 +94,7 @@ describe("SidebarMenu", () => {
         .getAllByRole("button")
         .map((button) => button.textContent)
         .filter(Boolean),
-    ).toEqual(["需求", "设计", "代码", "说明书"]);
+    ).toEqual(["需求", "设计", "测试", "代码", "说明书"]);
   });
 
   it("marks failed diagrams in the navigation tree", async () => {
@@ -136,8 +137,8 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
-    expect(await screen.findByText("界面关系图")).toBeInTheDocument();
-    expect(screen.getByLabelText("界面关系图生成失败")).toBeInTheDocument();
+    expect(await screen.findByText("总体业务流程")).toBeInTheDocument();
+    expect(screen.getByLabelText("总体业务流程生成失败")).toBeInTheDocument();
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
   });
 
@@ -200,7 +201,7 @@ describe("SidebarMenu", () => {
           designModels: {
             sequence: {
               diagramKind: "sequence",
-              title: "顺序图",
+              title: "用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [],
@@ -211,7 +212,7 @@ describe("SidebarMenu", () => {
           designSvgArtifacts: {
             sequence: {
               diagramKind: "sequence",
-              svg: "<svg><text>顺序图</text></svg>",
+              svg: "<svg><text>用例实现设计</text></svg>",
               renderMeta: { engine: "plantuml" },
             },
           },
@@ -234,7 +235,7 @@ describe("SidebarMenu", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
 
-    expect(screen.getByText("顺序图")).toBeInTheDocument();
+    expect(screen.getByText("用例实现设计")).toBeInTheDocument();
     expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
   });
 
@@ -247,7 +248,7 @@ describe("SidebarMenu", () => {
           designModels: {
             sequence: {
               diagramKind: "sequence",
-              title: "顺序图",
+              title: "用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [],
@@ -258,7 +259,7 @@ describe("SidebarMenu", () => {
           designSvgArtifacts: {
             sequence: {
               diagramKind: "sequence",
-              svg: "<svg><text>顺序图</text></svg>",
+              svg: "<svg><text>用例实现设计</text></svg>",
               renderMeta: { engine: "plantuml" },
             },
           },
@@ -290,12 +291,10 @@ describe("SidebarMenu", () => {
     const nav = await screen.findByRole("navigation", { name: "项目导航" });
 
     await userEvent.click(await within(nav).findByRole("button", { name: "展开 需求" }));
-    await userEvent.click(within(nav).getByRole("button", { name: "需求跟踪矩阵" }));
-    expect(screen.getAllByRole("button", { name: "需求跟踪矩阵" })).toHaveLength(2);
+    expect(within(nav).queryByRole("button", { name: "需求跟踪矩阵" })).not.toBeInTheDocument();
 
     await userEvent.click(within(nav).getByRole("button", { name: "展开 设计" }));
-    await userEvent.click(within(nav).getByRole("button", { name: "设计跟踪矩阵" }));
-    expect(screen.getAllByRole("button", { name: "设计跟踪矩阵" })).toHaveLength(2);
+    expect(within(nav).queryByRole("button", { name: "设计跟踪矩阵" })).not.toBeInTheDocument();
   });
 
   it("keeps upstream badges out of downstream design diagrams", async () => {
@@ -336,7 +335,7 @@ describe("SidebarMenu", () => {
 
     expect(screen.getByRole("button", { name: "设计类图" })).toBeInTheDocument();
     expect(screen.queryByText("领域概念模型")).not.toBeInTheDocument();
-    expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
+    expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
   });
 
   it("shows a toast when a generated design model has no SVG yet", async () => {
@@ -487,6 +486,7 @@ describe("SidebarMenu", () => {
         createWorkspaceRecord({
           requirementText: "生成 UML",
           rules: [createRule({ id: "r1", relatedDiagrams: ["class"] })],
+          requirementBaseline: createRequirementBaseline(),
           models: {
             usecase: {
               diagramKind: "usecase",
@@ -570,7 +570,12 @@ describe("SidebarMenu", () => {
 
     await user.click(await screen.findByRole("button", { name: "生成设计类图" }));
     await user.click(await screen.findByRole("button", { name: "确认生成" }));
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    const designToggle = await screen.findByRole("button", {
+      name: /^(展开|折叠) 设计$/,
+    });
+    if (designToggle.getAttribute("aria-label") === "展开 设计") {
+      await user.click(designToggle);
+    }
 
     expect(await screen.findByRole("button", { name: "设计类图" })).toBeInTheDocument();
     expect(
@@ -594,6 +599,7 @@ describe("SidebarMenu", () => {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           requirementText: "生成 UML",
+          requirementBaseline: createRequirementBaseline(),
           models: {
             usecase: {
               diagramKind: "usecase",
@@ -633,6 +639,17 @@ describe("SidebarMenu", () => {
       subscribeToDesignRun: vi.fn(async (_runId, onEvent) => {
         emitDesignEvent = onEvent;
         onEvent({ type: "queued" });
+        onEvent({
+          type: "stage_progress",
+          stage: "generate_design_sequence",
+          progress: 5,
+          diagramKind: "sequence",
+          modelId: "sequence:uc_view",
+          subtaskId: "sequence:uc_view",
+          subtaskLabel: "用例实现设计：查看活动",
+          subtaskStatus: "queued",
+          message: "正在排队：查看活动",
+        });
         await new Promise<void>((resolve) => {
           releaseRun = resolve;
         });
@@ -650,10 +667,15 @@ describe("SidebarMenu", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<SidebarSequenceGenerationHarness />, repository));
 
-    await user.click(await screen.findByRole("button", { name: "生成顺序图" }));
+    await user.click(await screen.findByRole("button", { name: "生成用例实现设计" }));
     await user.click(await screen.findByRole("button", { name: "确认生成" }));
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
-    await user.click(await screen.findByRole("button", { name: "展开 顺序图（2）" }));
+    const designToggle = await screen.findByRole("button", {
+      name: /^(展开|折叠) 设计$/,
+    });
+    if (designToggle.getAttribute("aria-label") === "展开 设计") {
+      await user.click(designToggle);
+    }
+    await user.click(await screen.findByRole("button", { name: "展开 用例实现设计（2）" }));
 
     expect(screen.getByRole("button", { name: "查看活动" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建活动" })).toBeInTheDocument();
@@ -663,16 +685,18 @@ describe("SidebarMenu", () => {
     expect(toast.message).toHaveBeenCalledWith("生成排队中，完成后可查看");
     expect(screen.queryByRole("button", { name: "关闭 查看活动" })).not.toBeInTheDocument();
 
-    emitDesignEvent({
-      type: "stage_progress",
-      stage: "generate_design_models",
-      progress: 45,
-      diagramKind: "sequence",
-      modelId: "sequence:uc_view",
-      subtaskId: "sequence:uc_view",
-      subtaskLabel: "顺序图：查看活动",
-      subtaskStatus: "running",
-      message: "正在生成顺序图：查看活动",
+    await act(async () => {
+      emitDesignEvent({
+        type: "stage_progress",
+        stage: "generate_design_sequence",
+        progress: 45,
+        diagramKind: "sequence",
+        modelId: "sequence:uc_view",
+        subtaskId: "sequence:uc_view",
+        subtaskLabel: "用例实现设计：查看活动",
+        subtaskStatus: "running",
+        message: "正在生成用例实现设计：查看活动",
+      });
     });
     expect(await screen.findByLabelText("查看活动生成中")).toBeInTheDocument();
 
@@ -694,7 +718,7 @@ describe("SidebarMenu", () => {
           modelId: "sequence:uc_view",
           sourceUseCaseId: "uc_view",
           sourceUseCaseName: "查看活动",
-          title: "查看活动顺序图",
+          title: "查看活动用例实现设计",
           summary: "查看活动流程",
           notes: [],
           participants: [],
@@ -726,17 +750,19 @@ describe("SidebarMenu", () => {
       status: "running",
       errorMessage: null,
     };
-    emitDesignEvent({
-      type: "artifact_ready",
-      stage: "render_svg",
-      artifactKind: "svg",
-      diagramKind: "sequence",
-      modelId: "sequence:uc_view",
-      subtaskId: "sequence:uc_view",
-      subtaskStatus: "completed",
+    await act(async () => {
+      emitDesignEvent({
+        type: "artifact_ready",
+        stage: "render_svg",
+        artifactKind: "svg",
+        diagramKind: "sequence",
+        modelId: "sequence:uc_view",
+        subtaskId: "sequence:uc_view",
+        subtaskStatus: "completed",
+      });
     });
 
-    expect(await screen.findByLabelText("查看活动顺序图已生成")).toBeInTheDocument();
+    expect(await screen.findByLabelText("查看活动用例实现设计已生成")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "查看活动" }));
     expect(await screen.findByRole("button", { name: "关闭 查看活动" })).toBeInTheDocument();
 
@@ -751,7 +777,7 @@ describe("SidebarMenu", () => {
           designModels: {
             sequence: {
               diagramKind: "sequence",
-              title: "顺序图",
+              title: "用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [
@@ -764,7 +790,7 @@ describe("SidebarMenu", () => {
           designSvgArtifacts: {
             sequence: {
               diagramKind: "sequence",
-              svg: "<svg><text>顺序图</text></svg>",
+              svg: "<svg><text>用例实现设计</text></svg>",
               renderMeta: { engine: "plantuml" },
             },
           },
@@ -786,7 +812,7 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
-    await userEvent.click(screen.getByRole("button", { name: "展开 顺序图" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 用例实现设计" }));
 
     expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
     expect(screen.queryByText("1")).not.toBeInTheDocument();
@@ -806,7 +832,7 @@ describe("SidebarMenu", () => {
           designModels: {
             sequence: {
               diagramKind: "sequence",
-              title: "顺序图",
+              title: "用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [
@@ -817,7 +843,7 @@ describe("SidebarMenu", () => {
             },
             activity: {
               diagramKind: "activity",
-              title: "业务流程图",
+              title: "界面关系图",
               summary: "业务逻辑流转",
               notes: [],
               swimlanes: [],
@@ -826,7 +852,7 @@ describe("SidebarMenu", () => {
             },
             deployment: {
               diagramKind: "deployment",
-              title: "部署模型",
+              title: "部署设计",
               summary: "物理部署",
               notes: [],
               nodes: [],
@@ -848,7 +874,7 @@ describe("SidebarMenu", () => {
             },
             table: {
               diagramKind: "table",
-              title: "表关系图",
+              title: "数据库设计",
               summary: "主外键关系",
               notes: [],
               tables: [
@@ -892,26 +918,26 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("收起侧边栏")).not.toBeInTheDocument();
     expect(screen.queryByText("文本需求")).not.toBeInTheDocument();
     expect(screen.queryByText("生成设计模型")).not.toBeInTheDocument();
-    expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
+    expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
 
-    expect(screen.getByRole("button", { name: "顺序图" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "用例实现设计" })).toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
     expect(screen.queryByText("业务逻辑模型")).not.toBeInTheDocument();
     expect(screen.queryByText("静态结构模型")).not.toBeInTheDocument();
-    expect(screen.queryByText("物理部署模型")).not.toBeInTheDocument();
+    expect(screen.queryByText("物理部署设计")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "领域概念模型" })).not.toBeInTheDocument();
 
     const nodeLabels = screen
       .getAllByRole("button")
       .map((button) => button.textContent?.trim())
       .filter(Boolean);
-    expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("业务流程图"));
-    expect(nodeLabels.indexOf("顺序图")).toBeLessThan(nodeLabels.indexOf("设计类图"));
-    expect(nodeLabels.indexOf("设计类图")).toBeLessThan(nodeLabels.indexOf("业务流程图"));
-    expect(nodeLabels.indexOf("业务流程图")).toBeLessThan(nodeLabels.indexOf("部署模型"));
-    expect(nodeLabels.indexOf("部署模型")).toBeLessThan(nodeLabels.indexOf("表关系图"));
+    expect(nodeLabels.indexOf("用例实现设计")).toBeLessThan(nodeLabels.indexOf("界面关系图"));
+    expect(nodeLabels.indexOf("用例实现设计")).toBeLessThan(nodeLabels.indexOf("设计类图"));
+    expect(nodeLabels.indexOf("设计类图")).toBeLessThan(nodeLabels.indexOf("界面关系图"));
+    expect(nodeLabels.indexOf("界面关系图")).toBeLessThan(nodeLabels.indexOf("部署设计"));
+    expect(nodeLabels.indexOf("部署设计")).toBeLessThan(nodeLabels.indexOf("数据库设计"));
   });
 
   it("expands design tree one level at a time", async () => {
@@ -922,7 +948,7 @@ describe("SidebarMenu", () => {
           designModels: {
             sequence: {
               diagramKind: "sequence",
-              title: "顺序图",
+              title: "用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [
@@ -935,7 +961,7 @@ describe("SidebarMenu", () => {
           designSvgArtifacts: {
             sequence: {
               diagramKind: "sequence",
-              svg: "<svg><text>顺序图</text></svg>",
+              svg: "<svg><text>用例实现设计</text></svg>",
               renderMeta: { engine: "plantuml" },
             },
           },
@@ -957,14 +983,14 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
     expect(await screen.findByText("设计")).toBeInTheDocument();
-    expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
+    expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
 
-    expect(screen.getByText("顺序图")).toBeInTheDocument();
+    expect(screen.getByText("用例实现设计")).toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "展开 顺序图" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 用例实现设计" }));
 
     expect(screen.getByText("参与对象")).toBeInTheDocument();
     expect(screen.queryByText("用户")).not.toBeInTheDocument();
@@ -975,7 +1001,7 @@ describe("SidebarMenu", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "折叠 设计" }));
 
-    expect(screen.queryByText("顺序图")).not.toBeInTheDocument();
+    expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
     expect(screen.queryByText("用户")).not.toBeInTheDocument();
   });
@@ -991,7 +1017,7 @@ describe("SidebarMenu", () => {
               modelId: "sequence:uc_view",
               sourceUseCaseId: "uc_view",
               sourceUseCaseName: "查看活动",
-              title: "查看活动顺序图",
+              title: "查看活动用例实现设计",
               summary: "查看活动流程",
               notes: [],
               participants: [],
@@ -1003,7 +1029,7 @@ describe("SidebarMenu", () => {
               modelId: "sequence:uc_create",
               sourceUseCaseId: "uc_create",
               sourceUseCaseName: "创建活动",
-              title: "创建活动顺序图",
+              title: "创建活动用例实现设计",
               summary: "创建活动流程",
               notes: [],
               participants: [],
@@ -1030,10 +1056,10 @@ describe("SidebarMenu", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
 
-    expect(screen.getByText("顺序图（2）")).toBeInTheDocument();
+    expect(screen.getByText("用例实现设计（2）")).toBeInTheDocument();
     expect(screen.queryByText("查看活动")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "展开 顺序图（2）" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 用例实现设计（2）" }));
 
     expect(screen.getByText("查看活动")).toBeInTheDocument();
     expect(screen.getByText("创建活动")).toBeInTheDocument();
@@ -1047,7 +1073,7 @@ describe("SidebarMenu", () => {
           designModels: {
             sequence: {
               diagramKind: "sequence",
-              title: "顺序图",
+              title: "用例实现设计",
               summary: "动态行为",
               notes: [],
               participants: [],
@@ -1058,7 +1084,7 @@ describe("SidebarMenu", () => {
           designSvgArtifacts: {
             sequence: {
               diagramKind: "sequence",
-              svg: "<svg><text>顺序图</text></svg>",
+              svg: "<svg><text>用例实现设计</text></svg>",
               renderMeta: { engine: "plantuml" },
             },
           },
@@ -1090,16 +1116,16 @@ describe("SidebarMenu", () => {
     expect((await screen.findAllByRole("button", { name: "需求" })).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "设计" }));
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
-    await userEvent.click(screen.getByRole("button", { name: "顺序图" }));
+    await userEvent.click(screen.getByRole("button", { name: "用例实现设计" }));
     await userEvent.click(screen.getByRole("button", { name: "说明书" }));
 
     expect(screen.getAllByText("需求").length).toBeGreaterThan(0);
     expect(screen.getAllByText("设计").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("顺序图").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("用例实现设计").length).toBeGreaterThan(0);
     expect(screen.getAllByText("说明书").length).toBeGreaterThan(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "关闭 顺序图" }));
-    expect(screen.queryByRole("button", { name: "关闭 顺序图" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "关闭 用例实现设计" }));
+    expect(screen.queryByRole("button", { name: "关闭 用例实现设计" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "关闭 说明书" }));
     await userEvent.click(screen.getByRole("button", { name: "关闭 设计" }));

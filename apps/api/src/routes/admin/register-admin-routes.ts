@@ -29,6 +29,7 @@ import {
   type AdminRole,
 } from "@uml-platform/contracts";
 import { getModelCapability } from "../../model-capabilities.js";
+import { getHealthcheckResponseFormat } from "../../adapters/llm/response-formats/index.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import type {
   RunRecord,
@@ -501,12 +502,14 @@ function artifactIdPart(value: unknown) {
 }
 
 function diagramKindLabel(kind: unknown) {
-  if (kind === "usecase") return "用例图";
-  if (kind === "class") return "类图";
-  if (kind === "activity") return "活动图";
-  if (kind === "deployment") return "部署图";
-  if (kind === "sequence") return "时序图";
-  if (kind === "table") return "数据表";
+  if (kind === "usecase") return "用例模型";
+  if (kind === "class") return "领域概念模型";
+  if (kind === "activity") return "总体业务流程";
+  if (kind === "deployment") return "部署需求模型";
+  if (kind === "prototype") return "原型界面关系";
+  if (kind === "analysis") return "需求分析模型";
+  if (kind === "sequence") return "用例实现设计";
+  if (kind === "table") return "数据库设计";
   return typeof kind === "string" && kind.trim() ? kind : "模型图";
 }
 
@@ -2719,7 +2722,7 @@ export function registerAdminRoutes({
           messages: [{ role: "user", content: "只回复 JSON：{\"ok\":true}" }],
           stream: false,
           temperature: 0,
-          response_format: { type: "json_object" },
+          response_format: getHealthcheckResponseFormat(testModel),
           tools: [],
           tool_choice: "none",
         }),
