@@ -95,6 +95,9 @@ function stubAccountFetch(profile: PlatformAccountProfileResponse) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (url.pathname === "/api/auth/logout" && init?.method === "POST") {
+      return new Response(null, { status: 204 });
+    }
     return new Response(JSON.stringify({ message: "Not found" }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
@@ -236,5 +239,34 @@ describe("AccountDialog generation usage", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+  });
+
+  it("logs out through the account dialog and navigates to login", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const fetchMock = stubAccountFetch(
+      profileResponse({
+        usedToday: 0,
+        limit: null,
+        remaining: null,
+        windowSeconds: 86400,
+        limited: false,
+        scope: "user",
+      }),
+    );
+
+    render(<AccountDialog onNavigate={onNavigate} initialUser={baseUser} />);
+    await user.click(screen.getByRole("button", { name: "账号" }));
+    const accountDialog = await screen.findByRole("dialog", { name: "设置" });
+    await within(accountDialog).findByText("个人资料信息");
+    fireEvent.click(within(accountDialog).getAllByRole("button", { name: "退出登录" })[0]);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/auth/logout"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(onNavigate).toHaveBeenCalledWith("/login");
   });
 });

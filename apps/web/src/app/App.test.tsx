@@ -3517,9 +3517,7 @@ describe("App shell routes", () => {
     );
   });
 
-  it("logs out through the account dialog and blocks returning to the previous protected route", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.mocked(fetch);
+  it("blocks returning to the previous protected route after the session is cleared", async () => {
     authSessionMode = "authenticated";
     projectApiMode = "authenticated";
     window.history.pushState({}, "", "/projects");
@@ -3527,21 +3525,8 @@ describe("App shell routes", () => {
 
     expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
     await waitForPlatformLoadingToExit();
-    authSessionMode = "authenticated";
-    fireEvent.click(await screen.findByRole("button", { name: "账号" }));
-    const accountDialog = await screen.findByRole("dialog", { name: "设置" });
-    await within(accountDialog).findByText("个人资料信息");
-    fireEvent.click((await within(accountDialog).findAllByRole("button", { name: "退出登录" }))[0]);
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/auth/logout"),
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
-    });
+    authSessionMode = "unauthenticated";
+    window.dispatchEvent(new Event("uml-auth-session-changed"));
 
     window.history.pushState({}, "", "/projects/library-booking");
     window.dispatchEvent(new PopStateEvent("popstate"));
