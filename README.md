@@ -74,6 +74,8 @@
   记录模型原始返回、解析错误、修复返回、PlantUML 源码、渲染错误、业务断言、浏览器证据和人工复核项，形成 `EvidencePackage` 便于审阅。
 - ✅ **代码页 Agent 生成**
   当前链路为 `businessLogic + 通用 Skill Runtime + React 原型`：平台先抽取业务逻辑，再由前端设计执行器读取设计知识和 React 栈建议，生成可预览前端原型。
+- ✅ **支付与生成权益**
+  PC Web 支持 `/pricing` 和 `/account/billing` 购买入口，后端统一管理 SKU、订单、权益账本和生成任务权益预占/确认/释放。
 - ✅ **说明书导出**
   支持导出《需求规格说明书》和《软件设计说明书》，保留章节层级、图注、缺图提示和通用封面格式。
 
@@ -95,6 +97,8 @@
   扫描本地 skill，读取 `SKILL.md`、资源清单和声明式 action，向代码生成 prompt 注入 design-system、react-stack、ux-guidelines 等上下文。
 - **质量与预览检查**
   对生成文件、入口、依赖、业务覆盖、渲染结构和预览可用性进行检查，并把诊断回传给修复阶段。
+- **支付与权益**
+  支持微信 Native 扫码支付、支付宝电脑网站支付、邮箱验证后新用户赠送次数、无权益购买提示和订单历史；价格、次数和有效期以后端 SKU 为准，支付金额使用整数分并在回调中验签、校验订单与金额、保证幂等发放。
 - **文档生成**
   用 `docx` 生成 Word 文档，UML 图以 PNG 插入，缺失图会在正文中留下明确提示。
 
@@ -229,7 +233,7 @@ npm run dev:web
 ```text
 umlExperimentalPlatform/
 ├── apps/
-│   ├── api/             # Fastify API、SSE、生成编排、文档输出、Skill Runtime
+│   ├── api/             # Fastify API、SSE、生成编排、支付权益、文档输出、Skill Runtime
 │   ├── render-service/  # PlantUML SVG/PNG 本地渲染服务
 │   └── web/             # Vite + React 前端工作台
 ├── packages/
@@ -258,6 +262,13 @@ umlExperimentalPlatform/
 - `apps/web/src/features/trusted-chain/`：前端可信证据查看、复核和导出。
 - `docs/trusted-chain-audit/`：行业可接受性审计、风险边界、实施路线和最终结论。
 
+支付与权益核心实现位于：
+
+- `apps/api/src/routes/billing/`：支付、权益和后台账单 API 路由注册。
+- `apps/api/src/billing/`：SKU、订单、权益账本、补偿、退款标记和生成权益预占逻辑。
+- `apps/api/src/adapters/payments/`：微信、支付宝和本地 mock/sandbox 支付适配器。
+- `apps/web/src/features/user-platform/`：前台定价页、账户账单页、支付确认弹窗、微信二维码弹窗和支付宝中间态。
+
 ---
 
 # 🏗️ 当前技术栈
@@ -266,6 +277,7 @@ umlExperimentalPlatform/
 - **后端**：Fastify、TypeScript、Zod、OpenAI 兼容 Chat Completions
 - **UML 渲染**：PlantUML、本地 SVG/PNG 渲染服务
 - **代码生成**：业务逻辑抽取、通用 Skill Runtime、前端设计执行器、React 原型文件操作协议
+- **支付**：微信 Native、支付宝电脑网站支付、后端 SKU、权益账本、支付回调验签与幂等处理
 - **文档**：docx、PNG 图像嵌入、说明书结构化渲染
 - **Monorepo**：npm workspaces
 
@@ -316,6 +328,7 @@ npx tsx --test apps/api/src/runs/trusted-chain-regression.test.ts
   `DATABASE_URL`、`SMTP_*`、`UML_PROVIDER_SECRET_KEY`、CORS、OnlyOffice、
   主 Web/API base、后台前端/API base、session cookie SameSite/Secure、管理员
   bootstrap，以及 legacy fallback 开关。
+- PC Web 支付上线前必须显式配置 `UML_BILLING_SKUS_JSON`、微信支付商户参数和支付宝应用参数；生产环境缺少正式支付配置时，创建订单会返回配置错误，不会降级为本地 mock 支付。
 - 后台不提供生产固定默认账号密码。首次上线用
   `npm run bootstrap:admin --workspace @uml-platform/api` 创建一次性真实
   `super_admin`，创建后关闭 `UML_ENABLE_ADMIN_BOOTSTRAP`，再完成邮箱验证和
@@ -345,6 +358,7 @@ RENDER_SERVICE_CORS_ORIGINS=https://your-domain.example.com
 - [API 说明](./apps/api/README.md)
 - [部署文档](./docs/deployment/baota-cicd.md)
 - [生产环境变量清单](./docs/deployment/production-env.md)
+- [支付与权益实施方案](./docs/implementation/payment-entitlement-implementation-plan.md)
 - [可信链路审计工作台](./docs/trusted-chain-audit/README.md)
 - [可信链路最终结论](./docs/trusted-chain-audit/09-final-conclusion.md)
 - [可信链路测试与证据计划](./docs/trusted-chain-audit/08-test-and-evidence-plan.md)

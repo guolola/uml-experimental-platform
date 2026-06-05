@@ -3527,25 +3527,28 @@ describe("App shell routes", () => {
     const openAccountSecurityTab = async () => {
       await waitForPlatformLoadingToExit();
       fireEvent.click(await screen.findByRole("button", { name: "账号" }));
-      await user.click(await screen.findByRole("tab", { name: "安全设置" }));
+      const accountDialog = await screen.findByRole("dialog", { name: "设置" });
+      await user.click(await within(accountDialog).findByRole("tab", { name: "安全设置" }));
+      await within(accountDialog).findByRole("heading", { name: "安全设置" });
+      return accountDialog;
     };
 
-    await openAccountSecurityTab();
-    expect((await screen.findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
+    let accountDialog = await openAccountSecurityTab();
+    expect((await within(accountDialog).findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "启用 MFA" }));
-    expect(await screen.findByText("JBSWY3DPEHPK3PXP")).toBeInTheDocument();
+    await user.click(within(accountDialog).getByRole("button", { name: "启用 MFA" }));
+    expect(await within(accountDialog).findByText("JBSWY3DPEHPK3PXP")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/account/mfa/setup"),
       expect.objectContaining({ method: "POST" }),
     );
 
-    const mfaCodeInput = screen.getByLabelText("MFA 验证码");
+    const mfaCodeInput = within(accountDialog).getByLabelText("MFA 验证码");
     fireEvent.change(mfaCodeInput, { target: { value: "123456" } });
     await waitFor(() => {
       expect(mfaCodeInput).toHaveValue("123456");
     });
-    const confirmMfaButton = await screen.findByRole("button", { name: "确认启用 MFA" });
+    const confirmMfaButton = await within(accountDialog).findByRole("button", { name: "确认启用 MFA" });
     await waitFor(() => {
       expect(confirmMfaButton).toBeEnabled();
     });
@@ -3559,25 +3562,25 @@ describe("App shell routes", () => {
         }),
       );
     });
-    expect((await screen.findAllByText("MFA 已启用")).length).toBeGreaterThan(0);
-    expect(await screen.findByLabelText("停用验证码")).toBeInTheDocument();
+    expect((await within(accountDialog).findAllByText("MFA 已启用")).length).toBeGreaterThan(0);
+    expect(await within(accountDialog).findByLabelText("停用验证码")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("停用验证码"), {
+    fireEvent.change(within(accountDialog).getByLabelText("停用验证码"), {
       target: { value: "654321" },
     });
     await waitFor(() => {
-      expect(screen.getByLabelText("停用验证码")).toHaveValue("654321");
+      expect(within(accountDialog).getByLabelText("停用验证码")).toHaveValue("654321");
     });
-    let disableMfaButton = screen.queryByRole("button", { name: "停用 MFA" });
+    let disableMfaButton = within(accountDialog).queryByRole("button", { name: "停用 MFA" });
     if (!disableMfaButton) {
-      await openAccountSecurityTab();
-      fireEvent.change(await screen.findByLabelText("停用验证码"), {
+      accountDialog = await openAccountSecurityTab();
+      fireEvent.change(await within(accountDialog).findByLabelText("停用验证码"), {
         target: { value: "654321" },
       });
       await waitFor(() => {
-        expect(screen.getByLabelText("停用验证码")).toHaveValue("654321");
+        expect(within(accountDialog).getByLabelText("停用验证码")).toHaveValue("654321");
       });
-      disableMfaButton = await screen.findByRole("button", { name: "停用 MFA" });
+      disableMfaButton = await within(accountDialog).findByRole("button", { name: "停用 MFA" });
     }
     fireEvent.click(disableMfaButton);
     await waitFor(() => {
@@ -3589,12 +3592,12 @@ describe("App shell routes", () => {
         }),
       );
     });
-    expect((await screen.findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
+    expect((await within(accountDialog).findAllByText("MFA 已禁用")).length).toBeGreaterThan(0);
 
-    if (!screen.queryByRole("button", { name: "退出其他设备" })) {
-      await openAccountSecurityTab();
+    if (!within(accountDialog).queryByRole("button", { name: "退出其他设备" })) {
+      accountDialog = await openAccountSecurityTab();
     }
-    fireEvent.click(screen.getByRole("button", { name: "退出其他设备" }));
+    fireEvent.click(within(accountDialog).getByRole("button", { name: "退出其他设备" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/api/account/sessions/revoke-others"),
