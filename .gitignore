@@ -41,7 +41,9 @@ vite.config.*.timestamp-*
 # local codex/dev artifacts
 .codex/
 .codex-artifacts/
+.codex-e2e-logs/
 .codex-logs/
+.codex-run-logs/
 .codex-test-logs/
 .superpowers/
 .codex-*.log
@@ -68,6 +70,7 @@ data/
 需求规格说明书*.docx
 软件设计说明书*.docx
 docs/e2e/evidence-*.png
+screenshots/
 
 # release artifacts
 *.tar.gz

@@ -243,8 +243,9 @@ umlExperimentalPlatform/
 
 上传前建议把本地运行痕迹留在 `.gitignore` 中，不随源码提交：
 
-- `.codex-artifacts/`、`.codex-test-logs/`、`.codex-*.png`、`.codex-*.log`：Codex/浏览器验收截图和日志。
+- `.codex-artifacts/`、`.codex-e2e-logs/`、`.codex-run-logs/`、`.codex-test-logs/`、`.codex-*.png`、`.codex-*.log`：Codex/浏览器验收截图和日志。
 - `.local-*.log`：本地 API、Web、Render、Postgres 调试日志。
+- `screenshots/`、`tmp-*.png`、`current-page*.png`：本地视觉验证截图。
 - `apps/api/.local-documents/`：本地说明书工作区，可能包含 DOCX、metadata 和 workspace secret。
 - `apps/api/data/`、根目录 `data/`：本地数据库、说明书和运行数据目录，生产环境应使用外部持久化目录或数据库。
 
