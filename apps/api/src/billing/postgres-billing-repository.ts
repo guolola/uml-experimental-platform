@@ -9,6 +9,7 @@ import type {
   BillingReservationKind,
   BillingReservationStatus,
   BillingSkuRecord,
+  BillingUsageReservationRecord,
   CreateLedgerEntryInput,
   CreatePaymentNotificationInput,
   CreatePaymentOrderInput,
@@ -252,7 +253,7 @@ class PostgresBillingRepository implements BillingRepository {
     private readonly pool?: TransactionPool,
   ) {}
 
-  async withTransaction<T>(operation: (repository: BillingRepository) => Promise<T>) {
+  async withTransaction<T>(operation: (repository: BillingRepository) => Promise<T>): Promise<T> {
     if (!this.pool) return operation(this);
     return withTransaction(this.pool, (client) =>
       operation(new PostgresBillingRepository(client)),
