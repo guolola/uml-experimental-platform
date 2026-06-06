@@ -1,6 +1,7 @@
 // Renders the Figma-inspired system notice timeline and top-bar trigger.
 import { useEffect, useMemo, useState } from "react";
 import type { SystemNoticeDto, SystemNoticeType } from "@uml-platform/contracts";
+import confetti from "canvas-confetti";
 import { Bell, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import {
@@ -27,6 +28,46 @@ const NOTICE_TYPE_LABEL: Record<SystemNoticeType, string> = {
   important: "重要",
   maintenance: "维护",
 };
+
+function fireSystemNoticeConfetti() {
+  const count = 200;
+  const defaults = {
+    origin: { y: 0.7 },
+  };
+  const fire = (
+    particleRatio: number,
+    opts: Parameters<typeof confetti>[0],
+  ) => {
+    void confetti({
+      ...defaults,
+      ...opts,
+      particleCount: Math.floor(count * particleRatio),
+    });
+  };
+
+  fire(0.25, {
+    spread: 26,
+    startVelocity: 55,
+  });
+  fire(0.2, {
+    spread: 60,
+  });
+  fire(0.35, {
+    spread: 100,
+    decay: 0.91,
+    scalar: 0.8,
+  });
+  fire(0.1, {
+    spread: 120,
+    startVelocity: 25,
+    decay: 0.92,
+    scalar: 1.2,
+  });
+  fire(0.1, {
+    spread: 120,
+    startVelocity: 45,
+  });
+}
 
 function formatDateTimeParts(value: string | null | undefined) {
   if (!value) return { date: "未发布", time: "" };
@@ -164,7 +205,7 @@ export function SystemNoticeDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="grid h-[min(928px,calc(100vh-4rem))] w-[896px] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-xl border-[#c7c4d6]/50 bg-white p-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:bg-card"
+        className="grid h-[min(928px,calc(100vh-4rem))] w-[1120px] max-w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-xl border-[#c7c4d6]/50 bg-white p-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:max-w-[calc(100vw-2rem)] xl:max-w-[1120px] dark:bg-card"
         overlayClassName="bg-[#0b1c30]/40 backdrop-blur-[4px]"
       >
         <DialogHeader className="border-b border-[#c7c4d6]/30 bg-[#f8f9ff]/80 px-6 py-4 text-left backdrop-blur-md dark:bg-card/80">
@@ -252,6 +293,7 @@ export function SystemNoticeButton({
       const response = await systemNoticeApi.markRead(noticeIds);
       setNotices(response.notices);
       setUnreadCount(response.unreadCount);
+      fireSystemNoticeConfetti();
       setOpen(false);
     } catch (readError) {
       setError(readError instanceof Error ? readError.message : "系统通知已阅览状态保存失败。");

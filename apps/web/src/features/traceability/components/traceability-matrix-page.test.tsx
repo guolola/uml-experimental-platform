@@ -139,19 +139,45 @@ describe("TraceabilityMatrixPage", () => {
     expect(screen.getByText("R1 [业务规则] 用户必须登录后才能提交订单。")).toBeInTheDocument();
   });
 
-  it("scopes requirement matrices to a specific analysis model id", async () => {
+  it("scopes analysis requirement matrices to source use case event flows", async () => {
+    const user = userEvent.setup();
     const repository = createRepository(
       createWorkspaceRecord({
-        generatedDiagramTypes: ["analysis"],
+        generatedDiagramTypes: ["usecase", "analysis"],
         rules: [
           createRule({
             id: "r1",
             category: "功能需求",
             text: "用户可以提交订单。",
-            relatedDiagrams: ["analysis"],
+            relatedDiagrams: ["usecase"],
           }),
         ],
         models: {
+          usecase: {
+            ...usecaseModel,
+            useCases: usecaseModel.useCases.map((useCase) =>
+              useCase.id === "submit-order"
+                ? {
+                    ...useCase,
+                    eventFlows: [
+                      {
+                        id: "flow-submit-main",
+                        name: "提交订单主成功场景",
+                        flowType: "main",
+                        steps: [
+                          {
+                            order: 1,
+                            actor: "actor",
+                            actorAction: "填写订单信息",
+                            systemAction: "校验订单并保存",
+                          },
+                        ],
+                      },
+                    ],
+                  }
+                : useCase,
+            ),
+          },
           "analysis:submit-order": {
             diagramKind: "analysis",
             modelId: "analysis:submit-order",
@@ -195,10 +221,9 @@ describe("TraceabilityMatrixPage", () => {
           {
             ruleId: "r1",
             target: {
-              modelId: "analysis:submit-order",
-              diagramKind: "analysis",
-              elementId: "msg-submit",
-              elementKind: "message",
+              diagramKind: "usecase",
+              elementId: "submit-order",
+              elementKind: "usecase",
               label: "提交订单",
             },
           },
@@ -222,9 +247,18 @@ describe("TraceabilityMatrixPage", () => {
 
     expect(await screen.findByText("跟踪矩阵 · 提交订单")).toBeInTheDocument();
     const table = await findMatrixTableByText("提交订单");
+    expect(within(table).getByText("来源用例 / 事件流")).toBeInTheDocument();
+    expect(within(table).queryByText("来源需求规则")).not.toBeInTheDocument();
+    expect(within(table).queryByText("未关联需求规则")).not.toBeInTheDocument();
     expect(within(table).getByText("订单系统")).toBeInTheDocument();
-    expect(within(table).getByText("R1")).toBeInTheDocument();
+    expect(within(table).queryByText("R1")).not.toBeInTheDocument();
     expect(within(table).queryByText("取消订单系统")).not.toBeInTheDocument();
+    const row = within(table).getByText("客户").closest("tr");
+    expect(row).not.toBeNull();
+    await user.click(row!);
+    expect(screen.getByText("来源用例：提交订单")).toBeInTheDocument();
+    expect(screen.getByText("事件流：main · 提交订单主成功场景")).toBeInTheDocument();
+    expect(screen.getByText("步骤 1：填写订单信息：系统响应：校验订单并保存")).toBeInTheDocument();
   });
 
   it("shows design elements mapped to requirement model elements and derived rules", async () => {

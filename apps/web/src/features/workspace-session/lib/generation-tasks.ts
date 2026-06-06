@@ -11,6 +11,8 @@ import {
   appendDiagnosticStream,
   createEmptyDiagnostics,
   getProgressFromEvent,
+  isMeaningfulLlmChunkEvent,
+  shouldDisplayDiagnosticEvent,
   summarizeEvent,
 } from "./diagnostics";
 
@@ -173,6 +175,66 @@ function subtaskStageAndRawId(subtaskId: string) {
   };
 }
 
+function primarySummarySubtasks(task: GenerationTask, subtasks: GenerationSubtask[]) {
+  const primaryStages =
+    task.kind === "requirements"
+      ? new Set<RunStage>(["generate_models"])
+      : task.kind === "design"
+        ? new Set<RunStage>(["generate_design_sequence", "generate_design_models"])
+        : null;
+  if (!primaryStages) return subtasks;
+  const primary = subtasks.filter((subtask) => {
+    const stage = splitScopedSubtaskId(subtask.id)?.stage;
+    return Boolean(stage && primaryStages.has(stage));
+  });
+  return primary.length > 0 ? primary : subtasks;
+}
+
+function isSubtaskDone(subtask: GenerationSubtask) {
+  return subtask.status === "completed" || subtask.status === "pending_review";
+}
+
+function diagramPipelineSummarySubtasks(task: GenerationTask, subtasks: GenerationSubtask[]) {
+  if (task.kind !== "requirements" && task.kind !== "design") return null;
+  const modelStages =
+    task.kind === "requirements"
+      ? new Set<RunStage>(["generate_models"])
+      : new Set<RunStage>(["generate_design_sequence", "generate_design_models"]);
+  const phases = {
+    model: subtasks.filter((subtask) => {
+      const stage = splitScopedSubtaskId(subtask.id)?.stage;
+      return Boolean(stage && modelStages.has(stage));
+    }),
+    plantuml: subtasks.filter(
+      (subtask) => splitScopedSubtaskId(subtask.id)?.stage === "generate_plantuml",
+    ),
+    svg: subtasks.filter(
+      (subtask) => splitScopedSubtaskId(subtask.id)?.stage === "render_svg",
+    ),
+  };
+  if (
+    phases.model.length === 0 &&
+    phases.plantuml.length === 0 &&
+    phases.svg.length === 0
+  ) {
+    return null;
+  }
+  return phases;
+}
+
+function phaseDoneCount(subtasks: GenerationSubtask[]) {
+  return subtasks.filter(isSubtaskDone).length;
+}
+
+function pipelineFailedModelCount(subtasks: GenerationSubtask[]) {
+  const failedRawIds = new Set<string>();
+  for (const subtask of subtasks) {
+    if (subtask.status !== "failed") continue;
+    failedRawIds.add(subtaskStageAndRawId(subtask.id).rawId);
+  }
+  return failedRawIds.size;
+}
+
 function hasExpandedSubtasks(
   subtasks: GenerationSubtask[],
   aggregateSubtaskId: string,
@@ -266,6 +328,18 @@ function updateSubtasksFromEvent(
   const hasExplicitSubtaskStatus =
     "subtaskStatus" in event && Boolean(event.subtaskStatus);
   const nextStatus = subtaskStatusFromEvent(event);
+  const messageForUpdatedSubtask = (
+    status: GenerationSubtask["status"],
+    previousMessage: string | null,
+  ) => {
+    if (event.type === "artifact_ready" && status === "completed") {
+      return "已完成";
+    }
+    if (event.type === "stage_progress") {
+      return event.message ?? previousMessage;
+    }
+    return previousMessage;
+  };
   let matched = false;
   const next = subtasks.map((subtask) => {
     if (!rawSubtaskId || !subtaskMatchesEvent(subtask, subtaskId, rawSubtaskId)) {
@@ -286,8 +360,7 @@ function updateSubtasksFromEvent(
           ? event.subtaskLabel
           : subtask.label,
       status,
-      message:
-        event.type === "stage_progress" ? event.message ?? subtask.message : subtask.message,
+      message: messageForUpdatedSubtask(status, subtask.message),
       errorMessage: event.type === "failed" ? event.message : subtask.errorMessage,
       queuePosition:
         "queuePosition" in event ? event.queuePosition ?? subtask.queuePosition : subtask.queuePosition,
@@ -302,26 +375,60 @@ function updateSubtasksFromEvent(
         "queueReason" in event ? event.queueReason ?? subtask.queueReason : subtask.queueReason,
     };
   });
-  if (matched) return removeExpandedAggregatePlaceholders(next);
-  if (!shouldInsertUnmatchedSubtask(event, subtaskId, rawSubtaskId, subtasks)) {
-    return removeExpandedAggregatePlaceholders(next);
+  const updated = matched ? next : shouldInsertUnmatchedSubtask(event, subtaskId, rawSubtaskId, subtasks)
+    ? [
+        ...next,
+        {
+          id: subtaskId,
+          label: "subtaskLabel" in event && event.subtaskLabel ? event.subtaskLabel : subtaskId,
+          status: subtaskStatusFromEvent(event),
+          message: messageForUpdatedSubtask(subtaskStatusFromEvent(event), null),
+          errorMessage: event.type === "failed" ? event.message : null,
+          queuePosition: "queuePosition" in event ? event.queuePosition : undefined,
+          queueAhead: "queueAhead" in event ? event.queueAhead : undefined,
+          waitMs: "waitMs" in event ? event.waitMs : undefined,
+          estimatedWaitMs:
+            "estimatedWaitMs" in event ? event.estimatedWaitMs : undefined,
+          queueReason: "queueReason" in event ? event.queueReason : undefined,
+        },
+      ]
+    : next;
+  return removeExpandedAggregatePlaceholders(
+    failDownstreamRenderSubtasksForModelFailure(updated, event, rawSubtaskId),
+  );
+}
+
+function failDownstreamRenderSubtasksForModelFailure(
+  subtasks: GenerationSubtask[],
+  event: RunEvent,
+  rawSubtaskId: string | null,
+) {
+  if (
+    event.type !== "stage_progress" ||
+    event.subtaskStatus !== "failed" ||
+    !rawSubtaskId ||
+    (event.stage !== "generate_models" &&
+      event.stage !== "generate_design_sequence" &&
+      event.stage !== "generate_design_models")
+  ) {
+    return subtasks;
   }
-  return removeExpandedAggregatePlaceholders([
-    ...next,
-    {
-      id: subtaskId,
-      label: "subtaskLabel" in event && event.subtaskLabel ? event.subtaskLabel : subtaskId,
-      status: subtaskStatusFromEvent(event),
-      message: event.type === "stage_progress" ? event.message ?? null : null,
-      errorMessage: event.type === "failed" ? event.message : null,
-      queuePosition: "queuePosition" in event ? event.queuePosition : undefined,
-      queueAhead: "queueAhead" in event ? event.queueAhead : undefined,
-      waitMs: "waitMs" in event ? event.waitMs : undefined,
-      estimatedWaitMs:
-        "estimatedWaitMs" in event ? event.estimatedWaitMs : undefined,
-      queueReason: "queueReason" in event ? event.queueReason : undefined,
-    },
-  ]);
+  return subtasks.map((subtask) => {
+    const scoped = splitScopedSubtaskId(subtask.id);
+    if (
+      (scoped?.stage !== "generate_plantuml" && scoped?.stage !== "render_svg") ||
+      scoped.rawId !== rawSubtaskId ||
+      subtask.status === "completed"
+    ) {
+      return subtask;
+    }
+    return {
+      ...subtask,
+      status: "failed" as const,
+      message: "前置模型生成失败，未执行",
+      errorMessage: event.message ?? "前置模型生成失败",
+    };
+  });
 }
 
 function collectCompletedSubtaskIds(snapshot: unknown) {
@@ -437,15 +544,21 @@ function updateSubtasksFromCompletedSnapshot(
       return {
         ...subtask,
         status: "failed" as const,
+        message: error.message ?? subtask.message,
         errorMessage: error.message ?? subtask.errorMessage,
       };
     }
     if (completedIds.has(subtask.id) && subtask.status !== "failed") {
       const pendingReviewCount = pendingReviewByDiagram.get(subtask.id) ?? 0;
+      const status =
+        pendingReviewCount > 0 ? ("pending_review" as const) : ("completed" as const);
       return {
         ...subtask,
-        status:
-          pendingReviewCount > 0 ? ("pending_review" as const) : ("completed" as const),
+        status,
+        message:
+          status === "pending_review"
+            ? `有 ${pendingReviewCount} 条低置信追踪关系需复核`
+            : "已完成",
         pendingReviewCount: pendingReviewCount || undefined,
       };
     }
@@ -471,19 +584,44 @@ function updateSubtasksFromCompletedSnapshot(
 function titleWithSubtaskSummary(task: GenerationTask, subtasks: GenerationSubtask[]) {
   if (subtasks.length === 0) return task.title;
   const baseTitle = task.title.split("：")[0] ?? task.title;
-  const completed = subtasks.filter((subtask) => subtask.status === "completed").length;
-  const failed = subtasks.filter((subtask) => subtask.status === "failed").length;
-  const pendingReview = subtasks.filter(
+  const pipeline = diagramPipelineSummarySubtasks(task, subtasks);
+  if (pipeline) {
+    const modelDone = phaseDoneCount(pipeline.model);
+    const plantUmlDone = phaseDoneCount(pipeline.plantuml);
+    const svgDone = phaseDoneCount(pipeline.svg);
+    const failed = pipelineFailedModelCount([
+      ...pipeline.model,
+      ...pipeline.plantuml,
+      ...pipeline.svg,
+    ]);
+    const pendingReview = pipeline.model.filter(
+      (subtask) => subtask.status === "pending_review",
+    ).length;
+    const svgTotal = pipeline.svg.length;
+    if (failed > 0) {
+      return `${baseTitle}：模型 ${modelDone}/${pipeline.model.length}，图源码 ${plantUmlDone}/${pipeline.plantuml.length}，SVG ${svgDone}/${svgTotal}，${failed} 个失败`;
+    }
+    if (svgTotal > 0 && svgDone === svgTotal) {
+      return pendingReview > 0
+        ? `${baseTitle}：${svgDone}/${svgTotal} 可查看，${pendingReview} 个待确认`
+        : `${baseTitle}：${svgDone}/${svgTotal} 可查看`;
+    }
+    return `${baseTitle}：模型 ${modelDone}/${pipeline.model.length}，图源码 ${plantUmlDone}/${pipeline.plantuml.length}，SVG ${svgDone}/${svgTotal}`;
+  }
+  const summarySubtasks = primarySummarySubtasks(task, subtasks);
+  const completed = summarySubtasks.filter((subtask) => subtask.status === "completed").length;
+  const failed = summarySubtasks.filter((subtask) => subtask.status === "failed").length;
+  const pendingReview = summarySubtasks.filter(
     (subtask) => subtask.status === "pending_review",
   ).length;
   if (failed > 0) {
-    return `${baseTitle}：${completed}/${subtasks.length} 完成，${failed} 个失败`;
+    return `${baseTitle}：${completed}/${summarySubtasks.length} 完成，${failed} 个失败`;
   }
   if (pendingReview > 0) {
-    return `${baseTitle}：${completed + pendingReview}/${subtasks.length} 完成，${pendingReview} 个待确认`;
+    return `${baseTitle}：${completed + pendingReview}/${summarySubtasks.length} 完成，${pendingReview} 个待确认`;
   }
-  if (completed > 0 && completed < subtasks.length) {
-    return `${baseTitle}：${completed}/${subtasks.length} 完成`;
+  if (completed > 0 && completed < summarySubtasks.length) {
+    return `${baseTitle}：${completed}/${summarySubtasks.length} 完成`;
   }
   return baseTitle;
 }
@@ -496,11 +634,72 @@ export function taskStatusFromEvent(event: RunEvent): RunStatus {
   return "running";
 }
 
+function failedSubtaskCount(subtasks: GenerationSubtask[]) {
+  return subtasks.filter((subtask) => subtask.status === "failed").length;
+}
+
+function taskStatusFromEventAndSubtasks(
+  event: RunEvent,
+  subtasks: GenerationSubtask[],
+): RunStatus {
+  const status = taskStatusFromEvent(event);
+  if (event.type === "completed" && failedSubtaskCount(subtasks) > 0) {
+    return "failed";
+  }
+  return status;
+}
+
+function taskMessageFromEvent(
+  task: GenerationTask,
+  event: RunEvent,
+  messages: {
+    queued: string;
+    completed: string;
+    fileChanged?: (path: string) => string;
+  },
+  subtasks: GenerationSubtask[],
+) {
+  if (event.type === "code_file_changed" && messages.fileChanged) {
+    return messages.fileChanged(event.path);
+  }
+  if (event.type === "stage_progress") {
+    return event.message ?? task.message;
+  }
+  if (event.type === "queued") {
+    return messages.queued;
+  }
+  if (event.type === "completed") {
+    const failed = failedSubtaskCount(subtasks);
+    return failed > 0
+      ? `${messages.completed}，但 ${failed} 个子任务失败`
+      : messages.completed;
+  }
+  if (event.type === "cancelled" || event.type === "failed") {
+    return event.message;
+  }
+  return task.message;
+}
+
+function taskPhaseSummaryFromEvent(
+  event: RunEvent,
+  subtasks: GenerationSubtask[],
+  fallback: string | null,
+) {
+  if (event.type === "completed") {
+    const failed = failedSubtaskCount(subtasks);
+    if (failed > 0) {
+      return `生成结束，但 ${failed} 个子任务失败。`;
+    }
+  }
+  return phaseSummaryFromEvent(event, fallback);
+}
+
 export function updateDiagnosticsFromEvent(
   current: RunDiagnostics,
   event: RunEvent,
 ): RunDiagnostics {
   const diagnosticEvent = summarizeEvent(event);
+  const shouldDisplayEvent = shouldDisplayDiagnosticEvent(event);
   return {
     ...current,
     finishedAt:
@@ -509,11 +708,11 @@ export function updateDiagnosticsFromEvent(
         : current.finishedAt,
     activeStage: "stage" in event ? event.stage : current.activeStage,
     streamText:
-      event.type === "llm_chunk"
+      isMeaningfulLlmChunkEvent(event)
         ? appendDiagnosticStream(current.streamText, event.chunk)
         : current.streamText,
     chunkCount:
-      event.type === "llm_chunk" ? current.chunkCount + 1 : current.chunkCount,
+      isMeaningfulLlmChunkEvent(event) ? current.chunkCount + 1 : current.chunkCount,
     stageStartedAt:
       event.type === "stage_started"
         ? { ...current.stageStartedAt, [event.stage]: diagnosticEvent.at }
@@ -580,7 +779,9 @@ export function updateDiagnosticsFromEvent(
       event.type === "completed" && "codeTrace" in event.snapshot
         ? event.snapshot.codeTrace ?? []
         : current.codeTrace,
-    events: [...current.events, diagnosticEvent].slice(-80),
+    events: shouldDisplayEvent
+      ? [...current.events, diagnosticEvent].slice(-80)
+      : current.events,
   };
 }
 
@@ -598,29 +799,23 @@ export function updateTaskFromEvent(
     updateSubtasksFromEvent(task.subtasks, event),
     event,
   );
+  const nextStatus = taskStatusFromEventAndSubtasks(event, subtasks);
+  const nextMessage = taskMessageFromEvent(task, event, messages, subtasks);
   return {
     ...task,
     title: titleWithSubtaskSummary(task, subtasks),
-    status: taskStatusFromEvent(event),
+    status: nextStatus,
     progress: progress ?? task.progress,
     previewReady:
       task.previewReady || (task.kind === "code" && event.type === "code_file_changed"),
-    phaseSummary: phaseSummaryFromEvent(event, task.phaseSummary),
-    message:
-      event.type === "code_file_changed" && messages.fileChanged
-        ? messages.fileChanged(event.path)
-        : event.type === "stage_progress"
-          ? event.message ?? task.message
-          : event.type === "queued"
-            ? messages.queued
-            : event.type === "completed"
-              ? messages.completed
-              : event.type === "cancelled"
-                ? event.message
-              : event.type === "failed"
-                ? event.message
-                : task.message,
-    errorMessage: event.type === "failed" ? event.message : task.errorMessage,
+    phaseSummary: taskPhaseSummaryFromEvent(event, subtasks, task.phaseSummary),
+    message: nextMessage,
+    errorMessage:
+      event.type === "failed"
+        ? event.message
+        : event.type === "completed" && nextStatus === "failed"
+          ? nextMessage
+          : task.errorMessage,
     finishedAt:
       event.type === "completed" || event.type === "failed" || event.type === "cancelled"
         ? new Date().toISOString()

@@ -4,7 +4,6 @@ import {
   artifactReadyRunEventSchema,
   completedRunEventSchema,
   diagramErrorSchema,
-  llmChunkRunEventSchema,
   stageProgressRunEventSchema,
   stageStartedRunEventSchema,
   type DesignDiagramKind,
@@ -59,6 +58,11 @@ import {
   assertRequirementBaselineAllowsDownstream,
 } from "../baselines/requirement-baseline.js";
 import { collectTextResult, logFailedStructuredOutput } from "./shared/structured-output.js";
+import {
+  withModelTaskTimeout,
+  type ModelTaskActivity,
+} from "./shared/model-task-timeout.js";
+import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
 import { appendDesignTrace } from "./shared/trace-events.js";
 import {
   assertTrustedChainAllowsCompletion,
@@ -69,6 +73,9 @@ const MAX_MODEL_REPAIR_ATTEMPTS = 2;
 const MAX_SEQUENCE_USE_CASE_RETRIES = 2;
 const DESIGN_TRACEABILITY_BATCH_SIZE = 24;
 const DEFAULT_DESIGN_SEQUENCE_CONCURRENCY = 2;
+const DEFAULT_MODEL_TASK_IDLE_TIMEOUT_MS = 300_000;
+const DEFAULT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS = 30_000;
+const DEFAULT_MODEL_TASK_MAX_RUNTIME_MS = 1_200_000;
 const LLM_CHUNK_EVENT_LIMIT = 240;
 const LLM_CHUNK_CHAR_LIMIT = 24000;
 const TRACE_RAW_OUTPUT_LIMIT = 20000;
@@ -80,6 +87,43 @@ const DESIGN_DIAGRAM_LABELS: Record<DesignDiagramKind, string> = {
   deployment: "部署设计",
   table: "数据库设计",
 };
+
+function designDiagramKindFromErrorId(id: string): DesignDiagramKind | null {
+  const [rawKind] = id.split(":");
+  if (
+    rawKind === "sequence" ||
+    rawKind === "class" ||
+    rawKind === "activity" ||
+    rawKind === "deployment" ||
+    rawKind === "table"
+  ) {
+    return rawKind;
+  }
+  return null;
+}
+
+function selectedDesignDiagramFailures(
+  diagramErrors: Record<string, DiagramError>,
+  selectedDiagrams: DesignDiagramKind[],
+) {
+  const selected = new Set(selectedDiagrams);
+  return Object.entries(diagramErrors).filter(([id]) => {
+    const kind = designDiagramKindFromErrorId(id);
+    return Boolean(kind && selected.has(kind));
+  });
+}
+
+function summarizeSelectedDesignDiagramFailures(
+  failures: Array<[string, DiagramError]>,
+) {
+  return failures
+    .map(([id, error]) => {
+      const kind = designDiagramKindFromErrorId(id);
+      const label = kind ? designDiagramLabel(kind) : id;
+      return `${label}：${error.message ?? "生成失败"}`;
+    })
+    .join("；");
+}
 
 const REQUIREMENT_DIAGRAM_LABELS: Record<DiagramKind, string> = {
   usecase: "用例模型",
@@ -98,13 +142,45 @@ function requirementDiagramLabel(diagram: DiagramKind) {
   return REQUIREMENT_DIAGRAM_LABELS[diagram];
 }
 
+function positiveIntegerEnv(value: string | undefined, fallback: number) {
+  const parsed = Number(value?.trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function readDesignSequenceConcurrency() {
-  const raw = process.env.UML_DESIGN_SEQUENCE_CONCURRENCY?.trim();
-  if (!raw) return DEFAULT_DESIGN_SEQUENCE_CONCURRENCY;
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_DESIGN_SEQUENCE_CONCURRENCY;
+  const runConcurrency = positiveIntegerEnv(
+    process.env.UML_LLM_RUN_CONCURRENCY,
+    DEFAULT_DESIGN_SEQUENCE_CONCURRENCY,
+  );
+  return positiveIntegerEnv(process.env.UML_DESIGN_SEQUENCE_CONCURRENCY, runConcurrency);
+}
+
+function readDesignModelTaskTimeoutConfig() {
+  const globalIdleTimeout = positiveIntegerEnv(
+    process.env.UML_MODEL_TASK_TIMEOUT_MS,
+    DEFAULT_MODEL_TASK_IDLE_TIMEOUT_MS,
+  );
+  const idleTimeoutMs = positiveIntegerEnv(
+    process.env.UML_DESIGN_MODEL_TASK_TIMEOUT_MS,
+    globalIdleTimeout,
+  );
+  const globalBlankOutputTimeout = positiveIntegerEnv(
+    process.env.UML_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+    Math.min(idleTimeoutMs, DEFAULT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS),
+  );
+  const blankOutputTimeoutMs = positiveIntegerEnv(
+    process.env.UML_DESIGN_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+    Math.min(idleTimeoutMs, globalBlankOutputTimeout),
+  );
+  const globalMaxRuntime = positiveIntegerEnv(
+    process.env.UML_MODEL_TASK_MAX_RUNTIME_MS,
+    DEFAULT_MODEL_TASK_MAX_RUNTIME_MS,
+  );
+  const maxRuntimeMs = positiveIntegerEnv(
+    process.env.UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS,
+    globalMaxRuntime,
+  );
+  return { idleTimeoutMs, blankOutputTimeoutMs, maxRuntimeMs };
 }
 
 function compactText(value: unknown) {
@@ -183,15 +259,19 @@ function autoFillDesignTraceability(
     });
     const target = directUseCaseTarget ?? labelTarget ?? firstUseCaseRef;
     if (!target) return [];
+    const mappingIsDeterministic = Boolean(directUseCaseTarget ?? labelTarget);
     return [
       {
         source,
         targets: [target],
-        mappingSource: "auto-filled-pending-review",
-        reviewStatus: "pending",
-        confidence: "low",
-        rationale:
-          "LLM 修复后仍缺少该设计元素映射，系统按用例实现设计或最接近的需求元素自动补齐。",
+        mappingSource: mappingIsDeterministic
+          ? "derived-from-endpoints"
+          : "auto-filled-pending-review",
+        reviewStatus: mappingIsDeterministic ? "confirmed" : "pending",
+        confidence: mappingIsDeterministic ? "medium" : "low",
+        rationale: mappingIsDeterministic
+          ? "系统根据用例实现设计的来源用例或元素标签确定性补齐追踪关系。"
+          : "LLM 修复后仍缺少该设计元素映射，系统按最接近的需求元素兜底补齐，需人工复核。",
       },
     ];
   });
@@ -234,41 +314,20 @@ function truncateTraceRawOutput(rawOutput: string) {
   return `${rawOutput.slice(0, TRACE_RAW_OUTPUT_LIMIT)}\n...[truncated ${rawOutput.length - TRACE_RAW_OUTPUT_LIMIT} chars]`;
 }
 
-function createLimitedLlmChunkEmitter(record: RunRecord, stage: RunStage) {
-  let emittedChunks = 0;
-  let emittedChars = 0;
-  let truncationNotified = false;
-
-  return (chunk: string) => {
-    if (
-      emittedChunks >= LLM_CHUNK_EVENT_LIMIT ||
-      emittedChars >= LLM_CHUNK_CHAR_LIMIT
-    ) {
-      if (!truncationNotified) {
-        truncationNotified = true;
-        emitEvent(
-          record,
-          stageProgressRunEventSchema.parse({
-            type: "stage_progress",
-            stage,
-            progress: stageProgressValue(stage),
-            message: "模型流式输出较长，技术日志已折叠，后台继续解析完整结果",
-          }),
-        );
-      }
-      return;
-    }
-    emittedChunks += 1;
-    emittedChars += chunk.length;
-    emitEvent(
-      record,
-      llmChunkRunEventSchema.parse({
-        type: "llm_chunk",
-        stage,
-        chunk,
-      }),
-    );
-  };
+function createLimitedLlmChunkEmitter(
+  record: RunRecord,
+  stage: RunStage,
+  onActivity?: ModelTaskActivity,
+  onBlankActivity?: ModelTaskActivity,
+) {
+  return createRunLlmChunkHandlers({
+    record,
+    stage,
+    onActivity,
+    onBlankActivity,
+    maxVisibleChunks: LLM_CHUNK_EVENT_LIMIT,
+    maxVisibleChars: LLM_CHUNK_CHAR_LIMIT,
+  });
 }
 
 function useCasesFromModel(useCaseModel: DiagramModelSpec) {
@@ -343,6 +402,59 @@ function coerceSequenceModelForUseCase(
   };
 }
 
+function normalizedSequenceTerms(values: string[]) {
+  return new Set(
+    values
+      .map((value) => value.replace(/[\s_()[\]（）【】确认成功失败结果]/gu, "").toLowerCase())
+      .filter((value) => value.length > 0),
+  );
+}
+
+function overlapRatio(left: Set<string>, right: Set<string>) {
+  if (left.size === 0 || right.size === 0) return 0;
+  let overlap = 0;
+  for (const value of left) {
+    if (right.has(value)) overlap += 1;
+  }
+  return overlap / Math.min(left.size, right.size);
+}
+
+function hasDesignImplementationSignal(model: SequenceDesignModel) {
+  const participantTypes = new Set(model.participants.map((participant) => participant.participantType));
+  const hasDesignParticipant =
+    participantTypes.has("service") || participantTypes.has("database");
+  const hasMethodLikeMessage = model.messages.some((message) =>
+    /^[a-z][a-z0-9_]*(?:[A-Z][a-z0-9_]*)*(?:\s*\(|$)/u.test(message.name.trim()),
+  );
+  return hasDesignParticipant || hasMethodLikeMessage;
+}
+
+function assertSequenceDiffersFromRequirementAnalysis(
+  model: SequenceDesignModel,
+  analysisModels: DiagramModelSpec[],
+) {
+  const analysis = analysisModels.find((candidate) => candidate.diagramKind === "analysis");
+  if (!analysis || analysis.diagramKind !== "analysis") return;
+
+  const participantOverlap = overlapRatio(
+    normalizedSequenceTerms(model.participants.map((participant) => participant.name)),
+    normalizedSequenceTerms(analysis.participants.map((participant) => participant.name)),
+  );
+  const messageOverlap = overlapRatio(
+    normalizedSequenceTerms(model.messages.map((message) => message.name)),
+    normalizedSequenceTerms(analysis.messages.map((message) => message.name)),
+  );
+  if (
+    participantOverlap >= 0.75 &&
+    messageOverlap >= 0.75 &&
+    !hasDesignImplementationSignal(model)
+  ) {
+    throw new Error(
+      `${model.sourceUseCaseName ?? model.title}用例实现设计与需求分析模型过于相似，缺少设计阶段对象职责、服务/数据库参与者或方法调用时序`,
+    );
+  }
+}
+
 function validateUseCaseSequenceCoverage(
   sequenceModels: SequenceDesignModel[],
   useCaseModel: DiagramModelSpec,
@@ -369,6 +481,9 @@ async function generateDesignTraceabilityWithRepair(
   requirementModels: DiagramModelSpec[],
   designModels: DesignDiagramModelSpec[],
   stage: RunStage,
+  onActivity?: ModelTaskActivity,
+  onBlankActivity?: ModelTaskActivity,
+  abortSignal?: AbortSignal,
 ) {
   const allRequiredSources =
     normalizeDesignTraceabilityWithCoverage([], designModels, requirementModels)
@@ -394,6 +509,9 @@ async function generateDesignTraceabilityWithRepair(
       stage,
       batchIndex + 1,
       directBatches.length,
+      onActivity,
+      onBlankActivity,
+      abortSignal,
     );
     accumulatedTraceability = mergeDesignTraceability(
       accumulatedTraceability,
@@ -438,6 +556,9 @@ async function generateDesignTraceabilityWithRepair(
       stage,
       batchIndex + 1,
       relationshipBatches.length,
+      onActivity,
+      onBlankActivity,
+      abortSignal,
     );
     accumulatedTraceability = mergeDesignTraceability(
       accumulatedTraceability,
@@ -519,6 +640,9 @@ async function generateDesignTraceabilityBatchWithRepair(
   stage: RunStage,
   batchIndex: number,
   totalBatches: number,
+  onActivity?: ModelTaskActivity,
+  onBlankActivity?: ModelTaskActivity,
+  abortSignal?: AbortSignal,
 ) {
   if (requiredSources.length === 0) return [];
   const responseFormat = getGenerateDesignTraceabilityResponseFormat(
@@ -538,13 +662,19 @@ async function generateDesignTraceabilityBatchWithRepair(
     stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
   for (let attempt = 0; attempt <= MAX_MODEL_REPAIR_ATTEMPTS; attempt += 1) {
-    const emitLimitedChunk = createLimitedLlmChunkEmitter(record, stage);
+    const emitLimitedChunk = createLimitedLlmChunkEmitter(
+      record,
+      stage,
+      onActivity,
+      onBlankActivity,
+    );
     const content = await collectTextResult(
       llmTransport,
       providerSettings,
       createMessages(prompt),
       emitLimitedChunk,
       responseFormat,
+      abortSignal,
     );
     previousOutput = content;
     appendDesignTrace(record, {
@@ -598,6 +728,7 @@ async function generateDesignTraceabilityBatchWithRepair(
               message: `已自动补齐第 ${batchIndex}/${totalBatches} 批 ${missingSources.length || requiredSources.length} 个设计模型元素映射`,
             }),
           );
+          onActivity?.();
           appendDesignTrace(record, {
             stage: traceStage,
             attempt: attempt + 1,
@@ -675,6 +806,7 @@ async function generateDesignTraceabilityBatchWithRepair(
               message: `已自动补齐第 ${batchIndex}/${totalBatches} 批 ${missingSources.length} 个设计模型元素映射`,
             }),
           );
+          onActivity?.();
           appendDesignTrace(record, {
             stage: traceStage,
             attempt: attempt + 1,
@@ -705,6 +837,7 @@ async function generateDesignTraceabilityBatchWithRepair(
           message: `设计模型元素映射不合法，正在修复第 ${batchIndex}/${totalBatches} 批可追踪关系（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
         }),
       );
+      onActivity?.();
 
       prompt = buildRepairDesignTraceabilityPrompt(
         requirementBaseline,
@@ -736,6 +869,9 @@ export async function generateDesignModelsWithRepair(
     modelRepairAttempts?: number;
     skipEmptyModelRepair?: boolean;
   } = {},
+  onActivity?: ModelTaskActivity,
+  onBlankActivity?: ModelTaskActivity,
+  abortSignal?: AbortSignal,
 ) {
   const modelRepairAttempts =
     options.modelRepairAttempts ?? MAX_MODEL_REPAIR_ATTEMPTS;
@@ -747,13 +883,19 @@ export async function generateDesignModelsWithRepair(
     stage === "generate_design_sequence" ? "generate_design_sequence" : "generate_design_models";
 
   for (let attempt = 0; attempt <= modelRepairAttempts; attempt += 1) {
-    const emitLimitedChunk = createLimitedLlmChunkEmitter(record, stage);
+    const emitLimitedChunk = createLimitedLlmChunkEmitter(
+      record,
+      stage,
+      onActivity,
+      onBlankActivity,
+    );
     const content = await collectTextResult(
       llmTransport,
       providerSettings,
       createMessages(prompt),
       emitLimitedChunk,
       responseFormat,
+      abortSignal,
     );
     previousOutput = content;
     appendDesignTrace(record, {
@@ -788,6 +930,7 @@ export async function generateDesignModelsWithRepair(
               message: "设计模型元素映射缺失，已系统自动补齐并标记待确认",
             }),
           );
+          onActivity?.();
         } else {
           emitEvent(
             record,
@@ -798,6 +941,7 @@ export async function generateDesignModelsWithRepair(
               message: "设计模型元素映射缺失，正在单独生成可追踪关系",
             }),
           );
+          onActivity?.();
           filteredTraceability = await generateDesignTraceabilityWithRepair(
             record,
             providerSettings,
@@ -806,6 +950,9 @@ export async function generateDesignModelsWithRepair(
             requirementModels,
             filteredModels,
             stage,
+            onActivity,
+            onBlankActivity,
+            abortSignal,
           );
         }
       }
@@ -851,6 +998,7 @@ export async function generateDesignModelsWithRepair(
             message: "设计模型元素映射缺失，正在恢复可追踪关系",
           }),
         );
+        onActivity?.();
         const designModelTraceability =
           autoFillCompleteDesignTraceability(filteredModels, requirementModels) ??
           (await generateDesignTraceabilityWithRepair(
@@ -861,6 +1009,9 @@ export async function generateDesignModelsWithRepair(
             requirementModels,
             filteredModels,
             stage,
+            onActivity,
+            onBlankActivity,
+            abortSignal,
           ));
         appendDesignTrace(record, {
           stage: traceStage,
@@ -916,6 +1067,7 @@ export async function generateDesignModelsWithRepair(
             message: `设计模型 JSON 结构不合法，正在尝试修复（${attempt + 1}/${modelRepairAttempts}）`,
           }),
         );
+      onActivity?.();
 
       prompt = buildRepairDesignModelsPrompt(
         requirementBaseline,
@@ -951,14 +1103,6 @@ function mergeDesignModels(
   return [...merged.values()];
 }
 
-function findDesignModelForArtifact(
-  models: DesignDiagramModelSpec[],
-  artifact: Pick<DesignPlantUmlArtifact, "diagramKind" | "modelId">,
-) {
-  const artifactId = artifact.modelId ?? artifact.diagramKind;
-  return models.find((model) => getDesignModelId(model) === artifactId);
-}
-
 function designArtifactSubtaskLabel(
   model: DesignDiagramModelSpec | undefined,
   artifact: Pick<DesignPlantUmlArtifact, "diagramKind" | "modelId">,
@@ -976,6 +1120,28 @@ function designArtifactSubtaskLabel(
     return `用例实现设计：${model.sourceUseCaseName.trim()}`;
   }
   return designDiagramLabel(artifact.diagramKind);
+}
+
+function designArtifactKey(
+  artifact: Pick<DesignPlantUmlArtifact | DesignSvgArtifact, "diagramKind" | "modelId">,
+) {
+  return artifact.modelId ?? artifact.diagramKind;
+}
+
+function replaceDesignPlantUmlArtifact(
+  artifacts: DesignPlantUmlArtifact[],
+  patch: DesignPlantUmlArtifact,
+) {
+  const key = designArtifactKey(patch);
+  return [...artifacts.filter((artifact) => designArtifactKey(artifact) !== key), patch];
+}
+
+function replaceDesignSvgArtifact(
+  artifacts: DesignSvgArtifact[],
+  patch: DesignSvgArtifact,
+) {
+  const key = designArtifactKey(patch);
+  return [...artifacts.filter((artifact) => designArtifactKey(artifact) !== key), patch];
 }
 
 function existingSequenceModelsForUseCases(
@@ -1068,10 +1234,114 @@ export async function runDesignStagePipeline(
     ...snapshot.designModelTraceability,
   ];
   let diagramErrors: Record<string, DiagramError> = {};
+  let plantUml: DesignPlantUmlArtifact[] = [];
+  let svgArtifacts: DesignSvgArtifact[] = [];
+  const renderFailures: string[] = [];
   const publishDesignModelSnapshot = () => {
     snapshot.models = models;
     snapshot.designModelTraceability = designModelTraceability;
     snapshot.diagramErrors = diagramErrors;
+  };
+  const renderDesignModelArtifact = async (model: DesignDiagramModelSpec) => {
+    throwIfRunCancelled(record);
+    const artifacts = generateDesignPlantUmlArtifacts([model]);
+    for (const artifact of artifacts) {
+      const subtaskLabel = designArtifactSubtaskLabel(model, artifact);
+      appendDesignTrace(record, {
+        stage: "generate_plantuml",
+        attempt: 1,
+        kind: "plantuml_source",
+        diagramKind: artifact.diagramKind,
+        plantUmlSource: artifact.source,
+      });
+      plantUml = replaceDesignPlantUmlArtifact(plantUml, artifact);
+      snapshot.plantUml = plantUml;
+      emitEvent(
+        record,
+        artifactReadyRunEventSchema.parse({
+          type: "artifact_ready",
+          stage: "generate_plantuml",
+          artifactKind: "plantuml",
+          diagramKind: artifact.diagramKind,
+          modelId: artifact.modelId,
+          subtaskId: artifact.modelId ?? artifact.diagramKind,
+          subtaskLabel,
+          subtaskStatus: "completed",
+        }),
+      );
+
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage: "render_svg",
+          progress: stageProgressValue("render_svg"),
+          message: `正在渲染：${subtaskLabel}`,
+          diagramKind: artifact.diagramKind,
+          modelId: artifact.modelId,
+          subtaskId: artifact.modelId ?? artifact.diagramKind,
+          subtaskLabel,
+          subtaskStatus: "rendering",
+        }),
+      );
+      const rendered = await renderArtifactWithRepair(
+        record,
+        providerSettings,
+        llmTransport,
+        renderClient,
+        model,
+        artifact,
+      );
+      throwIfRunCancelled(record);
+      plantUml = replaceDesignPlantUmlArtifact(
+        plantUml,
+        rendered.artifact as DesignPlantUmlArtifact,
+      );
+      snapshot.plantUml = plantUml;
+      if (rendered.status === "success") {
+        svgArtifacts = replaceDesignSvgArtifact(
+          svgArtifacts,
+          rendered.svgArtifact as DesignSvgArtifact,
+        );
+        snapshot.svgArtifacts = svgArtifacts;
+        delete diagramErrors[artifact.modelId ?? artifact.diagramKind];
+        delete diagramErrors[artifact.diagramKind];
+        snapshot.diagramErrors = diagramErrors;
+        emitEvent(
+          record,
+          artifactReadyRunEventSchema.parse({
+            type: "artifact_ready",
+            stage: "render_svg",
+            artifactKind: "svg",
+            diagramKind: artifact.diagramKind,
+            modelId: artifact.modelId,
+            subtaskId: artifact.modelId ?? artifact.diagramKind,
+            subtaskStatus: "completed",
+          }),
+        );
+        continue;
+      }
+
+      renderFailures.push(rendered.errorMessage);
+      diagramErrors[artifact.modelId ?? artifact.diagramKind] = diagramErrorSchema.parse({
+        stage: "render_svg",
+        message: rendered.errorMessage,
+      });
+      snapshot.diagramErrors = diagramErrors;
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage: "render_svg",
+          progress: stageProgressValue("render_svg"),
+          message: rendered.errorMessage,
+          diagramKind: artifact.diagramKind,
+          modelId: artifact.modelId,
+          subtaskId: artifact.modelId ?? artifact.diagramKind,
+          subtaskStatus: "failed",
+        }),
+      );
+    }
   };
   const useCaseModel = findRequirementModel(snapshot.requirementModels, "usecase");
   if (!useCaseModel) {
@@ -1085,6 +1355,7 @@ export async function runDesignStagePipeline(
     (diagram): diagram is Exclude<DesignDiagramKind, "sequence"> =>
       diagram !== "sequence",
   );
+  const modelTaskTimeoutConfig = readDesignModelTaskTimeoutConfig();
 
   if (shouldGenerateSequence) {
     updateStage("generate_design_sequence", "正在生成用例实现设计");
@@ -1122,22 +1393,35 @@ export async function runDesignStagePipeline(
               snapshot.requirementModels,
               useCase.id,
             );
-            const rawResult = await generateDesignModelsWithRepair(
-              record,
-              providerSettings,
-              llmTransport,
-              requirementBaseline,
-              [scopedUseCaseModel],
-              ["sequence"],
-              buildGenerateDesignSequencePrompt(
+            const rawResult = await withModelTaskTimeout(
+              (markActivity, markBlankActivity, abortSignal) => generateDesignModelsWithRepair(
+                record,
+                providerSettings,
+                llmTransport,
                 requirementBaseline,
-                scopedUseCaseModel,
-                scopedAnalysisModels,
+                [scopedUseCaseModel],
+                ["sequence"],
+                buildGenerateDesignSequencePrompt(
+                  requirementBaseline,
+                  scopedUseCaseModel,
+                  scopedAnalysisModels,
+                ),
+                "generate_design_sequence",
+                { skipEmptyModelRepair: true },
+                markActivity,
+                markBlankActivity,
+                abortSignal,
               ),
-              "generate_design_sequence",
-              { skipEmptyModelRepair: true },
+              {
+                ...modelTaskTimeoutConfig,
+                label: `${useCase.name}用例实现设计`,
+              },
             );
             const result = coerceSequenceModelForUseCase(rawResult, useCase);
+            assertSequenceDiffersFromRequirementAnalysis(
+              result.models[0]!,
+              scopedAnalysisModels,
+            );
             models = mergeDesignModels(models, result.models);
             designModelTraceability = [
               ...designModelTraceability.filter(
@@ -1161,6 +1445,7 @@ export async function runDesignStagePipeline(
                 subtaskStatus: "completed",
               }),
             );
+            await Promise.all(result.models.map(renderDesignModelArtifact));
             return result;
           } catch (error) {
             throwIfRunCancelled(record);
@@ -1275,21 +1560,31 @@ export async function runDesignStagePipeline(
         diagram,
       );
       try {
-        const result = await generateDesignModelsWithRepair(
-          record,
-          providerSettings,
-          llmTransport,
-          requirementBaseline,
-          sourceModels,
-          [diagram],
-          buildGenerateDesignModelsPrompt(
+        const result = await withModelTaskTimeout(
+          (markActivity, markBlankActivity, abortSignal) => generateDesignModelsWithRepair(
+            record,
+            providerSettings,
+            llmTransport,
             requirementBaseline,
             sourceModels,
-            sequenceModels,
             [diagram],
-            designContextModels,
+            buildGenerateDesignModelsPrompt(
+              requirementBaseline,
+              sourceModels,
+              sequenceModels,
+              [diagram],
+              designContextModels,
+            ),
+            "generate_design_models",
+            {},
+            markActivity,
+            markBlankActivity,
+            abortSignal,
           ),
-          "generate_design_models",
+          {
+            ...modelTaskTimeoutConfig,
+            label: designDiagramLabel(diagram),
+          },
         );
         throwIfRunCancelled(record);
         models = mergeDesignModels(models, result.models);
@@ -1312,6 +1607,7 @@ export async function runDesignStagePipeline(
             subtaskStatus: "completed",
           }),
         );
+        await Promise.all(result.models.map(renderDesignModelArtifact));
         return result;
       } catch (error) {
         throwIfRunCancelled(record);
@@ -1421,113 +1717,18 @@ export async function runDesignStagePipeline(
   );
   assertTrustedChainAllowsCompletion(trustedChain);
 
-  updateStage("generate_plantuml", "正在生成设计阶段 PlantUML");
-  throwIfRunCancelled(record);
-  let plantUml = generateDesignPlantUmlArtifacts(models);
-  snapshot.plantUml = plantUml;
-  for (const artifact of plantUml) {
-    const model = findDesignModelForArtifact(models, artifact);
-    const subtaskLabel = designArtifactSubtaskLabel(model, artifact);
-    appendDesignTrace(record, {
-      stage: "generate_plantuml",
-      attempt: 1,
-      kind: "plantuml_source",
-      diagramKind: artifact.diagramKind,
-      plantUmlSource: artifact.source,
-    });
-    emitEvent(
-      record,
-      artifactReadyRunEventSchema.parse({
-        type: "artifact_ready",
-        stage: "generate_plantuml",
-        artifactKind: "plantuml",
-        diagramKind: artifact.diagramKind,
-        modelId: artifact.modelId,
-        subtaskId: artifact.modelId ?? artifact.diagramKind,
-        subtaskLabel,
-        subtaskStatus: "completed",
-      }),
-    );
-  }
-
-  updateStage("render_svg", "正在渲染设计阶段 SVG");
-  const repairedPlantUmlArtifacts: DesignPlantUmlArtifact[] = [];
-  const svgArtifacts: DesignSvgArtifact[] = [];
-  const renderFailures: string[] = [];
-  for (const artifact of plantUml) {
-    throwIfRunCancelled(record);
-    const model = findDesignModelForArtifact(models, artifact);
-    if (!model) {
-      throw new Error(`Missing design diagram model for ${artifact.diagramKind}`);
-    }
-    const subtaskLabel = designArtifactSubtaskLabel(model, artifact);
-    emitEvent(
-      record,
-      stageProgressRunEventSchema.parse({
-        type: "stage_progress",
-        stage: "render_svg",
-        progress: stageProgressValue("render_svg"),
-        message: `正在渲染：${subtaskLabel}`,
-        diagramKind: artifact.diagramKind,
-        modelId: artifact.modelId,
-        subtaskId: artifact.modelId ?? artifact.diagramKind,
-        subtaskLabel,
-        subtaskStatus: "rendering",
-      }),
-    );
-
-    const rendered = await renderArtifactWithRepair(
-      record,
-      providerSettings,
-      llmTransport,
-      renderClient,
-      model,
-      artifact,
-    );
-    throwIfRunCancelled(record);
-    repairedPlantUmlArtifacts.push(rendered.artifact as DesignPlantUmlArtifact);
-    snapshot.plantUml = repairedPlantUmlArtifacts;
-    if (rendered.status === "success") {
-      svgArtifacts.push(rendered.svgArtifact as DesignSvgArtifact);
-      snapshot.svgArtifacts = svgArtifacts;
-      emitEvent(
-        record,
-        artifactReadyRunEventSchema.parse({
-          type: "artifact_ready",
-          stage: "render_svg",
-          artifactKind: "svg",
-          diagramKind: artifact.diagramKind,
-          modelId: artifact.modelId,
-          subtaskId: artifact.modelId ?? artifact.diagramKind,
-          subtaskStatus: "completed",
-        }),
-      );
-      continue;
-    }
-
-    renderFailures.push(rendered.errorMessage);
-    diagramErrors[artifact.diagramKind] = diagramErrorSchema.parse({
-      stage: "render_svg",
-      message: rendered.errorMessage,
-    });
-    snapshot.diagramErrors = diagramErrors;
-    emitEvent(
-      record,
-      stageProgressRunEventSchema.parse({
-        type: "stage_progress",
-        stage: "render_svg",
-        progress: stageProgressValue("render_svg"),
-        message: rendered.errorMessage,
-        diagramKind: artifact.diagramKind,
-        modelId: artifact.modelId,
-        subtaskId: artifact.modelId ?? artifact.diagramKind,
-        subtaskStatus: "failed",
-      }),
-    );
-  }
-  snapshot.plantUml = repairedPlantUmlArtifacts;
-  snapshot.svgArtifacts = svgArtifacts;
   snapshot.diagramErrors = diagramErrors;
+  const selectedFailures = selectedDesignDiagramFailures(
+    diagramErrors,
+    snapshot.selectedDiagrams,
+  );
+  if (selectedFailures.length > 0) {
+    throw new Error(
+      `设计模型生成未全部完成：${summarizeSelectedDesignDiagramFailures(
+        selectedFailures,
+      )}`,
+    );
+  }
 
   if (plantUml.length > 0 && svgArtifacts.length === 0) {
     throw new Error(renderFailures.join("；"));

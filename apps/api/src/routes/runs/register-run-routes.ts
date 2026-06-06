@@ -368,6 +368,21 @@ function providerConfigIdFromSettings(providerSettings: ProviderSettingsInput | 
     : null;
 }
 
+async function resolveProviderConfigIdForRun({
+  providerSettings,
+  metadata,
+  resolveProjectDefaultProviderConfig,
+}: {
+  providerSettings: ProviderSettingsInput | undefined;
+  metadata: RunRecordMetadata | undefined;
+  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
+}) {
+  const explicitProviderConfigId = providerConfigIdFromSettings(providerSettings);
+  if (explicitProviderConfigId) return explicitProviderConfigId;
+  if (!metadata?.projectId || !resolveProjectDefaultProviderConfig) return null;
+  return resolveProjectDefaultProviderConfig(metadata.projectId);
+}
+
 function snapshotProviderSettings(record: RunRecord) {
   const settings = (record.snapshot as { providerSettings?: unknown }).providerSettings;
   return settings && typeof settings === "object"
@@ -378,10 +393,19 @@ function snapshotProviderSettings(record: RunRecord) {
 function rememberProviderSettings(
   record: RunRecord,
   providerSettings: ProviderSettingsInput | undefined,
+  resolved?: { providerConfigId: string | null; model: string },
 ) {
-  if (!providerSettings) return;
+  const settingsToRemember =
+    providerSettings ??
+    (resolved?.providerConfigId
+      ? {
+          providerConfigId: resolved.providerConfigId,
+          model: resolved.model,
+        }
+      : undefined);
+  if (!settingsToRemember) return;
   (record.snapshot as { providerSettings?: ProviderSettingsInput }).providerSettings =
-    providerSettings;
+    settingsToRemember;
 }
 
 function isActiveRun(record: RunRecord) {
@@ -1187,7 +1211,11 @@ export function registerRunRoutes({
         message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1252,7 +1280,11 @@ export function registerRunRoutes({
           "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
       providerConfigId,
@@ -1316,7 +1348,11 @@ export function registerRunRoutes({
         message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
       runAccessGuard,
@@ -1373,7 +1409,10 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
-    rememberProviderSettings(record, input.providerSettings);
+    rememberProviderSettings(record, input.providerSettings, {
+      providerConfigId,
+      model: providerSettings.model,
+    });
     runs.set(runId, record);
 
     // Routes create queued records; pipelines advance them to running/completed/failed.
@@ -1416,7 +1455,11 @@ export function registerRunRoutes({
         message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
       runAccessGuard,
@@ -1464,7 +1507,10 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
-    rememberProviderSettings(record, input.providerSettings);
+    rememberProviderSettings(record, input.providerSettings, {
+      providerConfigId,
+      model: providerSettings.model,
+    });
     runs.set(runId, record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
@@ -1506,7 +1552,11 @@ export function registerRunRoutes({
         message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
       runAccessGuard,
@@ -1554,7 +1604,10 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
-    rememberProviderSettings(record, input.providerSettings);
+    rememberProviderSettings(record, input.providerSettings, {
+      providerConfigId,
+      model: providerSettings.model,
+    });
     runs.set(runId, record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
@@ -1600,7 +1653,11 @@ export function registerRunRoutes({
         message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(input.providerSettings);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: input.providerSettings,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
       runAccessGuard,
@@ -1657,7 +1714,10 @@ export function registerRunRoutes({
       terminal: false,
       metadata,
     };
-    rememberProviderSettings(record, input.providerSettings);
+    rememberProviderSettings(record, input.providerSettings, {
+      providerConfigId,
+      model: providerSettings.model,
+    });
     runs.set(runId, record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
@@ -1908,7 +1968,11 @@ export function registerRunRoutes({
         message: "Runs must use an admin-managed provider config with an allowed model.",
       };
     }
-    const providerConfigId = providerConfigIdFromSettings(providerSettingsInput);
+    const providerConfigId = await resolveProviderConfigIdForRun({
+      providerSettings: providerSettingsInput,
+      metadata,
+      resolveProjectDefaultProviderConfig,
+    });
     const taskType = taskTypeForRun(source);
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
@@ -1961,7 +2025,10 @@ export function registerRunRoutes({
     });
     const newRecord = runs.get(result.runId);
     if (newRecord) {
-      rememberProviderSettings(newRecord, providerSettingsInput);
+      rememberProviderSettings(newRecord, providerSettingsInput, {
+        providerConfigId,
+        model: providerSettings.model,
+      });
       startRecordPipeline({
         record: newRecord,
         providerSettings,

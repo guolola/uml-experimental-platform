@@ -103,10 +103,12 @@ function normalizeSequenceFragment(fragment: Record<string, unknown>) {
   const branches = ensureArray(fragment.branches)
     .map((branch) => {
       if (!isPlainRecord(branch)) return null;
-      return {
+      const nextBranch = {
         ...branch,
         messageIds: normalizeStringArray(branch.messageIds),
       };
+      dropBlankOptionalTextFields(nextBranch, ["condition"]);
+      return nextBranch;
     })
     .filter(Boolean);
   const branchMessageIds = branches.flatMap((branch) =>
@@ -122,7 +124,19 @@ function normalizeSequenceFragment(fragment: Record<string, unknown>) {
   } else {
     delete next.branches;
   }
+  dropBlankOptionalTextFields(next, ["condition", "description"]);
   return next;
+}
+
+function dropBlankOptionalTextFields(
+  record: Record<string, unknown>,
+  keys: string[],
+) {
+  for (const key of keys) {
+    if (typeof record[key] === "string" && !record[key].trim()) {
+      delete record[key];
+    }
+  }
 }
 
 function normalizeEventFlows(value: unknown) {
@@ -216,6 +230,7 @@ function normalizeSequenceDisplayFields(record: Record<string, unknown>) {
   record.messages = ensureArray(record.messages).map((message) => {
     if (!isPlainRecord(message)) return message;
     const next = { ...message };
+    dropBlankOptionalTextFields(next, ["returnValue", "condition", "description"]);
     normalizeLongDiagramTextField(next, "name", 20);
     normalizeLongDiagramTextField(next, "condition", 14);
     return next;
@@ -223,12 +238,14 @@ function normalizeSequenceDisplayFields(record: Record<string, unknown>) {
   record.fragments = ensureArray(record.fragments).map((fragment) => {
     if (!isPlainRecord(fragment)) return fragment;
     const next = { ...fragment };
+    dropBlankOptionalTextFields(next, ["condition", "description"]);
     normalizeLongDiagramTextField(next, "label", 16);
     normalizeLongDiagramTextField(next, "condition", 14);
     if (Array.isArray(next.branches)) {
       next.branches = next.branches.map((branch) => {
         if (!isPlainRecord(branch)) return branch;
         const nextBranch = { ...branch };
+        dropBlankOptionalTextFields(nextBranch, ["condition"]);
         normalizeLongDiagramTextField(nextBranch, "label", 14);
         normalizeLongDiagramTextField(nextBranch, "condition", 14);
         return nextBranch;
@@ -372,7 +389,12 @@ function normalizeRequirementDiagramModel(model: unknown) {
     if (typeof normalized.summary !== "string" || !normalized.summary.trim()) {
       normalized.summary = `${sourceUseCaseName || sourceUseCaseId || "该用例"}的需求阶段交互分析。`;
     }
-    normalized.participants = ensureArray(normalized.participants);
+    normalized.participants = ensureArray(normalized.participants).map((participant) => {
+      if (!isPlainRecord(participant)) return participant;
+      const next = { ...participant };
+      dropBlankOptionalTextFields(next, ["description"]);
+      return next;
+    });
     normalized.messages = ensureArray(normalized.messages).map((message) =>
       isPlainRecord(message)
         ? {

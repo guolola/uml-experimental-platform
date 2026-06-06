@@ -750,6 +750,8 @@ test("sequence PlantUML renders design dynamic behavior", async () => {
   };
   const artifact = generateDesignPlantUmlArtifacts([model])[0];
   assert.equal(artifact?.diagramKind, "sequence");
+  assert.match(artifact?.source ?? "", /title "用例实现设计：生成模型顺序"/);
+  assert.match(artifact?.source ?? "", /设计阶段：将需求分析转换为对象职责、方法调用/);
   assert.match(artifact?.source ?? "", /actor "用户"/);
   assert.match(artifact?.source ?? "", /startRun\(requirementText\)/);
   const rendered = await renderSvgWithPlantUml({
@@ -880,6 +882,8 @@ test("requirement analysis PlantUML keeps per-use-case model id", () => {
 
   assert.equal(artifact?.diagramKind, "analysis");
   assert.equal(artifact?.modelId, "analysis:uc_reserve");
+  assert.match(artifact?.source ?? "", /title "需求分析模型：预约座位"/);
+  assert.match(artifact?.source ?? "", /需求阶段：描述业务交互、系统责任和分支规则/);
   assert.match(artifact?.source ?? "", /customer -> system: 选择日期和座位/);
 });
 

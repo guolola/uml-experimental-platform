@@ -100,7 +100,7 @@ test("regular users can read system and user-scoped provider configs without sec
   assert.equal(response.statusCode, 200);
   assert.deepEqual(
     response.json().providerConfigs.map((item: { scopeType: string }) => item.scopeType),
-    ["system", "user"],
+    ["user", "system"],
   );
   assert.doesNotMatch(response.body, /sk-system-secret-a91f/);
   assert.doesNotMatch(response.body, /sk-owner-secret-b52c/);
@@ -136,7 +136,7 @@ test("project provider config route includes system, user, and project scopes fo
   assert.equal(response.statusCode, 200);
   assert.deepEqual(
     response.json().providerConfigs.map((item: { scopeType: string }) => item.scopeType),
-    ["system", "user", "project"],
+    ["project", "user", "system"],
   );
   assert.doesNotMatch(response.body, /sk-system-secret-a91f|sk-owner-secret-b52c|sk-project-secret-c83d/);
 

@@ -31,6 +31,7 @@ export interface StreamChatCompletionInput {
   providerSettings: ProviderSettings;
   messages: ChatMessage[];
   responseFormat?: ChatCompletionResponseFormat | null;
+  abortSignal?: AbortSignal;
 }
 
 export interface LlmTransport {
@@ -287,6 +288,7 @@ export function createRealLlmTransport(
       providerSettings,
       messages,
       responseFormat,
+      abortSignal,
     }: StreamChatCompletionInput) {
       assertProviderBaseUrlAllowed(
         providerSettings.apiBaseUrl,
@@ -296,6 +298,22 @@ export function createRealLlmTransport(
         options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
       const requestResponseFormat = effectiveResponseFormat(responseFormat);
       let activeAbortController = new AbortController();
+      let cleanupExternalAbort: (() => void) | undefined;
+      const replaceActiveAbortController = () => {
+        cleanupExternalAbort?.();
+        activeAbortController = new AbortController();
+        if (!abortSignal) return;
+        if (abortSignal.aborted) {
+          activeAbortController.abort();
+          return;
+        }
+        const controller = activeAbortController;
+        const abortHandler = () => controller.abort();
+        abortSignal.addEventListener("abort", abortHandler, { once: true });
+        cleanupExternalAbort = () =>
+          abortSignal.removeEventListener("abort", abortHandler);
+      };
+      replaceActiveAbortController();
       const fetchCompletion = (
         nextResponseFormat: ChatCompletionResponseFormat | null,
       ) => withTimeout(
@@ -322,28 +340,32 @@ export function createRealLlmTransport(
         responseTimeoutMs,
         () => activeAbortController.abort(),
       );
-      let response = await fetchCompletion(requestResponseFormat);
+      try {
+        let response = await fetchCompletion(requestResponseFormat);
 
-      if (!response.ok) {
-        const detail = await readErrorDetail(response);
-        if (
-          isJsonSchemaResponseFormat(requestResponseFormat) &&
-          shouldRetryJsonSchemaAsJsonObject(response.status, detail)
-        ) {
-          warnJsonSchemaFallback(providerSettings.model, response.status, detail);
-          activeAbortController = new AbortController();
-          response = await fetchCompletion({ type: "json_object" });
-        } else {
-          throw new Error(formatHttpLlmError(response.status, detail));
+        if (!response.ok) {
+          const detail = await readErrorDetail(response);
+          if (
+            isJsonSchemaResponseFormat(requestResponseFormat) &&
+            shouldRetryJsonSchemaAsJsonObject(response.status, detail)
+          ) {
+            warnJsonSchemaFallback(providerSettings.model, response.status, detail);
+            replaceActiveAbortController();
+            response = await fetchCompletion({ type: "json_object" });
+          } else {
+            throw new Error(formatHttpLlmError(response.status, detail));
+          }
         }
-      }
 
-      for await (const text of withIdleTimeout(
-        parseChatCompletionSse(response),
-        responseTimeoutMs,
-        () => activeAbortController.abort(),
-      )) {
-        yield text;
+        for await (const text of withIdleTimeout(
+          parseChatCompletionSse(response),
+          responseTimeoutMs,
+          () => activeAbortController.abort(),
+        )) {
+          yield text;
+        }
+      } finally {
+        cleanupExternalAbort?.();
       }
     },
   };

@@ -390,6 +390,90 @@ describe("SidebarMenu", () => {
     expect(screen.queryByRole("button", { name: "关闭 设计类图" })).not.toBeInTheDocument();
   });
 
+  it("does not show historical requirement models as running when only SVG is missing", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          generatedDiagramTypes: ["usecase", "class", "activity", "deployment", "prototype"],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例模型",
+              summary: "系统边界",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+            class: {
+              diagramKind: "class",
+              title: "领域概念模型",
+              summary: "核心实体",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+            activity: {
+              diagramKind: "activity",
+              title: "总体业务流程",
+              summary: "业务流程",
+              notes: [],
+              swimlanes: [],
+              nodes: [],
+              relationships: [],
+            },
+            deployment: {
+              diagramKind: "deployment",
+              title: "部署需求模型",
+              summary: "部署约束",
+              notes: [],
+              nodes: [],
+              databases: [],
+              components: [],
+              externalSystems: [],
+              artifacts: [],
+              relationships: [],
+            },
+            prototype: {
+              diagramKind: "prototype",
+              title: "原型界面关系",
+              summary: "界面导航",
+              notes: [],
+              nodes: [],
+              relationships: [],
+            },
+          },
+          svgArtifacts: {},
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
+
+    expect(screen.getByLabelText("用例模型已生成")).toBeInTheDocument();
+    expect(screen.getByLabelText("领域概念模型已生成")).toBeInTheDocument();
+    expect(screen.getByLabelText("总体业务流程已生成")).toBeInTheDocument();
+    expect(screen.getByLabelText("部署需求模型已生成")).toBeInTheDocument();
+    expect(screen.getByLabelText("原型界面关系已生成")).toBeInTheDocument();
+    expect(screen.queryByLabelText("用例模型模型已生成，正在生成图像")).not.toBeInTheDocument();
+  });
+
   it("uses the SVG-missing toast for historical completed design nodes without artifacts", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>

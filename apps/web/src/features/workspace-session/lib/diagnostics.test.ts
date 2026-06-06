@@ -5,6 +5,7 @@ import {
   appendDiagnosticStream,
   createEmptyDiagnostics,
   getProgressFromEvent,
+  isMeaningfulLlmChunkEvent,
   summarizeEvent,
 } from "./diagnostics";
 
@@ -41,6 +42,20 @@ describe("workspace-session diagnostics helpers", () => {
       message: "boom",
     } satisfies RunEvent);
     expect(failed.label).toBe("任务失败");
+  });
+
+  it("does not label blank model stream chunks as regular model output", () => {
+    const blankEvent = {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "   \n",
+    } satisfies RunEvent;
+
+    expect(isMeaningfulLlmChunkEvent(blankEvent)).toBe(false);
+    const summary = summarizeEvent(blankEvent);
+
+    expect(summary.label).toBe("收到空白片段");
+    expect(summary.detail).toContain("等待有效模型输出");
   });
 
   it("maps run event progress without changing SSE event shape", () => {

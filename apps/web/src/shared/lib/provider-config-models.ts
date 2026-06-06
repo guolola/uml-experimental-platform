@@ -2,6 +2,22 @@
 export type ProviderModelPolicy = {
   defaultModel?: string | null;
   allowedModels?: string[] | null;
+  provider?: string | null;
+  name?: string | null;
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  "openai": "OpenAI",
+  "openai-compatible": "OpenAI Compatible",
+  "siliconflow": "SiliconFlow",
+  "comfly": "Comfly",
+  "anthropic": "Claude",
+  "claude": "Claude",
+  "google": "Google",
+  "deepseek": "DeepSeek",
+  "minimax": "Minimax",
+  "aliyun": "Aliyun",
+  "zhipu": "智谱",
 };
 
 export function getProviderAllowedModels(config: ProviderModelPolicy | null | undefined) {
@@ -23,4 +39,18 @@ export function resolveProviderModel(
     return trimmedCurrent;
   }
   return allowedModels[0] ?? trimmedCurrent;
+}
+
+export function getProviderLabel(config: ProviderModelPolicy | null | undefined) {
+  const provider = config?.provider?.trim();
+  if (provider) {
+    const normalized = provider.toLowerCase();
+    if (PROVIDER_LABELS[normalized]) return PROVIDER_LABELS[normalized];
+    return provider
+      .split(/[-_\s]+/u)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+  return config?.name?.trim() || "托管 Provider";
 }

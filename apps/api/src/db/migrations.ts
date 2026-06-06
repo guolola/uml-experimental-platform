@@ -783,6 +783,14 @@ create index if not exists system_notices_status_published_idx on system_notices
 create index if not exists system_notice_reads_user_idx on system_notice_reads(user_id, read_at desc);
 `;
 
+export const billingCompatibilityColumnsSql = `
+alter table payment_orders add column if not exists client_return_url text;
+alter table payment_notifications add column if not exists error_message text;
+alter table billing_usage_reservations add column if not exists project_id text;
+alter table billing_usage_reservations add column if not exists credit_delta integer not null default 0;
+alter table billing_usage_reservations add column if not exists metadata_json jsonb not null default '{}'::jsonb;
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -831,6 +839,10 @@ export const migrations = [
   {
     id: "012_system_notices",
     sql: systemNoticesSql,
+  },
+  {
+    id: "013_billing_compatibility_columns",
+    sql: billingCompatibilityColumnsSql,
   },
 ] as const;
 

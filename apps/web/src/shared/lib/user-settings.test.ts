@@ -22,4 +22,29 @@ describe("user settings defaults", () => {
 
     expect(loadUserSettings().defaultModel).toBe("gpt-5.4");
   });
+
+  it("keeps server-managed provider models outside the static catalog", () => {
+    localStorage.setItem(
+      USER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        providerConfigId: "provider-system-siliconflow",
+        providerLabel: "SiliconFlow",
+        providerModelOptions: [
+          "deepseek-ai/DeepSeek-V4-Pro",
+          "Qwen/Qwen3.5-72B-Instruct",
+        ],
+        defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+      }),
+    );
+
+    expect(loadUserSettings()).toMatchObject({
+      providerConfigId: "provider-system-siliconflow",
+      providerLabel: "SiliconFlow",
+      providerModelOptions: [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "Qwen/Qwen3.5-72B-Instruct",
+      ],
+      defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+    });
+  });
 });

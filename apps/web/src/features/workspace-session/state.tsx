@@ -84,6 +84,8 @@ import {
   appendDiagnosticStream,
   createEmptyDiagnostics,
   getProgressFromEvent,
+  isMeaningfulLlmChunkEvent,
+  shouldDisplayDiagnosticEvent,
   summarizeEvent,
 } from "./lib/diagnostics";
 import {
@@ -133,6 +135,8 @@ type GenerationResultDialogState = {
 type GenerationConfirmationSummary = {
   title: string;
   description: string;
+  ruleDependencyLabels?: string[];
+  requirementDependencyLabels?: string[];
   newLabels: string[];
   regeneratedLabels: string[];
   dependencyLabels: string[];
@@ -157,8 +161,8 @@ function requirementLabels(diagrams: DiagramType[]) {
   return orderedRequirementDiagrams(diagrams).map((diagram) => DIAGRAM_META[diagram].label);
 }
 
-function formatRequirementDiagramList(diagrams: DiagramType[]) {
-  return requirementLabels(diagrams).join("、");
+function diagramLabels(diagrams: DiagramType[]) {
+  return requirementLabels(diagrams);
 }
 
 function requirementInputFingerprintFor(
@@ -283,6 +287,170 @@ function designLabels(diagrams: DesignDiagramType[]) {
   return orderedDesignDiagrams(diagrams).map((diagram) => DESIGN_DIAGRAM_META[diagram].label);
 }
 
+const DESIGN_REQUIREMENT_SOURCE_MAP: Record<DesignDiagramType, DiagramType[]> = {
+  sequence: ["usecase", "analysis"],
+  activity: ["prototype"],
+  class: ["class"],
+  deployment: ["deployment"],
+  table: ["class"],
+};
+
+type RequirementAutoUpstreamPlan = {
+  needsRulesRun: boolean;
+  rulesRunMode: "none" | "replace" | "merge";
+  ruleMappingDiagrams: DiagramType[];
+  requestedDiagrams: DiagramType[];
+  effectiveDiagrams: DiagramType[];
+  dependencyDiagrams: DiagramType[];
+};
+
+type DesignRequirementContext = {
+  requirementBaseline: RequirementBaseline;
+  requirementModels: DiagramModelSpec[];
+  requirementModelTraceability: RequirementModelTraceabilityEntry[];
+  rules: RequirementRule[];
+};
+
+function hasRequirementModelKind(
+  models: WorkspaceRecord["models"] | DiagramModelSpec[],
+  diagram: DiagramType,
+) {
+  const values = Array.isArray(models) ? models : Object.values(models);
+  return values.some((model) => model?.diagramKind === diagram);
+}
+
+function planRequirementAutoUpstream(input: {
+  requestedDiagrams: DiagramType[];
+  existingModels: WorkspaceRecord["models"];
+  rules: RequirementRule[];
+}) {
+  const requestedDiagrams = orderedRequirementDiagrams(input.requestedDiagrams);
+  const dependencyDiagrams = new Set<DiagramType>();
+  if (
+    requestedDiagrams.includes("analysis") &&
+    !hasRequirementModelKind(input.existingModels, "usecase") &&
+    !requestedDiagrams.includes("usecase")
+  ) {
+    dependencyDiagrams.add("usecase");
+  }
+  const effectiveDiagrams = orderedRequirementDiagrams([
+    ...requestedDiagrams,
+    ...dependencyDiagrams,
+  ]);
+  const ruleMappingDiagrams = requirementDiagramsMissingRuleMappings(
+    effectiveDiagrams,
+    input.rules,
+  );
+  const rulesRunMode =
+    input.rules.length === 0
+      ? "replace"
+      : ruleMappingDiagrams.length > 0
+        ? "merge"
+        : "none";
+  return {
+    needsRulesRun: rulesRunMode !== "none",
+    rulesRunMode,
+    ruleMappingDiagrams,
+    requestedDiagrams,
+    effectiveDiagrams,
+    dependencyDiagrams: orderedRequirementDiagrams([...dependencyDiagrams]),
+  } satisfies RequirementAutoUpstreamPlan;
+}
+
+function planDesignRequirementAutoUpstream(input: {
+  requestedDesignDiagrams: DesignDiagramType[];
+  requirementModels: WorkspaceRecord["models"];
+  rules: RequirementRule[];
+}) {
+  const required = new Set<DiagramType>();
+  for (const diagram of input.requestedDesignDiagrams) {
+    for (const requirementDiagram of DESIGN_REQUIREMENT_SOURCE_MAP[diagram]) {
+      if (!hasRequirementModelKind(input.requirementModels, requirementDiagram)) {
+        required.add(requirementDiagram);
+      }
+    }
+  }
+  return planRequirementAutoUpstream({
+    requestedDiagrams: [...required],
+    existingModels: input.requirementModels,
+    rules: input.rules,
+  });
+}
+
+function requirementDiagramsMissingRuleMappings(
+  diagrams: DiagramType[],
+  rules: RequirementRule[],
+) {
+  if (rules.length === 0) return [];
+  const mappedDiagrams = new Set(rules.flatMap((rule) => rule.relatedDiagrams));
+  return orderedRequirementDiagrams(
+    diagrams.filter(
+      (diagram) => diagram !== "analysis" && !mappedDiagrams.has(diagram),
+    ),
+  );
+}
+
+function normalizeRuleTextForMerge(text: string) {
+  return text.replace(/\s+/gu, "").trim().toLowerCase();
+}
+
+function mergeAutoCompletedRuleMappings(
+  existingRules: RequirementRule[],
+  generatedRules: RequirementRule[],
+) {
+  const generatedById = new Map(
+    generatedRules.map((rule) => [rule.id.trim().toLowerCase(), rule]),
+  );
+  const generatedByText = new Map(
+    generatedRules.map((rule) => [normalizeRuleTextForMerge(rule.text), rule]),
+  );
+  return existingRules.map((rule) => {
+    const generated =
+      generatedById.get(rule.id.trim().toLowerCase()) ??
+      generatedByText.get(normalizeRuleTextForMerge(rule.text));
+    if (!generated) return rule;
+    return {
+      ...rule,
+      relatedDiagrams: orderedRequirementDiagrams([
+        ...rule.relatedDiagrams,
+        ...generated.relatedDiagrams,
+      ]),
+    };
+  });
+}
+
+function ruleDependencyLabelsForPlan(plan?: RequirementAutoUpstreamPlan) {
+  if (!plan?.needsRulesRun) return [];
+  if (plan.rulesRunMode === "merge") {
+    const suffix = diagramLabels(plan.ruleMappingDiagrams).join("、");
+    return [suffix ? `需求规则映射补齐：${suffix}` : "需求规则映射补齐"];
+  }
+  return ["需求规则抽取/更新"];
+}
+
+function autoReviewId(artifactType: string, artifactId: string) {
+  return `${artifactType}:${artifactId}`;
+}
+
+function createAutoGeneratedUpstreamReview(input: {
+  artifactType: WorkspaceRecord["autoGeneratedUpstreamReviews"][string]["artifactType"];
+  artifactId: string;
+  label: string;
+  reason: string;
+  sourceRunId: string | null;
+}): WorkspaceRecord["autoGeneratedUpstreamReviews"][string] {
+  return {
+    id: autoReviewId(input.artifactType, input.artifactId),
+    artifactType: input.artifactType,
+    artifactId: input.artifactId,
+    label: input.label,
+    reason: input.reason,
+    sourceRunId: input.sourceRunId,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+}
+
 type DiagramGenerationStage =
   | "generate_models"
   | "generate_design_sequence"
@@ -392,8 +560,11 @@ function requirementGenerationSubtasks(
 function analyzeRequirementGeneration(
   requestedDiagrams: DiagramType[],
   existingDiagrams: DiagramType[],
+  plan?: RequirementAutoUpstreamPlan,
 ): GenerationConfirmationSummary {
-  const requested = orderedRequirementDiagrams(requestedDiagrams);
+  const requested = orderedRequirementDiagrams(
+    plan?.effectiveDiagrams ?? requestedDiagrams,
+  );
   const existing = new Set(existingDiagrams);
   const effective = new Set(requested);
   const newDiagrams = requested.filter((diagram) => !existing.has(diagram));
@@ -403,7 +574,12 @@ function analyzeRequirementGeneration(
   );
   return {
     title: "确认生成需求模型",
-    description: "本次会追加或更新所选需求模型，已有模型会保留。",
+    description:
+      plan?.needsRulesRun || (plan?.dependencyDiagrams.length ?? 0) > 0
+        ? "本次会先补齐缺失的上游规则映射或模型，再生成所选需求模型。"
+        : "本次会追加或更新所选需求模型，已有模型会保留。",
+    ruleDependencyLabels: ruleDependencyLabelsForPlan(plan),
+    requirementDependencyLabels: diagramLabels(plan?.dependencyDiagrams ?? []),
     newLabels: requirementLabels(newDiagrams),
     regeneratedLabels: requirementLabels(regeneratedDiagrams),
     dependencyLabels: [],
@@ -450,6 +626,7 @@ function analyzeDesignGeneration(
   effectiveDiagrams: DesignDiagramType[],
   dependencyDiagrams: DesignDiagramType[],
   existingDiagrams: DesignDiagramType[],
+  requirementPlan?: RequirementAutoUpstreamPlan,
 ): GenerationConfirmationSummary {
   const existing = new Set(existingDiagrams);
   const effective = new Set(effectiveDiagrams);
@@ -460,7 +637,16 @@ function analyzeDesignGeneration(
   );
   return {
     title: "确认生成设计模型",
-    description: "本次会追加或更新设计模型；缺失的前置模型会在确认后一并生成。",
+    description:
+      requirementPlan?.needsRulesRun ||
+      (requirementPlan?.effectiveDiagrams.length ?? 0) > 0 ||
+      dependencyDiagrams.length > 0
+        ? "本次会先补齐缺失的上游规则映射或模型，再生成所选设计模型。"
+        : "本次会追加或更新设计模型；缺失的前置模型会在确认后一并生成。",
+    ruleDependencyLabels: ruleDependencyLabelsForPlan(requirementPlan),
+    requirementDependencyLabels: diagramLabels(
+      requirementPlan?.effectiveDiagrams ?? [],
+    ),
     newLabels: designLabels(newDiagrams),
     regeneratedLabels: designLabels(regeneratedDiagrams),
     dependencyLabels: designLabels(dependencyDiagrams),
@@ -812,11 +998,15 @@ function GenerationConfirmationDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5 grid gap-3">
+          <SummaryGroup label="需求规则补齐" items={confirmation?.ruleDependencyLabels ?? []} />
+          <SummaryGroup label="需求模型补齐/更新" items={confirmation?.requirementDependencyLabels ?? []} />
           <SummaryGroup label="新生成" items={confirmation?.newLabels ?? []} />
           <SummaryGroup label="重新生成" items={confirmation?.regeneratedLabels ?? []} />
-          <SummaryGroup label="依赖补齐" items={confirmation?.dependencyLabels ?? []} />
+          <SummaryGroup label="设计依赖补齐" items={confirmation?.dependencyLabels ?? []} />
           <SummaryGroup label="保留不变" items={confirmation?.keptLabels ?? []} />
           {confirmation &&
+            (confirmation.ruleDependencyLabels?.length ?? 0) === 0 &&
+            (confirmation.requirementDependencyLabels?.length ?? 0) === 0 &&
             confirmation.newLabels.length === 0 &&
             confirmation.regeneratedLabels.length === 0 &&
             confirmation.dependencyLabels.length === 0 && (
@@ -1054,7 +1244,9 @@ function hasCompleteRequirementTraceability(
     (model): model is DiagramModelSpec => Boolean(model),
   );
   const modelsRequiringTraceability = availableModels.filter(
-    (model) => !isManualModelRerendered(manualModelEditStatus, model.diagramKind),
+    (model) =>
+      model.diagramKind !== "analysis" &&
+      !isManualModelRerendered(manualModelEditStatus, model.diagramKind),
   );
   if (modelsRequiringTraceability.length === 0) {
     return availableModels.length > 0;
@@ -1279,6 +1471,8 @@ export function WorkspaceSessionProvider({
     useState<RequirementQualityReport | null>(null);
   const [requirementReviewCandidates, setRequirementReviewCandidates] =
     useState<WorkspaceRecord["requirementReviewCandidates"]>({});
+  const [autoGeneratedUpstreamReviews, setAutoGeneratedUpstreamReviews] =
+    useState<WorkspaceRecord["autoGeneratedUpstreamReviews"]>({});
   const [workspacePermissions, setWorkspacePermissions] = useState({
     canUpdateWorkspace: true,
     canStartRuns: true,
@@ -1347,6 +1541,43 @@ export function WorkspaceSessionProvider({
       return null;
     });
   }, []);
+
+  const persistAutoGeneratedUpstreamReviews = useCallback(
+    async (reviews: WorkspaceRecord["autoGeneratedUpstreamReviews"]) => {
+      setAutoGeneratedUpstreamReviews(reviews);
+      await repository.updateAutoGeneratedUpstreamReviews?.(reviews);
+    },
+    [repository],
+  );
+
+  const decideAutoGeneratedUpstreamReview = useCallback(
+    async (reviewId: string, decision: "accepted" | "dismissed") => {
+      if (!autoGeneratedUpstreamReviews[reviewId]) return;
+      const next = {
+        ...autoGeneratedUpstreamReviews,
+        [reviewId]: {
+          ...autoGeneratedUpstreamReviews[reviewId],
+          status: decision,
+        },
+      };
+      await persistAutoGeneratedUpstreamReviews(next);
+    },
+    [autoGeneratedUpstreamReviews, persistAutoGeneratedUpstreamReviews],
+  );
+
+  const appendAutoGeneratedUpstreamReviews = useCallback(
+    async (
+      reviews: Array<WorkspaceRecord["autoGeneratedUpstreamReviews"][string]>,
+    ) => {
+      if (reviews.length === 0) return;
+      const next = {
+        ...autoGeneratedUpstreamReviews,
+        ...Object.fromEntries(reviews.map((review) => [review.id, review])),
+      };
+      await persistAutoGeneratedUpstreamReviews(next);
+    },
+    [autoGeneratedUpstreamReviews, persistAutoGeneratedUpstreamReviews],
+  );
 
   useEffect(() => {
     if (!repository.getProjectCapabilities) {
@@ -1989,6 +2220,7 @@ export function WorkspaceSessionProvider({
       setRequirementBaseline(workspace.requirementBaseline ?? null);
       setRequirementQualityReport(workspace.requirementQualityReport ?? null);
       setRequirementReviewCandidates(workspace.requirementReviewCandidates ?? {});
+      setAutoGeneratedUpstreamReviews(workspace.autoGeneratedUpstreamReviews ?? {});
       setModels(workspace.models);
       setRequirementModelTraceability(workspace.requirementModelTraceability ?? []);
       setSelectedDiagrams(workspace.selectedDiagramTypes);
@@ -2574,10 +2806,20 @@ export function WorkspaceSessionProvider({
   );
 
   const runGeneration = useCallback(
-    async (diagrams: DiagramType[], mode: RunMode) => {
+    async (
+      diagrams: DiagramType[],
+      mode: RunMode,
+      inputOverride?: {
+        rules?: RequirementRule[];
+        contextModels?: DiagramModelSpec[];
+        contextRequirementModelTraceability?: RequirementModelTraceabilityEntry[];
+      },
+      options?: { suppressSuccessDialog?: boolean },
+    ) => {
       const runRequestId = runController.beginRun("requirements");
       const baseTextVersion = textVersion;
-      const rulesForRun = mode.kind === "rules-only" ? [] : rules;
+      const rulesForRun =
+        mode.kind === "rules-only" ? [] : inputOverride?.rules ?? rules;
       const baseInputFingerprint = snapshotInputFingerprint({
         requirementText,
         rules: rulesForRun,
@@ -2607,10 +2849,13 @@ export function WorkspaceSessionProvider({
           ),
           mode.kind === "rules-only"
             ? []
-            : Object.values(models).filter(
+            : inputOverride?.contextModels ?? Object.values(models).filter(
                 (model): model is DiagramModelSpec => Boolean(model),
               ),
-          mode.kind === "rules-only" ? [] : requirementModelTraceability,
+          mode.kind === "rules-only"
+            ? []
+            : inputOverride?.contextRequirementModelTraceability ??
+              requirementModelTraceability,
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -2713,11 +2958,11 @@ export function WorkspaceSessionProvider({
                 ? event.stage
                 : current.activeStage,
             streamText:
-              event.type === "llm_chunk"
+              isMeaningfulLlmChunkEvent(event)
                 ? appendDiagnosticStream(current.streamText, event.chunk)
                 : current.streamText,
             chunkCount:
-              event.type === "llm_chunk"
+              isMeaningfulLlmChunkEvent(event)
                 ? current.chunkCount + 1
                 : current.chunkCount,
             stageStartedAt:
@@ -2736,7 +2981,9 @@ export function WorkspaceSessionProvider({
               event.type === "completed" && "requirementTrace" in event.snapshot
                 ? event.snapshot.requirementTrace ?? []
                 : current.requirementTrace,
-            events: [...current.events, diagnosticEvent].slice(-80),
+            events: shouldDisplayDiagnosticEvent(event)
+              ? [...current.events, diagnosticEvent].slice(-80)
+              : current.events,
           }));
 
           setRunUiState((current) => ({
@@ -2762,7 +3009,7 @@ export function WorkspaceSessionProvider({
         const snapshot =
           (await repository.getRunSnapshot(runId)) ?? lastCompletedSnapshot;
         if (!snapshot || !runController.isCurrentRun(runRequestId, "requirements")) {
-          return;
+          return null;
         }
         if (snapshot.status === "cancelled") {
           setRunUiState({
@@ -2778,7 +3025,7 @@ export function WorkspaceSessionProvider({
             runId: snapshot.runId,
             stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
           });
-          return;
+          return null;
         }
 
         applyRunSnapshot(snapshot, baseTextVersion, mode);
@@ -2908,24 +3155,26 @@ export function WorkspaceSessionProvider({
         });
         const qualityHintCount =
           snapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
-        openGenerationResultDialog({
-          title: mode.kind === "rules-only" ? "需求规则已生成" : "需求模型已生成",
-          tone:
-            qualityHintCount > 0 || repairPendingCount > 0 || repairFailedCount > 0
-              ? "warning"
-              : "success",
-          message:
-            repairFailedCount > 0
-              ? `生成完成，但有 ${repairFailedCount} 条需求规则修复失败，请重试后确认。`
-              : repairPendingCount > 0
-                ? `生成完成，已生成 ${repairPendingCount} 条修复候选，请确认后继续生成模型。`
-                : qualityHintCount > 0
-                  ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
-                  : "生成完成。",
-          runId: snapshot.runId,
-          stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
-          targetLabel: mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
-        });
+        if (!options?.suppressSuccessDialog) {
+          openGenerationResultDialog({
+            title: mode.kind === "rules-only" ? "需求规则已生成" : "需求模型已生成",
+            tone:
+              qualityHintCount > 0 || repairPendingCount > 0 || repairFailedCount > 0
+                ? "warning"
+                : "success",
+            message:
+              repairFailedCount > 0
+                ? `生成完成，但有 ${repairFailedCount} 条需求规则修复失败，请重试后确认。`
+                : repairPendingCount > 0
+                  ? `生成完成，已生成 ${repairPendingCount} 条修复候选，请确认后继续生成模型。`
+                  : qualityHintCount > 0
+                    ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
+                    : "生成完成。",
+            runId: snapshot.runId,
+            stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
+            targetLabel: mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
+          });
+        }
         notifyGenerationCompleted("requirements");
         if (
           baseInputFingerprint !==
@@ -2936,6 +3185,7 @@ export function WorkspaceSessionProvider({
         ) {
           notifyGenerationResultStale();
         }
+        return snapshot;
       } catch (error) {
         const billingBlock = parseBillingEntitlementError(error);
         const detail = billingBlock?.message ?? (error instanceof Error ? error.message : "生成失败");
@@ -2951,7 +3201,7 @@ export function WorkspaceSessionProvider({
           }));
         }
         if (!runController.isCurrentRun(runRequestId, "requirements")) {
-          return;
+          return null;
         }
         if (runId) {
           try {
@@ -3004,16 +3254,19 @@ export function WorkspaceSessionProvider({
           ].slice(-80),
         }));
         notifyGenerationFailed(`生成失败：${detail}`);
+        return null;
       }
     },
     [
       applyRunSnapshot,
+      models,
       openBillingEntitlementDialog,
       openGenerationResultDialog,
       persistRequirementReviewCandidates,
       repository,
       repairRequirementRuleCandidates,
       requirementBaseline,
+      requirementModelTraceability,
       requirementReviewCandidates,
       requirementText,
       rules,
@@ -3027,6 +3280,7 @@ export function WorkspaceSessionProvider({
     async (
       diagrams: DesignDiagramType[],
       requestedDiagrams: DesignDiagramType[] = diagrams,
+      requirementContext?: DesignRequirementContext,
     ) => {
       const runRequestId = runController.beginRun("design");
       let lastCompletedSnapshot: WorkspaceDesignRunSnapshot | null = null;
@@ -3042,9 +3296,22 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
+        const activeRequirementBaseline =
+          requirementContext?.requirementBaseline ?? requirementBaseline;
+        const activeRequirementModels =
+          requirementContext?.requirementModels ??
+          Object.values(models).filter(
+            (model): model is DiagramModelSpec => Boolean(model),
+          );
+        const activeRequirementModelTraceability =
+          requirementContext?.requirementModelTraceability ??
+          requirementModelTraceability;
+        const activeRequirementModelMap = Object.fromEntries(
+          activeRequirementModels.map((model) => [getRequirementModelId(model), model]),
+        ) as WorkspaceRecord["models"];
         const activeRequirementFingerprint = requirementInputFingerprintFor(
           requirementText,
-          rules,
+          requirementContext?.rules ?? rules,
         );
         const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
           requirementBaseline,
@@ -3092,13 +3359,17 @@ export function WorkspaceSessionProvider({
           requirementModelTraceability.length > 0
             ? !requirementTraceabilityComplete
             : generatedDiagrams.length > 0;
-        if (currentRulesStale || currentStaleDiagrams.length > 0) {
+        if (!requirementContext && (currentRulesStale || currentStaleDiagrams.length > 0)) {
           throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
         }
-        if (currentPendingRequirementReviews.length > 0) {
+        if (!requirementContext && currentPendingRequirementReviews.length > 0) {
           throw new Error("请先确认需求规则修复结果");
         }
-        if (currentRequirementDiagrams.length > 0 && requirementTraceabilityMissing) {
+        if (
+          !requirementContext &&
+          currentRequirementDiagrams.length > 0 &&
+          requirementTraceabilityMissing
+        ) {
           throw new Error("需求模型缺少完整元素级映射，请先重新生成需求模型");
         }
         if (
@@ -3108,15 +3379,13 @@ export function WorkspaceSessionProvider({
         ) {
           throw new Error("当前仓储未实现设计阶段生成能力");
         }
-        if (!requirementBaseline) {
+        if (!activeRequirementBaseline) {
           throw new Error("请先生成并确认需求规则，形成需求基线后再生成设计模型");
         }
         const startInput = createStartDesignRunInput(
-          requirementBaseline,
-          Object.values(models).filter(
-            (model): model is DiagramModelSpec => Boolean(model),
-          ),
-          requirementModelTraceability,
+          activeRequirementBaseline,
+          activeRequirementModels,
+          activeRequirementModelTraceability,
           diagrams,
           requestedDiagrams,
           Object.values(designModels),
@@ -3138,7 +3407,7 @@ export function WorkspaceSessionProvider({
           providerModel,
           message: "设计生成任务已进入队列",
           startedAtMs,
-          subtasks: designGenerationSubtasks(diagrams, models),
+          subtasks: designGenerationSubtasks(diagrams, activeRequirementModelMap),
         });
         setRunUiState({
           runStatus: "queued",
@@ -3215,11 +3484,11 @@ export function WorkspaceSessionProvider({
                 ? event.stage
                 : current.activeStage,
             streamText:
-              event.type === "llm_chunk"
+              isMeaningfulLlmChunkEvent(event)
                 ? appendDiagnosticStream(current.streamText, event.chunk)
                 : current.streamText,
             chunkCount:
-              event.type === "llm_chunk"
+              isMeaningfulLlmChunkEvent(event)
                 ? current.chunkCount + 1
                 : current.chunkCount,
             stageStartedAt:
@@ -3234,7 +3503,9 @@ export function WorkspaceSessionProvider({
               event.type === "completed" && "designTrace" in event.snapshot
                 ? event.snapshot.designTrace ?? []
                 : current.designTrace,
-            events: [...current.events, diagnosticEvent].slice(-80),
+            events: shouldDisplayDiagnosticEvent(event)
+              ? [...current.events, diagnosticEvent].slice(-80)
+              : current.events,
           }));
 
           setRunUiState((current) => ({
@@ -3260,7 +3531,7 @@ export function WorkspaceSessionProvider({
         const snapshot =
           (await repository.getDesignRunSnapshot(runId)) ?? lastCompletedSnapshot;
         if (!snapshot || !runController.isCurrentRun(runRequestId, "design")) {
-          return;
+          return null;
         }
         if (snapshot.status === "cancelled") {
           setRunUiState({
@@ -3276,7 +3547,7 @@ export function WorkspaceSessionProvider({
             runId: snapshot.runId,
             stageLabel: "设计模型",
           });
-          return;
+          return null;
         }
 
         applyDesignRunSnapshot(snapshot, requestedDiagrams);
@@ -3320,6 +3591,7 @@ export function WorkspaceSessionProvider({
         ) {
           notifyGenerationResultStale();
         }
+        return snapshot;
       } catch (error) {
         const billingBlock = parseBillingEntitlementError(error);
         const detail =
@@ -3337,7 +3609,7 @@ export function WorkspaceSessionProvider({
           }));
         }
         if (!runController.isCurrentRun(runRequestId, "design")) {
-          return;
+          return null;
         }
         if (runId) {
           try {
@@ -3392,15 +3664,21 @@ export function WorkspaceSessionProvider({
         notifyGenerationFailed(
           `设计生成失败：${detail}`,
         );
+        return null;
       }
     },
     [
       applyDesignRunSnapshot,
+      designModelTraceability,
+      designModels,
+      designPlantUml,
+      designSvgArtifacts,
       diagramInputFingerprints,
       diagramVersions,
       generatedDiagrams,
       manualModelEditStatus,
       models,
+      openBillingEntitlementDialog,
       openGenerationResultDialog,
       repository,
       requirementBaseline,
@@ -3641,11 +3919,11 @@ export function WorkspaceSessionProvider({
               ? event.stage
               : current.activeStage,
           streamText:
-            event.type === "llm_chunk"
+            isMeaningfulLlmChunkEvent(event)
               ? appendDiagnosticStream(current.streamText, event.chunk)
               : current.streamText,
           chunkCount:
-            event.type === "llm_chunk"
+            isMeaningfulLlmChunkEvent(event)
               ? current.chunkCount + 1
               : current.chunkCount,
           stageStartedAt:
@@ -3656,7 +3934,9 @@ export function WorkspaceSessionProvider({
             event.type === "stage_progress" && event.message
               ? { ...current.stageMessages, [event.stage]: event.message }
               : current.stageMessages,
-          events: [...current.events, diagnosticEvent].slice(-80),
+          events: shouldDisplayDiagnosticEvent(event)
+            ? [...current.events, diagnosticEvent].slice(-80)
+            : current.events,
           uiMockup:
             event.type === "artifact_ready" && event.artifactKind === "uiMockup"
               ? event.uiMockup ?? current.uiMockup
@@ -4112,11 +4392,11 @@ export function WorkspaceSessionProvider({
                 : current.finishedAt,
             activeStage: "stage" in event ? event.stage : current.activeStage,
             streamText:
-              event.type === "llm_chunk"
+              isMeaningfulLlmChunkEvent(event)
                 ? appendDiagnosticStream(current.streamText, event.chunk)
                 : current.streamText,
             chunkCount:
-              event.type === "llm_chunk"
+              isMeaningfulLlmChunkEvent(event)
                 ? current.chunkCount + 1
                 : current.chunkCount,
             stageStartedAt:
@@ -4127,7 +4407,9 @@ export function WorkspaceSessionProvider({
               event.type === "stage_progress" && event.message
                 ? { ...current.stageMessages, [event.stage]: event.message }
                 : current.stageMessages,
-            events: [...current.events, diagnosticEvent].slice(-80),
+            events: shouldDisplayDiagnosticEvent(event)
+              ? [...current.events, diagnosticEvent].slice(-80)
+              : current.events,
           }));
 
           setRunUiState((current) => ({
@@ -4462,6 +4744,34 @@ export function WorkspaceSessionProvider({
       if (diagrams.length === 0) {
         return;
       }
+      const activeRequirementFingerprint = requirementInputFingerprintFor(
+        requirementText,
+        rules,
+      );
+      const currentRulesStale =
+        rules.length > 0 &&
+        (requirementInputFingerprint
+          ? !fingerprintMatches(
+              requirementInputFingerprint,
+              activeRequirementFingerprint,
+            )
+          : rulesBasedOnTextVersion !== null &&
+            rulesBasedOnTextVersion !== textVersion);
+      if (currentRulesStale) {
+        const message = "需求规则已过期，请先手动更新需求规则";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "需求规则已过期",
+          tone: "warning",
+          message,
+          stageLabel: "需求规则",
+          targetLabel: "已选需求模型",
+        });
+        return;
+      }
       const pendingReviews = requirementRuleIdsBlockingGeneration(
         requirementBaseline,
         requirementReviewCandidates,
@@ -4482,30 +4792,146 @@ export function WorkspaceSessionProvider({
         });
         return;
       }
+      const plan = planRequirementAutoUpstream({
+        requestedDiagrams: diagrams,
+        existingModels: models,
+        rules,
+      });
+      if (
+        diagrams.includes("analysis") &&
+        hasRequirementModelKind(models, "usecase") &&
+        isRequirementDiagramStale({
+          diagram: "usecase",
+          activeRequirementFingerprint,
+          generatedDiagrams,
+          requirementInputFingerprint,
+          diagramInputFingerprints,
+          diagramVersions,
+          rulesVersion,
+          models,
+          requirementModelTraceability,
+          manualModelEditStatus,
+        })
+      ) {
+        const message = "用例模型已存在但基于旧规则，请先手动更新用例模型";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "上游模型需更新",
+          tone: "warning",
+          message,
+          stageLabel: "需求模型",
+          targetLabel: "已选需求模型",
+        });
+        return;
+      }
       const confirmed = await confirmGeneration(
         analyzeRequirementGeneration(
           diagrams,
           Object.keys(models) as DiagramType[],
+          plan,
         ),
       );
       if (!confirmed) return;
 
-      await runGeneration(
-        diagrams,
+      const rulesSnapshot = plan.needsRulesRun
+        ? await runGeneration(
+            [],
+            { kind: "rules-only" },
+            undefined,
+            { suppressSuccessDialog: true },
+          )
+        : null;
+      if (plan.needsRulesRun && !rulesSnapshot) return;
+      const rulesForRun =
+        rulesSnapshot && plan.rulesRunMode === "merge"
+          ? mergeAutoCompletedRuleMappings(rules, rulesSnapshot.rules)
+          : rulesSnapshot?.rules ?? rules;
+      if (rulesSnapshot && plan.rulesRunMode === "merge") {
+        setRules(rulesForRun);
+        setRulesVersion((current) => current + 1);
+        setRulesBasedOnTextVersion(textVersion);
+        setRequirementInputFingerprint(
+          requirementInputFingerprintFor(requirementText, rulesForRun),
+        );
+        latestInputRef.current = {
+          ...latestInputRef.current,
+          rules: rulesForRun,
+        };
+        void repository.updateRequirementRules?.(rulesForRun);
+      }
+      const reviewedRuleIds =
+        plan.rulesRunMode === "replace"
+          ? rulesSnapshot?.rules.map((rule) => rule.id) ?? []
+          : [];
+      const modelSnapshot = await runGeneration(
+        plan.effectiveDiagrams,
         only
-          ? { kind: "partial-diagrams", diagrams }
+          ? { kind: "partial-diagrams", diagrams: plan.effectiveDiagrams }
           : { kind: "full-diagrams" },
+        {
+          rules: rulesForRun,
+        },
       );
+      const reviews: Array<WorkspaceRecord["autoGeneratedUpstreamReviews"][string]> = [];
+      if (rulesSnapshot && plan.rulesRunMode === "replace") {
+        for (const ruleId of reviewedRuleIds) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "requirement-rule",
+              artifactId: ruleId,
+              label: `需求规则 ${ruleId}`,
+              reason: "生成所选模型时缺少可用需求规则，系统自动抽取/更新。",
+              sourceRunId: rulesSnapshot.runId,
+            }),
+          );
+        }
+      }
+      if (rulesSnapshot && plan.rulesRunMode === "merge") {
+        for (const diagram of plan.ruleMappingDiagrams) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "requirement-rule",
+              artifactId: `mapping:${diagram}`,
+              label: `${DIAGRAM_META[diagram].label}规则映射`,
+              reason: "生成所选模型时缺少上游规则映射，系统自动补齐关联关系。",
+              sourceRunId: rulesSnapshot.runId,
+            }),
+          );
+        }
+      }
+      if (modelSnapshot) {
+        for (const diagram of plan.dependencyDiagrams) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "requirement-model",
+              artifactId: diagram,
+              label: DIAGRAM_META[diagram].label,
+              reason: "生成所选需求模型时缺少前置上游模型，系统自动补齐。",
+              sourceRunId: modelSnapshot.runId,
+            }),
+          );
+        }
+      }
+      await appendAutoGeneratedUpstreamReviews(reviews);
     },
     [
+      appendAutoGeneratedUpstreamReviews,
       confirmGeneration,
       models,
-      openBillingEntitlementDialog,
       openGenerationResultDialog,
+      repository,
       requirementBaseline,
+      requirementInputFingerprint,
       requirementReviewCandidates,
+      requirementText,
       runGeneration,
+      rules,
+      rulesBasedOnTextVersion,
       selectedDiagrams,
+      textVersion,
     ],
   );
 
@@ -4515,24 +4941,169 @@ export function WorkspaceSessionProvider({
       if (requestedDiagrams.length === 0) {
         return;
       }
+      const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
+        requirementBaseline,
+        requirementReviewCandidates,
+      );
+      if (currentPendingRequirementReviews.length > 0) {
+        const message = "请先确认需求规则修复结果";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "需求规则待确认",
+          tone: "warning",
+          message,
+          details: currentPendingRequirementReviews,
+          stageLabel: "需求规则",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
+      const activeRequirementFingerprint = requirementInputFingerprintFor(
+        requirementText,
+        rules,
+      );
+      const currentRulesStale =
+        rules.length > 0 &&
+        (requirementInputFingerprint
+          ? !fingerprintMatches(
+              requirementInputFingerprint,
+              activeRequirementFingerprint,
+            )
+          : rulesBasedOnTextVersion !== null &&
+            rulesBasedOnTextVersion !== textVersion);
+      if (currentRulesStale) {
+        const message = "需求规则已过期，请先手动更新需求规则";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "需求规则已过期",
+          tone: "warning",
+          message,
+          stageLabel: "需求规则",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
+      const requirementPlan = planDesignRequirementAutoUpstream({
+        requestedDesignDiagrams: requestedDiagrams,
+        requirementModels: models,
+        rules,
+      });
+      const requiredExistingRequirementSources = orderedRequirementDiagrams(
+        requestedDiagrams.flatMap((diagram) =>
+          DESIGN_REQUIREMENT_SOURCE_MAP[diagram].filter((source) =>
+            hasRequirementModelKind(models, source),
+          ),
+        ),
+      );
+      const staleRequirementSources = requiredExistingRequirementSources.filter((diagram) =>
+        isRequirementDiagramStale({
+          diagram,
+          activeRequirementFingerprint,
+          generatedDiagrams,
+          requirementInputFingerprint,
+          diagramInputFingerprints,
+          diagramVersions,
+          rulesVersion,
+          models,
+          requirementModelTraceability,
+          manualModelEditStatus,
+        }),
+      );
+      if (staleRequirementSources.length > 0) {
+        const message = `已有需求阶段${diagramLabels(staleRequirementSources).join("、")}基于旧规则，请先回到需求页更新`;
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "需求上游需更新",
+          tone: "warning",
+          message,
+          stageLabel: "需求模型",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
+      const existingRequirementTraceabilityComplete = hasCompleteRequirementTraceability(
+        Object.values(models),
+        requirementModelTraceability,
+        manualModelEditStatus,
+      );
+      const existingRequirementTraceabilityMissing =
+        requiredExistingRequirementSources.length > 0 &&
+        (requirementModelTraceability.length > 0
+          ? !existingRequirementTraceabilityComplete
+          : Object.values(models).some(Boolean));
+      if (existingRequirementTraceabilityMissing) {
+        const message = "需求模型追踪关系不完整，请先回到需求页处理";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "需求追踪需处理",
+          tone: "warning",
+          message,
+          stageLabel: "需求模型",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
       const activeDesignFingerprint = designInputFingerprintFor(
         Object.values(models).filter((model): model is DiagramModelSpec => Boolean(model)),
         requirementModelTraceability,
       );
-      const existingDesignDiagrams = collectExistingDesignDiagramKinds(designModels).filter(
-        (diagram) => {
-          if (diagram === "sequence") {
-            return sequenceModelsCoverUseCases(designModels, models.usecase);
-          }
-          if (diagram === "class") {
-            return designFingerprintMatches(
-              designInputFingerprints.class,
-              activeDesignFingerprint,
-            );
-          }
-          return true;
-        },
+      const existingDesignDiagrams = collectExistingDesignDiagramKinds(designModels);
+      const needsSequenceDependency = requestedDiagrams.some(
+        (diagram) => diagram !== "sequence",
       );
+      if (
+        needsSequenceDependency &&
+        existingDesignDiagrams.includes("sequence") &&
+        !sequenceModelsCoverUseCases(designModels, models.usecase)
+      ) {
+        const message = "已有用例实现设计覆盖不足，请先手动更新用例实现设计";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "设计依赖需更新",
+          tone: "warning",
+          message,
+          stageLabel: "设计模型",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
+      if (
+        requestedDiagrams.includes("table") &&
+        existingDesignDiagrams.includes("class") &&
+        !designFingerprintMatches(
+          designInputFingerprints.class,
+          activeDesignFingerprint,
+        )
+      ) {
+        const message = "设计类图已存在但基于旧需求，请先手动更新设计类图";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "设计依赖需更新",
+          tone: "warning",
+          message,
+          stageLabel: "设计模型",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
       const { effectiveDiagrams, dependencyDiagrams } =
         resolveDesignGenerationDiagrams(requestedDiagrams, existingDesignDiagrams);
       const confirmed = await confirmGeneration(
@@ -4541,20 +5112,165 @@ export function WorkspaceSessionProvider({
           effectiveDiagrams,
           dependencyDiagrams,
           existingDesignDiagrams,
+          requirementPlan,
         ),
       );
       if (!confirmed) return;
 
-      await runDesignGeneration(effectiveDiagrams, requestedDiagrams);
+      const rulesSnapshot = requirementPlan.needsRulesRun
+        ? await runGeneration(
+            [],
+            { kind: "rules-only" },
+            undefined,
+            { suppressSuccessDialog: true },
+          )
+        : null;
+      if (requirementPlan.needsRulesRun && !rulesSnapshot) return;
+      const rulesForRequirementRun =
+        rulesSnapshot && requirementPlan.rulesRunMode === "merge"
+          ? mergeAutoCompletedRuleMappings(rules, rulesSnapshot.rules)
+          : rulesSnapshot?.rules ?? rules;
+      if (rulesSnapshot && requirementPlan.rulesRunMode === "merge") {
+        setRules(rulesForRequirementRun);
+        setRulesVersion((current) => current + 1);
+        setRulesBasedOnTextVersion(textVersion);
+        setRequirementInputFingerprint(
+          requirementInputFingerprintFor(requirementText, rulesForRequirementRun),
+        );
+        latestInputRef.current = {
+          ...latestInputRef.current,
+          rules: rulesForRequirementRun,
+        };
+        void repository.updateRequirementRules?.(rulesForRequirementRun);
+      }
+      const reviewedRuleIds =
+        requirementPlan.rulesRunMode === "replace"
+          ? rulesSnapshot?.rules.map((rule) => rule.id) ?? []
+          : [];
+
+      const requirementModelSnapshot = requirementPlan.effectiveDiagrams.length > 0
+        ? await runGeneration(
+            requirementPlan.effectiveDiagrams,
+            { kind: "partial-diagrams", diagrams: requirementPlan.effectiveDiagrams },
+            {
+              rules: rulesForRequirementRun,
+              contextModels: Object.values(models).filter(
+                (model): model is DiagramModelSpec => Boolean(model),
+              ),
+              contextRequirementModelTraceability: requirementModelTraceability,
+            },
+            { suppressSuccessDialog: true },
+          )
+        : null;
+      if (requirementPlan.effectiveDiagrams.length > 0 && !requirementModelSnapshot) {
+        return;
+      }
+
+      const activeRequirementModels =
+        requirementModelSnapshot?.models ??
+        Object.values(models).filter(
+          (model): model is DiagramModelSpec => Boolean(model),
+        );
+      const activeRequirementBaseline =
+        requirementModelSnapshot?.requirementBaseline ??
+        rulesSnapshot?.requirementBaseline ??
+        requirementBaseline;
+      if (!activeRequirementBaseline) {
+        openGenerationResultDialog({
+          title: "缺少需求基线",
+          tone: "warning",
+          message: "请先输入需求文本并生成需求规则。",
+          stageLabel: "需求规则",
+          targetLabel: "已选设计模型",
+        });
+        return;
+      }
+      const designSnapshot = await runDesignGeneration(
+        effectiveDiagrams,
+        requestedDiagrams,
+        {
+          requirementBaseline: activeRequirementBaseline,
+          requirementModels: activeRequirementModels,
+          requirementModelTraceability:
+            requirementModelSnapshot?.requirementModelTraceability ??
+            requirementModelTraceability,
+          rules: rulesForRequirementRun,
+        },
+      );
+      const reviews: Array<WorkspaceRecord["autoGeneratedUpstreamReviews"][string]> = [];
+      if (rulesSnapshot && requirementPlan.rulesRunMode === "replace") {
+        for (const ruleId of reviewedRuleIds) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "requirement-rule",
+              artifactId: ruleId,
+              label: `需求规则 ${ruleId}`,
+              reason: "生成设计模型时缺少可用需求规则，系统自动抽取/更新。",
+              sourceRunId: rulesSnapshot.runId,
+            }),
+          );
+        }
+      }
+      if (rulesSnapshot && requirementPlan.rulesRunMode === "merge") {
+        for (const diagram of requirementPlan.ruleMappingDiagrams) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "requirement-rule",
+              artifactId: `mapping:${diagram}`,
+              label: `${DIAGRAM_META[diagram].label}规则映射`,
+              reason: "生成设计模型时缺少上游规则映射，系统自动补齐关联关系。",
+              sourceRunId: rulesSnapshot.runId,
+            }),
+          );
+        }
+      }
+      if (requirementModelSnapshot) {
+        for (const diagram of requirementPlan.effectiveDiagrams) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "requirement-model",
+              artifactId: diagram,
+              label: DIAGRAM_META[diagram].label,
+              reason: "生成设计模型时缺少需求阶段上游模型，系统自动补齐。",
+              sourceRunId: requirementModelSnapshot.runId,
+            }),
+          );
+        }
+      }
+      if (designSnapshot) {
+        for (const diagram of dependencyDiagrams) {
+          reviews.push(
+            createAutoGeneratedUpstreamReview({
+              artifactType: "design-model",
+              artifactId: diagram,
+              label: DESIGN_DIAGRAM_META[diagram].label,
+              reason: "生成所选设计模型时缺少设计阶段上游模型，系统自动补齐。",
+              sourceRunId: designSnapshot.runId,
+            }),
+          );
+        }
+      }
+      await appendAutoGeneratedUpstreamReviews(reviews);
     },
     [
+      appendAutoGeneratedUpstreamReviews,
       confirmGeneration,
       designInputFingerprints,
       designModels,
       models,
+      openGenerationResultDialog,
+      repository,
+      requirementBaseline,
+      requirementInputFingerprint,
       requirementModelTraceability,
+      requirementReviewCandidates,
+      requirementText,
+      runGeneration,
       runDesignGeneration,
+      rules,
+      rulesBasedOnTextVersion,
       selectedDesignDiagrams,
+      textVersion,
     ],
   );
 
@@ -4645,15 +5361,9 @@ export function WorkspaceSessionProvider({
     pendingRequirementReviewRuleIds.length > 0
       ? "请先确认需求规则修复结果"
       : null;
-  const designGenerationBlockedReason = isRulesStale
-    ? "需求规则已更新，请先重新生成需求模型"
-    : staleDiagrams.length > 0
-      ? `需求模型（${formatRequirementDiagramList(staleDiagrams)}）基于旧需求规则，请先重新生成需求模型`
-      : requirementReviewBlockedReason
-        ? requirementReviewBlockedReason
-        : requirementTraceabilityMissing
-          ? "需求模型缺少完整元素级映射，请先重新生成需求模型"
-          : null;
+  const designGenerationBlockedReason = !requirementText.trim()
+    ? "请先输入需求文本"
+    : requirementReviewBlockedReason;
 
   const visibleGenerationTask = useMemo(() => {
     if (selectedGenerationTaskId) {
@@ -4685,6 +5395,8 @@ export function WorkspaceSessionProvider({
       requirementBaseline,
       requirementQualityReport,
       requirementReviewCandidates,
+      autoGeneratedUpstreamReviews,
+      decideAutoGeneratedUpstreamReview,
       acceptRequirementAiSuggestions,
       rejectRequirementAiSuggestions,
       repairRequirementRule,
@@ -4779,7 +5491,9 @@ export function WorkspaceSessionProvider({
       requirementBaseline,
       requirementQualityReport,
       requirementReviewCandidates,
+      autoGeneratedUpstreamReviews,
       acceptRequirementAiSuggestions,
+      decideAutoGeneratedUpstreamReview,
       decideRequirementReviewCandidate,
       rejectRequirementAiSuggestions,
       repairRequirementRule,

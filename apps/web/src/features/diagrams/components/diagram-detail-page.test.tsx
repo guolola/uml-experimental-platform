@@ -142,6 +142,146 @@ describe("DiagramView", () => {
     expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
   });
 
+  it("shows structured model details before PlantUML and SVG are available", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase"],
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例模型",
+            summary: "公开活动日历用例",
+            notes: [],
+            actors: [{ id: "visitor", name: "未注册用户", actorType: "human" }],
+            useCases: [
+              {
+                id: "uc_view_events",
+                name: "查看活动安排",
+                goal: "查看公开活动",
+                preconditions: ["日历为公开日历"],
+                postconditions: ["活动安排已展示"],
+                supportingActorIds: [],
+                eventFlows: [
+                  {
+                    id: "flow-main",
+                    name: "基本事件流",
+                    steps: [
+                      {
+                        order: 1,
+                        actor: "actor",
+                        actorAction: "打开公开日历",
+                        systemAction: "显示活动列表",
+                        expectedResult: "活动列表可见",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            systemBoundaries: [],
+            relationships: [],
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
+
+    expect(await screen.findByDisplayValue("用例模型")).toBeInTheDocument();
+    expect(screen.getByText("尚未生成 SVG")).toBeInTheDocument();
+    expect(screen.queryByText(/尚未生成。请回到/)).not.toBeInTheDocument();
+    expect(screen.getByText("查看活动安排")).toBeInTheDocument();
+  });
+
+  it("shows full use case event flow steps in the focused detail panel", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase"],
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例模型",
+            summary: "注册用户维护公开活动",
+            notes: [],
+            actors: [{ id: "registered_user", name: "注册用户", actorType: "human" }],
+            useCases: [
+              {
+                id: "uc_edit_event",
+                name: "编辑公开活动",
+                goal: "注册用户可以维护公开活动",
+                preconditions: ["用户已注册"],
+                postconditions: ["活动信息已保存"],
+                primaryActorId: "registered_user",
+                supportingActorIds: [],
+                eventFlows: [
+                  {
+                    id: "flow-main",
+                    name: "主事件流",
+                    flowType: "main",
+                    trigger: "用户打开活动编辑页",
+                    steps: [
+                      {
+                        order: 1,
+                        actor: "actor",
+                        actorAction: "填写活动标题和时间",
+                        systemAction: "校验活动时间是否公开可见",
+                        expectedResult: "活动草稿通过校验",
+                        sourceRequirementId: "FR3",
+                      },
+                      {
+                        order: 2,
+                        actor: "system",
+                        systemAction: "保存活动并刷新公开日历",
+                        expectedResult: "公众可查看更新后的活动",
+                        sourceRequirementId: "FR2",
+                      },
+                    ],
+                  },
+                  {
+                    id: "flow-duplicate",
+                    name: "信息重复",
+                    flowType: "alternative",
+                    condition: "活动时间与标题重复",
+                    steps: [
+                      {
+                        order: 1,
+                        actor: "system",
+                        systemAction: "提示活动信息重复",
+                        expectedResult: "用户停留在编辑页修改信息",
+                        sourceRequirementId: "FR3",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            systemBoundaries: [],
+            relationships: [],
+          },
+        },
+      }),
+    );
+
+    render(
+      withWorkspaceProviders(
+        <DiagramView
+          type="usecase"
+          highlightedElement={{ kind: "usecase", id: "uc_edit_event" }}
+        />,
+        repository,
+      ),
+    );
+
+    expect(await screen.findByText("焦点元素")).toBeInTheDocument();
+    expect(screen.getAllByText("主事件流").length).toBeGreaterThan(0);
+    expect(screen.getByText("备选事件流 · 信息重复")).toBeInTheDocument();
+    expect(screen.getByText("1. 填写活动标题和时间")).toBeInTheDocument();
+    expect(screen.getByText("校验活动时间是否公开可见")).toBeInTheDocument();
+    expect(screen.getByText("保存活动并刷新公开日历")).toBeInTheDocument();
+    expect(screen.getByText("提示活动信息重复")).toBeInTheDocument();
+    expect(screen.getAllByText("FR3").length).toBeGreaterThan(0);
+  });
+
   it("loads requirement diagram details by model id", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
@@ -189,6 +329,8 @@ describe("DiagramView", () => {
     );
 
     expect(await screen.findByDisplayValue("提交订单需求分析模型")).toBeInTheDocument();
+    expect(screen.getByText("来源：用例模型事件流（用例：提交订单）")).toBeInTheDocument();
+    expect(screen.queryByText("来源：需求规则（未标明）")).not.toBeInTheDocument();
     expect(screen.getByText("提交订单需求分析模型 SVG")).toBeInTheDocument();
   });
 

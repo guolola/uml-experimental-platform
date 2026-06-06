@@ -15,6 +15,7 @@ import {
   type UserSettings,
 } from "../../../shared/lib/user-settings";
 import {
+  getProviderLabel,
   getProviderAllowedModels,
   resolveProviderModel,
 } from "../../../shared/lib/provider-config-models";
@@ -29,6 +30,28 @@ type GlobalSettingsPanelProps = {
   onNavigate?: (route: string) => void;
   onSaved?: () => void;
 };
+
+function providerScopeLabel(config: PlatformProviderConfig) {
+  if (config.scopeType === "user") return "个人配置";
+  if (config.scopeType === "system") return "系统配置";
+  if (config.scopeType === "project") return "项目配置";
+  return "托管配置";
+}
+
+function providerScopePriority(config: PlatformProviderConfig) {
+  if (config.scopeType === "user") return 0;
+  if (config.scopeType === "system") return 1;
+  if (config.scopeType === "project") return 2;
+  return 3;
+}
+
+function sortProviderConfigs(configs: PlatformProviderConfig[]) {
+  return [...configs].sort((left, right) => {
+    const priority = providerScopePriority(left) - providerScopePriority(right);
+    if (priority !== 0) return priority;
+    return left.name.localeCompare(right.name, "zh-Hans-CN");
+  });
+}
 
 export function GlobalSettingsPanel({
   active,
@@ -57,8 +80,8 @@ export function GlobalSettingsPanel({
           .listProviderConfigs()
           .then((response) => {
             if (!mounted) return;
-            const activeConfigs = response.providerConfigs.filter(
-              (config) => config.status === "active",
+            const activeConfigs = sortProviderConfigs(
+              response.providerConfigs.filter((config) => config.status === "active"),
             );
             if (activeConfigs.length === 0) {
               setProviderStatus("暂无可用托管 Provider 配置。");
@@ -72,6 +95,8 @@ export function GlobalSettingsPanel({
                 return {
                   ...current,
                   providerConfigId: selected.id,
+                  providerModelOptions: getProviderAllowedModels(selected),
+                  providerLabel: getProviderLabel(selected),
                   defaultModel: resolveProviderModel(selected, current.defaultModel),
                 };
               });
@@ -123,6 +148,8 @@ export function GlobalSettingsPanel({
       }
       saveUserSettings({
         ...settings,
+        providerModelOptions: getProviderAllowedModels(selectedProvider),
+        providerLabel: getProviderLabel(selectedProvider),
         defaultModel: resolveProviderModel(selectedProvider, settings.defaultModel),
       });
       toast.success("设置已保存");
@@ -194,6 +221,8 @@ export function GlobalSettingsPanel({
                 setSettings((current) => ({
                   ...current,
                   providerConfigId,
+                  providerModelOptions: providerConfigId ? getProviderAllowedModels(config) : [],
+                  providerLabel: providerConfigId ? getProviderLabel(config) : "",
                   defaultModel: providerConfigId
                     ? resolveProviderModel(config, current.defaultModel)
                     : current.defaultModel,
@@ -212,14 +241,14 @@ export function GlobalSettingsPanel({
                 <SelectItem value="__none__">请选择托管配置</SelectItem>
                 {providerConfigs.map((config) => (
                   <SelectItem key={config.id} value={config.id}>
-                    {config.name}
+                    {config.name}（{providerScopeLabel(config)}）
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {selectedProvider ? (
               <span className="text-[11px] text-muted-foreground">
-                {selectedProvider.provider} · {selectedProvider.baseUrl} · {selectedProvider.maskedKey}
+                {providerScopeLabel(selectedProvider)} · {selectedProvider.provider} · {selectedProvider.baseUrl} · {selectedProvider.maskedKey}
               </span>
             ) : providerStatus ? (
               <span className="text-[11px] text-muted-foreground">{providerStatus}</span>

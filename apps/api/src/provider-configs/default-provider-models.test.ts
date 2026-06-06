@@ -14,3 +14,29 @@ test("provider config model normalization includes new default platform models",
   assert.ok(allowed.includes("qwen3.5-plus"));
   assert.ok(allowed.includes("glm-5.1"));
 });
+
+test("siliconflow provider configs keep only the reviewed model catalog", () => {
+  const allowed = normalizeProviderAllowedModels(
+    "deepseek-ai/DeepSeek-V4-Pro",
+    [
+      "deepseek-ai/DeepSeek-V4-Pro",
+      "deepseek-ai/DeepSeek-V4-Flash",
+      "Pro/moonshotai/Kimi-K2.6",
+      "Pro/zai-org/GLM-5.1",
+      "Pro/MiniMaxAI/MiniMax-M2.5",
+      "Qwen/Qwen3.6-35B-A3B",
+    ],
+    { baseUrl: "https://api.siliconflow.cn/v1", provider: "siliconflow" },
+  );
+
+  assert.deepEqual(allowed, [
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "deepseek-ai/DeepSeek-V4-Flash",
+    "Pro/moonshotai/Kimi-K2.6",
+    "Pro/zai-org/GLM-5.1",
+    "Pro/MiniMaxAI/MiniMax-M2.5",
+    "Qwen/Qwen3.6-35B-A3B",
+  ]);
+  assert.equal(allowed.includes("gpt-5.5-pro"), false);
+  assert.equal(allowed.includes("gpt-5.4"), false);
+});

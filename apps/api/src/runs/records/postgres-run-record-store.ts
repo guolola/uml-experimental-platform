@@ -11,6 +11,7 @@ interface RunRecordRow {
   status: string;
   stage: string;
   model: string | null;
+  provider_config_id: string | null;
   error_message: string | null;
   created_at: Date | string;
   completed_at: Date | string | null;
@@ -45,6 +46,17 @@ function readModel(snapshot: RunRecord["snapshot"]) {
   }
   const model = (settings as { model?: unknown }).model;
   return typeof model === "string" ? model : null;
+}
+
+function readProviderConfigId(snapshot: RunRecord["snapshot"]) {
+  const settings: unknown = "providerSettings" in snapshot ? snapshot.providerSettings : undefined;
+  if (!settings || typeof settings !== "object" || !("providerConfigId" in settings)) {
+    return null;
+  }
+  const providerConfigId = (settings as { providerConfigId?: unknown }).providerConfigId;
+  return typeof providerConfigId === "string" && providerConfigId.trim()
+    ? providerConfigId
+    : null;
 }
 
 function readStage(snapshot: RunRecord["snapshot"]) {
@@ -147,7 +159,7 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
 
   async restore() {
     const records = await this.db.query<RunRecordRow>(`
-      select id, user_id, project_id, snapshot, status, stage, model, error_message, created_at, completed_at
+      select id, user_id, project_id, snapshot, status, stage, model, provider_config_id, error_message, created_at, completed_at
       from run_records
       order by created_at asc
     `);
@@ -166,8 +178,9 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
     }
 
     for (const row of records.rows) {
-      const restoredActiveRun =
-        (row.status === "queued" || row.status === "running") && !row.completed_at;
+      const hasActiveStatus = row.status === "queued" || row.status === "running";
+      const restoredActiveRun = hasActiveStatus && !row.completed_at;
+      const restoredInterruptedRun = hasActiveStatus;
       const record: RunRecord = {
         snapshot: row.snapshot,
         events: eventsByRun.get(row.id) ?? [],
@@ -180,12 +193,22 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           Boolean(row.completed_at),
         metadata: createMetadata(row),
       };
-      if (restoredActiveRun && !record.snapshot.errorMessage) {
+      if (restoredInterruptedRun && !record.snapshot.errorMessage) {
         record.snapshot.errorMessage = "Run interrupted by server restart";
+      }
+      if (restoredInterruptedRun) {
+        record.snapshot.status = "failed";
+        if (!record.events.some((event) => event.type === "failed")) {
+          record.events.push({
+            type: "failed",
+            stage: record.snapshot.currentStage ?? undefined,
+            message: record.snapshot.errorMessage ?? "Run interrupted by server restart",
+          });
+        }
       }
       this.attachPersistence(record);
       super.set(row.id, record);
-      if (restoredActiveRun) {
+      if (restoredInterruptedRun) {
         this.enqueue(row.id, () => this.saveRecord(record));
       }
     }
@@ -254,7 +277,7 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           readStage(snapshot),
           readPersistedStatus(record, event),
           readModel(snapshot),
-          null,
+          readProviderConfigId(snapshot),
           JSON.stringify(snapshot),
           snapshot.errorMessage ?? null,
           readCompletedAt(record, event),

@@ -16,6 +16,8 @@ interface FakeRunRow {
   snapshot: RunRecord["snapshot"];
   status: string;
   stage: string;
+  model?: string | null;
+  provider_config_id?: string | null;
   error_message?: string | null;
   created_at: string;
   updated_at: string;
@@ -80,14 +82,15 @@ class FakeRunDb implements Queryable {
         project_id: typeof projectId === "string" ? projectId : null,
         stage: String(stage),
         status: String(status),
+        model: typeof model === "string" ? model : null,
+        provider_config_id:
+          typeof providerConfigId === "string" ? providerConfigId : null,
         snapshot: parsedSnapshot,
         error_message: typeof errorMessage === "string" ? errorMessage : null,
         created_at: String(createdAt),
         updated_at: new Date().toISOString(),
         completed_at: typeof completedAt === "string" ? completedAt : null,
       });
-      assert.equal(model, "gpt-5.5");
-      assert.equal(providerConfigId, null);
       return { rows: [], rowCount: 1 };
     }
 
@@ -115,6 +118,13 @@ function attachProviderSettings(snapshot: ReturnType<typeof createEmptySnapshot>
     apiBaseUrl: "https://ai.comfly.org",
     apiKey: "redacted",
     model: "gpt-5.5",
+  };
+}
+
+function attachManagedProviderSettings(snapshot: ReturnType<typeof createEmptySnapshot>) {
+  snapshot.providerSettings = {
+    providerConfigId: "provider-deepseek-v4pro",
+    model: "deepseek-ai/DeepSeek-V4-Pro",
   };
 }
 
@@ -149,6 +159,8 @@ test("postgres run store persists records and emitted events", async () => {
 
   assert.equal(db.runRows.get("run-1")?.project_id, "project-1");
   assert.equal(db.runRows.get("run-1")?.status, "completed");
+  assert.equal(db.runRows.get("run-1")?.model, "gpt-5.5");
+  assert.equal(db.runRows.get("run-1")?.provider_config_id, null);
   assert.equal(db.eventRows.length, 2);
   assert.equal(db.eventRows[1]?.sequence, 2);
   assert.deepEqual(db.eventRows[1]?.payload, {
@@ -169,6 +181,31 @@ test("postgres run store persists records and emitted events", async () => {
     "run-1",
   );
   assert.equal(restoredRecord?.metadata?.userId, "user-1");
+});
+
+test("postgres run store persists managed provider config ids", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-managed", "需求文本", ["usecase"], []);
+  attachManagedProviderSettings(snapshot);
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      userId: "user-1",
+      projectId: "project-1",
+      createdAt: "2026-05-22T00:00:00.000Z",
+    },
+  };
+
+  runs.set("run-managed", record);
+  await runs.flush();
+
+  const row = db.runRows.get("run-managed");
+  assert.equal(row?.model, "deepseek-ai/DeepSeek-V4-Pro");
+  assert.equal(row?.provider_config_id, "provider-deepseek-v4pro");
 });
 
 test("postgres run store restores abandoned active runs as interrupted", async () => {
@@ -199,9 +236,40 @@ test("postgres run store restores abandoned active runs as interrupted", async (
   await restored.flush();
 
   assert.equal(record?.terminal, true);
-  assert.equal(record?.snapshot.status, "running");
+  assert.equal(record?.snapshot.status, "failed");
   assert.equal(record?.snapshot.errorMessage, "Run interrupted by server restart");
+  assert.equal(record?.events.at(-1)?.type, "failed");
+  assert.equal(db.runRows.get("run-interrupted")?.status, "failed");
   assert.ok(db.runRows.get("run-interrupted")?.completed_at);
+});
+
+test("postgres run store normalizes active rows that already have completed timestamps", async () => {
+  const db = new FakeRunDb();
+  const snapshot = createEmptySnapshot("run-stale-active", "需求文本", ["class"], []);
+  snapshot.status = "running";
+  snapshot.currentStage = "generate_models";
+  db.runRows.set("run-stale-active", {
+    id: "run-stale-active",
+    user_id: "user-1",
+    project_id: "project-1",
+    snapshot,
+    status: "running",
+    stage: "generate_models",
+    error_message: "Run interrupted by server restart",
+    created_at: "2026-05-22T00:00:00.000Z",
+    updated_at: "2026-05-22T00:01:00.000Z",
+    completed_at: "2026-05-22T00:02:00.000Z",
+  });
+
+  const restored = await createPostgresRunRecordStore(db);
+  const record = restored.get("run-stale-active");
+  await restored.flush();
+
+  assert.equal(record?.terminal, true);
+  assert.equal(record?.snapshot.status, "failed");
+  assert.equal(record?.events.at(-1)?.type, "failed");
+  assert.equal(db.runRows.get("run-stale-active")?.status, "failed");
+  assert.equal(db.runRows.get("run-stale-active")?.completed_at, "2026-05-22T00:02:00.000Z");
 });
 
 test("postgres run store skips snapshot upserts for streaming progress by default", async () => {

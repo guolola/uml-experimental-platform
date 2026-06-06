@@ -24,6 +24,7 @@ import {
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../test/workspace-test-utils";
+import { designInputFingerprint } from "../../shared/lib/fingerprint";
 import { snapshotInputFingerprint } from "./lib/fingerprint";
 import { useWorkspaceSession } from "./state";
 
@@ -289,7 +290,7 @@ describe("WorkspaceSessionProvider", () => {
         createRunSnapshot({
           runId: "run-rules-1",
           requirementText: "订单系统需求",
-          rules: [createRule()],
+          rules: [createRule({ relatedDiagrams: ["usecase", "activity"] })],
         }),
       ],
       [
@@ -298,7 +299,7 @@ describe("WorkspaceSessionProvider", () => {
           runId: "run-diagrams",
           requirementText: "订单系统需求",
           selectedDiagrams: ["usecase", "activity"],
-          rules: [createRule()],
+          rules: [createRule({ relatedDiagrams: ["usecase", "activity"] })],
           models: [
             {
               diagramKind: "usecase",
@@ -760,7 +761,161 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.designGenerationBlockedReason).toBeNull();
   });
 
+  it("does not require rule traceability for use-case driven analysis models before design generation", async () => {
+    const rule = createRule({
+      id: "r1",
+      category: "功能需求",
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const requirementText = "订单系统需求";
+    const activeFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: [rule],
+    });
+    const usecaseModel: UseCaseDiagramSpec = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "用户提交订单。",
+      notes: [],
+      actors: [
+        {
+          id: "actor_user",
+          name: "用户",
+          actorType: "human",
+          responsibilities: ["提交订单"],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_submit",
+          name: "提交订单",
+          goal: "创建订单",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+          eventFlows: [
+            {
+              id: "flow-main",
+              name: "主事件流",
+              flowType: "main",
+              steps: [
+                {
+                  order: 1,
+                  actorAction: "填写订单",
+                  systemAction: "保存订单",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      systemBoundaries: [{ id: "system", name: "订单系统" }],
+      relationships: [],
+    };
+    const analysisModel: DiagramModelSpec = {
+      diagramKind: "analysis",
+      modelId: "analysis:uc_submit",
+      sourceUseCaseId: "uc_submit",
+      sourceUseCaseName: "提交订单",
+      title: "提交订单需求分析模型",
+      summary: "基于用例事件流生成。",
+      notes: [],
+      participants: [
+        { id: "actor_user", name: "用户", participantType: "actor" },
+        { id: "system", name: "订单系统", participantType: "control" },
+      ],
+      messages: [
+        {
+          id: "msg_submit",
+          sourceId: "actor_user",
+          targetId: "system",
+          type: "sync",
+          name: "提交订单",
+          parameters: [],
+        },
+      ],
+      fragments: [],
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText,
+          requirementBaseline: createRequirementBaseline([
+            createAtomicRequirement({ sourceRuleId: "r1" }),
+          ]),
+          rules: [rule],
+          models: { usecase: usecaseModel, "analysis:uc_submit": analysisModel },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "actor_user",
+                elementKind: "actor",
+                label: "用户",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_submit",
+                elementKind: "usecase",
+                label: "提交订单",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "system",
+                elementKind: "system-boundary",
+                label: "订单系统",
+              },
+            },
+          ],
+          generatedDiagramTypes: ["usecase", "analysis"],
+          selectedDiagramTypes: ["usecase", "analysis"],
+          requirementInputFingerprint: activeFingerprint,
+          diagramInputFingerprints: {
+            usecase: activeFingerprint,
+            analysis: activeFingerprint,
+          },
+          diagramVersions: { usecase: 1, analysis: 1 },
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    expect(result.current.staleDiagrams).toEqual([]);
+    expect(result.current.designGenerationBlockedReason).toBeNull();
+  });
+
   it("keeps separately generated requirement diagrams fresh for design generation", async () => {
+    const rule = createRule({
+      relatedDiagrams: ["usecase", "class", "activity"],
+    });
     const usecaseModel: UseCaseDiagramSpec = {
       diagramKind: "usecase",
       title: "用例模型",
@@ -821,7 +976,7 @@ describe("WorkspaceSessionProvider", () => {
           runId: "run-usecase",
           requirementText: "订单需求",
           selectedDiagrams: ["usecase"],
-          rules: [],
+          rules: [rule],
           models: [usecaseModel],
           requirementModelTraceability: [
             {
@@ -860,7 +1015,7 @@ describe("WorkspaceSessionProvider", () => {
           runId: "run-class",
           requirementText: "订单需求",
           selectedDiagrams: ["class"],
-          rules: [],
+          rules: [rule],
           models: [classModel],
           requirementModelTraceability: [
             {
@@ -881,7 +1036,7 @@ describe("WorkspaceSessionProvider", () => {
           runId: "run-activity",
           requirementText: "订单需求",
           selectedDiagrams: ["activity"],
-          rules: [],
+          rules: [rule],
           models: [activityModel],
           requirementModelTraceability: [
             {
@@ -902,7 +1057,11 @@ describe("WorkspaceSessionProvider", () => {
     }));
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
-        createWorkspaceRecord({ requirementText: "订单需求" }),
+        createWorkspaceRecord({
+          requirementText: "订单需求",
+          rules: [rule],
+          rulesVersion: 1,
+        }),
       ),
       updateRequirementText: vi.fn(async () => {}),
       startRun,
@@ -957,6 +1116,105 @@ describe("WorkspaceSessionProvider", () => {
     ]);
     expect(result.current.staleDiagrams).toEqual([]);
     expect(result.current.designGenerationBlockedReason).toBeNull();
+  });
+
+  it("auto-completes missing rule mappings without replacing existing rules", async () => {
+    const existingRule = createRule({
+      id: "fr1",
+      category: "业务规则",
+      text: "FR1. 此日历仅供公众使用，而非个人日历。",
+      relatedDiagrams: ["usecase"],
+    });
+    const mappedRule: typeof existingRule = {
+      ...existingRule,
+      relatedDiagrams: ["usecase", "class"],
+    };
+    const ruleSnapshot = createRunSnapshot({
+      runId: "run-rules",
+      requirementText: "公开日历需求",
+      rules: [mappedRule],
+      requirementBaseline: createRequirementBaseline([createAtomicRequirement()]),
+    });
+    const classSnapshot = createRunSnapshot({
+      runId: "run-class",
+      requirementText: "公开日历需求",
+      selectedDiagrams: ["class"],
+      rules: [mappedRule],
+      models: [
+        {
+          diagramKind: "class",
+          title: "领域概念模型",
+          summary: "日历活动领域对象。",
+          notes: [],
+          classes: [],
+          interfaces: [],
+          enums: [],
+          relationships: [],
+        },
+      ],
+    });
+    let startRunCount = 0;
+    const startRun = vi.fn(async () => {
+      startRunCount += 1;
+      return { runId: startRunCount === 1 ? "run-rules" : "run-class" };
+    });
+    const updateRequirementRules = vi.fn(async () => {});
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "公开日历需求",
+          rules: [existingRule],
+          rulesVersion: 1,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      updateRequirementRules,
+      startRun,
+      subscribeToRun: vi.fn(async (runId, onEvent) => {
+        onEvent({
+          type: "completed",
+          snapshot: runId === "run-rules" ? ruleSnapshot : classSnapshot,
+        });
+      }),
+      getRunSnapshot: vi.fn(async (runId) =>
+        runId === "run-rules" ? ruleSnapshot : classSnapshot,
+      ),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let generation: Promise<void> | null = null;
+    act(() => {
+      generation = result.current.generateDiagrams(["class"]);
+    });
+    const confirmation = await screen.findByRole("dialog", {
+      name: "确认生成需求模型",
+    });
+    expect(
+      within(confirmation).getByText("需求规则映射补齐：领域概念模型"),
+    ).toBeInTheDocument();
+    await user.click(within(confirmation).getByRole("button", { name: "确认生成" }));
+    await act(async () => {
+      await generation;
+    });
+
+    expect(startRun).toHaveBeenCalledTimes(2);
+    expect(updateRequirementRules).toHaveBeenCalledWith([mappedRule]);
+    expect(result.current.rules).toEqual([mappedRule]);
+    expect(result.current.rules[0]?.text).toBe(existingRule.text);
   });
 
   it("creates repair candidates after rules generation and blocks downstream until confirmed", async () => {
@@ -1403,7 +1661,7 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.requirementReviewCandidates.r1?.status).toBe("rejected");
   });
 
-  it("adds sequence as a design dependency when existing sequence diagrams do not cover current use cases", async () => {
+  it("blocks design generation when existing sequence diagrams do not cover current use cases", async () => {
     const usecaseModel: UseCaseDiagramSpec = {
       diagramKind: "usecase",
       title: "用例模型",
@@ -1474,6 +1732,7 @@ describe("WorkspaceSessionProvider", () => {
         createWorkspaceRecord({
           requirementText: "订单需求",
           requirementBaseline: createRequirementBaseline([createAtomicRequirement()]),
+          rules: [createRule({ relatedDiagrams: ["usecase", "class"] })],
           rulesVersion: 1,
           diagramVersions: { usecase: 1, class: 1 },
           generatedDiagramTypes: ["usecase", "class"],
@@ -1557,21 +1816,18 @@ describe("WorkspaceSessionProvider", () => {
     act(() => {
       generation = result.current.generateDesignDiagrams(["class"]);
     });
-    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    const blockedDialog = await screen.findByRole("dialog", {
+      name: "设计依赖需更新",
+    });
+    expect(
+      within(blockedDialog).getByText("已有用例实现设计覆盖不足，请先手动更新用例实现设计"),
+    ).toBeInTheDocument();
+    await user.click(within(blockedDialog).getByRole("button", { name: "确认" }));
     await act(async () => {
       await generation;
     });
 
-    expect(startDesignRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        selectedDiagrams: ["sequence", "class"],
-        requestedDiagrams: ["class"],
-      }),
-    );
-    const input = (startDesignRun.mock.calls[0] as unknown as [StartDesignRunInput] | undefined)?.[0];
-    expect(input).not.toHaveProperty("requirementText");
-    expect(input).not.toHaveProperty("rules");
-    expect(input).toHaveProperty("requirementBaseline");
+    expect(startDesignRun).not.toHaveBeenCalled();
   });
 
   it("saves manual requirement model edits and clears the mapping warning after rerender", async () => {
@@ -1645,6 +1901,7 @@ describe("WorkspaceSessionProvider", () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "教师登录系统需求",
           models: { usecase: originalUseCaseModel },
           requirementModelTraceability: [
             {
@@ -1721,9 +1978,8 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.manualModelEditStatus.usecase?.warning).toMatch(
       /可能与前置需求映射不一致/,
     );
-    expect(result.current.designGenerationBlockedReason).toBe(
-      "需求模型缺少完整元素级映射，请先重新生成需求模型",
-    );
+    expect(result.current.requirementTraceabilityStale).toBe(true);
+    expect(result.current.designGenerationBlockedReason).toBeNull();
 
     await act(async () => {
       await result.current.rerenderRequirementModel("usecase");
@@ -2182,6 +2438,12 @@ describe("WorkspaceSessionProvider", () => {
               },
             },
           },
+          designInputFingerprints: {
+            class: designInputFingerprint(
+              [usecaseModel, classRequirementModel],
+              snapshot.requirementModelTraceability,
+            ),
+          },
         }),
       ),
       updateRequirementText: vi.fn(async () => {}),
@@ -2223,7 +2485,7 @@ describe("WorkspaceSessionProvider", () => {
 
     expect(repository.startDesignRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        selectedDiagrams: ["class", "table"],
+        selectedDiagrams: ["table"],
         existingDesignModels: expect.arrayContaining([
           expect.objectContaining({ diagramKind: "sequence" }),
           expect.objectContaining({ diagramKind: "class" }),

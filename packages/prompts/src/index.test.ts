@@ -118,6 +118,20 @@ test("requirement repair prompt preserves requirement-stage responsibilities", (
   assert.match(prompt, /deployment\.relationships\[\]\.port 必须是字符串/);
 });
 
+test("requirement analysis repair prompt allows empty traceability", () => {
+  const prompt = buildRepairModelsPrompt(
+    [],
+    sampleBaseline,
+    ["analysis"],
+    '{"models":[],"requirementModelTraceability":[]}',
+    "analysis JSON 结构不合法",
+  );
+
+  assert.match(prompt, /本次修复需求分析模型/);
+  assert.match(prompt, /requirementModelTraceability 必须允许为空数组/);
+  assert.doesNotMatch(prompt, /requirementModelTraceability 必须是非空数组/);
+});
+
 test("single requirement model prompts forbid cross-diagram substitutions", () => {
   const classPrompt = buildGenerateModelsPrompt(sampleRules, sampleBaseline, ["class"]);
   assert.match(classPrompt, /领域概念模型\(class\) 单图生成任务/);
@@ -238,8 +252,10 @@ test("design model prompt keeps design-stage activity semantics", () => {
   assert.match(prompt, /modelId/);
   assert.match(prompt, /sourceUseCaseId/);
   assert.match(prompt, /下游聚合设计模型/);
-  assert.match(prompt, /designModelTraceability 可以返回空数组/);
-  assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
+  assert.match(prompt, /必须返回 designModelTraceability: \[\]/);
+  assert.match(prompt, /系统会在模型结构解析成功后按元素清单确定性补齐可追踪关系/);
+  assert.match(prompt, /不要为了可追踪矩阵输出长映射数组/);
+  assert.doesNotMatch(prompt, /矩阵会展示的每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);
   assert.match(prompt, /设计阶段禁止使用原始需求文本或需求规则列表作为事实来源/);
   assert.match(prompt, /RequirementBaseline（只用于约束和验收边界）/);
   assert.doesNotMatch(prompt, /原始需求：/);
@@ -291,8 +307,12 @@ test("design sequence prompt requires one sequence per use case", () => {
   assert.match(prompt, /modelId = sequence:<useCaseId>/);
   assert.match(prompt, /sourceUseCaseId/);
   assert.match(prompt, /sourceUseCaseName/);
-  assert.match(prompt, /designModelTraceability 可以返回空数组/);
-  assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
+  assert.match(prompt, /boundary\/controller\/service\/entity\/database/);
+  assert.match(prompt, /方法调用/);
+  assert.match(prompt, /不能原样复用参与者和消息/);
+  assert.match(prompt, /必须返回 designModelTraceability: \[\]/);
+  assert.match(prompt, /系统会在模型结构解析成功后按元素清单确定性补齐可追踪关系/);
+  assert.doesNotMatch(prompt, /矩阵会展示的每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);
   assert.match(prompt, /"id": "uc_view"/);
   assert.match(prompt, /"id": "uc_create"/);
   assert.doesNotMatch(prompt, /原始需求：/);
@@ -333,21 +353,24 @@ test("requirement analysis prompt scopes one sequence to one use case event flow
     systemBoundaries: [],
     relationships: [],
   };
-  const prompt = buildGenerateRequirementAnalysisPrompt(
-    sampleRules,
-    sampleBaseline,
-    useCaseModel,
-  );
+  const prompt = buildGenerateRequirementAnalysisPrompt(useCaseModel);
 
   assert.match(prompt, /models 只包含 diagramKind 为 analysis 的需求分析模型/);
   assert.match(prompt, /你必须且只能输出一个 analysis 模型/);
   assert.match(prompt, /modelId 必须是 analysis:<sourceUseCaseId>/);
   assert.match(prompt, /必须来自该 useCase\.eventFlows/);
+  assert.match(prompt, /需求语义短语/);
+  assert.match(prompt, /禁止使用 deleteEvent\(eventId\)、remove\(\)、save\(\) 等方法调用写法/);
+  assert.match(prompt, /禁止加入设计阶段类名、Service、DAO、Repository、Controller、数据库/);
+  assert.match(prompt, /requirementModelTraceability 必须返回空数组/);
   assert.match(prompt, /单用例需求阶段用例模型（唯一分析来源）/);
   assert.match(prompt, /"id": "uc_reserve"/);
   assert.match(prompt, /"actorAction": "客户选择日期和座位"/);
   assert.doesNotMatch(prompt, /原始需求：/);
   assert.doesNotMatch(prompt, /客户预约自习室座位/);
+  assert.doesNotMatch(prompt, /已确认需求项：/);
+  assert.doesNotMatch(prompt, /RequirementBaseline（/);
+  assert.match(prompt, /禁止使用原始需求文本、需求规则或 RequirementBaseline/);
 });
 
 test("design traceability prompts only ask for design-to-requirement mappings", () => {

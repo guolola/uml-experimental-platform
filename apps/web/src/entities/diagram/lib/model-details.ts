@@ -53,12 +53,28 @@ export interface DetailField {
   value: string;
 }
 
+export interface DetailSectionItem {
+  id: string;
+  title: string;
+  fields: DetailField[];
+  description?: string;
+}
+
+export interface DetailSection {
+  id: string;
+  title: string;
+  summary?: string;
+  fields?: DetailField[];
+  items: DetailSectionItem[];
+}
+
 export interface DiagramDetailItem {
   kind: SemanticElementKind;
   id: string;
   label: string;
   description?: string;
   fields: DetailField[];
+  sections?: DetailSection[];
 }
 
 export interface DiagramRelationshipDetail {
@@ -129,6 +145,12 @@ function joinList(values: string[]) {
 
 function compactList(values: Array<string | undefined | null>) {
   return values.filter((value): value is string => Boolean(value?.trim()));
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
 }
 
 function looksAscii(value: string) {
@@ -219,7 +241,7 @@ function tableRelationshipLabel(relation: TableRelationship) {
 }
 
 function eventFlowSummary(useCase: UseCaseDiagramSpec["useCases"][number]) {
-  const flows = useCase.eventFlows ?? [];
+  const flows = Array.isArray(useCase.eventFlows) ? useCase.eventFlows : [];
   if (flows.length === 0) return "";
   const typeLabel: Record<string, string> = {
     main: "主事件流",
@@ -228,10 +250,91 @@ function eventFlowSummary(useCase: UseCaseDiagramSpec["useCases"][number]) {
   };
   return flows
     .map((flow) => {
-      const steps = flow.steps.length > 0 ? `${flow.steps.length}步` : "未列步骤";
-      return `${typeLabel[flow.flowType] ?? flow.flowType}:${flow.name}(${steps})`;
+      const flowSteps = Array.isArray(flow.steps) ? flow.steps : [];
+      const steps = flowSteps.length > 0 ? `${flowSteps.length}步` : "未列步骤";
+      const label = typeLabel[flow.flowType] ?? flow.flowType;
+      return flow.name === label ? `${label}(${steps})` : `${label}:${flow.name}(${steps})`;
     })
     .join("；");
+}
+
+function compactText(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+}
+
+function useCaseEventFlowSections(
+  useCase: UseCaseDiagramSpec["useCases"][number],
+): DetailSection[] {
+  const flows = Array.isArray(useCase.eventFlows) ? useCase.eventFlows : [];
+  if (flows.length === 0) return [];
+
+  const typeLabel: Record<string, string> = {
+    main: "主事件流",
+    alternative: "备选事件流",
+    exception: "异常事件流",
+  };
+  const actorLabel: Record<string, string> = {
+    actor: "参与者",
+    system: "系统",
+    external: "外部系统",
+  };
+
+  return flows.map((flow, flowIndex) => {
+    const flowRecord = flow as typeof flow & Record<string, unknown>;
+    const flowFields: DetailField[] = [];
+    pushField(flowFields, "类型", typeLabel[flow.flowType] ?? flow.flowType);
+    pushField(flowFields, "触发", flow.trigger);
+    pushField(flowFields, "条件", flow.condition);
+    pushField(flowFields, "说明", compactText(flowRecord.description));
+
+    const steps = Array.isArray(flow.steps)
+      ? [...flow.steps].sort((a, b) => a.order - b.order)
+      : [];
+    const items: DetailSectionItem[] =
+      steps.length > 0
+        ? steps.map((step, stepIndex) => {
+            const stepRecord = step as typeof step & Record<string, unknown>;
+            const order = Number.isFinite(step.order) ? step.order : stepIndex + 1;
+            const actorAction =
+              compactText(step.actorAction) || compactText(stepRecord.action);
+            const systemAction =
+              compactText(step.systemAction) || compactText(stepRecord.systemResponse);
+            const expectedResult = compactText(step.expectedResult);
+            const sourceRequirementId = compactText(step.sourceRequirementId);
+            const fields: DetailField[] = [];
+            pushField(fields, "执行方", actorLabel[step.actor] ?? step.actor);
+            pushField(fields, "参与者动作", actorAction);
+            pushField(fields, "系统动作", systemAction);
+            pushField(fields, "预期结果", expectedResult);
+            pushField(fields, "来源需求", sourceRequirementId);
+            return {
+              id: `${flow.id}:step:${order}`,
+              title: `${order}. ${actorAction || systemAction || expectedResult || "步骤"}`,
+              fields,
+            };
+          })
+        : [
+            {
+              id: `${flow.id}:empty`,
+              title: "未列步骤",
+              fields: [],
+              description: "该事件流未提供结构化步骤。",
+            },
+          ];
+
+    return {
+      id: `event-flow:${flow.id || flowIndex}`,
+      title:
+        flow.name === (typeLabel[flow.flowType] ?? flow.flowType)
+          ? typeLabel[flow.flowType] ?? flow.flowType
+          : `${typeLabel[flow.flowType] ?? flow.flowType} · ${flow.name}`,
+      summary: steps.length > 0 ? `${steps.length}步` : "未列步骤",
+      fields: flowFields,
+      items,
+    };
+  });
 }
 
 function prototypeRelationshipLabel(relation: PrototypeInterfaceRelationship) {
@@ -247,44 +350,69 @@ function prototypeRelationshipLabel(relation: PrototypeInterfaceRelationship) {
 }
 
 function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel {
+  const actors = Array.isArray(model.actors) ? model.actors : [];
+  const useCases = Array.isArray(model.useCases) ? model.useCases : [];
+  const systemBoundaries = Array.isArray(model.systemBoundaries)
+    ? model.systemBoundaries
+    : [];
+  const useCaseRelationships = Array.isArray(model.relationships)
+    ? model.relationships
+    : [];
   const items: DiagramDetailItem[] = [
-    ...model.actors.map((actor) => ({
-      kind: "actor" as const,
-      id: actor.id,
-      label: actor.name,
-      description: actor.description,
-      fields: [
-        { label: "身份", value: actor.actorType },
-        ...(actor.responsibilities.length > 0
-          ? [{ label: "职责", value: joinList(actor.responsibilities) }]
-          : []),
-      ],
-    })),
-    ...model.useCases.map((useCase) => ({
-      kind: "usecase" as const,
-      id: useCase.id,
-      label: useCase.name,
-      description: useCase.description,
-      fields: [
-        { label: "目标", value: useCase.goal },
-        ...(useCase.preconditions.length > 0
-          ? [{ label: "前置条件", value: joinList(useCase.preconditions) }]
-          : []),
-        ...(useCase.postconditions.length > 0
-          ? [{ label: "后置条件", value: joinList(useCase.postconditions) }]
-          : []),
-        ...(useCase.primaryActorId
-          ? [{ label: "主参与者", value: useCase.primaryActorId }]
-          : []),
-        ...(useCase.supportingActorIds.length > 0
-          ? [{ label: "协作参与者", value: joinList(useCase.supportingActorIds) }]
-          : []),
-        ...(eventFlowSummary(useCase)
-          ? [{ label: "事件流", value: eventFlowSummary(useCase) }]
-          : []),
-      ],
-    })),
-    ...model.systemBoundaries.map((boundary) => ({
+    ...actors.map((actor) => {
+      const responsibilities = stringArray(
+        (actor as { responsibilities?: unknown }).responsibilities,
+      );
+      return {
+        kind: "actor" as const,
+        id: actor.id,
+        label: actor.name,
+        description: actor.description,
+        fields: [
+          { label: "身份", value: actor.actorType },
+          ...(responsibilities.length > 0
+            ? [{ label: "职责", value: joinList(responsibilities) }]
+            : []),
+        ],
+      };
+    }),
+    ...useCases.map((useCase) => {
+      const preconditions = stringArray(
+        (useCase as { preconditions?: unknown }).preconditions,
+      );
+      const postconditions = stringArray(
+        (useCase as { postconditions?: unknown }).postconditions,
+      );
+      const supportingActorIds = stringArray(
+        (useCase as { supportingActorIds?: unknown }).supportingActorIds,
+      );
+      const flowSummary = eventFlowSummary(useCase);
+      const eventFlowSections = useCaseEventFlowSections(useCase);
+      return {
+        kind: "usecase" as const,
+        id: useCase.id,
+        label: useCase.name,
+        description: useCase.description,
+        fields: [
+          { label: "目标", value: useCase.goal },
+          ...(preconditions.length > 0
+            ? [{ label: "前置条件", value: joinList(preconditions) }]
+            : []),
+          ...(postconditions.length > 0
+            ? [{ label: "后置条件", value: joinList(postconditions) }]
+            : []),
+          ...(useCase.primaryActorId
+            ? [{ label: "主参与者", value: useCase.primaryActorId }]
+            : []),
+          ...(supportingActorIds.length > 0
+            ? [{ label: "协作参与者", value: joinList(supportingActorIds) }]
+            : []),
+          ...(flowSummary ? [{ label: "事件流", value: flowSummary }] : []),
+        ],
+        sections: eventFlowSections,
+      };
+    }),
+    ...systemBoundaries.map((boundary) => ({
       kind: "system-boundary" as const,
       id: boundary.id,
       label: boundary.name,
@@ -293,7 +421,7 @@ function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel 
     })),
   ];
 
-  const relationships: DiagramRelationshipDetail[] = model.relationships.map(
+  const relationships: DiagramRelationshipDetail[] = useCaseRelationships.map(
     (relation) => {
       const fields: DetailField[] = [];
       pushField(fields, "标签", relation.label);

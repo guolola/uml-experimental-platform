@@ -1,9 +1,43 @@
 // Verifies model-level task summaries remain accurate when a run partially succeeds.
 import { describe, expect, it } from "vitest";
 import type { RunEvent } from "@uml-platform/contracts";
-import { createGenerationTask, updateTaskFromEvent } from "./generation-tasks";
+import {
+  createGenerationTask,
+  updateDiagnosticsFromEvent,
+  updateTaskFromEvent,
+} from "./generation-tasks";
+import { createEmptyDiagnostics } from "./diagnostics";
 
 describe("workspace-session generation task helpers", () => {
+  it("ignores blank llm chunks in user-visible diagnostics", () => {
+    const diagnostics = createEmptyDiagnostics();
+    const blankEvent = {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "   \n",
+    } satisfies RunEvent;
+
+    const next = updateDiagnosticsFromEvent(diagnostics, blankEvent);
+
+    expect(next.streamText).toBe("");
+    expect(next.chunkCount).toBe(0);
+    expect(next.events).toEqual([]);
+    expect(next.activeStage).toBe("generate_models");
+  });
+
+  it("counts only effective llm chunks in user-visible diagnostics", () => {
+    const diagnostics = createEmptyDiagnostics();
+    const next = updateDiagnosticsFromEvent(diagnostics, {
+      type: "llm_chunk",
+      stage: "generate_models",
+      chunk: "\"models\"",
+    });
+
+    expect(next.streamText).toBe("\"models\"");
+    expect(next.chunkCount).toBe(1);
+    expect(next.events.at(-1)?.label).toBe("收到模型输出");
+  });
+
   it("marks only the failed submodel from a completed snapshot with diagram errors", () => {
     const task = createGenerationTask({
       clientTaskId: "requirements-1",
@@ -71,6 +105,10 @@ describe("workspace-session generation task helpers", () => {
     });
 
     expect(next.title).toBe("需求模型生成：1/2 完成，1 个失败");
+    expect(next.status).toBe("failed");
+    expect(next.message).toBe("完成，但 1 个子任务失败");
+    expect(next.phaseSummary).toBe("生成结束，但 1 个子任务失败。");
+    expect(next.errorMessage).toBe("完成，但 1 个子任务失败");
     expect(next.subtasks).toEqual([
       expect.objectContaining({ id: "usecase", status: "completed" }),
       expect.objectContaining({
@@ -200,6 +238,7 @@ describe("workspace-session generation task helpers", () => {
       expect.objectContaining({
         id: "class",
         status: "pending_review",
+        message: "有 1 条低置信追踪关系需复核",
         pendingReviewCount: 1,
       }),
     );
@@ -242,6 +281,7 @@ describe("workspace-session generation task helpers", () => {
       expect.objectContaining({
         id: "sequence",
         status: "completed",
+        message: "已完成",
       }),
     );
   });
@@ -625,11 +665,162 @@ describe("workspace-session generation task helpers", () => {
       },
     );
 
-    expect(repairing.title).toBe("需求模型生成：2/3 完成");
+    expect(repairing.title).toBe("需求模型生成：模型 1/1，图源码 1/1，SVG 0/1");
     expect(repairing.subtasks).toEqual([
       expect.objectContaining({ id: "generate_models:deployment", status: "completed" }),
       expect.objectContaining({ id: "generate_plantuml:deployment", status: "completed" }),
       expect.objectContaining({ id: "render_svg:deployment", status: "repairing" }),
+    ]);
+  });
+
+  it("keeps completed rendered models separate from models still generating", () => {
+    const task = createGenerationTask({
+      clientTaskId: "requirements-overlap-1",
+      kind: "requirements",
+      title: "需求模型生成",
+      providerModel: "gpt-5.4",
+      startedAt: "2026-06-06T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "generate_models:usecase",
+          label: "用例模型",
+          status: "completed",
+          message: "模型调用完成",
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:usecase",
+          label: "用例模型",
+          status: "completed",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:usecase",
+          label: "用例模型",
+          status: "rendering",
+          message: "正在渲染：用例模型",
+          errorMessage: null,
+        },
+        {
+          id: "generate_models:class",
+          label: "领域概念模型",
+          status: "running",
+          message: "正在生成结构化模型：class",
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:class",
+          label: "领域概念模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:class",
+          label: "领域概念模型",
+          status: "queued",
+          message: null,
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const next = updateTaskFromEvent(
+      task,
+      {
+        type: "artifact_ready",
+        stage: "render_svg",
+        artifactKind: "svg",
+        diagramKind: "usecase",
+        subtaskId: "usecase",
+        subtaskStatus: "completed",
+      } satisfies RunEvent,
+      {
+        queued: "任务已进入队列",
+        completed: "生成完成",
+      },
+    );
+
+    expect(next.title).toBe("需求模型生成：模型 1/2，图源码 1/2，SVG 1/2");
+    expect(next.subtasks).toEqual([
+      expect.objectContaining({ id: "generate_models:usecase", status: "completed" }),
+      expect.objectContaining({ id: "generate_plantuml:usecase", status: "completed" }),
+      expect.objectContaining({ id: "render_svg:usecase", status: "completed" }),
+      expect.objectContaining({ id: "generate_models:class", status: "running" }),
+      expect.objectContaining({ id: "generate_plantuml:class", status: "queued" }),
+      expect.objectContaining({ id: "render_svg:class", status: "queued" }),
+    ]);
+  });
+
+  it("marks downstream diagram source and render subtasks failed when model generation fails", () => {
+    const task = createGenerationTask({
+      clientTaskId: "design-activity-failure",
+      kind: "design",
+      title: "设计模型生成",
+      providerModel: "deepseek-ai/DeepSeek-V4-Pro",
+      startedAt: "2026-06-06T00:00:00.000Z",
+      message: "生成中",
+      subtasks: [
+        {
+          id: "generate_design_models:activity",
+          label: "界面关系图",
+          status: "running",
+          message: "模型调用开始执行",
+          errorMessage: null,
+        },
+        {
+          id: "generate_plantuml:activity",
+          label: "界面关系图",
+          status: "queued",
+          message: "等待执行",
+          errorMessage: null,
+        },
+        {
+          id: "render_svg:activity",
+          label: "界面关系图",
+          status: "queued",
+          message: "等待执行",
+          errorMessage: null,
+        },
+      ],
+    });
+
+    const next = updateTaskFromEvent(
+      task,
+      {
+        type: "stage_progress",
+        stage: "generate_design_models",
+        progress: 70,
+        message: "界面关系图 超过 180000ms 未完成",
+        diagramKind: "activity",
+        subtaskId: "activity",
+        subtaskLabel: "界面关系图",
+        subtaskStatus: "failed",
+      } satisfies RunEvent,
+      {
+        queued: "设计生成任务已进入队列",
+        completed: "设计生成完成",
+      },
+    );
+
+    expect(next.title).toBe("设计模型生成：模型 0/1，图源码 0/1，SVG 0/1，1 个失败");
+    expect(next.subtasks).toEqual([
+      expect.objectContaining({
+        id: "generate_design_models:activity",
+        status: "failed",
+      }),
+      expect.objectContaining({
+        id: "generate_plantuml:activity",
+        status: "failed",
+        message: "前置模型生成失败，未执行",
+      }),
+      expect.objectContaining({
+        id: "render_svg:activity",
+        status: "failed",
+        message: "前置模型生成失败，未执行",
+      }),
     ]);
   });
 

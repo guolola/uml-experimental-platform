@@ -909,6 +909,14 @@ test("project run starts derive provider settings from the project default confi
     apiKey: "sk-project-default",
     model: "gpt-5.5",
   });
+  const record = Array.from(runs.values())[0];
+  assert.deepEqual(
+    (record?.snapshot as { providerSettings?: unknown }).providerSettings,
+    {
+      providerConfigId: provider.id,
+      model: "gpt-5.5",
+    },
+  );
 
   await app.close();
 });
@@ -2109,7 +2117,7 @@ test("guest project run starts return 429 after the visitor daily generation lim
   await app.close();
 });
 
-test("design LLM scheduler completion marks the subtask completed", async () => {
+test("design LLM scheduler completion keeps the subtask running while output is parsed", async () => {
   const { app, runs } = await createRunRouteTestContext({
     runAccessGuard: createTestRunAccessGuard({
       "reviewer-a": {
@@ -2188,7 +2196,8 @@ test("design LLM scheduler completion marks the subtask completed", async () => 
     Date.now() - startedAt < 1000 &&
     !record.events.some(
       (event) =>
-        event.type === "stage_progress" && event.message === "模型调用完成",
+        event.type === "stage_progress" &&
+        event.message === "模型调用完成，正在解析结果",
     )
   ) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2198,8 +2207,8 @@ test("design LLM scheduler completion marks the subtask completed", async () => 
       (event) =>
         event.type === "stage_progress" &&
         event.subtaskId === "class" &&
-        event.subtaskStatus === "completed" &&
-        event.message === "模型调用完成",
+        event.subtaskStatus === "running" &&
+        event.message === "模型调用完成，正在解析结果",
     ),
   );
 

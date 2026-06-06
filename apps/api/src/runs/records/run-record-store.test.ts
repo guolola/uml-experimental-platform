@@ -100,3 +100,27 @@ test("llm chunk event history can be enabled for temporary diagnostics", () => {
     }
   }
 });
+
+test("run record store ignores late progress after terminal events", () => {
+  const snapshot = createEmptySnapshot("run-terminal", "项目需求", ["usecase"]);
+  const seen: string[] = [];
+  const record = {
+    snapshot,
+    events: [],
+    listeners: new Set([(event: { type: string }) => seen.push(event.type)]),
+    terminal: false,
+  };
+
+  emitEvent(record, { type: "completed", snapshot });
+  emitEvent(record, {
+    type: "stage_progress",
+    stage: "generate_models",
+    progress: 95,
+    message: "late progress",
+  });
+
+  assert.equal(record.terminal, true);
+  assert.deepEqual(seen, ["completed"]);
+  assert.equal(record.events.length, 1);
+  assert.equal(record.events[0]?.type, "completed");
+});

@@ -16,12 +16,30 @@ export const DEFAULT_ALLOWED_PROVIDER_MODELS = [
   "glm-5.1",
 ];
 
+function isSiliconFlowProvider(context?: {
+  baseUrl?: string | null;
+  provider?: string | null;
+}) {
+  if (context?.provider?.trim().toLowerCase() === "siliconflow") return true;
+  if (!context?.baseUrl) return false;
+  try {
+    return new URL(context.baseUrl.trim()).hostname === "api.siliconflow.cn";
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeProviderAllowedModels(
   defaultModel: string,
   allowedModels?: string[] | null,
+  context?: {
+    baseUrl?: string | null;
+    provider?: string | null;
+  },
 ) {
+  const defaults = isSiliconFlowProvider(context) ? [] : DEFAULT_ALLOWED_PROVIDER_MODELS;
   const normalized = new Set(
-    [defaultModel, ...(allowedModels ?? []), ...DEFAULT_ALLOWED_PROVIDER_MODELS]
+    [defaultModel, ...(allowedModels ?? []), ...defaults]
       .map((model) => model.trim())
       .filter(Boolean),
   );

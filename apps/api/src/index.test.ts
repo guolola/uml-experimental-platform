@@ -8,6 +8,9 @@ import type { LlmTransport } from "./llm.js";
 import type { MailAdapter, MailMessage } from "./mail/mail-adapter.js";
 import { createApiServer } from "./index.js";
 import { createInMemoryAuthStore } from "./auth/in-memory-auth-store.js";
+import { createPaymentProviderRegistry } from "./adapters/payments/payment-adapter-registry.js";
+import { createBillingService } from "./billing/billing-service.js";
+import { createInMemoryBillingRepository } from "./billing/in-memory-billing-repository.js";
 import type { DocumentLibrary } from "./documents/library/document-library.js";
 import { createProviderConfigStore } from "./provider-configs/provider-config-store.js";
 import { createRunRecordStore } from "./runs/records/run-record-store.js";
@@ -73,6 +76,22 @@ function createTestApiServer(options?: Parameters<typeof createApiServer>[0]) {
         ? options.testRunAccessContext
         : TEST_RUN_ACCESS_CONTEXT,
   });
+}
+
+function createTestBillingService(input: {
+  nodeEnv?: string;
+  now?: Date;
+} = {}) {
+  const billingService = createBillingService({
+    repository: createInMemoryBillingRepository(),
+    paymentProviders: createPaymentProviderRegistry({
+      nodeEnv: input.nodeEnv ?? "test",
+    }),
+    nodeEnv: input.nodeEnv ?? "test",
+    env: {},
+    now: () => input.now ?? new Date("2026-06-05T04:00:00.000Z"),
+  });
+  return billingService;
 }
 
 function lastPromptText(messages: Parameters<LlmTransport["streamChatCompletion"]>[0]["messages"]) {
@@ -1974,8 +1993,8 @@ test("api auto-fills empty design sequence traceability without extra LLM repair
         reviewStatus?: string;
         targets?: unknown[];
       }) =>
-        entry.mappingSource === "auto-filled-pending-review" &&
-        entry.reviewStatus === "pending" &&
+        entry.mappingSource === "derived-from-endpoints" &&
+        entry.reviewStatus === "confirmed" &&
         Array.isArray(entry.targets) &&
         entry.targets.length > 0,
     ),
@@ -5616,18 +5635,21 @@ test("api rerenders structured use case models without calling the LLM", async (
   await app.close();
 });
 
-test("guest access seed creates a login-ready non-admin guest account when enabled", async () => {
+test("guest access seed creates a login-ready non-admin guest account with local credits", async () => {
   const originalEnabled = process.env.UML_ENABLE_GUEST_ACCESS;
   const originalEmail = process.env.UML_GUEST_EMAIL;
   const originalPassword = process.env.UML_GUEST_PASSWORD;
   const originalDisplayName = process.env.UML_GUEST_DISPLAY_NAME;
+  const originalDailyLimit = process.env.UML_GUEST_DAILY_LIMIT;
   process.env.UML_ENABLE_GUEST_ACCESS = "true";
   process.env.UML_GUEST_EMAIL = "guest@example.edu";
   process.env.UML_GUEST_PASSWORD = "guest";
   process.env.UML_GUEST_DISPLAY_NAME = "Guest";
+  process.env.UML_GUEST_DAILY_LIMIT = "9999";
 
   const authStore = createInMemoryAuthStore();
-  const app = await createTestApiServer({ authStore });
+  const billingService = createTestBillingService();
+  const app = await createTestApiServer({ authStore, billingService });
   try {
     const response = await app.inject({
       method: "POST",
@@ -5640,7 +5662,21 @@ test("guest access seed creates a login-ready non-admin guest account when enabl
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().user.email, "guest@example.edu");
-    assert.deepEqual((await authStore.findUserByEmail("guest@example.edu"))?.systemRoles, []);
+    const guest = await authStore.findUserByEmail("guest@example.edu");
+    assert.deepEqual(guest?.systemRoles, []);
+    assert.ok(guest);
+    const ledger = await billingService.listLedgerEntriesForUser(guest.id);
+    assert.equal(ledger.length, 1);
+    assert.equal(ledger[0]?.sourceType, "admin_adjustment");
+    assert.equal(ledger[0]?.creditDelta, 9999);
+    assert.equal(
+      ledger[0]?.sourceId,
+      `dev_guest_daily_allowance:${guest.id}:2026-06-05`,
+    );
+
+    const secondApp = await createTestApiServer({ authStore, billingService });
+    await secondApp.close();
+    assert.equal((await billingService.listLedgerEntriesForUser(guest.id)).length, 1);
   } finally {
     await app.close();
     if (originalEnabled === undefined) delete process.env.UML_ENABLE_GUEST_ACCESS;
@@ -5651,6 +5687,48 @@ test("guest access seed creates a login-ready non-admin guest account when enabl
     else process.env.UML_GUEST_PASSWORD = originalPassword;
     if (originalDisplayName === undefined) delete process.env.UML_GUEST_DISPLAY_NAME;
     else process.env.UML_GUEST_DISPLAY_NAME = originalDisplayName;
+    if (originalDailyLimit === undefined) delete process.env.UML_GUEST_DAILY_LIMIT;
+    else process.env.UML_GUEST_DAILY_LIMIT = originalDailyLimit;
+  }
+});
+
+test("guest access seed does not grant local billing credits in production", async () => {
+  const originalEnabled = process.env.UML_ENABLE_GUEST_ACCESS;
+  const originalEmail = process.env.UML_GUEST_EMAIL;
+  const originalPassword = process.env.UML_GUEST_PASSWORD;
+  const originalDailyLimit = process.env.UML_GUEST_DAILY_LIMIT;
+  process.env.UML_ENABLE_GUEST_ACCESS = "true";
+  process.env.UML_GUEST_EMAIL = "guest@example.edu";
+  process.env.UML_GUEST_PASSWORD = "guest";
+  process.env.UML_GUEST_DAILY_LIMIT = "9999";
+
+  const authStore = createInMemoryAuthStore();
+  const billingService = createTestBillingService({ nodeEnv: "production" });
+  const app = await createTestApiServer({
+    authStore,
+    billingService,
+    providerConfigStore: createProviderConfigStore({
+      baseUrlAllowlist: ["https://ai.comfly.org"],
+      secret: "test-secret",
+    }),
+    runRecordStore: createRunRecordStore(),
+    documentLibrary: {} as DocumentLibrary,
+    nodeEnv: "production",
+  });
+  try {
+    const guest = await authStore.findUserByEmail("guest@example.edu");
+    assert.ok(guest);
+    assert.deepEqual(await billingService.listLedgerEntriesForUser(guest.id), []);
+  } finally {
+    await app.close();
+    if (originalEnabled === undefined) delete process.env.UML_ENABLE_GUEST_ACCESS;
+    else process.env.UML_ENABLE_GUEST_ACCESS = originalEnabled;
+    if (originalEmail === undefined) delete process.env.UML_GUEST_EMAIL;
+    else process.env.UML_GUEST_EMAIL = originalEmail;
+    if (originalPassword === undefined) delete process.env.UML_GUEST_PASSWORD;
+    else process.env.UML_GUEST_PASSWORD = originalPassword;
+    if (originalDailyLimit === undefined) delete process.env.UML_GUEST_DAILY_LIMIT;
+    else process.env.UML_GUEST_DAILY_LIMIT = originalDailyLimit;
   }
 });
 

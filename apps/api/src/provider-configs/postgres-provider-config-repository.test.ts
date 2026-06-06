@@ -74,6 +74,97 @@ test("postgres provider repository creates allowlisted configs without storing p
   assert.doesNotMatch(JSON.stringify(client.calls), /sk-live-secret-a91f/);
 });
 
+test("postgres provider repository keeps SiliconFlow model catalogs provider-scoped", async () => {
+  const allowedModels = [
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "deepseek-ai/DeepSeek-V4-Flash",
+    "Pro/moonshotai/Kimi-K2.6",
+    "Pro/zai-org/GLM-5.1",
+    "Pro/MiniMaxAI/MiniMax-M2.5",
+    "Qwen/Qwen3.6-35B-A3B",
+  ];
+  const client = new ScriptedClient();
+  client.queueRows([{
+    ...createdRow,
+    name: "SiliconFlow production gateway",
+    provider: "siliconflow",
+    base_url: "https://api.siliconflow.cn",
+    default_model: "deepseek-ai/DeepSeek-V4-Pro",
+    allowed_models: allowedModels,
+  }]);
+  client.queueRows([]);
+  client.queueRows([]);
+  const repository = createPostgresProviderConfigRepository({
+    db: client,
+    baseUrlAllowlist: ["https://api.siliconflow.cn"],
+    secret: "test-secret",
+  });
+
+  const created = await repository.create({
+    name: "SiliconFlow production gateway",
+    provider: "siliconflow",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    apiKey: "sk-live-secret-a91f",
+    defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+    allowedModels,
+    createdBy: "admin-user",
+  });
+
+  assert.equal(created.baseUrl, "https://api.siliconflow.cn");
+  assert.deepEqual(created.allowedModels, allowedModels);
+  assert.equal(created.allowedModels.includes("gpt-5.5-pro"), false);
+  assert.deepEqual(client.calls[0]?.params[5], allowedModels);
+});
+
+test("postgres provider repository updates editable metadata without touching secrets", async () => {
+  const client = new ScriptedClient();
+  client.queueRows([createdRow]);
+  client.queueRows([{
+    ...createdRow,
+    name: "OpenAI production gateway v2",
+    default_model: "gpt-4.1-mini",
+    allowed_models: ["gpt-4.1", "gpt-4.1-mini"],
+    key_purpose: "production generation",
+    quota: "contract label",
+    scope_type: "system",
+    scope_id: null,
+  }]);
+  client.queueRows([]);
+  const repository = createPostgresProviderConfigRepository({
+    db: client,
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+
+  const updated = await repository.updateMetadata("provider-1", {
+    allowedModels: ["gpt-4.1", "gpt-4.1-mini"],
+    defaultModel: "gpt-4.1-mini",
+    keyPurpose: "production generation",
+    name: "OpenAI production gateway v2",
+    quota: "contract label",
+    scopeId: null,
+    scopeType: "system",
+  }, "admin-user");
+
+  assert.equal(updated?.name, "OpenAI production gateway v2");
+  assert.equal(updated?.defaultModel, "gpt-4.1-mini");
+  assert.match(client.calls[1]?.sql ?? "", /update provider_configs/i);
+  assert.doesNotMatch(client.calls[1]?.sql ?? "", /provider_secrets/i);
+  assert.deepEqual(client.calls[1]?.params.slice(1, 8), [
+    "OpenAI production gateway v2",
+    "gpt-4.1-mini",
+    normalizeProviderAllowedModels("gpt-4.1-mini", ["gpt-4.1", "gpt-4.1-mini"], {
+      baseUrl: "https://api.openai.com",
+      provider: "openai",
+    }),
+    "production generation",
+    "contract label",
+    "system",
+    null,
+  ]);
+  assert.match(client.calls[2]?.sql ?? "", /insert into audit_logs/i);
+});
+
 test("postgres provider repository blocks configs outside the admin allowlist", async () => {
   const repository = createPostgresProviderConfigRepository({
     db: new ScriptedClient(),

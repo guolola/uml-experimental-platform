@@ -700,7 +700,7 @@ function renderDeployment(model: DeploymentDiagramSpec) {
 
 type SequenceLikeDiagramSpec = Pick<
   SequenceDiagramSpec | AnalysisSequenceDiagramSpec,
-  "participants" | "messages" | "fragments" | "notes"
+  "participants" | "messages" | "fragments" | "notes" | "title" | "sourceUseCaseName"
 >;
 
 function participantKeyword(type: SequenceLikeDiagramSpec["participants"][number]["participantType"]) {
@@ -753,8 +753,29 @@ function sequenceMessageLabel(message: SequenceMessage) {
   return `${shortDiagramLabel(message.name, 20) || message.name}${params}${returnValue}${condition}`;
 }
 
-function renderSequence(model: SequenceLikeDiagramSpec) {
-  const lines = ["@startuml", "autonumber"];
+function renderSequence(
+  model: SequenceLikeDiagramSpec,
+  options: { layer: "analysis" | "design" },
+) {
+  const layerTitle =
+    options.layer === "analysis" ? "需求分析模型" : "用例实现设计";
+  const layerNote =
+    options.layer === "analysis"
+      ? "需求阶段：描述业务交互、系统责任和分支规则，不代表实现调用。"
+      : "设计阶段：将需求分析转换为对象职责、方法调用和持久化/服务协作。";
+  const titleSubject = model.sourceUseCaseName ?? model.title;
+  const lines = [
+    "@startuml",
+    `title ${quoteLabel(`${layerTitle}：${titleSubject}`)}`,
+    options.layer === "analysis"
+      ? "skinparam ParticipantBorderColor #2563eb"
+      : "skinparam ParticipantBorderColor #7c3aed",
+    options.layer === "analysis"
+      ? "skinparam ParticipantBackgroundColor #eff6ff"
+      : "skinparam ParticipantBackgroundColor #f5f3ff",
+    "autonumber",
+    `legend left\n${layerNote}\nendlegend`,
+  ];
 
   for (const participant of model.participants) {
     lines.push(
@@ -1000,7 +1021,7 @@ export function generatePlantUmlArtifacts(
         return {
           modelId,
           diagramKind: model.diagramKind,
-          source: renderSequence(model),
+          source: renderSequence(model, { layer: "analysis" }),
         };
     }
   });
@@ -1015,7 +1036,7 @@ export function generateDesignPlantUmlArtifacts(
         return {
           modelId: model.modelId,
           diagramKind: model.diagramKind,
-          source: renderSequence(model),
+          source: renderSequence(model, { layer: "design" }),
         };
       case "class":
         return {

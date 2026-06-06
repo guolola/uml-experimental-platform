@@ -30,7 +30,10 @@ import { WorkspaceTabsBar } from "../features/workspace-shell/components/workspa
 import { Workspace } from "../features/workspace-shell/components/workspace-placeholder";
 import { WorkspaceRepositoryProvider } from "../services/workspace-repository";
 import { WorkspaceShellProvider, useWorkspaceShell } from "../features/workspace-shell/state";
-import { WorkspaceSessionProvider } from "../features/workspace-session/state";
+import {
+  WorkspaceSessionProvider,
+  useWorkspaceSession,
+} from "../features/workspace-session/state";
 import {
   AuthenticatedRoute,
   AuthPage,
@@ -93,6 +96,10 @@ function ProjectWorkspaceShell({
   onNavigate: (route: string) => void;
 }) {
   const { selection } = useWorkspaceShell();
+  const { generationTasks } = useWorkspaceSession();
+  const activeGenerationTaskCount = generationTasks.filter(
+    (task) => task.status === "queued" || task.status === "running",
+  ).length;
   const activeDrawer = routeDrawer ?? activeProjectDrawer;
   const closeDrawer = () => {
     onActiveProjectDrawerChange(null);
@@ -215,6 +222,7 @@ function ProjectWorkspaceShell({
           <ProjectWorkspaceBanner
             projectId={projectId}
             onOpenDrawer={onActiveProjectDrawerChange}
+            activeGenerationTaskCount={activeGenerationTaskCount}
           />
           <WorkspaceTabsBar />
           <div className="relative min-h-0 flex-1 overflow-hidden">

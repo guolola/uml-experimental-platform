@@ -354,6 +354,16 @@ const createProviderConfigRequestSchema = z.object({
   scopeId: z.string().trim().min(1).nullable().optional(),
 });
 
+const updateProviderConfigRequestSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  defaultModel: z.string().trim().min(1).optional(),
+  allowedModels: z.array(z.string().trim().min(1)).optional(),
+  keyPurpose: z.string().trim().min(1).optional(),
+  quota: z.string().trim().min(1).optional(),
+  scopeType: z.enum(["system", "user", "project"]).optional(),
+  scopeId: z.string().trim().min(1).nullable().optional(),
+}).strict();
+
 const rotateProviderKeyRequestSchema = z.object({
   apiKey: z.string().trim().min(1),
 });
@@ -2565,6 +2575,70 @@ export function registerAdminRoutes({
       });
       reply.code(201);
       return created;
+    } catch (error) {
+      if (error instanceof ProviderConfigPolicyError) {
+        reply.code(400);
+        return { message: error.message };
+      }
+      throw error;
+    }
+  });
+
+  app.patch("/api/admin/provider-configs/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const actor = await requireHighRiskAdmin(
+      request,
+      reply,
+      authStore,
+      "admin.provider_config.update",
+      "provider_config",
+      id,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+    if (!providerConfigs.updateMetadata) {
+      reply.code(501);
+      return { message: "Provider config update is not supported by this store" };
+    }
+    const input = updateProviderConfigRequestSchema.parse(request.body);
+    const current = await providerConfigs.get(id);
+    if (!current) {
+      reply.code(404);
+      return { message: "Provider config not found" };
+    }
+    const scopeType = input.scopeType ?? current.scopeType;
+    const scopeId = scopeType === "system" ? null : input.scopeId ?? current.scopeId;
+    if (scopeType !== "system" && !scopeId) {
+      reply.code(400);
+      return { message: "Provider config scopeId is required for user or project scope" };
+    }
+    if (scopeType === "user" && scopeId && !(await authStore.getUser(scopeId))) {
+      reply.code(400);
+      return { message: "Provider config scope user does not exist" };
+    }
+    if (scopeType === "project" && scopeId && !(await authStore.getProject(scopeId))) {
+      reply.code(400);
+      return { message: "Provider config scope project does not exist" };
+    }
+    try {
+      const updated = await providerConfigs.updateMetadata(
+        id,
+        { ...input, scopeType, scopeId },
+        actor.name,
+      );
+      if (!updated) {
+        reply.code(404);
+        return { message: "Provider config not found or revoked" };
+      }
+      await recordAdminAction(authStore, {
+        actor,
+        action: "admin.provider_config.update",
+        targetType: "provider_config",
+        targetId: id,
+        outcome: "success",
+        message: `Actor ${actorLabel(actor)} updated provider config ${updated.name}`,
+      });
+      return updated;
     } catch (error) {
       if (error instanceof ProviderConfigPolicyError) {
         reply.code(400);

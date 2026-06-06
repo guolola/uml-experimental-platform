@@ -45,6 +45,14 @@ function shouldStoreEvent(event: RunEvent) {
   return process.env.UML_PERSIST_LLM_CHUNKS === "true";
 }
 
+function isTerminalRunEvent(event: RunEvent) {
+  return event.type === "completed" || event.type === "failed" || event.type === "cancelled";
+}
+
+function canEmitAfterTerminal(event: RunEvent) {
+  return isTerminalRunEvent(event) || event.type === "run_action";
+}
+
 export function createRunRecordStore(
   initialState?: SerializedRunRecordStore,
 ): RunRecordStore {
@@ -80,6 +88,11 @@ export function serializeRunRecordStore(
 }
 
 export function emitEvent(record: RunRecord, event: RunEvent) {
+  // Terminal lifecycle events close SSE streams; late worker progress after that
+  // would make the task drawer appear completed while details still mutate.
+  if (record.terminal && !canEmitAfterTerminal(event)) {
+    return;
+  }
   const storeEvent = shouldStoreEvent(event);
   if (storeEvent) {
     record.events.push(event);
@@ -89,7 +102,7 @@ export function emitEvent(record: RunRecord, event: RunEvent) {
   }
 
   // completed/failed/cancelled are terminal events; SSE subscribers can close after them.
-  if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
+  if (isTerminalRunEvent(event)) {
     record.terminal = true;
     record.metadata = {
       ...(record.metadata ?? { createdAt: new Date().toISOString() }),

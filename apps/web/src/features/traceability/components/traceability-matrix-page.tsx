@@ -80,6 +80,16 @@ function uniqueBy<T>(items: T[], getKey: (item: T) => string) {
   });
 }
 
+function compactString(value: unknown) {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value).trim()
+    : "";
+}
+
+function ensureArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function isBusinessTraceabilityKind(kind: string) {
   return ![
     "system-boundary",
@@ -212,12 +222,107 @@ function designGroupLabel(diagramKind: DiagramKind | DesignDiagramKind) {
   return DESIGN_DIAGRAM_META[diagramKind as DesignDiagramType]?.label ?? String(diagramKind);
 }
 
+function sourceUseCaseIdFromAnalysisModel(model: NonNullable<ReturnType<typeof useWorkspaceSession>["models"][string]>) {
+  if (model.diagramKind !== "analysis") return "";
+  const explicit = compactString((model as unknown as { sourceUseCaseId?: unknown }).sourceUseCaseId);
+  if (explicit) return explicit;
+  const modelId = getRequirementModelId(model);
+  return modelId.startsWith("analysis:") ? modelId.slice("analysis:".length) : "";
+}
+
+function sourceUseCaseForAnalysis(
+  models: ReturnType<typeof useWorkspaceSession>["models"],
+  analysisModelId: string,
+) {
+  const analysisModel = Object.values(models)
+    .filter((model): model is NonNullable<typeof model> => Boolean(model))
+    .find((model) => getRequirementModelId(model) === analysisModelId);
+  const sourceUseCaseId = analysisModel ? sourceUseCaseIdFromAnalysisModel(analysisModel) : "";
+  if (!sourceUseCaseId) return null;
+  const useCaseModel = Object.values(models)
+    .filter((model): model is NonNullable<typeof model> => Boolean(model))
+    .find((model) => model.diagramKind === "usecase");
+  if (!useCaseModel || useCaseModel.diagramKind !== "usecase") return null;
+  const useCase = useCaseModel.useCases.find((item) => item.id === sourceUseCaseId);
+  return useCase ? { useCaseModel, useCase } : null;
+}
+
+function eventFlowLines(useCase: unknown) {
+  const flows = ensureArray((useCase as { eventFlows?: unknown }).eventFlows);
+  return flows.flatMap((flow) => {
+    const record = flow as Record<string, unknown>;
+    const flowLabel = compactString(record.name) || compactString(record.id) || "未命名事件流";
+    const flowType = compactString(record.flowType) || compactString(record.type);
+    const steps = ensureArray(record.steps).slice(0, 4).map((step) => {
+      const stepRecord = step as Record<string, unknown>;
+      const action =
+        compactString(stepRecord.actorAction) ||
+        compactString(stepRecord.action) ||
+        compactString(stepRecord.description);
+      const response =
+        compactString(stepRecord.systemResponse) ||
+        compactString(stepRecord.systemAction) ||
+        compactString(stepRecord.expectedResult);
+      const order = compactString(stepRecord.order);
+      return [
+        order ? `步骤 ${order}` : "步骤",
+        action,
+        response ? `系统响应：${response}` : "",
+      ].filter(Boolean).join("：");
+    });
+    return [
+      `事件流：${flowType ? `${flowType} · ` : ""}${flowLabel}`,
+      ...steps,
+    ];
+  });
+}
+
+function buildAnalysisRequirementRows(
+  models: ReturnType<typeof useWorkspaceSession>["models"],
+  scope: MatrixScope,
+): ElementRow[] {
+  return refsForRequirementModels(models, scope).map(({ ref, typeLabel, description }) => {
+    const source = ref.modelId ? sourceUseCaseForAnalysis(models, ref.modelId) : null;
+    const sourceRef: ModelElementRef | null = source
+      ? {
+          diagramKind: "usecase",
+          elementId: source.useCase.id,
+          elementKind: "usecase",
+          label: source.useCase.name,
+        }
+      : null;
+    const flowLines = source ? eventFlowLines(source.useCase) : [];
+    const mapped = Boolean(sourceRef && flowLines.length > 0);
+    return {
+      id: refKey(ref),
+      label: ref.label,
+      subtitle: description || `${requirementGroupLabel(ref.diagramKind)} · ${typeLabel}`,
+      typeLabel,
+      groupKey: ref.modelId ?? ref.diagramKind,
+      groupLabel: requirementGroupLabel(ref.diagramKind),
+      scopeKey: ref.modelId ?? ref.diagramKind,
+      status: mapped ? "mapped" : "unmapped",
+      mappingNote: mapped ? "由来源用例事件流派生" : "缺少来源用例或事件流",
+      requirementRules: [],
+      requirementElements: sourceRef ? [sourceRef] : [],
+      upstreamDesignElements: [],
+      detailLines: [
+        ...(sourceRef ? [`来源用例：${sourceRef.label}`] : ["来源用例：未找到"]),
+        ...flowLines,
+      ],
+    };
+  });
+}
+
 function buildRequirementRows(
   rules: RequirementRule[],
   models: ReturnType<typeof useWorkspaceSession>["models"],
   traceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
   scope?: MatrixScope,
 ): ElementRow[] {
+  if (scope?.diagramKind === "analysis") {
+    return buildAnalysisRequirementRows(models, scope);
+  }
   const rulesById = new Map(rules.map((rule) => [rule.id.toLowerCase(), rule]));
   const traceByTarget = new Map<string, RequirementRule[]>();
   for (const entry of traceability) {
@@ -342,6 +447,8 @@ function includesQuery(row: ElementRow, query: string) {
     row.subtitle,
     row.typeLabel,
     row.groupLabel,
+    row.mappingNote ?? "",
+    ...row.detailLines,
     ...row.upstreamDesignElements.map((ref) => ref.label),
     ...row.requirementElements.map((ref) => ref.label),
     ...row.requirementRules.flatMap((rule) => [
@@ -429,6 +536,7 @@ export function TraceabilityMatrixPage({
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   const isDesign = mode === "design";
+  const isAnalysisRequirementScope = !isDesign && scope?.diagramKind === "analysis";
   const rows = useMemo(
     () =>
       isDesign
@@ -468,10 +576,14 @@ export function TraceabilityMatrixPage({
     filteredRows.length > 0 ? Math.round((mappedCount / filteredRows.length) * 100) : 0;
   const hasTraceability = isDesign
     ? designModelTraceability.length > 0
-    : requirementModelTraceability.length > 0;
+    : isAnalysisRequirementScope
+      ? rows.length > 0
+      : requirementModelTraceability.length > 0;
   const isTraceabilityStale = isDesign
     ? designTraceabilityStale
-    : requirementTraceabilityStale;
+    : isAnalysisRequirementScope
+      ? false
+      : requirementTraceabilityStale;
   const hasIncompleteCoverage =
     hasTraceability && filteredRows.length > 0 && mappedCount < filteredRows.length;
   const missingTraceabilityTitle = isDesign
@@ -507,11 +619,14 @@ export function TraceabilityMatrixPage({
   const description = scope
     ? isDesign
       ? `只显示${scopeLabel}到需求模型元素的真实映射链路。`
-      : `只显示${scopeLabel}到需求规则的真实映射链路。`
+      : isAnalysisRequirementScope
+        ? `只显示${scopeLabel}到来源用例事件流的覆盖关系。`
+        : `只显示${scopeLabel}到需求规则的真实映射链路。`
     : isDesign
       ? "查看设计模型元素到需求模型元素的真实映射链路。"
       : "查看需求模型元素到需求规则的真实映射链路。";
   const groupFilterLabel = isDesign ? "按设计模型类型筛选" : "按需求模型类型筛选";
+  const sourceColumnLabel = isAnalysisRequirementScope ? "来源用例 / 事件流" : "来源需求规则";
   const pageRangeStart = filteredRows.length === 0 ? 0 : pageStart + 1;
   const pageRangeEnd = Math.min(pageStart + pageSize, filteredRows.length);
 
@@ -627,7 +742,7 @@ export function TraceabilityMatrixPage({
                           </th>
                         )}
                         <th className="w-[20%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                          来源需求规则
+                          {sourceColumnLabel}
                         </th>
                         <th className="w-[10%] border-b border-border px-4 py-4 text-center font-medium">
                           映射状态
@@ -694,8 +809,14 @@ export function TraceabilityMatrixPage({
                             )}
                             <td className="border-r border-border px-4 py-3 align-middle">
                               <ChipList
-                                items={row.requirementRules.map((rule) => formatRuleId(rule.id))}
-                                emptyText="未关联需求规则"
+                                items={
+                                  isAnalysisRequirementScope
+                                    ? row.requirementElements.map((ref) => ref.label)
+                                    : row.requirementRules.map((rule) => formatRuleId(rule.id))
+                                }
+                                emptyText={
+                                  isAnalysisRequirementScope ? "未找到来源用例" : "未关联需求规则"
+                                }
                               />
                             </td>
                             <td className="px-4 py-3 text-center align-middle">

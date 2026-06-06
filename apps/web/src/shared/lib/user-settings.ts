@@ -4,6 +4,8 @@ import { DEFAULT_MODEL_ID, normalizeModelId } from "./model-catalog";
 
 export type UserSettings = {
   providerConfigId: string;
+  providerModelOptions: string[];
+  providerLabel: string;
   defaultModel: string;
   imageModel: "gpt-image-2" | "gemini-3.1-flash-image-preview-2k" | "nano-banana-pro";
   fontSize: "sm" | "md" | "lg";
@@ -13,6 +15,8 @@ export type UserSettings = {
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   providerConfigId: "",
+  providerModelOptions: [],
+  providerLabel: "",
   defaultModel: DEFAULT_MODEL_ID,
   imageModel: "gpt-image-2",
   fontSize: "md",
@@ -28,9 +32,35 @@ export function loadUserSettings(): UserSettings {
       ...DEFAULT_USER_SETTINGS,
       ...JSON.parse(raw),
     };
-    next.defaultModel = normalizeModelId(next.defaultModel);
+    const sanitizedProviderModelOptions = Array.isArray(next.providerModelOptions)
+      ? Array.from(
+          new Set(
+            next.providerModelOptions
+              .map((model: unknown) => (typeof model === "string" ? model.trim() : ""))
+              .filter(Boolean),
+          ),
+        )
+      : [];
+    next.providerModelOptions = sanitizedProviderModelOptions;
+    next.providerLabel =
+      typeof next.providerLabel === "string" ? next.providerLabel.trim() : "";
+    const trimmedDefaultModel =
+      typeof next.defaultModel === "string" ? next.defaultModel.trim() : "";
+    if (next.providerConfigId) {
+      next.defaultModel =
+        sanitizedProviderModelOptions.length > 0 &&
+          !sanitizedProviderModelOptions.includes(trimmedDefaultModel)
+          ? sanitizedProviderModelOptions[0]
+          : trimmedDefaultModel || sanitizedProviderModelOptions[0] || DEFAULT_MODEL_ID;
+    } else {
+      next.defaultModel = normalizeModelId(trimmedDefaultModel);
+      next.providerModelOptions = [];
+      next.providerLabel = "";
+    }
     const {
       providerConfigId,
+      providerModelOptions,
+      providerLabel,
       defaultModel,
       imageModel,
       fontSize,
@@ -39,6 +69,8 @@ export function loadUserSettings(): UserSettings {
     } = next;
     return {
       providerConfigId,
+      providerModelOptions,
+      providerLabel,
       defaultModel,
       imageModel,
       fontSize,

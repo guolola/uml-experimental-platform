@@ -51,7 +51,7 @@ import {
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Separator } from "../../../shared/ui/separator";
-import { Select, SelectContent, SelectControl, SelectItem, SelectTrigger, SelectValue } from "../../../shared/ui/select";
+import { Select, SelectContent, SelectControl, SelectItem, SelectTrigger } from "../../../shared/ui/select";
 import { Switch } from "../../../shared/ui/switch";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceRepository } from "../../../services/workspace-repository";
@@ -65,6 +65,7 @@ import {
 } from "../../../shared/lib/user-settings";
 import {
   getProviderAllowedModels,
+  getProviderLabel,
   resolveProviderModel,
 } from "../../../shared/lib/provider-config-models";
 import type { AuthRoutePath } from "../../../app/app-routes";
@@ -1974,9 +1975,6 @@ function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
           ]}
         />
         {providerStatus && <span className="text-xs text-muted-foreground">{providerStatus}</span>}
-        <span className="text-xs text-muted-foreground">
-          当前会保存：{courseTeam} / {template} / {defaultModelPolicy}。模型费用仅记录用量和估算，真实账单以外部供应商为准。
-        </span>
       </div>
       <div className="lg:col-span-2">
         <Button type="button" onClick={createProject} disabled={creating}>
@@ -2435,6 +2433,17 @@ function ProjectSettings({
         retentionPolicy,
       );
       setCurrentProject({ ...response.project, retentionPolicy: retentionResponse.project.retentionPolicy });
+      const selectedConfig = providerConfigs.find(
+        (config) => config.id === response.project.defaultProviderConfigId,
+      );
+      if (selectedConfig) {
+        patchUserSettings({
+          providerConfigId: selectedConfig.id,
+          providerModelOptions: getProviderAllowedModels(selectedConfig),
+          providerLabel: getProviderLabel(selectedConfig),
+          defaultModel: resolveProviderModel(selectedConfig, loadUserSettings().defaultModel),
+        });
+      }
       setMessage("项目设置已保存。");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "项目设置保存失败。");
@@ -2523,11 +2532,7 @@ function ProjectSettings({
   const activeProviderConfigs = providerConfigs.filter((config) => config.status === "active");
   const selectedProviderConfig = providerConfigs.find((config) => config.id === defaultProviderConfigId);
   const selectedProviderConfigLabel = selectedProviderConfig
-    ? `${selectedProviderConfig.name} / ${selectedProviderConfig.provider}${
-        selectedProviderConfig.defaultModel
-          ? ` / ${selectedProviderConfig.defaultModel}`
-          : ""
-      }`
+    ? selectedProviderConfig.name
     : "跟随用户默认模型";
   const retentionPolicyLabel =
     retentionPolicy === "semester_180_days"
@@ -2607,7 +2612,6 @@ function ProjectSettings({
               disabled={!canManageProjectSettings}
             >
               <SelectTrigger className="min-w-0 max-w-full">
-                <SelectValue aria-hidden="true" className="hidden" />
                 <span
                   data-slot="select-value"
                   className="min-w-0 truncate"
@@ -2626,8 +2630,7 @@ function ProjectSettings({
                         config.defaultModel ? ` / ${config.defaultModel}` : ""
                       }`}
                     >
-                      {config.name} / {config.provider}
-                      {config.defaultModel ? ` / ${config.defaultModel}` : ""}
+                      {config.name}
                     </span>
                   </SelectItem>
                 ))}
@@ -2661,7 +2664,6 @@ function ProjectSettings({
               disabled={!canManageProjectSettings}
             >
               <SelectTrigger className="min-w-0 max-w-full">
-                <SelectValue aria-hidden="true" className="hidden" />
                 <span
                   data-slot="select-value"
                   className="min-w-0 truncate"
@@ -4708,6 +4710,8 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
             return {
               ...current,
               providerConfigId: selected.id,
+              providerModelOptions: getProviderAllowedModels(selected),
+              providerLabel: getProviderLabel(selected),
               defaultModel: resolveProviderModel(selected, current.defaultModel),
             };
           });
@@ -4747,6 +4751,8 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
       }
       saveUserSettings({
         ...settings,
+        providerModelOptions: getProviderAllowedModels(selectedProviderConfig),
+        providerLabel: getProviderLabel(selectedProviderConfig),
         defaultModel: resolveProviderModel(selectedProviderConfig, settings.defaultModel),
       });
       setSettings(loadUserSettings());
@@ -4820,6 +4826,8 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
                     return {
                       ...current,
                       providerConfigId: value,
+                      providerModelOptions: value ? getProviderAllowedModels(selected) : [],
+                      providerLabel: value ? getProviderLabel(selected) : "",
                       defaultModel: value
                         ? resolveProviderModel(selected, current.defaultModel)
                         : current.defaultModel,
@@ -4915,14 +4923,17 @@ export function ModelSettingsPage({ onNavigate }: { onNavigate: Navigate }) {
 export function ProjectWorkspaceBanner({
   projectId,
   onOpenDrawer,
+  activeGenerationTaskCount = 0,
 }: {
   projectId: string;
   onOpenDrawer?: (kind: ProjectDrawerKind) => void;
+  activeGenerationTaskCount?: number;
 }) {
   const overview = useProjectOverview(projectId);
-  const activeRuns = overview.runs.filter(
+  const activeServerRuns = overview.runs.filter(
     (run) => run.status === "queued" || run.status === "running",
   ).length;
+  const activeRuns = Math.max(activeServerRuns, activeGenerationTaskCount);
   useEffect(() => {
     const defaultProviderConfigId = overview.project?.defaultProviderConfigId;
     if (!defaultProviderConfigId) return;
@@ -4936,13 +4947,17 @@ export function ProjectWorkspaceBanner({
         );
         patchUserSettings({
           providerConfigId: defaultProviderConfigId,
-          defaultModel: config?.defaultModel ?? loadUserSettings().defaultModel,
+          providerModelOptions: getProviderAllowedModels(config),
+          providerLabel: getProviderLabel(config),
+          defaultModel: resolveProviderModel(config, loadUserSettings().defaultModel),
         });
       })
       .catch(() => {
         if (!active) return;
         patchUserSettings({
           providerConfigId: defaultProviderConfigId,
+          providerModelOptions: [],
+          providerLabel: "",
         });
       });
     return () => {

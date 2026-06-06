@@ -2147,6 +2147,73 @@ test("provider config create rejects base URLs outside the allowlist", async () 
   await app.close();
 });
 
+test("provider configs accept SiliconFlow v1 endpoint with a fixed reviewed model catalog", async () => {
+  const originalFetch = globalThis.fetch;
+  let testedUrl = "";
+  globalThis.fetch = (async (url) => {
+    testedUrl = String(url);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie } = await createAdminSessionApp({
+      adminProviderBaseUrlAllowlist: ["https://api.siliconflow.cn"],
+    });
+    const allowedModels = [
+      "deepseek-ai/DeepSeek-V4-Pro",
+      "deepseek-ai/DeepSeek-V4-Flash",
+      "Pro/moonshotai/Kimi-K2.6",
+      "Pro/zai-org/GLM-5.1",
+      "Pro/MiniMaxAI/MiniMax-M2.5",
+      "Qwen/Qwen3.6-35B-A3B",
+    ];
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs",
+      headers: { cookie },
+      payload: {
+        allowedModels,
+        name: "SiliconFlow production gateway",
+        provider: "siliconflow",
+        baseUrl: "https://api.siliconflow.cn/v1",
+        apiKey: "sk-siliconflow-secret-a91f",
+        defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+      },
+    });
+    const id = created.json().id as string;
+    const allowedTest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/test`,
+      headers: { cookie },
+      payload: { model: "Pro/moonshotai/Kimi-K2.6" },
+    });
+    const rejectedTest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/test`,
+      headers: { cookie },
+      payload: { model: "gpt-5.4" },
+    });
+
+    assert.equal(created.statusCode, 201);
+    assert.equal(created.json().baseUrl, "https://api.siliconflow.cn");
+    assert.deepEqual(created.json().allowedModels, allowedModels);
+    assert.doesNotMatch(created.body, /sk-siliconflow-secret-a91f/);
+    assert.equal(allowedTest.statusCode, 200);
+    assert.equal(allowedTest.json().ok, true);
+    assert.equal(testedUrl, "https://api.siliconflow.cn/v1/chat/completions");
+    assert.equal(rejectedTest.statusCode, 400);
+    assert.match(rejectedTest.body, /model/i);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider configs mask keys and never read back plaintext secrets", async () => {
   const { app, cookie } = await createAdminSessionApp({
     adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
@@ -2175,6 +2242,85 @@ test("provider configs mask keys and never read back plaintext secrets", async (
   assert.doesNotMatch(created.body, /sk-live-secret-a91f/);
   assert.doesNotMatch(listed.body, /sk-live-secret-a91f/);
   assert.equal(listed.json().providerConfigs[0].maskedKey, "sk-...a91f");
+
+  await app.close();
+});
+
+test("provider configs can update editable metadata without changing secrets or endpoints", async () => {
+  const { app, authStore, cookie } = await createAdminSessionApp({
+    adminProviderBaseUrlAllowlist: ["https://api.siliconflow.cn"],
+  });
+  const owner = authStore.createUser({
+    email: "owner@example.com",
+    displayName: "Project Owner",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(owner);
+  const { project } = authStore.createProject({
+    ownerUserId: owner.id,
+    name: "Scoped Provider Project",
+    description: null,
+    visibility: "team",
+  });
+  const allowedModels = [
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "deepseek-ai/DeepSeek-V4-Flash",
+  ];
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: {
+      allowedModels,
+      name: "SiliconFlow gateway",
+      provider: "siliconflow",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "sk-siliconflow-secret-a91f",
+      defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+    },
+  });
+  const id = created.json().id as string;
+
+  const updated = await app.inject({
+    method: "PATCH",
+    url: `/api/admin/provider-configs/${id}`,
+    headers: { cookie },
+    payload: {
+      allowedModels,
+      defaultModel: "deepseek-ai/DeepSeek-V4-Flash",
+      keyPurpose: "生产生成",
+      name: "SiliconFlow gateway v2",
+      quota: "合同标签：生产",
+      scopeType: "project",
+      scopeId: project.id,
+    },
+  });
+  const rejected = await app.inject({
+    method: "PATCH",
+    url: `/api/admin/provider-configs/${id}`,
+    headers: { cookie },
+    payload: {
+      allowedModels: ["deepseek-ai/DeepSeek-V4-Pro"],
+      defaultModel: "deepseek-ai/DeepSeek-V4-Flash",
+    },
+  });
+
+  assert.equal(updated.statusCode, 200);
+  assert.equal(updated.json().name, "SiliconFlow gateway v2");
+  assert.equal(updated.json().baseUrl, "https://api.siliconflow.cn");
+  assert.equal(updated.json().provider, "siliconflow");
+  assert.equal(updated.json().defaultModel, "deepseek-ai/DeepSeek-V4-Flash");
+  assert.deepEqual(updated.json().allowedModels, [
+    "deepseek-ai/DeepSeek-V4-Flash",
+    "deepseek-ai/DeepSeek-V4-Pro",
+  ]);
+  assert.equal(updated.json().keyPurpose, "生产生成");
+  assert.equal(updated.json().quota, "合同标签：生产");
+  assert.equal(updated.json().scopeType, "project");
+  assert.equal(updated.json().scopeId, project.id);
+  assert.doesNotMatch(updated.body, /sk-siliconflow-secret-a91f/);
+  assert.equal(rejected.statusCode, 400);
+  assert.match(rejected.body, /default model/i);
 
   await app.close();
 });

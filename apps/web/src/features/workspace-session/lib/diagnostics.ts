@@ -125,6 +125,16 @@ export function appendDiagnosticStream(current: string, chunk: string) {
   return next.slice(next.length - MAX_DIAGNOSTIC_STREAM_CHARS);
 }
 
+export function isMeaningfulLlmChunkEvent(
+  event: RunEvent,
+): event is RunEvent & { type: "llm_chunk"; stage: RunStage; chunk: string } {
+  return event.type === "llm_chunk" && event.chunk.trim().length > 0;
+}
+
+export function shouldDisplayDiagnosticEvent(event: RunEvent) {
+  return event.type !== "llm_chunk" || isMeaningfulLlmChunkEvent(event);
+}
+
 export function summarizeEvent(event: RunEvent): DiagnosticEvent {
   const at = new Date().toISOString();
   const suffix = `${at}:${Math.random().toString(36).slice(2, 8)}`;
@@ -198,6 +208,14 @@ export function summarizeEvent(event: RunEvent): DiagnosticEvent {
         detail: sanitizeDiagnosticText(event.message),
       };
     case "llm_chunk":
+      if (!isMeaningfulLlmChunkEvent(event)) {
+        return {
+          id: `${suffix}:llm_blank_chunk:${event.stage}`,
+          at,
+          label: "收到空白片段",
+          detail: `${formatStageForDiagnostics(event.stage)}等待有效模型输出`,
+        };
+      }
       return {
         id: `${suffix}:llm_chunk:${event.stage}`,
         at,

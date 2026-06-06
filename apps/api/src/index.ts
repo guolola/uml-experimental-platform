@@ -117,12 +117,17 @@ const RELEASE_STARTED_AT =
 const DEFAULT_SSE_ALLOW_ORIGIN = "http://localhost:5173";
 const DEFAULT_PROVIDER_BASE_URL_ALLOWLIST = (
   process.env.UML_PROVIDER_BASE_URL_ALLOWLIST ??
-  "https://ai.comfly.org,https://api.openai.com"
+  "https://ai.comfly.org,https://ai.comfly.chat,https://api.openai.com,https://api.siliconflow.cn"
 )
   .split(",")
   .map((url) => url.trim())
   .filter(Boolean);
 const DEFAULT_DEV_ADMIN_MFA_SECRET = "JBSWY3DPEHPK3PXP";
+
+function readPositiveInteger(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : fallback;
+}
 
 
 
@@ -297,7 +302,13 @@ export async function createApiServer(options?: {
   if (runtimeNodeEnv !== "production") {
     await seedDevelopmentAdmin(authStore);
   }
-  await seedGuestUser(authStore);
+  const guestUserId = await seedGuestUser(authStore);
+  if (runtimeNodeEnv !== "production" && guestUserId) {
+    await billingService.grantGuestDevelopmentAllowance(
+      guestUserId,
+      readPositiveInteger(process.env.UML_GUEST_DAILY_LIMIT, 5),
+    );
+  }
 
   const healthPayload = () => ({
     status: "ok",
@@ -610,7 +621,7 @@ async function seedDevelopmentAdmin(authStore: AuthStore) {
 }
 
 async function seedGuestUser(authStore: AuthStore) {
-  if (process.env.UML_ENABLE_GUEST_ACCESS !== "true") return;
+  if (process.env.UML_ENABLE_GUEST_ACCESS !== "true") return null;
   const email = (process.env.UML_GUEST_EMAIL?.trim() || "guest@example.edu").toLowerCase();
   const password = process.env.UML_GUEST_PASSWORD?.trim() || "guest";
   const displayName = process.env.UML_GUEST_DISPLAY_NAME?.trim() || "Guest";
@@ -628,7 +639,7 @@ async function seedGuestUser(authStore: AuthStore) {
   const existing = await authStore.findUserByEmail(email);
   if (existing) {
     await authStore.updateUser(existing.id, patch);
-    return;
+    return existing.id;
   }
 
   const created = await authStore.createUser({
@@ -646,6 +657,7 @@ async function seedGuestUser(authStore: AuthStore) {
       mfaPendingExpiresAt: null,
     });
   }
+  return created?.id ?? null;
 }
 
 async function start() {

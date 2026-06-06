@@ -80,6 +80,10 @@ function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
+function nextUtcDayStart(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
+}
+
 function dayStartIso(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
 }
@@ -256,6 +260,27 @@ export function createBillingService({
       metadata: {
         bonusType: "email_verification_signup",
         creditAmount: SIGNUP_BONUS_CREDITS,
+      },
+    });
+  }
+
+  async function grantGuestDevelopmentAllowance(userId: string, creditAmount: number) {
+    if (!Number.isInteger(creditAmount) || creditAmount <= 0) {
+      throw new BillingValidationError("Guest development allowance must be a positive integer");
+    }
+    const current = now();
+    const day = current.toISOString().slice(0, 10);
+    return repository.addLedgerEntry({
+      userId,
+      sourceType: "admin_adjustment",
+      sourceId: `dev_guest_daily_allowance:${userId}:${day}`,
+      creditDelta: creditAmount,
+      validFrom: current.toISOString(),
+      validUntil: nextUtcDayStart(current).toISOString(),
+      metadata: {
+        reason: "local_guest_development_allowance",
+        creditAmount,
+        day,
       },
     });
   }
@@ -578,6 +603,7 @@ export function createBillingService({
     listSkus,
     getSummary,
     grantSignupBonus,
+    grantGuestDevelopmentAllowance,
     createOrder,
     getOrderForUser,
     processPaymentCallback,

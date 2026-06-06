@@ -58,6 +58,31 @@ function isProjectVisibleProvider(
   );
 }
 
+function providerVisibilityPriority(
+  view: ProviderConfigView,
+  userId: string,
+  projectId?: string,
+) {
+  if (projectId && view.scopeType === "project" && view.scopeId === projectId) return 0;
+  if (view.scopeType === "user" && view.scopeId === userId) return 1;
+  if (view.scopeType === "system") return 2;
+  return 3;
+}
+
+function sortVisibleProviders(
+  providers: ProviderConfigView[],
+  userId: string,
+  projectId?: string,
+) {
+  return [...providers].sort((left, right) => {
+    const priority =
+      providerVisibilityPriority(left, userId, projectId) -
+      providerVisibilityPriority(right, userId, projectId);
+    if (priority !== 0) return priority;
+    return left.name.localeCompare(right.name, "zh-Hans-CN");
+  });
+}
+
 function breakerDto(view: ProviderConfigView) {
   return {
     state: view.breakerState,
@@ -190,8 +215,12 @@ export function registerProviderConfigRoutes({
     if (isAuthError(auth)) return auth;
 
     return providerConfigListResponseSchema.parse({
-      providerConfigs: (await providerConfigs.list())
-        .filter((config) => isUserVisibleProvider(config, auth.user.id))
+      providerConfigs: sortVisibleProviders(
+        (await providerConfigs.list()).filter((config) =>
+          isUserVisibleProvider(config, auth.user.id),
+        ),
+        auth.user.id,
+      )
         .map(toProviderConfigDto),
     });
   });
@@ -208,10 +237,13 @@ export function registerProviderConfigRoutes({
     if (isProjectPermissionError(context)) return context;
 
     return providerConfigListResponseSchema.parse({
-      providerConfigs: (await providerConfigs.list())
-        .filter((config) =>
+      providerConfigs: sortVisibleProviders(
+        (await providerConfigs.list()).filter((config) =>
           isProjectVisibleProvider(config, context.user.id, projectId),
-        )
+        ),
+        context.user.id,
+        projectId,
+      )
         .map(toProviderConfigDto),
     });
   });

@@ -78,6 +78,15 @@ export interface ProviderConfigStore {
   }): ProviderConfigView;
   list(): ProviderConfigView[];
   get(id: string): ProviderConfigView | null;
+  updateMetadata?(id: string, input: {
+    allowedModels?: string[];
+    defaultModel?: string;
+    keyPurpose?: string;
+    name?: string;
+    quota?: string;
+    scopeId?: string | null;
+    scopeType?: ProviderConfigScopeType;
+  }, actor: string): ProviderConfigView | null;
   rotate(id: string, apiKey: string, actor: string): ProviderConfigView | null;
   disable?(id: string, actor: string): ProviderConfigView | null;
   enable?(id: string, actor: string): ProviderConfigView | null;
@@ -240,6 +249,7 @@ export function createProviderConfigStore({
         allowedModels: normalizeProviderAllowedModels(
           input.defaultModel,
           input.allowedModels,
+          { baseUrl, provider: input.provider },
         ),
         quota: input.quota ?? "unlimited",
         status: "active",
@@ -269,6 +279,45 @@ export function createProviderConfigStore({
     get(id) {
       const record = records.get(id);
       return record ? cloneView(record.view) : null;
+    },
+    updateMetadata(id, input, actor) {
+      const record = records.get(id);
+      if (!record || record.view.status === "revoked") return null;
+      const nextDefaultModel = input.defaultModel?.trim() || record.view.defaultModel;
+      if (
+        input.allowedModels &&
+        !input.allowedModels.map((model) => model.trim()).includes(nextDefaultModel)
+      ) {
+        throw new ProviderConfigPolicyError("Provider default model must be included in allowed models");
+      }
+      const nextAllowedModels = normalizeProviderAllowedModels(
+        nextDefaultModel,
+        input.allowedModels ?? record.view.allowedModels,
+        { baseUrl: record.view.baseUrl, provider: record.view.provider },
+      );
+      if (!nextAllowedModels.includes(nextDefaultModel)) {
+        throw new ProviderConfigPolicyError("Provider default model must be included in allowed models");
+      }
+      const nextScopeType = input.scopeType ?? record.view.scopeType;
+      const scope = normalizeScope({
+        scopeType: nextScopeType,
+        scopeId: nextScopeType === "system" ? null : input.scopeId ?? record.view.scopeId,
+      });
+      record.view.name = input.name?.trim() || record.view.name;
+      record.view.keyPurpose = input.keyPurpose?.trim() || record.view.keyPurpose;
+      record.view.defaultModel = nextDefaultModel;
+      record.view.allowedModels = nextAllowedModels;
+      record.view.quota = input.quota?.trim() || record.view.quota;
+      record.view.scopeType = scope.scopeType;
+      record.view.scopeId = scope.scopeId;
+      record.view.updatedAt = new Date().toISOString();
+      audit({
+        actor,
+        action: "update_provider_config",
+        target: record.view.name,
+        result: "success",
+      });
+      return cloneView(record.view);
     },
     rotate(id, apiKey, actor) {
       const record = records.get(id);

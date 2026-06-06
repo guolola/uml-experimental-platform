@@ -135,6 +135,7 @@ function mapProviderRow(row: ProviderConfigRow): ProviderConfigView {
     allowedModels: normalizeProviderAllowedModels(
       row.default_model,
       persistedAllowedModels,
+      { baseUrl: row.base_url, provider: row.provider },
     ),
     quota: row.quota,
     status: row.status,
@@ -265,7 +266,10 @@ export function createPostgresProviderConfigRepository({
       const id = randomUUID();
       const maskedKey = maskApiKey(apiKey);
       const defaultModel = input.defaultModel.trim();
-      const allowedModels = normalizeProviderAllowedModels(defaultModel, input.allowedModels);
+      const allowedModels = normalizeProviderAllowedModels(defaultModel, input.allowedModels, {
+        baseUrl,
+        provider: input.provider,
+      });
       const keyPurpose =
         input.keyPurpose?.trim() || "admin-configured provider key";
       const scopeType = input.scopeType ?? "system";
@@ -368,6 +372,79 @@ export function createPostgresProviderConfigRepository({
         `,
         [id],
       );
+      return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
+    },
+
+    async updateMetadata(id: string, input: {
+      allowedModels?: string[];
+      defaultModel?: string;
+      keyPurpose?: string;
+      name?: string;
+      quota?: string;
+      scopeId?: string | null;
+      scopeType?: "system" | "user" | "project";
+    }, actor: string) {
+      const existing = await this.get(id);
+      if (!existing || existing.status === "revoked") return null;
+      const defaultModel = input.defaultModel?.trim() || existing.defaultModel;
+      if (
+        input.allowedModels &&
+        !input.allowedModels.map((model) => model.trim()).includes(defaultModel)
+      ) {
+        throw new ProviderConfigPolicyError(
+          "Provider default model must be included in allowed models",
+        );
+      }
+      const allowedModels = normalizeProviderAllowedModels(
+        defaultModel,
+        input.allowedModels ?? existing.allowedModels,
+        { baseUrl: existing.baseUrl, provider: existing.provider },
+      );
+      if (!allowedModels.includes(defaultModel)) {
+        throw new ProviderConfigPolicyError(
+          "Provider default model must be included in allowed models",
+        );
+      }
+      const scopeType = input.scopeType ?? existing.scopeType;
+      const scopeId = scopeType === "system" ? null : input.scopeId ?? existing.scopeId;
+      if (scopeType !== "system" && !scopeId) {
+        throw new ProviderConfigPolicyError(
+          "Provider config user and project scopes require a scope id",
+        );
+      }
+      const result = await db.query<ProviderConfigRow>(
+        `
+          update provider_configs
+          set
+            name = $2,
+            default_model = $3,
+            allowed_models = $4,
+            key_purpose = $5,
+            quota = $6,
+            scope_type = $7,
+            scope_id = $8,
+            updated_at = now()
+          where id = $1
+          returning ${providerViewColumns}
+        `,
+        [
+          id,
+          input.name?.trim() || existing.name,
+          defaultModel,
+          allowedModels,
+          input.keyPurpose?.trim() || existing.keyPurpose,
+          input.quota?.trim() || existing.quota,
+          scopeType,
+          scopeId,
+        ],
+      );
+      await audit({
+        actor,
+        action: "update_provider_config",
+        targetId: id,
+        target: input.name?.trim() || existing.name,
+        result: "success",
+      });
       return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
     },
 

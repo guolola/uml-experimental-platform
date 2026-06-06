@@ -134,6 +134,24 @@ test("email verification signup bonus is idempotent and powers credit reservatio
   assert.equal((await service.getSummary("user-bonus")).creditBalance, 4);
 });
 
+test("guest development allowance is daily and idempotent", async () => {
+  const { service } = await createTestService();
+
+  await service.grantGuestDevelopmentAllowance("guest-user", 9999);
+  await service.grantGuestDevelopmentAllowance("guest-user", 9999);
+
+  const summary = await service.getSummary("guest-user");
+  assert.equal(summary.creditBalance, 9999);
+  const entries = await service.listLedgerEntriesForUser("guest-user");
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.sourceType, "admin_adjustment");
+  assert.equal(
+    entries[0]?.sourceId,
+    "dev_guest_daily_allowance:guest-user:2026-06-05",
+  );
+  assert.equal(entries[0]?.validUntil, "2026-06-06T00:00:00.000Z");
+});
+
 test("run reservation distinguishes no entitlement from pass soft protection", async () => {
   const empty = await createTestService();
   const noEntitlement = await empty.service.reserveRunUsage({

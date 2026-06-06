@@ -4,15 +4,21 @@ import test from "node:test";
 import type {
   DiagramKind,
   DiagramModelSpec,
+  DesignDiagramModelSpec,
+  DesignRunSnapshot,
   ProviderSettings,
   RequirementRule,
   RunSnapshot,
 } from "@uml-platform/contracts";
 import type { LlmTransport, StreamChatCompletionInput } from "../../llm.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
-import { createEmptySnapshot } from "../records/snapshots.js";
+import { createEmptyDesignSnapshot, createEmptySnapshot } from "../records/snapshots.js";
 import type { RunRecord } from "../records/run-record-store.js";
+import { runDesignStagePipeline } from "./design-pipeline.js";
 import { runStagePipeline } from "./requirements-pipeline.js";
+import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
+import { withModelTaskTimeout } from "./shared/model-task-timeout.js";
+import { collectTextResult } from "./shared/structured-output.js";
 
 const LIBRARY_REQUIREMENT_TEXT = `一个小型图书馆管理系统，需完成以下工作：
 (1)借书、还书；
@@ -240,9 +246,147 @@ function outputForKind(kind: DiagramKind) {
 
 function selectedKindFromPrompt(prompt: string): DiagramKind {
   const match = prompt.match(/只生成以下图类型：\n([^\n]+)/);
+  if (!match && /diagramKind 为 analysis|只包含 diagramKind 为 analysis|需求分析顺序图/.test(prompt)) {
+    return "analysis";
+  }
   const listed = (match?.[1] ?? "usecase").split(",").map((item) => item.trim());
   return (listed[0] ?? "usecase") as DiagramKind;
 }
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function useCaseIdFromSingleUseCasePrompt(prompt: string) {
+  return prompt.match(/"useCases"\s*:\s*\[\s*\{[\s\S]*?"id"\s*:\s*"([^"]+)"/)?.[1];
+}
+
+async function withTemporaryEnv<T>(
+  key: string,
+  value: string | undefined,
+  callback: () => Promise<T>,
+) {
+  const previous = process.env[key];
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+  try {
+    return await callback();
+  } finally {
+    if (previous === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = previous;
+    }
+  }
+}
+
+test("collectTextResult preserves blank chunks in raw output but hides them from visible chunk callbacks", async () => {
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      yield "{";
+      yield "   ";
+      yield "\n";
+      yield '"ok":true';
+      yield "}";
+    },
+  };
+  const visibleChunks: string[] = [];
+
+  const rawOutput = await collectTextResult(
+    transport,
+    providerSettings,
+    [{ role: "user", content: "test" }],
+    (chunk) => visibleChunks.push(chunk),
+  );
+
+  assert.equal(rawOutput, '{   \n"ok":true}');
+  assert.deepEqual(visibleChunks, ["{", '"ok":true', "}"]);
+});
+
+test("blank LLM chunk handler emits a waiting-for-valid-output progress event instead of llm_chunk noise", () => {
+  const snapshot = createEmptySnapshot("run-blank-progress", "需求", ["analysis"], []);
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+  const handlers = createRunLlmChunkHandlers({
+    record,
+    stage: "generate_models",
+    diagramKind: "analysis",
+    modelId: "analysis:uc-1",
+    subtaskId: "analysis:uc-1",
+    subtaskLabel: "需求分析模型：注册活动",
+  });
+
+  for (let index = 0; index < 40; index += 1) {
+    handlers.onBlankChunk?.("   ");
+  }
+
+  assert.equal(record.events.some((event) => event.type === "llm_chunk"), false);
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.subtaskId === "analysis:uc-1" &&
+        event.message?.includes("模型持续返回空白片段"),
+    ),
+  );
+});
+
+test("model task timeout treats blank chunks as non-effective output", async () => {
+  let interval: ReturnType<typeof setInterval> | undefined;
+  let signalAborted = false;
+  try {
+    await assert.rejects(
+      () =>
+        withModelTaskTimeout(
+          async (_markActivity, markBlankActivity, abortSignal) =>
+            new Promise<never>(() => {
+              abortSignal.addEventListener("abort", () => {
+                signalAborted = true;
+              });
+              interval = setInterval(markBlankActivity, 1);
+            }),
+          {
+            idleTimeoutMs: 200,
+            blankOutputTimeoutMs: 15,
+            maxRuntimeMs: 200,
+            label: "空白输出任务",
+          },
+        ),
+      /长时间仅收到空白输出，超过 15ms/,
+    );
+    assert.equal(signalAborted, true);
+  } finally {
+    if (interval) clearInterval(interval);
+  }
+});
+
+test("model task timeout allows meaningful activity to extend the idle window", async () => {
+  let interval: ReturnType<typeof setInterval> | undefined;
+  try {
+    const result = await withModelTaskTimeout(
+      async (markActivity) =>
+        new Promise<string>((resolve) => {
+          interval = setInterval(markActivity, 5);
+          setTimeout(() => resolve("ok"), 35);
+        }),
+      {
+        idleTimeoutMs: 15,
+        maxRuntimeMs: 200,
+        label: "有效输出任务",
+      },
+    );
+    assert.equal(result, "ok");
+  } finally {
+    if (interval) clearInterval(interval);
+  }
+});
 
 test("requirement pipeline calls the LLM once per selected model and keeps successful models when one model fails", async () => {
   const calls: Array<{ kind: DiagramKind; prompt: string }> = [];
@@ -299,12 +443,66 @@ test("requirement pipeline calls the LLM once per selected model and keeps succe
   assert.equal(completed.status, "completed");
 });
 
+test("requirement pipeline renders a completed model before slower models finish", async () => {
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      const kind = selectedKindFromPrompt(prompt);
+      if (kind === "class") {
+        await delay(40);
+      }
+      yield outputForKind(kind);
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-requirement-pipeline-render",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["usecase", "class"],
+    libraryRules,
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runStagePipeline(record, providerSettings, transport, renderClient);
+
+  const useCaseSvgIndex = record.events.findIndex(
+    (event) =>
+      event.type === "artifact_ready" &&
+      event.stage === "render_svg" &&
+      event.artifactKind === "svg" &&
+      event.diagramKind === "usecase",
+  );
+  const classModelIndex = record.events.findIndex(
+    (event) =>
+      event.type === "artifact_ready" &&
+      event.stage === "generate_models" &&
+      event.artifactKind === "model" &&
+      event.diagramKind === "class",
+  );
+  assert.notEqual(useCaseSvgIndex, -1);
+  assert.notEqual(classModelIndex, -1);
+  assert.ok(useCaseSvgIndex < classModelIndex);
+});
+
 test("requirement pipeline reuses contextual use case event flows for analysis-only reruns", async () => {
-  const analysisRule: RequirementRule = {
-    id: "r-analysis",
+  const useCaseRule: RequirementRule = {
+    id: "r-usecase",
     category: "功能需求",
     text: "图书管理员可以按事件流完成借书。",
-    relatedDiagrams: ["analysis"],
+    relatedDiagrams: ["usecase"],
   };
   const useCaseContext = modelForKind("usecase");
   assert.equal(useCaseContext.diagramKind, "usecase");
@@ -424,12 +622,12 @@ test("requirement pipeline reuses contextual use case event flows for analysis-o
     "run-analysis-only",
     LIBRARY_REQUIREMENT_TEXT,
     ["analysis"],
-    [analysisRule],
+    [useCaseRule],
     {
       models: [contextualUseCase],
       requirementModelTraceability: [
         {
-          ruleId: "r-analysis",
+          ruleId: "r-usecase",
           target: {
             diagramKind: "usecase",
             elementId: "uc_borrow",
@@ -453,6 +651,9 @@ test("requirement pipeline reuses contextual use case event flows for analysis-o
   assert.equal(calls.length, 1);
   assert.match(calls[0] ?? "", /单用例需求阶段用例模型/);
   assert.match(calls[0] ?? "", /uc_borrow/);
+  assert.doesNotMatch(calls[0] ?? "", /已确认需求项/);
+  assert.doesNotMatch(calls[0] ?? "", /RequirementBaseline（/);
+  assert.doesNotMatch(calls[0] ?? "", /图书管理员可以按事件流完成借书/);
   assert.equal(completed.status, "completed");
   assert.equal(completed.diagramErrors.usecase, undefined);
   assert.equal(
@@ -463,6 +664,380 @@ test("requirement pipeline reuses contextual use case event flows for analysis-o
     completed.models.map((model) => model.diagramKind).sort(),
     ["analysis", "usecase"],
   );
+  assert.equal(
+    completed.requirementModelTraceability.some(
+      (entry) => entry.target.diagramKind === "analysis",
+    ),
+    false,
+  );
+});
+
+test("requirement analysis generation inherits run concurrency when no narrower limit is configured", async () => {
+  const previousAnalysisConcurrency = process.env.UML_REQUIREMENT_ANALYSIS_CONCURRENCY;
+  delete process.env.UML_REQUIREMENT_ANALYSIS_CONCURRENCY;
+  await withTemporaryEnv("UML_LLM_RUN_CONCURRENCY", "3", async () => {
+    try {
+      const useCaseRule: RequirementRule = {
+        id: "r-usecase",
+        category: "功能需求",
+        text: "每个用例都有事件流。",
+        relatedDiagrams: ["usecase"],
+      };
+      const baseUseCaseModel = modelForKind("usecase");
+      assert.equal(baseUseCaseModel.diagramKind, "usecase");
+      const useCases = ["uc_one", "uc_two", "uc_three"].map((id, index) => ({
+        ...baseUseCaseModel.useCases[0]!,
+        id,
+        name: `用例${index + 1}`,
+        eventFlows: [
+          {
+            id: `flow_${id}`,
+            name: `用例${index + 1}主流程`,
+            flowType: "main" as const,
+            steps: [
+              {
+                order: 1,
+                actor: "actor",
+                action: "提交请求",
+                systemResponse: "返回结果",
+              },
+            ],
+          },
+        ],
+      }));
+      const contextualUseCase: DiagramModelSpec = {
+        ...baseUseCaseModel,
+        useCases,
+      };
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const transport: LlmTransport = {
+        async *streamChatCompletion(input: StreamChatCompletionInput) {
+          const prompt = String(input.messages.at(-1)?.content ?? "");
+          const useCaseId = useCaseIdFromSingleUseCasePrompt(prompt) ?? "uc_one";
+          const useCaseName =
+            useCases.find((useCase) => useCase.id === useCaseId)?.name ?? "用例";
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          try {
+            await delay(30);
+            yield JSON.stringify({
+              models: [
+                {
+                  diagramKind: "analysis",
+                  modelId: `analysis:${useCaseId}`,
+                  sourceUseCaseId: useCaseId,
+                  sourceUseCaseName: useCaseName,
+                  title: `${useCaseName}需求分析顺序图`,
+                  summary: "根据单个用例事件流生成。",
+                  notes: [],
+                  participants: [
+                    { id: "actor_user", name: "用户", participantType: "actor" },
+                    { id: "boundary_page", name: "页面", participantType: "boundary" },
+                  ],
+                  messages: [
+                    {
+                      id: "msg_request",
+                      type: "sync",
+                      sourceId: "actor_user",
+                      targetId: "boundary_page",
+                      name: "提交请求",
+                      parameters: [],
+                    },
+                  ],
+                  fragments: [],
+                },
+              ],
+              requirementModelTraceability: [],
+            });
+          } finally {
+            inFlight -= 1;
+          }
+        },
+      };
+      const renderClient: RenderClient = async (artifact) => ({
+        svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+        renderMeta: {
+          engine: "test",
+          generatedAt: new Date().toISOString(),
+          sourceLength: artifact.source.length,
+          durationMs: 1,
+        },
+      });
+      const snapshot = createEmptySnapshot(
+        "run-analysis-concurrency",
+        LIBRARY_REQUIREMENT_TEXT,
+        ["analysis"],
+        [useCaseRule],
+        {
+          models: [contextualUseCase],
+          requirementModelTraceability: [],
+        },
+      );
+      const record: RunRecord = {
+        snapshot,
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+      };
+
+      await runStagePipeline(record, providerSettings, transport, renderClient);
+
+      assert.equal(maxInFlight, 3);
+      assert.equal((record.snapshot as RunSnapshot).status, "completed");
+    } finally {
+      if (previousAnalysisConcurrency === undefined) {
+        delete process.env.UML_REQUIREMENT_ANALYSIS_CONCURRENCY;
+      } else {
+        process.env.UML_REQUIREMENT_ANALYSIS_CONCURRENCY = previousAnalysisConcurrency;
+      }
+    }
+  });
+});
+
+test("requirement analysis emits failed subtasks when one use case generation times out", async () => {
+  const baseUseCaseModel = modelForKind("usecase");
+  assert.equal(baseUseCaseModel.diagramKind, "usecase");
+  const useCases = [
+    { id: "uc_fast", name: "查看活动" },
+    { id: "uc_hang", name: "邮件提醒" },
+  ].map((item) => ({
+    ...baseUseCaseModel.useCases[0]!,
+    id: item.id,
+    name: item.name,
+    eventFlows: [
+      {
+        id: `flow_${item.id}`,
+        name: `${item.name}主流程`,
+        flowType: "main" as const,
+        steps: [
+          {
+            order: 1,
+            actor: "actor",
+            action: "提交请求",
+            systemResponse: "返回处理结果",
+          },
+        ],
+      },
+    ],
+  }));
+  const contextualUseCase: DiagramModelSpec = {
+    ...baseUseCaseModel,
+    useCases,
+  };
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      const useCaseId = useCaseIdFromSingleUseCasePrompt(prompt) ?? "uc_fast";
+      if (useCaseId === "uc_hang") {
+        await new Promise<never>(() => {});
+      }
+      const useCaseName =
+        useCases.find((useCase) => useCase.id === useCaseId)?.name ?? "查看活动";
+      yield JSON.stringify({
+        models: [
+          {
+            diagramKind: "analysis",
+            modelId: `analysis:${useCaseId}`,
+            sourceUseCaseId: useCaseId,
+            sourceUseCaseName: useCaseName,
+            title: `${useCaseName}需求分析顺序图`,
+            summary: "根据单个用例事件流生成。",
+            notes: [],
+            participants: [
+              { id: "actor_user", name: "用户", participantType: "actor" },
+              { id: "boundary_page", name: "页面", participantType: "boundary" },
+            ],
+            messages: [
+              {
+                id: "msg_request",
+                type: "sync",
+                sourceId: "actor_user",
+                targetId: "boundary_page",
+                name: "提交请求",
+                parameters: [],
+              },
+            ],
+            fragments: [],
+          },
+        ],
+        requirementModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-analysis-timeout",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["analysis"],
+    [
+      {
+        id: "r-usecase",
+        category: "功能需求",
+        text: "每个用例都有事件流。",
+        relatedDiagrams: ["usecase"],
+      },
+    ],
+    {
+      models: [contextualUseCase],
+      requirementModelTraceability: [],
+    },
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "20", async () => {
+    await assert.rejects(
+      runStagePipeline(record, providerSettings, transport, renderClient),
+      /需求分析模型必须为每个用例生成一个独立分析顺序图|超过 20ms 未完成/,
+    );
+  });
+
+  const failedTimeoutEvents = record.events.filter(
+    (event) =>
+      event.type === "stage_progress" &&
+      event.stage === "generate_models" &&
+      event.subtaskId === "analysis:uc_hang" &&
+      event.subtaskStatus === "failed" &&
+      /超过 20ms 未完成/.test(event.message ?? ""),
+  );
+  const fastSvgEvent = record.events.find(
+    (event) =>
+      event.type === "artifact_ready" &&
+      event.stage === "render_svg" &&
+      event.artifactKind === "svg" &&
+      event.modelId === "analysis:uc_fast",
+  );
+  assert.ok(failedTimeoutEvents.length >= 1);
+  assert.ok(fastSvgEvent);
+  assert.equal(
+    (record.snapshot as RunSnapshot).models.some(
+      (model) => model.diagramKind === "analysis" && model.modelId === "analysis:uc_fast",
+    ),
+    true,
+  );
+});
+
+test("requirement model task timeout resets while the model keeps streaming", async () => {
+  const output = outputForKind("usecase");
+  const chunks = output.match(/.{1,40}/g) ?? [output];
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      for (const chunk of chunks) {
+        await delay(10);
+        yield chunk;
+      }
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-requirement-streaming-timeout",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["usecase"],
+    libraryRules,
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "50", async () => {
+    await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS", "3000", async () => {
+      await runStagePipeline(record, providerSettings, transport, renderClient);
+    });
+  });
+
+  assert.equal((record.snapshot as RunSnapshot).status, "completed");
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "artifact_ready" &&
+        event.stage === "render_svg" &&
+        event.diagramKind === "usecase",
+    ),
+  );
+  assert.equal(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.subtaskStatus === "failed" &&
+        /长时间无输出|最大运行时长/.test(event.message ?? ""),
+    ),
+    false,
+  );
+});
+
+test("requirement model task hard max stops a continuously streaming model", async () => {
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      for (let index = 0; index < 20; index += 1) {
+        await delay(5);
+        yield "{}";
+      }
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-requirement-hard-max-timeout",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["usecase"],
+    libraryRules,
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "50", async () => {
+    await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS", "30", async () => {
+      await assert.rejects(
+        () => runStagePipeline(record, providerSettings, transport, renderClient),
+        /超过最大运行时长 30ms 未完成/,
+      );
+    });
+  });
+
+  await delay(120);
+  const failedUseCase = record.events.find(
+    (event) =>
+      event.type === "stage_progress" &&
+      event.stage === "generate_models" &&
+      event.subtaskId === "usecase" &&
+      event.subtaskStatus === "failed",
+  );
+  assert.match(failedUseCase?.message ?? "", /超过最大运行时长 30ms 未完成/);
 });
 
 test("requirement pipeline auto-fills traceability when LLM traceability stays empty", async () => {
@@ -680,12 +1255,923 @@ test("requirement pipeline skips traceability cleanly when there are no mappable
   assert.equal(skippedTrace.attempt, 1);
 });
 
+test("design pipeline renders a completed use case sequence before slower sequences finish", async () => {
+  const useCaseModel: DiagramModelSpec = {
+    diagramKind: "usecase",
+    title: "会议室预约用例模型",
+    summary: "两个独立用例。",
+    notes: [],
+    actors: [],
+    useCases: [
+      {
+        id: "uc_fast",
+        name: "查看空闲会议室",
+        goal: "查看会议室空闲时段",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+        eventFlows: [
+          {
+            id: "flow_fast",
+            name: "查看主流程",
+            flowType: "main",
+            steps: [
+              {
+                order: 1,
+                actor: "actor",
+                action: "选择日期",
+                systemResponse: "返回空闲会议室",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "uc_slow",
+        name: "提交预约申请",
+        goal: "提交会议室预约",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+        eventFlows: [
+          {
+            id: "flow_slow",
+            name: "预约主流程",
+            flowType: "main",
+            steps: [
+              {
+                order: 1,
+                actor: "actor",
+                action: "填写预约信息",
+                systemResponse: "保存预约申请",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const rules: RequirementRule[] = [
+    {
+      id: "r-fast",
+      category: "功能需求",
+      text: "员工可以查看空闲会议室。",
+      relatedDiagrams: ["usecase"],
+    },
+    {
+      id: "r-slow",
+      category: "功能需求",
+      text: "员工可以提交预约申请。",
+      relatedDiagrams: ["usecase"],
+    },
+  ];
+  const requirementSnapshot = createEmptySnapshot(
+    "run-design-sequence-requirements",
+    "会议室预约系统",
+    ["usecase"],
+    rules,
+    {
+      models: [useCaseModel],
+      requirementModelTraceability: [
+        {
+          ruleId: "r-fast",
+          target: {
+            diagramKind: "usecase",
+            elementId: "uc_fast",
+            elementKind: "usecase",
+            label: "查看空闲会议室",
+          },
+        },
+        {
+          ruleId: "r-slow",
+          target: {
+            diagramKind: "usecase",
+            elementId: "uc_slow",
+            elementKind: "usecase",
+            label: "提交预约申请",
+          },
+        },
+      ],
+    },
+  );
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      const useCaseId = prompt.includes("uc_slow") ? "uc_slow" : "uc_fast";
+      const useCaseName =
+        useCaseId === "uc_slow" ? "提交预约申请" : "查看空闲会议室";
+      if (useCaseId === "uc_slow") {
+        await delay(40);
+      }
+      const modelId = `sequence:${useCaseId}`;
+      yield JSON.stringify({
+        models: [
+          {
+            diagramKind: "sequence",
+            modelId,
+            sourceUseCaseId: useCaseId,
+            sourceUseCaseName: useCaseName,
+            title: `${useCaseName}用例实现设计`,
+            summary: `${useCaseName}的对象交互。`,
+            notes: [],
+            participants: [
+              { id: "actor_employee", name: "员工", participantType: "actor" },
+              { id: "boundary_page", name: "预约页面", participantType: "boundary" },
+            ],
+            messages: [
+              {
+                id: "msg_submit",
+                type: "sync",
+                sourceId: "actor_employee",
+                targetId: "boundary_page",
+                name: useCaseName,
+                parameters: [],
+              },
+            ],
+            fragments: [],
+          },
+        ],
+        designModelTraceability: [
+          ...[
+            ["actor_employee", "participant", "员工"],
+            ["boundary_page", "participant", "预约页面"],
+            ["msg_submit", "message", useCaseName],
+          ].map(([elementId, elementKind, label]) => ({
+            source: {
+              modelId,
+              diagramKind: "sequence",
+              elementId,
+              elementKind,
+              label,
+            },
+            targets: [
+              {
+                diagramKind: "usecase",
+                elementId: useCaseId,
+                elementKind: "usecase",
+                label: useCaseName,
+              },
+            ],
+          })),
+        ],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptyDesignSnapshot("run-design-sequence-pipeline", {
+    selectedDiagrams: ["sequence"],
+    requirementBaseline: requirementSnapshot.requirementBaseline!,
+    requirementModels: [useCaseModel],
+    requirementModelTraceability: requirementSnapshot.requirementModelTraceability,
+  });
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runDesignStagePipeline(record, providerSettings, transport, renderClient);
+
+  const fastSvgIndex = record.events.findIndex(
+    (event) =>
+      event.type === "artifact_ready" &&
+      event.stage === "render_svg" &&
+      event.artifactKind === "svg" &&
+      event.modelId === "sequence:uc_fast",
+  );
+  const slowModelIndex = record.events.findIndex(
+    (event) =>
+      event.type === "artifact_ready" &&
+      event.stage === "generate_design_sequence" &&
+      event.artifactKind === "model" &&
+      event.modelId === "sequence:uc_slow",
+  );
+  assert.notEqual(fastSvgIndex, -1);
+  assert.notEqual(slowModelIndex, -1);
+  assert.ok(fastSvgIndex < slowModelIndex);
+  assert.equal((record.snapshot as DesignRunSnapshot).status, "completed");
+});
+
+test("design sequence emits failed subtasks when one use case generation times out", async () => {
+  await withTemporaryEnv("UML_DESIGN_MODEL_TASK_TIMEOUT_MS", "20", async () => {
+    const useCaseModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "活动日历用例模型",
+      summary: "两个独立用例。",
+      notes: [],
+      actors: [],
+      useCases: [
+        {
+          id: "uc_fast",
+          name: "查看活动",
+          goal: "查看活动日历",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+          eventFlows: [
+            {
+              id: "flow_fast",
+              name: "查看主流程",
+              flowType: "main",
+              steps: [{ order: 1, actor: "actor", action: "打开日历", systemResponse: "显示活动" }],
+            },
+          ],
+        },
+        {
+          id: "uc_slow",
+          name: "申请注册",
+          goal: "提交注册申请",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+          eventFlows: [
+            {
+              id: "flow_slow",
+              name: "注册主流程",
+              flowType: "main",
+              steps: [{ order: 1, actor: "actor", action: "填写资料", systemResponse: "创建申请" }],
+            },
+          ],
+        },
+      ],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const transport: LlmTransport = {
+      async *streamChatCompletion(input: StreamChatCompletionInput) {
+        const prompt = String(input.messages.at(-1)?.content ?? "");
+        const useCaseId = prompt.includes("uc_slow") ? "uc_slow" : "uc_fast";
+        const useCaseName = useCaseId === "uc_slow" ? "申请注册" : "查看活动";
+        if (useCaseId === "uc_slow") {
+          await delay(100);
+        }
+        const modelId = `sequence:${useCaseId}`;
+        yield JSON.stringify({
+          models: [
+            {
+              diagramKind: "sequence",
+              modelId,
+              sourceUseCaseId: useCaseId,
+              sourceUseCaseName: useCaseName,
+              title: `${useCaseName}用例实现设计`,
+              summary: `${useCaseName}对象交互。`,
+              notes: [],
+              participants: [
+                { id: "actor_user", name: "用户", participantType: "actor" },
+                { id: "boundary_page", name: "页面", participantType: "boundary" },
+              ],
+              messages: [
+                {
+                  id: "msg_request",
+                  type: "sync",
+                  sourceId: "actor_user",
+                  targetId: "boundary_page",
+                  name: useCaseName,
+                  parameters: [],
+                },
+              ],
+              fragments: [],
+            },
+          ],
+          designModelTraceability: [
+            {
+              source: {
+                modelId,
+                diagramKind: "sequence",
+                elementId: "msg_request",
+                elementKind: "message",
+                label: useCaseName,
+              },
+              targets: [
+                {
+                  diagramKind: "usecase",
+                  elementId: useCaseId,
+                  elementKind: "usecase",
+                  label: useCaseName,
+                },
+              ],
+            },
+          ],
+        });
+      },
+    };
+    const renderClient: RenderClient = async (artifact) => ({
+      svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+      renderMeta: {
+        engine: "test",
+        generatedAt: new Date().toISOString(),
+        sourceLength: artifact.source.length,
+        durationMs: 1,
+      },
+    });
+    const requirementSnapshot = createEmptySnapshot(
+      "run-design-sequence-timeout-requirements",
+      "公共活动日历系统",
+      ["usecase"],
+      [],
+      {
+        models: [useCaseModel],
+        requirementModelTraceability: [],
+      },
+    );
+    const snapshot = createEmptyDesignSnapshot("run-design-sequence-timeout", {
+      selectedDiagrams: ["sequence"],
+      requirementBaseline: requirementSnapshot.requirementBaseline!,
+      requirementModels: [useCaseModel],
+      requirementModelTraceability: [],
+    });
+    const record: RunRecord = {
+      snapshot,
+      events: [],
+      listeners: new Set(),
+      terminal: false,
+    };
+
+    await assert.rejects(
+      () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
+      /缺少 1 个用例实现设计/,
+    );
+
+    const fastSvg = record.events.find(
+      (event) =>
+        event.type === "artifact_ready" &&
+        event.stage === "render_svg" &&
+        event.modelId === "sequence:uc_fast",
+    );
+    const failedSlow = record.events.find(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.stage === "generate_design_sequence" &&
+        event.modelId === "sequence:uc_slow" &&
+        event.subtaskStatus === "failed",
+    );
+    assert.ok(fastSvg);
+    assert.ok(failedSlow);
+    assert.match(failedSlow.message ?? "", /超过 20ms 未完成/);
+  });
+});
+
+test("design sequence retries when generated output is too similar to requirement analysis", async () => {
+  const useCaseModel: DiagramModelSpec = {
+    diagramKind: "usecase",
+    title: "报名用例模型",
+    summary: "用户申请报名。",
+    notes: [],
+    actors: [],
+    useCases: [
+      {
+        id: "uc_apply",
+        name: "申请报名",
+        goal: "提交活动报名申请",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+        eventFlows: [
+          {
+            id: "flow_apply",
+            name: "申请报名主流程",
+            flowType: "main",
+            steps: [
+              { order: 1, actor: "actor", actorAction: "提交报名申请", systemAction: "记录申请" },
+            ],
+          },
+        ],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const analysisModel: DiagramModelSpec = {
+    diagramKind: "analysis",
+    modelId: "analysis:uc_apply",
+    sourceUseCaseId: "uc_apply",
+    sourceUseCaseName: "申请报名",
+    title: "申请报名需求分析模型",
+    summary: "需求阶段交互。",
+    notes: [],
+    participants: [
+      { id: "actor_user", name: "用户", participantType: "actor" },
+      { id: "boundary_page", name: "报名页面", participantType: "boundary" },
+    ],
+    messages: [
+      {
+        id: "msg_apply",
+        type: "sync",
+        sourceId: "actor_user",
+        targetId: "boundary_page",
+        name: "提交报名申请",
+        parameters: [],
+      },
+    ],
+    fragments: [],
+  };
+  let calls = 0;
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      calls += 1;
+      const common = {
+        diagramKind: "sequence",
+        modelId: "sequence:uc_apply",
+        sourceUseCaseId: "uc_apply",
+        sourceUseCaseName: "申请报名",
+        title: "申请报名用例实现设计",
+        summary: "申请报名对象交互。",
+        notes: [],
+        fragments: [],
+      };
+      yield JSON.stringify({
+        models: [
+          calls === 1
+            ? {
+                ...common,
+                participants: [
+                  { id: "actor_user", name: "用户", participantType: "actor" },
+                  { id: "boundary_page", name: "报名页面", participantType: "boundary" },
+                ],
+                messages: [
+                  {
+                    id: "msg_apply",
+                    type: "sync",
+                    sourceId: "actor_user",
+                    targetId: "boundary_page",
+                    name: "提交报名申请",
+                    parameters: [],
+                  },
+                ],
+              }
+            : {
+                ...common,
+                participants: [
+                  { id: "actor_user", name: "用户", participantType: "actor" },
+                  { id: "boundary_page", name: "报名页面", participantType: "boundary" },
+                  { id: "service_registration", name: "报名服务", participantType: "service" },
+                ],
+                messages: [
+                  {
+                    id: "msg_apply",
+                    type: "sync",
+                    sourceId: "boundary_page",
+                    targetId: "service_registration",
+                    name: "applyForRegistration",
+                    parameters: ["userId", "eventId"],
+                  },
+                ],
+              },
+        ],
+        designModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const requirementSnapshot = createEmptySnapshot(
+    "run-design-sequence-similar-requirements",
+    "公共活动日历系统",
+    ["usecase", "analysis"],
+    [],
+    {
+      models: [useCaseModel, analysisModel],
+      requirementModelTraceability: [],
+    },
+  );
+  const snapshot = createEmptyDesignSnapshot("run-design-sequence-similar", {
+    selectedDiagrams: ["sequence"],
+    requirementBaseline: requirementSnapshot.requirementBaseline!,
+    requirementModels: [useCaseModel, analysisModel],
+    requirementModelTraceability: [],
+  });
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runDesignStagePipeline(record, providerSettings, transport, renderClient);
+
+  assert.equal(calls, 2);
+  assert.equal(snapshot.status, "completed");
+  const sequence = snapshot.models.find((model) => model.diagramKind === "sequence");
+  assert.equal(sequence?.diagramKind, "sequence");
+  if (sequence?.diagramKind === "sequence") {
+    assert.ok(sequence.participants.some((participant) => participant.participantType === "service"));
+  }
+});
+
+test("design pipeline rejects completion when a selected downstream model fails", async () => {
+  await withTemporaryEnv("UML_DESIGN_MODEL_TASK_TIMEOUT_MS", "20", async () => {
+    const useCaseModel = modelForKind("usecase");
+    const classModel = modelForKind("class");
+    const existingSequenceModel: DesignDiagramModelSpec = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc_borrow",
+      sourceUseCaseId: "uc_borrow",
+      sourceUseCaseName: "借书",
+      title: "借书用例实现设计",
+      summary: "已有用例实现设计。",
+      notes: [],
+      participants: [
+        { id: "actor_librarian", name: "图书管理员", participantType: "actor" },
+        { id: "boundary_page", name: "借书界面", participantType: "boundary" },
+      ],
+      messages: [
+        {
+          id: "msg_borrow",
+          type: "sync",
+          sourceId: "actor_librarian",
+          targetId: "boundary_page",
+          name: "提交借书",
+          parameters: [],
+        },
+      ],
+      fragments: [],
+    };
+    const transport: LlmTransport = {
+      async *streamChatCompletion() {
+        await delay(100);
+        yield JSON.stringify({ models: [], designModelTraceability: [] });
+      },
+    };
+    const renderClient: RenderClient = async (artifact) => ({
+      svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+      renderMeta: {
+        engine: "test",
+        generatedAt: new Date().toISOString(),
+        sourceLength: artifact.source.length,
+        durationMs: 1,
+      },
+    });
+    const requirementSnapshot = createEmptySnapshot(
+      "run-design-downstream-timeout-requirements",
+      LIBRARY_REQUIREMENT_TEXT,
+      ["usecase", "class"],
+      libraryRules,
+      {
+        models: [useCaseModel, classModel],
+        requirementModelTraceability: [],
+      },
+    );
+    const snapshot = createEmptyDesignSnapshot("run-design-downstream-timeout", {
+      selectedDiagrams: ["class"],
+      requirementBaseline: requirementSnapshot.requirementBaseline!,
+      requirementModels: [useCaseModel, classModel],
+      requirementModelTraceability: [],
+      existingDesignModels: [existingSequenceModel],
+    });
+    const record: RunRecord = {
+      snapshot,
+      events: [],
+      listeners: new Set(),
+      terminal: false,
+    };
+
+    await assert.rejects(
+      () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
+      /设计模型生成未全部完成：设计类图：设计类图 .*超过 20ms 未完成/,
+    );
+
+    assert.equal((record.snapshot as DesignRunSnapshot).status, "running");
+    assert.equal((record.snapshot as DesignRunSnapshot).diagramErrors.class?.stage, "generate_design_models");
+    const completedEvent = record.events.find((event) => event.type === "completed");
+    const failedClass = record.events.find(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.stage === "generate_design_models" &&
+        event.subtaskId === "class" &&
+        event.subtaskStatus === "failed",
+    );
+    assert.equal(completedEvent, undefined);
+    assert.ok(failedClass);
+  });
+});
+
+test("design pipeline accepts downstream model output with empty traceability and auto-fills coverage", async () => {
+  const useCaseModel = modelForKind("usecase");
+  const prototypeModel: DiagramModelSpec = {
+    diagramKind: "prototype",
+    title: "活动日历原型界面关系",
+    summary: "活动列表和编辑页面。",
+    notes: [],
+    nodes: [
+      {
+        id: "screen_calendar",
+        name: "公共日历页",
+        nodeType: "screen",
+        sourceUseCaseIds: ["uc_borrow"],
+        sourceRequirementIds: ["r1"],
+      },
+      {
+        id: "screen_edit",
+        name: "活动编辑页",
+        nodeType: "screen",
+        sourceUseCaseIds: ["uc_borrow"],
+        sourceRequirementIds: ["r1"],
+      },
+    ],
+    relationships: [
+      {
+        id: "nav_calendar_edit",
+        type: "opens",
+        sourceId: "screen_calendar",
+        targetId: "screen_edit",
+        label: "打开编辑",
+      },
+    ],
+  };
+  const existingSequenceModel: DesignDiagramModelSpec = {
+    diagramKind: "sequence",
+    modelId: "sequence:uc_borrow",
+    sourceUseCaseId: "uc_borrow",
+    sourceUseCaseName: "维护活动",
+    title: "维护活动用例实现设计",
+    summary: "已有用例实现设计。",
+    notes: [],
+    participants: [
+      { id: "actor_user", name: "注册用户", participantType: "actor" },
+      { id: "boundary_calendar", name: "公共日历页", participantType: "boundary" },
+    ],
+    messages: [
+      {
+        id: "msg_open_edit",
+        type: "sync",
+        sourceId: "actor_user",
+        targetId: "boundary_calendar",
+        name: "打开编辑",
+        parameters: [],
+      },
+    ],
+    fragments: [],
+  };
+  let llmCalls = 0;
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      llmCalls += 1;
+      yield JSON.stringify({
+        models: [
+          {
+            diagramKind: "activity",
+            title: "界面关系图",
+            summary: "公共日历和活动编辑的界面跳转。",
+            notes: [],
+            swimlanes: [{ id: "lane_user", name: "注册用户" }],
+            nodes: [
+              { id: "start", type: "start", name: "开始" },
+              {
+                id: "act_calendar",
+                type: "activity",
+                name: "查看公共日历",
+                actorOrLane: "lane_user",
+                input: [],
+                output: ["活动列表"],
+              },
+              {
+                id: "act_edit",
+                type: "activity",
+                name: "编辑活动",
+                actorOrLane: "lane_user",
+                input: ["活动信息"],
+                output: ["活动更新"],
+              },
+              { id: "end", type: "end", name: "结束" },
+            ],
+            relationships: [
+              {
+                id: "flow_open_edit",
+                type: "control_flow",
+                sourceId: "act_calendar",
+                targetId: "act_edit",
+                condition: "打开编辑",
+              },
+            ],
+          },
+        ],
+        designModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const requirementSnapshot = createEmptySnapshot(
+    "run-design-empty-traceability-requirements",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["usecase", "prototype"],
+    libraryRules,
+    {
+      models: [useCaseModel, prototypeModel],
+      requirementModelTraceability: [],
+    },
+  );
+  const snapshot = createEmptyDesignSnapshot("run-design-empty-traceability", {
+    selectedDiagrams: ["activity"],
+    requirementBaseline: requirementSnapshot.requirementBaseline!,
+    requirementModels: [useCaseModel, prototypeModel],
+    requirementModelTraceability: [],
+    existingDesignModels: [existingSequenceModel],
+  });
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runDesignStagePipeline(record, providerSettings, transport, renderClient);
+
+  const designSnapshot = record.snapshot as DesignRunSnapshot;
+  assert.equal(llmCalls, 1);
+  assert.equal(designSnapshot.status, "completed");
+  assert.ok(designSnapshot.models.some((model) => model.diagramKind === "activity"));
+  assert.ok(designSnapshot.designModelTraceability.some(
+    (entry) =>
+      entry.source.diagramKind === "activity" &&
+      entry.mappingSource === "auto-filled-pending-review",
+  ));
+  assert.ok(designSnapshot.svgArtifacts.some((artifact) => artifact.diagramKind === "activity"));
+});
+
+test("design sequence generation inherits run concurrency when no narrower limit is configured", async () => {
+  const previousSequenceConcurrency = process.env.UML_DESIGN_SEQUENCE_CONCURRENCY;
+  delete process.env.UML_DESIGN_SEQUENCE_CONCURRENCY;
+  await withTemporaryEnv("UML_LLM_RUN_CONCURRENCY", "3", async () => {
+    try {
+      const useCaseModel: DiagramModelSpec = {
+        diagramKind: "usecase",
+        title: "活动日历用例模型",
+        summary: "三个独立用例。",
+        notes: [],
+        actors: [],
+        useCases: ["uc_one", "uc_two", "uc_three"].map((id, index) => ({
+          id,
+          name: `用例${index + 1}`,
+          goal: "完成业务目标",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+          eventFlows: [
+            {
+              id: `flow_${id}`,
+              name: `用例${index + 1}主流程`,
+              flowType: "main",
+              steps: [
+                {
+                  order: 1,
+                  actor: "actor",
+                  action: "提交请求",
+                  systemResponse: "返回结果",
+                },
+              ],
+            },
+          ],
+        })),
+        systemBoundaries: [],
+        relationships: [],
+      };
+      assert.equal(useCaseModel.diagramKind, "usecase");
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const transport: LlmTransport = {
+        async *streamChatCompletion(input: StreamChatCompletionInput) {
+          const prompt = String(input.messages.at(-1)?.content ?? "");
+          const useCaseId =
+            ["uc_one", "uc_two", "uc_three"].find((id) => prompt.includes(id)) ??
+            "uc_one";
+          const useCaseName =
+            useCaseModel.useCases.find((useCase) => useCase.id === useCaseId)?.name ??
+            "用例";
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          try {
+            await delay(30);
+            const modelId = `sequence:${useCaseId}`;
+            yield JSON.stringify({
+              models: [
+                {
+                  diagramKind: "sequence",
+                  modelId,
+                  sourceUseCaseId: useCaseId,
+                  sourceUseCaseName: useCaseName,
+                  title: `${useCaseName}用例实现设计`,
+                  summary: `${useCaseName}的对象交互。`,
+                  notes: [],
+                  participants: [
+                    { id: "actor_user", name: "用户", participantType: "actor" },
+                    { id: "boundary_page", name: "页面", participantType: "boundary" },
+                  ],
+                  messages: [
+                    {
+                      id: "msg_request",
+                      type: "sync",
+                      sourceId: "actor_user",
+                      targetId: "boundary_page",
+                      name: "提交请求",
+                      parameters: [],
+                    },
+                  ],
+                  fragments: [],
+                },
+              ],
+              designModelTraceability: [
+                {
+                  source: {
+                    modelId,
+                    diagramKind: "sequence",
+                    elementId: "msg_request",
+                    elementKind: "message",
+                    label: "提交请求",
+                  },
+                  targets: [
+                    {
+                      diagramKind: "usecase",
+                      elementId: useCaseId,
+                      elementKind: "usecase",
+                      label: useCaseName,
+                    },
+                  ],
+                },
+              ],
+            });
+          } finally {
+            inFlight -= 1;
+          }
+        },
+      };
+      const renderClient: RenderClient = async (artifact) => ({
+        svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+        renderMeta: {
+          engine: "test",
+          generatedAt: new Date().toISOString(),
+          sourceLength: artifact.source.length,
+          durationMs: 1,
+        },
+      });
+      const requirementSnapshot = createEmptySnapshot(
+        "run-design-sequence-concurrency-requirements",
+        "活动日历系统",
+        ["usecase"],
+        [],
+        {
+          models: [useCaseModel],
+          requirementModelTraceability: [],
+        },
+      );
+      const snapshot = createEmptyDesignSnapshot("run-design-sequence-concurrency", {
+        selectedDiagrams: ["sequence"],
+        requirementBaseline: requirementSnapshot.requirementBaseline!,
+        requirementModels: [useCaseModel],
+        requirementModelTraceability: [],
+      });
+      const record: RunRecord = {
+        snapshot,
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+      };
+
+      await runDesignStagePipeline(record, providerSettings, transport, renderClient);
+
+      assert.equal(maxInFlight, 3);
+      assert.equal((record.snapshot as DesignRunSnapshot).status, "completed");
+    } finally {
+      if (previousSequenceConcurrency === undefined) {
+        delete process.env.UML_DESIGN_SEQUENCE_CONCURRENCY;
+      } else {
+        process.env.UML_DESIGN_SEQUENCE_CONCURRENCY = previousSequenceConcurrency;
+      }
+    }
+  });
+});
+
 test("requirement pipeline retries missing per-use-case analysis coverage", async () => {
-  const analysisRule: RequirementRule = {
-    id: "r-analysis",
+  const useCaseRule: RequirementRule = {
+    id: "r-usecase",
     category: "功能需求",
     text: "每个用例都应由事件流生成独立需求分析顺序图。",
-    relatedDiagrams: ["analysis"],
+    relatedDiagrams: ["usecase"],
   };
   const baseUseCaseModel = modelForKind("usecase");
   assert.equal(baseUseCaseModel.diagramKind, "usecase");
@@ -815,7 +2301,7 @@ test("requirement pipeline retries missing per-use-case analysis coverage", asyn
     "run-analysis-coverage-retry",
     LIBRARY_REQUIREMENT_TEXT,
     ["analysis"],
-    [analysisRule],
+    [useCaseRule],
     {
       models: [contextualUseCase],
       requirementModelTraceability: [],
@@ -839,5 +2325,14 @@ test("requirement pipeline retries missing per-use-case analysis coverage", asyn
   assert.equal(completed.diagramErrors.analysis, undefined);
   assert.equal(callCounts.get("uc_borrow"), 1);
   assert.equal(callCounts.get("uc_search"), 2);
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.stage === "generate_models" &&
+        event.subtaskId === "analysis:coverage-retry" &&
+        event.subtaskStatus === "completed",
+    ),
+  );
   assert.deepEqual(analysisIds, ["analysis:uc_borrow", "analysis:uc_search"]);
 });

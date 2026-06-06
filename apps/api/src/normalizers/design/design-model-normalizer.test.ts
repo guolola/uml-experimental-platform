@@ -108,6 +108,78 @@ test("parseDesignDiagramModelsOnly normalizes sequence fragment branches", () =>
   assert.equal(fragment?.branches?.length, 2);
 });
 
+test("parseDesignDiagramModelsOnly drops blank optional sequence fields", () => {
+  const parsed = parseDesignDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc_register",
+          sourceUseCaseId: "uc_register",
+          sourceUseCaseName: "注册活动",
+          title: "注册活动用例实现设计",
+          summary: "对象交互流程。",
+          notes: [],
+          participants: [
+            {
+              id: "visitor",
+              name: "未注册用户",
+              participantType: "actor",
+              description: "",
+            },
+            {
+              id: "controller",
+              name: "注册控制器",
+              participantType: "control",
+            },
+          ],
+          messages: [
+            {
+              id: "m_submit",
+              type: "sync",
+              sourceId: "visitor",
+              targetId: "controller",
+              name: "提交注册申请",
+              parameters: [],
+              returnValue: "",
+              condition: "",
+              description: "",
+            },
+          ],
+          fragments: [
+            {
+              id: "alt_result",
+              type: "alt",
+              label: "注册结果",
+              messageIds: ["m_submit"],
+              condition: "",
+              description: "",
+              branches: [
+                {
+                  label: "成功",
+                  condition: "",
+                  messageIds: ["m_submit"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "sequence");
+  if (model?.diagramKind !== "sequence") return;
+  assert.equal("description" in model.participants[0]!, false);
+  assert.equal("returnValue" in model.messages[0]!, false);
+  assert.equal("condition" in model.messages[0]!, false);
+  assert.equal("description" in model.messages[0]!, false);
+  assert.equal("condition" in model.fragments[0]!, false);
+  assert.equal("description" in model.fragments[0]!, false);
+  assert.equal("condition" in model.fragments[0]!.branches![0]!, false);
+});
+
 test("parseDesignDiagramModelsOnly softly dedupes repeated activity nodes", () => {
   const parsed = parseDesignDiagramModelsOnly(
     JSON.stringify({

@@ -7,6 +7,7 @@ import {
 } from "./postgres.js";
 import {
   baseSchemaSql,
+  billingCompatibilityColumnsSql,
   billingAndPaymentsSql,
   migrationTableName,
   migrations,
@@ -162,6 +163,23 @@ test("billing migration creates payment, entitlement, and reservation records", 
   );
 });
 
+test("billing compatibility migration backfills columns added after initial billing rollout", () => {
+  for (const column of [
+    "payment_orders add column if not exists client_return_url text",
+    "payment_notifications add column if not exists error_message text",
+    "billing_usage_reservations add column if not exists project_id text",
+    "billing_usage_reservations add column if not exists credit_delta integer not null default 0",
+    "billing_usage_reservations add column if not exists metadata_json jsonb not null default '{}'::jsonb",
+  ]) {
+    assert.match(billingCompatibilityColumnsSql, new RegExp(column, "i"));
+  }
+
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /013_billing_compatibility_columns/,
+  );
+});
+
 test("migration runner creates its ledger and skips already applied migrations", async () => {
   const client = new FakeClient(new Set(migrations.map((migration) => migration.id)));
 
@@ -180,6 +198,22 @@ test("migration runner applies missing migrations and records them", async () =>
   assert.deepEqual(applied, migrations.map((migration) => migration.id));
   assert.match(client.queries.join("\n"), /create table if not exists users/i);
   assert.match(client.queries.join("\n"), /insert into schema_migrations/i);
+});
+
+test("migration runner applies billing compatibility when earlier migrations already ran", async () => {
+  const appliedMigrationIds = migrations
+    .filter((migration) => migration.id !== "013_billing_compatibility_columns")
+    .map((migration) => migration.id);
+  const client = new FakeClient(new Set(appliedMigrationIds));
+
+  const applied = await runMigrations(client);
+
+  assert.deepEqual(applied, ["013_billing_compatibility_columns"]);
+  assert.match(client.queries.join("\n"), /payment_orders add column if not exists client_return_url/i);
+  assert.match(
+    client.queries.join("\n"),
+    /insert into schema_migrations \(id\) values \(\$1\).*013_billing_compatibility_columns/is,
+  );
 });
 
 test("health check reports ok when SELECT 1 succeeds", async () => {

@@ -216,23 +216,41 @@ const STAGE_SCOPED_SUBTASK_PREFIXES = [
   "render_svg",
 ] as const;
 
+type StageScopedSubtaskPrefix = (typeof STAGE_SCOPED_SUBTASK_PREFIXES)[number];
+type StageStatusMap = Partial<Record<StageScopedSubtaskPrefix, Node["status"] | null>>;
+
 function scopedSubtaskInfo(id: string) {
   const prefix = STAGE_SCOPED_SUBTASK_PREFIXES.find((candidate) =>
     id.startsWith(`${candidate}:`),
   );
   if (!prefix) return null;
-  const priority =
-    prefix === "render_svg" ? 3 : prefix === "generate_plantuml" ? 2 : 1;
   return {
+    prefix,
     rawId: id.slice(prefix.length + 1),
-    priority,
   };
+}
+
+function aggregatePipelineStatus(stageStatuses: StageStatusMap) {
+  const statuses = Object.values(stageStatuses).filter(Boolean);
+  if (statuses.includes("failed")) return "failed" as const;
+  if (stageStatuses.render_svg === "completed") return "completed" as const;
+  if (
+    statuses.includes("running") ||
+    stageStatuses.generate_models === "completed" ||
+    stageStatuses.generate_design_sequence === "completed" ||
+    stageStatuses.generate_design_models === "completed" ||
+    stageStatuses.generate_plantuml === "completed"
+  ) {
+    return "running" as const;
+  }
+  if (statuses.includes("queued")) return "queued" as const;
+  return null;
 }
 
 function setSubtaskStatus(
   statuses: Map<string, Node["status"]>,
   labels: Map<string, string>,
-  rawStatusPriorities: Map<string, number>,
+  stageStatusesByRawId: Map<string, StageStatusMap>,
   id: string,
   label: string,
   status: Node["status"] | null,
@@ -243,22 +261,15 @@ function setSubtaskStatus(
   // by model id, so keep a raw-id alias for rendering and regeneration states.
   const scoped = scopedSubtaskInfo(id);
   if (scoped) {
-    const effectivePriority = status === "queued" ? 0 : scoped.priority;
-    const previousPriority = rawStatusPriorities.get(scoped.rawId) ?? 0;
-    rawStatusPriorities.set(
-      scoped.rawId,
-      Math.max(previousPriority, effectivePriority),
-    );
-    const rawStatus =
-      effectivePriority > previousPriority
-        ? mergeSidebarStatus(undefined, status)
-        : effectivePriority === previousPriority
-          ? mergeSidebarStatus(statuses.get(scoped.rawId), status)
-          : statuses.get(scoped.rawId);
-    statuses.set(
-      scoped.rawId,
-      rawStatus,
-    );
+    const stageStatuses = stageStatusesByRawId.get(scoped.rawId) ?? {};
+    stageStatuses[scoped.prefix] = status;
+    stageStatusesByRawId.set(scoped.rawId, stageStatuses);
+    const rawStatus = aggregatePipelineStatus(stageStatuses);
+    if (rawStatus) {
+      statuses.set(scoped.rawId, rawStatus);
+    } else {
+      statuses.delete(scoped.rawId);
+    }
     labels.set(scoped.rawId, label);
   }
 }
@@ -266,16 +277,21 @@ function setSubtaskStatus(
 function generationStatusTooltip(
   label: string,
   status: Node["status"],
-  hasExistingModel: boolean,
+  hasViewableSvg: boolean,
+  hasStructuredModel = hasViewableSvg,
 ) {
   if (status === "queued") {
-    return hasExistingModel
+    return hasViewableSvg
       ? `${label}重新生成排队中，当前图仍可查看`
+      : hasStructuredModel
+        ? `${label}模型已生成，等待生成图像`
       : `${label}生成排队中`;
   }
   if (status === "running") {
-    return hasExistingModel
+    return hasViewableSvg
       ? `${label}重新生成中，当前图仍可查看`
+      : hasStructuredModel
+        ? `${label}模型已生成，正在生成图像`
       : `${label}生成中`;
   }
   if (status === "failed") return `${label}生成失败`;
@@ -283,13 +299,17 @@ function generationStatusTooltip(
   return undefined;
 }
 
-function designUnavailableReason(
+function diagramUnavailableReason(
   status: Node["status"],
   hasStructuredModel: boolean,
 ) {
   if (status === "failed") return "生成失败，请查看生成任务详情";
   if (status === "queued") return "生成排队中，完成后可查看";
-  if (status === "running") return "正在生成图像，渲染完成后可查看";
+  if (status === "running") {
+    return hasStructuredModel
+      ? "当前只有结构化模型，SVG 尚未生成"
+      : "正在生成图像，渲染完成后可查看";
+  }
   if (status === "completed" || hasStructuredModel) {
     return "当前只有结构化模型，SVG 尚未生成";
   }
@@ -412,6 +432,8 @@ function buildDiagramNode(
   failed: boolean,
   status: Node["status"],
   statusTooltip: string | undefined,
+  viewable: boolean,
+  hasStructuredModel: boolean,
   openDiagram: (diagram: DiagramType, modelId?: string, label?: string) => void,
   openRequirementTraceMatrix: (
     diagram: DiagramType,
@@ -427,6 +449,7 @@ function buildDiagramNode(
   ) => void,
 ): Node {
   const modelId = model ? getRequirementModelId(model) : diagram;
+  const canOpen = viewable && status !== "failed";
   const label =
     diagram === "analysis" && model
       ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
@@ -480,9 +503,13 @@ function buildDiagramNode(
     ),
     children,
     badge: detail.items.length || undefined,
+    selectable: canOpen,
     status,
     statusTooltip,
-    onSelect: () => openDiagram(diagram, modelId, label),
+    unavailableReason: canOpen
+      ? undefined
+      : diagramUnavailableReason(status, hasStructuredModel),
+    onSelect: canOpen ? () => openDiagram(diagram, modelId, label) : undefined,
   };
 }
 
@@ -500,12 +527,7 @@ function buildPendingRequirementDiagramNode(
     selectable: false,
     status,
     statusTooltip,
-    unavailableReason:
-      status === "failed"
-        ? "生成失败，请查看生成任务详情"
-        : status === "queued"
-          ? "生成排队中，完成后可查看"
-          : "正在生成图像，渲染完成后可查看",
+    unavailableReason: diagramUnavailableReason(status, false),
   };
 }
 
@@ -516,6 +538,7 @@ function buildDesignDiagramNode(
   status: Node["status"],
   statusTooltip: string | undefined,
   viewable: boolean,
+  hasStructuredModel: boolean,
   openDesignDiagram: (
     diagram: DesignDiagramType,
     modelId?: string,
@@ -592,7 +615,7 @@ function buildDesignDiagramNode(
     statusTooltip,
     unavailableReason: canOpen
       ? undefined
-      : designUnavailableReason(status, Boolean(model)),
+      : diagramUnavailableReason(status, hasStructuredModel),
     onSelect: canOpen ? () => openDesignDiagram(diagram, modelId, label) : undefined,
   };
 }
@@ -611,7 +634,7 @@ function buildPendingDesignDiagramNode(
     selectable: false,
     status,
     statusTooltip,
-    unavailableReason: designUnavailableReason(status, false),
+    unavailableReason: diagramUnavailableReason(status, false),
   };
 }
 
@@ -686,10 +709,10 @@ export function SidebarMenu() {
   );
   const requirementSubtaskStatus = new Map<string, Node["status"]>();
   const requirementSubtaskLabels = new Map<string, string>();
-  const requirementRawStatusPriorities = new Map<string, number>();
+  const requirementStageStatuses = new Map<string, StageStatusMap>();
   const designSubtaskStatus = new Map<string, Node["status"]>();
   const designSubtaskLabels = new Map<string, string>();
-  const designRawStatusPriorities = new Map<string, number>();
+  const designStageStatuses = new Map<string, StageStatusMap>();
   for (const task of generationTasks.filter((item) =>
     item.status === "queued" || item.status === "running"
   )) {
@@ -699,7 +722,7 @@ export function SidebarMenu() {
         setSubtaskStatus(
           requirementSubtaskStatus,
           requirementSubtaskLabels,
-          requirementRawStatusPriorities,
+          requirementStageStatuses,
           subtask.id,
           subtask.label,
           status,
@@ -709,7 +732,7 @@ export function SidebarMenu() {
         setSubtaskStatus(
           designSubtaskStatus,
           designSubtaskLabels,
-          designRawStatusPriorities,
+          designStageStatuses,
           subtask.id,
           subtask.label,
           status,
@@ -728,6 +751,7 @@ export function SidebarMenu() {
   );
   const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter(
     (diagram) =>
+      designModelsByDiagram[diagram].length > 0 ||
       generatedDesignDiagrams.includes(diagram) ||
       designSubtaskStatus.has(diagram) ||
       Boolean(designDiagramErrors[diagram]) ||
@@ -739,14 +763,21 @@ export function SidebarMenu() {
   const requirementStatusFor = (diagram: DiagramType, modelId?: string): Node["status"] => {
     if (modelId && diagramErrors[modelId]) return "failed";
     if (diagramErrors[diagram]) return "failed";
-    return (
+    const activeStatus =
       (modelId ? requirementSubtaskStatus.get(modelId) : undefined) ??
-      requirementSubtaskStatus.get(diagram) ??
-      (generatedDiagrams.includes(diagram) ? "completed" : undefined)
+      requirementSubtaskStatus.get(diagram);
+    if (activeStatus) return activeStatus;
+    const viewable = requirementModelViewable(diagram, modelId);
+    const hasStructuredModel = Boolean(
+      (modelId ? models[modelId] : undefined) ??
+        models[diagram] ??
+        requirementModelsByDiagram[diagram][0],
     );
+    if (generatedDiagrams.includes(diagram) || hasStructuredModel) return "completed";
+    return undefined;
   };
-  const requirementModelViewable = (modelId: string) =>
-    Boolean(svgArtifacts[modelId]);
+  const requirementModelViewable = (diagram: DiagramType, modelId?: string) =>
+    Boolean((modelId ? svgArtifacts[modelId] : undefined) ?? svgArtifacts[diagram]);
   const analysisGenerationActive =
     requirementSubtaskStatus.has("analysis") ||
     [...requirementSubtaskStatus.keys()].some((id) => id.startsWith("analysis:"));
@@ -777,14 +808,21 @@ export function SidebarMenu() {
   const designStatusFor = (diagram: DesignDiagramType, modelId?: string): Node["status"] => {
     if (modelId && designDiagramErrors[modelId]) return "failed";
     if (designDiagramErrors[diagram]) return "failed";
-    return (
+    const activeStatus =
       (modelId ? designSubtaskStatus.get(modelId) : undefined) ??
-      designSubtaskStatus.get(diagram) ??
-      (generatedDesignDiagrams.includes(diagram) ? "completed" : undefined)
+      designSubtaskStatus.get(diagram);
+    if (activeStatus) return activeStatus;
+    const viewable = designModelViewable(diagram, modelId);
+    const hasStructuredModel = Boolean(
+      (modelId ? designModels[modelId] : undefined) ??
+        designModels[diagram] ??
+        designModelsByDiagram[diagram][0],
     );
+    if (generatedDesignDiagrams.includes(diagram) || hasStructuredModel) return "completed";
+    return undefined;
   };
-  const designModelViewable = (modelId: string) =>
-    Boolean(designSvgArtifacts[modelId]);
+  const designModelViewable = (diagram: DesignDiagramType, modelId?: string) =>
+    Boolean((modelId ? designSvgArtifacts[modelId] : undefined) ?? designSvgArtifacts[diagram]);
   const sequenceGenerationActive =
     designSubtaskStatus.has("sequence") ||
     [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:"));
@@ -848,7 +886,7 @@ export function SidebarMenu() {
             const groupStatus = analysisSubtaskNodes.reduce<Node["status"]>(
               (current, model) =>
                 mergeSidebarStatus(current, model.status ?? null),
-              requirementStatusFor(diagram),
+              undefined,
             );
             return {
               key: "diagram-group:analysis",
@@ -859,7 +897,10 @@ export function SidebarMenu() {
               statusTooltip: generationStatusTooltip(
                 DIAGRAM_META.analysis.label,
                 groupStatus,
-                analysisSubtaskNodes.some((node) => requirementModelViewable(node.id)),
+                analysisSubtaskNodes.some((node) =>
+                  requirementModelViewable("analysis", node.id),
+                ),
+                analysisSubtaskNodes.some((node) => Boolean(models[node.id])),
               ),
               children: analysisSubtaskNodes.map((node) => {
                 const model = models[node.id];
@@ -873,6 +914,8 @@ export function SidebarMenu() {
                     generationStatusTooltip(node.label, status, false),
                   );
                 }
+                const viewable = requirementModelViewable(diagram, node.id);
+                const hasStructuredModel = Boolean(model);
                 return buildDiagramNode(
                   diagram,
                   model,
@@ -882,8 +925,11 @@ export function SidebarMenu() {
                   generationStatusTooltip(
                     model.title,
                     status,
-                    requirementModelViewable(node.id),
+                    viewable,
+                    hasStructuredModel,
                   ),
+                  viewable,
+                  hasStructuredModel,
                   openDiagram,
                   openRequirementTraceMatrix,
                   openDiagramElement,
@@ -894,6 +940,8 @@ export function SidebarMenu() {
           const model = requirementModelsByDiagram[diagram][0] ?? models[diagram];
           const modelId = model ? getRequirementModelId(model) : undefined;
           const status = requirementStatusFor(diagram, modelId);
+          const viewable = requirementModelViewable(diagram, modelId);
+          const hasStructuredModel = Boolean(model) || generatedDiagrams.includes(diagram);
           return buildDiagramNode(
             diagram,
             model,
@@ -903,8 +951,11 @@ export function SidebarMenu() {
             generationStatusTooltip(
               DIAGRAM_META[diagram].label,
               status,
-              modelId ? requirementModelViewable(modelId) : Boolean(model),
+              viewable,
+              hasStructuredModel,
             ),
+            viewable,
+            hasStructuredModel,
             openDiagram,
             openRequirementTraceMatrix,
             openDiagramElement,
@@ -931,7 +982,7 @@ export function SidebarMenu() {
                   current,
                   model.status ?? null,
                 ),
-              designStatusFor(diagram),
+              undefined,
             );
             return {
               key: "design-diagram-group:sequence",
@@ -943,7 +994,10 @@ export function SidebarMenu() {
                 generationStatusTooltip(
                   DESIGN_DIAGRAM_META.sequence.label,
                   groupStatus,
-                  sequenceSubtaskNodes.some((node) => designModelViewable(node.id)),
+                  sequenceSubtaskNodes.some((node) =>
+                    designModelViewable("sequence", node.id),
+                  ),
+                  sequenceSubtaskNodes.some((node) => Boolean(designModels[node.id])),
                 ),
               children: sequenceSubtaskNodes.map((node) =>
                 {
@@ -958,6 +1012,8 @@ export function SidebarMenu() {
                       generationStatusTooltip(node.label, status, false),
                     );
                   }
+                  const viewable = designModelViewable(diagram, node.id);
+                  const hasStructuredModel = Boolean(model);
                   return buildDesignDiagramNode(
                     diagram,
                     model,
@@ -966,9 +1022,11 @@ export function SidebarMenu() {
                     generationStatusTooltip(
                       model.title,
                       status,
-                      designModelViewable(node.id),
+                      viewable,
+                      hasStructuredModel,
                     ),
-                    designModelViewable(node.id),
+                    viewable,
+                    hasStructuredModel,
                     openDesignDiagram,
                     openDesignTraceMatrix,
                     openDesignDiagramElement,
@@ -982,6 +1040,10 @@ export function SidebarMenu() {
             diagram,
             model ? getDesignModelId(model) : undefined,
           );
+          const modelId = model ? getDesignModelId(model) : undefined;
+          const viewable = designModelViewable(diagram, modelId);
+          const hasStructuredModel =
+            Boolean(model) || generatedDesignDiagrams.includes(diagram);
           return buildDesignDiagramNode(
             diagram,
             model,
@@ -990,9 +1052,11 @@ export function SidebarMenu() {
             generationStatusTooltip(
               DESIGN_DIAGRAM_META[diagram].label,
               status,
-              model ? designModelViewable(getDesignModelId(model)) : false,
+              viewable,
+              hasStructuredModel,
             ),
-            model ? designModelViewable(getDesignModelId(model)) : false,
+            viewable,
+            hasStructuredModel,
             openDesignDiagram,
             openDesignTraceMatrix,
             openDesignDiagramElement,

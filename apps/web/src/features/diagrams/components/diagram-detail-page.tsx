@@ -142,6 +142,16 @@ function matchesItemSearch(item: DiagramDetailItem, query: string) {
     item.id,
     item.description ?? "",
     ...item.fields.flatMap((field) => [field.label, field.value]),
+    ...(item.sections ?? []).flatMap((section) => [
+      section.title,
+      section.summary ?? "",
+      ...(section.fields ?? []).flatMap((field) => [field.label, field.value]),
+      ...section.items.flatMap((sectionItem) => [
+        sectionItem.title,
+        sectionItem.description ?? "",
+        ...sectionItem.fields.flatMap((field) => [field.label, field.value]),
+      ]),
+    ]),
   ]
     .join(" ")
     .toLowerCase()
@@ -369,7 +379,22 @@ function designSourceLabel(
   return "来源：设计阶段设计类图 + 设计阶段用例实现设计";
 }
 
-function requirementSourceLabel(rules: Array<{ id?: string }>) {
+function requirementSourceLabel(
+  diagram: DiagramType,
+  model: Record<string, unknown> | null,
+  rules: Array<{ id?: string }>,
+) {
+  if (diagram === "analysis") {
+    const useCaseName = stringValue(model?.sourceUseCaseName).trim();
+    if (useCaseName) {
+      return `来源：用例模型事件流（用例：${useCaseName}）`;
+    }
+    const useCaseId = stringValue(model?.sourceUseCaseId).trim();
+    if (useCaseId) {
+      return `来源：用例模型事件流（用例ID：${useCaseId}）`;
+    }
+    return "来源：用例模型事件流（具体用例未标明）";
+  }
   if (rules.length === 0) {
     return "来源：需求规则（未标明）";
   }
@@ -2794,7 +2819,7 @@ function DiagramDetailView({
       URL.revokeObjectURL(objectUrl);
     };
   }, [svgMarkup]);
-  const sourceRules = isDesign ? [] : rulesForDiagram(requirementType);
+  const sourceRules = isDesign || requirementType === "analysis" ? [] : rulesForDiagram(requirementType);
   const detailModel = useMemo(() => buildDiagramDetailModel(draft ?? model), [draft, model]);
   const { items, groups, relationships } = detailModel;
   const itemsById = useMemo(
@@ -2872,7 +2897,13 @@ function DiagramDetailView({
   const designSourceText = isDesign
     ? designSourceLabel(designType, draft ?? (designModel ? cloneDraftModel(designModel) : null))
     : null;
-  const requirementSourceText = !isDesign ? requirementSourceLabel(sourceRules) : null;
+  const requirementSourceText = !isDesign
+    ? requirementSourceLabel(
+        requirementType,
+        draft ?? (model ? cloneDraftModel(model) : null),
+        sourceRules,
+      )
+    : null;
   const sourceText = designSourceText ?? requirementSourceText;
   const editWarningText = editStatus?.warning?.includes("重绘当前图")
     ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
@@ -2994,7 +3025,7 @@ function DiagramDetailView({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {!source ? (
+      {!model && !source ? (
         <div className="w-full overflow-auto py-6 lg:py-8">
           <div className="mx-auto w-[calc(100%-2rem)] max-w-[1920px] sm:w-[calc(100%-3rem)] lg:w-[calc(100%-4rem)]">
             {diagramError ? (
@@ -3254,6 +3285,78 @@ function DiagramDetailView({
                                   </div>
                                 ) : !highlighted.description ? (
                                   <div className="mt-1">暂无额外属性。</div>
+                                ) : null}
+                                {highlighted.sections && highlighted.sections.length > 0 ? (
+                                  <div className="mt-3 flex flex-col gap-3">
+                                    {highlighted.sections.map((section) => (
+                                      <div
+                                        key={`${highlighted.id}:section:${section.id}`}
+                                        className="rounded-md border border-border bg-muted/30 p-2.5"
+                                      >
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <div className="text-xs font-semibold text-foreground">
+                                            {section.title}
+                                          </div>
+                                          {section.summary ? (
+                                            <Badge variant="secondary" className="text-[10px]">
+                                              {section.summary}
+                                            </Badge>
+                                          ) : null}
+                                        </div>
+                                        {section.fields && section.fields.length > 0 ? (
+                                          <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-2">
+                                            {section.fields.map((field) => (
+                                              <div
+                                                key={`${highlighted.id}:section:${section.id}:${field.label}`}
+                                                className="min-w-0"
+                                              >
+                                                <span className="text-muted-foreground">
+                                                  {field.label}：
+                                                </span>
+                                                <span className="break-words text-foreground">
+                                                  {field.value}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                        <div className="mt-2 flex flex-col gap-2">
+                                          {section.items.map((sectionItem) => (
+                                            <div
+                                              key={`${highlighted.id}:section:${section.id}:${sectionItem.id}`}
+                                              className="rounded-md bg-background p-2"
+                                            >
+                                              <div className="text-[11px] font-medium text-foreground">
+                                                {sectionItem.title}
+                                              </div>
+                                              {sectionItem.description ? (
+                                                <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                                                  {sectionItem.description}
+                                                </div>
+                                              ) : null}
+                                              {sectionItem.fields.length > 0 ? (
+                                                <div className="mt-1.5 grid gap-1 text-[11px] sm:grid-cols-2">
+                                                  {sectionItem.fields.map((field) => (
+                                                    <div
+                                                      key={`${highlighted.id}:section:${section.id}:${sectionItem.id}:${field.label}`}
+                                                      className="min-w-0"
+                                                    >
+                                                      <span className="text-muted-foreground">
+                                                        {field.label}：
+                                                      </span>
+                                                      <span className="break-words text-foreground">
+                                                        {field.value}
+                                                      </span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
                                 ) : null}
                                 {!isDesign && sourceRules.length > 0 && (
                                   <div className="mt-3">

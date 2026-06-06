@@ -49,7 +49,7 @@ Bootstrap 会创建 `super_admin` 用户、生成邮箱验证 token，并通过 
 | --- | --- | --- |
 | `UML_PROVIDER_SECRET_KEY` | 是 | 生产供应商 API Key 加密主密钥。必须是强随机值，并按密钥管理流程保管。若当前代码版本仍读取 `UML_PROVIDER_CONFIG_SECRET`，生产部署需同时设置两者为同一个强随机值，直到完成变量名统一。 |
 | `UML_PROVIDER_CONFIG_SECRET` | 兼容 | 当前 provider config 存储实现读取的加密密钥名。不要使用本地开发默认值。 |
-| `UML_PROVIDER_BASE_URL_ALLOWLIST` | 是 | 逗号分隔的供应商 Base URL 白名单，例如 `https://api.openai.com,https://llm.example.edu`。不在白名单内的 Base URL 不允许测试或生成，防止 SSRF。 |
+| `UML_PROVIDER_BASE_URL_ALLOWLIST` | 是 | 逗号分隔的供应商 Base URL 白名单，例如 `https://api.openai.com,https://api.siliconflow.cn,https://llm.example.edu`。不在白名单内的 Base URL 不允许测试或生成，防止 SSRF。 |
 | `UML_ALLOW_LEGACY_PROVIDER_TEST` | 否 | 仅本地/测试可显式设为 `true`，允许旧的明文 provider test 入口。生产必须为空或 `false`。 |
 | `UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS` | 否 | 仅本地/测试可显式设为 `true`，允许项目 run 使用前端传入的明文 provider settings。生产必须为空或 `false`，项目 run 应使用后端托管的 `providerConfigId`。 |
 

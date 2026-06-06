@@ -189,6 +189,78 @@ test("parseRequirementDiagramModelsOnly preserves long relationship text in desc
   }
 });
 
+test("parseRequirementDiagramModelsOnly drops blank optional sequence fields", () => {
+  const parsed = parseRequirementDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "analysis",
+          modelId: "analysis:uc_register",
+          sourceUseCaseId: "uc_register",
+          sourceUseCaseName: "注册活动",
+          title: "注册活动需求分析模型",
+          summary: "根据用例事件流生成。",
+          notes: [],
+          participants: [
+            {
+              id: "visitor",
+              name: "未注册用户",
+              participantType: "actor",
+              description: "",
+            },
+            {
+              id: "page",
+              name: "注册页面",
+              participantType: "boundary",
+            },
+          ],
+          messages: [
+            {
+              id: "m_submit",
+              type: "sync",
+              sourceId: "visitor",
+              targetId: "page",
+              name: "提交注册申请",
+              parameters: [],
+              returnValue: "",
+              condition: "",
+              description: "",
+            },
+          ],
+          fragments: [
+            {
+              id: "alt_result",
+              type: "alt",
+              label: "注册结果",
+              messageIds: ["m_submit"],
+              condition: "",
+              description: "",
+              branches: [
+                {
+                  label: "成功",
+                  condition: "",
+                  messageIds: ["m_submit"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "analysis");
+  if (model?.diagramKind !== "analysis") return;
+  assert.equal("description" in model.participants[0]!, false);
+  assert.equal("returnValue" in model.messages[0]!, false);
+  assert.equal("condition" in model.messages[0]!, false);
+  assert.equal("description" in model.messages[0]!, false);
+  assert.equal("condition" in model.fragments[0]!, false);
+  assert.equal("description" in model.fragments[0]!, false);
+  assert.equal("condition" in model.fragments[0]!.branches![0]!, false);
+});
+
 test("parseRequirementTraceabilityCoverageResult ignores nullable optional model ids", () => {
   const rules = [
     {

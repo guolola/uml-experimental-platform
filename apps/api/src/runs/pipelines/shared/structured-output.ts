@@ -5,6 +5,13 @@ import { formatParseError } from "../../../normalizers/json/parse-json.js";
 
 const RAW_OUTPUT_LOG_LIMIT = 8000;
 
+export interface LlmChunkHandlers {
+  onChunk: (chunk: string) => void;
+  onBlankChunk?: (chunk: string) => void;
+}
+
+type LlmChunkSink = ((chunk: string) => void) | LlmChunkHandlers;
+
 export type StructuredOutputFailureType =
   | "json_parse"
   | "model_schema"
@@ -16,6 +23,25 @@ export type StructuredOutputFailureType =
 function truncateForLog(rawText: string) {
   if (rawText.length <= RAW_OUTPUT_LOG_LIMIT) return rawText;
   return `${rawText.slice(0, RAW_OUTPUT_LOG_LIMIT)}\n...[truncated ${rawText.length - RAW_OUTPUT_LOG_LIMIT} chars]`;
+}
+
+function isMeaningfulChunk(chunk: string) {
+  return chunk.trim().length > 0;
+}
+
+function emitCollectedChunk(sink: LlmChunkSink, chunk: string) {
+  if (isMeaningfulChunk(chunk)) {
+    if (typeof sink === "function") {
+      sink(chunk);
+    } else {
+      sink.onChunk(chunk);
+    }
+    return;
+  }
+
+  if (typeof sink !== "function") {
+    sink.onBlankChunk?.(chunk);
+  }
 }
 
 export function classifyStructuredOutputFailure(
@@ -109,19 +135,21 @@ export async function collectStructuredResult<T>(
   providerSettings: ProviderSettings,
   messages: ChatMessage[],
   stage: RunStage,
-  onChunk: (chunk: string) => void,
+  onChunk: LlmChunkSink,
   parse: (text: string) => T,
   responseFormat?: ChatCompletionResponseFormat | null,
   attempt?: number,
+  abortSignal?: AbortSignal,
 ) {
   let content = "";
   for await (const chunk of llmTransport.streamChatCompletion({
     providerSettings,
     messages,
     responseFormat,
+    abortSignal,
   })) {
     content += chunk;
-    onChunk(chunk);
+    emitCollectedChunk(onChunk, chunk);
   }
   try {
     return parse(content);
@@ -141,17 +169,19 @@ export async function collectTextResult(
   llmTransport: LlmTransport,
   providerSettings: ProviderSettings,
   messages: ChatMessage[],
-  onChunk: (chunk: string) => void,
+  onChunk: LlmChunkSink,
   responseFormat?: ChatCompletionResponseFormat | null,
+  abortSignal?: AbortSignal,
 ) {
   let content = "";
   for await (const chunk of llmTransport.streamChatCompletion({
     providerSettings,
     messages,
     responseFormat,
+    abortSignal,
   })) {
     content += chunk;
-    onChunk(chunk);
+    emitCollectedChunk(onChunk, chunk);
   }
   return content;
 }

@@ -65,13 +65,36 @@ describe("SettingsDialog", () => {
           return Response.json({
             providerConfigs: [
               {
-                id: "provider-config-1",
-                name: "课程 OpenAI 托管配置",
-                provider: "openai",
-                baseUrl: "https://api.openai.com/v1",
-                maskedKey: "sk-***",
-                defaultModel: "gpt-5.5",
+                id: "provider-system-siliconflow",
+                name: "系统级 SiliconFlow",
+                provider: "siliconflow",
+                baseUrl: "https://api.siliconflow.cn",
+                defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+                allowedModels: ["deepseek-ai/DeepSeek-V4-Pro"],
+                maskedKey: "sk-...free",
                 status: "active",
+                riskState: "medium",
+                quota: "free-tier",
+                lastUsedAt: null,
+                scopeType: "system",
+                scopeId: null,
+                breakerState: "closed",
+              },
+              {
+                id: "provider-user-comfly",
+                name: "用户级 Comfly",
+                provider: "comfly",
+                baseUrl: "https://ai.comfly.org",
+                defaultModel: "gpt-5.4",
+                allowedModels: ["gpt-5.4"],
+                maskedKey: "sk-...paid",
+                status: "active",
+                riskState: "low",
+                quota: "paid-user",
+                lastUsedAt: null,
+                scopeType: "user",
+                scopeId: "user-1",
+                breakerState: "closed",
               },
             ],
           });
@@ -107,7 +130,8 @@ describe("SettingsDialog", () => {
     expect(
       screen.queryByText("登录态必须使用服务端托管 Provider；明文 API Key 只允许显式 dev legacy 模式。"),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText("课程 OpenAI 托管配置")).toBeInTheDocument();
+    expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    expect(screen.getByText("个人配置 · comfly · https://ai.comfly.org · sk-...paid")).toBeInTheDocument();
   });
 
   it("loads and saves the embedded global settings panel", async () => {
@@ -119,17 +143,20 @@ describe("SettingsDialog", () => {
       ),
     );
 
-    expect(await screen.findByText("课程 OpenAI 托管配置")).toBeInTheDocument();
+    expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "托管 Provider 配置" }));
+    expect(screen.getByText("系统级 SiliconFlow（系统配置）")).toBeInTheDocument();
     expect(screen.getByText("工作台偏好")).toBeInTheDocument();
     expect(screen.getByText("深色主题")).toBeInTheDocument();
     expect(screen.getByText("字号")).toBeInTheDocument();
     expect(screen.getByText("修改后自动重新生成规则")).toBeInTheDocument();
     expect(screen.getByText("显示过期模型横幅")).toBeInTheDocument();
+    await user.keyboard("[Escape]");
 
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(toastSuccess).toHaveBeenCalledWith("设置已保存");
-    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain("provider-config-1");
+    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain("provider-user-comfly");
   });
 
   it("shows the embedded login prompt when global settings cannot verify auth", async () => {

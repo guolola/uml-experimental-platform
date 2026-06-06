@@ -53,14 +53,20 @@ type DocumentPipeline = (
   pngRenderClient: PngRenderClient,
 ) => Promise<void>;
 
-const LLM_SUBTASK_LABELS: Record<string, string> = {
+const REQUIREMENT_LLM_SUBTASK_LABELS: Record<string, string> = {
   usecase: "用例模型",
   class: "类模型",
   activity: "总体业务流程",
   deployment: "部署需求模型",
   prototype: "原型界面关系",
   analysis: "需求分析模型",
+};
+
+const DESIGN_LLM_SUBTASK_LABELS: Record<string, string> = {
   sequence: "用例实现设计",
+  class: "设计类图",
+  activity: "界面关系图",
+  deployment: "部署设计",
   table: "数据库设计",
 };
 
@@ -77,25 +83,31 @@ const KNOWN_LLM_DIAGRAM_KINDS = new Set([
 
 function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
   const prompt = String(input.messages.at(-1)?.content ?? "");
-  const match =
-    prompt.match(/只生成以下设计图类型：\s*\n?([^\n]+)/) ??
-    prompt.match(/只生成以下图类型：\s*\n?([^\n]+)/);
+  const designMatch = prompt.match(/只生成以下设计图类型：\s*\n?([^\n]+)/);
+  const requirementMatch = prompt.match(/只生成以下图类型：\s*\n?([^\n]+)/);
+  const match = designMatch ?? requirementMatch;
   const selected = match?.[1]
     ?.split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+  const isDesignSequencePrompt =
+    prompt.includes("生成设计阶段用例实现设计") ||
+    prompt.includes("生成设计阶段顺序图结构化模型");
   const diagramKind =
     selected?.length === 1 && KNOWN_LLM_DIAGRAM_KINDS.has(selected[0]!)
       ? selected[0]!
-      : prompt.includes("生成设计阶段用例实现设计") ||
-          prompt.includes("生成设计阶段顺序图结构化模型")
+      : isDesignSequencePrompt
         ? "sequence"
         : null;
   if (!diagramKind) return {};
+  const labels =
+    designMatch || isDesignSequencePrompt
+      ? DESIGN_LLM_SUBTASK_LABELS
+      : REQUIREMENT_LLM_SUBTASK_LABELS;
   return {
     diagramKind: diagramKind as DiagramKind,
     subtaskId: diagramKind,
-    subtaskLabel: LLM_SUBTASK_LABELS[diagramKind] ?? diagramKind,
+    subtaskLabel: labels[diagramKind] ?? diagramKind,
   };
 }
 
@@ -167,7 +179,7 @@ function createRunLlmTransport({
           ? "模型调用开始执行"
           : status.status === "cancelled"
             ? "模型调用已取消"
-            : "模型调用完成";
+            : "模型调用完成，正在解析结果";
     emitEvent(
       record,
       stageProgressRunEventSchema.parse({
@@ -181,7 +193,7 @@ function createRunLlmTransport({
             : status.status === "running"
               ? "running"
               : status.status === "completed"
-                ? "completed"
+                ? "running"
                 : "failed",
         diagramKind: context.diagramKind,
         subtaskId: context.subtaskId,

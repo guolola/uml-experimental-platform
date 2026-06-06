@@ -122,7 +122,7 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("健身追踪")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("目标模型")).toBeInTheDocument();
-    expect(screen.getAllByText("缺少对应需求规则").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/将自动补齐：需求规则/).length).toBeGreaterThan(0);
 
     await user.type(requirementInput, "创建一个订单系统");
     expect(requirementInput).toHaveValue("创建一个订单系统");
@@ -377,7 +377,7 @@ describe("TextRequirementView", () => {
     expect(within(dialog).getAllByText("证明已补齐").length).toBeGreaterThan(0);
   });
 
-  it("disables target diagrams that do not have linked requirement rules", async () => {
+  it("keeps target diagrams selectable when existing rules need AI mapping completion", async () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -399,10 +399,61 @@ describe("TextRequirementView", () => {
     const classDiagramCheckbox = screen.getByRole("checkbox", {
       name: /领域概念模型/,
     });
-    expect(classDiagramCheckbox).toBeDisabled();
-    expect(classDiagramCheckbox).not.toBeChecked();
-    expect(screen.getAllByText("缺少对应需求规则").length).toBeGreaterThan(0);
-    expect(screen.getByText("0/6")).toBeInTheDocument();
+    expect(classDiagramCheckbox).toBeEnabled();
+    expect(classDiagramCheckbox).toBeChecked();
+    expect(
+      screen.getAllByText(/将自动补齐：规则映射/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("1/6")).toBeInTheDocument();
+  });
+
+  it("allows analysis model selection from generated use case event flows without analysis rules", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          rules: [
+            createRule({
+              id: "r1",
+              relatedDiagrams: ["usecase"],
+            }),
+          ],
+          rulesVersion: 1,
+          selectedDiagramTypes: ["usecase"],
+          generatedDiagramTypes: [],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例模型",
+              summary: "用户提交订单。",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+        }),
+      ),
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const analysisCheckbox = await screen.findByRole("checkbox", {
+      name: /需求分析模型/,
+    });
+    expect(analysisCheckbox).toBeEnabled();
+    expect(
+      screen.getByText("基于用例模型事件流生成，不要求需求规则直接映射。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("需先选择或生成用例模型")).not.toBeInTheDocument();
+
+    await user.click(analysisCheckbox);
+
+    await waitFor(() => {
+      expect(analysisCheckbox).toBeChecked();
+    });
+    expect(screen.getByText("2/6")).toBeInTheDocument();
   });
 
   it("labels generated but unselected requirement models as kept", async () => {
@@ -971,17 +1022,12 @@ describe("TextRequirementView", () => {
     expect(useCaseCheckbox).not.toBeChecked();
   });
 
-  it("does not toggle disabled target diagram cards", async () => {
+  it("toggles target diagram cards that will auto-fill when no rules exist", async () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
-          rules: [
-            createRule({
-              id: "r1",
-              relatedDiagrams: ["usecase"],
-            }),
-          ],
-          rulesVersion: 1,
+          rules: [],
+          rulesVersion: 0,
         }),
       ),
     });
@@ -992,11 +1038,11 @@ describe("TextRequirementView", () => {
     const classDiagramCheckbox = await screen.findByRole("checkbox", {
       name: /领域概念模型/,
     });
-    expect(classDiagramCheckbox).toBeDisabled();
+    expect(classDiagramCheckbox).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "选择领域概念模型" }));
 
-    expect(classDiagramCheckbox).not.toBeChecked();
+    expect(classDiagramCheckbox).toBeChecked();
   });
 
   it("keeps rule id jumps from toggling target diagram selection", async () => {
@@ -1031,7 +1077,7 @@ describe("TextRequirementView", () => {
     expect(useCaseCheckbox).not.toBeChecked();
   });
 
-  it("auto-removes a selected target diagram when its last linked rule is deleted", async () => {
+  it("keeps a selected target diagram when its last linked rule is deleted", async () => {
     const updateRequirementRules = vi.fn(async () => {});
     const usecaseRule = createRule({
       id: "r1",
@@ -1066,9 +1112,12 @@ describe("TextRequirementView", () => {
 
     await waitFor(() => {
       expect(updateRequirementRules).toHaveBeenLastCalledWith([usecaseRule]);
-      expect(classDiagramCheckbox).not.toBeChecked();
-      expect(classDiagramCheckbox).toBeDisabled();
+      expect(classDiagramCheckbox).toBeChecked();
+      expect(classDiagramCheckbox).toBeEnabled();
     });
+    expect(
+      screen.getAllByText(/将自动补齐：规则映射/).length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps generation in the background without opening diagnostics overlay", async () => {
