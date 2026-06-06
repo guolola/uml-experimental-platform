@@ -177,7 +177,32 @@ describe("ProjectWorkspaceDrawer", () => {
     return createRepository();
   }
 
-  function stubProjectWorkspaceFetch() {
+  function stubProjectWorkspaceFetch({
+    defaultProviderConfigId = "provider-long",
+    providerConfigs = [{
+      id: "provider-long",
+      name: "goal-e2e comfly 20260524021222 managed provider with long name",
+      provider: "openai-compatible",
+      baseUrl: "https://provider.example",
+      defaultModel: "gpt-5.5-preview-with-long-model-name",
+      allowedModels: [
+        "gpt-5.5-preview-with-long-model-name",
+        "provider-native-long-model",
+      ],
+      maskedKey: "********a91f",
+      keyPurpose: "course generation",
+      status: "active",
+      riskState: "low",
+      quota: "unlimited",
+      createdBy: "admin@example.edu",
+      createdAt: "2026-05-22T01:00:00.000Z",
+      updatedAt: "2026-05-22T01:00:00.000Z",
+      lastUsedAt: null,
+      allowlisted: true,
+      scopeType: "project",
+      scopeId: "project-with-very-long-drawer-values",
+    }],
+  } = {}) {
     const projectId = "project-with-very-long-drawer-values";
     const longName = "goal-e2e destructive 20260524021222 with extremely long project label";
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -212,7 +237,7 @@ describe("ProjectWorkspaceDrawer", () => {
               visibility: "private",
               status: "active",
               ownerUserId: "owner-user",
-              defaultProviderConfigId: "provider-long",
+              defaultProviderConfigId,
               retentionPolicy: "manual",
               updatedAt: "2026-05-24T00:00:00.000Z",
               memberCount: 3,
@@ -278,31 +303,7 @@ describe("ProjectWorkspaceDrawer", () => {
         return new Response(
           JSON.stringify({
             projectId,
-            providerConfigs: [
-              {
-                id: "provider-long",
-                name: "goal-e2e comfly 20260524021222 managed provider with long name",
-                provider: "openai-compatible",
-                baseUrl: "https://provider.example",
-                defaultModel: "gpt-5.5-preview-with-long-model-name",
-                allowedModels: [
-                  "gpt-5.5-preview-with-long-model-name",
-                  "provider-native-long-model",
-                ],
-                maskedKey: "********a91f",
-                keyPurpose: "course generation",
-                status: "active",
-                riskState: "low",
-                quota: "unlimited",
-                createdBy: "admin@example.edu",
-                createdAt: "2026-05-22T01:00:00.000Z",
-                updatedAt: "2026-05-22T01:00:00.000Z",
-                lastUsedAt: null,
-                allowlisted: true,
-                scopeType: "project",
-                scopeId: projectId,
-              },
-            ],
+            providerConfigs,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -396,6 +397,93 @@ describe("ProjectWorkspaceDrawer", () => {
         "provider-native-long-model",
       ],
       defaultModel: "gpt-5.5-preview-with-long-model-name",
+    });
+  });
+
+  it("hides disabled project default providers and saves the user-default fallback", async () => {
+    const user = userEvent.setup();
+    const scopedProjectId = "project-with-very-long-drawer-values";
+    const projectId = stubProjectWorkspaceFetch({
+      defaultProviderConfigId: "provider-disabled",
+      providerConfigs: [
+        {
+          id: "provider-disabled",
+          name: "已禁用 OpenAI 托管配置",
+          provider: "openai",
+          baseUrl: "https://disabled-provider.example",
+          defaultModel: "gpt-5-disabled",
+          allowedModels: ["gpt-5-disabled"],
+          maskedKey: "********disabled",
+          keyPurpose: "disabled generation",
+          status: "disabled",
+          riskState: "medium",
+          quota: "unlimited",
+          createdBy: "admin@example.edu",
+          createdAt: "2026-05-22T01:00:00.000Z",
+          updatedAt: "2026-05-22T01:00:00.000Z",
+          lastUsedAt: null,
+          allowlisted: true,
+          scopeType: "project",
+          scopeId: scopedProjectId,
+        },
+        {
+          id: "provider-active",
+          name: "可用 OpenAI 托管配置",
+          provider: "openai",
+          baseUrl: "https://active-provider.example",
+          defaultModel: "gpt-5-active",
+          allowedModels: ["gpt-5-active"],
+          maskedKey: "********active",
+          keyPurpose: "active generation",
+          status: "active",
+          riskState: "low",
+          quota: "unlimited",
+          createdBy: "admin@example.edu",
+          createdAt: "2026-05-22T01:00:00.000Z",
+          updatedAt: "2026-05-22T01:00:00.000Z",
+          lastUsedAt: null,
+          allowlisted: true,
+          scopeType: "project",
+          scopeId: scopedProjectId,
+        },
+      ],
+    });
+
+    render(
+      withWorkspaceProviders(
+        <ProjectWorkspaceDrawer
+          projectId={projectId}
+          activeDrawer="settings"
+          onClose={() => {}}
+        />,
+        projectDrawerRepository(),
+      ),
+    );
+
+    expect(
+      await screen.findByText("当前项目默认 Provider 已不可用，保存后将跟随用户默认模型。"),
+    ).toBeInTheDocument();
+    const fallbackValue = screen.getByText("跟随用户默认模型", {
+      selector: "[data-slot='select-value']",
+    });
+    expect(fallbackValue).toBeInTheDocument();
+    expect(screen.queryByText("已禁用 OpenAI 托管配置")).not.toBeInTheDocument();
+
+    await user.click(fallbackValue.closest("button") as HTMLElement);
+    expect(await screen.findByText("可用 OpenAI 托管配置")).toBeInTheDocument();
+    expect(screen.queryByText("已禁用 OpenAI 托管配置")).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "保存项目设置" }));
+    await screen.findByText("项目设置已保存。");
+
+    const fetchMock = vi.mocked(fetch);
+    const updateCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      return url.pathname === `/api/projects/${projectId}` && init?.method === "PATCH";
+    });
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({
+      defaultProviderConfigId: null,
     });
   });
 

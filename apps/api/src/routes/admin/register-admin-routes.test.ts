@@ -2464,6 +2464,101 @@ test("provider configs can rotate, revoke, and test allowlisted connections", as
   }
 });
 
+test("provider configs can be disabled and re-enabled with audit records", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie } = await createAdminSessionApp({
+      adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs",
+      headers: { cookie },
+      payload: {
+        name: "OpenAI production gateway",
+        provider: "openai",
+        baseUrl: "https://api.openai.com",
+        apiKey: "sk-live-secret-a91f",
+        defaultModel: "gpt-4.1",
+      },
+    });
+    const id = created.json().id as string;
+
+    const disabled = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/disable`,
+      headers: { cookie },
+    });
+    const disabledTest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/test`,
+      headers: { cookie },
+    });
+    assert.equal(disabled.statusCode, 200);
+    assert.equal(disabled.json().status, "disabled");
+    assert.equal(disabledTest.statusCode, 400);
+    assert.match(disabledTest.body, /disabled|inactive/i);
+    assert.equal(fetchCalls, 0);
+
+    const enabled = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/enable`,
+      headers: { cookie },
+    });
+    const enabledTest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/test`,
+      headers: { cookie },
+    });
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/revoke`,
+      headers: { cookie },
+    });
+    const enableAfterRevoke = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/enable`,
+      headers: { cookie },
+    });
+    const disableAfterRevoke = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${id}/disable`,
+      headers: { cookie },
+    });
+    const auditLogs = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit-logs",
+      headers: { cookie },
+    });
+
+    assert.equal(enabled.statusCode, 200);
+    assert.equal(enabled.json().status, "active");
+    assert.equal(enabledTest.statusCode, 200);
+    assert.equal(enabledTest.json().ok, true);
+    assert.equal(fetchCalls, 1);
+    assert.equal(revoked.statusCode, 200);
+    assert.equal(revoked.json().status, "revoked");
+    assert.equal(enableAfterRevoke.statusCode, 404);
+    assert.equal(disableAfterRevoke.statusCode, 404);
+    assert.match(auditLogs.body, /admin\.provider_config\.disable/);
+    assert.match(auditLogs.body, /admin\.provider_config\.enable/);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider config test returns 429 and does not call provider when quota is exhausted", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;

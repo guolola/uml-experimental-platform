@@ -2705,6 +2705,57 @@ export function registerAdminRoutes({
     return revoked;
   });
 
+  async function updateProviderConfigStatus(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    nextStatus: "active" | "disabled",
+    action: "enable" | "disable",
+  ) {
+    const { id } = request.params as { id: string };
+    const adminAction = `admin.provider_config.${action}`;
+    const actor = await requireHighRiskAdmin(
+      request,
+      reply,
+      authStore,
+      adminAction,
+      "provider_config",
+      id,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+
+    const updateStatus =
+      action === "enable" ? providerConfigs.enable : providerConfigs.disable;
+    if (!updateStatus) {
+      reply.code(501);
+      return { message: "Provider config status update is not supported by this store" };
+    }
+
+    const updated = await updateStatus.call(providerConfigs, id, actor.name);
+    if (!updated) {
+      reply.code(404);
+      return { message: "Provider config not found or revoked" };
+    }
+
+    await recordAdminAction(authStore, {
+      actor,
+      action: adminAction,
+      targetType: "provider_config",
+      targetId: id,
+      outcome: "success",
+      message: `Actor ${actorLabel(actor)} changed provider config ${updated.name} to ${nextStatus}`,
+    });
+    return updated;
+  }
+
+  app.post("/api/admin/provider-configs/:id/disable", (request, reply) =>
+    updateProviderConfigStatus(request, reply, "disabled", "disable"),
+  );
+
+  app.post("/api/admin/provider-configs/:id/enable", (request, reply) =>
+    updateProviderConfigStatus(request, reply, "active", "enable"),
+  );
+
   app.post("/api/admin/provider-configs/:id/test", async (request, reply) => {
     const actor = await requireAdminPermission(
       request,

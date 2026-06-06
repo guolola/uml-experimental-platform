@@ -2417,6 +2417,11 @@ function ProjectSettings({
     setError("");
     try {
       const academicBinding = academicBindingFromValue(courseTeam);
+      const activeDefaultProviderConfigId = activeProviderConfigs.some(
+        (config) => config.id === defaultProviderConfigId,
+      )
+        ? defaultProviderConfigId
+        : null;
       const response = await platformApi.updateProject(project.id, {
         name: name.trim(),
         description: description.trim() || null,
@@ -2425,8 +2430,7 @@ function ProjectSettings({
         courseId: academicBinding.courseId,
         classId: academicBinding.classId,
         teamId: academicBinding.teamId,
-        defaultProviderConfigId:
-          defaultProviderConfigId === "user-default" ? null : defaultProviderConfigId,
+        defaultProviderConfigId: activeDefaultProviderConfigId,
       });
       const retentionResponse = await platformApi.updateProjectRetentionPolicy(
         project.id,
@@ -2530,20 +2534,19 @@ function ProjectSettings({
   };
 
   const activeProviderConfigs = providerConfigs.filter((config) => config.status === "active");
-  const selectedProviderConfig = providerConfigs.find((config) => config.id === defaultProviderConfigId);
+  const selectedProviderConfig = activeProviderConfigs.find((config) => config.id === defaultProviderConfigId);
   const selectedProviderConfigLabel = selectedProviderConfig
     ? selectedProviderConfig.name
     : "跟随用户默认模型";
+  const hasUnavailableDefaultProvider =
+    defaultProviderConfigId !== "user-default" && !selectedProviderConfig;
   const retentionPolicyLabel =
     retentionPolicy === "semester_180_days"
       ? "保留到学期结束后 180 天"
       : retentionPolicy === "one_year_365_days"
         ? "保留一年"
         : "手动归档";
-  const providerOptions =
-    selectedProviderConfig && !activeProviderConfigs.some((config) => config.id === selectedProviderConfig.id)
-      ? [selectedProviderConfig, ...activeProviderConfigs]
-      : activeProviderConfigs;
+  const providerOptions = activeProviderConfigs;
   const settingGridClass =
     layout === "drawer" ? "grid min-w-0 max-w-full gap-4 overflow-hidden" : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]";
   const sectionClass = layout === "drawer" ? "min-w-0 max-w-full overflow-hidden p-4" : "";
@@ -2607,7 +2610,7 @@ function ProjectSettings({
           <div className="grid gap-1.5">
             <Label>默认模型策略</Label>
             <Select
-              value={defaultProviderConfigId}
+              value={selectedProviderConfig ? defaultProviderConfigId : "user-default"}
               onValueChange={setDefaultProviderConfigId}
               disabled={!canManageProjectSettings}
             >
@@ -2639,6 +2642,11 @@ function ProjectSettings({
             {providerOptions.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 当前项目没有可选的服务端托管 Provider，将跟随用户默认模型。
+              </p>
+            )}
+            {hasUnavailableDefaultProvider && (
+              <p className="text-xs text-warning">
+                当前项目默认 Provider 已不可用，保存后将跟随用户默认模型。
               </p>
             )}
           </div>
