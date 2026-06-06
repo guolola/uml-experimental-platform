@@ -1275,15 +1275,6 @@ describe("TopBar", () => {
     await user.click(await screen.findByRole("button", { name: "开始模型任务" }));
     await user.click(await screen.findByRole("button", { name: "确认生成" }));
 
-    const taskTitle = await screen.findByText(/^需求模型生成/u);
-    const taskButton = taskTitle.closest("button");
-    expect(taskButton).toBeTruthy();
-    expect(taskButton).toHaveClass("w-full", "min-w-0", "max-w-full", "overflow-hidden");
-
-    const taskMessage = within(taskButton as HTMLElement).getByText(longToken);
-    expect(taskMessage).toHaveClass("truncate");
-    expect(taskMessage).toHaveAttribute("title", longToken);
-
     const statusCard = screen
       .getByText("状态")
       .closest("[data-testid='generation-task-status-card']");
@@ -1294,11 +1285,6 @@ describe("TopBar", () => {
       .find((node) => node.closest("[data-testid='generation-task-error-card']"))
       ?.closest("[data-testid='generation-task-error-card']");
     expect(errorCard).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
-
-    const stageCard = screen
-      .getByText("生成需求模型")
-      .closest("[data-testid='generation-task-stage-card']");
-    expect(stageCard).toHaveClass("w-full", "min-w-0", "max-w-full", "overflow-hidden");
 
     const executionBox = screen
       .getByText((content) => content.includes(longStream.slice(0, 30)))

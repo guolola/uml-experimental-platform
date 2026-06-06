@@ -3501,10 +3501,10 @@ describe("App shell routes", () => {
     expect(
       screen.queryByText("登录态必须使用服务端托管 Provider；明文 API Key 只允许显式 dev legacy 模式。"),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText("课程 OpenAI 托管配置")).toBeInTheDocument();
+    expect(await screen.findByText(/课程 OpenAI 托管配置/u)).toBeInTheDocument();
     expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "托管 Provider 配置" }));
-    await user.click(await screen.findByRole("option", { name: "课程 OpenAI 托管配置" }));
+    await user.click(await screen.findByRole("option", { name: /课程 OpenAI 托管配置/u }));
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(loadUserSettings().providerConfigId).toBe("provider-config-1");

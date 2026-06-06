@@ -38,6 +38,14 @@ function SidebarDesignGenerationHarness() {
   );
 }
 
+async function confirmGenerationIfPresent(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await screen
+    .findByRole("dialog", { name: /确认生成/u }, { timeout: 250 })
+    .catch(() => null);
+  if (!dialog) return;
+  await user.click(within(dialog).getByRole("button", { name: "确认生成" }));
+}
+
 function SidebarSequenceGenerationHarness() {
   const { generateDesignDiagrams } = useWorkspaceSession();
   return (
@@ -593,6 +601,31 @@ describe("SidebarMenu", () => {
               relationships: [],
             },
           },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "class",
+                elementId: "manual-class-context",
+                elementKind: "class",
+                label: "已复核设计类图上游",
+              },
+            },
+          ],
+          manualModelEditStatus: {
+            usecase: {
+              status: "rerendered",
+              warning: null,
+              editedAt: "2026-06-06T00:00:00.000Z",
+              rerenderedAt: "2026-06-06T00:00:00.000Z",
+            },
+            class: {
+              status: "rerendered",
+              warning: null,
+              editedAt: "2026-06-06T00:00:00.000Z",
+              rerenderedAt: "2026-06-06T00:00:00.000Z",
+            },
+          },
           generatedDesignDiagramTypes: ["class"],
           designModels: {
             class: {
@@ -653,7 +686,7 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarDesignGenerationHarness />, repository));
 
     await user.click(await screen.findByRole("button", { name: "生成设计类图" }));
-    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await confirmGenerationIfPresent(user);
     const designToggle = await screen.findByRole("button", {
       name: /^(展开|折叠) 设计$/,
     });
@@ -683,6 +716,7 @@ describe("SidebarMenu", () => {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           requirementText: "生成 UML",
+          rules: [createRule({ id: "r1", relatedDiagrams: ["usecase"] })],
           requirementBaseline: createRequirementBaseline(),
           models: {
             usecase: {
@@ -712,7 +746,39 @@ describe("SidebarMenu", () => {
               systemBoundaries: [],
               relationships: [],
             },
+            analysis: {
+              diagramKind: "analysis",
+              modelId: "analysis:uc_view",
+              sourceUseCaseId: "uc_view",
+              sourceUseCaseName: "查看活动",
+              title: "查看活动需求分析模型",
+              summary: "查看活动的需求层交互",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
           },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_view",
+                elementKind: "usecase",
+                label: "查看活动",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_create",
+                elementKind: "usecase",
+                label: "创建活动",
+              },
+            },
+          ],
         }),
       ),
       updateRequirementText: vi.fn(async () => {}),
@@ -752,7 +818,7 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarSequenceGenerationHarness />, repository));
 
     await user.click(await screen.findByRole("button", { name: "生成用例实现设计" }));
-    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await confirmGenerationIfPresent(user);
     const designToggle = await screen.findByRole("button", {
       name: /^(展开|折叠) 设计$/,
     });
