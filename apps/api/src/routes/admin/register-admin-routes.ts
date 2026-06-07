@@ -1,4 +1,4 @@
-// Registers first-pass admin endpoints and delegates provider key handling to secure storage.
+// Registers admin endpoints and delegates provider key handling to secure storage.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -76,6 +76,7 @@ import {
   selectProviderRateLimitPolicy,
   type ProviderRateLimitPolicy,
   type ProviderRateLimitPolicyRecord,
+  type ProviderTaskType,
   type ProviderUsageTracker,
 } from "../../provider-configs/provider-usage-tracker.js";
 import type { LlmScheduler } from "../../adapters/llm/llm-scheduler.js";
@@ -386,7 +387,7 @@ const HIGH_RISK_ADMIN_ROLES = new Set([
   "security-admin",
 ]);
 
-function metric(label: string, value: string, trend = "first-pass", tone = "neutral") {
+function metric(label: string, value: string, trend = "", tone = "neutral") {
   return { label, value, trend, tone };
 }
 
@@ -463,6 +464,42 @@ type AdminRunTaskType =
   | "code_generation"
   | "document_generation"
   | "unknown";
+
+type GenerationTaskType = Exclude<AdminRunTaskType, "unknown">;
+
+type GenerationBreakdownRow = {
+  taskType: GenerationTaskType;
+  label: string;
+  generatedCount: number;
+  successRate: string;
+  failureRate: string;
+  averageDuration: string;
+  averageDurationMs: number | null;
+  modelCallCount: number;
+  artifactSummary: string;
+  artifactCounts: Array<{ label: string; value: number }>;
+  sampleCount: number;
+  successfulCount: number;
+  failedCount: number;
+  recentRuns: Array<{
+    id: string;
+    status: RunRecord["snapshot"]["status"];
+    createdAt: string | null;
+    durationMs: number | null;
+    artifactSummary: string;
+  }>;
+};
+
+const GENERATION_TASKS: Array<{ taskType: GenerationTaskType; label: string }> = [
+  { taskType: "requirements_to_uml", label: "需求建模" },
+  { taskType: "design_modeling", label: "设计建模" },
+  { taskType: "document_generation", label: "说明书生成" },
+  { taskType: "code_generation", label: "代码生成" },
+];
+
+const GENERATION_TASK_TYPE_SET = new Set<AdminRunTaskType>(
+  GENERATION_TASKS.map((item) => item.taskType),
+);
 
 type AdminRunArtifactSummary = {
   title: string;
@@ -793,6 +830,212 @@ function calculateDurationMs(createdAt?: string, completedAt?: string) {
   return end - start;
 }
 
+function timestampMs(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function shanghaiTodayWindow(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((entry) => entry.type === type)?.value);
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  const startMs = Date.UTC(year, month - 1, day) - 8 * 60 * 60 * 1000;
+  return {
+    startIso: new Date(startMs).toISOString(),
+    endIso: now.toISOString(),
+  };
+}
+
+function isInWindow(value: unknown, window: { startIso: string; endIso: string }) {
+  const time = timestampMs(value);
+  if (time === null) return false;
+  return time >= new Date(window.startIso).getTime() && time < new Date(window.endIso).getTime();
+}
+
+function percentage(count: number, total: number) {
+  return total > 0 ? `${Math.round((count / total) * 100)}%` : "0%";
+}
+
+function formatDuration(valueMs: number | null) {
+  if (valueMs === null) return "暂无数据";
+  if (valueMs < 1000) return `${valueMs}ms`;
+  if (valueMs < 60_000) {
+    return `${(valueMs / 1000).toFixed(valueMs < 10_000 ? 1 : 0)}秒`;
+  }
+  if (valueMs < 60 * 60_000) return `${Math.round(valueMs / 60_000)}分钟`;
+  return `${(valueMs / 3_600_000).toFixed(1)}小时`;
+}
+
+function averageDuration(records: RunRecord[]) {
+  const durations = records
+    .map((record) => calculateDurationMs(record.metadata?.createdAt, record.metadata?.completedAt))
+    .filter((duration): duration is number => duration !== null);
+  if (durations.length === 0) return { label: "暂无数据", valueMs: null };
+  const valueMs = Math.round(
+    durations.reduce((total, duration) => total + duration, 0) / durations.length,
+  );
+  return { label: formatDuration(valueMs), valueMs };
+}
+
+function isGenerationTaskType(value: AdminRunTaskType): value is GenerationTaskType {
+  return GENERATION_TASK_TYPE_SET.has(value);
+}
+
+function artifactCountSummary(counts: Array<{ label: string; value: number }>) {
+  const visible = counts.filter((item) => item.value > 0);
+  if (visible.length === 0) return "暂无今日产物";
+  return visible.map((item) => `${item.label} ${item.value}`).join(" · ");
+}
+
+function readMetricDocumentKind(value: unknown) {
+  return value === "requirementsSpec" || value === "softwareDesignSpec"
+    ? value
+    : null;
+}
+
+async function listMetricDocuments(documentLibrary: DocumentLibrary) {
+  const listAllDocuments = (documentLibrary as { listAllDocuments?: unknown }).listAllDocuments;
+  if (typeof listAllDocuments !== "function") return [];
+  const documents = await listAllDocuments.call(documentLibrary);
+  return Array.isArray(documents)
+    ? documents.filter((document): document is Record<string, unknown> =>
+        Boolean(document) && typeof document === "object" && !Array.isArray(document),
+      )
+    : [];
+}
+
+async function todayModelUsageByTask(
+  providerUsageTracker: ProviderUsageTracker | undefined,
+  window: { startIso: string; endIso: string },
+) {
+  const usage = new Map<GenerationTaskType, number>(
+    GENERATION_TASKS.map((item) => [item.taskType, 0]),
+  );
+  const sums = await providerUsageTracker?.sumUsageUnits?.({
+    taskTypes: GENERATION_TASKS.map((item) => item.taskType as ProviderTaskType),
+    createdAfter: window.startIso,
+    createdBefore: window.endIso,
+  });
+  for (const sum of sums ?? []) {
+    const taskType = sum.taskType as AdminRunTaskType;
+    if (isGenerationTaskType(taskType)) {
+      usage.set(taskType, sum.units);
+    }
+  }
+  return usage;
+}
+
+function documentArtifactCounts(
+  completedDocumentRuns: RunRecord[],
+  todayDocuments: Array<Record<string, unknown>>,
+) {
+  const counts = {
+    requirementsSpec: 0,
+    softwareDesignSpec: 0,
+  };
+  const documentSourceRunIds = new Set<string>();
+  for (const document of todayDocuments) {
+    const kind = readMetricDocumentKind(document.documentKind);
+    if (kind) counts[kind] += 1;
+    if (typeof document.sourceRunId === "string") {
+      documentSourceRunIds.add(document.sourceRunId);
+    }
+  }
+  for (const record of completedDocumentRuns) {
+    const source = asRecord(record.snapshot);
+    if (!source.documentId || documentSourceRunIds.has(record.snapshot.runId)) continue;
+    const kind = readMetricDocumentKind(source.documentKind);
+    if (kind) counts[kind] += 1;
+  }
+  return [
+    { label: "需求规格说明书", value: counts.requirementsSpec },
+    { label: "软件设计说明书", value: counts.softwareDesignSpec },
+  ];
+}
+
+function artifactCountsForTask(
+  taskType: GenerationTaskType,
+  completedRecords: RunRecord[],
+  todayDocuments: Array<Record<string, unknown>>,
+) {
+  if (taskType === "requirements_to_uml") {
+    return [
+      { label: "规则", value: completedRecords.reduce((total, record) => total + arrayLength(asRecord(record.snapshot).rules), 0) },
+      { label: "需求模型", value: completedRecords.reduce((total, record) => total + arrayLength(asRecord(record.snapshot).models), 0) },
+    ];
+  }
+  if (taskType === "design_modeling") {
+    return [
+      { label: "设计模型", value: completedRecords.reduce((total, record) => total + arrayLength(asRecord(record.snapshot).models), 0) },
+    ];
+  }
+  if (taskType === "document_generation") {
+    return documentArtifactCounts(completedRecords, todayDocuments);
+  }
+  return [
+    {
+      label: "代码文件",
+      value: completedRecords.reduce(
+        (total, record) => total + Object.keys(asRecord(asRecord(record.snapshot).files)).length,
+        0,
+      ),
+    },
+  ];
+}
+
+function buildGenerationBreakdown(
+  todayRecords: RunRecord[],
+  modelUsageByTask: Map<GenerationTaskType, number>,
+  todayDocuments: Array<Record<string, unknown>>,
+): GenerationBreakdownRow[] {
+  return GENERATION_TASKS.map(({ taskType, label }) => {
+    const records = todayRecords.filter((record) => taskTypeForSnapshot(record.snapshot) === taskType);
+    const completedRecords = records.filter((record) => record.snapshot.status === "completed");
+    const failedRecords = records.filter((record) => record.snapshot.status === "failed");
+    const duration = averageDuration(
+      records.filter((record) => record.terminal || record.metadata?.completedAt),
+    );
+    const artifactCounts = artifactCountsForTask(taskType, completedRecords, todayDocuments);
+    return {
+      taskType,
+      label,
+      generatedCount: records.length,
+      successRate: percentage(completedRecords.length, records.length),
+      failureRate: percentage(failedRecords.length, records.length),
+      averageDuration: duration.label,
+      averageDurationMs: duration.valueMs,
+      modelCallCount: modelUsageByTask.get(taskType) ?? 0,
+      artifactSummary: artifactCountSummary(artifactCounts),
+      artifactCounts,
+      sampleCount: records.length,
+      successfulCount: completedRecords.length,
+      failedCount: failedRecords.length,
+      recentRuns: records
+        .slice()
+        .sort((left, right) =>
+          (right.metadata?.createdAt ?? "").localeCompare(left.metadata?.createdAt ?? ""),
+        )
+        .slice(0, 5)
+        .map((record) => ({
+          id: record.snapshot.runId,
+          status: record.snapshot.status,
+          createdAt: record.metadata?.createdAt ?? null,
+          durationMs: calculateDurationMs(record.metadata?.createdAt, record.metadata?.completedAt),
+          artifactSummary: buildRunArtifactSummary(record.snapshot).title,
+        })),
+    };
+  });
+}
+
 async function buildAdminRunDto(
   record: RunRecord,
   authStore: AuthStore,
@@ -810,7 +1053,7 @@ async function buildAdminRunDto(
     id: record.snapshot.runId,
     status: record.snapshot.status,
     currentStage: record.snapshot.currentStage,
-    errorMessage: record.snapshot.errorMessage,
+    errorMessage: record.snapshot.error?.message ?? null,
     taskType: taskTypeForSnapshot(record.snapshot),
     model: readProviderModel(record.snapshot) ?? record.metadata?.model ?? null,
     projectId,
@@ -1240,23 +1483,58 @@ export function registerAdminRoutes({
     );
     if ("message" in actor) return actor;
 
+    const todayWindow = shanghaiTodayWindow();
     const records = Array.from(runs.values());
-    const completed = records.filter(
+    const todayRecords = records.filter((record) =>
+      isInWindow(record.metadata?.createdAt, todayWindow),
+    );
+    const [users, projects, documents, modelUsageByTask] = await Promise.all([
+      authStore.listUsers(),
+      authStore.listProjects(),
+      listMetricDocuments(documentLibrary),
+      todayModelUsageByTask(providerUsageTracker, todayWindow),
+    ]);
+    const todayDocuments = documents.filter((document) =>
+      isInWindow(document.createdAt, todayWindow),
+    );
+    const generationBreakdown = buildGenerationBreakdown(
+      todayRecords,
+      modelUsageByTask,
+      todayDocuments,
+    );
+    const completed = todayRecords.filter(
       (record) => record.snapshot.status === "completed",
     ).length;
-    const failed = records.filter((record) => record.snapshot.status === "failed").length;
+    const failed = todayRecords.filter((record) => record.snapshot.status === "failed").length;
+    const duration = averageDuration(
+      todayRecords.filter((record) => record.terminal || record.metadata?.completedAt),
+    );
+    const modelCallCount = Array.from(modelUsageByTask.values()).reduce(
+      (total, value) => total + value,
+      0,
+    );
+    const documentGenerationCount =
+      generationBreakdown
+        .find((row) => row.taskType === "document_generation")
+        ?.artifactCounts.reduce((total, item) => total + item.value, 0) ?? 0;
     return {
       generatedAt: new Date().toISOString(),
+      metricWindow: {
+        timeZone: "Asia/Shanghai",
+        startAt: todayWindow.startIso,
+        endAt: todayWindow.endIso,
+      },
       metrics: [
-        metric("用户数", String((await authStore.listUsers()).length), "live auth store"),
-        metric("项目数", String((await authStore.listProjects()).length), "live project store"),
-        metric("今日生成次数", String(records.length)),
-        metric("成功率", records.length ? `${Math.round((completed / records.length) * 100)}%` : "0%"),
-        metric("失败率", records.length ? `${Math.round((failed / records.length) * 100)}%` : "0%"),
-        metric("平均耗时", "n/a"),
-        metric("模型调用量", String(records.length)),
-        metric("文档生成量", "0"),
+        metric("用户数", String(users.length)),
+        metric("项目数", String(projects.length)),
+        metric("今日生成次数", String(todayRecords.length)),
+        metric("成功率", percentage(completed, todayRecords.length)),
+        metric("失败率", percentage(failed, todayRecords.length)),
+        metric("平均耗时", duration.label),
+        metric("模型调用量", String(modelCallCount)),
+        metric("文档生成量", String(documentGenerationCount)),
       ],
+      generationBreakdown,
     };
   });
 
@@ -2068,7 +2346,7 @@ export function registerAdminRoutes({
       eventCount: record.events.length,
       repairEventCount,
       artifactCount,
-      errorMessage: record.snapshot.errorMessage ?? null,
+      errorMessage: record.snapshot.error?.message ?? null,
       snapshotKeys: Object.keys(record.snapshot),
     };
   }
@@ -2085,7 +2363,7 @@ export function registerAdminRoutes({
         id: access.record.snapshot.runId,
         status: access.record.snapshot.status,
         currentStage: access.record.snapshot.currentStage,
-        errorMessage: access.record.snapshot.errorMessage,
+        errorMessage: access.record.snapshot.error?.message ?? null,
         metadata: access.record.metadata ?? null,
         terminal: access.record.terminal,
         diagnostics: runDiagnosticSummary(access.record),

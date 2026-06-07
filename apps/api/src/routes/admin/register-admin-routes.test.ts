@@ -1,4 +1,4 @@
-// Verifies first-pass admin API security and provider configuration contracts.
+// Verifies admin API security, telemetry, and provider configuration contracts.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -95,7 +95,15 @@ function putRunRecord(
   );
   snapshot.status = input.status;
   snapshot.currentStage = input.status === "queued" ? null : "generate_models";
-  snapshot.errorMessage = input.status === "failed" ? "LLM failed" : null;
+  snapshot.error =
+    input.status === "failed"
+      ? {
+          code: "RUN_INTERNAL_ERROR",
+          message: "LLM failed",
+          category: "internal",
+          retryable: false,
+        }
+      : null;
   if (input.model) {
     (snapshot as unknown as { providerSettings?: { model: string } }).providerSettings = {
       model: input.model,
@@ -116,16 +124,65 @@ function putRunRecord(
   });
 }
 
+function shanghaiTodayIso(hour: number, minute = 0) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((entry) => entry.type === type)?.value);
+  return new Date(
+    Date.UTC(part("year"), part("month") - 1, part("day"), hour, minute) -
+      8 * 60 * 60 * 1000,
+  ).toISOString();
+}
+
+function shanghaiYesterdayIso(hour: number, minute = 0) {
+  return new Date(new Date(shanghaiTodayIso(hour, minute)).getTime() - 24 * 60 * 60 * 1000)
+    .toISOString();
+}
+
+function putMetricRun(
+  runs: RunRecordStore,
+  input: {
+    runId: string;
+    snapshot: RunRecord["snapshot"];
+    status: RunRecord["snapshot"]["status"];
+    createdAt: string;
+    completedAt?: string;
+  },
+) {
+  input.snapshot.status = input.status;
+  input.snapshot.currentStage = input.status === "queued" ? null : "generate_models";
+  runs.set(input.runId, {
+    snapshot: input.snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: ["completed", "failed", "cancelled"].includes(input.status),
+    metadata: {
+      projectId: "project-alpha",
+      userId: "source-user",
+      createdAt: input.createdAt,
+      completedAt: input.completedAt,
+    },
+  });
+}
+
 async function createAdminRouteTestApp({
   providerUsageTracker,
   riskEvents,
   runs = createRunRecordStore(),
+  documentLibrary = {} as DocumentLibrary,
   llmScheduler,
   startRunPipeline,
 }: {
   providerUsageTracker?: ProviderUsageTracker;
   riskEvents?: () => AdminRiskEvent[];
   runs?: RunRecordStore;
+  documentLibrary?: DocumentLibrary;
   llmScheduler?: Parameters<typeof registerAdminRoutes>[0]["llmScheduler"];
   startRunPipeline?: Parameters<typeof registerAdminRoutes>[0]["startRunPipeline"];
 } = {}) {
@@ -147,7 +204,7 @@ async function createAdminRouteTestApp({
     app,
     authStore,
     runs,
-    documentLibrary: {} as DocumentLibrary,
+    documentLibrary,
     providerConfigs,
     providerUsageTracker,
     llmScheduler,
@@ -317,6 +374,184 @@ test("admin header bootstrap remains available behind the explicit local switch"
       process.env.UML_ALLOW_ADMIN_HEADER = originalAllowHeader;
     }
   }
+});
+
+test("admin metrics expose real today generation breakdown without internal source labels", async () => {
+  const runs = createRunRecordStore();
+  const todayOne = shanghaiTodayIso(1);
+  const todayTwo = shanghaiTodayIso(2);
+  const todayThree = shanghaiTodayIso(3);
+  const yesterday = shanghaiYesterdayIso(1);
+
+  const requirementSnapshot = createEmptySnapshot("req-completed", "需求", ["usecase"]);
+  (requirementSnapshot as unknown as { rules: unknown[]; models: unknown[] }).rules = [
+    { id: "rule-1", text: "规则 1" },
+    { id: "rule-2", text: "规则 2" },
+  ];
+  (requirementSnapshot as unknown as { models: unknown[] }).models = [{ id: "model-1" }];
+  putMetricRun(runs, {
+    runId: "req-completed",
+    snapshot: requirementSnapshot,
+    status: "completed",
+    createdAt: todayOne,
+    completedAt: todayTwo,
+  });
+
+  putMetricRun(runs, {
+    runId: "req-failed",
+    snapshot: createEmptySnapshot("req-failed", "失败需求", ["usecase"]),
+    status: "failed",
+    createdAt: todayOne,
+    completedAt: todayTwo,
+  });
+  putMetricRun(runs, {
+    runId: "req-yesterday",
+    snapshot: createEmptySnapshot("req-yesterday", "昨日需求", ["usecase"]),
+    status: "completed",
+    createdAt: yesterday,
+    completedAt: yesterday,
+  });
+
+  const designSnapshot = createEmptySnapshot("design-completed", "设计", ["class"]);
+  (designSnapshot as unknown as { designModelTraceability: unknown[]; models: unknown[] }).designModelTraceability = [];
+  (designSnapshot as unknown as { models: unknown[] }).models = [{ id: "design-1" }, { id: "design-2" }];
+  putMetricRun(runs, {
+    runId: "design-completed",
+    snapshot: designSnapshot,
+    status: "completed",
+    createdAt: todayOne,
+    completedAt: todayThree,
+  });
+
+  const codeSnapshot = createEmptyCodeSnapshot("code-completed", {
+    requirementText: "代码需求",
+    rules: [],
+    designModels: [],
+  });
+  codeSnapshot.files = { "/src/App.tsx": "export default null", "/src/main.tsx": "main" };
+  putMetricRun(runs, {
+    runId: "code-completed",
+    snapshot: codeSnapshot,
+    status: "completed",
+    createdAt: todayOne,
+    completedAt: todayTwo,
+  });
+
+  const documentRequirement = createEmptyDocumentSnapshot("doc-requirements", {
+    documentKind: "requirementsSpec",
+    requirementText: "需求说明",
+  });
+  documentRequirement.documentId = "doc-req";
+  putMetricRun(runs, {
+    runId: "doc-requirements",
+    snapshot: documentRequirement,
+    status: "completed",
+    createdAt: todayOne,
+    completedAt: todayTwo,
+  });
+
+  const documentDesign = createEmptyDocumentSnapshot("doc-design", {
+    documentKind: "softwareDesignSpec",
+    requirementText: "设计说明",
+  });
+  documentDesign.documentId = "doc-design";
+  putMetricRun(runs, {
+    runId: "doc-design",
+    snapshot: documentDesign,
+    status: "completed",
+    createdAt: todayOne,
+    completedAt: todayTwo,
+  });
+
+  const providerUsageTracker: ProviderUsageTracker = {
+    async recordUsage() {},
+    async checkLimit(input) {
+      return {
+        allowed: true,
+        usedUnits: 0,
+        remainingUnits: input.limit,
+        limit: input.limit,
+        windowSeconds: input.windowSeconds,
+      };
+    },
+    async sumUsageUnits(input) {
+      assert.ok(input.createdAfter);
+      assert.ok(input.createdBefore);
+      return [
+        { taskType: "requirements_to_uml", units: 4 },
+        { taskType: "design_modeling", units: 2 },
+        { taskType: "document_generation", units: 1 },
+        { taskType: "code_generation", units: 3 },
+      ];
+    },
+  };
+  const documentLibrary = {
+    async listAllDocuments() {
+      return [
+        {
+          id: "doc-req",
+          sourceRunId: "doc-requirements",
+          documentKind: "requirementsSpec",
+          createdAt: todayTwo,
+          status: "active",
+        },
+        {
+          id: "doc-design",
+          sourceRunId: "doc-design",
+          documentKind: "softwareDesignSpec",
+          createdAt: todayTwo,
+          status: "active",
+        },
+      ];
+    },
+  } as unknown as DocumentLibrary;
+  const { app, cookie } = await createAdminRouteTestApp({
+    runs,
+    providerUsageTracker,
+    documentLibrary,
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/admin/metrics",
+    headers: { Cookie: cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.metricWindow.timeZone, "Asia/Shanghai");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "今日生成次数")?.value, "6");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "10");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "文档生成量")?.value, "2");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "平均耗时")?.value === "n/a", false);
+  assert.doesNotMatch(JSON.stringify(body), /first-pass|live auth store|live project store/);
+
+  const byType = new Map(
+    body.generationBreakdown.map((row: { taskType: string }) => [row.taskType, row]),
+  );
+  const requirements = byType.get("requirements_to_uml") as Record<string, unknown>;
+  assert.equal(requirements.generatedCount, 2);
+  assert.equal(requirements.successRate, "50%");
+  assert.equal(requirements.failureRate, "50%");
+  assert.equal(requirements.modelCallCount, 4);
+  assert.equal(requirements.artifactSummary, "规则 2 · 需求模型 1");
+
+  const design = byType.get("design_modeling") as Record<string, unknown>;
+  assert.equal(design.generatedCount, 1);
+  assert.equal(design.artifactSummary, "设计模型 2");
+  assert.equal(design.modelCallCount, 2);
+
+  const documents = byType.get("document_generation") as Record<string, unknown>;
+  assert.equal(documents.generatedCount, 2);
+  assert.equal(documents.artifactSummary, "需求规格说明书 1 · 软件设计说明书 1");
+  assert.equal(documents.modelCallCount, 1);
+
+  const code = byType.get("code_generation") as Record<string, unknown>;
+  assert.equal(code.generatedCount, 1);
+  assert.equal(code.artifactSummary, "代码文件 2");
+  assert.equal(code.modelCallCount, 3);
+
+  await app.close();
 });
 
 test("admin session endpoint returns RBAC context only for authenticated admins", async () => {

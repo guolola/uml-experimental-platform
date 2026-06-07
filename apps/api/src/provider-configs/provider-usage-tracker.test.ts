@@ -120,6 +120,32 @@ test("provider usage tracker sends only parameters referenced by the default lim
   assert.equal(client.calls.at(-1)?.params.length, 5);
 });
 
+test("provider usage tracker sums units by task type for dashboard metrics", async () => {
+  const client = new CapturingClient();
+  client.rows = [
+    { task_type: "requirements_to_uml", used_units: "4" },
+    { task_type: "document_generation", used_units: "2" },
+  ];
+  const tracker = createProviderUsageTracker(client);
+
+  const sums = await tracker.sumUsageUnits?.({
+    taskTypes: ["requirements_to_uml", "document_generation"],
+    createdAfter: "2026-06-04T16:00:00.000Z",
+    createdBefore: "2026-06-05T10:00:00.000Z",
+  });
+
+  assert.deepEqual(sums, [
+    { taskType: "requirements_to_uml", units: 4 },
+    { taskType: "document_generation", units: 2 },
+  ]);
+  assert.match(client.calls[0]?.sql ?? "", /group by task_type/i);
+  assert.deepEqual(client.calls[0]?.params, [
+    ["requirements_to_uml", "document_generation"],
+    "2026-06-04T16:00:00.000Z",
+    "2026-06-05T10:00:00.000Z",
+  ]);
+});
+
 test("provider usage tracker exposes a conservative one-hour default policy", () => {
   const policy = resolveProviderRateLimitPolicy({
     UML_PROVIDER_HOURLY_LIMIT: "7",

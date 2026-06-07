@@ -103,6 +103,17 @@ export interface ProviderUsageCountInput {
   ipAddress?: string | null;
 }
 
+export interface ProviderUsageUnitSumInput {
+  taskTypes: readonly ProviderTaskType[];
+  createdAfter: string;
+  createdBefore: string;
+}
+
+export interface ProviderUsageUnitSum {
+  taskType: ProviderTaskType;
+  units: number;
+}
+
 export interface ProviderQuotaSnapshot {
   providerConfigId: string;
   provider: string;
@@ -121,6 +132,7 @@ export interface ProviderUsageTracker {
   recordUsage(input: ProviderUsageInput): Promise<void>;
   checkLimit(input: ProviderLimitCheckInput): Promise<ProviderLimitDecision>;
   countUsageEvents?(input: ProviderUsageCountInput): Promise<number>;
+  sumUsageUnits?(input: ProviderUsageUnitSumInput): Promise<ProviderUsageUnitSum[]>;
   listUsageEvents?(): Promise<ProviderUsageEventRecord[]>;
   listQuotaSnapshots?(): Promise<ProviderQuotaSnapshot[]>;
   listRateLimitPolicies?(): Promise<ProviderRateLimitPolicyRecord[]>;
@@ -448,6 +460,28 @@ export function createProviderUsageTracker(db: Queryable): ProviderUsageTracker 
         ],
       );
       return Number(result.rows[0]?.used_units ?? 0);
+    },
+
+    async sumUsageUnits(input: ProviderUsageUnitSumInput) {
+      if (input.taskTypes.length === 0) return [];
+      const result = await db.query<{
+        task_type: ProviderTaskType;
+        used_units: string | number | null;
+      }>(
+        `
+          select task_type, coalesce(sum(units), 0) as used_units
+          from provider_usage_events
+          where task_type = any($1::text[])
+            and created_at >= $2::timestamptz
+            and created_at < $3::timestamptz
+          group by task_type
+        `,
+        [input.taskTypes, input.createdAfter, input.createdBefore],
+      );
+      return result.rows.map((row) => ({
+        taskType: row.task_type,
+        units: Number(row.used_units ?? 0),
+      }));
     },
 
     async listUsageEvents() {
