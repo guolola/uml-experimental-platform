@@ -901,7 +901,7 @@ function formatDuration(valueMs: number | null) {
   if (valueMs < 60_000) {
     return `${(valueMs / 1000).toFixed(valueMs < 10_000 ? 1 : 0)}秒`;
   }
-  if (valueMs < 60 * 60_000) return `${Math.round(valueMs / 60_000)}分钟`;
+  if (valueMs < 60 * 60_000) return `${(valueMs / 60_000).toFixed(1)}分钟`;
   return `${(valueMs / 3_600_000).toFixed(1)}小时`;
 }
 
@@ -1551,6 +1551,11 @@ export function registerAdminRoutes({
       selectedModelUsageByTask,
       selectedDocuments,
     );
+    const totalGenerationBreakdown = buildGenerationBreakdown(
+      generationRecords,
+      allModelUsageByTask,
+      documents,
+    );
     const completed = generationRecords.filter(
       (record) => record.snapshot.status === "completed",
     ).length;
@@ -1587,6 +1592,7 @@ export function registerAdminRoutes({
         metric("模型调用量", String(modelCallCount)),
         metric("文档生成量", String(documentGenerationCount)),
       ],
+      totalGenerationBreakdown,
       generationBreakdown,
     };
   });

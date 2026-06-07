@@ -390,6 +390,8 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
   const todayOne = shanghaiTodayIso(1);
   const todayTwo = shanghaiTodayIso(2);
   const todayThree = shanghaiTodayIso(3);
+  const todayFourThirty = shanghaiTodayIso(4, 30);
+  const todayFourThirtyFive = shanghaiTodayIso(4, 35);
   const yesterday = shanghaiYesterdayIso(1);
 
   const requirementSnapshot = createEmptySnapshot("req-completed", "需求", ["usecase"]);
@@ -451,6 +453,20 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
     completedAt: todayTwo,
   });
 
+  const quickCodeSnapshot = createEmptyCodeSnapshot("code-quick", {
+    requirementText: "代码耗时",
+    rules: [],
+    designModels: [],
+  });
+  quickCodeSnapshot.files = { "/src/Quick.tsx": "export default null" };
+  putMetricRun(runs, {
+    runId: "code-quick",
+    snapshot: quickCodeSnapshot,
+    status: "completed",
+    createdAt: todayFourThirty,
+    completedAt: todayFourThirtyFive,
+  });
+
   const documentRequirement = createEmptyDocumentSnapshot("doc-requirements", {
     documentKind: "requirementsSpec",
     requirementText: "需求说明",
@@ -496,7 +512,7 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
           { taskType: "requirements_to_uml", units: 6 },
           { taskType: "design_modeling", units: 2 },
           { taskType: "document_generation", units: 1 },
-          { taskType: "code_generation", units: 3 },
+          { taskType: "code_generation", units: 4 },
         ];
       }
       if (input.createdAfter === shanghaiYesterdayIso(0)) {
@@ -511,7 +527,7 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
         { taskType: "requirements_to_uml", units: 4 },
         { taskType: "design_modeling", units: 2 },
         { taskType: "document_generation", units: 1 },
-        { taskType: "code_generation", units: 3 },
+        { taskType: "code_generation", units: 4 },
       ];
     },
   };
@@ -550,12 +566,30 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
   assert.equal(response.statusCode, 200);
   const body = response.json();
   assert.equal(body.metricWindow.timeZone, "Asia/Shanghai");
-  assert.equal(body.metrics.find((item: { label: string }) => item.label === "生成次数")?.value, "7");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "生成次数")?.value, "8");
   assert.equal(body.metrics.find((item: { label: string }) => item.label === "今日生成次数"), undefined);
-  assert.equal(body.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "12");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "13");
   assert.equal(body.metrics.find((item: { label: string }) => item.label === "文档生成量")?.value, "2");
   assert.equal(body.metrics.find((item: { label: string }) => item.label === "平均耗时")?.value === "n/a", false);
   assert.doesNotMatch(JSON.stringify(body), /first-pass|live auth store|live project store/);
+
+  const totalByType = new Map(
+    body.totalGenerationBreakdown.map((row: { taskType: string }) => [row.taskType, row]),
+  );
+  const totalRequirements = totalByType.get("requirements_to_uml") as Record<string, unknown>;
+  assert.equal(totalRequirements.generatedCount, 3);
+  assert.equal(totalRequirements.successRate, "67%");
+  assert.equal(totalRequirements.failureRate, "33%");
+  assert.equal(totalRequirements.modelCallCount, 6);
+  const totalDesign = totalByType.get("design_modeling") as Record<string, unknown>;
+  assert.equal(totalDesign.generatedCount, 1);
+  assert.equal(totalDesign.modelCallCount, 2);
+  const totalDocuments = totalByType.get("document_generation") as Record<string, unknown>;
+  assert.equal(totalDocuments.generatedCount, 2);
+  assert.equal(totalDocuments.modelCallCount, 1);
+  const totalCode = totalByType.get("code_generation") as Record<string, unknown>;
+  assert.equal(totalCode.generatedCount, 2);
+  assert.equal(totalCode.modelCallCount, 4);
 
   const byType = new Map(
     body.generationBreakdown.map((row: { taskType: string }) => [row.taskType, row]),
@@ -578,9 +612,10 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
   assert.equal(documents.modelCallCount, 1);
 
   const code = byType.get("code_generation") as Record<string, unknown>;
-  assert.equal(code.generatedCount, 1);
-  assert.equal(code.artifactSummary, "代码文件 2");
-  assert.equal(code.modelCallCount, 3);
+  assert.equal(code.generatedCount, 2);
+  assert.equal(code.artifactSummary, "代码文件 3");
+  assert.equal(code.averageDuration, "32.5分钟");
+  assert.equal(code.modelCallCount, 4);
 
   const yesterdayResponse = await app.inject({
     method: "GET",
@@ -589,8 +624,13 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
   });
   assert.equal(yesterdayResponse.statusCode, 200);
   const yesterdayBody = yesterdayResponse.json();
-  assert.equal(yesterdayBody.metrics.find((item: { label: string }) => item.label === "生成次数")?.value, "7");
-  assert.equal(yesterdayBody.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "12");
+  assert.equal(yesterdayBody.metrics.find((item: { label: string }) => item.label === "生成次数")?.value, "8");
+  assert.equal(yesterdayBody.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "13");
+  const yesterdayTotalRequirements = new Map(
+    yesterdayBody.totalGenerationBreakdown.map((row: { taskType: string }) => [row.taskType, row]),
+  ).get("requirements_to_uml") as Record<string, unknown>;
+  assert.equal(yesterdayTotalRequirements.generatedCount, 3);
+  assert.equal(yesterdayTotalRequirements.modelCallCount, 6);
   const yesterdayByType = new Map(
     yesterdayBody.generationBreakdown.map((row: { taskType: string }) => [row.taskType, row]),
   );
