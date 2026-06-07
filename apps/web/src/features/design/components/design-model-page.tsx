@@ -47,6 +47,14 @@ import {
   USER_SETTINGS_CHANGED_EVENT,
 } from "../../../shared/lib/user-settings";
 import { useWorkspaceShell } from "../../workspace-shell/state";
+import {
+  MobileCompactGrid,
+  MobileRail,
+  MobileRailCard,
+  MobileStatusPill,
+  MobileStatusRail,
+  mobileTouchTargetClass,
+} from "../../workspace-shell/components/mobile-density";
 import { useWorkspaceSession } from "../../workspace-session/state";
 
 const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DiagramType | "sequence"> = {
@@ -482,7 +490,8 @@ export function DesignModelPage() {
 
           <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(260px,300px)]">
             <main className="flex min-w-0 flex-col gap-4">
-              <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <section>
+                <MobileCompactGrid className="xl:grid-cols-2">
                 {DESIGN_DIAGRAM_ORDER.map((diagram) => {
                   const meta = DESIGN_DIAGRAM_META[diagram];
                   const checked = effectiveSelected.includes(diagram);
@@ -543,29 +552,29 @@ export function DesignModelPage() {
                         )
                       }
                       className={cn(
-                        "flex min-h-[168px] flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                        "flex min-h-[174px] flex-col gap-2 rounded-xl border border-border bg-card p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:min-h-[168px] sm:gap-3 sm:p-4",
                         checked && "border-primary/35 ring-2 ring-primary/10",
                         blockReason ? "cursor-not-allowed" : "cursor-pointer",
                         blockReason && "border-dashed bg-muted/30 opacity-90 shadow-none",
                         diagram === "table" && "xl:col-span-2",
                       )}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-2 sm:gap-3">
                         <div
                           className={cn(
-                            "flex min-w-0 flex-1 items-center gap-3",
+                            "flex min-w-0 flex-1 items-start gap-2 sm:items-center sm:gap-3",
                             blockReason && "opacity-80",
                           )}
                         >
-                          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <DiagramIcon className="size-5" />
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:size-10">
+                            <DiagramIcon className="size-4 sm:size-5" />
                           </span>
                           <span className="min-w-0">
                             <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                              <span className="text-sm font-semibold text-foreground">
+                              <span className="text-xs font-semibold text-foreground sm:text-sm">
                                 {meta.label}
                               </span>
-                              <span className="font-mono text-xs text-muted-foreground">
+                              <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
                                 {meta.english}
                               </span>
                               {hasPendingAutoReview && (
@@ -577,7 +586,7 @@ export function DesignModelPage() {
                                 </Badge>
                               )}
                             </span>
-                            <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                            <span className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground sm:block sm:text-xs sm:leading-relaxed">
                               {meta.description}
                             </span>
                           </span>
@@ -597,7 +606,7 @@ export function DesignModelPage() {
 
                       <div
                         className={cn(
-                          "flex min-h-[78px] flex-1 flex-col items-center justify-center rounded-lg border px-3 py-3 text-center",
+                          "flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-lg border px-2 py-2 text-center sm:min-h-[78px] sm:px-3 sm:py-3",
                           blockReason
                             ? "border-dashed border-border bg-muted/40"
                             : "border-border bg-muted/30",
@@ -622,7 +631,11 @@ export function DesignModelPage() {
                                 );
                               }}
                               onKeyDown={(event) => event.stopPropagation()}
-                              className="mt-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+                              className={cn(
+                                "mt-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10",
+                                mobileTouchTargetClass,
+                                "sm:min-h-0",
+                              )}
                             >
                               <Eye className="size-3" />
                               查看
@@ -667,6 +680,7 @@ export function DesignModelPage() {
                     </article>
                   );
                 })}
+                </MobileCompactGrid>
               </section>
 
               <section className="border-t border-border pt-4">
@@ -696,36 +710,35 @@ export function DesignModelPage() {
                     </span>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                <MobileStatusRail className="mt-3">
                   {(["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[]).map(
                     (diagram) => {
                       const SourceIcon = REQUIREMENT_SOURCE_ICON[diagram];
                       return (
-                        <div
+                        <MobileStatusPill
                           key={diagram}
                           className={cn(
-                            "flex min-h-20 flex-col items-center justify-center rounded-lg border p-3 text-center text-sm",
                             sourceStatus[diagram]
-                              ? "border-border bg-card shadow-sm"
-                              : "border-border bg-muted/30",
+                              ? "border-border bg-card text-foreground"
+                              : "border-border bg-muted/30 text-muted-foreground",
                           )}
                         >
                           {sourceStatus[diagram] ? (
-                            <CheckCircle2 className="mb-2 size-5 text-primary" />
+                            <CheckCircle2 className="size-3.5 text-primary" />
                           ) : (
-                            <SourceIcon className="mb-2 size-5 text-muted-foreground" />
+                            <SourceIcon className="size-3.5 text-muted-foreground" />
                           )}
-                          <span className="max-w-full truncate text-foreground">
+                          <span className="max-w-24 truncate">
                             {DIAGRAM_META[diagram].label}
                           </span>
-                          <span className="mt-1 text-[11px] text-muted-foreground">
+                          <span className="font-mono text-[10px] text-muted-foreground">
                             {sourceStatus[diagram] ? "可用" : "未生成"}
                           </span>
-                        </div>
+                        </MobileStatusPill>
                       );
                     },
                   )}
-                </div>
+                </MobileStatusRail>
                 <div className="mt-3 text-xs text-muted-foreground">
                   设计生成会使用需求基线、上方需求阶段模型和已生成的上游设计模型。
                 </div>
@@ -776,21 +789,20 @@ export function DesignModelPage() {
                     参考设计模式
                   </h3>
                 </div>
-                <div className="mt-3 grid gap-1">
+                <MobileRail className="mt-3 md:grid-cols-1">
                   {[
                     "分层架构 (N-Tier)",
                     "微服务架构 (Microservices)",
                     "事件驱动架构 (EDA)",
                   ].map((pattern) => (
-                    <div
-                      key={pattern}
-                      className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/50"
-                    >
-                      <span>{pattern}</span>
-                      <span className="text-muted-foreground">›</span>
-                    </div>
+                    <MobileRailCard key={pattern} className="min-w-[180px]">
+                      <div className="flex min-h-11 items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground transition-colors hover:bg-muted/50 md:min-h-0 md:border-0 md:bg-transparent md:px-2 md:py-1.5">
+                        <span className="truncate">{pattern}</span>
+                        <span className="text-muted-foreground">›</span>
+                      </div>
+                    </MobileRailCard>
                   ))}
-                </div>
+                </MobileRail>
               </section>
             </aside>
           </div>

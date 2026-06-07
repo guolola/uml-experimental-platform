@@ -69,6 +69,31 @@ describe("DiagramView", () => {
     await userEvent.click(await screen.findByRole("option", { name: optionName }));
   }
 
+  function stubCompactViewport(matches: boolean) {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((query: string) => ({
+        matches,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(() => false),
+      })),
+    });
+    return () => {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    };
+  }
+
   it("shows a clear error card when a diagram finished without SVG output", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
@@ -808,6 +833,62 @@ describe("DiagramView", () => {
     await userEvent.click(screen.getByRole("button", { name: "打开模型概览" }));
     await userEvent.click(await screen.findByRole("button", { name: "关闭模型概览" }));
     expect(screen.queryByRole("complementary", { name: "模型概览" })).not.toBeInTheDocument();
+  });
+
+  it("uses a compact status rail and segmented detail entry points on mobile viewports", async () => {
+    const restoreMatchMedia = stubCompactViewport(true);
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "公开日历领域对象",
+            classes: [
+              {
+                id: "book",
+                name: "Book",
+                description: "图书",
+                classKind: "entity",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: '<svg width="200" height="120"><text>Book</text></svg>',
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+
+    try {
+      const { container } = render(withWorkspaceProviders(<DiagramView type="class" />, repository));
+
+      expect(await screen.findByTestId("diagram-preview-section")).toBeInTheDocument();
+      expect(container.querySelector('[data-workspace-density="status-rail"]')).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "元素" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "关系" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "编辑" })).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("搜索元素、属性或说明")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("tab", { name: "元素" }));
+      expect(screen.getByPlaceholderText("搜索元素、属性或说明")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("tab", { name: "编辑" }));
+      expect(screen.getByLabelText("元素清单工具栏")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("搜索关系、端点或说明")).toBeInTheDocument();
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   it("zooms only the SVG canvas on ctrl wheel and prevents page zoom", async () => {

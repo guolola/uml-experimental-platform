@@ -26,6 +26,23 @@ function createRepository(): WorkspaceRepository {
   };
 }
 
+function stubCompactViewport(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  });
+}
+
 function TabsHarness() {
   const { openDiagram, openDesignHome, openWorkspacePlaceholder } =
     useWorkspaceShell();
@@ -49,7 +66,24 @@ function TabsHarness() {
 }
 
 describe("WorkspaceTabsBar", () => {
+  it("collapses open tabs into a compact menu on mobile viewports", async () => {
+    stubCompactViewport(true);
+    render(withWorkspaceProviders(<TabsHarness />, createRepository()));
+
+    await userEvent.click(screen.getByRole("button", { name: "open usecase" }));
+    await userEvent.click(screen.getByRole("button", { name: "open design" }));
+
+    expect(screen.getByTitle("设计")).toHaveTextContent("设计");
+    await userEvent.click(screen.getByRole("button", { name: "标签页操作" }));
+
+    expect(screen.getByText("打开的标签")).toBeInTheDocument();
+    expect(screen.getAllByRole("menuitem", { name: /需求/u }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("menuitem", { name: /用例模型/u })).toBeInTheDocument();
+    expect(screen.getAllByRole("menuitem", { name: /设计/u }).length).toBeGreaterThan(0);
+  });
+
   it("offers batch tab actions and can keep only the active tab", async () => {
+    stubCompactViewport(false);
     render(withWorkspaceProviders(<TabsHarness />, createRepository()));
 
     await userEvent.click(screen.getByRole("button", { name: "open usecase" }));

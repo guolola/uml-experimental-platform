@@ -27,6 +27,7 @@ import {
 } from "./workspace-modules";
 import { matchAppRoute, type AppRoute } from "./app-routes";
 import { WorkspaceTabsBar } from "../features/workspace-shell/components/workspace-tabs-bar";
+import { MobileWorkspaceNavigation } from "../features/workspace-shell/components/mobile-workspace-navigation";
 import { Workspace } from "../features/workspace-shell/components/workspace-placeholder";
 import { WorkspaceRepositoryProvider } from "../services/workspace-repository";
 import { WorkspaceShellProvider, useWorkspaceShell } from "../features/workspace-shell/state";
@@ -34,6 +35,7 @@ import {
   WorkspaceSessionProvider,
   useWorkspaceSession,
 } from "../features/workspace-session/state";
+import { useCompactViewport } from "../features/workspace-shell/hooks/use-compact-viewport";
 import {
   AuthenticatedRoute,
   AuthPage,
@@ -97,6 +99,7 @@ function ProjectWorkspaceShell({
 }) {
   const { selection } = useWorkspaceShell();
   const { generationTasks } = useWorkspaceSession();
+  const compactViewport = useCompactViewport();
   const activeGenerationTaskCount = generationTasks.filter(
     (task) => task.status === "queued" || task.status === "running",
   ).length;
@@ -199,6 +202,31 @@ function ProjectWorkspaceShell({
           <Workspace title={selection.label} />
         );
       break;
+  }
+
+  if (compactViewport) {
+    return (
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+        <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+          <ProjectWorkspaceBanner
+            projectId={projectId}
+            onOpenDrawer={onActiveProjectDrawerChange}
+            activeGenerationTaskCount={activeGenerationTaskCount}
+          />
+          <WorkspaceTabsBar />
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className="h-full min-h-0">{body}</div>
+            <ProjectWorkspaceDrawer
+              projectId={projectId}
+              activeDrawer={activeDrawer}
+              onNavigate={onNavigate}
+              onClose={closeDrawer}
+            />
+          </div>
+        </main>
+        <MobileWorkspaceNavigation />
+      </div>
+    );
   }
 
   return (

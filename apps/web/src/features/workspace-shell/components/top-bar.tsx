@@ -10,6 +10,7 @@ import {
   FileText,
   History,
   Loader2,
+  Menu,
   Moon,
   Palette,
   RotateCcw,
@@ -1361,19 +1362,28 @@ export function TopBar({
     ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace"),
     { route: "/account/billing", label: "购买" },
   ];
+  const currentLabel =
+    navItems.find(
+      (item) =>
+        currentRoute === item.route ||
+        (item.route === "/projects" && currentRoute?.startsWith("/projects")),
+    )?.label ?? "工作台";
 
   return (
-    <header className="flex h-16 shrink-0 flex-nowrap items-center gap-6 overflow-hidden border-b border-sidebar-border bg-background/80 px-6 font-semibold text-sidebar-foreground backdrop-blur-xl">
-      <div className="flex shrink-0 items-center gap-3">
+    <header className="flex h-14 shrink-0 flex-nowrap items-center gap-3 overflow-hidden border-b border-sidebar-border bg-background/80 px-3 font-semibold text-sidebar-foreground backdrop-blur-xl md:h-16 md:gap-6 md:px-6">
+      <div className="flex min-w-0 shrink items-center gap-3 md:shrink-0">
         <span className="inline-flex size-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#a855f7_0%,#60a5fa_100%)] shadow-sm dark:bg-[linear-gradient(135deg,#3b82f6_0%,#60a5fa_100%)]">
           <Boxes className="size-4 text-white" />
         </span>
-        <span className="whitespace-nowrap text-[18px] font-semibold leading-7 tracking-[-0.45px]">
+        <span className="hidden whitespace-nowrap text-[18px] font-semibold leading-7 tracking-[-0.45px] sm:inline">
           软件工程实训平台
+        </span>
+        <span className="truncate text-sm font-semibold text-primary sm:hidden">
+          {currentLabel}
         </span>
       </div>
 
-      <nav className="flex min-w-0 items-center gap-6">
+      <nav className="hidden min-w-0 items-center gap-6 md:flex">
         {navItems.map((item) => (
           <button
             key={item.label}
@@ -1392,7 +1402,33 @@ export function TopBar({
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex min-w-0 items-center gap-1 md:gap-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`${topBarActionButtonClass} md:hidden`}
+              title="打开主导航"
+              aria-label="打开主导航"
+            >
+              <Menu className="size-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuLabel>主导航</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {navItems.map((item) => (
+              <DropdownMenuItem key={item.label} onSelect={() => onNavigate(item.route)}>
+                {item.label}
+                {(currentRoute === item.route ||
+                  (item.route === "/projects" && currentRoute?.startsWith("/projects"))) && (
+                  <span className="ml-auto text-xs text-primary">当前</span>
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <SystemNoticeButton className={topBarActionButtonClass} />
         <Button
           variant="ghost"

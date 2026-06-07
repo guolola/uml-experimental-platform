@@ -105,7 +105,9 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({ updateRequirementText });
 
     const user = userEvent.setup();
-    render(withWorkspaceProviders(<TextRequirementView />, repository));
+    const { container } = render(
+      withWorkspaceProviders(<TextRequirementView />, repository),
+    );
 
     const requirementInput = await screen.findByPlaceholderText(
       "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
@@ -123,6 +125,9 @@ describe("TextRequirementView", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("目标模型")).toBeInTheDocument();
     expect(screen.getAllByText(/将自动补齐：需求规则/).length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('[data-workspace-density="rail"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-workspace-density="rail-card"]')).toHaveLength(3);
+    expect(container.querySelector('[data-workspace-density="compact-grid"]')).toBeInTheDocument();
 
     await user.type(requirementInput, "创建一个订单系统");
     expect(requirementInput).toHaveValue("创建一个订单系统");
@@ -273,7 +278,9 @@ describe("TextRequirementView", () => {
     });
 
     const user = userEvent.setup();
-    render(withWorkspaceProviders(<TextRequirementView />, repository));
+    const { container } = render(
+      withWorkspaceProviders(<TextRequirementView />, repository),
+    );
 
     await user.click(await screen.findByRole("checkbox", { name: /用例模型/ }));
     const generateButton = await screen.findByRole("button", { name: /生成模型/i });
@@ -440,7 +447,9 @@ describe("TextRequirementView", () => {
     });
 
     const user = userEvent.setup();
-    render(withWorkspaceProviders(<TextRequirementView />, repository));
+    const { container } = render(
+      withWorkspaceProviders(<TextRequirementView />, repository),
+    );
 
     const analysisCheckbox = await screen.findByRole("checkbox", {
       name: /需求分析模型/,
@@ -475,7 +484,9 @@ describe("TextRequirementView", () => {
     });
 
     const user = userEvent.setup();
-    render(withWorkspaceProviders(<TextRequirementView />, repository));
+    const { container } = render(
+      withWorkspaceProviders(<TextRequirementView />, repository),
+    );
 
     await user.click(await screen.findByRole("checkbox", { name: /总体业务流程/ }));
 

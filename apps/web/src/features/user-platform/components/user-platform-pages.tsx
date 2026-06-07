@@ -27,6 +27,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  MoreHorizontal,
   PlugZap,
   Plus,
   RotateCw,
@@ -53,6 +54,14 @@ import { Label } from "../../../shared/ui/label";
 import { Separator } from "../../../shared/ui/separator";
 import { Select, SelectContent, SelectControl, SelectItem, SelectTrigger } from "../../../shared/ui/select";
 import { Switch } from "../../../shared/ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../../shared/ui/dropdown-menu";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceRepository } from "../../../services/workspace-repository";
 import { downloadBlobFile, downloadTextFile } from "../../../shared/lib/download";
@@ -5010,17 +5019,17 @@ export function ProjectWorkspaceBanner({
   }
 
   return (
-    <div className="flex min-h-[53px] items-center border-b border-border bg-card px-4 py-2">
-      <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm">
-        <div className="flex items-center gap-3">
+    <div className="flex min-h-[53px] items-center border-b border-border bg-card px-3 py-2 md:px-4">
+      <div className="flex w-full min-w-0 items-center justify-between gap-3 text-sm md:flex-wrap">
+        <div className="flex min-w-0 items-center gap-2 md:gap-3">
           <Badge variant="secondary">项目工作台</Badge>
-          <span className="font-semibold">{overview.project.name}</span>
-          <span className="text-muted-foreground">成员 {overview.members.length}</span>
-          <span className="text-muted-foreground">
+          <span className="min-w-0 truncate font-semibold">{overview.project.name}</span>
+          <span className="hidden text-muted-foreground sm:inline">成员 {overview.members.length}</span>
+          <span className="hidden text-muted-foreground sm:inline">
             权限 {overview.membership?.role ?? "unknown"}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+        <div className="hidden flex-wrap items-center gap-2 text-muted-foreground md:flex">
           {onOpenDrawer && (
             <ProjectWorkspaceActions
               projectId={projectId}
@@ -5056,6 +5065,54 @@ export function ProjectWorkspaceBanner({
             文档 {overview.documents.length}
           </span>
         </div>
+        {onOpenDrawer && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0 rounded-full md:hidden"
+                aria-label="打开项目操作"
+                title="打开项目操作"
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              <DropdownMenuLabel>{overview.membership?.role ?? "unknown"} · 已同步</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onOpenDrawer("tasks")}>
+                <Activity className="size-4" />
+                生成任务
+                <span className="ml-auto text-xs text-muted-foreground">{activeRuns}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onOpenDrawer("history")}>
+                <Clock3 className="size-4" />
+                运行历史
+              </DropdownMenuItem>
+              {shortcuts.map((shortcut) => {
+                const Icon = shortcut.icon;
+                return (
+                  <DropdownMenuItem
+                    key={shortcut.kind}
+                    onSelect={() => onOpenDrawer(shortcut.kind)}
+                  >
+                    <Icon className="size-4" />
+                    {shortcut.label}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled>
+                项目状态：{overview.project.status}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                文档 {overview.documents.length}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </div>
   );

@@ -182,7 +182,9 @@ function createWorkspaceTab(selection: WorkspaceSelection): WorkspaceTab {
   };
 }
 
-function stageForSelection(selection: WorkspaceSelection) {
+export type WorkspaceStage = "requirements" | "design" | "test" | "code" | "documents";
+
+export function stageForSelection(selection: WorkspaceSelection): WorkspaceStage {
   switch (selection.kind) {
     case "requirements-text":
     case "requirement-trace-matrix":

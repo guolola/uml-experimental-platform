@@ -154,6 +154,23 @@ vi.mock("@codesandbox/sandpack-react", () => ({
   }),
 }));
 
+function stubCompactViewport(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  });
+}
+
 function createRepository(
   codeFiles: Record<string, string> = {
     "/src/App.tsx": "export default function App() { return <main />; }",
@@ -187,6 +204,7 @@ function createRepository(
 
 describe("CodeGenerationPage", () => {
   beforeEach(() => {
+    stubCompactViewport(false);
     sandpackMocks.providerProps = null;
     sandpackMocks.listen.mockClear();
     sandpackMocks.listen.mockReturnValue(vi.fn());
@@ -261,6 +279,38 @@ describe("CodeGenerationPage", () => {
 
     expect(screen.queryByText("Agent Skills")).not.toBeInTheDocument();
     expect(screen.queryByText("业务规则说明")).not.toBeInTheDocument();
+  });
+
+  it("uses mobile panes instead of the desktop split editor on compact viewports", async () => {
+    stubCompactViewport(true);
+
+    const { container } = render(
+      withWorkspaceProviders(<CodeGenerationPage />, createRepository()),
+    );
+
+    await screen.findByTestId("sandpack-provider");
+
+    expect(screen.getByRole("button", { name: "文件" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "编辑" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "预览" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(container.querySelector('[data-workspace-density="status-rail"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-workspace-density="status-pill"]').length).toBeGreaterThanOrEqual(3);
+    expect(document.querySelector('[data-panel-group-direction="horizontal"]')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "文件" }));
+    expect(screen.getByText("WorkspaceShell.tsx")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "预览" }));
+    expect(screen.getByRole("button", { name: "运行预览" })).toBeInTheDocument();
   });
 
   it("shows a clear preview-ready status once generated files exist", async () => {

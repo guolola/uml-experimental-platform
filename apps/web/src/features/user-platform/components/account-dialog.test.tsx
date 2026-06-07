@@ -43,11 +43,28 @@ function stubAccountFetch(profile: PlatformAccountProfileResponse) {
   });
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://127.0.0.1:4101");
-    if (url.pathname === "/api/auth/me" || url.pathname === "/api/account/profile") {
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/api/auth/me" || (url.pathname === "/api/account/profile" && method === "GET")) {
       return new Response(JSON.stringify(currentProfile()), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (url.pathname === "/api/account/profile" && method === "PATCH") {
+      return new Response(
+        JSON.stringify({
+          ...currentProfile(),
+          user: {
+            ...currentProfile().user,
+            displayName: "Teaching Assistant",
+            avatarUrl: "https://cdn.example.edu/avatar.png",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }
     if (url.pathname === "/api/account/sessions") {
       return new Response(JSON.stringify({ sessions: [profile.session] }), {
@@ -172,6 +189,42 @@ describe("AccountDialog generation usage", () => {
       expect(screen.getByText("今日 3 / 5 次")).toBeInTheDocument();
     });
     expect(screen.getByText("剩余 2 次")).toBeInTheDocument();
+  });
+
+  it("updates the account profile through the profile API", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubAccountFetch(
+      profileResponse({
+        usedToday: 0,
+        limit: null,
+        remaining: null,
+        windowSeconds: 86400,
+        limited: false,
+        scope: "user",
+      }),
+    );
+
+    render(<AccountDialog onNavigate={() => {}} initialUser={baseUser} />);
+    await user.click(screen.getByRole("button", { name: "账号" }));
+    const accountDialog = await screen.findByRole("dialog", { name: "设置" });
+    const displayNameInput = await within(accountDialog).findByLabelText("昵称");
+
+    await user.clear(displayNameInput);
+    await user.type(displayNameInput, "Teaching Assistant");
+    fireEvent.click(within(accountDialog).getByRole("button", { name: "保存资料" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/account/profile"),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            displayName: "Teaching Assistant",
+            avatarUrl: null,
+          }),
+        }),
+      );
+    });
   });
 
   it("manages real TOTP MFA and session revocation through account APIs", async () => {

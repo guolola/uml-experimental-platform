@@ -57,6 +57,12 @@ import {
   patchUserSettings,
   USER_SETTINGS_CHANGED_EVENT,
 } from "../../../shared/lib/user-settings";
+import {
+  MobileCompactGrid,
+  MobileRail,
+  MobileRailCard,
+  mobileTouchTargetClass,
+} from "../../workspace-shell/components/mobile-density";
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
 const RULES_PER_PAGE = 8;
@@ -875,41 +881,45 @@ export function TextRequirementView() {
         <div className="rounded-bl-lg rounded-br-lg rounded-tr-lg bg-muted px-3 py-2 text-xs leading-5 text-foreground">
           你好！我是您的需求分析助手。我可以帮助您细化功能点、完善业务规则或根据您的想法提供专业建议。请问有什么可以帮您的？
         </div>
-        <div className="grid gap-2">
+        <MobileRail className="md:grid-cols-1">
             {REQUIREMENT_TEMPLATE_CARDS.map(
               ({ title, english, description, templateText, Icon }) => (
-                <button
-                  type="button"
-                  key={title}
-                  onClick={() => setRequirementText(templateText)}
-                  disabled={!canEditRequirements}
-                  title={!canEditRequirements ? editBlockedReason : undefined}
-                  className="group rounded-lg border border-border bg-background p-2 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary transition-transform duration-200 group-hover:-translate-y-0.5">
-                      <Icon className="size-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-semibold text-foreground">
-                        {title}
+                <MobileRailCard key={title} className="min-w-[172px]">
+                  <button
+                    type="button"
+                    onClick={() => setRequirementText(templateText)}
+                    disabled={!canEditRequirements}
+                    title={!canEditRequirements ? editBlockedReason : undefined}
+                    className={cn(
+                      "group flex h-full min-h-[118px] w-full flex-col rounded-lg border border-border bg-background p-2 text-left shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-h-0",
+                      mobileTouchTargetClass,
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                        <Icon className="size-3.5" />
                       </span>
-                      <span className="block truncate font-mono text-[9px] text-muted-foreground">
-                        {english}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold text-foreground">
+                          {title}
+                        </span>
+                        <span className="block truncate font-mono text-[9px] text-muted-foreground">
+                          {english}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                  <span className="mt-1 block truncate text-[11px] leading-4 text-muted-foreground">
-                        {description}
-                  </span>
-                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                    <CircleCheck className="size-3" />
-                    应用模板
-                  </span>
-                </button>
+                    <span className="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                          {description}
+                    </span>
+                    <span className="mt-auto inline-flex items-center gap-1 pt-2 text-[11px] font-medium text-primary">
+                      <CircleCheck className="size-3" />
+                      应用模板
+                    </span>
+                  </button>
+                </MobileRailCard>
               ),
             )}
-        </div>
+        </MobileRail>
       </div>
       <div className="border-t border-border p-3">
         <div className="relative">
@@ -1106,7 +1116,7 @@ export function TextRequirementView() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <MobileCompactGrid className="lg:grid-cols-2">
               {DIAGRAM_ORDER.map((diagram) => {
                 const meta = DIAGRAM_META[diagram];
                 const checked = selectedDiagrams.includes(diagram);
@@ -1165,7 +1175,7 @@ export function TextRequirementView() {
                       )
                     }
                     className={cn(
-                      "flex min-h-24 gap-3 rounded-xl border bg-card p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                      "flex min-h-[156px] flex-col gap-2 rounded-xl border bg-card p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:min-h-24 sm:flex-row sm:gap-3 sm:p-4",
                       checked
                         ? "border-primary/35 ring-2 ring-primary/10"
                         : "border-border",
@@ -1178,7 +1188,7 @@ export function TextRequirementView() {
                       onClick={(event) => event.stopPropagation()}
                       onKeyDown={(event) => event.stopPropagation()}
                       className={cn(
-                        "mt-1 flex shrink-0",
+                        "flex min-h-8 shrink-0 items-center sm:mt-1 sm:min-h-0",
                         canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
                       )}
                     >
@@ -1190,18 +1200,18 @@ export function TextRequirementView() {
                       />
                     </label>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-2 sm:gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
                             <h3
                               className={cn(
-                                "text-sm font-semibold text-foreground",
+                                "text-xs font-semibold text-foreground sm:text-sm",
                                 !canSelectDiagram && "text-muted-foreground",
                               )}
                             >
                               {meta.label}
                             </h3>
-                            <span className="font-mono text-xs text-muted-foreground">
+                            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
                               {meta.english}
                             </span>
                             {hasPendingAutoReview && (
@@ -1213,13 +1223,13 @@ export function TextRequirementView() {
                               </Badge>
                             )}
                           </div>
-                          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground sm:text-xs sm:leading-5">
                             {meta.description}
                           </p>
                         </div>
                         <span
                           className={cn(
-                            "rounded-md px-2 py-0.5 font-mono text-lg font-bold",
+                            "rounded-md px-2 py-0.5 font-mono text-base font-bold sm:text-lg",
                             canSelectDiagram
                               ? "bg-primary/5 text-primary"
                               : "text-muted-foreground",
@@ -1230,7 +1240,7 @@ export function TextRequirementView() {
                       </div>
 
                       {!canSelectDiagram && (
-                        <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+                        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-destructive sm:text-xs">
                           <AlertTriangle className="size-3.5" />
                           {blockReason ??
                             (isAnalysisDiagram
@@ -1239,18 +1249,18 @@ export function TextRequirementView() {
                         </div>
                       )}
                       {autoFillLabels.length > 0 && !blockReason && (
-                        <div className="mt-2 flex items-center gap-1.5 text-xs text-warning">
+                        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-warning sm:text-xs">
                           <AlertTriangle className="size-3.5" />
                           将自动补齐：{autoFillLabels.join("、")}
                         </div>
                       )}
                       {isAnalysisDiagram && canSelectDiagram && linkedRules.length === 0 && (
-                        <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                        <div className="mt-2 text-[11px] leading-4 text-muted-foreground sm:text-xs sm:leading-5">
                           基于用例模型事件流生成，不要求需求规则直接映射。
                         </div>
                       )}
                       {linkedRules.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
+                        <div className="mt-2 hidden flex-wrap gap-1.5 sm:flex">
                           {linkedRules.map((rule) => (
                             <button
                               type="button"
@@ -1287,7 +1297,7 @@ export function TextRequirementView() {
                   </div>
                 );
               })}
-            </div>
+            </MobileCompactGrid>
             <p className="pb-4 text-center text-xs text-muted-foreground">
               勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里选择的需求项。
             </p>

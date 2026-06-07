@@ -718,7 +718,7 @@ export function AccountDialog({
 
                 <Separator />
                 <div className="flex justify-end">
-                  <Button onClick={saveProfile}>
+                  <Button type="button" onClick={() => void saveProfile()}>
                     <User className="size-4" />
                     保存资料
                   </Button>

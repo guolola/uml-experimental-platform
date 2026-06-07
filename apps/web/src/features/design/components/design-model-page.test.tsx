@@ -99,7 +99,9 @@ describe("DesignModelPage", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
-    render(withWorkspaceProviders(<DesignModelPage />, repository));
+    const { container } = render(
+      withWorkspaceProviders(<DesignModelPage />, repository),
+    );
 
     const sourceRegion = await screen.findByRole("heading", { name: "需求阶段来源" });
     const sourceGrid = sourceRegion.closest("section");
@@ -109,6 +111,8 @@ describe("DesignModelPage", () => {
       .closest("div");
 
     expect(analysisSourceCard).toHaveTextContent("可用");
+    expect(container.querySelector('[data-workspace-density="compact-grid"]')).toBeInTheDocument();
+    expect(sourceGrid?.querySelector('[data-workspace-density="status-rail"]')).toBeInTheDocument();
   });
 
   it("treats generated prototype model aliases as available requirement sources", async () => {

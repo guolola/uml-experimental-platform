@@ -3,11 +3,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../../shared/ui/dropdown-menu";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceShell } from "../state";
+import { useCompactViewport } from "../hooks/use-compact-viewport";
 
 export function WorkspaceTabsBar() {
   const {
@@ -21,6 +23,59 @@ export function WorkspaceTabsBar() {
     openDesignHome,
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
+  const compactViewport = useCompactViewport();
+  const activeTab = openTabs.find((tab) => tab.id === activeTabId) ?? openTabs[0];
+
+  if (compactViewport) {
+    return (
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
+        <button
+          type="button"
+          className="min-w-0 flex-1 truncate rounded-full border border-border bg-card px-3 py-1.5 text-left text-sm font-medium text-foreground shadow-sm"
+          title={activeTab?.label}
+          onClick={() => activeTab && activateWorkspaceTab(activeTab.id)}
+        >
+          {activeTab?.label ?? "工作台"}
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="标签页操作"
+              title="标签页操作"
+            >
+              <MoreHorizontal className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-48">
+            <DropdownMenuLabel>打开的标签</DropdownMenuLabel>
+            {openTabs.map((tab) => (
+              <DropdownMenuItem key={tab.id} onSelect={() => activateWorkspaceTab(tab.id)}>
+                <span className="max-w-32 truncate">{tab.label}</span>
+                {tab.id === activeTabId && (
+                  <span className="ml-auto text-xs text-primary">当前</span>
+                )}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => closeOtherWorkspaceTabs(activeTabId)}>
+              关闭其他标签
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => closeWorkspaceTabsByStage(activeTabId)}>
+              关闭同阶段标签
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={openRequirementsText}>回到需求首页</DropdownMenuItem>
+            <DropdownMenuItem onSelect={openDesignHome}>回到设计首页</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openWorkspacePlaceholder("code", "代码")}>
+              回到代码页
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-4">

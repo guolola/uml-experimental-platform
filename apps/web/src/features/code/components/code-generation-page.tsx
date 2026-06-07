@@ -20,7 +20,9 @@ import {
   ResizablePanelGroup,
 } from "../../../shared/ui/resizable";
 import { downloadTextFile } from "../../../shared/lib/download";
-import { getModelCapability } from "../../../shared/lib/model-catalog";
+import {
+  getModelCapability,
+} from "../../../shared/lib/model-catalog";
 import {
   loadUserSettings,
   patchUserSettings,
@@ -38,6 +40,11 @@ import {
   type LocalPrototypePreviewHandle,
 } from "./prototype-preview";
 import { useWorkspaceSession } from "../../workspace-session/state";
+import {
+  MobileStatusPill,
+  MobileStatusRail,
+} from "../../workspace-shell/components/mobile-density";
+import { useCompactViewport } from "../../workspace-shell/hooks/use-compact-viewport";
 import { usePrototypeFiles } from "../hooks/use-prototype-files";
 
 
@@ -80,6 +87,8 @@ export function CodeGenerationPage() {
     generateCodePrototype,
     updateCodeFile,
   } = useWorkspaceSession();
+  const compactViewport = useCompactViewport();
+  const [mobilePane, setMobilePane] = useState<"files" | "editor" | "preview">("editor");
   const [defaultModel, setDefaultModel] = useState(
     () => loadUserSettings().defaultModel,
   );
@@ -284,34 +293,68 @@ export function CodeGenerationPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="flex min-h-12 items-center gap-2 border-b border-border px-3">
-        <div className="flex min-w-0 items-center gap-2">
+      <div
+        className={cn(
+          "flex min-h-12 items-center gap-2 border-b border-border px-3",
+          compactViewport && "min-h-0 flex-col items-stretch py-2",
+        )}
+      >
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-2",
+            compactViewport && "w-full",
+          )}
+        >
           <Code2 className="size-4 text-primary" />
           <span className="truncate text-sm font-semibold">前端原型代码</span>
-          <Badge variant="secondary" className="font-mono">
-            {sortedFiles.length} files
-          </Badge>
-          <Badge variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}>
-            {modelCapability.modeLabel}
-          </Badge>
+          {!compactViewport && (
+            <>
+              <Badge variant="secondary" className="font-mono">
+                {sortedFiles.length} files
+              </Badge>
+              <Badge variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}>
+                {modelCapability.modeLabel}
+              </Badge>
+            </>
+          )}
         </div>
-        {generating && (
+        {compactViewport && (
+          <MobileStatusRail>
+            <MobileStatusPill className="font-mono">
+              {sortedFiles.length} files
+            </MobileStatusPill>
+            <MobileStatusPill>{modelCapability.modeLabel}</MobileStatusPill>
+            <MobileStatusPill>设计模型 {designModelCount}</MobileStatusPill>
+            {generating && (
+              <MobileStatusPill>
+                <Loader2 className="size-3.5 animate-spin" />
+                {runProgress}%
+              </MobileStatusPill>
+            )}
+          </MobileStatusRail>
+        )}
+        {!compactViewport && generating && (
           <div className="ml-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
             <span className="truncate">{runMessage ?? "正在生成代码"}</span>
             <span className="font-mono">{runProgress}%</span>
           </div>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div
+          className={cn(
+            "ml-auto flex items-center gap-2",
+            compactViewport && "ml-0 w-full overflow-x-auto pb-1",
+          )}
+        >
           <ModelPicker
             value={defaultModel}
             onValueChange={updateModel}
             align="end"
-            triggerClassName="h-8 bg-card"
+            triggerClassName={cn("h-8 bg-card", compactViewport && "h-10 shrink-0")}
           />
           <Button
             size="sm"
-            className="h-8"
+            className={cn("h-8", compactViewport && "h-10 shrink-0")}
             onClick={() =>
               void generateCodePrototype(
             generatedFileCount > 0 ? "continue" : "regenerate",
@@ -332,7 +375,7 @@ export function CodeGenerationPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8"
+              className={cn("h-8", compactViewport && "h-10 shrink-0")}
               onClick={() => void generateCodePrototype("regenerate")}
               disabled={!canGenerate || generating}
             >
@@ -347,7 +390,7 @@ export function CodeGenerationPage() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8"
+            className={cn("h-8", compactViewport && "h-10 shrink-0")}
             onClick={exportBundle}
             disabled={sortedFiles.length === 0}
           >
@@ -424,10 +467,32 @@ export function CodeGenerationPage() {
       >
         <MonacoFileModelSync files={files} />
         <SandpackFileSync files={previewFiles} />
-        <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel defaultSize={58} minSize={34}>
-            <div className="grid h-full min-h-0 grid-cols-[210px_minmax(0,1fr)] border-r border-border">
-              <aside className="min-h-0 border-r border-border bg-sidebar">
+        {compactViewport ? (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="grid w-full min-w-0 grid-cols-3 gap-1 border-b border-border bg-card px-2 py-2">
+              {[
+                { id: "files" as const, label: "文件" },
+                { id: "editor" as const, label: "编辑" },
+                { id: "preview" as const, label: "预览" },
+              ].map((pane) => (
+                <button
+                  key={pane.id}
+                  type="button"
+                  aria-pressed={mobilePane === pane.id}
+                  className={cn(
+                    "h-8 min-w-0 rounded-md text-xs font-medium transition-colors",
+                    mobilePane === pane.id
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                  )}
+                  onClick={() => setMobilePane(pane.id)}
+                >
+                  {pane.label}
+                </button>
+              ))}
+            </div>
+            {mobilePane === "files" && (
+              <aside className="min-h-0 flex-1 bg-sidebar">
                 <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs font-semibold text-muted-foreground">
                   <FolderTree className="size-3.5" />
                   文件
@@ -438,11 +503,16 @@ export function CodeGenerationPage() {
                     activeFile={activeFile}
                     expandedDirs={expandedDirs}
                     onToggleDirectory={toggleDirectory}
-                    onSelectFile={setActiveFile}
+                    onSelectFile={(path) => {
+                      setActiveFile(path);
+                      setMobilePane("editor");
+                    }}
                   />
                 </div>
               </aside>
-              <section className="flex min-h-0 min-w-0 flex-col">
+            )}
+            {mobilePane === "editor" && (
+              <section className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div className="flex h-10 items-end gap-1 overflow-x-auto border-b border-border bg-card px-2 pt-1">
                   {sortedFiles.map((path) => (
                     <button
@@ -468,28 +538,25 @@ export function CodeGenerationPage() {
                   />
                 </div>
               </section>
-            </div>
-          </ResizablePanel>
-          <ResizableHandle withHandle className="bg-border/70" />
-          <ResizablePanel defaultSize={42} minSize={28}>
-            <section className="flex h-full min-h-0 flex-col bg-card">
-              <div className="flex h-10 items-center justify-between border-b border-border px-3">
-                <button
-                  type="button"
-                  className="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  title="新窗口查看预览"
-                  aria-label="新窗口查看预览"
-                  onClick={() => previewRef.current?.openPreviewWindow()}
-                >
-                  <Play className="size-3.5 text-primary" />
-                  <span className="text-xs font-semibold">预览</span>
-                  {codeSpec && (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {codeSpec.appName}
-                    </span>
-                  )}
-                </button>
-                <div className="flex items-center gap-2">
+            )}
+            {mobilePane === "preview" && (
+              <section className="flex min-h-0 flex-1 flex-col bg-card">
+                <div className="flex h-10 items-center justify-between gap-2 border-b border-border px-3">
+                  <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title="新窗口查看预览"
+                    aria-label="新窗口查看预览"
+                    onClick={() => previewRef.current?.openPreviewWindow()}
+                  >
+                    <Play className="size-3.5 text-primary" />
+                    <span className="text-xs font-semibold">预览</span>
+                    {codeSpec && (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {codeSpec.appName}
+                      </span>
+                    )}
+                  </button>
                   <Button
                     type="button"
                     size="sm"
@@ -504,24 +571,120 @@ export function CodeGenerationPage() {
                     )}
                     运行预览
                   </Button>
-                  <Badge variant="secondary" className="font-mono">
-                    Local TSX
-                  </Badge>
                 </div>
+                <div className="relative min-h-0 flex-1 bg-muted/40 p-2">
+                  <LocalPrototypePreview
+                    ref={previewRef}
+                    files={previewFiles}
+                    entryFile="/src/main.tsx"
+                    onBuildError={handlePreviewBuildError}
+                    onBuildReady={handlePreviewBuildReady}
+                    onBuildStart={handlePreviewBuildStart}
+                  />
+                </div>
+              </section>
+            )}
+          </div>
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+            <ResizablePanel defaultSize={58} minSize={34}>
+              <div className="grid h-full min-h-0 grid-cols-[210px_minmax(0,1fr)] border-r border-border">
+                <aside className="min-h-0 border-r border-border bg-sidebar">
+                  <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs font-semibold text-muted-foreground">
+                    <FolderTree className="size-3.5" />
+                    文件
+                  </div>
+                  <div className="min-h-0 overflow-auto py-2">
+                    <FileTree
+                      nodes={fileTree}
+                      activeFile={activeFile}
+                      expandedDirs={expandedDirs}
+                      onToggleDirectory={toggleDirectory}
+                      onSelectFile={setActiveFile}
+                    />
+                  </div>
+                </aside>
+                <section className="flex min-h-0 min-w-0 flex-col">
+                  <div className="flex h-10 items-end gap-1 overflow-x-auto border-b border-border bg-card px-2 pt-1">
+                    {sortedFiles.map((path) => (
+                      <button
+                        key={path}
+                        type="button"
+                        onClick={() => setActiveFile(path)}
+                        className={cn(
+                          "h-8 max-w-40 shrink-0 truncate rounded-t-md border border-b-0 px-3 text-xs",
+                          activeFile === path
+                            ? "border-border bg-background text-foreground"
+                            : "border-transparent text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        {fileLabel(path)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="min-h-0 flex-1 bg-zinc-950">
+                    <EditorBridge
+                      activeFile={activeFile}
+                      files={files}
+                      onChange={handleFileChange}
+                    />
+                  </div>
+                </section>
               </div>
-              <div className="relative min-h-0 flex-1 bg-muted/40 p-2">
-                <LocalPrototypePreview
-                  ref={previewRef}
-                  files={previewFiles}
-                  entryFile="/src/main.tsx"
-                  onBuildError={handlePreviewBuildError}
-                  onBuildReady={handlePreviewBuildReady}
-                  onBuildStart={handlePreviewBuildStart}
-                />
-              </div>
-            </section>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            </ResizablePanel>
+            <ResizableHandle withHandle className="bg-border/70" />
+            <ResizablePanel defaultSize={42} minSize={28}>
+              <section className="flex h-full min-h-0 flex-col bg-card">
+                <div className="flex h-10 items-center justify-between border-b border-border px-3">
+                  <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title="新窗口查看预览"
+                    aria-label="新窗口查看预览"
+                    onClick={() => previewRef.current?.openPreviewWindow()}
+                  >
+                    <Play className="size-3.5 text-primary" />
+                    <span className="text-xs font-semibold">预览</span>
+                    {codeSpec && (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {codeSpec.appName}
+                      </span>
+                    )}
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7"
+                      onClick={runPreview}
+                      disabled={!previewReady || previewState === "building"}
+                    >
+                      {previewState === "building" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Play className="size-3.5" />
+                      )}
+                      运行预览
+                    </Button>
+                    <Badge variant="secondary" className="font-mono">
+                      Local TSX
+                    </Badge>
+                  </div>
+                </div>
+                <div className="relative min-h-0 flex-1 bg-muted/40 p-2">
+                  <LocalPrototypePreview
+                    ref={previewRef}
+                    files={previewFiles}
+                    entryFile="/src/main.tsx"
+                    onBuildError={handlePreviewBuildError}
+                    onBuildReady={handlePreviewBuildReady}
+                    onBuildStart={handlePreviewBuildStart}
+                  />
+                </div>
+              </section>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </SandpackProvider>
     </div>
   );

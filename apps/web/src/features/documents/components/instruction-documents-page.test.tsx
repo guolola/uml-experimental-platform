@@ -215,7 +215,7 @@ describe("InstructionDocumentsPage", () => {
     const repository = createMockWorkspaceRepository();
     repository.listDocuments = vi.fn(async () => documents);
 
-    render(
+    const { container } = render(
       withWorkspaceProviders(<InstructionDocumentsPage />, repository),
     );
 
@@ -238,6 +238,7 @@ describe("InstructionDocumentsPage", () => {
     expect(within(generatedSection).getAllByText("文件大小")).toHaveLength(3);
     expect(within(generatedSection).getAllByText("128 B")).toHaveLength(3);
     expect(within(generatedSection).queryByText("来源运行")).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-workspace-density="compact-grid"]').length).toBeGreaterThanOrEqual(2);
 
     await userEvent.click(screen.getByRole("combobox", { name: "说明书类型" }));
     await userEvent.click(

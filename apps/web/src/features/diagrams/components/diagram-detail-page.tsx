@@ -43,6 +43,12 @@ import {
   type DiagramType,
 } from "../../../entities/diagram/model";
 import { useWorkspaceShell } from "../../workspace-shell/state";
+import { useCompactViewport } from "../../workspace-shell/hooks/use-compact-viewport";
+import {
+  MobileStatusPill,
+  MobileStatusRail,
+  mobileTouchTargetClass,
+} from "../../workspace-shell/components/mobile-density";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import {
   SEMANTIC_KIND_META,
@@ -2638,6 +2644,7 @@ function DiagramDetailView({
     : diagramErrors[requirementArtifactId] ?? diagramErrors[requirementType] ?? null;
   const statusKey = isDesign ? designArtifactId : requirementArtifactId;
   const editStatus = manualModelEditStatus[statusKey];
+  const compactViewport = useCompactViewport();
   const [draft, setDraft] = useState<Record<string, unknown> | null>(() =>
     model ? cloneDraftModel(model) : null,
   );
@@ -2905,6 +2912,8 @@ function DiagramDetailView({
       )
     : null;
   const sourceText = designSourceText ?? requirementSourceText;
+  const saveStatusLabel =
+    saveStatus === "saving" ? "更新中" : saveStatus === "saved" ? "已保存" : "失败";
   const editWarningText = editStatus?.warning?.includes("重绘当前图")
     ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
     : editStatus?.warning ??
@@ -3105,7 +3114,35 @@ function DiagramDetailView({
                   </div>
                 ) : null}
               </div>
-              <div className="flex flex-col gap-2 sm:w-auto">
+              <div className="min-w-0 sm:w-auto">
+                {compactViewport ? (
+                  <MobileStatusRail>
+                    <MobileStatusPill>
+                      <span>元素</span>
+                      <span className="font-mono text-foreground">{items.length}</span>
+                    </MobileStatusPill>
+                    <MobileStatusPill>
+                      <span>关系</span>
+                      <span className="font-mono text-foreground">{relationships.length}</span>
+                    </MobileStatusPill>
+                    <MobileStatusPill>
+                      <span>分组</span>
+                      <span className="font-mono text-foreground">{groups.length}</span>
+                    </MobileStatusPill>
+                    {sourceText ? (
+                      <MobileStatusPill>
+                        <span>来源</span>
+                        <span className="max-w-40 truncate text-foreground">{sourceText}</span>
+                      </MobileStatusPill>
+                    ) : null}
+                    {saveStatus !== "idle" ? (
+                      <MobileStatusPill>
+                        <span>保存</span>
+                        <span className="text-foreground">{saveStatusLabel}</span>
+                      </MobileStatusPill>
+                    ) : null}
+                  </MobileStatusRail>
+                ) : (
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg border border-border bg-muted/30 px-4 py-2">
                     <div className="font-mono text-lg font-semibold text-foreground">
@@ -3126,6 +3163,7 @@ function DiagramDetailView({
                     <div className="text-xs text-muted-foreground">分组</div>
                   </div>
                 </div>
+                )}
               </div>
             </div>
           </header>
@@ -3135,24 +3173,60 @@ function DiagramDetailView({
             defaultValue="diagram"
             className="gap-0 rounded-xl border border-border bg-card shadow-sm"
           >
-            <div className="border-b border-border px-5">
-              <TabsList className="h-auto w-full justify-start gap-8 rounded-none bg-transparent p-0">
+            <div className="border-b border-border px-3 sm:px-5">
+              <TabsList className="h-auto w-full justify-start gap-2 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-8">
                 <TabsTrigger
                   value="diagram"
-                  className="relative h-12 flex-none rounded-none border-0 bg-transparent px-0 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-0 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block"
+                  className={cn(
+                    "relative flex-none rounded-none border-0 bg-transparent px-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-2 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block sm:px-0 sm:after:inset-x-0",
+                    mobileTouchTargetClass,
+                  )}
                 >
                   图
                 </TabsTrigger>
+                {compactViewport ? (
+                  <>
+                    <TabsTrigger
+                      value="elements"
+                      className={cn(
+                        "relative flex-none rounded-none border-0 bg-transparent px-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-2 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block sm:px-0 sm:after:inset-x-0",
+                        mobileTouchTargetClass,
+                      )}
+                    >
+                      元素
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="relations"
+                      className={cn(
+                        "relative flex-none rounded-none border-0 bg-transparent px-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-2 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block sm:px-0 sm:after:inset-x-0",
+                        mobileTouchTargetClass,
+                      )}
+                    >
+                      关系
+                    </TabsTrigger>
+                    {draft ? (
+                      <TabsTrigger
+                        value="edit"
+                        className={cn(
+                          "relative flex-none rounded-none border-0 bg-transparent px-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:bg-transparent after:absolute after:inset-x-2 after:bottom-0 after:hidden after:h-0.5 after:bg-primary data-[state=active]:after:block sm:px-0 sm:after:inset-x-0",
+                          mobileTouchTargetClass,
+                        )}
+                      >
+                        编辑
+                      </TabsTrigger>
+                    ) : null}
+                  </>
+                ) : null}
               </TabsList>
             </div>
 
             <TabsContent value="diagram" className="m-0 p-0">
-              <div className="p-5">
+              <div className="p-3 sm:p-5">
                 <section
                   data-testid="diagram-preview-section"
                   className="w-full min-w-0 overflow-hidden rounded-xl border border-border bg-background"
                 >
-                  <div className="flex flex-col gap-3 rounded-t-xl border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-col gap-3 rounded-t-xl border-b border-border p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">预览</h3>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -3166,7 +3240,7 @@ function DiagramDetailView({
                       ref={svgCanvasRef}
                       data-testid="svg-preview-canvas"
                       className={cn(
-                        "h-[560px] overflow-hidden select-none touch-none",
+                        "h-[440px] overflow-hidden select-none touch-none sm:h-[560px]",
                         svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
                       )}
                       onPointerDown={startCanvasPan}
@@ -3212,7 +3286,12 @@ function DiagramDetailView({
                         id={overviewPanelId}
                         role="complementary"
                         aria-label={highlighted ? "焦点元素详情" : "模型概览"}
-                        className="absolute right-3 top-3 z-20 flex max-h-[calc(100%-1.5rem)] w-[min(22rem,calc(100%-1.5rem))] flex-col gap-3 overflow-auto rounded-xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur sm:w-80"
+                        className={cn(
+                          "absolute z-20 flex flex-col gap-3 overflow-auto rounded-xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur",
+                          compactViewport
+                            ? "inset-x-3 bottom-3 top-auto max-h-[65%]"
+                            : "right-3 top-3 max-h-[calc(100%-1.5rem)] w-[min(22rem,calc(100%-1.5rem))] sm:w-80",
+                        )}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <h3 className="text-sm font-semibold text-foreground">
@@ -3419,7 +3498,27 @@ function DiagramDetailView({
                   </div>
                 </section>
               </div>
-              <div className="px-5 pb-5">
+              {!compactViewport && draft ? (
+                <div className="px-3 pb-3 sm:px-5 sm:pb-5">
+                  <div className="mb-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                    <AlertTriangle className="size-3.5 shrink-0 text-warning" />
+                    <span>{editWarningText}</span>
+                  </div>
+                  <ModelEditPanel
+                    draft={draft}
+                    setDraft={setDraft}
+                    onCommitDraft={commitDraftAndRerender}
+                    onSelectElement={selectElementInDiagram}
+                    selectedElement={effectiveHighlightedElement}
+                    saving={saving}
+                  />
+                </div>
+              ) : null}
+            </TabsContent>
+
+            {compactViewport && draft ? (
+            <TabsContent value="edit" className="m-0 p-0">
+              <div className="px-3 pb-3 pt-3 sm:px-5 sm:pb-5 sm:pt-5">
                 <div className="mb-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
                   <AlertTriangle className="size-3.5 shrink-0 text-warning" />
                   <span>{editWarningText}</span>
@@ -3434,8 +3533,9 @@ function DiagramDetailView({
                 />
               </div>
             </TabsContent>
+            ) : null}
 
-            <TabsContent value="elements" className="m-0 min-h-0 flex-1 p-5 data-[state=active]:flex data-[state=active]:flex-col">
+            <TabsContent value="elements" className="m-0 min-h-0 flex-1 p-3 data-[state=active]:flex data-[state=active]:flex-col sm:p-5">
               <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background shadow-sm">
                 <div className="border-b border-border p-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -3607,7 +3707,7 @@ function DiagramDetailView({
               </section>
             </TabsContent>
 
-            <TabsContent value="relations" className="m-0 min-h-0 flex-1 p-5 data-[state=active]:flex data-[state=active]:flex-col">
+            <TabsContent value="relations" className="m-0 min-h-0 flex-1 p-3 data-[state=active]:flex data-[state=active]:flex-col sm:p-5">
               <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>

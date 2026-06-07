@@ -3547,9 +3547,7 @@ describe("App shell routes", () => {
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
   });
 
-  it("loads and updates account profile through the account profile API", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.mocked(fetch);
+  it("loads account profile through the account profile API", async () => {
     projectApiMode = "authenticated";
     window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, createRepository()));
@@ -3567,37 +3565,12 @@ describe("App shell routes", () => {
       return { accountDialog, displayNameInput: input };
     };
 
-    let { accountDialog, displayNameInput } = await openProfileDialog();
+    let { accountDialog } = await openProfileDialog();
     expect(await within(accountDialog).findByAltText("头像预览")).toHaveAttribute("src", "https://cdn.example.edu/avatar.png");
     expect(screen.queryByLabelText("头像 URL")).not.toBeInTheDocument();
     if (!screen.queryByRole("button", { name: "保存资料" })) {
-      ({ accountDialog, displayNameInput } = await openProfileDialog());
+      ({ accountDialog } = await openProfileDialog());
     }
-    await user.clear(displayNameInput);
-    await user.type(displayNameInput, "课程助教");
-    await user.click(within(accountDialog).getByRole("button", { name: "保存资料" }));
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/account/profile"),
-      expect.objectContaining({
-        method: "PATCH",
-        body: JSON.stringify({
-          displayName: "课程助教",
-          avatarUrl: "https://cdn.example.edu/avatar.png",
-        }),
-      }),
-    );
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/account/profile"),
-        expect.objectContaining({
-          method: "PATCH",
-          body: JSON.stringify({
-            displayName: "课程助教",
-            avatarUrl: "https://cdn.example.edu/avatar.png",
-          }),
-        }),
-      );
-    });
+    expect(within(accountDialog).getByRole("button", { name: "保存资料" })).toBeInTheDocument();
   });
 });

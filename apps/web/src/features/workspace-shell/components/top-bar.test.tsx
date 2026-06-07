@@ -274,6 +274,36 @@ describe("TopBar", () => {
     expect(screen.queryByRole("button", { name: "关闭 购买" })).not.toBeInTheDocument();
   });
 
+  it("keeps a compact main navigation menu available for mobile layouts", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    render(withWorkspaceProviders(<TopBarHarness onNavigate={onNavigate} />, repository));
+
+    const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("navigation")).toHaveClass("hidden", "md:flex");
+    expect(screen.getByRole("button", { name: "打开主导航" })).toHaveClass("md:hidden");
+
+    await user.click(screen.getByRole("button", { name: "打开主导航" }));
+    await user.click(screen.getByRole("menuitem", { name: "教程" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/tutorial");
+  });
+
   it("marks account billing active and closes account modal on route changes", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),

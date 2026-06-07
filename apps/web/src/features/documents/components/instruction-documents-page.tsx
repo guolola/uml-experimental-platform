@@ -31,10 +31,15 @@ import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
 import { SelectControl } from "../../../shared/ui/select";
+import { cn } from "../../../shared/ui/utils";
 import { downloadBlobFile } from "../../../shared/lib/download";
 import { useWorkspaceRepository } from "../../../services/workspace-repository";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../../workspace-shell/state";
+import {
+  MobileCompactGrid,
+  mobileTouchTargetClass,
+} from "../../workspace-shell/components/mobile-density";
 import { DocumentStyleDialog } from "./document-style-dialog";
 import { OnlyOfficeEditorHost } from "./only-office-editor-host";
 import { cloneDefaultDocumentStyle } from "../lib/document-style";
@@ -130,7 +135,7 @@ function TemplatePreview({
   onOpenStyle: () => void;
 }) {
   return (
-    <div className="flex h-44 flex-col gap-2 bg-muted/60 px-6 py-5">
+    <div className="flex h-36 flex-col gap-2 bg-muted/60 px-3 py-3 sm:h-44 sm:px-6 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <Badge variant="secondary" className="rounded-full text-[10px]">
           课程设计模板
@@ -139,25 +144,27 @@ function TemplatePreview({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 rounded-full bg-background/80 px-3"
+          className="size-9 rounded-full bg-background/80 p-0 sm:h-8 sm:w-auto sm:px-3"
           onClick={onOpenStyle}
+          title="说明书样式"
+          aria-label="说明书样式"
         >
           <Palette className="size-3.5" />
-          说明书样式
+          <span className="hidden sm:inline">说明书样式</span>
         </Button>
       </div>
       <div className="mt-auto space-y-3">
         <div>
           <p className="text-xs text-muted-foreground">生成模板</p>
-          <p className="mt-1 text-lg font-semibold text-foreground">
+          <p className="mt-1 line-clamp-2 text-sm font-semibold text-foreground sm:text-lg">
             {definition.title}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {documentStyleSummary(documentStyle).map((item) => (
             <span
               key={item}
-              className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+              className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground sm:px-2.5 sm:py-1 sm:text-[11px]"
             >
               {item}
             </span>
@@ -176,13 +183,13 @@ function GeneratedDocumentPreview({
   document: DocumentLibraryItem;
 }) {
   return (
-    <div className="flex h-44 flex-col justify-between bg-muted/60 px-6 py-5">
+    <div className="flex h-36 flex-col justify-between bg-muted/60 px-3 py-3 sm:h-44 sm:px-6 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Badge variant="outline" className="rounded-full bg-background/70 text-[10px]">
             {definition.title}
           </Badge>
-          <p className="mt-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+          <p className="mt-3 flex items-center gap-2 text-xs font-semibold text-foreground sm:text-sm">
             <FileText className="size-4 text-primary" />
             DOCX 文件
           </p>
@@ -192,7 +199,7 @@ function GeneratedDocumentPreview({
         </Badge>
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] sm:gap-x-4 sm:gap-y-3 sm:text-xs">
         <div>
           <dt className="text-muted-foreground">文件大小</dt>
           <dd className="mt-1 flex items-center gap-1.5 font-medium text-foreground">
@@ -227,20 +234,20 @@ function TemplateDocumentCard({
   onGenerate: () => void;
 }) {
   return (
-    <article className="group flex min-h-[270px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors">
+    <article className="group flex min-h-[236px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors sm:min-h-[270px]">
       <TemplatePreview
         definition={definition}
         documentStyle={documentStyle}
         onOpenStyle={onOpenStyle}
       />
-      <div className="flex flex-1 flex-col gap-3 border-t border-border bg-card p-4">
-        <div className="mt-auto rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-1 flex-col gap-2 border-t border-border bg-card p-3 sm:gap-3 sm:p-4">
+        <div className="mt-auto line-clamp-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground sm:text-xs">
           {disabledReason ?? "生成后可进入 Word 编辑器。"}
         </div>
         <Button
           type="button"
           size="sm"
-          className="h-9 rounded-full"
+          className="h-10 rounded-full sm:h-9"
           disabled={Boolean(disabledReason) || generating}
           title={disabledReason ?? `生成${definition.title}`}
           onClick={onGenerate}
@@ -270,18 +277,18 @@ function GeneratedDocumentCard({
 }) {
   return (
     <article
-      className="group flex min-h-[315px] cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors hover:border-primary/45 hover:shadow-md"
+      className="group flex min-h-[258px] cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors hover:border-primary/45 hover:shadow-md sm:min-h-[315px]"
       onClick={onOpen}
     >
       <GeneratedDocumentPreview definition={definition} document={document} />
-      <div className="flex flex-1 flex-col gap-3 border-t border-border bg-card p-4">
+      <div className="flex flex-1 flex-col gap-2 border-t border-border bg-card p-3 sm:gap-3 sm:p-4">
         <div className="flex items-start gap-3">
           <FileText className="mt-0.5 size-5 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
             <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">
               {document.fileName}
             </h3>
-            <p className="mt-2 text-xs font-medium tracking-[0.02em] text-muted-foreground">
+            <p className="mt-1 line-clamp-1 text-[11px] font-medium tracking-[0.02em] text-muted-foreground sm:mt-2 sm:text-xs">
               {definition.source}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
@@ -295,7 +302,7 @@ function GeneratedDocumentCard({
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 flex-1 rounded-full"
+            className={cn("h-10 flex-1 rounded-full sm:h-9", mobileTouchTargetClass)}
             onClick={(event) => {
               event.stopPropagation();
               onDownload();
@@ -307,7 +314,7 @@ function GeneratedDocumentCard({
           <Button
             type="button"
             size="sm"
-            className="h-9 flex-1 rounded-full"
+            className={cn("h-10 flex-1 rounded-full sm:h-9", mobileTouchTargetClass)}
             onClick={(event) => {
               event.stopPropagation();
               onOpen();
@@ -687,7 +694,8 @@ export function InstructionDocumentsPage({
           </div>
         ) : (
           <>
-            <section className="grid grid-cols-[minmax(0,360px)] justify-start gap-6 sm:grid-cols-[repeat(auto-fill,360px)]">
+            <section>
+              <MobileCompactGrid className="sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]">
               {DOCUMENT_DEFINITIONS.map((definition) => {
                 const generating = documentGeneratingByKind[definition.kind];
                 return (
@@ -702,6 +710,7 @@ export function InstructionDocumentsPage({
                   />
                 );
               })}
+              </MobileCompactGrid>
             </section>
 
             <section className="flex flex-col gap-4">
@@ -718,7 +727,7 @@ export function InstructionDocumentsPage({
                   暂无匹配的说明书
                 </div>
               ) : (
-                <div className="grid grid-cols-[minmax(0,360px)] justify-start gap-6 sm:grid-cols-[repeat(auto-fill,360px)]">
+                <MobileCompactGrid className="sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]">
                   {filteredDocuments.map((document) => (
                     <GeneratedDocumentCard
                       key={document.id}
@@ -728,7 +737,7 @@ export function InstructionDocumentsPage({
                       onDownload={() => void downloadDocument(document)}
                     />
                   ))}
-                </div>
+                </MobileCompactGrid>
               )}
             </section>
           </>
