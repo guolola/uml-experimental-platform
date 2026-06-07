@@ -3517,7 +3517,8 @@ describe("App shell routes", () => {
     await waitFor(() => {
       expect(testProviderConfigButton).toBeEnabled();
     });
-    await user.click(testProviderConfigButton);
+    vi.mocked(fetch).mockClear();
+    fireEvent.click(testProviderConfigButton);
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/provider-configs/provider-config-1/test"),
