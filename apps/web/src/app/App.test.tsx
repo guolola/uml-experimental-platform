@@ -3503,14 +3503,21 @@ describe("App shell routes", () => {
     ).not.toBeInTheDocument();
     expect(await screen.findByText(/课程 OpenAI 托管配置/u)).toBeInTheDocument();
     expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("combobox", { name: "托管 Provider 配置" }));
-    await user.click(await screen.findByRole("option", { name: /课程 OpenAI 托管配置/u }));
+    await chooseSelectOption(
+      user,
+      await findSelectTrigger("托管 Provider 配置"),
+      "课程 OpenAI 托管配置（托管配置）",
+    );
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
 
-    await user.click(screen.getByRole("button", { name: "测试托管配置" }));
+    const testProviderConfigButton = screen.getByRole("button", { name: "测试托管配置" });
+    await waitFor(() => {
+      expect(testProviderConfigButton).toBeEnabled();
+    });
+    await user.click(testProviderConfigButton);
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/provider-configs/provider-config-1/test"),
