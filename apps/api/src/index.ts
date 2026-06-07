@@ -486,6 +486,7 @@ export async function createApiServer(options?: {
     startRunPipeline: startAdminRunPipeline,
     riskEvents: () => riskEvents.map((event) => ({ ...event })),
     academicStore,
+    billingService,
   });
   registerDocumentRoutes({
     app,

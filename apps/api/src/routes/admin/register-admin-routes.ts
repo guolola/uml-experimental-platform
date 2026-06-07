@@ -31,6 +31,7 @@ import {
 import { getModelCapability } from "../../model-capabilities.js";
 import { getHealthcheckResponseFormat } from "../../adapters/llm/response-formats/index.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
+import type { BillingService } from "../../billing/billing-service.js";
 import type {
   RunRecord,
   RunRecordMetadata,
@@ -410,7 +411,10 @@ async function filterAsync<T>(
   return visible;
 }
 
-function toAdminUserDto(user: UserRecord) {
+async function toAdminUserDto(
+  user: UserRecord,
+  billingService?: Pick<BillingService, "getSummary">,
+) {
   return {
     id: user.id,
     email: user.email,
@@ -423,6 +427,7 @@ function toAdminUserDto(user: UserRecord) {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     lastLoginAt: user.lastLoginAt,
+    billingSummary: billingService ? await billingService.getSummary(user.id) : undefined,
   };
 }
 
@@ -1438,6 +1443,7 @@ export function registerAdminRoutes({
   riskEvents = () => [],
   providerRateLimitPolicy = resolveProviderRateLimitPolicy(),
   academicStore: providedAcademicStore,
+  billingService,
 }: {
   app: FastifyInstance;
   authStore: AuthStore;
@@ -1450,6 +1456,7 @@ export function registerAdminRoutes({
   riskEvents?: () => AdminRiskEvent[];
   providerRateLimitPolicy?: ProviderRateLimitPolicy;
   academicStore?: AcademicAdminRepository;
+  billingService?: Pick<BillingService, "getSummary">;
 }) {
   const localRateLimitPolicyStore = createFallbackRateLimitPolicyStore();
   const rateLimitPolicyStore = {
@@ -1606,11 +1613,11 @@ export function registerAdminRoutes({
     );
     if ("message" in actor) return actor;
     const visibleUserIds = await visibleUserIdsForAdmin(academicStore, authStore, actor);
+    const visibleUsers = (await authStore.listUsers())
+      .filter((user) => visibleUserIds === null || visibleUserIds.has(user.id));
     return {
       generatedAt: new Date().toISOString(),
-      users: (await authStore.listUsers())
-        .filter((user) => visibleUserIds === null || visibleUserIds.has(user.id))
-        .map(toAdminUserDto),
+      users: await Promise.all(visibleUsers.map((user) => toAdminUserDto(user, billingService))),
     };
   });
 
@@ -1638,7 +1645,7 @@ export function registerAdminRoutes({
 
     return {
       generatedAt: new Date().toISOString(),
-      user: toAdminUserDto(user),
+      user: await toAdminUserDto(user, billingService),
       loginRecords: (await authStore.listLoginEventsForUser(id)).map(toLoginEventDto),
     };
   });
@@ -2621,7 +2628,7 @@ export function registerAdminRoutes({
     });
 
     return {
-      user: toAdminUserDto(updated ?? user),
+      user: await toAdminUserDto(updated ?? user, billingService),
       revokedSessions,
     };
   });
@@ -2678,7 +2685,7 @@ export function registerAdminRoutes({
     });
 
     return {
-      user: toAdminUserDto(user),
+      user: await toAdminUserDto(user, billingService),
       revokedSessions,
     };
   });
@@ -2735,7 +2742,7 @@ export function registerAdminRoutes({
     });
 
     return {
-      user: toAdminUserDto(updated ?? user),
+      user: await toAdminUserDto(updated ?? user, billingService),
       message: "MFA state reset",
     };
   });

@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify from "fastify";
 import { createApiServer } from "../../index.js";
+import { createMockPaymentAdapter } from "../../adapters/payments/mock-payment-adapter.js";
+import type { PaymentProviderRegistry } from "../../adapters/payments/types.js";
 import { createInMemoryAuthStore } from "../../auth/in-memory-auth-store.js";
+import { createBillingService } from "../../billing/billing-service.js";
+import { createInMemoryBillingRepository } from "../../billing/in-memory-billing-repository.js";
 import { hashPassword } from "../../security/password-hashing.js";
 import { createFileDocumentLibrary } from "../../documents/library/document-library.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
@@ -34,6 +38,32 @@ import type { AdminRiskEvent } from "./register-admin-routes.js";
 const ADMIN_HEADERS = {
   "x-uml-admin-role": "super-admin",
 };
+
+function mockPaymentProviders(): PaymentProviderRegistry {
+  return {
+    wechat_native: createMockPaymentAdapter({
+      channel: "wechat_native",
+      nodeEnv: "test",
+      secret: "admin-routes-billing-test-secret",
+    }),
+    alipay_page: createMockPaymentAdapter({
+      channel: "alipay_page",
+      nodeEnv: "test",
+      secret: "admin-routes-billing-test-secret",
+    }),
+  };
+}
+
+async function createAdminBillingService() {
+  const billingService = createBillingService({
+    repository: createInMemoryBillingRepository(),
+    paymentProviders: mockPaymentProviders(),
+    nodeEnv: "test",
+    now: () => new Date("2026-06-05T04:00:00.000Z"),
+  });
+  await billingService.ensureSkuCatalog();
+  return billingService;
+}
 
 async function createSessionCookie(
   authStore: ReturnType<typeof createInMemoryAuthStore>,
@@ -807,6 +837,9 @@ test("admin endpoints expose real users, projects, and audit logs from the platf
     users.json().users.map((user: { email: string }) => user.email).sort(),
     ["admin@example.com", "owner@example.com"],
   );
+  const ownerUser = users.json().users.find((user: { email: string }) => user.email === "owner@example.com");
+  assert.ok(ownerUser);
+  assert.equal(typeof ownerUser.billingSummary.creditBalance, "number");
   assert.doesNotMatch(users.body, /passwordHash/i);
   assert.equal(projects.statusCode, 200);
   assert.equal(projects.json().projects[0].name, "真实项目");
@@ -1468,6 +1501,7 @@ test("admin project and user lists are filtered by course data scope", async () 
     baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
+  const billingService = await createAdminBillingService();
   registerAdminRoutes({
     app,
     authStore,
@@ -1475,6 +1509,7 @@ test("admin project and user lists are filtered by course data scope", async () 
     documentLibrary: {} as DocumentLibrary,
     providerConfigs,
     academicStore,
+    billingService,
   });
 
   const courseAdmin = authStore.createUser({
@@ -1497,6 +1532,18 @@ test("admin project and user lists are filtered by course data scope", async () 
   assert.ok(ownerA);
   assert.ok(ownerB);
   authStore.updateUser(courseAdmin.id, { mfaEnabled: true, mfaSecret: "COURSEADMINMFA" });
+  await billingService.compensateCredits({
+    userId: ownerA.id,
+    creditAmount: 7,
+    reason: "course-visible test credits",
+    actorUserId: courseAdmin.id,
+  });
+  await billingService.compensateCredits({
+    userId: ownerB.id,
+    creditAmount: 13,
+    reason: "course-hidden test credits",
+    actorUserId: courseAdmin.id,
+  });
 
   const org = await academicStore.createOrganization({
     name: "软件学院",
@@ -1562,7 +1609,9 @@ test("admin project and user lists are filtered by course data scope", async () 
     [projectA.id],
   );
   assert.equal(users.statusCode, 200);
-  assert.ok(users.json().users.some((user: { id: string }) => user.id === ownerA.id));
+  const visibleOwner = users.json().users.find((user: { id: string }) => user.id === ownerA.id);
+  assert.ok(visibleOwner);
+  assert.equal(visibleOwner.billingSummary.creditBalance, 7);
   assert.equal(
     users.json().users.some((user: { id: string }) => user.id === ownerB.id),
     false,
