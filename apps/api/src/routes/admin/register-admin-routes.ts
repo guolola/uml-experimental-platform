@@ -846,7 +846,7 @@ function timestampMs(value: unknown) {
   return Number.isFinite(time) ? time : null;
 }
 
-function shanghaiTodayWindow(now = new Date()) {
+function shanghaiDateString(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
     year: "numeric",
@@ -858,10 +858,30 @@ function shanghaiTodayWindow(now = new Date()) {
   const year = part("year");
   const month = part("month");
   const day = part("day");
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function shanghaiDayWindow(dateText: string, now = new Date()) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
   const startMs = Date.UTC(year, month - 1, day) - 8 * 60 * 60 * 1000;
+  const today = shanghaiDateString(now);
+  if (dateText > today) return null;
+  const nextStartMs = startMs + 24 * 60 * 60 * 1000;
   return {
     startIso: new Date(startMs).toISOString(),
-    endIso: now.toISOString(),
+    endIso: dateText === today ? now.toISOString() : new Date(nextStartMs).toISOString(),
   };
 }
 
@@ -902,7 +922,7 @@ function isGenerationTaskType(value: AdminRunTaskType): value is GenerationTaskT
 
 function artifactCountSummary(counts: Array<{ label: string; value: number }>) {
   const visible = counts.filter((item) => item.value > 0);
-  if (visible.length === 0) return "暂无今日产物";
+  if (visible.length === 0) return "暂无所选日期产物";
   return visible.map((item) => `${item.label} ${item.value}`).join(" · ");
 }
 
@@ -923,7 +943,7 @@ async function listMetricDocuments(documentLibrary: DocumentLibrary) {
     : [];
 }
 
-async function todayModelUsageByTask(
+async function modelUsageByTask(
   providerUsageTracker: ProviderUsageTracker | undefined,
   window: { startIso: string; endIso: string },
 ) {
@@ -1493,53 +1513,76 @@ export function registerAdminRoutes({
     );
     if ("message" in actor) return actor;
 
-    const todayWindow = shanghaiTodayWindow();
+    const query = request.query as { date?: unknown };
+    const now = new Date();
+    const selectedDate = query.date === undefined ? shanghaiDateString(now) : query.date;
+    if (typeof selectedDate !== "string") {
+      reply.code(400);
+      return { message: "date must use YYYY-MM-DD" };
+    }
+    const selectedWindow = shanghaiDayWindow(selectedDate, now);
+    if (!selectedWindow) {
+      reply.code(400);
+      return { message: "date must be a valid non-future YYYY-MM-DD" };
+    }
+    const allTimeWindow = {
+      startIso: "1970-01-01T00:00:00.000Z",
+      endIso: now.toISOString(),
+    };
     const records = Array.from(runs.values());
-    const todayRecords = records.filter((record) =>
-      isInWindow(record.metadata?.createdAt, todayWindow),
+    const generationRecords = records.filter((record) =>
+      isGenerationTaskType(taskTypeForSnapshot(record.snapshot)),
     );
-    const [users, projects, documents, modelUsageByTask] = await Promise.all([
+    const selectedRecords = generationRecords.filter((record) =>
+      isInWindow(record.metadata?.createdAt, selectedWindow),
+    );
+    const [users, projects, documents, selectedModelUsageByTask, allModelUsageByTask] = await Promise.all([
       authStore.listUsers(),
       authStore.listProjects(),
       listMetricDocuments(documentLibrary),
-      todayModelUsageByTask(providerUsageTracker, todayWindow),
+      modelUsageByTask(providerUsageTracker, selectedWindow),
+      modelUsageByTask(providerUsageTracker, allTimeWindow),
     ]);
-    const todayDocuments = documents.filter((document) =>
-      isInWindow(document.createdAt, todayWindow),
+    const selectedDocuments = documents.filter((document) =>
+      isInWindow(document.createdAt, selectedWindow),
     );
     const generationBreakdown = buildGenerationBreakdown(
-      todayRecords,
-      modelUsageByTask,
-      todayDocuments,
+      selectedRecords,
+      selectedModelUsageByTask,
+      selectedDocuments,
     );
-    const completed = todayRecords.filter(
+    const completed = generationRecords.filter(
       (record) => record.snapshot.status === "completed",
     ).length;
-    const failed = todayRecords.filter((record) => record.snapshot.status === "failed").length;
+    const failed = generationRecords.filter((record) => record.snapshot.status === "failed").length;
     const duration = averageDuration(
-      todayRecords.filter((record) => record.terminal || record.metadata?.completedAt),
+      generationRecords.filter((record) => record.terminal || record.metadata?.completedAt),
     );
-    const modelCallCount = Array.from(modelUsageByTask.values()).reduce(
+    const modelCallCount = Array.from(allModelUsageByTask.values()).reduce(
       (total, value) => total + value,
       0,
     );
-    const documentGenerationCount =
-      generationBreakdown
-        .find((row) => row.taskType === "document_generation")
-        ?.artifactCounts.reduce((total, item) => total + item.value, 0) ?? 0;
+    const documentGenerationCount = artifactCountsForTask(
+      "document_generation",
+      generationRecords.filter((record) =>
+        taskTypeForSnapshot(record.snapshot) === "document_generation" &&
+        record.snapshot.status === "completed",
+      ),
+      documents,
+    ).reduce((total, item) => total + item.value, 0);
     return {
-      generatedAt: new Date().toISOString(),
+      generatedAt: now.toISOString(),
       metricWindow: {
         timeZone: "Asia/Shanghai",
-        startAt: todayWindow.startIso,
-        endAt: todayWindow.endIso,
+        startAt: selectedWindow.startIso,
+        endAt: selectedWindow.endIso,
       },
       metrics: [
         metric("用户数", String(users.length)),
         metric("项目数", String(projects.length)),
-        metric("今日生成次数", String(todayRecords.length)),
-        metric("成功率", percentage(completed, todayRecords.length)),
-        metric("失败率", percentage(failed, todayRecords.length)),
+        metric("生成次数", String(generationRecords.length)),
+        metric("成功率", percentage(completed, generationRecords.length)),
+        metric("失败率", percentage(failed, generationRecords.length)),
         metric("平均耗时", duration.label),
         metric("模型调用量", String(modelCallCount)),
         metric("文档生成量", String(documentGenerationCount)),

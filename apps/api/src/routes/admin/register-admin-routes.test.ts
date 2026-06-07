@@ -145,6 +145,15 @@ function shanghaiYesterdayIso(hour: number, minute = 0) {
     .toISOString();
 }
 
+function shanghaiDateFromIso(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
 function putMetricRun(
   runs: RunRecordStore,
   input: {
@@ -376,7 +385,7 @@ test("admin header bootstrap remains available behind the explicit local switch"
   }
 });
 
-test("admin metrics expose real today generation breakdown without internal source labels", async () => {
+test("admin metrics expose cumulative overview and single-day generation breakdowns", async () => {
   const runs = createRunRecordStore();
   const todayOne = shanghaiTodayIso(1);
   const todayTwo = shanghaiTodayIso(2);
@@ -404,9 +413,14 @@ test("admin metrics expose real today generation breakdown without internal sour
     createdAt: todayOne,
     completedAt: todayTwo,
   });
+  const yesterdayRequirementSnapshot = createEmptySnapshot("req-yesterday", "昨日需求", ["usecase"]);
+  (yesterdayRequirementSnapshot as unknown as { rules: unknown[]; models: unknown[] }).rules = [
+    { id: "rule-yesterday", text: "昨日规则" },
+  ];
+  (yesterdayRequirementSnapshot as unknown as { models: unknown[] }).models = [{ id: "model-yesterday" }];
   putMetricRun(runs, {
     runId: "req-yesterday",
-    snapshot: createEmptySnapshot("req-yesterday", "昨日需求", ["usecase"]),
+    snapshot: yesterdayRequirementSnapshot,
     status: "completed",
     createdAt: yesterday,
     completedAt: yesterday,
@@ -477,6 +491,22 @@ test("admin metrics expose real today generation breakdown without internal sour
     async sumUsageUnits(input) {
       assert.ok(input.createdAfter);
       assert.ok(input.createdBefore);
+      if (input.createdAfter === "1970-01-01T00:00:00.000Z") {
+        return [
+          { taskType: "requirements_to_uml", units: 6 },
+          { taskType: "design_modeling", units: 2 },
+          { taskType: "document_generation", units: 1 },
+          { taskType: "code_generation", units: 3 },
+        ];
+      }
+      if (input.createdAfter === shanghaiYesterdayIso(0)) {
+        return [
+          { taskType: "requirements_to_uml", units: 2 },
+          { taskType: "design_modeling", units: 0 },
+          { taskType: "document_generation", units: 0 },
+          { taskType: "code_generation", units: 0 },
+        ];
+      }
       return [
         { taskType: "requirements_to_uml", units: 4 },
         { taskType: "design_modeling", units: 2 },
@@ -520,8 +550,9 @@ test("admin metrics expose real today generation breakdown without internal sour
   assert.equal(response.statusCode, 200);
   const body = response.json();
   assert.equal(body.metricWindow.timeZone, "Asia/Shanghai");
-  assert.equal(body.metrics.find((item: { label: string }) => item.label === "今日生成次数")?.value, "6");
-  assert.equal(body.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "10");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "生成次数")?.value, "7");
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "今日生成次数"), undefined);
+  assert.equal(body.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "12");
   assert.equal(body.metrics.find((item: { label: string }) => item.label === "文档生成量")?.value, "2");
   assert.equal(body.metrics.find((item: { label: string }) => item.label === "平均耗时")?.value === "n/a", false);
   assert.doesNotMatch(JSON.stringify(body), /first-pass|live auth store|live project store/);
@@ -550,6 +581,40 @@ test("admin metrics expose real today generation breakdown without internal sour
   assert.equal(code.generatedCount, 1);
   assert.equal(code.artifactSummary, "代码文件 2");
   assert.equal(code.modelCallCount, 3);
+
+  const yesterdayResponse = await app.inject({
+    method: "GET",
+    url: `/api/admin/metrics?date=${shanghaiDateFromIso(yesterday)}`,
+    headers: { Cookie: cookie },
+  });
+  assert.equal(yesterdayResponse.statusCode, 200);
+  const yesterdayBody = yesterdayResponse.json();
+  assert.equal(yesterdayBody.metrics.find((item: { label: string }) => item.label === "生成次数")?.value, "7");
+  assert.equal(yesterdayBody.metrics.find((item: { label: string }) => item.label === "模型调用量")?.value, "12");
+  const yesterdayByType = new Map(
+    yesterdayBody.generationBreakdown.map((row: { taskType: string }) => [row.taskType, row]),
+  );
+  const yesterdayRequirements = yesterdayByType.get("requirements_to_uml") as Record<string, unknown>;
+  assert.equal(yesterdayRequirements.generatedCount, 1);
+  assert.equal(yesterdayRequirements.successRate, "100%");
+  assert.equal(yesterdayRequirements.artifactSummary, "规则 1 · 需求模型 1");
+  assert.equal(yesterdayRequirements.modelCallCount, 2);
+  const yesterdayDesign = yesterdayByType.get("design_modeling") as Record<string, unknown>;
+  assert.equal(yesterdayDesign.generatedCount, 0);
+  assert.equal(yesterdayDesign.artifactSummary, "暂无所选日期产物");
+
+  const invalidDate = await app.inject({
+    method: "GET",
+    url: "/api/admin/metrics?date=2026-13-01",
+    headers: { Cookie: cookie },
+  });
+  assert.equal(invalidDate.statusCode, 400);
+  const futureDate = await app.inject({
+    method: "GET",
+    url: "/api/admin/metrics?date=2999-01-01",
+    headers: { Cookie: cookie },
+  });
+  assert.equal(futureDate.statusCode, 400);
 
   await app.close();
 });
