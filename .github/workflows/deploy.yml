@@ -203,7 +203,8 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "Scanning SSH host key for $DEPLOY_HOST:$DEPLOY_PORT ..."
-          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -T 20 -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts || \
+            echo "Warning: ssh-keyscan failed; deploy steps will use StrictHostKeyChecking=accept-new."
 
       - name: Deploy on server
         env:
@@ -221,6 +222,8 @@ jobs:
             -o ServerAliveInterval=30
             -o ServerAliveCountMax=6
             -o ConnectTimeout=30
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile=~/.ssh/known_hosts
           )
           REMOTE_ARCHIVE="/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
           echo "Uploading release archive to $DEPLOY_HOST:$REMOTE_ARCHIVE ..."
