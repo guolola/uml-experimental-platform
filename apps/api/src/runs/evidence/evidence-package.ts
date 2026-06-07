@@ -215,11 +215,11 @@ function failureRecords(
   generatedAt: string,
 ): EvidenceFailureRecord[] {
   const records: EvidenceFailureRecord[] = [];
-  if (snapshot.errorMessage) {
+  if (snapshot.error) {
     records.push({
       id: evidenceRecordId("FAIL", records.length),
       stage: snapshot.currentStage ?? undefined,
-      message: snapshot.errorMessage,
+      message: snapshot.error.message,
       createdAt: generatedAt,
     });
   }
@@ -229,7 +229,7 @@ function failureRecords(
         id: evidenceRecordId("FAIL", records.length),
         stage: error.stage,
         artifactId,
-        message: error.message,
+        message: error.error.message,
         createdAt: generatedAt,
       });
     }

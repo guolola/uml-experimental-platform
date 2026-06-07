@@ -370,7 +370,7 @@ function appendRequirementsDiagrams(lines: string[], snapshot: RunSnapshot) {
     lines.push(`- SVG: ${svg ? "成功" : "未生成"}`);
     if (error) {
       lines.push(`- 失败阶段: \`${error.stage}\``);
-      lines.push(`- 失败原因: ${error.message}`);
+      lines.push(`- 失败原因: ${error.error.message}`);
     }
     lines.push("");
   }
@@ -404,7 +404,7 @@ function appendDesignDiagrams(lines: string[], snapshot: DesignRunSnapshot) {
     lines.push(`- SVG: ${svg ? "成功" : "未生成"}`);
     if (error) {
       lines.push(`- 失败阶段: \`${error.stage}\``);
-      lines.push(`- 失败原因: ${error.message}`);
+      lines.push(`- 失败原因: ${error.error.message}`);
     }
     lines.push("");
   }
@@ -417,7 +417,7 @@ function appendDesignDiagrams(lines: string[], snapshot: DesignRunSnapshot) {
     lines.push(`### ${model?.title ?? modelId}`, "");
     lines.push("- SVG: 未生成");
     lines.push(`- 失败阶段: \`${error.stage}\``);
-    lines.push(`- 失败原因: ${error.message}`);
+    lines.push(`- 失败原因: ${error.error.message}`);
     lines.push("");
   }
 }
@@ -507,8 +507,8 @@ export function buildRunMarkdownReport(snapshot: RunHistorySnapshot) {
   lines.push(`- 阶段: ${getRunHistorySnapshotLabel(snapshot)}`);
   lines.push(`- 状态: \`${snapshot.status}\``);
   lines.push(`- 当前阶段: \`${snapshot.currentStage ?? "none"}\``);
-  if (snapshot.errorMessage) {
-    lines.push(`- 全局错误: ${snapshot.errorMessage}`);
+  if (snapshot.error) {
+    lines.push(`- 全局错误: ${snapshot.error.message}`);
   }
   lines.push("");
 

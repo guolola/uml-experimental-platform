@@ -792,7 +792,7 @@ export async function runCodeStagePipeline(
     }),
   );
   snapshot.status = "completed";
-  snapshot.errorMessage = null;
+  snapshot.error = null;
   emitEvent(
     record,
     completedRunEventSchema.parse({

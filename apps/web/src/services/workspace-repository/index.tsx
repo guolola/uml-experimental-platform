@@ -107,6 +107,13 @@ function shouldSendProviderSettings(providerSettings?: ProviderSettingsPresence 
   return Boolean(providerSettings?.providerConfigId?.trim());
 }
 
+function snapshotErrorMessage(
+  snapshot: { error?: { message?: string } | null },
+  fallback: string,
+) {
+  return snapshot.error?.message ?? fallback;
+}
+
 function runPayloadWithoutUnmanagedProviderSettings<T extends object>(
   input: T & { providerSettings?: ProviderSettingsPresence | null },
 ) {
@@ -920,7 +927,7 @@ async function streamProjectRunEvents(
     const event = JSON.parse(data) as RunEvent;
     onEvent(event);
     if (event.type === "failed") {
-      throw new Error(event.message);
+      throw new Error(event.error.message);
     }
   };
 
@@ -953,13 +960,13 @@ async function waitForCodeRunSnapshot(
       return;
     }
     if (snapshot.status === "failed") {
-      throw new Error(snapshot.errorMessage ?? "代码生成失败");
+      throw new Error(snapshotErrorMessage(snapshot, "代码生成失败"));
     }
     if (snapshot.status === "cancelled") {
       onEvent({
         type: "cancelled",
         stage: snapshot.currentStage ?? "write_code_files",
-        message: snapshot.errorMessage ?? "任务已取消",
+        message: snapshotErrorMessage(snapshot, "任务已取消"),
       });
       return;
     }
@@ -987,13 +994,13 @@ async function waitForDocumentRunSnapshot(
       return;
     }
     if (snapshot.status === "failed") {
-      throw new Error(snapshot.errorMessage ?? "说明书生成失败");
+      throw new Error(snapshotErrorMessage(snapshot, "说明书生成失败"));
     }
     if (snapshot.status === "cancelled") {
       onEvent({
         type: "cancelled",
         stage: snapshot.currentStage ?? "generate_document_text",
-        message: snapshot.errorMessage ?? "任务已取消",
+        message: snapshotErrorMessage(snapshot, "任务已取消"),
       });
       return;
     }
@@ -1477,13 +1484,13 @@ export function createHttpWorkspaceRepository(
           }
           const snapshot = await readRunSnapshot(runId, scopedProjectId);
           if (snapshot.status === "failed") {
-            throw new Error(snapshot.errorMessage ?? "生成失败");
+            throw new Error(snapshotErrorMessage(snapshot, "生成失败"));
           }
           if (snapshot.status === "cancelled") {
             onEvent({
               type: "cancelled",
               stage: snapshot.currentStage ?? undefined,
-              message: snapshot.errorMessage ?? "任务已取消",
+              message: snapshotErrorMessage(snapshot, "任务已取消"),
             });
             return;
           }
@@ -1498,13 +1505,13 @@ export function createHttpWorkspaceRepository(
         onError: async () => {
           const snapshot = await readRunSnapshot(runId, projectId);
             if (snapshot.status === "failed") {
-              throw new Error(snapshot.errorMessage ?? "生成失败");
+              throw new Error(snapshotErrorMessage(snapshot, "生成失败"));
             }
             if (snapshot.status === "cancelled") {
               onEvent({
                 type: "cancelled",
                 stage: snapshot.currentStage ?? undefined,
-                message: snapshot.errorMessage ?? "任务已取消",
+                message: snapshotErrorMessage(snapshot, "任务已取消"),
               });
               return;
             }
@@ -1528,13 +1535,13 @@ export function createHttpWorkspaceRepository(
           }
           const snapshot = await readDesignRunSnapshot(runId, scopedProjectId);
           if (snapshot.status === "failed") {
-            throw new Error(snapshot.errorMessage ?? "设计生成失败");
+            throw new Error(snapshotErrorMessage(snapshot, "设计生成失败"));
           }
           if (snapshot.status === "cancelled") {
             onEvent({
               type: "cancelled",
               stage: snapshot.currentStage ?? undefined,
-              message: snapshot.errorMessage ?? "任务已取消",
+              message: snapshotErrorMessage(snapshot, "任务已取消"),
             });
             return;
           }
@@ -1551,13 +1558,13 @@ export function createHttpWorkspaceRepository(
           onError: async () => {
             const snapshot = await readDesignRunSnapshot(runId, projectId);
             if (snapshot.status === "failed") {
-              throw new Error(snapshot.errorMessage ?? "设计生成失败");
+              throw new Error(snapshotErrorMessage(snapshot, "设计生成失败"));
             }
             if (snapshot.status === "cancelled") {
               onEvent({
                 type: "cancelled",
                 stage: snapshot.currentStage ?? undefined,
-                message: snapshot.errorMessage ?? "任务已取消",
+                message: snapshotErrorMessage(snapshot, "任务已取消"),
               });
               return;
             }
@@ -2033,7 +2040,7 @@ export function createMockWorkspaceRepository(
           requirementTrace: [],
           currentStage: "render_svg",
           status: "completed",
-          errorMessage: null,
+          error: null,
         };
       snapshots.set(runId, snapshot);
       return { runId };
@@ -2068,7 +2075,7 @@ export function createMockWorkspaceRepository(
         designTrace: [],
         currentStage: "render_svg",
         status: "completed",
-        errorMessage: null,
+        error: null,
       };
       designSnapshots.set(runId, snapshot);
       return { runId };
@@ -2127,7 +2134,7 @@ export function createMockWorkspaceRepository(
         codeContextHash: "mock",
         currentStage: "write_code_files",
         status: "completed",
-        errorMessage: null,
+        error: null,
       };
       codeSnapshots.set(runId, snapshot);
       return { runId };
@@ -2154,7 +2161,7 @@ export function createMockWorkspaceRepository(
         missingArtifacts: [],
         currentStage: "render_document_file",
         status: "completed",
-        errorMessage: null,
+        error: null,
       };
       const now = new Date().toISOString();
       documents.set(documentId, {

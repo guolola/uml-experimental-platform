@@ -5,6 +5,7 @@ import {
   type CodeRunSnapshot,
   type DiagramKind,
   type ProviderSettings,
+  type RunError,
   type RunStage,
   type StartDocumentRunRequest,
 } from "@uml-platform/contracts";
@@ -22,6 +23,10 @@ import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { isRunCancelled, isRunCancelledError } from "../records/run-cancellation.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import type { BillingService } from "../../billing/billing-service.js";
+import {
+  isPlatformProviderRunError,
+  normalizeRunError,
+} from "./shared/errors.js";
 
 type RequirementPipeline = (
   record: RunRecord,
@@ -252,15 +257,15 @@ export function handleRunPipelineError(
     message: string,
   ) => void,
 ) {
-  if (isRunCancelledError(error) || isRunCancelled(record)) return;
+  if (isRunCancelledError(error) || isRunCancelled(record)) return null;
+  const runError = normalizeRunError(error);
   record.snapshot.status = "failed";
-  record.snapshot.errorMessage =
-    error instanceof Error ? error.message : "Unknown run error";
+  record.snapshot.error = runError;
   if ("files" in record.snapshot) {
     addCodeDiagnostic(
       record.snapshot as CodeRunSnapshot,
       record.snapshot.currentStage ?? "write_code_files",
-      record.snapshot.errorMessage,
+      runError.message,
     );
   }
   emitEvent(
@@ -268,9 +273,10 @@ export function handleRunPipelineError(
     failedRunEventSchema.parse({
       type: "failed",
       stage: record.snapshot.currentStage ?? undefined,
-      message: record.snapshot.errorMessage,
+      error: runError,
     }),
   );
+  return runError;
 }
 
 export function startRunRecordPipeline({
@@ -303,7 +309,10 @@ export function startRunRecordPipeline({
   runCodeStagePipeline: CodePipeline;
   runDocumentStagePipeline: DocumentPipeline;
   documentInput?: StartDocumentRunRequest;
-  billingEntitlements?: Pick<BillingService, "confirmRunUsage" | "releaseRunUsage">;
+  billingEntitlements?: Pick<
+    BillingService,
+    "confirmRunUsage" | "releaseRunUsage" | "compensateRunUsage"
+  >;
   addCodeDiagnostic: (
     snapshot: CodeRunSnapshot,
     stage: RunStage,
@@ -348,9 +357,20 @@ export function startRunRecordPipeline({
             )
           : runStagePipeline(record, providerSettings, entitlementTransport, renderClient);
 
+  let terminalError: RunError | null = null;
   void runPromise
-    .catch((error) => handleRunPipelineError(record, error, addCodeDiagnostic))
+    .catch((error) => {
+      terminalError = handleRunPipelineError(record, error, addCodeDiagnostic);
+    })
     .finally(() => {
+      if (terminalError && isPlatformProviderRunError(terminalError)) {
+        void billingEntitlements?.compensateRunUsage({
+          runId: record.snapshot.runId,
+          errorCode: terminalError.code,
+          reason: terminalError.message,
+        });
+        return;
+      }
       void billingEntitlements?.releaseRunUsage(record.snapshot.runId);
     });
 }

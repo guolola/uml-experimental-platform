@@ -44,7 +44,7 @@ export function subscribeToRunEvents(
           settleResolve();
         }
         if (event.type === "failed") {
-          settleReject(new Error(event.message));
+          settleReject(new Error(event.error.message));
         }
       } catch (error) {
         settleReject(error);

@@ -124,7 +124,12 @@ describe("SidebarMenu", () => {
           diagramErrors: {
             activity: {
               stage: "render_svg",
-              message: "PlantUML repair failed for activity: Syntax Error?",
+              error: {
+                code: "RUN_RENDER_FAILED",
+                message: "PlantUML repair failed for activity: Syntax Error?",
+                category: "render",
+                retryable: true,
+              },
             },
           },
         }),
@@ -533,7 +538,12 @@ describe("SidebarMenu", () => {
           designDiagramErrors: {
             class: {
               stage: "render_svg",
-              message: "PlantUML 渲染失败",
+              error: {
+                code: "RUN_RENDER_FAILED",
+                message: "PlantUML 渲染失败",
+                category: "render",
+                retryable: true,
+              },
             },
           },
         }),
@@ -898,7 +908,7 @@ describe("SidebarMenu", () => {
       designTrace: [],
       currentStage: "render_svg",
       status: "running",
-      errorMessage: null,
+      error: null,
     };
     await act(async () => {
       emitDesignEvent({

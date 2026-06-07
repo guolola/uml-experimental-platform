@@ -250,6 +250,16 @@ export function createInMemoryBillingRepository(): BillingRepository {
       return clone(reservation);
     },
 
+    async voidUsageReservation(runId, releasedAt) {
+      const reservation = reservations.get(runId);
+      if (!reservation) return null;
+      if (reservation.status !== "released") {
+        reservation.status = "released";
+        reservation.releasedAt = releasedAt;
+      }
+      return clone(reservation);
+    },
+
     async countReservedUsageForUser(userId) {
       return Array.from(reservations.values()).filter(
         (reservation) => reservation.userId === userId && reservation.status === "reserved",

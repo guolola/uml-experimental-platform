@@ -3317,7 +3317,7 @@ describe("App shell routes", () => {
           missingArtifacts: [],
           currentStage: "generate_document_text",
           status: "completed",
-          errorMessage: null,
+          error: null,
         },
       },
     ]);

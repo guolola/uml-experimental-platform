@@ -67,6 +67,7 @@ import {
 } from "./shared/model-task-timeout.js";
 import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
 import { appendRequirementTrace } from "./shared/trace-events.js";
+import { createRunError, normalizeRunError, throwRunError } from "./shared/errors.js";
 import {
   assertRequirementBaselineAllowsDownstream,
   buildEmptyRequirementBaseline,
@@ -988,9 +989,10 @@ export async function runStagePipeline(
       }
 
       renderFailures.push(rendered.errorMessage);
+      const renderError = createRunError("RUN_RENDER_FAILED", rendered.errorMessage);
       diagramErrors[artifact.diagramKind] = diagramErrorSchema.parse({
         stage: "render_svg",
-        message: rendered.errorMessage,
+        error: renderError,
       });
       snapshot.diagramErrors = diagramErrors;
       emitEvent(
@@ -1000,6 +1002,7 @@ export async function runStagePipeline(
           stage: "render_svg",
           progress: stageProgressValue("render_svg"),
           message: rendered.errorMessage,
+          error: renderError,
           diagramKind: artifact.diagramKind,
           modelId: artifact.modelId,
           subtaskId: artifact.modelId ?? artifact.diagramKind,
@@ -1132,11 +1135,11 @@ export async function runStagePipeline(
         return { diagram, result };
       } catch (error) {
         throwIfRunCancelled(record);
-        const message =
-          error instanceof Error ? error.message : `${diagram} 模型生成失败`;
+        const runError = normalizeRunError(error);
+        const message = runError.message || `${diagram} 模型生成失败`;
         diagramErrors[diagram] = diagramErrorSchema.parse({
           stage: "generate_models",
-          message,
+          error: runError,
         });
         snapshot.diagramErrors = diagramErrors;
         emitEvent(
@@ -1146,6 +1149,7 @@ export async function runStagePipeline(
             stage: "generate_models",
             progress: stageProgressValue("generate_models"),
             message,
+            error: runError,
             diagramKind: diagram,
             subtaskId: diagram,
             subtaskStatus: "failed",
@@ -1258,13 +1262,11 @@ export async function runStagePipeline(
           return result;
         } catch (error) {
           throwIfRunCancelled(record);
-          const message =
-            error instanceof Error
-              ? error.message
-              : `${useCase.name}需求分析模型生成失败`;
+          const runError = normalizeRunError(error);
+          const message = runError.message || `${useCase.name}需求分析模型生成失败`;
           diagramErrors.analysis = diagramErrorSchema.parse({
             stage: "generate_models",
-            message,
+            error: runError,
           });
           snapshot.diagramErrors = diagramErrors;
           emitEvent(
@@ -1274,6 +1276,7 @@ export async function runStagePipeline(
               stage: "generate_models",
               progress: stageProgressValue("generate_models"),
               message,
+              error: runError,
               diagramKind: "analysis",
               modelId,
               subtaskId: modelId,
@@ -1357,11 +1360,9 @@ export async function runStagePipeline(
     throwIfRunCancelled(record);
 
     if (snapshot.selectedDiagrams.length > 0 && models.length === 0) {
-      throw new Error(
-        Object.values(diagramErrors)
-          .map((error) => error.message)
-          .join("；") || "需求模型生成失败",
-      );
+      const firstError = Object.values(diagramErrors)[0]?.error;
+      if (firstError) throwRunError(firstError);
+      throwRunError(createRunError("RUN_MODEL_OUTPUT_EMPTY", "需求模型生成失败"));
     }
   }
   snapshot.models = models;
@@ -1422,7 +1423,7 @@ export async function runStagePipeline(
     }),
   );
   snapshot.status = "completed";
-  snapshot.errorMessage = null;
+  snapshot.error = null;
   emitEvent(
     record,
     completedRunEventSchema.parse({

@@ -168,6 +168,7 @@ export interface BillingRepository {
   getReservationByRunId(runId: string): Promise<BillingUsageReservationRecord | null>;
   confirmUsageReservation(runId: string, confirmedAt: string): Promise<BillingUsageReservationRecord | null>;
   releaseUsageReservation(runId: string, releasedAt: string): Promise<BillingUsageReservationRecord | null>;
+  voidUsageReservation(runId: string, releasedAt: string): Promise<BillingUsageReservationRecord | null>;
   countReservedUsageForUser(userId: string): Promise<number>;
   countReservedCreditsForUser(userId: string): Promise<number>;
   countConfirmedPassUsageSince(userId: string, since: string): Promise<number>;

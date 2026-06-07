@@ -21,6 +21,7 @@ import {
   type RunRecordMetadata,
   type RunRecordStore,
 } from "./run-record-store.js";
+import { createRunError } from "../pipelines/shared/errors.js";
 
 function createQueuedSnapshotFromSource(
   source: RunRecord["snapshot"],
@@ -76,13 +77,13 @@ export function isRetryableRun(record: RunRecord) {
 export function cancelRunRecord(record: RunRecord, runId: string): RunActionResult {
   // Cancellation is a terminal lifecycle transition; SSE readers close on this event.
   record.snapshot.status = "cancelled";
-  record.snapshot.errorMessage = "Run cancelled by user";
+  record.snapshot.error = createRunError("RUN_CANCELLED", "Run cancelled by user");
   emitEvent(
     record,
     cancelledRunEventSchema.parse({
       type: "cancelled",
       stage: record.snapshot.currentStage ?? undefined,
-      message: record.snapshot.errorMessage,
+      message: record.snapshot.error.message,
     }),
   );
 

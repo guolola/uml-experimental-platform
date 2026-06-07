@@ -186,7 +186,7 @@ describe("DesignModelPage", () => {
       designTrace: [],
       currentStage: "render_svg",
       status: "completed",
-      errorMessage: null,
+      error: null,
     };
     const startDesignRun = vi.fn(async () => ({ runId: "design-run" }));
     const repository: WorkspaceRepository = {
@@ -690,7 +690,7 @@ describe("DesignModelPage", () => {
       designTrace: [],
       currentStage: "render_svg",
       status: "completed",
-      errorMessage: null,
+      error: null,
     };
     const startDesignRun = vi.fn(async () => ({ runId: "design-run-table" }));
     const repository: WorkspaceRepository = {

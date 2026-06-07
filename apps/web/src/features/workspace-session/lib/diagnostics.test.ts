@@ -39,7 +39,12 @@ describe("workspace-session diagnostics helpers", () => {
 
     const failed = summarizeEvent({
       type: "failed",
-      message: "boom",
+      error: {
+        code: "RUN_INTERNAL_ERROR",
+        message: "boom",
+        category: "internal",
+        retryable: false,
+      },
     } satisfies RunEvent);
     expect(failed.label).toBe("任务失败");
   });

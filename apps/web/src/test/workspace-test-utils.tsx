@@ -134,7 +134,7 @@ export function createRunSnapshot(
     requirementTrace: [],
     currentStage: "render_svg",
     status: "completed",
-    errorMessage: null,
+    error: null,
     ...overrides,
   };
 }

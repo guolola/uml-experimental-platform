@@ -65,6 +65,11 @@ import {
 import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
 import { appendDesignTrace } from "./shared/trace-events.js";
 import {
+  createRunError,
+  normalizeRunError,
+  throwRunError,
+} from "./shared/errors.js";
+import {
   assertTrustedChainAllowsCompletion,
   buildDesignStageTrustedChain,
 } from "../traceability/trusted-chain-traceability.js";
@@ -120,7 +125,7 @@ function summarizeSelectedDesignDiagramFailures(
     .map(([id, error]) => {
       const kind = designDiagramKindFromErrorId(id);
       const label = kind ? designDiagramLabel(kind) : id;
-      return `${label}：${error.message ?? "生成失败"}`;
+      return `${label}：${error.error.message ?? "生成失败"}`;
     })
     .join("；");
 }
@@ -1323,9 +1328,10 @@ export async function runDesignStagePipeline(
       }
 
       renderFailures.push(rendered.errorMessage);
+      const renderError = createRunError("RUN_RENDER_FAILED", rendered.errorMessage);
       diagramErrors[artifact.modelId ?? artifact.diagramKind] = diagramErrorSchema.parse({
         stage: "render_svg",
-        message: rendered.errorMessage,
+        error: renderError,
       });
       snapshot.diagramErrors = diagramErrors;
       emitEvent(
@@ -1335,6 +1341,7 @@ export async function runDesignStagePipeline(
           stage: "render_svg",
           progress: stageProgressValue("render_svg"),
           message: rendered.errorMessage,
+          error: renderError,
           diagramKind: artifact.diagramKind,
           modelId: artifact.modelId,
           subtaskId: artifact.modelId ?? artifact.diagramKind,
@@ -1345,7 +1352,7 @@ export async function runDesignStagePipeline(
   };
   const useCaseModel = findRequirementModel(snapshot.requirementModels, "usecase");
   if (!useCaseModel) {
-    throw new Error("缺少需求阶段用例模型，无法生成用例实现设计");
+    throwRunError(createRunError("RUN_DEPENDENCY_MISSING", "缺少需求阶段用例模型，无法生成用例实现设计"));
   }
 
   let sequenceModels = existingSequenceModelsForUseCases(models, useCaseModel);
@@ -1359,6 +1366,7 @@ export async function runDesignStagePipeline(
 
   if (shouldGenerateSequence) {
     updateStage("generate_design_sequence", "正在生成用例实现设计");
+    const sequenceRunErrors: ReturnType<typeof normalizeRunError>[] = [];
     const sequenceResults = await mapWithConcurrency(
       useCasesFromModel(useCaseModel),
       readDesignSequenceConcurrency(),
@@ -1370,6 +1378,7 @@ export async function runDesignStagePipeline(
           useCase.id,
         );
         let lastErrorMessage = "";
+        let lastRunError: ReturnType<typeof normalizeRunError> | null = null;
         for (let attempt = 0; attempt <= MAX_SEQUENCE_USE_CASE_RETRIES; attempt += 1) {
           emitEvent(
             record,
@@ -1449,15 +1458,17 @@ export async function runDesignStagePipeline(
             return result;
           } catch (error) {
             throwIfRunCancelled(record);
-            lastErrorMessage =
-              error instanceof Error ? error.message : `${useCase.name}用例实现设计生成失败`;
+            lastRunError = normalizeRunError(error);
+            lastErrorMessage = lastRunError.message;
           }
         }
 
         const message = lastErrorMessage || `${useCase.name}用例实现设计生成失败`;
+        const runError = lastRunError ?? createRunError("RUN_MODEL_OUTPUT_EMPTY", message);
+        sequenceRunErrors.push(runError);
         diagramErrors[modelId] = diagramErrorSchema.parse({
           stage: "generate_design_sequence",
-          message,
+          error: runError,
         });
         publishDesignModelSnapshot();
         emitEvent(
@@ -1467,6 +1478,7 @@ export async function runDesignStagePipeline(
             stage: "generate_design_sequence",
             progress: stageProgressValue("generate_design_sequence"),
             message,
+            error: runError,
             diagramKind: "sequence",
             modelId,
             subtaskId: modelId,
@@ -1483,7 +1495,13 @@ export async function runDesignStagePipeline(
         model.diagramKind === "sequence",
     );
     if (sequenceModels.length === 0) {
-      throw new Error("用例实现设计生成结果缺少 sequence 模型");
+      throwRunError(
+        sequenceRunErrors[0] ??
+          createRunError(
+            "RUN_MODEL_OUTPUT_EMPTY",
+            "用例实现设计未生成有效结果，请重试或检查模型输出。",
+          ),
+      );
     }
     validateUseCaseSequenceCoverage(sequenceModels, useCaseModel);
     models = mergeDesignModels(models, sequenceModels);
@@ -1494,7 +1512,7 @@ export async function runDesignStagePipeline(
       ...sequenceResults.flatMap((result) => result?.designModelTraceability ?? []),
     ];
   } else if (selectedDownstreamDiagrams.length > 0 && sequenceModels.length === 0) {
-    throw new Error("缺少用例实现设计，无法生成所选设计模型；请先生成用例实现设计或在本次请求中包含用例实现设计");
+    throwRunError(createRunError("RUN_DEPENDENCY_MISSING", "缺少用例实现设计，无法生成所选设计模型；请先生成用例实现设计或在本次请求中包含用例实现设计"));
   }
   publishDesignModelSnapshot();
   if (shouldGenerateSequence) {
@@ -1517,7 +1535,7 @@ export async function runDesignStagePipeline(
     !selectedDesignDiagrams.has("class") &&
     !models.some((model) => model.diagramKind === "class")
   ) {
-    throw new Error("缺少设计类图，无法生成数据库设计；请先生成设计类图或在本次请求中包含设计类图");
+    throwRunError(createRunError("RUN_DEPENDENCY_MISSING", "缺少设计类图，无法生成数据库设计；请先生成设计类图或在本次请求中包含设计类图"));
   }
   const downstreamWithSources = requestedDownstream.filter((diagram) => {
     const sourceModels = findRequirementModelsForDesign(
@@ -1528,9 +1546,13 @@ export async function runDesignStagePipeline(
       return true;
     }
     const sourceKind = sourceRequirementKindForDesign(diagram);
+    const dependencyError = createRunError(
+      "RUN_DEPENDENCY_MISSING",
+      `缺少需求阶段${requirementDiagramLabel(sourceKind)}，无法生成${designDiagramLabel(diagram)}`,
+    );
     diagramErrors[diagram] = diagramErrorSchema.parse({
       stage: "generate_design_models",
-      message: `缺少需求阶段${requirementDiagramLabel(sourceKind)}，无法生成${designDiagramLabel(diagram)}`,
+      error: dependencyError,
     });
     return false;
   });
@@ -1611,11 +1633,11 @@ export async function runDesignStagePipeline(
         return result;
       } catch (error) {
         throwIfRunCancelled(record);
-        const message =
-          error instanceof Error ? error.message : `${designDiagramLabel(diagram)}生成失败`;
+        const runError = normalizeRunError(error);
+        const message = runError.message || `${designDiagramLabel(diagram)}生成失败`;
         diagramErrors[diagram] = diagramErrorSchema.parse({
           stage: "generate_design_models",
-          message,
+          error: runError,
         });
         publishDesignModelSnapshot();
         emitEvent(
@@ -1625,6 +1647,7 @@ export async function runDesignStagePipeline(
             stage: "generate_design_models",
             progress: stageProgressValue("generate_design_models"),
             message,
+            error: runError,
             diagramKind: diagram,
             subtaskId: diagram,
             subtaskLabel: designDiagramLabel(diagram),
@@ -1645,9 +1668,13 @@ export async function runDesignStagePipeline(
     if (downstreamWithSources.includes("table")) {
       const classModel = models.find((model) => model.diagramKind === "class");
       if (!classModel) {
+        const dependencyError = createRunError(
+          "RUN_DEPENDENCY_MISSING",
+          "缺少设计类图，无法生成数据库设计",
+        );
         diagramErrors.table = diagramErrorSchema.parse({
           stage: "generate_design_models",
-          message: "缺少设计类图，无法生成数据库设计",
+          error: dependencyError,
         });
         publishDesignModelSnapshot();
       } else {
@@ -1668,9 +1695,13 @@ export async function runDesignStagePipeline(
         throwIfRunCancelled(record);
         const tableModels = tableResult?.models ?? [];
         if (tableModels.length === 0 && !diagramErrors.table) {
+          const emptyError = createRunError(
+            "RUN_MODEL_OUTPUT_EMPTY",
+            "数据库设计生成结果为空",
+          );
           diagramErrors.table = diagramErrorSchema.parse({
             stage: "generate_design_models",
-            message: "数据库设计生成结果为空",
+            error: emptyError,
           });
           publishDesignModelSnapshot();
         }
@@ -1747,7 +1778,7 @@ export async function runDesignStagePipeline(
     }),
   );
   snapshot.status = "completed";
-  snapshot.errorMessage = null;
+  snapshot.error = null;
   emitEvent(
     record,
     completedRunEventSchema.parse({

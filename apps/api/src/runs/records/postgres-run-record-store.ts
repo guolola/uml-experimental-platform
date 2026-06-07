@@ -2,6 +2,7 @@
 import type { RunEvent } from "@uml-platform/contracts";
 import type { Queryable } from "../../db/transactions.js";
 import type { RunRecord, RunRecordMetadata, RunRecordStore } from "./run-record-store.js";
+import { createRunError } from "../pipelines/shared/errors.js";
 
 interface RunRecordRow {
   id: string;
@@ -13,6 +14,8 @@ interface RunRecordRow {
   model: string | null;
   provider_config_id: string | null;
   error_message: string | null;
+  error: RunRecord["snapshot"]["error"] | null;
+  error_code: string | null;
   created_at: Date | string;
   completed_at: Date | string | null;
 }
@@ -159,7 +162,7 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
 
   async restore() {
     const records = await this.db.query<RunRecordRow>(`
-      select id, user_id, project_id, snapshot, status, stage, model, provider_config_id, error_message, created_at, completed_at
+      select id, user_id, project_id, snapshot, status, stage, model, provider_config_id, error_message, error, error_code, created_at, completed_at
       from run_records
       order by created_at asc
     `);
@@ -193,8 +196,11 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           Boolean(row.completed_at),
         metadata: createMetadata(row),
       };
-      if (restoredInterruptedRun && !record.snapshot.errorMessage) {
-        record.snapshot.errorMessage = "Run interrupted by server restart";
+      if (restoredInterruptedRun && !record.snapshot.error) {
+        record.snapshot.error = createRunError(
+          "RUN_INTERNAL_ERROR",
+          "Run interrupted by server restart",
+        );
       }
       if (restoredInterruptedRun) {
         record.snapshot.status = "failed";
@@ -202,7 +208,9 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           record.events.push({
             type: "failed",
             stage: record.snapshot.currentStage ?? undefined,
-            message: record.snapshot.errorMessage ?? "Run interrupted by server restart",
+            error:
+              record.snapshot.error ??
+              createRunError("RUN_INTERNAL_ERROR", "Run interrupted by server restart"),
           });
         }
       }
@@ -255,9 +263,9 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
         `
           insert into run_records (
             id, user_id, project_id, stage, status, model, provider_config_id,
-            snapshot, error_message, completed_at, created_at, updated_at
+            snapshot, error, error_code, completed_at, created_at, updated_at
           )
-          values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, now())
+          values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, now())
           on conflict (id) do update set
             user_id = excluded.user_id,
             project_id = excluded.project_id,
@@ -266,7 +274,8 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
             model = excluded.model,
             provider_config_id = excluded.provider_config_id,
             snapshot = excluded.snapshot,
-            error_message = excluded.error_message,
+            error = excluded.error,
+            error_code = excluded.error_code,
             completed_at = coalesce(excluded.completed_at, run_records.completed_at),
             updated_at = now()
         `,
@@ -279,7 +288,8 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           readModel(snapshot),
           readProviderConfigId(snapshot),
           JSON.stringify(snapshot),
-          snapshot.errorMessage ?? null,
+          snapshot.error ? JSON.stringify(snapshot.error) : null,
+          snapshot.error?.code ?? null,
           readCompletedAt(record, event),
           metadata?.createdAt ?? new Date().toISOString(),
         ],

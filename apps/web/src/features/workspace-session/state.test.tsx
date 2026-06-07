@@ -2078,7 +2078,7 @@ describe("WorkspaceSessionProvider", () => {
           missingArtifacts: [],
           currentStage: "render_document_file",
           status: "completed",
-          errorMessage: null,
+          error: null,
         },
       ],
       [
@@ -2096,7 +2096,7 @@ describe("WorkspaceSessionProvider", () => {
           missingArtifacts: [],
           currentStage: "render_document_file",
           status: "completed",
-          errorMessage: null,
+          error: null,
         },
       ],
     ]);
@@ -2390,7 +2390,7 @@ describe("WorkspaceSessionProvider", () => {
       designTrace: [],
       currentStage: "render_svg",
       status: "completed",
-      errorMessage: null,
+      error: null,
     };
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>

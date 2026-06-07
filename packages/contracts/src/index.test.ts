@@ -946,7 +946,7 @@ test("contracts validate representative stage payloads", () => {
     ],
     currentStage: "select_code_skills",
     status: "running",
-    errorMessage: null,
+    error: null,
   });
   assert.equal(codeSnapshot.selectedCodeSkills.length, 1);
   assert.equal(codeSnapshot.codeTrace.length, 1);
@@ -1001,7 +1001,7 @@ test("contracts validate representative stage payloads", () => {
     ],
     currentStage: "render_svg",
     status: "running",
-    errorMessage: null,
+    error: null,
   });
   assert.equal(designSnapshot.designTrace.length, 2);
 
@@ -1041,7 +1041,7 @@ test("contracts validate representative stage payloads", () => {
     ],
     currentStage: "generate_models",
     status: "running",
-    errorMessage: null,
+    error: null,
   });
   assert.equal(requirementSnapshot.requirementTrace.length, 2);
 
@@ -2247,7 +2247,7 @@ test("contracts describe generated document library and editor config", () => {
     missingArtifacts: [],
     currentStage: "render_document_file",
     status: "completed",
-    errorMessage: null,
+    error: null,
   });
   assert.equal(snapshot.documentId, "doc-1");
 });

@@ -1240,7 +1240,14 @@ export function ProjectWorkspaceActions({
     requirementTrace: [],
     currentStage: null,
     status: runStatus === "idle" ? "completed" as const : runStatus,
-    errorMessage,
+    error: errorMessage
+      ? {
+          code: "RUN_INTERNAL_ERROR",
+          message: errorMessage,
+          category: "internal",
+          retryable: false,
+        }
+      : null,
   });
 
   const exportMarkdown = () => {

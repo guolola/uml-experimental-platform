@@ -1,12 +1,13 @@
 // Owns billing business rules: server-priced orders, entitlement grants, and run reservations.
 import {
-  billingEntitlementErrorResponseSchema,
   billingOrderStatusDtoSchema,
   billingSkuListResponseSchema,
   billingSummarySchema,
   createPaymentOrderResponseSchema,
-  type BillingEntitlementErrorResponse,
+  runErrorSchema,
+  type BillingEntitlementFailureReason,
   type BillingOrderStatusDto,
+  type RunError,
   type BillingSkuDto,
   type BillingSummary,
   type CreatePaymentOrderRequest,
@@ -43,7 +44,7 @@ export type BillingEntitlementDecision =
   | {
       allowed: false;
       statusCode: 402 | 429;
-      error: BillingEntitlementErrorResponse;
+      error: RunError;
     };
 
 type BillingServiceOptions = {
@@ -153,7 +154,7 @@ function skuDto(sku: BillingSkuDto) {
   };
 }
 
-function entitlementMessage(reason: BillingEntitlementErrorResponse["reason"]) {
+function entitlementMessage(reason: BillingEntitlementFailureReason) {
   if (reason === "pass_soft_limit") {
     return "当前通行卡使用较多，已触发软保护。可购买次数包继续生成。";
   }
@@ -161,6 +162,12 @@ function entitlementMessage(reason: BillingEntitlementErrorResponse["reason"]) {
     return "账户权益余额异常，请先购买次数包或联系管理员处理。";
   }
   return "当前账户没有可用于 AI 生成的权益，请先购买通行卡或次数包。";
+}
+
+function entitlementCode(reason: BillingEntitlementFailureReason) {
+  if (reason === "pass_soft_limit") return "USER_PASS_SOFT_LIMIT";
+  if (reason === "negative_balance") return "USER_ENTITLEMENT_NEGATIVE_BALANCE";
+  return "USER_ENTITLEMENT_REQUIRED";
 }
 
 export function createBillingService({
@@ -475,19 +482,26 @@ export function createBillingService({
 
   function entitlementError(
     summary: BillingSummary,
-    reason: BillingEntitlementErrorResponse["reason"],
+    reason: BillingEntitlementFailureReason,
     statusCode: 402 | 429,
   ): BillingEntitlementDecision {
     return {
       allowed: false,
       statusCode,
-      error: billingEntitlementErrorResponseSchema.parse({
+      error: runErrorSchema.parse({
+        code: entitlementCode(reason),
         message: entitlementMessage(reason),
-        reason,
-        billingSummary: summary,
-        payCta: {
-          label: reason === "pass_soft_limit" ? "购买次数包" : "查看定价",
-          href: "/pricing",
+        category: "user_entitlement",
+        retryable: false,
+        details: {
+          billing: {
+            reason,
+            billingSummary: summary,
+            payCta: {
+              label: reason === "pass_soft_limit" ? "购买次数包" : "查看定价",
+              href: "/pricing",
+            },
+          },
         },
       }),
     };
@@ -564,6 +578,44 @@ export function createBillingService({
     return repository.releaseUsageReservation(runId, now().toISOString());
   }
 
+  async function compensateRunUsage({
+    runId,
+    errorCode,
+    reason,
+  }: {
+    runId: string;
+    errorCode: string;
+    reason: string;
+  }) {
+    return repository.withTransaction(async (tx) => {
+      const reservation = await tx.getReservationByRunId(runId);
+      if (!reservation || reservation.status === "released") return reservation;
+      const compensatedAt = now().toISOString();
+      if (reservation.status === "confirmed" && reservation.entitlementKind === "credit") {
+        const sourceId = `run-compensation:${runId}`;
+        const existing = await tx.getLedgerEntryBySource("admin_adjustment", sourceId);
+        if (!existing) {
+          await tx.addLedgerEntry({
+            userId: reservation.userId,
+            sourceType: "admin_adjustment",
+            sourceId,
+            creditDelta: Math.abs(reservation.creditDelta || 1),
+            validFrom: compensatedAt,
+            validUntil: null,
+            metadata: {
+              runId,
+              taskType: reservation.taskType,
+              errorCode,
+              compensationReason: reason,
+            },
+          });
+        }
+      }
+      // Platform-side provider failures should not consume credit or pass quota.
+      return tx.voidUsageReservation(runId, compensatedAt);
+    });
+  }
+
   async function compensateCredits({
     userId,
     creditAmount,
@@ -610,6 +662,7 @@ export function createBillingService({
     reserveRunUsage,
     confirmRunUsage,
     releaseRunUsage,
+    compensateRunUsage,
     compensateCredits,
     markRefundPending,
     listAdminOrders: (limit?: number) => repository.listOrders(limit),

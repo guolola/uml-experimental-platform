@@ -1,4 +1,6 @@
 // Centralizes HTTP URL resolution, JSON requests, downloads, and error parsing.
+import { runErrorSchema, type RunError } from "@uml-platform/contracts";
+
 const APP_API_BASE_URL =
   import.meta.env.VITE_APP_API_BASE_URL ?? "http://127.0.0.1:4001";
 const API_PATH_PREFIX = "/api";
@@ -6,12 +8,14 @@ const API_PATH_PREFIX = "/api";
 export class ApiClientError extends Error {
   readonly status: number;
   readonly payload: unknown;
+  readonly error: RunError | null;
 
   constructor(message: string, status: number, payload?: unknown) {
     super(message);
     this.name = "ApiClientError";
     this.status = status;
     this.payload = payload;
+    this.error = parseRunErrorFromPayload(payload);
   }
 }
 
@@ -71,6 +75,13 @@ function messageFromPayload(
     }
   }
   return fallback;
+}
+
+function parseRunErrorFromPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const maybeError = "error" in payload ? payload.error : payload;
+  const parsed = runErrorSchema.safeParse(maybeError);
+  return parsed.success ? parsed.data : null;
 }
 
 export async function requestJson<T>(

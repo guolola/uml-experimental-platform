@@ -31,9 +31,13 @@ function phaseSummaryFromEvent(event: RunEvent, fallback: string | null) {
     return "生成完成，可以查看或导出结果。";
   }
   if (event.type === "failed") {
-    return event.message;
+    return event.error.message;
   }
   return fallback;
+}
+
+function eventFailureMessage(event: RunEvent) {
+  return event.type === "failed" ? event.error.message : null;
 }
 
 export function createClientTaskId(kind: GenerationTaskKind) {
@@ -336,7 +340,7 @@ function updateSubtasksFromEvent(
       return "已完成";
     }
     if (event.type === "stage_progress") {
-      return event.message ?? previousMessage;
+      return eventFailureMessage(event) ?? previousMessage;
     }
     return previousMessage;
   };
@@ -361,7 +365,7 @@ function updateSubtasksFromEvent(
           : subtask.label,
       status,
       message: messageForUpdatedSubtask(status, subtask.message),
-      errorMessage: event.type === "failed" ? event.message : subtask.errorMessage,
+      errorMessage: eventFailureMessage(event) ?? subtask.errorMessage,
       queuePosition:
         "queuePosition" in event ? event.queuePosition ?? subtask.queuePosition : subtask.queuePosition,
       queueAhead:
@@ -383,7 +387,7 @@ function updateSubtasksFromEvent(
           label: "subtaskLabel" in event && event.subtaskLabel ? event.subtaskLabel : subtaskId,
           status: subtaskStatusFromEvent(event),
           message: messageForUpdatedSubtask(subtaskStatusFromEvent(event), null),
-          errorMessage: event.type === "failed" ? event.message : null,
+          errorMessage: eventFailureMessage(event),
           queuePosition: "queuePosition" in event ? event.queuePosition : undefined,
           queueAhead: "queueAhead" in event ? event.queueAhead : undefined,
           waitMs: "waitMs" in event ? event.waitMs : undefined,
@@ -426,7 +430,7 @@ function failDownstreamRenderSubtasksForModelFailure(
       ...subtask,
       status: "failed" as const,
       message: "前置模型生成失败，未执行",
-      errorMessage: event.message ?? "前置模型生成失败",
+      errorMessage: event.error?.message ?? event.message ?? "前置模型生成失败",
     };
   });
 }
@@ -475,7 +479,7 @@ function collectCompletedSubtaskIds(snapshot: unknown) {
 }
 
 function errorForSubtask(
-  errors: Record<string, { message?: string; stage?: string }>,
+  errors: Record<string, { error?: { message?: string }; stage?: string }>,
   subtaskId: string,
 ) {
   const scoped = splitScopedSubtaskId(subtaskId);
@@ -506,7 +510,10 @@ function updateSubtasksFromCompletedSnapshot(
   if (event.type !== "completed") return subtasks;
   const snapshot: unknown = event.snapshot;
   if (!isRecord(snapshot) || !isRecord(snapshot.diagramErrors)) return subtasks;
-  const errors = snapshot.diagramErrors as Record<string, { message?: string; stage?: string }>;
+  const errors = snapshot.diagramErrors as Record<
+    string,
+    { error?: { message?: string }; stage?: string }
+  >;
   const completedIds = collectCompletedSubtaskIds(snapshot);
   const pendingReviewByDiagram = new Map<string, number>();
   if (Array.isArray(snapshot.designModelTraceability)) {
@@ -544,8 +551,8 @@ function updateSubtasksFromCompletedSnapshot(
       return {
         ...subtask,
         status: "failed" as const,
-        message: error.message ?? subtask.message,
-        errorMessage: error.message ?? subtask.errorMessage,
+        message: error.error?.message ?? subtask.message,
+        errorMessage: error.error?.message ?? subtask.errorMessage,
       };
     }
     if (completedIds.has(subtask.id) && subtask.status !== "failed") {
@@ -575,7 +582,7 @@ function updateSubtasksFromCompletedSnapshot(
       label: id,
       status: "failed",
       message: error.stage ? `阶段失败：${error.stage}` : null,
-      errorMessage: error.message ?? null,
+      errorMessage: error.error?.message ?? null,
     });
   }
   return next;
@@ -674,9 +681,10 @@ function taskMessageFromEvent(
       ? `${messages.completed}，但 ${failed} 个子任务失败`
       : messages.completed;
   }
-  if (event.type === "cancelled" || event.type === "failed") {
+  if (event.type === "cancelled") {
     return event.message;
   }
+  if (event.type === "failed") return event.error.message;
   return task.message;
 }
 
@@ -812,7 +820,7 @@ export function updateTaskFromEvent(
     message: nextMessage,
     errorMessage:
       event.type === "failed"
-        ? event.message
+        ? event.error.message
         : event.type === "completed" && nextStatus === "failed"
           ? nextMessage
           : task.errorMessage,

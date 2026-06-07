@@ -665,7 +665,7 @@ function summarizeRunRecord(record: RunRecord) {
     status,
     stage,
     currentStage: record.snapshot.currentStage,
-    errorMessage: record.snapshot.errorMessage,
+    error: record.snapshot.error,
     model: readSnapshotModel(record.snapshot) ?? null,
     runKind: inferRunKind(record.snapshot),
     documentKind:
@@ -768,7 +768,7 @@ async function reserveBillingRunUsage({
   });
   if (decision.allowed) return true;
   reply.code(decision.statusCode);
-  return decision.error;
+  return { error: decision.error };
 }
 
 function readableConfidence(value: unknown): number | undefined {
@@ -1154,7 +1154,7 @@ export function registerRunRoutes({
   generationUsage?: GenerationUsageService;
   billingEntitlements?: Pick<
     BillingService,
-    "reserveRunUsage" | "confirmRunUsage" | "releaseRunUsage"
+    "reserveRunUsage" | "confirmRunUsage" | "releaseRunUsage" | "compensateRunUsage"
   >;
   providerRateLimitPolicy?: ProviderRateLimitPolicy;
   llmScheduler?: LlmScheduler;

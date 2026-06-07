@@ -74,7 +74,7 @@ function createCodeRunSnapshot(
     codeContextHash: null,
     currentStage: "verify_code_preview",
     status: "completed",
-    errorMessage: null,
+    error: null,
   };
   return { ...base, ...overrides };
 }
@@ -309,7 +309,12 @@ describe("createHttpWorkspaceRepository", () => {
             svgArtifacts: [],
             currentStage: "extract_rules",
             status: "failed",
-            errorMessage: "LLM request failed with HTTP 401",
+            error: {
+              code: "PLATFORM_PROVIDER_AUTH_FAILED",
+              message: "LLM request failed with HTTP 401",
+              category: "platform_provider",
+              retryable: false,
+            },
           }),
           {
             status: 200,
@@ -365,7 +370,7 @@ describe("createHttpWorkspaceRepository", () => {
                 codeContextHash: "hash",
                 currentStage: "verify_code_preview",
                 status: "completed",
-                errorMessage: null,
+                error: null,
               },
             }),
           } as MessageEvent<string>);
@@ -524,7 +529,7 @@ describe("createHttpWorkspaceRepository", () => {
             requirementTrace: [],
             currentStage: "render_svg",
             status: "completed",
-            errorMessage: null,
+            error: null,
           }),
           {
             status: 200,
@@ -1366,7 +1371,7 @@ describe("createHttpWorkspaceRepository", () => {
       designTrace: [],
       currentStage: "render_svg",
       status: "completed",
-      errorMessage: null,
+      error: null,
     };
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
       if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {

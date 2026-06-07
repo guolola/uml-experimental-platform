@@ -3035,7 +3035,7 @@ function DiagramDetailView({
                   {meta.label} 生成失败
                 </div>
                 <div className="mt-2 leading-relaxed text-foreground">
-                  {diagramError.message}
+                  {diagramError.error.message}
                 </div>
               </div>
             ) : (
@@ -3197,7 +3197,7 @@ function DiagramDetailView({
                               {meta.label} 生成失败
                             </div>
                             <div className="mt-2 leading-relaxed text-foreground">
-                              {diagramError.message}
+                              {diagramError.error.message}
                             </div>
                           </div>
                         </div>

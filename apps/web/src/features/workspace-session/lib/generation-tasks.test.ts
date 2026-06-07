@@ -89,13 +89,18 @@ describe("workspace-session generation task helpers", () => {
         diagramErrors: {
           activity: {
             stage: "generate_models",
-            message: "activity JSON 修复失败",
+            error: {
+              code: "RUN_STRUCTURED_OUTPUT_INVALID",
+              message: "activity JSON 修复失败",
+              category: "generation",
+              retryable: true,
+            },
           },
         },
         requirementTrace: [],
         currentStage: null,
         status: "completed",
-        errorMessage: null,
+        error: null,
       },
     } satisfies RunEvent;
 
@@ -224,7 +229,7 @@ describe("workspace-session generation task helpers", () => {
           designTrace: [],
           currentStage: null,
           status: "completed",
-          errorMessage: null,
+          error: null,
         },
       } satisfies RunEvent,
       {
@@ -545,13 +550,23 @@ describe("workspace-session generation task helpers", () => {
           diagramErrors: {
             "sequence:uc_filter_date": {
               stage: "generate_design_sequence",
-              message: "日期筛选顺序图生成结果为空",
+              error: {
+                code: "RUN_MODEL_OUTPUT_EMPTY",
+                message: "日期筛选顺序图生成结果为空",
+                category: "generation",
+                retryable: true,
+              },
             },
           },
           designTrace: [],
           currentStage: "generate_design_sequence",
           status: "failed",
-          errorMessage: "缺少 1 个用例顺序图：uc_filter_date:日期筛选",
+          error: {
+            code: "RUN_MODEL_OUTPUT_EMPTY",
+            message: "缺少 1 个用例顺序图：uc_filter_date:日期筛选",
+            category: "generation",
+            retryable: true,
+          },
         },
       } satisfies RunEvent,
       {
@@ -878,13 +893,18 @@ describe("workspace-session generation task helpers", () => {
           diagramErrors: {
             deployment: {
               stage: "render_svg",
-              message: "PlantUML repair failed",
+              error: {
+                code: "RUN_RENDER_FAILED",
+                message: "PlantUML repair failed",
+                category: "render",
+                retryable: true,
+              },
             },
           },
           requirementTrace: [],
           currentStage: "render_svg",
           status: "completed",
-          errorMessage: null,
+          error: null,
         },
       } satisfies RunEvent,
       {

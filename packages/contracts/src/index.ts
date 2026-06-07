@@ -3615,9 +3615,47 @@ export const runStatusSchema = z.enum([
 ]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
+export const runErrorCodeSchema = z.enum([
+  "USER_ENTITLEMENT_REQUIRED",
+  "USER_PASS_SOFT_LIMIT",
+  "USER_ENTITLEMENT_NEGATIVE_BALANCE",
+  "PLATFORM_PROVIDER_BALANCE_INSUFFICIENT",
+  "PLATFORM_PROVIDER_AUTH_FAILED",
+  "PLATFORM_PROVIDER_RATE_LIMITED",
+  "PLATFORM_PROVIDER_UNAVAILABLE",
+  "PLATFORM_PROVIDER_TIMEOUT",
+  "RUN_MODEL_OUTPUT_EMPTY",
+  "RUN_STRUCTURED_OUTPUT_INVALID",
+  "RUN_DEPENDENCY_MISSING",
+  "RUN_RENDER_FAILED",
+  "RUN_CANCELLED",
+  "RUN_INTERNAL_ERROR",
+  "RUN_LEGACY_FAILURE",
+]);
+export type RunErrorCode = z.infer<typeof runErrorCodeSchema>;
+
+export const runErrorCategorySchema = z.enum([
+  "user_entitlement",
+  "platform_provider",
+  "generation",
+  "render",
+  "access",
+  "internal",
+]);
+export type RunErrorCategory = z.infer<typeof runErrorCategorySchema>;
+
+export const runErrorSchema = z.object({
+  code: runErrorCodeSchema,
+  message: z.string().min(1),
+  category: runErrorCategorySchema,
+  retryable: z.boolean(),
+  details: z.record(z.string().min(1), z.unknown()).optional(),
+});
+export type RunError = z.infer<typeof runErrorSchema>;
+
 export const diagramErrorSchema = z.object({
   stage: runStageSchema,
-  message: z.string().min(1),
+  error: runErrorSchema,
 });
 export type DiagramError = z.infer<typeof diagramErrorSchema>;
 
@@ -3720,7 +3758,7 @@ export const runSnapshotSchema = z.object({
   requirementTrace: z.array(requirementTraceEntrySchema).default([]),
   currentStage: runStageSchema.nullable(),
   status: runStatusSchema,
-  errorMessage: z.string().nullable(),
+  error: runErrorSchema.nullable(),
 });
 export type RunSnapshot = z.infer<typeof runSnapshotSchema>;
 
@@ -3744,7 +3782,7 @@ export const designRunSnapshotSchema = z.object({
   designTrace: z.array(designTraceEntrySchema).default([]),
   currentStage: runStageSchema.nullable(),
   status: runStatusSchema,
-  errorMessage: z.string().nullable(),
+  error: runErrorSchema.nullable(),
 });
 export type DesignRunSnapshot = z.infer<typeof designRunSnapshotSchema>;
 
@@ -3802,7 +3840,7 @@ export const codeRunSnapshotSchema = z.object({
   codeContextHash: z.string().nullable().default(null),
   currentStage: runStageSchema.nullable(),
   status: runStatusSchema,
-  errorMessage: z.string().nullable(),
+  error: runErrorSchema.nullable(),
 });
 export type CodeRunSnapshot = z.infer<typeof codeRunSnapshotSchema>;
 
@@ -3822,7 +3860,7 @@ export const documentRunSnapshotSchema = z.object({
   missingArtifacts: z.array(z.string()).default([]),
   currentStage: runStageSchema.nullable(),
   status: runStatusSchema,
-  errorMessage: z.string().nullable(),
+  error: runErrorSchema.nullable(),
 });
 export type DocumentRunSnapshot = z.infer<typeof documentRunSnapshotSchema>;
 
@@ -3851,6 +3889,7 @@ export const stageProgressRunEventSchema = z.object({
   stage: runStageSchema,
   progress: z.number().min(0).max(100),
   message: z.string().optional(),
+  error: runErrorSchema.optional(),
   diagramKind: umlDiagramKindSchema.optional(),
   modelId: z.string().min(1).optional(),
   subtaskId: z.string().min(1).optional(),
@@ -3965,7 +4004,7 @@ export const completedRunEventSchema = z.object({
 export const failedRunEventSchema = z.object({
   type: z.literal("failed"),
   stage: runStageSchema.optional(),
-  message: z.string().min(1),
+  error: runErrorSchema,
 });
 
 export const cancelledRunEventSchema = z.object({

@@ -74,7 +74,7 @@ export function createEmptySnapshot(
     requirementTrace: [],
     currentStage: null,
     status: "queued",
-    errorMessage: null,
+    error: null,
   });
 }
 
@@ -117,7 +117,7 @@ export function createEmptyDesignSnapshot(
     diagramErrors: {},
     currentStage: null,
     status: "queued",
-    errorMessage: null,
+    error: null,
   });
 }
 
@@ -189,7 +189,7 @@ export function createEmptyCodeSnapshot(
     codeContextHash: null,
     currentStage: null,
     status: "queued",
-    errorMessage: null,
+    error: null,
   });
 }
 
@@ -225,6 +225,6 @@ export function createEmptyDocumentSnapshot(
     missingArtifacts: [],
     currentStage: null,
     status: "queued",
-    errorMessage: null,
+    error: null,
   });
 }

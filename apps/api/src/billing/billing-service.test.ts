@@ -161,7 +161,11 @@ test("run reservation distinguishes no entitlement from pass soft protection", a
   });
   if (noEntitlement.allowed) assert.fail("reservation unexpectedly succeeded");
   assert.equal(noEntitlement.statusCode, 402);
-  assert.equal(noEntitlement.error.reason, "no_entitlement");
+  assert.equal(noEntitlement.error.code, "USER_ENTITLEMENT_REQUIRED");
+  assert.equal(
+    (noEntitlement.error.details?.billing as { reason?: string } | undefined)?.reason,
+    "no_entitlement",
+  );
 
   const softLimited = await createTestService({
     env: { UML_BILLING_PASS_DAILY_SOFT_LIMIT: "1" },
@@ -186,7 +190,11 @@ test("run reservation distinguishes no entitlement from pass soft protection", a
   });
   if (blocked.allowed) assert.fail("soft-limited pass reservation unexpectedly succeeded");
   assert.equal(blocked.statusCode, 429);
-  assert.equal(blocked.error.reason, "pass_soft_limit");
+  assert.equal(blocked.error.code, "USER_PASS_SOFT_LIMIT");
+  assert.equal(
+    (blocked.error.details?.billing as { reason?: string } | undefined)?.reason,
+    "pass_soft_limit",
+  );
 });
 
 test("payment callbacks verify signatures, validate amount, and grant purchases idempotently", async () => {

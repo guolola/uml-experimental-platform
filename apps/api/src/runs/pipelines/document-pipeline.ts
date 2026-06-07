@@ -217,7 +217,7 @@ export async function runDocumentStagePipeline(
   const evidencePackage = attachEvidencePackage(snapshot);
   throwIfRunCancelled(record);
   snapshot.status = "completed";
-  snapshot.errorMessage = null;
+  snapshot.error = null;
   emitEvent(
     record,
     artifactReadyRunEventSchema.parse({

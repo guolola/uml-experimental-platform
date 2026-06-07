@@ -1684,10 +1684,15 @@ test("project run history supports detail and status filters for authorized memb
   const failedRecord = runs.get(failedRunId);
   assert.ok(failedRecord);
   failedRecord.snapshot.status = "failed";
-  failedRecord.snapshot.errorMessage = "LLM repair exhausted";
+  failedRecord.snapshot.error = {
+    code: "RUN_INTERNAL_ERROR",
+    message: "LLM repair exhausted",
+    category: "internal",
+    retryable: false,
+  };
   emitEvent(failedRecord, {
     type: "failed",
-    message: failedRecord.snapshot.errorMessage,
+    error: failedRecord.snapshot.error,
   });
 
   const history = await app.inject({

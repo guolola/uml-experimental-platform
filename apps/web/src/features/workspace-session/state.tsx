@@ -251,16 +251,26 @@ function statusFromRunEvent(event: RunEvent) {
   return "running";
 }
 
-function cancelledRunMessage(snapshot?: { errorMessage?: string | null }) {
-  return snapshot?.errorMessage ?? "任务已取消";
+function runErrorMessage(snapshot?: { error?: { message?: string } | null }) {
+  return snapshot?.error?.message ?? null;
+}
+
+function cancelledRunMessage(snapshot?: { error?: { message?: string } | null }) {
+  return runErrorMessage(snapshot) ?? "任务已取消";
 }
 
 function parseBillingEntitlementError(
   error: unknown,
 ): BillingEntitlementErrorResponse | null {
   if (!(error instanceof ApiClientError)) return null;
-  if (error.status !== 402 && error.status !== 429) return null;
-  const parsed = billingEntitlementErrorResponseSchema.safeParse(error.payload);
+  const runError = error.error;
+  if (!runError || runError.category !== "user_entitlement") return null;
+  const billing = runError.details?.billing;
+  if (!billing || typeof billing !== "object") return null;
+  const parsed = billingEntitlementErrorResponseSchema.safeParse({
+    message: runError.message,
+    ...(billing as Record<string, unknown>),
+  });
   return parsed.success ? parsed.data : null;
 }
 
@@ -2548,7 +2558,7 @@ export function WorkspaceSessionProvider({
         runProgress:
           snapshot.status === "completed" || snapshot.status === "failed" ? 100 : 0,
         runMessage: snapshot.status === "completed" ? "已恢复说明书记录" : null,
-        errorMessage: snapshot.errorMessage,
+        errorMessage: runErrorMessage(snapshot),
       });
       setCurrentRunDiagnostics({
         ...createEmptyDiagnostics(),
@@ -2559,7 +2569,7 @@ export function WorkspaceSessionProvider({
           snapshot.status === "completed" || snapshot.status === "failed"
             ? new Date().toISOString()
             : null,
-        streamText: snapshot.errorMessage ?? "",
+        streamText: runErrorMessage(snapshot) ?? "",
       });
       return;
     }
@@ -2701,7 +2711,7 @@ export function WorkspaceSessionProvider({
       runStatus: snapshot.status,
       runProgress: snapshot.status === "completed" || snapshot.status === "failed" ? 100 : 0,
       runMessage: snapshot.status === "completed" ? "已恢复历史快照" : null,
-      errorMessage: snapshot.errorMessage,
+      errorMessage: runErrorMessage(snapshot),
     });
     setCurrentRunDiagnostics({
       ...createEmptyDiagnostics(),
@@ -2716,7 +2726,7 @@ export function WorkspaceSessionProvider({
         snapshot.status === "completed" || snapshot.status === "failed"
           ? new Date().toISOString()
           : null,
-      streamText: snapshot.errorMessage ?? "",
+      streamText: runErrorMessage(snapshot) ?? "",
       uiMockup: isCodeRunSnapshot(snapshot) ? snapshot.uiMockup : null,
       uiReferenceSpec: isCodeRunSnapshot(snapshot)
         ? snapshot.uiReferenceSpec
@@ -2999,10 +3009,10 @@ export function WorkspaceSessionProvider({
                     : event.type === "cancelled"
                       ? event.message
                     : event.type === "failed"
-                      ? event.message
+                      ? event.error.message
                       : current.runMessage,
             errorMessage:
-              event.type === "failed" ? event.message : current.errorMessage,
+              event.type === "failed" ? event.error.message : current.errorMessage,
           }));
         });
 
@@ -3521,10 +3531,10 @@ export function WorkspaceSessionProvider({
                     : event.type === "cancelled"
                       ? event.message
                     : event.type === "failed"
-                      ? event.message
+                      ? event.error.message
                       : current.runMessage,
             errorMessage:
-              event.type === "failed" ? event.message : current.errorMessage,
+              event.type === "failed" ? event.error.message : current.errorMessage,
           }));
         });
 
@@ -4008,10 +4018,10 @@ export function WorkspaceSessionProvider({
                     : event.type === "cancelled"
                       ? event.message
                     : event.type === "failed"
-                      ? event.message
+                      ? event.error.message
                       : current.runMessage,
           errorMessage:
-            event.type === "failed" ? event.message : current.errorMessage,
+            event.type === "failed" ? event.error.message : current.errorMessage,
         }));
       });
 
@@ -4425,10 +4435,10 @@ export function WorkspaceSessionProvider({
                     : event.type === "cancelled"
                       ? event.message
                     : event.type === "failed"
-                      ? event.message
+                      ? event.error.message
                       : current.runMessage,
             errorMessage:
-              event.type === "failed" ? event.message : current.errorMessage,
+              event.type === "failed" ? event.error.message : current.errorMessage,
           }));
         });
 

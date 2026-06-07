@@ -76,7 +76,12 @@ describe("DiagramView", () => {
           diagramErrors: {
             activity: {
               stage: "render_svg",
-              message: "PlantUML repair failed for activity: Syntax Error?",
+              error: {
+                code: "RUN_RENDER_FAILED",
+                message: "PlantUML repair failed for activity: Syntax Error?",
+                category: "render",
+                retryable: true,
+              },
             },
           },
         }),

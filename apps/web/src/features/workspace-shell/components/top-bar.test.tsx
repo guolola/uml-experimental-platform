@@ -1101,7 +1101,12 @@ describe("TopBar", () => {
       diagramErrors: {
         activity: {
           stage: "generate_models",
-          message: "界面关系 traceability 缺失",
+          error: {
+            code: "RUN_STRUCTURED_OUTPUT_INVALID",
+            message: "界面关系 traceability 缺失",
+            category: "generation",
+            retryable: true,
+          },
         },
       },
     });
@@ -1319,7 +1324,12 @@ describe("TopBar", () => {
       ],
       currentStage: "render_svg",
       status: "failed",
-      errorMessage: "Syntax Error? (line 2)",
+      error: {
+        code: "RUN_RENDER_FAILED",
+        message: "Syntax Error? (line 2)",
+        category: "render",
+        retryable: true,
+      },
     };
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
@@ -1434,7 +1444,7 @@ describe("TopBar", () => {
       ],
       currentStage: "plan_code_ui",
       status: "completed",
-      errorMessage: null,
+      error: null,
       uiMockup: null,
       uiReferenceSpec: null,
       appBlueprint: null,

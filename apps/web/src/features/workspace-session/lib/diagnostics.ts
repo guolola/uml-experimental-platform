@@ -205,7 +205,7 @@ export function summarizeEvent(event: RunEvent): DiagnosticEvent {
         id: `${suffix}:failed`,
         at,
         label: "任务失败",
-        detail: sanitizeDiagnosticText(event.message),
+        detail: sanitizeDiagnosticText(event.error.message),
       };
     case "llm_chunk":
       if (!isMeaningfulLlmChunkEvent(event)) {

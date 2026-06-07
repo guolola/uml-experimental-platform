@@ -19,6 +19,8 @@ interface FakeRunRow {
   model?: string | null;
   provider_config_id?: string | null;
   error_message?: string | null;
+  error?: RunRecord["snapshot"]["error"] | null;
+  error_code?: string | null;
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
@@ -68,7 +70,8 @@ class FakeRunDb implements Queryable {
         model,
         providerConfigId,
         snapshot,
-        errorMessage,
+        error,
+        errorCode,
         completedAt,
         createdAt,
       ] = params;
@@ -86,7 +89,11 @@ class FakeRunDb implements Queryable {
         provider_config_id:
           typeof providerConfigId === "string" ? providerConfigId : null,
         snapshot: parsedSnapshot,
-        error_message: typeof errorMessage === "string" ? errorMessage : null,
+        error:
+          typeof error === "string"
+            ? (JSON.parse(error) as RunRecord["snapshot"]["error"])
+            : (error as RunRecord["snapshot"]["error"] | null),
+        error_code: typeof errorCode === "string" ? errorCode : null,
         created_at: String(createdAt),
         updated_at: new Date().toISOString(),
         completed_at: typeof completedAt === "string" ? completedAt : null,
@@ -237,9 +244,11 @@ test("postgres run store restores abandoned active runs as interrupted", async (
 
   assert.equal(record?.terminal, true);
   assert.equal(record?.snapshot.status, "failed");
-  assert.equal(record?.snapshot.errorMessage, "Run interrupted by server restart");
+  assert.equal(record?.snapshot.error?.message, "Run interrupted by server restart");
+  assert.equal(record?.snapshot.error?.code, "RUN_INTERNAL_ERROR");
   assert.equal(record?.events.at(-1)?.type, "failed");
   assert.equal(db.runRows.get("run-interrupted")?.status, "failed");
+  assert.equal(db.runRows.get("run-interrupted")?.error_code, "RUN_INTERNAL_ERROR");
   assert.ok(db.runRows.get("run-interrupted")?.completed_at);
 });
 

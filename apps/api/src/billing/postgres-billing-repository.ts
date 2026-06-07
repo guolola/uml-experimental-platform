@@ -573,6 +573,20 @@ class PostgresBillingRepository implements BillingRepository {
     return this.getReservationByRunId(runId);
   }
 
+  async voidUsageReservation(runId: string, releasedAt: string) {
+    await this.db.query(
+      `
+        update billing_usage_reservations
+        set status = 'released',
+          released_at = coalesce(released_at, $2),
+          updated_at = now()
+        where run_id = $1 and status <> 'released'
+      `,
+      [runId, releasedAt],
+    );
+    return this.getReservationByRunId(runId);
+  }
+
   async countReservedUsageForUser(userId: string) {
     const result = await this.db.query<{ count: string }>(
       `

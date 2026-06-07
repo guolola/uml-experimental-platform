@@ -242,6 +242,8 @@ create table if not exists run_records (
   model text,
   provider_config_id text references provider_configs(id) on delete set null,
   snapshot jsonb not null,
+  error jsonb,
+  error_code text,
   error_message text,
   duration_ms integer,
   created_at timestamptz not null default now(),
@@ -791,6 +793,62 @@ alter table billing_usage_reservations add column if not exists credit_delta int
 alter table billing_usage_reservations add column if not exists metadata_json jsonb not null default '{}'::jsonb;
 `;
 
+export const runErrorObjectsSql = `
+alter table run_records add column if not exists error jsonb;
+alter table run_records add column if not exists error_code text;
+
+update run_records
+set error = jsonb_build_object(
+    'code', 'RUN_LEGACY_FAILURE',
+    'message', coalesce(nullif(error_message, ''), '历史运行失败。'),
+    'category', 'internal',
+    'retryable', false
+  ),
+  error_code = 'RUN_LEGACY_FAILURE'
+where error is null
+  and (
+    error_message is not null
+    or (snapshot ? 'errorMessage' and nullif(snapshot->>'errorMessage', '') is not null)
+  );
+
+update run_records
+set snapshot =
+  (snapshot - 'errorMessage') ||
+  jsonb_build_object(
+    'error',
+    case
+      when error is not null then error
+      when nullif(snapshot->>'errorMessage', '') is not null then jsonb_build_object(
+        'code', 'RUN_LEGACY_FAILURE',
+        'message', snapshot->>'errorMessage',
+        'category', 'internal',
+        'retryable', false
+      )
+      else 'null'::jsonb
+    end
+  )
+where snapshot ? 'errorMessage'
+   or not (snapshot ? 'error');
+
+update run_events
+set payload =
+  (payload - 'message') ||
+  jsonb_build_object(
+    'error',
+    jsonb_build_object(
+      'code', 'RUN_LEGACY_FAILURE',
+      'message', coalesce(nullif(payload->>'message', ''), '历史运行失败。'),
+      'category', 'internal',
+      'retryable', false
+    )
+  )
+where event_type = 'failed'
+  and payload ? 'message'
+  and not (payload ? 'error');
+
+create index if not exists run_records_error_code_idx on run_records(error_code);
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -843,6 +901,10 @@ export const migrations = [
   {
     id: "013_billing_compatibility_columns",
     sql: billingCompatibilityColumnsSql,
+  },
+  {
+    id: "014_run_error_objects",
+    sql: runErrorObjectsSql,
   },
 ] as const;
 

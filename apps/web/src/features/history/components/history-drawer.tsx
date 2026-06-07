@@ -150,9 +150,9 @@ export function HistoryDrawer({
                           )}
                           <span>{snapshotSummary}</span>
                         </div>
-                        {item.snapshot?.errorMessage && (
+                        {item.snapshot?.error && (
                           <div className="mt-2 text-xs text-destructive">
-                            {item.snapshot.errorMessage}
+                            {item.snapshot.error.message}
                           </div>
                         )}
                       </div>

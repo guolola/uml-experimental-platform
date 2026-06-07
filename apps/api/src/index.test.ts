@@ -2490,7 +2490,7 @@ test("api preserves successful sequences when one use-case sequence keeps failin
   ).json();
 
   assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.errorMessage, /uc_filter_date:日期筛选/);
+  assert.match(snapshot.error.message, /uc_filter_date:日期筛选/);
   assert.deepEqual(
     snapshot.models.map((model: { sourceUseCaseId: string }) => model.sourceUseCaseId),
     ["usecase_generate"],
@@ -3023,7 +3023,7 @@ test("api reports missing design prerequisites when downstream diagrams bypass f
   ).json();
 
   assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.errorMessage, /缺少用例实现设计/);
+  assert.match(snapshot.error.message, /缺少用例实现设计/);
   assert.equal(llmCalls, 0);
 
   await app.close();
@@ -4553,7 +4553,7 @@ test("api fails document runs after document content repair attempts are exhaust
     })
   ).json();
   assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.errorMessage, /generate_document_text structured output failed/);
+  assert.match(snapshot.error.message, /generate_document_text structured output failed/);
 
   await app.close();
 });
@@ -4807,7 +4807,7 @@ test("api auto-fills generate_models traceability when element traceability stay
     await app.inject({ method: "GET", url: `/api/runs/${runId}` })
   ).json();
   assert.equal(snapshot.status, "completed");
-  assert.equal(snapshot.errorMessage ?? undefined, undefined);
+  assert.equal(snapshot.error, null);
   assert.equal(snapshot.requirementModelTraceability.length, 3);
   assert.equal(snapshot.requirementTrace.filter(
     (entry: { kind: string }) => entry.kind === "parse_error",
@@ -5361,8 +5361,8 @@ test("api fails the run when PlantUML still cannot be repaired after retries", a
   const snapshot = snapshotResponse.json();
 
   assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.errorMessage ?? "", /PlantUML repair failed for usecase/i);
-  assert.match(snapshot.errorMessage ?? "", /broken uml source/i);
+  assert.match(snapshot.error?.message ?? "", /PlantUML repair failed for usecase/i);
+  assert.match(snapshot.error?.message ?? "", /broken uml source/i);
 
   await app.close();
 });
@@ -5417,7 +5417,7 @@ test("api emits failed events when a stage returns invalid JSON", async () => {
   });
   const snapshot = snapshotResponse.json();
   assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.errorMessage ?? "", /invalid/i);
+  assert.match(snapshot.error?.message ?? "", /invalid/i);
 
   await app.close();
 });

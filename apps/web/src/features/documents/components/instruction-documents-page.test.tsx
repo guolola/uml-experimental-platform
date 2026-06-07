@@ -106,7 +106,7 @@ function createControlledDocumentRepository() {
         missingArtifacts: [],
         currentStage: "render_document_file" as const,
         status: "completed" as const,
-        errorMessage: null,
+        error: null,
       },
     ],
     [
@@ -124,7 +124,7 @@ function createControlledDocumentRepository() {
         missingArtifacts: [],
         currentStage: "render_document_file" as const,
         status: "completed" as const,
-        errorMessage: null,
+        error: null,
       },
     ],
   ]);

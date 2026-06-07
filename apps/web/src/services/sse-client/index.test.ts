@@ -62,7 +62,12 @@ describe("sse-client", () => {
           this.onmessage?.({
             data: JSON.stringify({
               type: "failed",
-              message: "LLM request failed",
+              error: {
+                code: "PLATFORM_PROVIDER_UNAVAILABLE",
+                message: "LLM request failed",
+                category: "platform_provider",
+                retryable: true,
+              },
             }),
           } as MessageEvent<string>);
         });

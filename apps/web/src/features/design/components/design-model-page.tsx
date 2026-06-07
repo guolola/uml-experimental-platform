@@ -610,7 +610,7 @@ export function DesignModelPage() {
                         )}
                         {error && (
                           <div className="mt-2 text-[11px] leading-relaxed text-destructive">
-                            {error.message}
+                            {error.error.message}
                           </div>
                         )}
                       </div>
