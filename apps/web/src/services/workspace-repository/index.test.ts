@@ -1266,7 +1266,7 @@ describe("createHttpWorkspaceRepository", () => {
       rules: [currentRule],
     });
     expect(savedState?.generatedDiagramTypes).toContain("usecase");
-    expect(savedState?.selectedDiagramTypes).toContain("usecase");
+    expect(savedState?.selectedDiagramTypes).toEqual([]);
     expect(savedState?.requirementInputFingerprint).toBe(expectedFingerprint);
     expect(
       (savedState?.diagramInputFingerprints as Partial<Record<string, string>>).usecase,

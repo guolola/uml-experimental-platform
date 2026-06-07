@@ -354,6 +354,8 @@ describe("DesignModelPage", () => {
     const [sequenceCheckbox, classDiagramCheckbox] = screen.getAllByRole("checkbox");
     expect(sequenceCheckbox).toBeEnabled();
     expect(classDiagramCheckbox).toBeEnabled();
+    expect(classDiagramCheckbox).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "选择设计类图" }));
     expect(classDiagramCheckbox).toBeChecked();
     await user.click(screen.getByRole("button", { name: "取消选择设计类图" }));
     expect(classDiagramCheckbox).not.toBeChecked();
@@ -511,6 +513,92 @@ describe("DesignModelPage", () => {
     expect(startDesignRun).not.toHaveBeenCalled();
   });
 
+  it("shows a top-level blocker when existing use-case realization design no longer covers current use cases", async () => {
+    const startDesignRun = vi.fn();
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+            class: classModel,
+          },
+          selectedDesignDiagramTypes: ["class"],
+          generatedDesignDiagramTypes: ["sequence", "class"],
+          designModels: {
+            "sequence:uc_old": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_old",
+              sourceUseCaseId: "uc_old",
+              sourceUseCaseName: "旧用例",
+              title: "旧用例实现设计",
+              summary: "旧动态行为",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
+            class: {
+              diagramKind: "class",
+              title: "设计类图",
+              summary: "已生成设计类图",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+          designSvgArtifacts: {
+            "sequence:uc_old": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_old",
+              svg: "<svg><text>旧用例实现设计</text></svg>",
+              renderMeta: { engine: "plantuml" },
+            },
+            class: {
+              diagramKind: "class",
+              svg: "<svg><text>设计类图</text></svg>",
+              renderMeta: { engine: "plantuml" },
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun,
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("已生成设计模型");
+    expect(screen.getByText("0/5")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /设计类图/ })).not.toBeChecked();
+    const blocker = await screen.findByRole("alert");
+    await waitFor(() => {
+      expect(
+        within(blocker).getByText("已有用例实现设计覆盖不足，请先手动更新用例实现设计"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      within(blocker).getByRole("button", { name: "查看用例实现设计" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /生成设计模型/ })).toBeDisabled();
+    expect(screen.getByText("已生成设计模型")).toBeInTheDocument();
+    expect(startDesignRun).not.toHaveBeenCalled();
+  });
+
   it("keeps a view action on generated design diagram cards", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
@@ -585,12 +673,12 @@ describe("DesignModelPage", () => {
     const sequenceCheckbox = await screen.findByRole("checkbox", {
       name: /用例实现设计/,
     });
-    expect(sequenceCheckbox).toBeChecked();
+    expect(sequenceCheckbox).not.toBeChecked();
     expect(screen.getByText("2 个用例实现设计")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /查看/ }));
+    await user.click(screen.getByRole("button", { name: "查看" }));
 
-    expect(sequenceCheckbox).toBeChecked();
+    expect(sequenceCheckbox).not.toBeChecked();
   });
 
   it("does not show confirmed auto-filled design traceability as pending repair records", async () => {

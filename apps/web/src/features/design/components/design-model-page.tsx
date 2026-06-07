@@ -65,6 +65,9 @@ const DESIGN_SOURCE_COPY: Record<DesignDiagramType, string> = {
   table: "设计阶段设计类图 + 设计阶段用例实现设计",
 };
 
+const SEQUENCE_COVERAGE_BLOCK_REASON =
+  "已有用例实现设计覆盖不足，请先手动更新用例实现设计";
+
 const DESIGN_DIAGRAM_ICON = {
   sequence: GitBranch,
   activity: Activity,
@@ -284,7 +287,7 @@ export function DesignModelPage() {
       Object.values(designModels).some((model) => model.diagramKind === "sequence") &&
       !sequenceModelsCoverUseCases(designModels, models)
     ) {
-      return "已有用例实现设计覆盖不足，请先手动更新用例实现设计";
+      return SEQUENCE_COVERAGE_BLOCK_REASON;
     }
     if (
       diagram === "table" &&
@@ -298,6 +301,28 @@ export function DesignModelPage() {
   };
   const selectedDesignBlockReason =
     effectiveSelected.map(getDesignTargetBlockReason).find(Boolean) ?? null;
+  const existingSequenceCoverageBlockReason =
+    sourceStatus.usecase &&
+    sourceStatus.useCaseCount > 0 &&
+    Object.values(designModels).some((model) => model.diagramKind === "sequence") &&
+    !sequenceModelsCoverUseCases(designModels, models)
+      ? SEQUENCE_COVERAGE_BLOCK_REASON
+      : null;
+  const visibleGenerationBlockReason =
+    designGenerationBlockedReason ??
+    selectedDesignBlockReason ??
+    existingSequenceCoverageBlockReason;
+  const viewableSequenceModel = Object.values(designModels).find(
+    (model) =>
+      model.diagramKind === "sequence" &&
+      Boolean(designSvgArtifacts[getDesignModelId(model)]),
+  );
+  const isSequenceCoverageBlock =
+    visibleGenerationBlockReason === SEQUENCE_COVERAGE_BLOCK_REASON;
+  const showSequenceCoverageAction =
+    isSequenceCoverageBlock && Boolean(viewableSequenceModel);
+  const showRequirementUpdateAction =
+    Boolean(visibleGenerationBlockReason) && !isSequenceCoverageBlock;
 
   useEffect(() => {
     if (!sameDesignDiagramSelection(selectedDesignDiagrams, validSelectedDesignDiagrams)) {
@@ -373,6 +398,15 @@ export function DesignModelPage() {
     void generateDesignDiagrams(effectiveSelected);
   };
 
+  const openFirstSequenceDesign = () => {
+    if (!viewableSequenceModel) return;
+    openDesignDiagram(
+      "sequence",
+      getDesignModelId(viewableSequenceModel),
+      viewableSequenceModel.title,
+    );
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background">
       <div className="w-full p-4 lg:p-5">
@@ -415,18 +449,34 @@ export function DesignModelPage() {
             </div>
           </header>
 
-          {designGenerationBlockedReason && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              <span>{designGenerationBlockedReason}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 rounded-lg border-destructive/30 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={openRequirementsText}
-              >
-                回到需求页更新
-              </Button>
+          {visibleGenerationBlockReason && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+            >
+              <span>{visibleGenerationBlockReason}</span>
+              {showSequenceCoverageAction && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-lg border-destructive/30 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={openFirstSequenceDesign}
+                >
+                  查看用例实现设计
+                </Button>
+              )}
+              {showRequirementUpdateAction && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-lg border-destructive/30 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={openRequirementsText}
+                >
+                  回到需求页更新
+                </Button>
+              )}
             </div>
           )}
 

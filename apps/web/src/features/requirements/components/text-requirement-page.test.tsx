@@ -275,6 +275,7 @@ describe("TextRequirementView", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
+    await user.click(await screen.findByRole("checkbox", { name: /用例模型/ }));
     const generateButton = await screen.findByRole("button", { name: /生成模型/i });
 
     await waitFor(() => {
@@ -400,6 +401,8 @@ describe("TextRequirementView", () => {
       name: /领域概念模型/,
     });
     expect(classDiagramCheckbox).toBeEnabled();
+    expect(classDiagramCheckbox).not.toBeChecked();
+    await userEvent.click(classDiagramCheckbox);
     expect(classDiagramCheckbox).toBeChecked();
     expect(
       screen.getAllByText(/将自动补齐：规则映射/).length,
@@ -453,7 +456,7 @@ describe("TextRequirementView", () => {
     await waitFor(() => {
       expect(analysisCheckbox).toBeChecked();
     });
-    expect(screen.getByText("2/6")).toBeInTheDocument();
+    expect(screen.getByText("1/6")).toBeInTheDocument();
   });
 
   it("labels generated but unselected requirement models as kept", async () => {
@@ -471,7 +474,10 @@ describe("TextRequirementView", () => {
       ),
     });
 
+    const user = userEvent.setup();
     render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    await user.click(await screen.findByRole("checkbox", { name: /总体业务流程/ }));
 
     expect(
       await screen.findByRole("button", {
@@ -1106,6 +1112,7 @@ describe("TextRequirementView", () => {
     const classDiagramCheckbox = await screen.findByRole("checkbox", {
       name: /领域概念模型/,
     });
+    await user.click(classDiagramCheckbox);
     expect(classDiagramCheckbox).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "删除需求项 r2" }));

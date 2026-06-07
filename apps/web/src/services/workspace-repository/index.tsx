@@ -477,7 +477,6 @@ function applySnapshotToWorkspace(
   if (isDesignRunSnapshot(snapshot)) {
     const designRecords = mapDesignSnapshotToRecords(snapshot);
     const affected = new Set(snapshot.selectedDiagrams);
-    const requestedDesignDiagrams = snapshot.requestedDiagrams ?? snapshot.selectedDiagrams;
     const requirementDiagrams = snapshot.requirementModels.map((model) => model.diagramKind);
     const currentRequirementVersion =
       fingerprintMatches(next.requirementInputFingerprint, workspaceRequirementFingerprint)
@@ -487,9 +486,7 @@ function applySnapshotToWorkspace(
       snapshot.requirementModels,
       snapshot.requirementModelTraceability,
     );
-    next.selectedDesignDiagramTypes = Array.from(
-      new Set([...next.selectedDesignDiagramTypes, ...requestedDesignDiagrams]),
-    );
+    next.selectedDesignDiagramTypes = [];
     next.designModels = { ...next.designModels, ...designRecords.modelMap };
     next.designModelTraceability = [
       ...next.designModelTraceability.filter(
@@ -527,9 +524,7 @@ function applySnapshotToWorkspace(
       snapshot.requirementModelTraceability,
       requirementDiagrams,
     );
-    next.selectedDiagramTypes = Array.from(
-      new Set([...next.selectedDiagramTypes, ...requirementDiagrams]),
-    );
+    next.selectedDiagramTypes = [];
     next.generatedDiagramTypes = Array.from(
       new Set([...next.generatedDiagramTypes, ...requirementDiagrams]),
     );
@@ -573,9 +568,7 @@ function applySnapshotToWorkspace(
     next.requirementInputFingerprint !== null &&
     !fingerprintMatches(next.requirementInputFingerprint, workspaceRequirementFingerprint);
   const nextRulesVersion = inputChanged ? next.rulesVersion + 1 : next.rulesVersion || 1;
-  next.selectedDiagramTypes = Array.from(
-    new Set([...next.selectedDiagramTypes, ...affected]),
-  );
+  next.selectedDiagramTypes = [];
   next.rulesVersion = nextRulesVersion;
   next.rulesBasedOnTextVersion = 0;
   next.requirementInputFingerprint = workspaceRequirementFingerprint;
