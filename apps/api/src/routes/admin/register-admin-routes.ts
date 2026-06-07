@@ -540,6 +540,16 @@ function objectKeyCount(value: unknown) {
     : 0;
 }
 
+function snapshotErrorMessage(snapshot: RunRecord["snapshot"]) {
+  const source = asRecord(snapshot);
+  const error = asRecord(source.error);
+  return typeof error.message === "string"
+    ? error.message
+    : typeof source.errorMessage === "string"
+      ? source.errorMessage
+      : null;
+}
+
 function artifactIdPart(value: unknown) {
   return String(value ?? "item")
     .trim()
@@ -1053,7 +1063,7 @@ async function buildAdminRunDto(
     id: record.snapshot.runId,
     status: record.snapshot.status,
     currentStage: record.snapshot.currentStage,
-    errorMessage: record.snapshot.error?.message ?? null,
+    errorMessage: snapshotErrorMessage(record.snapshot),
     taskType: taskTypeForSnapshot(record.snapshot),
     model: readProviderModel(record.snapshot) ?? record.metadata?.model ?? null,
     projectId,
@@ -2346,7 +2356,7 @@ export function registerAdminRoutes({
       eventCount: record.events.length,
       repairEventCount,
       artifactCount,
-      errorMessage: record.snapshot.error?.message ?? null,
+      errorMessage: snapshotErrorMessage(record.snapshot),
       snapshotKeys: Object.keys(record.snapshot),
     };
   }
@@ -2363,7 +2373,7 @@ export function registerAdminRoutes({
         id: access.record.snapshot.runId,
         status: access.record.snapshot.status,
         currentStage: access.record.snapshot.currentStage,
-        errorMessage: access.record.snapshot.error?.message ?? null,
+        errorMessage: snapshotErrorMessage(access.record.snapshot),
         metadata: access.record.metadata ?? null,
         terminal: access.record.terminal,
         diagnostics: runDiagnosticSummary(access.record),
