@@ -275,7 +275,7 @@ function parseBillingEntitlementError(
 }
 
 function billingEntitlementDialogTitle(block: BillingEntitlementErrorResponse) {
-  if (block.reason === "pass_soft_limit") return "已触发通行卡软保护";
+  if (block.reason === "pass_daily_limit") return "通行卡今日次数已用完";
   if (block.reason === "negative_balance") return "权益余额异常";
   return "需要开通生成权益";
 }
@@ -284,7 +284,7 @@ function billingEntitlementDialogDetails(block: BillingEntitlementErrorResponse)
   const details = [
     `可用次数：${block.billingSummary.creditBalance}`,
   ];
-  const dailyLimit = block.billingSummary.softLimit.passDailyLimit;
+  const dailyLimit = block.billingSummary.passDailyUsage.limit;
   const usedToday = block.billingSummary.passDailyUsage.usedToday;
   if (block.billingSummary.activePass) {
     details.push(`通行卡今日使用：${usedToday}/${dailyLimit}`);
@@ -4803,6 +4803,21 @@ export function WorkspaceSessionProvider({
         existingModels: models,
         rules,
       });
+      if (plan.needsRulesRun && rules.length === 0 && !requirementText.trim()) {
+        const message = "缺少需求来源，无法自动生成需求规则";
+        setRunUiState((current) => ({
+          ...current,
+          errorMessage: message,
+        }));
+        openGenerationResultDialog({
+          title: "缺少需求来源",
+          tone: "warning",
+          message,
+          stageLabel: "需求规则",
+          targetLabel: "已选需求模型",
+        });
+        return;
+      }
       if (
         diagrams.includes("analysis") &&
         hasRequirementModelKind(models, "usecase") &&

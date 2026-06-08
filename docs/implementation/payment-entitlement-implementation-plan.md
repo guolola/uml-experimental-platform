@@ -33,17 +33,17 @@
 ### 2.2 使用优先级
 
 - 活跃时长卡优先，不扣次数。
-- 时长卡触发软保护后：
+- 时长卡达到每日启动上限后：
   - 如果用户有次数包余额，允许改扣 1 次继续生成。
-  - 如果没有次数余额，返回 `429` 并展示“今日使用较多，请稍后再试或购买次数包”。
+  - 如果没有次数余额，返回 `429` 并展示“今日通行卡生成次数已用完，请稍后再试或购买次数包”。
 - 无活跃时长卡时，扣次数包或赠送次数。
 - 无任何可用权益时，生成入口返回 `402 Payment Required`，前端展示购买入口。
 
-### 2.3 软保护默认值
+### 2.3 通行卡每日上限
 
 - 时长卡用户每天最多 50 次 AI 生成启动。
-- 同一用户最多 2 个 `reserved` / `running` 生成任务并发占用。
-- 以上值必须可通过环境变量或后台配置调整，默认值用于本地开发和无后台配置时。
+- 该值必须可通过环境变量或后台配置调整，默认值用于本地开发和无后台配置时。
+- 生成并发限制不属于 billing 权益；由 LLM scheduler 和限流策略按 global/provider/project/user/run 等维度控制。
 
 ### 2.4 生成扣减时机
 
@@ -180,7 +180,6 @@ Required constraints:
   - activePass
   - signupBonus
   - passDailyUsage
-  - softLimit
   - recentOrders
 - create order request：
   - `skuCode`
@@ -221,7 +220,7 @@ Required constraints:
 Run route 行为变化：
 
 - 无权益返回 `402`，响应中包含 billing summary 和 pay CTA 所需信息。
-- 软保护触发返回 `429`，响应中包含原因和可购买次数包提示。
+- 通行卡每日上限触发返回 `429`，响应中包含原因和可购买次数包提示。
 - 成功预占后才允许创建 queued run。
 
 ## 7. 支付流程
@@ -312,7 +311,7 @@ Run route 行为变化：
 - 无权益时不只禁用按钮。
 - 展示具体原因：
   - “当前没有可用生成次数或有效时长卡。”
-  - “今日通行卡使用较多，请稍后再试或购买次数包。”
+  - “今日通行卡生成次数已用完，请稍后再试或购买次数包。”
 - 提供前往 `/pricing` 或 `/account/billing` 的购买入口。
 
 ## 9. 后台与运营能力
@@ -344,8 +343,7 @@ Run route 行为变化：
 
 - `PUBLIC_API_BASE_URL`
 - `UML_BILLING_SKUS_JSON`
-- `UML_BILLING_PASS_DAILY_SOFT_LIMIT`
-- `UML_BILLING_PASS_CONCURRENT_LIMIT`
+- `UML_BILLING_PASS_DAILY_LIMIT`
 - `WECHAT_PAY_MCH_ID`
 - `WECHAT_PAY_APP_ID`
 - `WECHAT_PAY_API_V3_KEY`
@@ -417,7 +415,7 @@ Run route 行为变化：
 - 已验证老用户首次读取 summary 时补发 signup bonus。
 - run start、design/code/document run、retry/rerun 接入预占。
 - 生成阶段开始后确认消费，未进入生成阶段失败时释放预占。
-- 无权益和软保护响应接入前端所需 contract。
+- 无权益和通行卡每日上限响应接入前端所需 contract。
 
 ### Phase 4：前台页面
 
@@ -426,7 +424,7 @@ Run route 行为变化：
 - 实现支付确认弹窗。
 - 实现微信二维码弹窗。
 - 实现支付宝支付中间态页。
-- 生成入口接入无权益/软保护 inline reason。
+- 生成入口接入无权益/通行卡每日上限 inline reason。
 
 ### Phase 5：运营 API 与风险补充
 
@@ -452,7 +450,7 @@ Run route 行为变化：
 - 微信/支付宝重复回调不重复发放。
 - 金额不匹配、签名错误、订单号不匹配均拒绝。
 - 时长卡优先，次数包扣减。
-- 软上限 fallback 到次数包。
+- 通行卡每日上限 fallback 到次数包。
 - 预占确认和释放。
 
 ### API route tests
@@ -460,7 +458,7 @@ Run route 行为变化：
 - 未登录不能创建订单。
 - 支付回调无需登录但必须验签。
 - 无权益 run start 返回 `402`，不创建 run。
-- 通行卡软保护返回 `429` 或 fallback 到次数包。
+- 通行卡每日上限返回 `429` 或 fallback 到次数包。
 - retry/rerun 与普通 run 一样扣权益。
 
 ### Web tests
@@ -482,7 +480,7 @@ Run route 行为变化：
 ## 14. Goal 模式提示词
 
 ```text
-请在 E:\umlExperimentalPlatform 中实现支付与权益模块，严格按照 docs/implementation/payment-entitlement-implementation-plan.md 执行。目标是完成 PC Web 支付 v1：微信 Native 扫码支付、支付宝电脑网站支付、8 个 SKU（日卡/周卡/月卡/年卡/10次/50次/100次/500次）、邮箱验证后新用户赠送 5 次、生成任务权益预占/确认/释放、无权益和软保护提示、/pricing、/account/billing、支付确认弹窗、微信二维码弹窗、支付宝支付中间态页。
+请在 E:\umlExperimentalPlatform 中实现支付与权益模块，严格按照 docs/implementation/payment-entitlement-implementation-plan.md 执行。目标是完成 PC Web 支付 v1：微信 Native 扫码支付、支付宝电脑网站支付、8 个 SKU（日卡/周卡/月卡/年卡/10次/50次/100次/500次）、邮箱验证后新用户赠送 5 次、生成任务权益预占/确认/释放、无权益和通行卡每日上限提示、/pricing、/account/billing、支付确认弹窗、微信二维码弹窗、支付宝支付中间态页。
 
 实现时保持现有 monorepo 边界：apps/api/src/index.ts 只做注册和组装；API routes 放 apps/api/src/routes/billing/；支付和权益业务放 apps/api/src/billing/；微信/支付宝外部调用放 apps/api/src/adapters/payments/{wechat,alipay}/；contracts 放 packages/contracts/src/index.ts；前端遵守 apps/web 的 app/features/entities/services/shared 分层。不要把付费权益混入 provider usage、admin quota 或 guest daily limit。
 

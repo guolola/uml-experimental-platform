@@ -204,6 +204,49 @@ describe("WorkspaceSessionProvider", () => {
     expect(screen.queryByText(/runId/u)).not.toBeInTheDocument();
   });
 
+  it("blocks requirement model generation when rules need autofill but no requirement source exists", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-should-not-start" }));
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "",
+          rules: [],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun,
+      subscribeToRun: vi.fn(async () => {}),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateDiagrams(["usecase"]);
+    });
+
+    expect(startRun).not.toHaveBeenCalled();
+    const warningDialog = await screen.findByRole("dialog", {
+      name: "缺少需求来源",
+    });
+    expect(
+      within(warningDialog).getByText("缺少需求来源，无法自动生成需求规则"),
+    ).toBeInTheDocument();
+  });
+
   it("does not show a stale success dialog when final snapshot handling fails", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>

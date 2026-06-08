@@ -102,7 +102,7 @@ describe("SidebarMenu", () => {
         .getAllByRole("button")
         .map((button) => button.textContent)
         .filter(Boolean),
-    ).toEqual(["需求", "设计", "测试", "代码", "说明书"]);
+    ).toEqual(["需求", "设计", "代码", "测试", "说明书"]);
   });
 
   it("marks failed diagrams in the navigation tree", async () => {

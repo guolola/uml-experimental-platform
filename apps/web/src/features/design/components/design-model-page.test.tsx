@@ -677,10 +677,13 @@ describe("DesignModelPage", () => {
     const sequenceCheckbox = await screen.findByRole("checkbox", {
       name: /用例实现设计/,
     });
+    const sequenceCard = screen.getByRole("button", { name: "选择用例实现设计" });
+    expect(sequenceCard).toHaveClass("min-h-[236px]");
+    expect(sequenceCard).toHaveClass("bg-gradient-to-br");
     expect(sequenceCheckbox).not.toBeChecked();
     expect(screen.getByText("2 个用例实现设计")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "查看" }));
+    await user.click(within(sequenceCard).getByRole("button", { name: "查看" }));
 
     expect(sequenceCheckbox).not.toBeChecked();
   });

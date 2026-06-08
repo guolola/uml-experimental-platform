@@ -35,10 +35,10 @@ const RUN_ERROR_DEFAULTS: Record<
     retryable: false,
     message: "当前账户没有可用于 AI 生成的权益，请先购买通行卡或次数包。",
   },
-  USER_PASS_SOFT_LIMIT: {
+  USER_PASS_DAILY_LIMIT: {
     category: "user_entitlement",
     retryable: false,
-    message: "当前通行卡使用较多，已触发软保护。可购买次数包继续生成。",
+    message: "今日通行卡生成次数已用完。可购买次数包继续生成。",
   },
   USER_ENTITLEMENT_NEGATIVE_BALANCE: {
     category: "user_entitlement",

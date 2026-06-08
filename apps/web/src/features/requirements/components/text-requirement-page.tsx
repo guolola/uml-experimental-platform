@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Wand2,
   Loader2,
@@ -11,6 +11,9 @@ import {
   FileText,
   ListChecks,
   Network,
+  Box,
+  Server,
+  GitBranch,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
@@ -63,12 +66,21 @@ import {
   MobileRailCard,
   mobileTouchTargetClass,
 } from "../../workspace-shell/components/mobile-density";
+import { ModelBentoCard } from "../../workspace-shell/components/model-bento-card";
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
 const RULES_PER_PAGE = 8;
 const RULE_PAGE_SIZE_OPTIONS = [8, 12, 20, 50] as const;
 const RULE_ROW_CLASS = "h-[60px]";
 const ALL_RULE_CATEGORIES = "";
+const REQUIREMENT_DIAGRAM_ICON = {
+  usecase: Network,
+  activity: Activity,
+  class: Box,
+  deployment: Server,
+  prototype: Eye,
+  analysis: GitBranch,
+} satisfies Record<DiagramType, typeof Network>;
 const REQUIREMENT_FIELD_LABELS: Record<AtomicRequirementField, string> = {
   actor: "角色/执行者",
   subject: "主体",
@@ -252,6 +264,7 @@ export function TextRequirementView() {
   }, []);
 
   const hasGeneratedRules = rules.length > 0;
+  const hasRequirementSourceText = requirementText.trim().length > 0;
   const canEditRequirements = canUpdateWorkspace;
   const canRunGeneration = canUpdateWorkspace && canStartRuns;
   const editBlockedReason =
@@ -286,21 +299,6 @@ export function TextRequirementView() {
         ? Array.from(new Set([...selectedDiagrams, diagram]))
         : selectedDiagrams.filter((value) => value !== diagram),
     );
-  };
-
-  const toggleDiagramFromCard = (diagram: DiagramType, checked: boolean) => {
-    toggleDiagram(diagram, !checked);
-  };
-
-  const handleDiagramCardKeyDown = (
-    event: KeyboardEvent<HTMLDivElement>,
-    diagram: DiagramType,
-    checked: boolean,
-    enabled: boolean,
-  ) => {
-    if (!enabled || (event.key !== "Enter" && event.key !== " ")) return;
-    event.preventDefault();
-    toggleDiagramFromCard(diagram, checked);
   };
 
   useEffect(() => {
@@ -457,6 +455,14 @@ export function TextRequirementView() {
   const getRequirementTargetBlockReason = (diagram: DiagramType) => {
     if (isRulesStale && rules.length > 0) {
       return "需求规则已过期，请先更新需求规则";
+    }
+    if (rules.length === 0 && !hasRequirementSourceText) {
+      const canGenerateAnalysisFromUseCase =
+        diagram === "analysis" &&
+        generatedDiagrams.includes("usecase");
+      if (!canGenerateAnalysisFromUseCase) {
+        return "请先输入需求描述或添加需求规则";
+      }
     }
     if (
       diagram === "analysis" &&
@@ -1014,7 +1020,7 @@ export function TextRequirementView() {
                   <div className="text-xs text-muted-foreground">
                     可用次数 {billingGenerationBlock.billingSummary.creditBalance}，
                     {billingGenerationBlock.billingSummary.activePass
-                      ? `通行卡今日 ${billingGenerationBlock.billingSummary.passDailyUsage.usedToday}/${billingGenerationBlock.billingSummary.softLimit.passDailyLimit}`
+                      ? `通行卡今日 ${billingGenerationBlock.billingSummary.passDailyUsage.usedToday}/${billingGenerationBlock.billingSummary.passDailyUsage.limit}`
                       : "当前没有有效通行卡"}
                   </div>
                 </div>
@@ -1116,7 +1122,7 @@ export function TextRequirementView() {
               </div>
             )}
 
-            <MobileCompactGrid className="lg:grid-cols-2">
+            <MobileCompactGrid className="grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
               {DIAGRAM_ORDER.map((diagram) => {
                 const meta = DIAGRAM_META[diagram];
                 const checked = selectedDiagrams.includes(diagram);
@@ -1124,13 +1130,18 @@ export function TextRequirementView() {
                   rule.relatedDiagrams.includes(diagram),
                 );
                 const isAnalysisDiagram = diagram === "analysis";
+                const canGenerateSelectedUseCase =
+                  selectedDiagrams.includes("usecase") &&
+                  (rules.length > 0 || hasRequirementSourceText);
                 const hasUseCaseSourceForAnalysis =
-                  selectedDiagrams.includes("usecase") ||
-                  generatedDiagrams.includes("usecase");
+                  generatedDiagrams.includes("usecase") ||
+                  canGenerateSelectedUseCase;
                 const blockReason = getRequirementTargetBlockReason(diagram);
                 const canSelectDiagram = canEditRequirements && !blockReason;
                 const autoFillLabels = [
-                  !isAnalysisDiagram && rules.length === 0
+                  !isAnalysisDiagram &&
+                  rules.length === 0 &&
+                  hasRequirementSourceText
                     ? "需求规则"
                     : null,
                   !isAnalysisDiagram && rules.length > 0 && linkedRules.length === 0
@@ -1151,116 +1162,64 @@ export function TextRequirementView() {
                 const sourceCount = isAnalysisDiagram
                   ? Number(hasUseCaseSourceForAnalysis)
                   : linkedRules.length;
+                const DiagramIcon = REQUIREMENT_DIAGRAM_ICON[diagram];
                 return (
-                  <div
+                  <ModelBentoCard
                     key={diagram}
-                    role="button"
-                    tabIndex={canSelectDiagram ? 0 : -1}
-                    aria-disabled={!canSelectDiagram}
+                    label={meta.label}
+                    english={meta.english}
+                    description={meta.description}
+                    icon={DiagramIcon}
+                    selected={checked}
+                    disabled={!canSelectDiagram}
+                    countLabel={sourceCount}
+                    pendingReview={hasPendingAutoReview}
                     title={
                       !canEditRequirements ? editBlockedReason : undefined
                     }
-                    aria-label={`${checked ? "取消选择" : "选择"}${meta.label}`}
-                    onClick={() => {
-                      if (canSelectDiagram) {
-                        toggleDiagramFromCard(diagram, checked);
-                      }
-                    }}
-                    onKeyDown={(event) =>
-                      handleDiagramCardKeyDown(
-                        event,
-                        diagram,
-                        checked,
-                        canSelectDiagram,
-                      )
-                    }
-                    className={cn(
-                      "flex min-h-[156px] flex-col gap-2 rounded-xl border bg-card p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:min-h-24 sm:flex-row sm:gap-3 sm:p-4",
-                      checked
-                        ? "border-primary/35 ring-2 ring-primary/10"
-                        : "border-border",
-                      canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
-                      !canSelectDiagram &&
-                        "border-dashed border-border bg-muted/30 opacity-80 shadow-none",
-                    )}
-                  >
-                    <label
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      className={cn(
-                        "flex min-h-8 shrink-0 items-center sm:mt-1 sm:min-h-0",
-                        canSelectDiagram ? "cursor-pointer" : "cursor-not-allowed",
-                      )}
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(value) => toggleDiagram(diagram, !!value)}
-                      disabled={!canSelectDiagram}
-                        aria-label={meta.label}
-                      />
-                    </label>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2 sm:gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
-                            <h3
-                              className={cn(
-                                "text-xs font-semibold text-foreground sm:text-sm",
-                                !canSelectDiagram && "text-muted-foreground",
-                              )}
-                            >
-                              {meta.label}
-                            </h3>
-                            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-                              {meta.english}
+                    ariaLabel={`${checked ? "取消选择" : "选择"}${meta.label}`}
+                    checkboxLabel={meta.label}
+                    onSelectedChange={(value) => toggleDiagram(diagram, value)}
+                    status={
+                      <div className="space-y-1.5">
+                        {!canSelectDiagram && (
+                          <div className="flex items-center gap-1.5 text-destructive">
+                            <AlertTriangle className="size-3.5 shrink-0" />
+                            <span>
+                              {blockReason ??
+                                (isAnalysisDiagram
+                                  ? "需先选择或生成用例模型"
+                                  : "缺少对应需求规则")}
                             </span>
-                            {hasPendingAutoReview && (
-                              <Badge
-                                variant="outline"
-                                className="rounded-md border-warning/35 bg-warning/10 px-1.5 py-0 text-[10px] text-warning"
-                              >
-                                待审
-                              </Badge>
-                            )}
                           </div>
-                          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground sm:text-xs sm:leading-5">
-                            {meta.description}
-                          </p>
-                        </div>
-                        <span
-                          className={cn(
-                            "rounded-md px-2 py-0.5 font-mono text-base font-bold sm:text-lg",
-                            canSelectDiagram
-                              ? "bg-primary/5 text-primary"
-                              : "text-muted-foreground",
+                        )}
+                        {autoFillLabels.length > 0 && !blockReason && (
+                          <div className="flex items-center gap-1.5 text-warning">
+                            <AlertTriangle className="size-3.5 shrink-0" />
+                            <span>将自动补齐：{autoFillLabels.join("、")}</span>
+                          </div>
+                        )}
+                        {isAnalysisDiagram &&
+                          canSelectDiagram &&
+                          linkedRules.length === 0 && (
+                            <div className="text-muted-foreground">
+                              基于用例模型事件流生成，不要求需求规则直接映射。
+                            </div>
                           )}
-                        >
-                          {sourceCount}
-                        </span>
+                        {canSelectDiagram &&
+                          autoFillLabels.length === 0 &&
+                          !(
+                            isAnalysisDiagram && linkedRules.length === 0
+                          ) && (
+                            <div className="text-muted-foreground">
+                              已关联来源：{sourceCount}
+                            </div>
+                          )}
                       </div>
-
-                      {!canSelectDiagram && (
-                        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-destructive sm:text-xs">
-                          <AlertTriangle className="size-3.5" />
-                          {blockReason ??
-                            (isAnalysisDiagram
-                              ? "需先选择或生成用例模型"
-                              : "缺少对应需求规则")}
-                        </div>
-                      )}
-                      {autoFillLabels.length > 0 && !blockReason && (
-                        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-warning sm:text-xs">
-                          <AlertTriangle className="size-3.5" />
-                          将自动补齐：{autoFillLabels.join("、")}
-                        </div>
-                      )}
-                      {isAnalysisDiagram && canSelectDiagram && linkedRules.length === 0 && (
-                        <div className="mt-2 text-[11px] leading-4 text-muted-foreground sm:text-xs sm:leading-5">
-                          基于用例模型事件流生成，不要求需求规则直接映射。
-                        </div>
-                      )}
-                      {linkedRules.length > 0 && (
-                        <div className="mt-2 hidden flex-wrap gap-1.5 sm:flex">
+                    }
+                    details={
+                      linkedRules.length > 0 ? (
+                        <div className="hidden flex-wrap gap-1.5 sm:flex">
                           {linkedRules.map((rule) => (
                             <button
                               type="button"
@@ -1292,9 +1251,9 @@ export function TextRequirementView() {
                             </button>
                           ))}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      ) : null
+                    }
+                  />
                 );
               })}
             </MobileCompactGrid>

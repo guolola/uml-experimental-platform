@@ -587,18 +587,6 @@ class PostgresBillingRepository implements BillingRepository {
     return this.getReservationByRunId(runId);
   }
 
-  async countReservedUsageForUser(userId: string) {
-    const result = await this.db.query<{ count: string }>(
-      `
-        select count(*)::text as count
-        from billing_usage_reservations
-        where user_id = $1 and status = 'reserved'
-      `,
-      [userId],
-    );
-    return Number(result.rows[0]?.count ?? 0);
-  }
-
   async countReservedCreditsForUser(userId: string) {
     const result = await this.db.query<{ count: string }>(
       `

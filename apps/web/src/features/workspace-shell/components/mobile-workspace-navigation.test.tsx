@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -41,7 +41,14 @@ describe("MobileWorkspaceNavigation", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<Harness />, createRepository()));
 
-    expect(screen.getByRole("navigation", { name: "工作台阶段" })).toBeInTheDocument();
+    const stageNavigation = screen.getByRole("navigation", { name: "工作台阶段" });
+    expect(stageNavigation).toBeInTheDocument();
+    expect(
+      within(stageNavigation)
+        .getAllByRole("button")
+        .map((button) => button.textContent)
+        .filter(Boolean),
+    ).toEqual(["需求", "设计", "代码", "测试", "说明书"]);
     expect(screen.getByRole("button", { name: "需求" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -64,4 +71,3 @@ describe("MobileWorkspaceNavigation", () => {
     expect(screen.getByRole("navigation", { name: "项目导航" })).toBeInTheDocument();
   });
 });
-

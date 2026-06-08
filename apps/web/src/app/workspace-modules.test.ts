@@ -14,6 +14,17 @@ describe("workspaceModules", () => {
     );
   });
 
+  it("keeps testing after code in workspace module order", () => {
+    expect(WORKSPACE_MODULES.map((module) => module.id)).toEqual([
+      "requirements",
+      "diagrams",
+      "design",
+      "code",
+      "testing",
+      "documents",
+    ]);
+  });
+
   it("keeps standalone route metadata discoverable", () => {
     expect(SHELL_ROUTE_MODULES.map((module) => module.route)).toEqual([
       "/workspace",

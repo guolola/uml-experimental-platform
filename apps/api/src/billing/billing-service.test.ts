@@ -152,7 +152,7 @@ test("guest development allowance is daily and idempotent", async () => {
   assert.equal(entries[0]?.validUntil, "2026-06-06T00:00:00.000Z");
 });
 
-test("run reservation distinguishes no entitlement from pass soft protection", async () => {
+test("run reservation distinguishes no entitlement from pass daily limit", async () => {
   const empty = await createTestService();
   const noEntitlement = await empty.service.reserveRunUsage({
     runId: "run-empty",
@@ -167,34 +167,47 @@ test("run reservation distinguishes no entitlement from pass soft protection", a
     "no_entitlement",
   );
 
-  const softLimited = await createTestService({
-    env: { UML_BILLING_PASS_DAILY_SOFT_LIMIT: "1" },
+  const dailyLimited = await createTestService({
+    env: { UML_BILLING_PASS_DAILY_LIMIT: "1" },
   });
   await payOrder({
-    service: softLimited.service,
+    service: dailyLimited.service,
     userId: "user-pass",
     skuCode: "time_day",
   });
-  const firstPassRun = await softLimited.service.reserveRunUsage({
+  const firstPassRun = await dailyLimited.service.reserveRunUsage({
     runId: "run-pass-1",
     userId: "user-pass",
     taskType: "requirements_to_uml",
   });
   assert.equal(firstPassRun.allowed, true);
-  await softLimited.service.confirmRunUsage("run-pass-1");
+  await dailyLimited.service.confirmRunUsage("run-pass-1");
 
-  const blocked = await softLimited.service.reserveRunUsage({
+  const blocked = await dailyLimited.service.reserveRunUsage({
     runId: "run-pass-2",
     userId: "user-pass",
     taskType: "requirements_to_uml",
   });
-  if (blocked.allowed) assert.fail("soft-limited pass reservation unexpectedly succeeded");
+  if (blocked.allowed) assert.fail("daily-limited pass reservation unexpectedly succeeded");
   assert.equal(blocked.statusCode, 429);
-  assert.equal(blocked.error.code, "USER_PASS_SOFT_LIMIT");
+  assert.equal(blocked.error.code, "USER_PASS_DAILY_LIMIT");
   assert.equal(
     (blocked.error.details?.billing as { reason?: string } | undefined)?.reason,
-    "pass_soft_limit",
+    "pass_daily_limit",
   );
+
+  await payOrder({
+    service: dailyLimited.service,
+    userId: "user-pass",
+    skuCode: "credits_10",
+  });
+  const fallback = await dailyLimited.service.reserveRunUsage({
+    runId: "run-pass-credit-fallback",
+    userId: "user-pass",
+    taskType: "requirements_to_uml",
+  });
+  assert.equal(fallback.allowed, true);
+  assert.equal(fallback.reservation?.entitlementKind, "credit");
 });
 
 test("payment callbacks verify signatures, validate amount, and grant purchases idempotently", async () => {

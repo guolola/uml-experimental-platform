@@ -124,7 +124,8 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("健身追踪")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("目标模型")).toBeInTheDocument();
-    expect(screen.getAllByText(/将自动补齐：需求规则/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/将自动补齐：需求规则/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("请先输入需求描述或添加需求规则").length).toBeGreaterThan(0);
     expect(container.querySelectorAll('[data-workspace-density="rail"]')).toHaveLength(1);
     expect(container.querySelectorAll('[data-workspace-density="rail-card"]')).toHaveLength(3);
     expect(container.querySelector('[data-workspace-density="compact-grid"]')).toBeInTheDocument();
@@ -145,6 +146,23 @@ describe("TextRequirementView", () => {
         expect.stringContaining("电商系统"),
       );
     });
+  });
+
+  it("shows rule autofill only when source requirement text exists", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
+          rules: [],
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    await screen.findByText("目标模型");
+    expect(screen.getAllByText(/将自动补齐：需求规则/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("请先输入需求描述或添加需求规则")).not.toBeInTheDocument();
   });
 
   it("starts a rules-only run through session actions", async () => {
@@ -417,19 +435,15 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("1/6")).toBeInTheDocument();
   });
 
-  it("allows analysis model selection from generated use case event flows without analysis rules", async () => {
+  it("allows analysis model selection from generated use case event flows without requirement rules", async () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
-          rules: [
-            createRule({
-              id: "r1",
-              relatedDiagrams: ["usecase"],
-            }),
-          ],
-          rulesVersion: 1,
-          selectedDiagramTypes: ["usecase"],
-          generatedDiagramTypes: [],
+          rules: [],
+          rulesVersion: 0,
+          selectedDiagramTypes: [],
+          generatedDiagramTypes: ["usecase"],
+          diagramVersions: { usecase: 0 },
           models: {
             usecase: {
               diagramKind: "usecase",
@@ -1028,9 +1042,12 @@ describe("TextRequirementView", () => {
     const useCaseCheckbox = await screen.findByRole("checkbox", {
       name: /用例模型/,
     });
+    const useCaseCard = screen.getByRole("button", { name: "选择用例模型" });
+    expect(useCaseCard).toHaveClass("min-h-[236px]");
+    expect(useCaseCard).toHaveClass("bg-gradient-to-br");
     expect(useCaseCheckbox).not.toBeChecked();
 
-    await user.click(screen.getByRole("button", { name: "选择用例模型" }));
+    await user.click(useCaseCard);
 
     expect(useCaseCheckbox).toBeChecked();
 
@@ -1043,6 +1060,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [],
           rulesVersion: 0,
         }),

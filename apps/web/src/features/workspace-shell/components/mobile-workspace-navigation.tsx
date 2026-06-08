@@ -43,16 +43,16 @@ const mobileStages: Array<{
     open: (shell) => shell.openDesignHome(),
   },
   {
-    id: "test",
-    label: "测试",
-    icon: TestTube2,
-    open: (shell) => shell.openTestHome(),
-  },
-  {
     id: "code",
     label: "代码",
     icon: Code2,
     open: (shell) => shell.openWorkspacePlaceholder("code", "代码"),
+  },
+  {
+    id: "test",
+    label: "测试",
+    icon: TestTube2,
+    open: (shell) => shell.openTestHome(),
   },
   {
     id: "documents",

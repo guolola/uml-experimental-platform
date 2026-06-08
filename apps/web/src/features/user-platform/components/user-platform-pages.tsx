@@ -123,23 +123,40 @@ import {
 type Navigate = (path: string) => void;
 
 const REMEMBERED_LOGIN_EMAIL_STORAGE_KEY = "uml-auth-remembered-email";
+const REMEMBERED_LOGIN_PASSWORD_STORAGE_KEY = "uml-auth-remembered-password";
 const STABLE_PLATFORM_SCROLL_CLASS =
   "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-scroll bg-background [scrollbar-gutter:stable]";
 const AUTH_ROUTE_SESSION_GRACE_MS = 60_000;
 const ACTIVE_RUNS_REFRESH_MS = 8_000;
 
-function readRememberedLoginEmail() {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY) ?? "";
+function readRememberedLoginCredentials() {
+  if (typeof window === "undefined") {
+    return { email: "", password: "" };
+  }
+  return {
+    email: localStorage.getItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY) ?? "",
+    password: localStorage.getItem(REMEMBERED_LOGIN_PASSWORD_STORAGE_KEY) ?? "",
+  };
 }
 
-function writeRememberedLoginEmail(email: string, remember: boolean) {
+function writeRememberedLoginCredentials(
+  credentials: { email: string; password: string },
+  remember: boolean,
+) {
   if (typeof window === "undefined") return;
   if (remember) {
-    localStorage.setItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY, email.trim());
+    localStorage.setItem(
+      REMEMBERED_LOGIN_EMAIL_STORAGE_KEY,
+      credentials.email.trim(),
+    );
+    localStorage.setItem(
+      REMEMBERED_LOGIN_PASSWORD_STORAGE_KEY,
+      credentials.password,
+    );
     return;
   }
   localStorage.removeItem(REMEMBERED_LOGIN_EMAIL_STORAGE_KEY);
+  localStorage.removeItem(REMEMBERED_LOGIN_PASSWORD_STORAGE_KEY);
 }
 
 export type ProjectDrawerKind = "tasks" | "members" | "history" | "documents" | "settings";
@@ -853,11 +870,13 @@ export function AuthPage({
   onNavigate: Navigate;
 }) {
   const [email, setEmail] = useState(() =>
-    path === "/login" ? readRememberedLoginEmail() : "",
+    path === "/login" ? readRememberedLoginCredentials().email : "",
   );
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(() =>
+    path === "/login" ? readRememberedLoginCredentials().password : "",
+  );
   const [rememberLogin, setRememberLogin] = useState(() =>
-    path === "/login" && Boolean(readRememberedLoginEmail()),
+    path === "/login" && Boolean(readRememberedLoginCredentials().email),
   );
   const [showPassword, setShowPassword] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
@@ -894,10 +913,11 @@ export function AuthPage({
   useEffect(() => {
     setShowPassword(false);
     if (path !== "/login") return;
-    const rememberedEmail = readRememberedLoginEmail();
-    setRememberLogin(Boolean(rememberedEmail));
-    if (rememberedEmail) {
-      setEmail(rememberedEmail);
+    const rememberedCredentials = readRememberedLoginCredentials();
+    setRememberLogin(Boolean(rememberedCredentials.email));
+    if (rememberedCredentials.email) {
+      setEmail(rememberedCredentials.email);
+      setPassword(rememberedCredentials.password);
     }
   }, [path]);
 
@@ -912,7 +932,7 @@ export function AuthPage({
             challengeId: mfaChallenge.challengeId,
             code: mfaCode,
           });
-          writeRememberedLoginEmail(email, rememberLogin);
+          writeRememberedLoginCredentials({ email, password }, rememberLogin);
           notifyAuthSessionChanged();
           setMessage("MFA 验证通过，正在进入项目首页。");
           onNavigate(redirectPath);
@@ -933,7 +953,7 @@ export function AuthPage({
           setMessage("请输入认证器中的 6 位验证码完成登录。");
           return;
         }
-        writeRememberedLoginEmail(email, rememberLogin);
+        writeRememberedLoginCredentials({ email, password }, rememberLogin);
         notifyAuthSessionChanged();
         setMessage("登录成功，正在进入项目首页。");
         onNavigate(redirectPath);

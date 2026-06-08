@@ -155,8 +155,8 @@ function skuDto(sku: BillingSkuDto) {
 }
 
 function entitlementMessage(reason: BillingEntitlementFailureReason) {
-  if (reason === "pass_soft_limit") {
-    return "当前通行卡使用较多，已触发软保护。可购买次数包继续生成。";
+  if (reason === "pass_daily_limit") {
+    return "今日通行卡生成次数已用完。可购买次数包继续生成。";
   }
   if (reason === "negative_balance") {
     return "账户权益余额异常，请先购买次数包或联系管理员处理。";
@@ -165,7 +165,7 @@ function entitlementMessage(reason: BillingEntitlementFailureReason) {
 }
 
 function entitlementCode(reason: BillingEntitlementFailureReason) {
-  if (reason === "pass_soft_limit") return "USER_PASS_SOFT_LIMIT";
+  if (reason === "pass_daily_limit") return "USER_PASS_DAILY_LIMIT";
   if (reason === "negative_balance") return "USER_ENTITLEMENT_NEGATIVE_BALANCE";
   return "USER_ENTITLEMENT_REQUIRED";
 }
@@ -178,8 +178,7 @@ export function createBillingService({
   now = () => new Date(),
 }: BillingServiceOptions) {
   let skuCatalogSource: "default" | "env" = "default";
-  const passDailyLimit = readPositiveInt(env.UML_BILLING_PASS_DAILY_SOFT_LIMIT, 50);
-  const passConcurrentLimit = readPositiveInt(env.UML_BILLING_PASS_CONCURRENT_LIMIT, 2);
+  const passDailyLimit = readPositiveInt(env.UML_BILLING_PASS_DAILY_LIMIT, 50);
   const production = nodeEnv === "production";
 
   async function ensureSkuCatalog() {
@@ -241,10 +240,6 @@ export function createBillingService({
       passDailyUsage: {
         usedToday: passUsage,
         limit: passDailyLimit,
-      },
-      softLimit: {
-        passDailyLimit,
-        passConcurrentLimit,
       },
       recentOrders: recentOrders.map(orderToDto),
     });
@@ -498,7 +493,7 @@ export function createBillingService({
             reason,
             billingSummary: summary,
             payCta: {
-              label: reason === "pass_soft_limit" ? "购买次数包" : "查看定价",
+              label: reason === "pass_daily_limit" ? "购买次数包" : "查看定价",
               href: "/pricing",
             },
           },
@@ -513,11 +508,9 @@ export function createBillingService({
       if (summary.creditBalance < 0) {
         return entitlementError(summary, "negative_balance", 402);
       }
-      const reservedConcurrent = await tx.countReservedUsageForUser(input.userId);
       const passAvailable =
         summary.activePass &&
-        summary.passDailyUsage.usedToday < summary.softLimit.passDailyLimit &&
-        reservedConcurrent < summary.softLimit.passConcurrentLimit;
+        summary.passDailyUsage.usedToday < summary.passDailyUsage.limit;
       if (passAvailable) {
         return {
           allowed: true,
@@ -541,12 +534,12 @@ export function createBillingService({
             creditDelta: -1,
             reservedAt: now().toISOString(),
             metadata: summary.activePass
-              ? { fallbackReason: "pass_soft_limit" }
+              ? { fallbackReason: "pass_daily_limit" }
               : { fallbackReason: "credit_pack" },
           }),
         };
       }
-      return entitlementError(summary, summary.activePass ? "pass_soft_limit" : "no_entitlement", summary.activePass ? 429 : 402);
+      return entitlementError(summary, summary.activePass ? "pass_daily_limit" : "no_entitlement", summary.activePass ? 429 : 402);
     });
   }
 

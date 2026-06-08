@@ -260,12 +260,6 @@ export function createInMemoryBillingRepository(): BillingRepository {
       return clone(reservation);
     },
 
-    async countReservedUsageForUser(userId) {
-      return Array.from(reservations.values()).filter(
-        (reservation) => reservation.userId === userId && reservation.status === "reserved",
-      ).length;
-    },
-
     async countReservedCreditsForUser(userId) {
       return Array.from(reservations.values()).filter(
         (reservation) =>

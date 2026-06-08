@@ -336,6 +336,7 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/");
     localStorage.removeItem(USER_SETTINGS_STORAGE_KEY);
     localStorage.removeItem("uml-auth-remembered-email");
+    localStorage.removeItem("uml-auth-remembered-password");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -622,10 +623,6 @@ describe("App shell routes", () => {
                 validUntil: "2026-07-05T04:00:00.000Z",
               },
               passDailyUsage: { usedToday: 0, limit: 50 },
-              softLimit: {
-                passDailyLimit: 50,
-                passConcurrentLimit: 2,
-              },
               recentOrders: [billingTestOrder],
             }),
             {
@@ -1585,7 +1582,7 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("billing-sku-group-credits")).toBeInTheDocument();
     expect(screen.getByTestId("billing-recommended-sku")).toHaveTextContent("推荐套餐");
     expect(screen.getAllByRole("button", { name: /立即开通|立即购买/u })).toHaveLength(8);
-    expect(screen.queryByText(/软保护/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/每日上限/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/个 SKU/u)).not.toBeInTheDocument();
 
     expect(screen.queryByText(/私有化部署/)).not.toBeInTheDocument();
@@ -1762,7 +1759,7 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("account-billing-dashboard")).toBeInTheDocument();
     expect(screen.queryByTestId("account-billing-sidebar")).not.toBeInTheDocument();
     expect(screen.getByTestId("billing-order-table")).toBeInTheDocument();
-    expect(screen.queryByText(/软保护/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/每日上限/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/个 SKU/u)).not.toBeInTheDocument();
     expect(within(banner).getByRole("button", { name: "购买" })).toHaveAttribute(
       "aria-current",
@@ -1925,7 +1922,7 @@ describe("App shell routes", () => {
     expect(window.location.pathname).toBe("/settings/models");
   });
 
-  it("remembers the login email only when requested and lets users reveal the password", async () => {
+  it("remembers login credentials when requested and lets users reveal the password", async () => {
     const user = userEvent.setup();
     loginApiMode = "success";
     render(withWorkspaceProviders(<Shell />, createRepository()));
@@ -1947,12 +1944,14 @@ describe("App shell routes", () => {
 
     await waitFor(() => {
       expect(localStorage.getItem("uml-auth-remembered-email")).toBe("student@example.edu");
+      expect(localStorage.getItem("uml-auth-remembered-password")).toBe("password-123");
     });
 
     window.history.pushState({}, "", "/login");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
     expect(await screen.findByLabelText("邮箱")).toHaveValue("student@example.edu");
+    expect(screen.getByLabelText("密码")).toHaveValue("password-123");
     expect(screen.getByLabelText("记住我")).toBeChecked();
   });
 

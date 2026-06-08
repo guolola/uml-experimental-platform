@@ -227,6 +227,18 @@ describe("CodeGenerationPage", () => {
   it("lets the Sandpack wrapper fill the code workspace height", async () => {
     render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
 
+    const page = await screen.findByTestId("code-generation-page");
+    expect(page).toHaveClass("p-3");
+    expect(page).toHaveClass("lg:p-4");
+
+    const workspaceFrame = screen.getByTestId("code-workspace-frame");
+    expect(workspaceFrame).toHaveClass("flex");
+    expect(workspaceFrame).toHaveClass("min-h-0");
+    expect(workspaceFrame).toHaveClass("flex-1");
+    expect(workspaceFrame).toHaveClass("overflow-hidden");
+    expect(workspaceFrame).toHaveClass("rounded-lg");
+    expect(workspaceFrame).toHaveClass("border");
+
     const provider = await screen.findByTestId("sandpack-provider");
     expect(provider).toHaveClass("flex");
     expect(provider).toHaveClass("min-h-0");

@@ -40,15 +40,6 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
     emptyState: "先生成需求模型后进入设计阶段",
   },
   {
-    id: "testing",
-    label: "测试",
-    route: "/workspace",
-    tabId: "test",
-    artifactTypes: ["blackBoxTestCase", "testCoverageRelation"],
-    prerequisiteStepIds: ["design"],
-    emptyState: "先生成用例模型和设计模型后生成测试用例",
-  },
-  {
     id: "code",
     label: "代码",
     route: "/workspace",
@@ -56,6 +47,15 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
     artifactTypes: ["codeFile", "codeSpec", "uiMockup"],
     prerequisiteStepIds: ["design"],
     emptyState: "先生成设计模型后生成前端原型",
+  },
+  {
+    id: "testing",
+    label: "测试",
+    route: "/workspace",
+    tabId: "test",
+    artifactTypes: ["blackBoxTestCase", "testCoverageRelation"],
+    prerequisiteStepIds: ["design"],
+    emptyState: "先生成用例模型和设计模型后生成测试用例",
   },
   {
     id: "documents",

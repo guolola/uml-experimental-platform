@@ -292,7 +292,14 @@ export function CodeGenerationPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div
+      data-testid="code-generation-page"
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-background p-3 lg:p-4"
+    >
+      <div
+        data-testid="code-workspace-frame"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm"
+      >
       <div
         className={cn(
           "flex min-h-12 items-center gap-2 border-b border-border px-3",
@@ -686,6 +693,7 @@ export function CodeGenerationPage() {
           </ResizablePanelGroup>
         )}
       </SandpackProvider>
+      </div>
     </div>
   );
 }

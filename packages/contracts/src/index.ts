@@ -3617,7 +3617,7 @@ export type RunStatus = z.infer<typeof runStatusSchema>;
 
 export const runErrorCodeSchema = z.enum([
   "USER_ENTITLEMENT_REQUIRED",
-  "USER_PASS_SOFT_LIMIT",
+  "USER_PASS_DAILY_LIMIT",
   "USER_ENTITLEMENT_NEGATIVE_BALANCE",
   "PLATFORM_PROVIDER_BALANCE_INSUFFICIENT",
   "PLATFORM_PROVIDER_AUTH_FAILED",
@@ -4162,12 +4162,6 @@ export const billingPassDailyUsageSchema = z.object({
 });
 export type BillingPassDailyUsage = z.infer<typeof billingPassDailyUsageSchema>;
 
-export const billingSoftLimitSchema = z.object({
-  passDailyLimit: z.number().int().positive(),
-  passConcurrentLimit: z.number().int().positive(),
-});
-export type BillingSoftLimit = z.infer<typeof billingSoftLimitSchema>;
-
 export const billingOrderStatusDtoSchema = z.object({
   orderId: z.string().min(1),
   merchantOrderNo: z.string().min(1),
@@ -4187,7 +4181,6 @@ export const billingSummarySchema = z.object({
   activePass: billingActivePassSchema.nullable(),
   signupBonus: billingSignupBonusSchema,
   passDailyUsage: billingPassDailyUsageSchema,
-  softLimit: billingSoftLimitSchema,
   recentOrders: z.array(billingOrderStatusDtoSchema),
 });
 export type BillingSummary = z.infer<typeof billingSummarySchema>;
@@ -4221,7 +4214,7 @@ export type CreatePaymentOrderResponse = z.infer<
 
 export const billingEntitlementFailureReasonSchema = z.enum([
   "no_entitlement",
-  "pass_soft_limit",
+  "pass_daily_limit",
   "negative_balance",
 ]);
 export type BillingEntitlementFailureReason = z.infer<

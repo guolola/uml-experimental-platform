@@ -1065,16 +1065,16 @@ export function SidebarMenu() {
       ],
     },
     {
-      key: "test",
-      label: "测试",
-      icon: <ClipboardCheck className="size-4 text-muted-foreground" />,
-      onSelect: openTestHome,
-    },
-    {
       key: "workspace:code",
       label: "代码",
       icon: <Code2 className="size-4 text-muted-foreground" />,
       onSelect: () => openWorkspacePlaceholder("code", "代码"),
+    },
+    {
+      key: "test",
+      label: "测试",
+      icon: <ClipboardCheck className="size-4 text-muted-foreground" />,
+      onSelect: openTestHome,
     },
     {
       key: "documents",
