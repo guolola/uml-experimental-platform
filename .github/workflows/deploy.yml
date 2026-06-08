@@ -215,6 +215,18 @@ jobs:
             exit 1
           }
 
+          git_network() {
+            local attempt
+            for attempt in 1 2 3; do
+              if git -c http.version=HTTP/1.1 "$@"; then
+                return 0
+              fi
+              echo "git $* failed on attempt $attempt/3; retrying after network backoff ..." >&2
+              sleep "$((attempt * 5))"
+            done
+            git -c http.version=HTTP/1.1 "$@"
+          }
+
           mkdir -p "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/releases" "$DEPLOY_PATH/shared"
 
           if [ -e "$SOURCE_DIR" ] && [ ! -d "$SOURCE_DIR/.git" ]; then
@@ -224,15 +236,15 @@ jobs:
 
           if [ ! -d "$SOURCE_DIR/.git" ]; then
             echo "Cloning source repository into $SOURCE_DIR ..."
-            git clone --filter=blob:none --no-checkout "$REPO_URL" "$SOURCE_DIR"
+            git_network clone --filter=blob:none --no-checkout "$REPO_URL" "$SOURCE_DIR"
           fi
 
           echo "Fetching $SOURCE_REF for release $RELEASE_SHA ..."
           git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
-          git -C "$SOURCE_DIR" fetch --prune --depth=50 origin \
+          git_network -C "$SOURCE_DIR" fetch --prune --depth=50 origin \
             "+refs/heads/$SOURCE_REF:refs/remotes/origin/$SOURCE_REF"
           if ! git -C "$SOURCE_DIR" cat-file -e "$RELEASE_SHA^{commit}" 2>/dev/null; then
-            git -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_SHA"
+            git_network -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_SHA"
           fi
           git -C "$SOURCE_DIR" checkout --force "$RELEASE_SHA"
           git -C "$SOURCE_DIR" clean -fdx
