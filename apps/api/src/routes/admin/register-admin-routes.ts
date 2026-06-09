@@ -3100,6 +3100,40 @@ export function registerAdminRoutes({
     updateProviderConfigStatus(request, reply, "active", "enable"),
   );
 
+  app.post("/api/admin/provider-configs/:id/reset-breaker", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const actor = await requireHighRiskAdmin(
+      request,
+      reply,
+      authStore,
+      "admin.provider_config.reset_breaker",
+      "provider_config",
+      id,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+    if (!providerConfigs.resetBreaker) {
+      reply.code(501);
+      return { message: "Provider circuit breaker reset is not supported by this store" };
+    }
+
+    const updated = await providerConfigs.resetBreaker(id);
+    if (!updated) {
+      reply.code(404);
+      return { message: "Provider config not found" };
+    }
+
+    await recordAdminAction(authStore, {
+      actor,
+      action: "admin.provider_config.reset_breaker",
+      targetType: "provider_config",
+      targetId: id,
+      outcome: "success",
+      message: `Actor ${actorLabel(actor)} reset provider config breaker for ${updated.name}`,
+    });
+    return updated;
+  });
+
   app.post("/api/admin/provider-configs/:id/test", async (request, reply) => {
     const actor = await requireAdminPermission(
       request,

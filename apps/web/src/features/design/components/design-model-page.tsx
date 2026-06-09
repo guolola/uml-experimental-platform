@@ -155,6 +155,18 @@ function sequenceModelsCoverUseCases(
   return useCases.every((useCase) => covered.has(useCase.id));
 }
 
+function currentDesignClassFingerprint(
+  designModels: ReturnType<typeof useWorkspaceSession>["designModels"],
+  designInputFingerprints: ReturnType<typeof useWorkspaceSession>["designInputFingerprints"],
+) {
+  const classModel = Object.values(designModels).find(
+    (model) => model.diagramKind === "class",
+  );
+  return classModel
+    ? designInputFingerprints[getDesignModelId(classModel)] ?? designInputFingerprints.class
+    : designInputFingerprints.class;
+}
+
 function requirementSourcesForDesign(diagram: DesignDiagramType) {
   const sources: DiagramType[] = ["usecase"];
   if (diagram === "sequence") sources.push("analysis");
@@ -241,6 +253,26 @@ export function DesignModelPage() {
     },
     [models],
   );
+  const staleRequirementSourceLabels = useMemo(
+    () =>
+      (["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[])
+        .filter((diagram) => sourceStatus[diagram] && staleDiagrams.includes(diagram))
+        .map((diagram) => DIAGRAM_META[diagram].label),
+    [sourceStatus, staleDiagrams],
+  );
+  const missingRequirementSourceLabels = useMemo(
+    () =>
+      (["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[])
+        .filter((diagram) => !sourceStatus[diagram])
+        .map((diagram) => DIAGRAM_META[diagram].label),
+    [sourceStatus],
+  );
+  const requirementDependencyGuideText =
+    staleRequirementSourceLabels.length > 0
+      ? `设计生成依赖最新的需求模型。请先回到「需求阶段」更新${staleRequirementSourceLabels.join("、")}。`
+      : missingRequirementSourceLabels.length > 0
+        ? `设计生成依赖完整的需求模型。请先前往「需求阶段」完成${missingRequirementSourceLabels.join("、")}。`
+        : "设计生成会使用已完成的需求模型和设计阶段上游模型。";
 
   const selectableDesignDiagramSet = useMemo(
     () =>
@@ -300,8 +332,9 @@ export function DesignModelPage() {
     if (
       diagram === "table" &&
       Object.values(designModels).some((model) => model.diagramKind === "class") &&
-      normalizeDesignInputFingerprint(designInputFingerprints.class) !==
-        currentDesignInputFingerprint
+      normalizeDesignInputFingerprint(
+        currentDesignClassFingerprint(designModels, designInputFingerprints),
+      ) !== currentDesignInputFingerprint
     ) {
       return "设计类图已存在但基于旧需求，请先手动更新设计类图";
     }
@@ -630,16 +663,21 @@ export function DesignModelPage() {
                   {(["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[]).map(
                     (diagram) => {
                       const SourceIcon = REQUIREMENT_SOURCE_ICON[diagram];
+                      const stale = sourceStatus[diagram] && staleDiagrams.includes(diagram);
                       return (
                         <MobileStatusPill
                           key={diagram}
                           className={cn(
-                            sourceStatus[diagram]
+                            stale
+                              ? "border-warning/35 bg-warning/10 text-warning"
+                              : sourceStatus[diagram]
                               ? "border-border bg-card text-foreground"
                               : "border-border bg-muted/30 text-muted-foreground",
                           )}
                         >
-                          {sourceStatus[diagram] ? (
+                          {stale ? (
+                            <AlertTriangle className="size-3.5 text-warning" />
+                          ) : sourceStatus[diagram] ? (
                             <CheckCircle2 className="size-3.5 text-primary" />
                           ) : (
                             <SourceIcon className="size-3.5 text-muted-foreground" />
@@ -648,7 +686,7 @@ export function DesignModelPage() {
                             {DIAGRAM_META[diagram].label}
                           </span>
                           <span className="font-mono text-[10px] text-muted-foreground">
-                            {sourceStatus[diagram] ? "可用" : "未生成"}
+                            {stale ? "需更新" : sourceStatus[diagram] ? "可用" : "未生成"}
                           </span>
                         </MobileStatusPill>
                       );
@@ -684,7 +722,7 @@ export function DesignModelPage() {
                       2. 补全前置依赖
                     </h4>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                      系统自动生成依赖于完整的需求模型。请先前往「需求阶段」完成用例模型与原型界面关系的构建。
+                      {requirementDependencyGuideText}
                     </p>
                   </div>
                   <div className="rounded-lg border-l-2 border-primary bg-muted/40 px-3 py-2">

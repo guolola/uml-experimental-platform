@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { InlineSvg } from "./inline-svg";
+import { sanitizeSvgMarkup } from "../lib/svg-sanitizer";
 import { cn } from "../../../shared/ui/utils";
 import { downloadTextFile } from "../../../shared/lib/download";
 import {
@@ -2639,6 +2640,7 @@ function DiagramDetailView({
   const svgMarkup = isDesign
     ? designSvgArtifacts[designArtifactId]?.svg ?? ""
     : svgArtifacts[requirementArtifactId]?.svg ?? svgArtifacts[requirementType]?.svg ?? "";
+  const normalizedSvgMarkup = useMemo(() => sanitizeSvgMarkup(svgMarkup), [svgMarkup]);
   const diagramError = isDesign
     ? designDiagramErrors[designType] ?? null
     : diagramErrors[requirementArtifactId] ?? diagramErrors[requirementType] ?? null;
@@ -2813,19 +2815,19 @@ function DiagramDetailView({
     setIsPanning(false);
   }, []);
   useEffect(() => {
-    if (!svgMarkup || typeof URL.createObjectURL !== "function") {
+    if (!normalizedSvgMarkup || typeof URL.createObjectURL !== "function") {
       setSvgUrl("");
       return;
     }
 
     const objectUrl = URL.createObjectURL(
-      new Blob([svgMarkup], { type: "image/svg+xml" }),
+      new Blob([normalizedSvgMarkup], { type: "image/svg+xml" }),
     );
     setSvgUrl(objectUrl);
     return () => {
       URL.revokeObjectURL(objectUrl);
     };
-  }, [svgMarkup]);
+  }, [normalizedSvgMarkup]);
   const sourceRules = isDesign || requirementType === "analysis" ? [] : rulesForDiagram(requirementType);
   const detailModel = useMemo(() => buildDiagramDetailModel(draft ?? model), [draft, model]);
   const { items, groups, relationships } = detailModel;
@@ -2953,7 +2955,7 @@ function DiagramDetailView({
       >
         <PanelRightOpen className="size-3.5" /> 模型概览
       </Button>
-      {svgMarkup ? (
+      {normalizedSvgMarkup ? (
         <>
       <Button
         variant="outline"
@@ -2997,7 +2999,7 @@ function DiagramDetailView({
         size="sm"
         className="h-8"
         onClick={() => {
-          downloadTextFile(`${stage}-${type}.svg`, svgMarkup, "image/svg+xml");
+          downloadTextFile(`${stage}-${type}.svg`, normalizedSvgMarkup, "image/svg+xml");
           toast.success(`已导出 ${type}.svg`);
         }}
       >
@@ -3248,7 +3250,7 @@ function DiagramDetailView({
                       onPointerUp={stopCanvasPan}
                       onPointerCancel={stopCanvasPan}
                     >
-                      {svgMarkup ? (
+                      {normalizedSvgMarkup ? (
                         <div
                           className="flex min-h-full min-w-full items-center justify-center"
                           style={{
@@ -3256,7 +3258,7 @@ function DiagramDetailView({
                           }}
                         >
                           <InlineSvg
-                            svg={svgMarkup}
+                            svg={normalizedSvgMarkup}
                             scale={svgScale}
                             highlightLabel={highlighted?.label}
                             highlightKey={highlightRequestId}
@@ -3325,6 +3327,7 @@ function DiagramDetailView({
                                   variant="ghost"
                                   size="sm"
                                   className="h-8"
+                                  aria-label={localHighlightedElement ? "关闭焦点" : "返回模型概览"}
                                   onClick={() => {
                                     if (localHighlightedElement) {
                                       setLocalHighlightedElement(null);
@@ -3345,7 +3348,7 @@ function DiagramDetailView({
                                     }
                                   }}
                                 >
-                                  清除高亮
+                                  {localHighlightedElement ? "关闭焦点" : "返回模型概览"}
                                 </Button>
                               </div>
                               <div className="mt-4 text-xs text-muted-foreground">

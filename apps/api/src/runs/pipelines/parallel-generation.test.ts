@@ -257,6 +257,32 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function waitForAbortSignal(signal: AbortSignal | undefined, guardMs = 1000) {
+  return new Promise<never>((_resolve, reject) => {
+    if (!signal) {
+      reject(new Error("test transport did not receive an abort signal"));
+      return;
+    }
+
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    const rejectAfterAbort = () => {
+      if (guard) clearTimeout(guard);
+      setTimeout(() => reject(new Error("aborted after timeout")), 0);
+    };
+
+    if (signal.aborted) {
+      rejectAfterAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", rejectAfterAbort, { once: true });
+    guard = setTimeout(() => {
+      signal.removeEventListener("abort", rejectAfterAbort);
+      reject(new Error("test transport did not receive abort before guard timeout"));
+    }, guardMs);
+  });
+}
+
 function useCaseIdFromSingleUseCasePrompt(prompt: string) {
   return prompt.match(/"useCases"\s*:\s*\[\s*\{[\s\S]*?"id"\s*:\s*"([^"]+)"/)?.[1];
 }
@@ -441,6 +467,123 @@ test("requirement pipeline calls the LLM once per selected model and keeps succe
   );
   assert.equal(completed.diagramErrors.activity?.stage, "generate_models");
   assert.equal(completed.status, "completed");
+});
+
+test("requirement pipeline auto-fills traceability when a valid model has empty traceability", async () => {
+  let llmCalls = 0;
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      llmCalls += 1;
+      yield JSON.stringify({
+        models: [modelForKind("activity")],
+        requirementModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-empty-requirement-traceability",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["activity"],
+    libraryRules,
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runStagePipeline(record, providerSettings, transport, renderClient);
+
+  const completed = record.snapshot as RunSnapshot;
+  assert.equal(llmCalls, 1);
+  assert.equal(completed.status, "completed");
+  assert.ok(completed.models.some((model) => model.diagramKind === "activity"));
+  assert.ok(
+    completed.requirementModelTraceability.some(
+      (entry) => entry.target.diagramKind === "activity",
+    ),
+  );
+  assert.ok(
+    completed.requirementTrace.some(
+      (entry) =>
+        entry.kind === "parsed_model" &&
+        Boolean(
+          (entry.parsedData as { autoFilledRequirementTraceability?: boolean } | undefined)
+            ?.autoFilledRequirementTraceability,
+        ),
+    ),
+  );
+});
+
+test("requirement pipeline retries activity with a compact prompt after provider timeout", async () => {
+  const prompts: string[] = [];
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      prompts.push(prompt);
+      if (prompts.length === 1) {
+        await waitForAbortSignal(input.abortSignal);
+        return;
+      }
+      assert.match(prompt, /精简重试/);
+      assert.match(prompt, /diagramKind="activity"/);
+      yield JSON.stringify({
+        models: [modelForKind("activity")],
+        requirementModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-activity-compact-timeout-retry",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["activity"],
+    libraryRules,
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "20", async () => {
+    await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS", "500", async () => {
+      await runStagePipeline(record, providerSettings, transport, renderClient);
+    });
+  });
+
+  const completed = record.snapshot as RunSnapshot;
+  assert.equal(prompts.length, 2);
+  assert.equal(completed.status, "completed");
+  assert.ok(completed.models.some((model) => model.diagramKind === "activity"));
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.subtaskId === "activity" &&
+        event.subtaskStatus === "repairing" &&
+        event.message?.includes("精简活动图提示重试"),
+    ),
+  );
 });
 
 test("requirement pipeline renders a completed model before slower models finish", async () => {
@@ -672,6 +815,135 @@ test("requirement pipeline reuses contextual use case event flows for analysis-o
   );
 });
 
+test("requirement pipeline retries analysis with a compact prompt after provider timeout", async () => {
+  const useCaseRule: RequirementRule = {
+    id: "r-usecase",
+    category: "功能需求",
+    text: "每个用例都应由事件流生成独立需求分析顺序图。",
+    relatedDiagrams: ["usecase"],
+  };
+  const baseUseCaseModel = modelForKind("usecase");
+  assert.equal(baseUseCaseModel.diagramKind, "usecase");
+  const contextualUseCase: DiagramModelSpec = {
+    ...baseUseCaseModel,
+    useCases: [
+      {
+        ...baseUseCaseModel.useCases[0]!,
+        id: "uc_borrow",
+        name: "借书",
+        eventFlows: [
+          {
+            id: "flow_borrow_main",
+            name: "借书主成功场景",
+            flowType: "main",
+            trigger: "管理员发起借书",
+            steps: [
+              {
+                order: 1,
+                actor: "actor",
+                action: "提交借书信息",
+                systemResponse: "系统创建借阅记录",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const prompts: string[] = [];
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      prompts.push(prompt);
+      if (prompts.length === 1) {
+        await waitForAbortSignal(input.abortSignal);
+        return;
+      }
+      assert.match(prompt, /精简重试/);
+      assert.match(prompt, /diagramKind="analysis"/);
+      assert.match(prompt, /sourceUseCaseId="uc_borrow"/);
+      yield JSON.stringify({
+        models: [
+          {
+            diagramKind: "analysis",
+            modelId: "analysis:uc_borrow",
+            sourceUseCaseId: "uc_borrow",
+            sourceUseCaseName: "借书",
+            title: "借书需求分析模型",
+            summary: "根据借书事件流生成。",
+            notes: [],
+            participants: [
+              { id: "actor_librarian", name: "图书管理员", participantType: "actor" },
+              { id: "boundary_borrow", name: "借书界面", participantType: "boundary" },
+            ],
+            messages: [
+              {
+                id: "msg_borrow",
+                type: "sync",
+                sourceId: "actor_librarian",
+                targetId: "boundary_borrow",
+                name: "提交借书信息",
+                parameters: [],
+              },
+            ],
+            fragments: [],
+          },
+        ],
+        requirementModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-analysis-compact-timeout-retry",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["analysis"],
+    [useCaseRule],
+    {
+      models: [contextualUseCase],
+      requirementModelTraceability: [],
+    },
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "20", async () => {
+    await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS", "500", async () => {
+      await runStagePipeline(record, providerSettings, transport, renderClient);
+    });
+  });
+
+  const completed = record.snapshot as RunSnapshot;
+  assert.equal(prompts.length, 2);
+  assert.equal(completed.status, "completed");
+  assert.ok(
+    completed.models.some(
+      (model) => model.diagramKind === "analysis" && model.modelId === "analysis:uc_borrow",
+    ),
+  );
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.subtaskId === "analysis:uc_borrow" &&
+        event.subtaskStatus === "repairing" &&
+        event.message?.includes("精简单用例提示重试"),
+    ),
+  );
+});
+
 test("requirement analysis generation inherits run concurrency when no narrower limit is configured", async () => {
   const previousAnalysisConcurrency = process.env.UML_REQUIREMENT_ANALYSIS_CONCURRENCY;
   delete process.env.UML_REQUIREMENT_ANALYSIS_CONCURRENCY;
@@ -828,9 +1100,11 @@ test("requirement analysis emits failed subtasks when one use case generation ti
   const transport: LlmTransport = {
     async *streamChatCompletion(input: StreamChatCompletionInput) {
       const prompt = String(input.messages.at(-1)?.content ?? "");
-      const useCaseId = useCaseIdFromSingleUseCasePrompt(prompt) ?? "uc_fast";
+      const useCaseId = prompt.includes("uc_hang")
+        ? "uc_hang"
+        : useCaseIdFromSingleUseCasePrompt(prompt) ?? "uc_fast";
       if (useCaseId === "uc_hang") {
-        await new Promise<never>(() => {});
+        await delay(100);
       }
       const useCaseName =
         useCases.find((useCase) => useCase.id === useCaseId)?.name ?? "查看活动";
@@ -900,7 +1174,12 @@ test("requirement analysis emits failed subtasks when one use case generation ti
 
   await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "20", async () => {
     await assert.rejects(
-      runStagePipeline(record, providerSettings, transport, renderClient),
+      Promise.race([
+        runStagePipeline(record, providerSettings, transport, renderClient),
+        delay(1000).then(() => {
+          throw new Error("analysis timeout test pipeline did not settle within 1000ms");
+        }),
+      ]),
       /需求分析模型必须为每个用例生成一个独立分析顺序图|超过 20ms 未完成/,
     );
   });
@@ -911,7 +1190,13 @@ test("requirement analysis emits failed subtasks when one use case generation ti
       event.stage === "generate_models" &&
       event.subtaskId === "analysis:uc_hang" &&
       event.subtaskStatus === "failed" &&
-      /超过 20ms 未完成/.test(event.message ?? ""),
+      event.error?.code === "PLATFORM_PROVIDER_TIMEOUT" &&
+      /超过 20ms 未完成/.test(
+        `${event.message ?? ""} ${
+          ((event.error.details as { providerMessage?: string } | undefined)
+            ?.providerMessage ?? "")
+        }`,
+      ),
   );
   const fastSvgEvent = record.events.find(
     (event) =>
@@ -1040,7 +1325,7 @@ test("requirement model task hard max stops a continuously streaming model", asy
   assert.match(failedUseCase?.message ?? "", /超过最大运行时长 30ms 未完成/);
 });
 
-test("requirement pipeline auto-fills traceability when LLM traceability stays empty", async () => {
+test("requirement pipeline auto-fills traceability before retrying when LLM traceability is empty", async () => {
   let traceabilityPromptCount = 0;
   const transport: LlmTransport = {
     async *streamChatCompletion(input: StreamChatCompletionInput) {
@@ -1085,7 +1370,7 @@ test("requirement pipeline auto-fills traceability when LLM traceability stays e
 
   const completed = record.snapshot as RunSnapshot;
   assert.equal(completed.status, "completed");
-  assert.equal(traceabilityPromptCount, 3);
+  assert.equal(traceabilityPromptCount, 0);
   assert.equal(completed.requirementModelTraceability.length, 3);
   assert.ok(
     completed.requirementTrace.some(
@@ -1099,7 +1384,7 @@ test("requirement pipeline auto-fills traceability when LLM traceability stays e
   );
 });
 
-test("requirement pipeline accepts nullable model ids from traceability-only repair", async () => {
+test("requirement pipeline auto-fills traceability before nullable traceability repair", async () => {
   let traceabilityPromptCount = 0;
   const repairedTargets = [
     { elementId: "actor_librarian", elementKind: "actor", label: "图书管理员" },
@@ -1159,7 +1444,7 @@ test("requirement pipeline accepts nullable model ids from traceability-only rep
   const completed = record.snapshot as RunSnapshot;
   assert.equal(completed.status, "completed");
   assert.equal(completed.diagramErrors.usecase, undefined);
-  assert.equal(traceabilityPromptCount, 1);
+  assert.equal(traceabilityPromptCount, 0);
   assert.equal(completed.requirementModelTraceability.length, 3);
   assert.ok(
     completed.requirementModelTraceability.every(
@@ -1175,7 +1460,7 @@ test("requirement pipeline accepts nullable model ids from traceability-only rep
           ?.autoFilledRequirementTraceability,
       ),
     ),
-    false,
+    true,
   );
 });
 
@@ -1618,7 +1903,14 @@ test("design sequence emits failed subtasks when one use case generation times o
     );
     assert.ok(fastSvg);
     assert.ok(failedSlow);
-    assert.match(failedSlow.message ?? "", /超过 20ms 未完成/);
+    assert.equal(failedSlow.error?.code, "PLATFORM_PROVIDER_TIMEOUT");
+    assert.match(
+      `${
+        ((failedSlow.error.details as { providerMessage?: string } | undefined)
+          ?.providerMessage ?? "")
+      }`,
+      /超过 20ms 未完成/,
+    );
   });
 });
 
@@ -1845,7 +2137,7 @@ test("design pipeline rejects completion when a selected downstream model fails"
 
     await assert.rejects(
       () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
-      /设计模型生成未全部完成：设计类图：设计类图 .*超过 20ms 未完成/,
+      /设计模型生成未全部完成：设计类图：当前模型服务响应超时，请稍后重试。/,
     );
 
     assert.equal((record.snapshot as DesignRunSnapshot).status, "running");
@@ -1860,6 +2152,14 @@ test("design pipeline rejects completion when a selected downstream model fails"
     );
     assert.equal(completedEvent, undefined);
     assert.ok(failedClass);
+    assert.equal(failedClass.error?.code, "PLATFORM_PROVIDER_TIMEOUT");
+    assert.match(
+      `${
+        ((failedClass.error.details as { providerMessage?: string } | undefined)
+          ?.providerMessage ?? "")
+      }`,
+      /超过 20ms 未完成/,
+    );
   });
 });
 
@@ -2335,4 +2635,167 @@ test("requirement pipeline retries missing per-use-case analysis coverage", asyn
     ),
   );
   assert.deepEqual(analysisIds, ["analysis:uc_borrow", "analysis:uc_search"]);
+});
+
+test("requirement pipeline supplements only targeted missing analysis use cases", async () => {
+  const useCaseRule: RequirementRule = {
+    id: "r-usecase",
+    category: "功能需求",
+    text: "每个用例都应由事件流生成独立需求分析顺序图。",
+    relatedDiagrams: ["usecase"],
+  };
+  const baseUseCaseModel = modelForKind("usecase");
+  assert.equal(baseUseCaseModel.diagramKind, "usecase");
+  const contextualUseCase: DiagramModelSpec = {
+    ...baseUseCaseModel,
+    useCases: [
+      {
+        ...baseUseCaseModel.useCases[0]!,
+        id: "uc_borrow",
+        name: "借书",
+        eventFlows: [
+          {
+            id: "flow_borrow_main",
+            name: "借书主成功场景",
+            flowType: "main",
+            trigger: "管理员发起借书",
+            steps: [
+              {
+                order: 1,
+                actor: "actor",
+                action: "提交借书信息",
+                systemResponse: "系统创建借阅记录",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        ...baseUseCaseModel.useCases[0]!,
+        id: "uc_search",
+        name: "检索图书",
+        eventFlows: [
+          {
+            id: "flow_search_main",
+            name: "检索主成功场景",
+            flowType: "main",
+            trigger: "读者输入检索条件",
+            steps: [
+              {
+                order: 1,
+                actor: "actor",
+                action: "提交检索条件",
+                systemResponse: "系统返回匹配图书",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const existingAnalysis: DiagramModelSpec = {
+    diagramKind: "analysis",
+    modelId: "analysis:uc_borrow",
+    sourceUseCaseId: "uc_borrow",
+    sourceUseCaseName: "借书",
+    title: "借书需求分析模型",
+    summary: "已有借书分析。",
+    notes: [],
+    participants: [
+      { id: "actor_existing", name: "图书管理员", participantType: "actor" },
+      { id: "boundary_existing", name: "借书界面", participantType: "boundary" },
+    ],
+    messages: [
+      {
+        id: "msg_existing",
+        type: "sync",
+        sourceId: "actor_existing",
+        targetId: "boundary_existing",
+        name: "办理借书",
+        parameters: [],
+      },
+    ],
+    fragments: [],
+  };
+  const generatedUseCaseIds: string[] = [];
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      const useCaseId = useCaseIdFromSingleUseCasePrompt(prompt) ?? "unknown";
+      generatedUseCaseIds.push(useCaseId);
+      assert.equal(useCaseId, "uc_search");
+      yield JSON.stringify({
+        models: [
+          {
+            diagramKind: "analysis",
+            modelId: "analysis:uc_search",
+            sourceUseCaseId: "uc_search",
+            sourceUseCaseName: "检索图书",
+            title: "检索图书需求分析模型",
+            summary: "根据检索图书事件流生成。",
+            notes: [],
+            participants: [
+              { id: "actor_search", name: "读者", participantType: "actor" },
+              { id: "boundary_search", name: "检索界面", participantType: "boundary" },
+            ],
+            messages: [
+              {
+                id: "msg_search",
+                type: "sync",
+                sourceId: "actor_search",
+                targetId: "boundary_search",
+                name: "提交检索条件",
+                parameters: [],
+              },
+            ],
+            fragments: [],
+          },
+        ],
+        requirementModelTraceability: [],
+      });
+    },
+  };
+  const renderedModelIds: string[] = [];
+  const renderClient: RenderClient = async (artifact) => {
+    renderedModelIds.push(artifact.modelId ?? artifact.diagramKind);
+    return {
+      svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+      renderMeta: {
+        engine: "test",
+        generatedAt: new Date().toISOString(),
+        sourceLength: artifact.source.length,
+        durationMs: 1,
+      },
+    };
+  };
+  const snapshot = createEmptySnapshot(
+    "run-analysis-targeted-supplement",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["analysis"],
+    [useCaseRule],
+    {
+      models: [contextualUseCase, existingAnalysis],
+      requirementModelTraceability: [],
+      analysisTargetUseCaseIds: ["uc_search"],
+    },
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runStagePipeline(record, providerSettings, transport, renderClient);
+
+  const completed = record.snapshot as RunSnapshot;
+  const analysisIds = completed.models
+    .filter((model) => model.diagramKind === "analysis")
+    .map((model) => model.modelId)
+    .sort();
+  assert.equal(completed.status, "completed");
+  assert.deepEqual(generatedUseCaseIds, ["uc_search"]);
+  assert.deepEqual(analysisIds, ["analysis:uc_borrow", "analysis:uc_search"]);
+  assert.ok(renderedModelIds.includes("analysis:uc_search"));
+  assert.equal(renderedModelIds.includes("analysis:uc_borrow"), false);
 });

@@ -114,11 +114,9 @@ import {
 } from "../../shared/ui/dialog";
 import { ApiClientError } from "../../services/api-client";
 
-
-
-
-
-const WorkspaceSessionContext = createContext<WorkspaceSessionState | null>(null);
+const WorkspaceSessionContext = createContext<WorkspaceSessionState | null>(
+  null,
+);
 
 type GenerationResultDialogState = {
   title: string;
@@ -158,7 +156,9 @@ function orderedDesignDiagrams(diagrams: DesignDiagramType[]) {
 }
 
 function requirementLabels(diagrams: DiagramType[]) {
-  return orderedRequirementDiagrams(diagrams).map((diagram) => DIAGRAM_META[diagram].label);
+  return orderedRequirementDiagrams(diagrams).map(
+    (diagram) => DIAGRAM_META[diagram].label,
+  );
 }
 
 function diagramLabels(diagrams: DiagramType[]) {
@@ -176,7 +176,10 @@ function designInputFingerprintFor(
   requirementModels: DiagramModelSpec[],
   requirementModelTraceability: RequirementModelTraceabilityEntry[],
 ) {
-  return designInputFingerprint(requirementModels, requirementModelTraceability);
+  return designInputFingerprint(
+    requirementModels,
+    requirementModelTraceability,
+  );
 }
 
 function fingerprintMatches(
@@ -190,7 +193,22 @@ function designFingerprintMatches(
   storedFingerprint: string | null | undefined,
   currentFingerprint: string,
 ) {
-  return normalizeDesignInputFingerprint(storedFingerprint) === currentFingerprint;
+  return (
+    normalizeDesignInputFingerprint(storedFingerprint) === currentFingerprint
+  );
+}
+
+function currentDesignClassFingerprint(
+  designModels: WorkspaceRecord["designModels"],
+  designInputFingerprints: WorkspaceRecord["designInputFingerprints"],
+) {
+  const classModel = Object.values(designModels).find(
+    (model) => model.diagramKind === "class",
+  );
+  return classModel
+    ? (designInputFingerprints[getDesignModelId(classModel)] ??
+        designInputFingerprints.class)
+    : designInputFingerprints.class;
 }
 
 function useCasesFromRequirementModel(model: DiagramModelSpec | undefined) {
@@ -198,6 +216,46 @@ function useCasesFromRequirementModel(model: DiagramModelSpec | undefined) {
     return [];
   }
   return Array.isArray(model.useCases) ? model.useCases : [];
+}
+
+function analysisSourceUseCaseId(model: DiagramModelSpec) {
+  if (model.diagramKind !== "analysis") return null;
+  const explicit =
+    "sourceUseCaseId" in model && typeof model.sourceUseCaseId === "string"
+      ? model.sourceUseCaseId.trim()
+      : "";
+  if (explicit) return explicit;
+  const modelId =
+    "modelId" in model && typeof model.modelId === "string"
+      ? model.modelId.trim()
+      : "";
+  return modelId.startsWith("analysis:")
+    ? modelId.slice("analysis:".length)
+    : null;
+}
+
+function missingAnalysisUseCaseIds(models: WorkspaceRecord["models"]) {
+  const useCases = useCasesFromRequirementModel(models.usecase);
+  if (useCases.length === 0) return [];
+  const covered = new Set(
+    Object.values(models)
+      .filter((model): model is DiagramModelSpec => Boolean(model))
+      .map(analysisSourceUseCaseId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  return useCases
+    .filter((useCase) => !covered.has(useCase.id))
+    .map((useCase) => useCase.id);
+}
+
+function analysisTargetUseCaseIdsForRun(
+  diagrams: DiagramType[],
+  models: WorkspaceRecord["models"],
+) {
+  if (!diagrams.includes("analysis") || diagrams.includes("usecase")) {
+    return [];
+  }
+  return missingAnalysisUseCaseIds(models);
 }
 
 function sequenceModelsCoverUseCases(
@@ -255,7 +313,9 @@ function runErrorMessage(snapshot?: { error?: { message?: string } | null }) {
   return snapshot?.error?.message ?? null;
 }
 
-function cancelledRunMessage(snapshot?: { error?: { message?: string } | null }) {
+function cancelledRunMessage(snapshot?: {
+  error?: { message?: string } | null;
+}) {
   return runErrorMessage(snapshot) ?? "任务已取消";
 }
 
@@ -280,10 +340,10 @@ function billingEntitlementDialogTitle(block: BillingEntitlementErrorResponse) {
   return "需要开通生成权益";
 }
 
-function billingEntitlementDialogDetails(block: BillingEntitlementErrorResponse) {
-  const details = [
-    `可用次数：${block.billingSummary.creditBalance}`,
-  ];
+function billingEntitlementDialogDetails(
+  block: BillingEntitlementErrorResponse,
+) {
+  const details = [`可用次数：${block.billingSummary.creditBalance}`];
   const dailyLimit = block.billingSummary.passDailyUsage.limit;
   const usedToday = block.billingSummary.passDailyUsage.usedToday;
   if (block.billingSummary.activePass) {
@@ -294,16 +354,19 @@ function billingEntitlementDialogDetails(block: BillingEntitlementErrorResponse)
 }
 
 function designLabels(diagrams: DesignDiagramType[]) {
-  return orderedDesignDiagrams(diagrams).map((diagram) => DESIGN_DIAGRAM_META[diagram].label);
+  return orderedDesignDiagrams(diagrams).map(
+    (diagram) => DESIGN_DIAGRAM_META[diagram].label,
+  );
 }
 
-const DESIGN_REQUIREMENT_SOURCE_MAP: Record<DesignDiagramType, DiagramType[]> = {
-  sequence: ["usecase", "analysis"],
-  activity: ["prototype"],
-  class: ["class"],
-  deployment: ["deployment"],
-  table: ["class"],
-};
+const DESIGN_REQUIREMENT_SOURCE_MAP: Record<DesignDiagramType, DiagramType[]> =
+  {
+    sequence: ["usecase", "analysis"],
+    activity: ["prototype"],
+    class: ["class"],
+    deployment: ["deployment"],
+    table: ["class"],
+  };
 
 type RequirementAutoUpstreamPlan = {
   needsRulesRun: boolean;
@@ -312,6 +375,15 @@ type RequirementAutoUpstreamPlan = {
   requestedDiagrams: DiagramType[];
   effectiveDiagrams: DiagramType[];
   dependencyDiagrams: DiagramType[];
+};
+
+type RunGenerationOptions = {
+  suppressSuccessDialog?: boolean;
+  skipRuleRepairCandidates?: boolean;
+};
+
+type ApplyRunSnapshotOptions = {
+  preserveRuleReviewState?: boolean;
 };
 
 type DesignRequirementContext = {
@@ -375,7 +447,9 @@ function planDesignRequirementAutoUpstream(input: {
   const required = new Set<DiagramType>();
   for (const diagram of input.requestedDesignDiagrams) {
     for (const requirementDiagram of DESIGN_REQUIREMENT_SOURCE_MAP[diagram]) {
-      if (!hasRequirementModelKind(input.requirementModels, requirementDiagram)) {
+      if (
+        !hasRequirementModelKind(input.requirementModels, requirementDiagram)
+      ) {
         required.add(requirementDiagram);
       }
     }
@@ -427,6 +501,83 @@ function mergeAutoCompletedRuleMappings(
       ]),
     };
   });
+}
+
+function ruleLikelySupportsDiagram(
+  rule: RequirementRule,
+  diagram: DiagramType,
+) {
+  const category = rule.category.toLowerCase();
+  const text = `${rule.category} ${rule.text}`.toLowerCase();
+  switch (diagram) {
+    case "usecase":
+      return (
+        category.includes("功能") ||
+        /用户|游客|管理员|浏览|报名|取消|查看|创建|编辑|发布|下架|搜索|筛选/u.test(
+          text,
+        )
+      );
+    case "class":
+      return (
+        category.includes("数据") ||
+        category.includes("业务") ||
+        /实体|字段|容量|状态|标签|记录|人数|截止|不能|唯一/u.test(text)
+      );
+    case "activity":
+      return (
+        category.includes("功能") ||
+        category.includes("异常") ||
+        /流程|分支|报名|取消|提醒|通知|截止|已满|非法|审计|释放/u.test(text)
+      );
+    case "deployment":
+      return (
+        category.includes("非功能") ||
+        /部署|提醒|通知|定时|审计|日志|安全|性能|外部|集成/u.test(text)
+      );
+    case "prototype":
+      return (
+        category.includes("功能") ||
+        category.includes("异常") ||
+        /界面|页面|表单|查看|浏览|搜索|筛选|创建|编辑|发布|下架/u.test(text)
+      );
+    case "analysis":
+      return false;
+  }
+}
+
+function ensureAutoCompletedRuleMappings(
+  rules: RequirementRule[],
+  targetDiagrams: DiagramType[],
+) {
+  let next = rules.map((rule) => ({
+    ...rule,
+    relatedDiagrams: [...rule.relatedDiagrams],
+  }));
+  for (const diagram of targetDiagrams) {
+    if (
+      diagram === "analysis" ||
+      next.some((rule) => rule.relatedDiagrams.includes(diagram))
+    ) {
+      continue;
+    }
+    const candidates = next.filter((rule) =>
+      ruleLikelySupportsDiagram(rule, diagram),
+    );
+    const fallbackRules = candidates.length > 0 ? candidates : next.slice(0, 1);
+    const fallbackIds = new Set(fallbackRules.map((rule) => rule.id));
+    next = next.map((rule) =>
+      fallbackIds.has(rule.id)
+        ? {
+            ...rule,
+            relatedDiagrams: orderedRequirementDiagrams([
+              ...rule.relatedDiagrams,
+              diagram,
+            ]),
+          }
+        : rule,
+    );
+  }
+  return next;
 }
 
 function ruleDependencyLabelsForPlan(plan?: RequirementAutoUpstreamPlan) {
@@ -540,7 +691,9 @@ function designGenerationSubtasks(
 function requirementGenerationSubtasks(
   diagrams: DiagramType[],
   requirementModels: WorkspaceRecord["models"],
+  analysisTargetUseCaseIds: string[] = [],
 ): GenerationTask["subtasks"] {
+  const analysisTargets = new Set(analysisTargetUseCaseIds);
   return diagrams.flatMap((diagram) => {
     if (diagram !== "analysis") {
       return stagedDiagramSubtasks({
@@ -557,7 +710,13 @@ function requirementGenerationSubtasks(
         label: DIAGRAM_META.analysis.label,
       });
     }
-    return useCaseModel.useCases.flatMap((useCase) =>
+    const useCases =
+      analysisTargets.size > 0
+        ? useCaseModel.useCases.filter((useCase) =>
+            analysisTargets.has(useCase.id),
+          )
+        : useCaseModel.useCases;
+    return useCases.flatMap((useCase) =>
       stagedDiagramSubtasks({
         modelStage: "generate_models",
         id: `analysis:${useCase.id}`,
@@ -578,7 +737,9 @@ function analyzeRequirementGeneration(
   const existing = new Set(existingDiagrams);
   const effective = new Set(requested);
   const newDiagrams = requested.filter((diagram) => !existing.has(diagram));
-  const regeneratedDiagrams = requested.filter((diagram) => existing.has(diagram));
+  const regeneratedDiagrams = requested.filter((diagram) =>
+    existing.has(diagram),
+  );
   const keptDiagrams = orderedRequirementDiagrams(existingDiagrams).filter(
     (diagram) => !effective.has(diagram),
   );
@@ -597,6 +758,16 @@ function analyzeRequirementGeneration(
   };
 }
 
+function collectExistingRequirementDiagramKinds(
+  models: WorkspaceRecord["models"],
+): DiagramType[] {
+  return orderedRequirementDiagrams(
+    Object.values(models)
+      .filter(Boolean)
+      .map((model) => model.diagramKind),
+  );
+}
+
 function collectExistingDesignDiagramKinds(
   designModels: WorkspaceRecord["designModels"],
 ): DesignDiagramType[] {
@@ -613,11 +784,21 @@ function resolveDesignGenerationDiagrams(
   const existing = new Set(existingDiagrams);
   const dependencies = new Set<DesignDiagramType>();
 
-  const needsSequence = [...requested].some((diagram) => diagram !== "sequence");
-  if (needsSequence && !existing.has("sequence") && !requested.has("sequence")) {
+  const needsSequence = [...requested].some(
+    (diagram) => diagram !== "sequence",
+  );
+  if (
+    needsSequence &&
+    !existing.has("sequence") &&
+    !requested.has("sequence")
+  ) {
     dependencies.add("sequence");
   }
-  if (requested.has("table") && !existing.has("class") && !requested.has("class")) {
+  if (
+    requested.has("table") &&
+    !existing.has("class") &&
+    !requested.has("class")
+  ) {
     dependencies.add("class");
   }
 
@@ -640,8 +821,12 @@ function analyzeDesignGeneration(
 ): GenerationConfirmationSummary {
   const existing = new Set(existingDiagrams);
   const effective = new Set(effectiveDiagrams);
-  const newDiagrams = effectiveDiagrams.filter((diagram) => !existing.has(diagram));
-  const regeneratedDiagrams = effectiveDiagrams.filter((diagram) => existing.has(diagram));
+  const newDiagrams = effectiveDiagrams.filter(
+    (diagram) => !existing.has(diagram),
+  );
+  const regeneratedDiagrams = effectiveDiagrams.filter((diagram) =>
+    existing.has(diagram),
+  );
   const keptDiagrams = orderedDesignDiagrams(existingDiagrams).filter(
     (diagram) => !effective.has(diagram),
   );
@@ -788,11 +973,11 @@ function requirementRuleIdsNeedingReview(baseline: RequirementBaseline | null) {
         .filter((requirement) =>
           Boolean(
             requirement.sourceRuleId &&
-              requirementNeedsRepairReview(
-                requirement,
-                issuesByRequirementId.get(requirement.id) ?? [],
-                reviewRequiredIds.has(requirement.id),
-              ),
+            requirementNeedsRepairReview(
+              requirement,
+              issuesByRequirementId.get(requirement.id) ?? [],
+              reviewRequiredIds.has(requirement.id),
+            ),
           ),
         )
         .map((requirement) => requirement.sourceRuleId!),
@@ -858,7 +1043,9 @@ function mergeReviewedRequirement(
   const next = {
     ...baseline,
     requirements: baseline.requirements.map((requirement) =>
-      requirement.id === reviewedRequirement.id ? reviewedRequirement : requirement,
+      requirement.id === reviewedRequirement.id
+        ? reviewedRequirement
+        : requirement,
     ),
   };
   return {
@@ -888,6 +1075,36 @@ function resultDialogMessage(result: GenerationResultDialogState) {
     return "生成过程中出现问题，请在当前阶段的问题列表查看详情。";
   }
   return sanitizeResultDialogCopy(result.message);
+}
+
+function diagramErrorCount(
+  snapshot: Pick<
+    WorkspaceRunSnapshot | WorkspaceDesignRunSnapshot,
+    "diagramErrors"
+  >,
+) {
+  return Object.keys(snapshot.diagramErrors ?? {}).length;
+}
+
+function completedRunResultMessage({
+  qualityHintCount,
+  diagramFailureCount,
+}: {
+  qualityHintCount: number;
+  diagramFailureCount: number;
+}) {
+  const parts: string[] = [];
+  if (diagramFailureCount > 0) {
+    parts.push(
+      `生成已完成，但有 ${diagramFailureCount} 个模型生成失败，可在当前页面查看错误并重试。`,
+    );
+  } else {
+    parts.push("生成完成。");
+  }
+  if (qualityHintCount > 0) {
+    parts.push(`另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`);
+  }
+  return parts.join(" ");
 }
 
 function generationResultDialogGroup(result: GenerationResultDialogState) {
@@ -996,26 +1213,42 @@ function GenerationConfirmationDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  if (!confirmation) return null;
+
   return (
-    <Dialog open={Boolean(confirmation)} onOpenChange={(open) => !open && onCancel()}>
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="max-w-[calc(100%-2rem)] rounded-[12px] border-[rgba(199,196,214,0.5)] bg-white p-6 shadow-[0px_8px_30px_0px_rgba(0,0,0,0.06)] sm:max-w-[520px]">
         <DialogHeader className="space-y-2 text-left">
           <DialogTitle className="text-[20px] font-semibold leading-[28px] text-[#0B1C30]">
-            {confirmation?.title ?? "确认生成"}
+            {confirmation.title}
           </DialogTitle>
           <DialogDescription className="text-[14px] leading-5 text-[#464554]">
-            {confirmation?.description ?? "确认后开始生成。"}
+            {confirmation.description}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5 grid gap-3">
-          <SummaryGroup label="需求规则补齐" items={confirmation?.ruleDependencyLabels ?? []} />
-          <SummaryGroup label="需求模型补齐/更新" items={confirmation?.requirementDependencyLabels ?? []} />
-          <SummaryGroup label="新生成" items={confirmation?.newLabels ?? []} />
-          <SummaryGroup label="重新生成" items={confirmation?.regeneratedLabels ?? []} />
-          <SummaryGroup label="设计依赖补齐" items={confirmation?.dependencyLabels ?? []} />
-          <SummaryGroup label="保留不变" items={confirmation?.keptLabels ?? []} />
-          {confirmation &&
-            (confirmation.ruleDependencyLabels?.length ?? 0) === 0 &&
+          <SummaryGroup
+            label="需求规则补齐"
+            items={confirmation.ruleDependencyLabels ?? []}
+          />
+          <SummaryGroup
+            label="需求模型补齐/更新"
+            items={confirmation.requirementDependencyLabels ?? []}
+          />
+          <SummaryGroup label="新生成" items={confirmation.newLabels} />
+          <SummaryGroup
+            label="重新生成"
+            items={confirmation.regeneratedLabels}
+          />
+          <SummaryGroup
+            label="设计依赖补齐"
+            items={confirmation.dependencyLabels}
+          />
+          <SummaryGroup
+            label="保留不变"
+            items={confirmation.keptLabels}
+          />
+          {(confirmation.ruleDependencyLabels?.length ?? 0) === 0 &&
             (confirmation.requirementDependencyLabels?.length ?? 0) === 0 &&
             confirmation.newLabels.length === 0 &&
             confirmation.regeneratedLabels.length === 0 &&
@@ -1063,10 +1296,152 @@ function clearRequirementScopedRecord<T>(
       for (const diagram of affected) {
         if (key.startsWith(`${diagram}:`)) return false;
       }
-      const diagramKind = (value as { diagramKind?: string } | undefined)?.diagramKind;
+      const diagramKind = (value as { diagramKind?: string } | undefined)
+        ?.diagramKind;
       return !diagramKind || !affected.has(diagramKind as DiagramType);
     }),
   ) as Record<string, T>;
+}
+
+type RequirementSnapshotScope = {
+  broadDiagrams: DiagramType[];
+  targetedModelIds: Set<string>;
+};
+
+function analysisTargetModelIds(snapshot: WorkspaceRunSnapshot) {
+  return (snapshot.analysisTargetUseCaseIds ?? [])
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+    .map((id) => `analysis:${id}`);
+}
+
+function requirementSnapshotScope(
+  snapshot: WorkspaceRunSnapshot,
+  affectedDiagrams: readonly DiagramType[],
+): RequirementSnapshotScope {
+  const targetedModelIds = new Set(analysisTargetModelIds(snapshot));
+  const hasTargetedAnalysis =
+    targetedModelIds.size > 0 && affectedDiagrams.includes("analysis");
+  return {
+    broadDiagrams: hasTargetedAnalysis
+      ? affectedDiagrams.filter((diagram) => diagram !== "analysis")
+      : [...affectedDiagrams],
+    targetedModelIds: hasTargetedAnalysis
+      ? targetedModelIds
+      : new Set<string>(),
+  };
+}
+
+function clearRequirementScopedRecordForScope<T>(
+  current: Record<string, T>,
+  scope: RequirementSnapshotScope,
+) {
+  const next = clearRequirementScopedRecord(current, scope.broadDiagrams);
+  for (const modelId of scope.targetedModelIds) {
+    delete next[modelId];
+  }
+  return next;
+}
+
+function keepRequirementScopedRecord<T>(
+  current: Record<string, T>,
+  affectedDiagrams: readonly DiagramType[],
+) {
+  const affected = new Set(affectedDiagrams);
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      if (affected.has(key as DiagramType)) return true;
+      for (const diagram of affected) {
+        if (key.startsWith(`${diagram}:`)) return true;
+      }
+      const diagramKind = (value as { diagramKind?: string } | undefined)
+        ?.diagramKind;
+      return Boolean(diagramKind && affected.has(diagramKind as DiagramType));
+    }),
+  ) as Record<string, T>;
+}
+
+function keepRequirementScopedRecordForScope<T>(
+  current: Record<string, T>,
+  scope: RequirementSnapshotScope,
+) {
+  const next = keepRequirementScopedRecord(current, scope.broadDiagrams);
+  for (const modelId of scope.targetedModelIds) {
+    const value = current[modelId];
+    if (value !== undefined) {
+      next[modelId] = value;
+    }
+  }
+  return next;
+}
+
+function traceabilityEntryMatchesScope(
+  entry: RequirementModelTraceabilityEntry,
+  scope: RequirementSnapshotScope,
+) {
+  if (scope.broadDiagrams.includes(entry.target.diagramKind as DiagramType)) {
+    return true;
+  }
+  const modelId =
+    "modelId" in entry.target && typeof entry.target.modelId === "string"
+      ? entry.target.modelId
+      : "";
+  return scope.targetedModelIds.has(modelId);
+}
+
+function requirementErrorDiagrams(
+  diagramErrors: WorkspaceRunSnapshot["diagramErrors"],
+) {
+  return new Set(
+    Object.keys(diagramErrors)
+      .map((key) => key.split(":")[0])
+      .filter((diagram): diagram is DiagramType =>
+        Boolean(
+          diagram &&
+          [
+            "usecase",
+            "class",
+            "activity",
+            "deployment",
+            "prototype",
+            "analysis",
+          ].includes(diagram),
+        ),
+      ),
+  );
+}
+
+function successfulRequirementDiagramsFromSnapshot(
+  snapshot: WorkspaceRunSnapshot,
+) {
+  const errored = requirementErrorDiagrams(snapshot.diagramErrors);
+  const artifactDiagrams = Array.from(
+    new Set([
+      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+    ]),
+  ).filter((diagram) => !errored.has(diagram));
+  const selectedModelDiagrams = Array.from(
+    new Set(
+      snapshot.models
+        .map((model) => model.diagramKind)
+        .filter(
+          (diagram) =>
+            snapshot.selectedDiagrams.includes(diagram) &&
+            !errored.has(diagram),
+        ),
+    ),
+  );
+  const modelDiagrams = Array.from(
+    new Set(snapshot.models.map((model) => model.diagramKind)),
+  ).filter((diagram) => !errored.has(diagram));
+  return orderedRequirementDiagrams(
+    artifactDiagrams.length > 0
+      ? artifactDiagrams
+      : selectedModelDiagrams.length > 0
+        ? selectedModelDiagrams
+        : modelDiagrams,
+  );
 }
 
 function diagramsFromRequirementSnapshot(snapshot: WorkspaceRunSnapshot) {
@@ -1136,7 +1511,8 @@ function rebuildRequirementQualityReport(
   const status =
     blockingIssueIds.length > 0
       ? "blocked"
-      : reviewRequiredRequirementIds.length > 0 || baseline.qualityReport.issues.length > 0
+      : reviewRequiredRequirementIds.length > 0 ||
+          baseline.qualityReport.issues.length > 0
         ? "pending-review"
         : "passed";
   return {
@@ -1157,7 +1533,9 @@ function collectTraceableRefKeys(
   const keys = new Set<string>();
   for (const model of models) {
     const diagramKind = model.diagramKind;
-    const modelId = compactRefValue((model as unknown as Record<string, unknown>).modelId);
+    const modelId = compactRefValue(
+      (model as unknown as Record<string, unknown>).modelId,
+    );
     const record = model as unknown as Record<string, unknown>;
     const listKeys: Array<[string, string]> = [
       ["actors", "actor"],
@@ -1167,7 +1545,10 @@ function collectTraceableRefKeys(
       ["interfaces", "interface"],
       ["enums", "enum"],
       ["swimlanes", "swimlane"],
-      ["nodes", diagramKind === "deployment" ? "deployment-node" : "activity-node"],
+      [
+        "nodes",
+        diagramKind === "deployment" ? "deployment-node" : "activity-node",
+      ],
       ["databases", "database"],
       ["components", "component"],
       ["externalSystems", "external-system"],
@@ -1194,12 +1575,18 @@ function collectTraceableRefKeys(
           businessElementIds.add(id);
         }
         if (key === "tables") {
-          const columns = Array.isArray(itemRecord.columns) ? itemRecord.columns : [];
+          const columns = Array.isArray(itemRecord.columns)
+            ? itemRecord.columns
+            : [];
           for (const column of columns) {
             if (!column || typeof column !== "object") continue;
-            const columnId = compactRefValue((column as Record<string, unknown>).id);
+            const columnId = compactRefValue(
+              (column as Record<string, unknown>).id,
+            );
             if (id && columnId) {
-              keys.add(refKey(diagramKind, `${id}.${columnId}`, modelId || undefined));
+              keys.add(
+                refKey(diagramKind, `${id}.${columnId}`, modelId || undefined),
+              );
               businessElementIds.add(`${id}.${columnId}`);
             }
           }
@@ -1215,7 +1602,9 @@ function collectTraceableRefKeys(
       const relationshipRecord = relationship as Record<string, unknown>;
       if (
         diagramKind === "activity" &&
-        (!businessElementIds.has(compactRefValue(relationshipRecord.sourceId)) ||
+        (!businessElementIds.has(
+          compactRefValue(relationshipRecord.sourceId),
+        ) ||
           !businessElementIds.has(compactRefValue(relationshipRecord.targetId)))
       ) {
         continue;
@@ -1250,8 +1639,8 @@ function hasCompleteRequirementTraceability(
   traceability: RequirementModelTraceabilityEntry[],
   manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"] = {},
 ) {
-  const availableModels = models.filter(
-    (model): model is DiagramModelSpec => Boolean(model),
+  const availableModels = models.filter((model): model is DiagramModelSpec =>
+    Boolean(model),
   );
   const modelsRequiringTraceability = availableModels.filter(
     (model) =>
@@ -1261,9 +1650,7 @@ function hasCompleteRequirementTraceability(
   if (modelsRequiringTraceability.length === 0) {
     return availableModels.length > 0;
   }
-  const modelRefs = collectTraceableRefKeys(
-    modelsRequiringTraceability,
-  );
+  const modelRefs = collectTraceableRefKeys(modelsRequiringTraceability);
   return hasCompleteTraceabilityCoverage(
     modelRefs,
     traceability.map((entry) => entry.target),
@@ -1296,7 +1683,10 @@ function isRequirementDiagramStale(input: {
   } = input;
   const diagramFingerprint = diagramInputFingerprints[diagram];
   if (diagramFingerprint) {
-    return !fingerprintMatches(diagramFingerprint, activeRequirementFingerprint);
+    return !fingerprintMatches(
+      diagramFingerprint,
+      activeRequirementFingerprint,
+    );
   }
   if (!generatedDiagrams.includes(diagram)) return false;
 
@@ -1310,7 +1700,10 @@ function isRequirementDiagramStale(input: {
   return !(
     model &&
     requirementInputFingerprint &&
-    fingerprintMatches(requirementInputFingerprint, activeRequirementFingerprint) &&
+    fingerprintMatches(
+      requirementInputFingerprint,
+      activeRequirementFingerprint,
+    ) &&
     hasCompleteRequirementTraceability(
       [model],
       traceabilityForDiagram,
@@ -1329,45 +1722,32 @@ function hasCompleteDesignTraceability(
     (model): model is DesignDiagramModelSpec => Boolean(model),
   );
   const modelsRequiringTraceability = availableModels.filter(
-    (model) => !isManualModelRerendered(manualModelEditStatus, getDesignModelId(model)),
+    (model) =>
+      !isManualModelRerendered(manualModelEditStatus, getDesignModelId(model)),
   );
   if (modelsRequiringTraceability.length === 0) {
     return availableModels.length > 0;
   }
-  const modelRefs = collectTraceableRefKeys(
-    modelsRequiringTraceability,
-  );
+  const modelRefs = collectTraceableRefKeys(modelsRequiringTraceability);
   const sourceCoverageComplete = hasCompleteTraceabilityCoverage(
     modelRefs,
     traceability.map((entry) => entry.source),
   );
   if (!sourceCoverageComplete) return false;
   const requirementRefs = collectTraceableRefKeys(
-    requirementModels.filter((model): model is DiagramModelSpec => Boolean(model)),
+    requirementModels.filter((model): model is DiagramModelSpec =>
+      Boolean(model),
+    ),
   );
   if (requirementRefs.size === 0) return true;
   return traceability.every((entry) =>
     entry.targets.every((target) =>
-      requirementRefs.has(refKey(target.diagramKind, target.elementId, target.modelId)),
+      requirementRefs.has(
+        refKey(target.diagramKind, target.elementId, target.modelId),
+      ),
     ),
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export function WorkspaceSessionProvider({
   children,
@@ -1472,8 +1852,9 @@ export function WorkspaceSessionProvider({
   const [billingGenerationBlock, setBillingGenerationBlock] =
     useState<BillingEntitlementErrorResponse | null>(null);
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
-  const [selectedGenerationTaskId, setSelectedGenerationTaskId] =
-    useState<string | null>(null);
+  const [selectedGenerationTaskId, setSelectedGenerationTaskId] = useState<
+    string | null
+  >(null);
   const [historyItems, setHistoryItems] = useState<RunHistoryItem[]>([]);
   const [requirementBaseline, setRequirementBaseline] =
     useState<RequirementBaseline | null>(null);
@@ -1503,7 +1884,9 @@ export function WorkspaceSessionProvider({
       const openedAt = Date.now();
       const isCompletion = input.tone !== "destructive";
       setGenerationResultDialog((current) => {
-        const currentGroup = current ? generationResultDialogGroup(current) : null;
+        const currentGroup = current
+          ? generationResultDialogGroup(current)
+          : null;
         if (isCompletion && currentGroup === nextGroup) {
           return current;
         }
@@ -1545,12 +1928,15 @@ export function WorkspaceSessionProvider({
     [],
   );
 
-  const closeGenerationConfirmationDialog = useCallback((confirmed: boolean) => {
-    setGenerationConfirmationDialog((current) => {
-      current?.resolve(confirmed);
-      return null;
-    });
-  }, []);
+  const closeGenerationConfirmationDialog = useCallback(
+    (confirmed: boolean) => {
+      setGenerationConfirmationDialog((current) => {
+        current?.resolve(confirmed);
+        return null;
+      });
+    },
+    [],
+  );
 
   const persistAutoGeneratedUpstreamReviews = useCallback(
     async (reviews: WorkspaceRecord["autoGeneratedUpstreamReviews"]) => {
@@ -1653,7 +2039,10 @@ export function WorkspaceSessionProvider({
       nextCandidates: WorkspaceRecord["requirementReviewCandidates"],
     ) => {
       if (repository.updateRequirementReviewState) {
-        await repository.updateRequirementReviewState(nextBaseline, nextCandidates);
+        await repository.updateRequirementReviewState(
+          nextBaseline,
+          nextCandidates,
+        );
       } else {
         await repository.updateRequirementBaseline?.(nextBaseline);
         await repository.updateRequirementReviewCandidates?.(nextCandidates);
@@ -1710,7 +2099,8 @@ export function WorkspaceSessionProvider({
         ],
         ruleId,
         stageLabel: "需求规则",
-        targetLabel: rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+        targetLabel:
+          rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
       });
     },
     [openGenerationResultDialog, rules],
@@ -1728,7 +2118,8 @@ export function WorkspaceSessionProvider({
         (item) => item.sourceRuleId === ruleId,
       );
       if (!requirement) return;
-      const targetLabel = rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则";
+      const targetLabel =
+        rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则";
 
       if (decision === "accept-manual") {
         for (const field of REVIEWABLE_REQUIREMENT_FIELDS) {
@@ -1755,7 +2146,9 @@ export function WorkspaceSessionProvider({
           };
         }
       } else {
-        for (const [field, provenance] of Object.entries(requirement.fieldProvenance)) {
+        for (const [field, provenance] of Object.entries(
+          requirement.fieldProvenance,
+        )) {
           if (
             provenance?.source !== "ai-suggested" ||
             provenance.status !== "pending-review"
@@ -1780,7 +2173,8 @@ export function WorkspaceSessionProvider({
       } else if (requirement.status !== "conflict") {
         requirement.confidence = Math.max(requirement.confidence, 0.72);
         requirement.status = Object.values(requirement.fieldProvenance).some(
-          (item) => item?.status === "pending-review" || item?.status === "rejected",
+          (item) =>
+            item?.status === "pending-review" || item?.status === "rejected",
         )
           ? "pending-review"
           : "accepted";
@@ -1792,7 +2186,9 @@ export function WorkspaceSessionProvider({
       );
       const stillBlocked = relatedIssues.some(isRequirementBlocking);
       if (stillBlocked && decision === "accept-manual") {
-        for (const field of Object.keys(fieldValues) as AtomicRequirementField[]) {
+        for (const field of Object.keys(
+          fieldValues,
+        ) as AtomicRequirementField[]) {
           const provenance = requirement.fieldProvenance[field];
           if (provenance?.source === "manual") {
             requirement.fieldProvenance[field] = {
@@ -1881,12 +2277,52 @@ export function WorkspaceSessionProvider({
     [updateRequirementAiSuggestionReview],
   );
 
+  const confirmRequirementQualityHint = useCallback(
+    async (ruleId: string) => {
+      if (!requirementBaseline) return;
+      const requirement = requirementBaseline.requirements.find(
+        (item) => item.sourceRuleId === ruleId,
+      );
+      if (!requirement) return;
+      const reviewedRequirement = markRequirementReviewed(requirement);
+      const nextBaseline = mergeReviewedRequirement(
+        requirementBaseline,
+        reviewedRequirement,
+      );
+      try {
+        await persistRequirementBaseline(nextBaseline);
+      } catch (error) {
+        showRequirementReviewSaveFailure(error, ruleId);
+        return;
+      }
+      openGenerationResultDialog({
+        title: "需求提示已确认",
+        tone: "success",
+        message: "当前需求质量提示已标记为已确认，可继续后续生成。",
+        requirementId: reviewedRequirement.id,
+        ruleId,
+        stageLabel: "需求规则",
+        targetLabel:
+          rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+      });
+    },
+    [
+      openGenerationResultDialog,
+      persistRequirementBaseline,
+      requirementBaseline,
+      rules,
+      showRequirementReviewSaveFailure,
+    ],
+  );
+
   const repairRequirementRuleCandidate = useCallback(
     async (
       ruleId: string,
       baselineOverride?: RequirementBaseline,
       rulesOverride?: RequirementRule[],
-    ): Promise<WorkspaceRecord["requirementReviewCandidates"][string] | null> => {
+    ): Promise<
+      WorkspaceRecord["requirementReviewCandidates"][string] | null
+    > => {
       const baseline = baselineOverride ?? requirementBaseline;
       if (!baseline) return null;
       const activeRules = rulesOverride ?? rules;
@@ -1909,7 +2345,11 @@ export function WorkspaceSessionProvider({
         };
       }
       try {
-        const runInput = createStartRunInput(requirementText, selectedDiagrams, activeRules);
+        const runInput = createStartRunInput(
+          requirementText,
+          selectedDiagrams,
+          activeRules,
+        );
         const repairResult = await repository.repairRequirementRule({
           requirementText,
           rule,
@@ -1978,12 +2418,17 @@ export function WorkspaceSessionProvider({
       if (!repository.repairRequirementRules) {
         return Object.fromEntries(
           ruleIds
-            .map((ruleId) => [
-              ruleId,
-              failedCandidate(ruleId, "当前环境不支持批量智能修复"),
-            ] as const)
+            .map(
+              (ruleId) =>
+                [
+                  ruleId,
+                  failedCandidate(ruleId, "当前环境不支持批量智能修复"),
+                ] as const,
+            )
             .filter(
-              (entry): entry is readonly [
+              (
+                entry,
+              ): entry is readonly [
                 string,
                 WorkspaceRecord["requirementReviewCandidates"][string],
               ] => Boolean(entry[1]),
@@ -1991,7 +2436,11 @@ export function WorkspaceSessionProvider({
         );
       }
       try {
-        const runInput = createStartRunInput(requirementText, selectedDiagrams, activeRules);
+        const runInput = createStartRunInput(
+          requirementText,
+          selectedDiagrams,
+          activeRules,
+        );
         const repairResult = await repository.repairRequirementRules({
           requirementText,
           rules: activeRules,
@@ -1999,13 +2448,16 @@ export function WorkspaceSessionProvider({
           baseline,
           providerSettings: runInput.providerSettings,
         });
-        const nextCandidates: WorkspaceRecord["requirementReviewCandidates"] = {};
+        const nextCandidates: WorkspaceRecord["requirementReviewCandidates"] =
+          {};
         for (const candidate of repairResult.candidates) {
           const requirement = requirementByRuleId.get(candidate.ruleId);
           if (!requirement) continue;
           nextCandidates[candidate.ruleId] = {
             ruleId: candidate.ruleId,
-            beforeRequirement: structuredClone(requirement) as AtomicRequirement,
+            beforeRequirement: structuredClone(
+              requirement,
+            ) as AtomicRequirement,
             afterRequirement: candidate.requirement,
             repairRationale: candidate.repairRationale,
             blockingReasons: candidate.blockingReasons,
@@ -2015,7 +2467,10 @@ export function WorkspaceSessionProvider({
           };
         }
         for (const failure of repairResult.failures) {
-          const candidate = failedCandidate(failure.ruleId, failure.errorMessage);
+          const candidate = failedCandidate(
+            failure.ruleId,
+            failure.errorMessage,
+          );
           if (candidate) nextCandidates[failure.ruleId] = candidate;
         }
         for (const ruleId of ruleIds) {
@@ -2032,9 +2487,14 @@ export function WorkspaceSessionProvider({
           error instanceof Error ? error.message : "模型返回内容无法解析。";
         return Object.fromEntries(
           ruleIds
-            .map((ruleId) => [ruleId, failedCandidate(ruleId, errorMessage)] as const)
+            .map(
+              (ruleId) =>
+                [ruleId, failedCandidate(ruleId, errorMessage)] as const,
+            )
             .filter(
-              (entry): entry is readonly [
+              (
+                entry,
+              ): entry is readonly [
                 string,
                 WorkspaceRecord["requirementReviewCandidates"][string],
               ] => Boolean(entry[1]),
@@ -2042,13 +2502,7 @@ export function WorkspaceSessionProvider({
         );
       }
     },
-    [
-      repository,
-      requirementBaseline,
-      requirementText,
-      rules,
-      selectedDiagrams,
-    ],
+    [repository, requirementBaseline, requirementText, rules, selectedDiagrams],
   );
 
   const repairRequirementRule = useCallback(
@@ -2067,7 +2521,8 @@ export function WorkspaceSessionProvider({
           requirementId: candidate.beforeRequirement.id,
           ruleId,
           stageLabel: "需求规则",
-          targetLabel: rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+          targetLabel:
+            rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
         });
       }
     },
@@ -2118,7 +2573,8 @@ export function WorkspaceSessionProvider({
         requirementId: reviewedRequirement.id,
         ruleId,
         stageLabel: "需求规则",
-        targetLabel: rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+        targetLabel:
+          rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
       });
     },
     [
@@ -2175,7 +2631,7 @@ export function WorkspaceSessionProvider({
       setSelectedGenerationTaskId((selectedId) =>
         selectedId && active.some((task) => task.clientTaskId === selectedId)
           ? selectedId
-          : active[0]?.clientTaskId ?? null,
+          : (active[0]?.clientTaskId ?? null),
       );
       return active;
     });
@@ -2225,98 +2681,104 @@ export function WorkspaceSessionProvider({
   );
 
   const applyWorkspaceRecord = useCallback((workspace: WorkspaceRecord) => {
-      setRequirementTextRaw(workspace.requirementText);
-      setRules(workspace.rules);
-      setRequirementBaseline(workspace.requirementBaseline ?? null);
-      setRequirementQualityReport(workspace.requirementQualityReport ?? null);
-      setRequirementReviewCandidates(workspace.requirementReviewCandidates ?? {});
-      setAutoGeneratedUpstreamReviews(workspace.autoGeneratedUpstreamReviews ?? {});
-      setModels(workspace.models);
-      setRequirementModelTraceability(workspace.requirementModelTraceability ?? []);
-      setSelectedDiagrams([]);
-      setPlantUml(workspace.plantUml);
-      setSvgArtifacts(workspace.svgArtifacts);
-      setDiagramErrors(workspace.diagramErrors);
-      setSelectedDesignDiagrams([]);
-      setDesignModels(workspace.designModels);
-      setDesignModelTraceability(workspace.designModelTraceability ?? []);
-      setDesignPlantUml(workspace.designPlantUml);
-      setDesignSvgArtifacts(workspace.designSvgArtifacts);
-      setDesignDiagramErrors(workspace.designDiagramErrors);
-      setManualModelEditStatus(workspace.manualModelEditStatus ?? {});
-      setCodeSpec(workspace.codeSpec);
-      setCodeBusinessLogic(workspace.codeBusinessLogic);
-      setCodeFiles(workspace.codeFiles);
-      setCodeEntryFile(workspace.codeEntryFile);
-      setCodeDependencies(workspace.codeDependencies);
-      setCodeUiMockup(workspace.codeUiMockup);
-      setCodeAgentPlan(workspace.codeAgentPlan);
-      setCodeSkills(workspace.codeSkills);
-      setCodeSkillDiagnostics(workspace.codeSkillDiagnostics);
-      setCodeSkillResourcePlan(workspace.codeSkillResourcePlan);
-      setCodeSkillContext(workspace.codeSkillContext);
-      setCodeDiagnostics(workspace.codeDiagnostics);
-      setGeneratedDiagrams(workspace.generatedDiagramTypes);
-      setGeneratedDesignDiagrams(workspace.generatedDesignDiagramTypes);
-      setRulesVersion(workspace.rulesVersion);
-      setRulesBasedOnTextVersion(workspace.rulesBasedOnTextVersion);
-      setRequirementInputFingerprint(workspace.requirementInputFingerprint ?? null);
-      setDiagramVersions(workspace.diagramVersions);
-      setDiagramInputFingerprints(workspace.diagramInputFingerprints ?? {});
-      setDesignInputFingerprints(workspace.designInputFingerprints ?? {});
-      setRunUiState({
-        runStatus: workspace.runStatus,
-        runProgress: workspace.runProgress,
-        runMessage: workspace.runMessage,
-        errorMessage: workspace.errorMessage,
-      });
-      setTextVersion(0);
+    setRequirementTextRaw(workspace.requirementText);
+    setRules(workspace.rules);
+    setRequirementBaseline(workspace.requirementBaseline ?? null);
+    setRequirementQualityReport(workspace.requirementQualityReport ?? null);
+    setRequirementReviewCandidates(workspace.requirementReviewCandidates ?? {});
+    setAutoGeneratedUpstreamReviews(
+      workspace.autoGeneratedUpstreamReviews ?? {},
+    );
+    setModels(workspace.models);
+    setRequirementModelTraceability(
+      workspace.requirementModelTraceability ?? [],
+    );
+    setSelectedDiagrams([]);
+    setPlantUml(workspace.plantUml);
+    setSvgArtifacts(workspace.svgArtifacts);
+    setDiagramErrors(workspace.diagramErrors);
+    setSelectedDesignDiagrams([]);
+    setDesignModels(workspace.designModels);
+    setDesignModelTraceability(workspace.designModelTraceability ?? []);
+    setDesignPlantUml(workspace.designPlantUml);
+    setDesignSvgArtifacts(workspace.designSvgArtifacts);
+    setDesignDiagramErrors(workspace.designDiagramErrors);
+    setManualModelEditStatus(workspace.manualModelEditStatus ?? {});
+    setCodeSpec(workspace.codeSpec);
+    setCodeBusinessLogic(workspace.codeBusinessLogic);
+    setCodeFiles(workspace.codeFiles);
+    setCodeEntryFile(workspace.codeEntryFile);
+    setCodeDependencies(workspace.codeDependencies);
+    setCodeUiMockup(workspace.codeUiMockup);
+    setCodeAgentPlan(workspace.codeAgentPlan);
+    setCodeSkills(workspace.codeSkills);
+    setCodeSkillDiagnostics(workspace.codeSkillDiagnostics);
+    setCodeSkillResourcePlan(workspace.codeSkillResourcePlan);
+    setCodeSkillContext(workspace.codeSkillContext);
+    setCodeDiagnostics(workspace.codeDiagnostics);
+    setGeneratedDiagrams(workspace.generatedDiagramTypes);
+    setGeneratedDesignDiagrams(workspace.generatedDesignDiagramTypes);
+    setRulesVersion(workspace.rulesVersion);
+    setRulesBasedOnTextVersion(workspace.rulesBasedOnTextVersion);
+    setRequirementInputFingerprint(
+      workspace.requirementInputFingerprint ?? null,
+    );
+    setDiagramVersions(workspace.diagramVersions);
+    setDiagramInputFingerprints(workspace.diagramInputFingerprints ?? {});
+    setDesignInputFingerprints(workspace.designInputFingerprints ?? {});
+    setRunUiState({
+      runStatus: workspace.runStatus,
+      runProgress: workspace.runProgress,
+      runMessage: workspace.runMessage,
+      errorMessage: workspace.errorMessage,
+    });
+    setTextVersion(0);
   }, []);
 
   useEffect(() => {
     let active = true;
 
-    void repository.loadWorkspace().then((workspace) => {
-      if (!active) return;
-      applyWorkspaceRecord(workspace);
-      void repository.listRunHistory().then((items) => {
-        if (active) {
-          setHistoryItems(items);
-        }
-      }).catch((error) => {
+    void repository
+      .loadWorkspace()
+      .then((workspace) => {
+        if (!active) return;
+        applyWorkspaceRecord(workspace);
+        void repository
+          .listRunHistory()
+          .then((items) => {
+            if (active) {
+              setHistoryItems(items);
+            }
+          })
+          .catch((error) => {
+            if (!active) return;
+            setRunUiState((current) => ({
+              ...current,
+              errorMessage:
+                error instanceof Error ? error.message : "读取运行历史失败",
+            }));
+          });
+      })
+      .catch((error) => {
         if (!active) return;
         setRunUiState((current) => ({
           ...current,
           errorMessage:
-            error instanceof Error ? error.message : "读取运行历史失败",
+            error instanceof Error ? error.message : "加载工作台失败",
         }));
       });
-    }).catch((error) => {
-      if (!active) return;
-      setRunUiState((current) => ({
-        ...current,
-        errorMessage: error instanceof Error ? error.message : "加载工作台失败",
-      }));
-    });
 
     return () => {
       active = false;
     };
   }, [applyWorkspaceRecord, repository]);
 
-
-
-
-
-
-
-
-
   const applyRunSnapshot = useCallback(
     (
       snapshot: WorkspaceRunSnapshot,
       baseTextVersion: number,
       mode: RunMode,
+      options?: ApplyRunSnapshotOptions,
     ) => {
       const snapshotFingerprint = requirementInputFingerprintFor(
         snapshot.requirementText,
@@ -2331,27 +2793,47 @@ export function WorkspaceSessionProvider({
             );
       const inputChanged =
         requirementInputFingerprint !== null &&
-        !fingerprintMatches(requirementInputFingerprint, activeRequirementFingerprint);
-      const nextRulesVersion = inputChanged ? rulesVersion + 1 : rulesVersion || 1;
+        !fingerprintMatches(
+          requirementInputFingerprint,
+          activeRequirementFingerprint,
+        );
+      const nextRulesVersion = inputChanged
+        ? rulesVersion + 1
+        : rulesVersion || 1;
       const mapped = snapshotToMaps(snapshot);
       const snapshotDiagrams = diagramsFromRequirementSnapshot(snapshot);
+      const successfulSnapshotDiagrams =
+        successfulRequirementDiagramsFromSnapshot(snapshot);
+      const successfulAffectedDiagrams =
+        mode.kind === "partial-diagrams"
+          ? orderedRequirementDiagrams(
+              successfulSnapshotDiagrams.filter((diagram) =>
+                mode.diagrams.includes(diagram),
+              ),
+            )
+          : successfulSnapshotDiagrams;
+      const successfulScope = requirementSnapshotScope(
+        snapshot,
+        successfulAffectedDiagrams,
+      );
 
       if (mode.kind === "rules-only") {
         setRules(snapshot.rules);
-        setRequirementBaseline(snapshot.requirementBaseline ?? null);
-        setRequirementQualityReport(
-          snapshot.requirementBaseline?.qualityReport ?? null,
-        );
-        setRequirementReviewCandidates({});
-        void repository.updateRequirementReviewCandidates?.({});
+        if (!options?.preserveRuleReviewState) {
+          setRequirementBaseline(snapshot.requirementBaseline ?? null);
+          setRequirementQualityReport(
+            snapshot.requirementBaseline?.qualityReport ?? null,
+          );
+          setRequirementReviewCandidates({});
+          void repository.updateRequirementReviewCandidates?.({});
+        }
       }
       setRulesVersion(nextRulesVersion);
       setRulesBasedOnTextVersion(baseTextVersion);
       setRequirementInputFingerprint(activeRequirementFingerprint);
       setDiagramErrors((current) => {
-        const affected = mode.kind === "partial-diagrams"
-          ? mode.diagrams
-          : snapshotDiagrams;
+        const affected =
+          mode.kind === "partial-diagrams" ? mode.diagrams : snapshotDiagrams;
         const next = { ...current };
         for (const diagram of affected) {
           delete next[diagram];
@@ -2372,70 +2854,79 @@ export function WorkspaceSessionProvider({
       }
 
       setModels((current) => {
-        const affected = mode.kind === "partial-diagrams"
-          ? mode.diagrams
-          : snapshot.selectedDiagrams;
-        const next = clearRequirementScopedRecord(current, affected);
-        for (const [modelId, model] of Object.entries(mapped.models)) {
+        const next = clearRequirementScopedRecordForScope(
+          current,
+          successfulScope,
+        );
+        const successfulModels = keepRequirementScopedRecordForScope(
+          mapped.models,
+          successfulScope,
+        );
+        for (const [modelId, model] of Object.entries(successfulModels)) {
           next[modelId] = model;
         }
         return next;
       });
       setRequirementModelTraceability((current) => {
-        const snapshotTraceability = snapshot.requirementModelTraceability ?? [];
-        const affected = new Set(
-          mode.kind === "partial-diagrams" ? mode.diagrams : snapshotDiagrams,
-        );
+        const snapshotTraceability =
+          snapshot.requirementModelTraceability ?? [];
         return [
-          ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramType)),
+          ...current.filter(
+            (entry) => !traceabilityEntryMatchesScope(entry, successfulScope),
+          ),
           ...snapshotTraceability.filter((entry) =>
-            affected.has(entry.target.diagramKind as DiagramType),
+            traceabilityEntryMatchesScope(entry, successfulScope),
           ),
         ];
       });
 
       setPlantUml((current) => {
-        const affected = mode.kind === "partial-diagrams"
-          ? mode.diagrams
-          : snapshotDiagrams;
-        const next = clearRequirementScopedRecord(current, affected);
-        for (const [modelId, source] of Object.entries(mapped.plantUml)) {
+        const next = clearRequirementScopedRecordForScope(
+          current,
+          successfulScope,
+        );
+        const successfulPlantUml = keepRequirementScopedRecordForScope(
+          mapped.plantUml,
+          successfulScope,
+        );
+        for (const [modelId, source] of Object.entries(successfulPlantUml)) {
           next[modelId] = source;
         }
         return next;
       });
 
       setSvgArtifacts((current) => {
-        const affected = mode.kind === "partial-diagrams"
-          ? mode.diagrams
-          : snapshotDiagrams;
-        const next = clearRequirementScopedRecord(current, affected);
-        for (const [modelId, artifact] of Object.entries(mapped.svgArtifacts)) {
+        const next = clearRequirementScopedRecordForScope(
+          current,
+          successfulScope,
+        );
+        const successfulSvgArtifacts = keepRequirementScopedRecordForScope(
+          mapped.svgArtifacts,
+          successfulScope,
+        );
+        for (const [modelId, artifact] of Object.entries(
+          successfulSvgArtifacts,
+        )) {
           next[modelId] = artifact;
         }
         return next;
       });
 
-      const affectedDiagrams =
-        mode.kind === "partial-diagrams"
-          ? mode.diagrams
-          : snapshotDiagrams;
-
       setGeneratedDiagrams((current) => {
-        return Array.from(new Set([...current, ...affectedDiagrams]));
+        return Array.from(new Set([...current, ...successfulAffectedDiagrams]));
       });
       setSelectedDiagrams([]);
 
       setDiagramVersions((current) => {
         const next = { ...current };
-        for (const diagram of affectedDiagrams) {
+        for (const diagram of successfulAffectedDiagrams) {
           next[diagram] = nextRulesVersion;
         }
         return next;
       });
       setDiagramInputFingerprints((current) => {
         const next = { ...current };
-        for (const diagram of affectedDiagrams) {
+        for (const diagram of successfulAffectedDiagrams) {
           next[diagram] = activeRequirementFingerprint;
         }
         return next;
@@ -2464,7 +2955,10 @@ export function WorkspaceSessionProvider({
         const affected = new Set(snapshot.selectedDiagrams);
         const snapshotTraceability = snapshot.designModelTraceability ?? [];
         return [
-          ...current.filter((entry) => !affected.has(entry.source.diagramKind as DesignDiagramType)),
+          ...current.filter(
+            (entry) =>
+              !affected.has(entry.source.diagramKind as DesignDiagramType),
+          ),
           ...snapshotTraceability,
         ];
       });
@@ -2532,33 +3026,205 @@ export function WorkspaceSessionProvider({
     [openGenerationResultDialog],
   );
 
+  const applyRestoredSnapshot = useCallback(
+    (snapshot: RunHistorySnapshot) => {
+      const restoredRulesVersion = rulesVersion + 1;
+      const restoredRequirementFingerprint = requirementInputFingerprintFor(
+        snapshot.requirementText,
+        "rules" in snapshot ? snapshot.rules : [],
+      );
+      setRequirementTextRaw(snapshot.requirementText);
+      void repository.updateRequirementText(snapshot.requirementText);
+      setRules("rules" in snapshot ? snapshot.rules : []);
+      setRulesVersion(restoredRulesVersion);
+      setRulesBasedOnTextVersion(textVersion);
+      setRequirementInputFingerprint(restoredRequirementFingerprint);
+      setRequirementReviewCandidates({});
 
+      if (isDocumentRunSnapshot(snapshot)) {
+        setRunUiState({
+          runStatus: snapshot.status,
+          runProgress:
+            snapshot.status === "completed" || snapshot.status === "failed"
+              ? 100
+              : 0,
+          runMessage:
+            snapshot.status === "completed" ? "已恢复说明书记录" : null,
+          errorMessage: runErrorMessage(snapshot),
+        });
+        setCurrentRunDiagnostics({
+          ...createEmptyDiagnostics(),
+          runKind: "document",
+          runId: snapshot.runId,
+          activeStage: snapshot.currentStage,
+          finishedAt:
+            snapshot.status === "completed" || snapshot.status === "failed"
+              ? new Date().toISOString()
+              : null,
+          streamText: runErrorMessage(snapshot) ?? "",
+        });
+        return;
+      }
 
-  const applyRestoredSnapshot = useCallback((snapshot: RunHistorySnapshot) => {
-    const restoredRulesVersion = rulesVersion + 1;
-    const restoredRequirementFingerprint = requirementInputFingerprintFor(
-      snapshot.requirementText,
-      "rules" in snapshot ? snapshot.rules : [],
-    );
-    setRequirementTextRaw(snapshot.requirementText);
-    void repository.updateRequirementText(snapshot.requirementText);
-    setRules("rules" in snapshot ? snapshot.rules : []);
-    setRulesVersion(restoredRulesVersion);
-    setRulesBasedOnTextVersion(textVersion);
-    setRequirementInputFingerprint(restoredRequirementFingerprint);
-    setRequirementReviewCandidates({});
+      if (isCodeRunSnapshot(snapshot)) {
+        const restoredDesignModels = Object.fromEntries(
+          snapshot.designModels.map((model) => [
+            getDesignModelId(model),
+            model,
+          ]),
+        ) as WorkspaceRecord["designModels"];
+        const restoredDesignDiagrams = snapshot.designModels.map(
+          (model) => model.diagramKind,
+        );
 
-    if (isDocumentRunSnapshot(snapshot)) {
+        setModels({});
+        setRequirementModelTraceability([]);
+        setSelectedDiagrams([]);
+        setPlantUml({});
+        setSvgArtifacts({});
+        setDiagramErrors({});
+        setGeneratedDiagrams([]);
+        setDiagramVersions({});
+        setDiagramInputFingerprints({});
+        setSelectedDesignDiagrams([]);
+        setDesignModels(restoredDesignModels);
+        setDesignModelTraceability([]);
+        setDesignPlantUml({});
+        setDesignSvgArtifacts({});
+        setDesignDiagramErrors({});
+        setGeneratedDesignDiagrams(restoredDesignDiagrams);
+        setDesignInputFingerprints({});
+        applyCodeRunSnapshot(snapshot);
+      } else if (isDesignRunSnapshot(snapshot)) {
+        const mapped = designSnapshotToMaps(snapshot);
+        const restoredRequirementModels = Object.fromEntries(
+          snapshot.requirementModels.map((model) => [
+            getRequirementModelId(model),
+            model,
+          ]),
+        ) as WorkspaceRecord["models"];
+        const restoredRequirementDiagrams = snapshot.requirementModels.map(
+          (model) => model.diagramKind,
+        );
+
+        setModels(restoredRequirementModels);
+        setRequirementModelTraceability(
+          snapshot.requirementModelTraceability ?? [],
+        );
+        setSelectedDiagrams([]);
+        setPlantUml({});
+        setSvgArtifacts({});
+        setDiagramErrors({});
+        setGeneratedDiagrams(restoredRequirementDiagrams);
+        setDiagramVersions(
+          Object.fromEntries(
+            restoredRequirementDiagrams.map((diagram) => [
+              diagram,
+              restoredRulesVersion,
+            ]),
+          ),
+        );
+        setDiagramInputFingerprints(
+          Object.fromEntries(
+            restoredRequirementDiagrams.map((diagram) => [
+              diagram,
+              restoredRequirementFingerprint,
+            ]),
+          ),
+        );
+        setSelectedDesignDiagrams([]);
+        setDesignModels(mapped.models);
+        setDesignModelTraceability(snapshot.designModelTraceability ?? []);
+        setDesignPlantUml(mapped.plantUml);
+        setDesignSvgArtifacts(mapped.svgArtifacts);
+        setDesignDiagramErrors(snapshot.diagramErrors);
+        setGeneratedDesignDiagrams([...snapshot.selectedDiagrams]);
+        setDesignInputFingerprints(
+          Object.fromEntries(
+            Object.keys(mapped.models).map((modelId) => [
+              modelId,
+              designInputFingerprintFor(
+                snapshot.requirementModels,
+                snapshot.requirementModelTraceability,
+              ),
+            ]),
+          ),
+        );
+        setCodeSpec(null);
+        setCodeBusinessLogic(null);
+        setCodeFiles({});
+        setCodeEntryFile(null);
+        setCodeDependencies({});
+        setCodeAgentPlan([]);
+        setCodeSkills([]);
+        setCodeSkillDiagnostics([]);
+        setCodeSkillResourcePlan(null);
+        setCodeSkillContext(null);
+        setCodeDiagnostics([]);
+      } else {
+        const mapped = snapshotToMaps(snapshot);
+        setModels(mapped.models);
+        setRequirementModelTraceability(
+          snapshot.requirementModelTraceability ?? [],
+        );
+        setSelectedDiagrams([]);
+        setPlantUml(mapped.plantUml);
+        setSvgArtifacts(mapped.svgArtifacts);
+        setDiagramErrors(snapshot.diagramErrors);
+        setGeneratedDiagrams([...snapshot.selectedDiagrams]);
+        setDiagramVersions(
+          Object.fromEntries(
+            snapshot.selectedDiagrams.map((diagram) => [
+              diagram,
+              restoredRulesVersion,
+            ]),
+          ),
+        );
+        setDiagramInputFingerprints(
+          Object.fromEntries(
+            snapshot.selectedDiagrams.map((diagram) => [
+              diagram,
+              restoredRequirementFingerprint,
+            ]),
+          ),
+        );
+        setSelectedDesignDiagrams([]);
+        setDesignModels({});
+        setDesignModelTraceability([]);
+        setDesignPlantUml({});
+        setDesignSvgArtifacts({});
+        setDesignDiagramErrors({});
+        setGeneratedDesignDiagrams([]);
+        setDesignInputFingerprints({});
+        setCodeSpec(null);
+        setCodeBusinessLogic(null);
+        setCodeFiles({});
+        setCodeEntryFile(null);
+        setCodeDependencies({});
+        setCodeAgentPlan([]);
+        setCodeSkills([]);
+        setCodeSkillDiagnostics([]);
+        setCodeSkillResourcePlan(null);
+        setCodeSkillContext(null);
+        setCodeDiagnostics([]);
+      }
+
       setRunUiState({
         runStatus: snapshot.status,
         runProgress:
-          snapshot.status === "completed" || snapshot.status === "failed" ? 100 : 0,
-        runMessage: snapshot.status === "completed" ? "已恢复说明书记录" : null,
+          snapshot.status === "completed" || snapshot.status === "failed"
+            ? 100
+            : 0,
+        runMessage: snapshot.status === "completed" ? "已恢复历史快照" : null,
         errorMessage: runErrorMessage(snapshot),
       });
       setCurrentRunDiagnostics({
         ...createEmptyDiagnostics(),
-        runKind: "document",
+        runKind: isCodeRunSnapshot(snapshot)
+          ? "code"
+          : isDesignRunSnapshot(snapshot)
+            ? "design"
+            : "requirements",
         runId: snapshot.runId,
         activeStage: snapshot.currentStage,
         finishedAt:
@@ -2566,197 +3232,42 @@ export function WorkspaceSessionProvider({
             ? new Date().toISOString()
             : null,
         streamText: runErrorMessage(snapshot) ?? "",
-      });
-      return;
-    }
-
-    if (isCodeRunSnapshot(snapshot)) {
-      const restoredDesignModels = Object.fromEntries(
-        snapshot.designModels.map((model) => [getDesignModelId(model), model]),
-      ) as WorkspaceRecord["designModels"];
-      const restoredDesignDiagrams = snapshot.designModels.map(
-        (model) => model.diagramKind,
-      );
-
-      setModels({});
-      setRequirementModelTraceability([]);
-      setSelectedDiagrams([]);
-      setPlantUml({});
-      setSvgArtifacts({});
-      setDiagramErrors({});
-      setGeneratedDiagrams([]);
-      setDiagramVersions({});
-      setDiagramInputFingerprints({});
-      setSelectedDesignDiagrams([]);
-      setDesignModels(restoredDesignModels);
-      setDesignModelTraceability([]);
-      setDesignPlantUml({});
-      setDesignSvgArtifacts({});
-      setDesignDiagramErrors({});
-      setGeneratedDesignDiagrams(restoredDesignDiagrams);
-      setDesignInputFingerprints({});
-      applyCodeRunSnapshot(snapshot);
-    } else if (isDesignRunSnapshot(snapshot)) {
-      const mapped = designSnapshotToMaps(snapshot);
-      const restoredRequirementModels = Object.fromEntries(
-        snapshot.requirementModels.map((model) => [getRequirementModelId(model), model]),
-      ) as WorkspaceRecord["models"];
-      const restoredRequirementDiagrams = snapshot.requirementModels.map(
-        (model) => model.diagramKind,
-      );
-
-      setModels(restoredRequirementModels);
-      setRequirementModelTraceability(snapshot.requirementModelTraceability ?? []);
-      setSelectedDiagrams([]);
-      setPlantUml({});
-      setSvgArtifacts({});
-      setDiagramErrors({});
-      setGeneratedDiagrams(restoredRequirementDiagrams);
-      setDiagramVersions(
-        Object.fromEntries(
-          restoredRequirementDiagrams.map((diagram) => [
-            diagram,
-            restoredRulesVersion,
-          ]),
-        ),
-      );
-      setDiagramInputFingerprints(
-        Object.fromEntries(
-          restoredRequirementDiagrams.map((diagram) => [
-            diagram,
-            restoredRequirementFingerprint,
-          ]),
-        ),
-      );
-      setSelectedDesignDiagrams([]);
-      setDesignModels(mapped.models);
-      setDesignModelTraceability(snapshot.designModelTraceability ?? []);
-      setDesignPlantUml(mapped.plantUml);
-      setDesignSvgArtifacts(mapped.svgArtifacts);
-      setDesignDiagramErrors(snapshot.diagramErrors);
-      setGeneratedDesignDiagrams([...snapshot.selectedDiagrams]);
-      setDesignInputFingerprints(
-        Object.fromEntries(
-          Object.keys(mapped.models).map((modelId) => [
-            modelId,
-            designInputFingerprintFor(
-              snapshot.requirementModels,
-              snapshot.requirementModelTraceability,
-            ),
-          ]),
-        ),
-      );
-      setCodeSpec(null);
-      setCodeBusinessLogic(null);
-      setCodeFiles({});
-      setCodeEntryFile(null);
-      setCodeDependencies({});
-      setCodeAgentPlan([]);
-      setCodeSkills([]);
-      setCodeSkillDiagnostics([]);
-      setCodeSkillResourcePlan(null);
-      setCodeSkillContext(null);
-      setCodeDiagnostics([]);
-    } else {
-      const mapped = snapshotToMaps(snapshot);
-      setModels(mapped.models);
-      setRequirementModelTraceability(snapshot.requirementModelTraceability ?? []);
-      setSelectedDiagrams([]);
-      setPlantUml(mapped.plantUml);
-      setSvgArtifacts(mapped.svgArtifacts);
-      setDiagramErrors(snapshot.diagramErrors);
-      setGeneratedDiagrams([...snapshot.selectedDiagrams]);
-      setDiagramVersions(
-        Object.fromEntries(
-          snapshot.selectedDiagrams.map((diagram) => [
-            diagram,
-            restoredRulesVersion,
-          ]),
-        ),
-      );
-      setDiagramInputFingerprints(
-        Object.fromEntries(
-          snapshot.selectedDiagrams.map((diagram) => [
-            diagram,
-            restoredRequirementFingerprint,
-          ]),
-        ),
-      );
-      setSelectedDesignDiagrams([]);
-      setDesignModels({});
-      setDesignModelTraceability([]);
-      setDesignPlantUml({});
-      setDesignSvgArtifacts({});
-      setDesignDiagramErrors({});
-      setGeneratedDesignDiagrams([]);
-      setDesignInputFingerprints({});
-      setCodeSpec(null);
-      setCodeBusinessLogic(null);
-      setCodeFiles({});
-      setCodeEntryFile(null);
-      setCodeDependencies({});
-      setCodeAgentPlan([]);
-      setCodeSkills([]);
-      setCodeSkillDiagnostics([]);
-      setCodeSkillResourcePlan(null);
-      setCodeSkillContext(null);
-      setCodeDiagnostics([]);
-    }
-
-    setRunUiState({
-      runStatus: snapshot.status,
-      runProgress: snapshot.status === "completed" || snapshot.status === "failed" ? 100 : 0,
-      runMessage: snapshot.status === "completed" ? "已恢复历史快照" : null,
-      errorMessage: runErrorMessage(snapshot),
-    });
-    setCurrentRunDiagnostics({
-      ...createEmptyDiagnostics(),
-      runKind: isCodeRunSnapshot(snapshot)
-        ? "code"
-        : isDesignRunSnapshot(snapshot)
-          ? "design"
-          : "requirements",
-      runId: snapshot.runId,
-      activeStage: snapshot.currentStage,
-      finishedAt:
-        snapshot.status === "completed" || snapshot.status === "failed"
-          ? new Date().toISOString()
+        uiMockup: isCodeRunSnapshot(snapshot) ? snapshot.uiMockup : null,
+        uiReferenceSpec: isCodeRunSnapshot(snapshot)
+          ? snapshot.uiReferenceSpec
           : null,
-      streamText: runErrorMessage(snapshot) ?? "",
-      uiMockup: isCodeRunSnapshot(snapshot) ? snapshot.uiMockup : null,
-      uiReferenceSpec: isCodeRunSnapshot(snapshot)
-        ? snapshot.uiReferenceSpec
-        : null,
-      uiFidelityReport: isCodeRunSnapshot(snapshot)
-        ? snapshot.uiFidelityReport
-        : null,
-      visualDirection: isCodeRunSnapshot(snapshot)
-        ? snapshot.visualDirection
-        : null,
-      skillResourceDiscoveryPlan: isCodeRunSnapshot(snapshot)
-        ? snapshot.skillResourceDiscoveryPlan
-        : null,
-      skillResourcePreviews: isCodeRunSnapshot(snapshot)
-        ? snapshot.skillResourcePreviews
-        : null,
-      skillResourcePlan: isCodeRunSnapshot(snapshot)
-        ? snapshot.skillResourcePlan
-        : null,
-      codeSkillContext: isCodeRunSnapshot(snapshot)
-        ? snapshot.codeSkillContext
-        : null,
-      codeTrace: isCodeRunSnapshot(snapshot)
-        ? snapshot.codeTrace ?? []
-        : [],
-      requirementTrace:
-        !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot)
-          ? snapshot.requirementTrace ?? []
+        uiFidelityReport: isCodeRunSnapshot(snapshot)
+          ? snapshot.uiFidelityReport
+          : null,
+        visualDirection: isCodeRunSnapshot(snapshot)
+          ? snapshot.visualDirection
+          : null,
+        skillResourceDiscoveryPlan: isCodeRunSnapshot(snapshot)
+          ? snapshot.skillResourceDiscoveryPlan
+          : null,
+        skillResourcePreviews: isCodeRunSnapshot(snapshot)
+          ? snapshot.skillResourcePreviews
+          : null,
+        skillResourcePlan: isCodeRunSnapshot(snapshot)
+          ? snapshot.skillResourcePlan
+          : null,
+        codeSkillContext: isCodeRunSnapshot(snapshot)
+          ? snapshot.codeSkillContext
+          : null,
+        codeTrace: isCodeRunSnapshot(snapshot)
+          ? (snapshot.codeTrace ?? [])
           : [],
-      designTrace: isDesignRunSnapshot(snapshot)
-        ? snapshot.designTrace ?? []
-        : [],
-    });
-  }, [applyCodeRunSnapshot, repository, rulesVersion, textVersion]);
+        requirementTrace:
+          !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot)
+            ? (snapshot.requirementTrace ?? [])
+            : [],
+        designTrace: isDesignRunSnapshot(snapshot)
+          ? (snapshot.designTrace ?? [])
+          : [],
+      });
+    },
+    [applyCodeRunSnapshot, repository, rulesVersion, textVersion],
+  );
 
   const refreshHistory = useCallback(async () => {
     setHistoryItems(await repository.listRunHistory());
@@ -2819,13 +3330,14 @@ export function WorkspaceSessionProvider({
         rules?: RequirementRule[];
         contextModels?: DiagramModelSpec[];
         contextRequirementModelTraceability?: RequirementModelTraceabilityEntry[];
+        analysisTargetUseCaseIds?: string[];
       },
-      options?: { suppressSuccessDialog?: boolean },
+      options?: RunGenerationOptions,
     ) => {
       const runRequestId = runController.beginRun("requirements");
       const baseTextVersion = textVersion;
       const rulesForRun =
-        mode.kind === "rules-only" ? [] : inputOverride?.rules ?? rules;
+        mode.kind === "rules-only" ? [] : (inputOverride?.rules ?? rules);
       const baseInputFingerprint = snapshotInputFingerprint({
         requirementText,
         rules: rulesForRun,
@@ -2837,11 +3349,15 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
-        const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
-          requirementBaseline,
-          requirementReviewCandidates,
-        );
-        if (mode.kind !== "rules-only" && currentPendingRequirementReviews.length > 0) {
+        const currentPendingRequirementReviews =
+          requirementRuleIdsBlockingGeneration(
+            requirementBaseline,
+            requirementReviewCandidates,
+          );
+        if (
+          mode.kind !== "rules-only" &&
+          currentPendingRequirementReviews.length > 0
+        ) {
           throw new Error("请先确认需求规则修复结果");
         }
         const startInput = createStartRunInput(
@@ -2855,13 +3371,17 @@ export function WorkspaceSessionProvider({
           ),
           mode.kind === "rules-only"
             ? []
-            : inputOverride?.contextModels ?? Object.values(models).filter(
-                (model): model is DiagramModelSpec => Boolean(model),
-              ),
+            : (inputOverride?.contextModels ??
+                Object.values(models).filter(
+                  (model): model is DiagramModelSpec => Boolean(model),
+                )),
           mode.kind === "rules-only"
             ? []
-            : inputOverride?.contextRequirementModelTraceability ??
-              requirementModelTraceability,
+            : (inputOverride?.contextRequirementModelTraceability ??
+                requirementModelTraceability),
+          mode.kind === "rules-only"
+            ? []
+            : (inputOverride?.analysisTargetUseCaseIds ?? []),
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -2888,7 +3408,11 @@ export function WorkspaceSessionProvider({
                     errorMessage: null,
                   },
                 ]
-              : requirementGenerationSubtasks(diagrams, models),
+              : requirementGenerationSubtasks(
+                  diagrams,
+                  models,
+                  inputOverride?.analysisTargetUseCaseIds,
+                ),
         });
         setRunUiState({
           runStatus: "queued",
@@ -2904,9 +3428,7 @@ export function WorkspaceSessionProvider({
           startedAt: new Date(startedAtMs).toISOString(),
         });
 
-        const started = await repository.startRun(
-          startInput,
-        );
+        const started = await repository.startRun(startInput);
         runId = started.runId;
         updateGenerationTask(clientTaskId, (task) =>
           assignTaskRunId(task, runId!, providerModel),
@@ -2938,42 +3460,51 @@ export function WorkspaceSessionProvider({
             const eventDiagramKind =
               "diagramKind" in event ? event.diagramKind : undefined;
             const refreshMode: RunMode =
-              eventDiagramKind && eventDiagramKind !== "sequence" && eventDiagramKind !== "table"
-                ? { kind: "partial-diagrams", diagrams: [eventDiagramKind as DiagramType] }
+              eventDiagramKind &&
+              eventDiagramKind !== "sequence" &&
+              eventDiagramKind !== "table"
+                ? {
+                    kind: "partial-diagrams",
+                    diagrams: [eventDiagramKind as DiagramType],
+                  }
                 : mode;
-            void repository.getRunSnapshot(runId).then((partialSnapshot) => {
-              if (
-                partialSnapshot &&
-                runController.isCurrentRun(runRequestId, "requirements")
-              ) {
-                applyRunSnapshot(partialSnapshot, baseTextVersion, refreshMode);
-              }
-            }).catch(() => {
-              // Incremental refresh is best-effort; terminal snapshot still reconciles state.
-            });
+            void repository
+              .getRunSnapshot(runId)
+              .then((partialSnapshot) => {
+                if (
+                  partialSnapshot &&
+                  runController.isCurrentRun(runRequestId, "requirements")
+                ) {
+                  applyRunSnapshot(
+                    partialSnapshot,
+                    baseTextVersion,
+                    refreshMode,
+                  );
+                }
+              })
+              .catch(() => {
+                // Incremental refresh is best-effort; terminal snapshot still reconciles state.
+              });
           }
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) => ({
             ...current,
-            finishedAt:
-              isTerminalRunEvent(event)
-                ? diagnosticEvent.at
-                : current.finishedAt,
-            activeStage:
-              "stage" in event
-                ? event.stage
-                : current.activeStage,
-            streamText:
-              isMeaningfulLlmChunkEvent(event)
-                ? appendDiagnosticStream(current.streamText, event.chunk)
-                : current.streamText,
-            chunkCount:
-              isMeaningfulLlmChunkEvent(event)
-                ? current.chunkCount + 1
-                : current.chunkCount,
+            finishedAt: isTerminalRunEvent(event)
+              ? diagnosticEvent.at
+              : current.finishedAt,
+            activeStage: "stage" in event ? event.stage : current.activeStage,
+            streamText: isMeaningfulLlmChunkEvent(event)
+              ? appendDiagnosticStream(current.streamText, event.chunk)
+              : current.streamText,
+            chunkCount: isMeaningfulLlmChunkEvent(event)
+              ? current.chunkCount + 1
+              : current.chunkCount,
             stageStartedAt:
               event.type === "stage_started"
-                ? { ...current.stageStartedAt, [event.stage]: diagnosticEvent.at }
+                ? {
+                    ...current.stageStartedAt,
+                    [event.stage]: diagnosticEvent.at,
+                  }
                 : current.stageStartedAt,
             stageMessages:
               event.type === "stage_progress" && event.message
@@ -2981,11 +3512,11 @@ export function WorkspaceSessionProvider({
                 : current.stageMessages,
             designTrace:
               event.type === "completed" && "designTrace" in event.snapshot
-                ? event.snapshot.designTrace ?? []
+                ? (event.snapshot.designTrace ?? [])
                 : current.designTrace,
             requirementTrace:
               event.type === "completed" && "requirementTrace" in event.snapshot
-                ? event.snapshot.requirementTrace ?? []
+                ? (event.snapshot.requirementTrace ?? [])
                 : current.requirementTrace,
             events: shouldDisplayDiagnosticEvent(event)
               ? [...current.events, diagnosticEvent].slice(-80)
@@ -2997,24 +3528,29 @@ export function WorkspaceSessionProvider({
             runProgress: progress ?? current.runProgress,
             runMessage:
               event.type === "stage_progress"
-                ? event.message ?? current.runMessage
+                ? (event.message ?? current.runMessage)
                 : event.type === "queued"
                   ? "任务已进入队列"
                   : event.type === "completed"
                     ? "生成完成"
                     : event.type === "cancelled"
                       ? event.message
-                    : event.type === "failed"
-                      ? event.error.message
-                      : current.runMessage,
+                      : event.type === "failed"
+                        ? event.error.message
+                        : current.runMessage,
             errorMessage:
-              event.type === "failed" ? event.error.message : current.errorMessage,
+              event.type === "failed"
+                ? event.error.message
+                : current.errorMessage,
           }));
         });
 
         const snapshot =
           (await repository.getRunSnapshot(runId)) ?? lastCompletedSnapshot;
-        if (!snapshot || !runController.isCurrentRun(runRequestId, "requirements")) {
+        if (
+          !snapshot ||
+          !runController.isCurrentRun(runRequestId, "requirements")
+        ) {
           return null;
         }
         if (snapshot.status === "cancelled") {
@@ -3034,10 +3570,18 @@ export function WorkspaceSessionProvider({
           return null;
         }
 
-        applyRunSnapshot(snapshot, baseTextVersion, mode);
+        applyRunSnapshot(snapshot, baseTextVersion, mode, {
+          preserveRuleReviewState: Boolean(options?.skipRuleRepairCandidates),
+        });
         let repairPendingCount = 0;
         let repairFailedCount = 0;
-        if (mode.kind === "rules-only" && snapshot.requirementBaseline) {
+        // Internal auto-upstream runs should hand their snapshot to the requested model run,
+        // while explicit rule generation still owns repair review creation.
+        if (
+          mode.kind === "rules-only" &&
+          snapshot.requirementBaseline &&
+          !options?.skipRuleRepairCandidates
+        ) {
           const reviewRuleIds = requirementRuleIdsNeedingReview(
             snapshot.requirementBaseline,
           );
@@ -3053,11 +3597,16 @@ export function WorkspaceSessionProvider({
                   : "没有需要修复确认的需求规则",
               subtasks: task.subtasks.map((subtask) =>
                 subtask.id === "extract_rules"
-                  ? { ...subtask, status: "completed", message: "需求规则已抽取" }
+                  ? {
+                      ...subtask,
+                      status: "completed",
+                      message: "需求规则已抽取",
+                    }
                   : subtask.id === "repair_rules"
                     ? {
                         ...subtask,
-                        status: reviewRuleIds.length > 0 ? "repairing" : "completed",
+                        status:
+                          reviewRuleIds.length > 0 ? "repairing" : "completed",
                         message:
                           reviewRuleIds.length > 0
                             ? `正在修复 ${reviewRuleIds.length} 条规则`
@@ -3077,7 +3626,8 @@ export function WorkspaceSessionProvider({
             errorMessage: null,
           });
 
-          let nextCandidates: WorkspaceRecord["requirementReviewCandidates"] = {};
+          let nextCandidates: WorkspaceRecord["requirementReviewCandidates"] =
+            {};
           if (reviewRuleIds.length > 0) {
             if (clientTaskId) {
               updateGenerationTask(clientTaskId, (task) => ({
@@ -3161,11 +3711,20 @@ export function WorkspaceSessionProvider({
         });
         const qualityHintCount =
           snapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
+        const diagramFailureCount = diagramErrorCount(snapshot);
         if (!options?.suppressSuccessDialog) {
           openGenerationResultDialog({
-            title: mode.kind === "rules-only" ? "需求规则已生成" : "需求模型已生成",
+            title:
+              diagramFailureCount > 0
+                ? "需求模型部分生成"
+                : mode.kind === "rules-only"
+                  ? "需求规则已生成"
+                  : "需求模型已生成",
             tone:
-              qualityHintCount > 0 || repairPendingCount > 0 || repairFailedCount > 0
+              qualityHintCount > 0 ||
+              repairPendingCount > 0 ||
+              repairFailedCount > 0 ||
+              diagramFailureCount > 0
                 ? "warning"
                 : "success",
             message:
@@ -3173,12 +3732,14 @@ export function WorkspaceSessionProvider({
                 ? `生成完成，但有 ${repairFailedCount} 条需求规则修复失败，请重试后确认。`
                 : repairPendingCount > 0
                   ? `生成完成，已生成 ${repairPendingCount} 条修复候选，请确认后继续生成模型。`
-                  : qualityHintCount > 0
-                    ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
-                    : "生成完成。",
+                  : completedRunResultMessage({
+                      qualityHintCount,
+                      diagramFailureCount,
+                    }),
             runId: snapshot.runId,
             stageLabel: mode.kind === "rules-only" ? "需求规则" : "需求模型",
-            targetLabel: mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
+            targetLabel:
+              mode.kind === "rules-only" ? "当前需求文本" : "已选需求模型",
           });
         }
         notifyGenerationCompleted("requirements");
@@ -3186,7 +3747,8 @@ export function WorkspaceSessionProvider({
           baseInputFingerprint !==
           snapshotInputFingerprint({
             requirementText: latestInputRef.current.requirementText,
-            rules: mode.kind === "rules-only" ? [] : latestInputRef.current.rules,
+            rules:
+              mode.kind === "rules-only" ? [] : latestInputRef.current.rules,
           })
         ) {
           notifyGenerationResultStale();
@@ -3194,7 +3756,9 @@ export function WorkspaceSessionProvider({
         return snapshot;
       } catch (error) {
         const billingBlock = parseBillingEntitlementError(error);
-        const detail = billingBlock?.message ?? (error instanceof Error ? error.message : "生成失败");
+        const detail =
+          billingBlock?.message ??
+          (error instanceof Error ? error.message : "生成失败");
         if (clientTaskId) {
           updateGenerationTask(clientTaskId, (task) => ({
             ...task,
@@ -3212,15 +3776,13 @@ export function WorkspaceSessionProvider({
         if (runId) {
           try {
             const failedSnapshot = await repository.getRunSnapshot(runId);
-            applyRunSnapshot(failedSnapshot, baseTextVersion, mode);
-            setCurrentRunDiagnostics((current) => ({
-              ...current,
-              requirementTrace: failedSnapshot.requirementTrace ?? current.requirementTrace,
-            }));
-            await saveHistorySnapshot(failedSnapshot, {
-              providerModel,
-              durationMs: Date.now() - startedAtMs,
-            });
+            if (failedSnapshot) {
+              setCurrentRunDiagnostics((current) => ({
+                ...current,
+                requirementTrace:
+                  failedSnapshot.requirementTrace ?? current.requirementTrace,
+              }));
+            }
           } catch {
             // The visible error state below is more useful than a secondary history failure.
           }
@@ -3306,23 +3868,27 @@ export function WorkspaceSessionProvider({
           requirementContext?.requirementBaseline ?? requirementBaseline;
         const activeRequirementModels =
           requirementContext?.requirementModels ??
-          Object.values(models).filter(
-            (model): model is DiagramModelSpec => Boolean(model),
+          Object.values(models).filter((model): model is DiagramModelSpec =>
+            Boolean(model),
           );
         const activeRequirementModelTraceability =
           requirementContext?.requirementModelTraceability ??
           requirementModelTraceability;
         const activeRequirementModelMap = Object.fromEntries(
-          activeRequirementModels.map((model) => [getRequirementModelId(model), model]),
+          activeRequirementModels.map((model) => [
+            getRequirementModelId(model),
+            model,
+          ]),
         ) as WorkspaceRecord["models"];
         const activeRequirementFingerprint = requirementInputFingerprintFor(
           requirementText,
           requirementContext?.rules ?? rules,
         );
-        const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
-          requirementBaseline,
-          requirementReviewCandidates,
-        );
+        const currentPendingRequirementReviews =
+          requirementRuleIdsBlockingGeneration(
+            requirementBaseline,
+            requirementReviewCandidates,
+          );
         const currentRulesStale =
           rules.length > 0 &&
           (requirementInputFingerprint
@@ -3342,33 +3908,41 @@ export function WorkspaceSessionProvider({
             ]),
           ),
         );
-        const currentStaleDiagrams = currentRequirementDiagrams.filter((diagram) =>
-          isRequirementDiagramStale({
-            diagram,
-            activeRequirementFingerprint,
-            generatedDiagrams,
-            requirementInputFingerprint,
-            diagramInputFingerprints,
-            diagramVersions,
-            rulesVersion,
-            models,
+        const currentStaleDiagrams = currentRequirementDiagrams.filter(
+          (diagram) =>
+            isRequirementDiagramStale({
+              diagram,
+              activeRequirementFingerprint,
+              generatedDiagrams,
+              requirementInputFingerprint,
+              diagramInputFingerprints,
+              diagramVersions,
+              rulesVersion,
+              models,
+              requirementModelTraceability,
+              manualModelEditStatus,
+            }),
+        );
+        const requirementTraceabilityComplete =
+          hasCompleteRequirementTraceability(
+            Object.values(models),
             requirementModelTraceability,
             manualModelEditStatus,
-          }),
-        );
-        const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
-          Object.values(models),
-          requirementModelTraceability,
-          manualModelEditStatus,
-        );
+          );
         const requirementTraceabilityMissing =
           requirementModelTraceability.length > 0
             ? !requirementTraceabilityComplete
             : generatedDiagrams.length > 0;
-        if (!requirementContext && (currentRulesStale || currentStaleDiagrams.length > 0)) {
+        if (
+          !requirementContext &&
+          (currentRulesStale || currentStaleDiagrams.length > 0)
+        ) {
           throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
         }
-        if (!requirementContext && currentPendingRequirementReviews.length > 0) {
+        if (
+          !requirementContext &&
+          currentPendingRequirementReviews.length > 0
+        ) {
           throw new Error("请先确认需求规则修复结果");
         }
         if (
@@ -3386,7 +3960,9 @@ export function WorkspaceSessionProvider({
           throw new Error("当前仓储未实现设计阶段生成能力");
         }
         if (!activeRequirementBaseline) {
-          throw new Error("请先生成并确认需求规则，形成需求基线后再生成设计模型");
+          throw new Error(
+            "请先生成并确认需求规则，形成需求基线后再生成设计模型",
+          );
         }
         const startInput = createStartDesignRunInput(
           activeRequirementBaseline,
@@ -3399,7 +3975,8 @@ export function WorkspaceSessionProvider({
           Object.entries(designPlantUml).map(([artifactId, source]) => {
             const model = designModels[artifactId];
             return {
-              diagramKind: model?.diagramKind ?? (artifactId as DesignDiagramType),
+              diagramKind:
+                model?.diagramKind ?? (artifactId as DesignDiagramType),
               modelId: model?.modelId,
               source,
             };
@@ -3413,7 +3990,10 @@ export function WorkspaceSessionProvider({
           providerModel,
           message: "设计生成任务已进入队列",
           startedAtMs,
-          subtasks: designGenerationSubtasks(diagrams, activeRequirementModelMap),
+          subtasks: designGenerationSubtasks(
+            diagrams,
+            activeRequirementModelMap,
+          ),
         });
         setRunUiState({
           runStatus: "queued",
@@ -3455,51 +4035,54 @@ export function WorkspaceSessionProvider({
 
           const progress = getProgressFromEvent(event);
           if (event.type === "completed") {
-            lastCompletedSnapshot = event.snapshot as WorkspaceDesignRunSnapshot;
+            lastCompletedSnapshot =
+              event.snapshot as WorkspaceDesignRunSnapshot;
           }
           if (runId && shouldRefreshRunSnapshotFromEvent(event)) {
-            void repository.getDesignRunSnapshot(runId).then((partialSnapshot) => {
-              if (
-                partialSnapshot &&
-                runController.isCurrentRun(runRequestId, "design")
-              ) {
-                const generatedKinds = Array.from(
-                  new Set(
-                    partialSnapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-                  ),
-                );
-                applyDesignRunSnapshot(
-                  partialSnapshot,
-                  requestedDiagrams,
-                  generatedKinds,
-                );
-              }
-            }).catch(() => {
-              // Incremental refresh is best-effort; terminal snapshot still reconciles state.
-            });
+            void repository
+              .getDesignRunSnapshot(runId)
+              .then((partialSnapshot) => {
+                if (
+                  partialSnapshot &&
+                  runController.isCurrentRun(runRequestId, "design")
+                ) {
+                  const generatedKinds = Array.from(
+                    new Set(
+                      partialSnapshot.svgArtifacts.map(
+                        (artifact) => artifact.diagramKind,
+                      ),
+                    ),
+                  );
+                  applyDesignRunSnapshot(
+                    partialSnapshot,
+                    requestedDiagrams,
+                    generatedKinds,
+                  );
+                }
+              })
+              .catch(() => {
+                // Incremental refresh is best-effort; terminal snapshot still reconciles state.
+              });
           }
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) => ({
             ...current,
-            finishedAt:
-              isTerminalRunEvent(event)
-                ? diagnosticEvent.at
-                : current.finishedAt,
-            activeStage:
-              "stage" in event
-                ? event.stage
-                : current.activeStage,
-            streamText:
-              isMeaningfulLlmChunkEvent(event)
-                ? appendDiagnosticStream(current.streamText, event.chunk)
-                : current.streamText,
-            chunkCount:
-              isMeaningfulLlmChunkEvent(event)
-                ? current.chunkCount + 1
-                : current.chunkCount,
+            finishedAt: isTerminalRunEvent(event)
+              ? diagnosticEvent.at
+              : current.finishedAt,
+            activeStage: "stage" in event ? event.stage : current.activeStage,
+            streamText: isMeaningfulLlmChunkEvent(event)
+              ? appendDiagnosticStream(current.streamText, event.chunk)
+              : current.streamText,
+            chunkCount: isMeaningfulLlmChunkEvent(event)
+              ? current.chunkCount + 1
+              : current.chunkCount,
             stageStartedAt:
               event.type === "stage_started"
-                ? { ...current.stageStartedAt, [event.stage]: diagnosticEvent.at }
+                ? {
+                    ...current.stageStartedAt,
+                    [event.stage]: diagnosticEvent.at,
+                  }
                 : current.stageStartedAt,
             stageMessages:
               event.type === "stage_progress" && event.message
@@ -3507,7 +4090,7 @@ export function WorkspaceSessionProvider({
                 : current.stageMessages,
             designTrace:
               event.type === "completed" && "designTrace" in event.snapshot
-                ? event.snapshot.designTrace ?? []
+                ? (event.snapshot.designTrace ?? [])
                 : current.designTrace,
             events: shouldDisplayDiagnosticEvent(event)
               ? [...current.events, diagnosticEvent].slice(-80)
@@ -3519,23 +4102,26 @@ export function WorkspaceSessionProvider({
             runProgress: progress ?? current.runProgress,
             runMessage:
               event.type === "stage_progress"
-                ? event.message ?? current.runMessage
+                ? (event.message ?? current.runMessage)
                 : event.type === "queued"
                   ? "设计生成任务已进入队列"
                   : event.type === "completed"
                     ? "设计生成完成"
                     : event.type === "cancelled"
                       ? event.message
-                    : event.type === "failed"
-                      ? event.error.message
-                      : current.runMessage,
+                      : event.type === "failed"
+                        ? event.error.message
+                        : current.runMessage,
             errorMessage:
-              event.type === "failed" ? event.error.message : current.errorMessage,
+              event.type === "failed"
+                ? event.error.message
+                : current.errorMessage,
           }));
         });
 
         const snapshot =
-          (await repository.getDesignRunSnapshot(runId)) ?? lastCompletedSnapshot;
+          (await repository.getDesignRunSnapshot(runId)) ??
+          lastCompletedSnapshot;
         if (!snapshot || !runController.isCurrentRun(runRequestId, "design")) {
           return null;
         }
@@ -3573,13 +4159,18 @@ export function WorkspaceSessionProvider({
         });
         const qualityHintCount =
           snapshot.requirementBaseline?.qualityReport.issues.length ?? 0;
+        const diagramFailureCount = diagramErrorCount(snapshot);
         openGenerationResultDialog({
-          title: "设计模型已生成",
-          tone: qualityHintCount > 0 ? "warning" : "success",
-          message:
-            qualityHintCount > 0
-              ? `生成完成，另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`
-              : "生成完成。",
+          title:
+            diagramFailureCount > 0 ? "设计模型部分生成" : "设计模型已生成",
+          tone:
+            qualityHintCount > 0 || diagramFailureCount > 0
+              ? "warning"
+              : "success",
+          message: completedRunResultMessage({
+            qualityHintCount,
+            diagramFailureCount,
+          }),
           runId: snapshot.runId,
           stageLabel: "设计模型",
           targetLabel: "已选设计图",
@@ -3667,9 +4258,7 @@ export function WorkspaceSessionProvider({
             },
           ].slice(-80),
         }));
-        notifyGenerationFailed(
-          `设计生成失败：${detail}`,
-        );
+        notifyGenerationFailed(`设计生成失败：${detail}`);
         return null;
       }
     },
@@ -3701,494 +4290,544 @@ export function WorkspaceSessionProvider({
     ],
   );
 
-  const runCodeGeneration = useCallback(async (
-    generationMode: "continue" | "regenerate" = "continue",
-  ) => {
-    const runRequestId = runController.beginRun("code");
-    const baseInputFingerprint = snapshotInputFingerprint({
-      requirementText,
-      rules,
-      designModels,
-      designModelTraceability,
-    });
-    const baseCodeEditVersion = codeEditVersion;
-    let lastCompletedSnapshot: WorkspaceCodeRunSnapshot | null = null;
-    let runId: string | null = null;
-    const startedAtMs = Date.now();
-    let providerModel = "";
-    let clientTaskId: string | null = null;
-
-    try {
-      if (
-        !repository.startCodeRun ||
-        !repository.subscribeToCodeRun ||
-        !repository.getCodeRunSnapshot
-      ) {
-        throw new Error("当前仓储未实现代码生成能力");
-      }
-      const availableDesignModels = Object.values(designModels).filter(
-        (model): model is DesignDiagramModelSpec => Boolean(model),
-      );
-      if (availableDesignModels.length === 0) {
-        throw new Error("请先生成设计模型，再生成前端原型代码");
-      }
-      const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
-        requirementBaseline,
-        requirementReviewCandidates,
-      );
-      if (currentPendingRequirementReviews.length > 0) {
-        throw new Error("请先确认需求规则修复结果");
-      }
-      const activeRequirementFingerprint = requirementInputFingerprintFor(
+  const runCodeGeneration = useCallback(
+    async (generationMode: "continue" | "regenerate" = "continue") => {
+      const runRequestId = runController.beginRun("code");
+      const baseInputFingerprint = snapshotInputFingerprint({
         requirementText,
         rules,
-      );
-      const currentRulesStale =
-        rules.length > 0 &&
-        (requirementInputFingerprint
-          ? !fingerprintMatches(
-              requirementInputFingerprint,
-              activeRequirementFingerprint,
-            )
-          : rulesBasedOnTextVersion !== null &&
-            rulesBasedOnTextVersion !== textVersion);
-      const currentRequirementDiagrams = orderedRequirementDiagrams(
-        Array.from(
-          new Set([
-            ...generatedDiagrams,
-            ...(Object.keys(models).filter((diagram) =>
-              Boolean(models[diagram as DiagramType]),
-            ) as DiagramType[]),
-          ]),
-        ),
-      );
-      const currentStaleDiagrams = currentRequirementDiagrams.filter((diagram) =>
-        isRequirementDiagramStale({
-          diagram,
-          activeRequirementFingerprint,
-          generatedDiagrams,
-          requirementInputFingerprint,
-          diagramInputFingerprints,
-          diagramVersions,
-          rulesVersion,
-          models,
-          requirementModelTraceability,
-          manualModelEditStatus,
-        }),
-      );
-      const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
-        Object.values(models),
-        requirementModelTraceability,
-        manualModelEditStatus,
-      );
-      const requirementTraceabilityMissing =
-        requirementModelTraceability.length > 0
-          ? !requirementTraceabilityComplete
-          : generatedDiagrams.length > 0;
-      const activeDesignFingerprint = designInputFingerprintFor(
-        Object.values(models).filter((model): model is DiagramModelSpec => Boolean(model)),
-        requirementModelTraceability,
-      );
-      const designFreshnessComplete = Object.entries(designModels).every(
-        ([modelId]) =>
-          designFingerprintMatches(designInputFingerprints[modelId], activeDesignFingerprint),
-      );
-      const designTraceabilityComplete = hasCompleteDesignTraceability(
-        Object.values(designModels),
+        designModels,
         designModelTraceability,
-        manualModelEditStatus,
-        Object.values(models),
-      );
-      if (currentRulesStale || currentStaleDiagrams.length > 0) {
-        throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
-      }
-      if (currentRequirementDiagrams.length > 0 && requirementTraceabilityMissing) {
-        throw new Error("需求模型缺少完整元素级映射，请先重新生成需求模型");
-      }
-      if (
-        generatedDesignDiagrams.length > 0 &&
-        (!designFreshnessComplete || !designTraceabilityComplete)
-      ) {
-        throw new Error("设计模型缺少完整元素级映射，请先重新生成设计模型");
-      }
-      const availableDesignPlantUml = Object.entries(designPlantUml)
-        .filter(([, source]) => source.trim().length > 0)
-        .map(([artifactId, source]) => {
-          const model = designModels[artifactId];
-          const svgArtifact = designSvgArtifacts[artifactId];
-          return {
-            diagramKind:
-              model?.diagramKind ??
-              svgArtifact?.diagramKind ??
-              (artifactId as DesignDiagramType),
-            modelId: model?.modelId ?? svgArtifact?.modelId,
-            source,
-          };
+      });
+      const baseCodeEditVersion = codeEditVersion;
+      let lastCompletedSnapshot: WorkspaceCodeRunSnapshot | null = null;
+      let runId: string | null = null;
+      const startedAtMs = Date.now();
+      let providerModel = "";
+      let clientTaskId: string | null = null;
+
+      try {
+        if (
+          !repository.startCodeRun ||
+          !repository.subscribeToCodeRun ||
+          !repository.getCodeRunSnapshot
+        ) {
+          throw new Error("当前仓储未实现代码生成能力");
+        }
+        const availableDesignModels = Object.values(designModels).filter(
+          (model): model is DesignDiagramModelSpec => Boolean(model),
+        );
+        if (availableDesignModels.length === 0) {
+          throw new Error("请先生成设计模型，再生成前端原型代码");
+        }
+        const currentPendingRequirementReviews =
+          requirementRuleIdsBlockingGeneration(
+            requirementBaseline,
+            requirementReviewCandidates,
+          );
+        if (currentPendingRequirementReviews.length > 0) {
+          throw new Error("请先确认需求规则修复结果");
+        }
+        const activeRequirementFingerprint = requirementInputFingerprintFor(
+          requirementText,
+          rules,
+        );
+        const currentRulesStale =
+          rules.length > 0 &&
+          (requirementInputFingerprint
+            ? !fingerprintMatches(
+                requirementInputFingerprint,
+                activeRequirementFingerprint,
+              )
+            : rulesBasedOnTextVersion !== null &&
+              rulesBasedOnTextVersion !== textVersion);
+        const currentRequirementDiagrams = orderedRequirementDiagrams(
+          Array.from(
+            new Set([
+              ...generatedDiagrams,
+              ...(Object.keys(models).filter((diagram) =>
+                Boolean(models[diagram as DiagramType]),
+              ) as DiagramType[]),
+            ]),
+          ),
+        );
+        const currentStaleDiagrams = currentRequirementDiagrams.filter(
+          (diagram) =>
+            isRequirementDiagramStale({
+              diagram,
+              activeRequirementFingerprint,
+              generatedDiagrams,
+              requirementInputFingerprint,
+              diagramInputFingerprints,
+              diagramVersions,
+              rulesVersion,
+              models,
+              requirementModelTraceability,
+              manualModelEditStatus,
+            }),
+        );
+        const requirementTraceabilityComplete =
+          hasCompleteRequirementTraceability(
+            Object.values(models),
+            requirementModelTraceability,
+            manualModelEditStatus,
+          );
+        const requirementTraceabilityMissing =
+          requirementModelTraceability.length > 0
+            ? !requirementTraceabilityComplete
+            : generatedDiagrams.length > 0;
+        const activeDesignFingerprint = designInputFingerprintFor(
+          Object.values(models).filter((model): model is DiagramModelSpec =>
+            Boolean(model),
+          ),
+          requirementModelTraceability,
+        );
+        const designFreshnessComplete = Object.entries(designModels).every(
+          ([modelId]) =>
+            designFingerprintMatches(
+              designInputFingerprints[modelId],
+              activeDesignFingerprint,
+            ),
+        );
+        const designTraceabilityComplete = hasCompleteDesignTraceability(
+          Object.values(designModels),
+          designModelTraceability,
+          manualModelEditStatus,
+          Object.values(models),
+        );
+        if (currentRulesStale || currentStaleDiagrams.length > 0) {
+          throw new Error("需求模型基于旧需求规则，请先重新生成需求模型");
+        }
+        if (
+          currentRequirementDiagrams.length > 0 &&
+          requirementTraceabilityMissing
+        ) {
+          throw new Error("需求模型缺少完整元素级映射，请先重新生成需求模型");
+        }
+        if (
+          generatedDesignDiagrams.length > 0 &&
+          (!designFreshnessComplete || !designTraceabilityComplete)
+        ) {
+          throw new Error("设计模型缺少完整元素级映射，请先重新生成设计模型");
+        }
+        const availableDesignPlantUml = Object.entries(designPlantUml)
+          .filter(([, source]) => source.trim().length > 0)
+          .map(([artifactId, source]) => {
+            const model = designModels[artifactId];
+            const svgArtifact = designSvgArtifacts[artifactId];
+            return {
+              diagramKind:
+                model?.diagramKind ??
+                svgArtifact?.diagramKind ??
+                (artifactId as DesignDiagramType),
+              modelId: model?.modelId ?? svgArtifact?.modelId,
+              source,
+            };
+          });
+
+        const startInput = createStartCodeRunInput(
+          requirementText,
+          rules,
+          availableDesignModels,
+          availableDesignPlantUml,
+          codeFiles,
+          generationMode,
+        );
+        providerModel = startInput.providerSettings.model;
+        clientTaskId = enqueueGenerationTask({
+          kind: "code",
+          title: generationMode === "regenerate" ? "代码重新生成" : "代码生成",
+          providerModel,
+          message: "代码生成任务已进入队列",
+          startedAtMs,
+        });
+        setRunUiState({
+          runStatus: "queued",
+          runProgress: 5,
+          runMessage: "代码生成任务已进入队列",
+          errorMessage: null,
+        });
+        notifyGenerationStarted("code");
+        setCurrentRunDiagnostics({
+          ...createEmptyDiagnostics(),
+          runKind: "code",
+          providerModel,
+          startedAt: new Date(startedAtMs).toISOString(),
         });
 
-      const startInput = createStartCodeRunInput(
-        requirementText,
-        rules,
-        availableDesignModels,
-        availableDesignPlantUml,
-        codeFiles,
-        generationMode,
-      );
-      providerModel = startInput.providerSettings.model;
-      clientTaskId = enqueueGenerationTask({
-        kind: "code",
-        title: generationMode === "regenerate" ? "代码重新生成" : "代码生成",
-        providerModel,
-        message: "代码生成任务已进入队列",
-        startedAtMs,
-      });
-      setRunUiState({
-        runStatus: "queued",
-        runProgress: 5,
-        runMessage: "代码生成任务已进入队列",
-        errorMessage: null,
-      });
-      notifyGenerationStarted("code");
-      setCurrentRunDiagnostics({
-        ...createEmptyDiagnostics(),
-        runKind: "code",
-        providerModel,
-        startedAt: new Date(startedAtMs).toISOString(),
-      });
+        const started = await repository.startCodeRun(startInput);
+        runId = started.runId;
+        updateGenerationTask(clientTaskId, (task) =>
+          assignTaskRunId(task, runId!, providerModel),
+        );
+        setCurrentRunDiagnostics((current) => ({
+          ...current,
+          runId,
+          providerModel,
+        }));
 
-      const started = await repository.startCodeRun(startInput);
-      runId = started.runId;
-      updateGenerationTask(clientTaskId, (task) =>
-        assignTaskRunId(task, runId!, providerModel),
-      );
-      setCurrentRunDiagnostics((current) => ({
-        ...current,
-        runId,
-        providerModel,
-      }));
+        await repository.subscribeToCodeRun(runId, (event) => {
+          if (clientTaskId) {
+            updateGenerationTask(clientTaskId, (task) =>
+              updateTaskFromEvent(task, event, {
+                queued: "代码生成任务已进入队列",
+                completed:
+                  event.type === "completed" &&
+                  "files" in event.snapshot &&
+                  event.snapshot.generationMode === "continue" &&
+                  event.snapshot.changedFileCount === 0
+                    ? "本次未产生文件变更"
+                    : "代码生成完成",
+                fileChanged: (path) => `已写入 ${path}`,
+              }),
+            );
+          }
+          if (!runController.isCurrentRun(runRequestId, "code")) {
+            return;
+          }
 
-      await repository.subscribeToCodeRun(runId, (event) => {
+          const progress = getProgressFromEvent(event);
+          if (event.type === "completed") {
+            lastCompletedSnapshot = event.snapshot as WorkspaceCodeRunSnapshot;
+          }
+          if (event.type === "code_file_changed") {
+            setCodeFiles((current) => ({
+              ...current,
+              [event.path]: event.content,
+            }));
+            setCodeEntryFile((current) => current ?? event.path);
+          }
+          if (
+            event.type === "artifact_ready" &&
+            event.artifactKind === "uiMockup"
+          ) {
+            setCodeUiMockup(event.uiMockup ?? null);
+          }
+          if (
+            event.type === "artifact_ready" &&
+            event.artifactKind === "codeSkills"
+          ) {
+            setCodeSkills(event.codeSkills ?? []);
+            setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
+          }
+          if (
+            event.type === "artifact_ready" &&
+            event.artifactKind === "skillResourcePlan"
+          ) {
+            setCodeSkillResourcePlan(event.skillResourcePlan ?? null);
+            setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
+          }
+          if (
+            event.type === "artifact_ready" &&
+            event.artifactKind === "codeSkillContext"
+          ) {
+            setCodeSkillContext(event.codeSkillContext ?? null);
+            setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
+          }
+          const diagnosticEvent = summarizeEvent(event);
+          setCurrentRunDiagnostics((current) => ({
+            ...current,
+            finishedAt: isTerminalRunEvent(event)
+              ? diagnosticEvent.at
+              : current.finishedAt,
+            activeStage: "stage" in event ? event.stage : current.activeStage,
+            streamText: isMeaningfulLlmChunkEvent(event)
+              ? appendDiagnosticStream(current.streamText, event.chunk)
+              : current.streamText,
+            chunkCount: isMeaningfulLlmChunkEvent(event)
+              ? current.chunkCount + 1
+              : current.chunkCount,
+            stageStartedAt:
+              event.type === "stage_started"
+                ? {
+                    ...current.stageStartedAt,
+                    [event.stage]: diagnosticEvent.at,
+                  }
+                : current.stageStartedAt,
+            stageMessages:
+              event.type === "stage_progress" && event.message
+                ? { ...current.stageMessages, [event.stage]: event.message }
+                : current.stageMessages,
+            events: shouldDisplayDiagnosticEvent(event)
+              ? [...current.events, diagnosticEvent].slice(-80)
+              : current.events,
+            uiMockup:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "uiMockup"
+                ? (event.uiMockup ?? current.uiMockup)
+                : current.uiMockup,
+            uiReferenceSpec:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "uiReferenceSpec"
+                ? (event.uiReferenceSpec ?? current.uiReferenceSpec)
+                : event.type === "completed" &&
+                    "uiReferenceSpec" in event.snapshot
+                  ? (event.snapshot.uiReferenceSpec ?? current.uiReferenceSpec)
+                  : current.uiReferenceSpec,
+            uiFidelityReport:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "uiFidelityReport"
+                ? (event.uiFidelityReport ?? current.uiFidelityReport)
+                : event.type === "completed" &&
+                    "uiFidelityReport" in event.snapshot
+                  ? (event.snapshot.uiFidelityReport ??
+                    current.uiFidelityReport)
+                  : current.uiFidelityReport,
+            visualDirection:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "visualDirection"
+                ? (event.visualDirection ?? current.visualDirection)
+                : event.type === "completed" &&
+                    "visualDirection" in event.snapshot
+                  ? (event.snapshot.visualDirection ?? current.visualDirection)
+                  : current.visualDirection,
+            skillResourceDiscoveryPlan:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "skillResourceDiscoveryPlan"
+                ? (event.skillResourceDiscoveryPlan ??
+                  current.skillResourceDiscoveryPlan)
+                : event.type === "completed" &&
+                    "skillResourceDiscoveryPlan" in event.snapshot
+                  ? (event.snapshot.skillResourceDiscoveryPlan ??
+                    current.skillResourceDiscoveryPlan)
+                  : current.skillResourceDiscoveryPlan,
+            skillResourcePreviews:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "skillResourcePreviews"
+                ? (event.skillResourcePreviews ?? current.skillResourcePreviews)
+                : event.type === "completed" &&
+                    "skillResourcePreviews" in event.snapshot
+                  ? (event.snapshot.skillResourcePreviews ??
+                    current.skillResourcePreviews)
+                  : current.skillResourcePreviews,
+            skillResourcePlan:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "skillResourcePlan"
+                ? (event.skillResourcePlan ?? current.skillResourcePlan)
+                : event.type === "completed" &&
+                    "skillResourcePlan" in event.snapshot
+                  ? (event.snapshot.skillResourcePlan ??
+                    current.skillResourcePlan)
+                  : current.skillResourcePlan,
+            codeSkillContext:
+              event.type === "artifact_ready" &&
+              event.artifactKind === "codeSkillContext"
+                ? (event.codeSkillContext ?? current.codeSkillContext)
+                : event.type === "completed" &&
+                    "codeSkillContext" in event.snapshot
+                  ? (event.snapshot.codeSkillContext ??
+                    current.codeSkillContext)
+                  : current.codeSkillContext,
+            codeTrace:
+              event.type === "completed" && "codeTrace" in event.snapshot
+                ? (event.snapshot.codeTrace ?? [])
+                : current.codeTrace,
+          }));
+
+          setRunUiState((current) => ({
+            runStatus: statusFromRunEvent(event),
+            runProgress: progress ?? current.runProgress,
+            runMessage:
+              event.type === "code_file_changed"
+                ? `已写入 ${event.path}`
+                : event.type === "stage_progress"
+                  ? (event.message ?? current.runMessage)
+                  : event.type === "queued"
+                    ? "代码生成任务已进入队列"
+                    : event.type === "completed"
+                      ? "files" in event.snapshot &&
+                        event.snapshot.generationMode === "continue" &&
+                        event.snapshot.changedFileCount === 0
+                        ? "本次未产生文件变更"
+                        : "代码生成完成"
+                      : event.type === "cancelled"
+                        ? event.message
+                        : event.type === "failed"
+                          ? event.error.message
+                          : current.runMessage,
+            errorMessage:
+              event.type === "failed"
+                ? event.error.message
+                : current.errorMessage,
+          }));
+        });
+
+        const snapshot =
+          (await repository.getCodeRunSnapshot(runId)) ?? lastCompletedSnapshot;
+        if (!snapshot || !runController.isCurrentRun(runRequestId, "code")) {
+          return;
+        }
+        if (snapshot.status === "cancelled") {
+          setRunUiState({
+            runStatus: "cancelled",
+            runProgress: 100,
+            runMessage: cancelledRunMessage(snapshot),
+            errorMessage: null,
+          });
+          openGenerationResultDialog({
+            title: "任务已取消",
+            tone: "warning",
+            message: cancelledRunMessage(snapshot),
+            runId: snapshot.runId,
+            stageLabel: "代码原型",
+          });
+          return;
+        }
+
+        applyCodeRunSnapshot(snapshot);
+        setCurrentRunDiagnostics((current) => ({
+          ...current,
+          codeTrace: snapshot.codeTrace ?? [],
+        }));
+        await saveHistorySnapshot(snapshot, {
+          providerModel,
+          durationMs: Date.now() - startedAtMs,
+        });
+        setRunUiState({
+          runStatus: "completed",
+          runProgress: 100,
+          runMessage:
+            snapshot.generationMode === "continue" &&
+            snapshot.changedFileCount === 0
+              ? "本次未产生文件变更"
+              : "代码生成完成",
+          errorMessage: null,
+        });
+        openGenerationResultDialog({
+          title: "代码原型已生成",
+          tone: "success",
+          message:
+            snapshot.generationMode === "continue" &&
+            snapshot.changedFileCount === 0
+              ? "本次未产生文件变更。"
+              : snapshot.generationMode === "regenerate"
+                ? "代码重新生成完成。"
+                : "代码生成完成。",
+          runId: snapshot.runId,
+          stageLabel: "代码原型",
+          targetLabel: "当前代码原型",
+        });
+        if (
+          baseInputFingerprint !==
+            snapshotInputFingerprint({
+              requirementText: latestInputRef.current.requirementText,
+              rules: latestInputRef.current.rules,
+              designModels: latestInputRef.current.designModels,
+              designModelTraceability:
+                latestInputRef.current.designModelTraceability,
+            }) ||
+          baseCodeEditVersion !== latestInputRef.current.codeEditVersion
+        ) {
+          notifyGenerationResultStale();
+        }
+      } catch (error) {
+        const billingBlock = parseBillingEntitlementError(error);
+        const detail =
+          billingBlock?.message ??
+          (error instanceof Error ? error.message : "代码生成失败");
         if (clientTaskId) {
-          updateGenerationTask(clientTaskId, (task) =>
-            updateTaskFromEvent(task, event, {
-              queued: "代码生成任务已进入队列",
-              completed:
-                event.type === "completed" &&
-                "files" in event.snapshot &&
-                event.snapshot.generationMode === "continue" &&
-                event.snapshot.changedFileCount === 0
-                  ? "本次未产生文件变更"
-                  : "代码生成完成",
-              fileChanged: (path) => `已写入 ${path}`,
-            }),
-          );
+          updateGenerationTask(clientTaskId, (task) => ({
+            ...task,
+            status: "failed",
+            progress: 100,
+            message: null,
+            errorMessage: detail,
+            finishedAt: new Date().toISOString(),
+            diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+          }));
         }
         if (!runController.isCurrentRun(runRequestId, "code")) {
           return;
         }
-
-        const progress = getProgressFromEvent(event);
-        if (event.type === "completed") {
-          lastCompletedSnapshot = event.snapshot as WorkspaceCodeRunSnapshot;
+        if (runId && repository.getCodeRunSnapshot) {
+          try {
+            const failedSnapshot = await repository.getCodeRunSnapshot(runId);
+            applyCodeRunSnapshot(failedSnapshot);
+            setCurrentRunDiagnostics((current) => ({
+              ...current,
+              codeTrace: failedSnapshot.codeTrace ?? current.codeTrace,
+            }));
+            await saveHistorySnapshot(failedSnapshot, {
+              providerModel,
+              durationMs: Date.now() - startedAtMs,
+            });
+          } catch {
+            // The visible error state below is more useful than a secondary snapshot failure.
+          }
         }
-        if (event.type === "code_file_changed") {
-          setCodeFiles((current) => ({
-            ...current,
-            [event.path]: event.content,
-          }));
-          setCodeEntryFile((current) => current ?? event.path);
+        setRunUiState({
+          runStatus: "failed",
+          runProgress: 100,
+          runMessage: null,
+          errorMessage: detail,
+        });
+        if (billingBlock) {
+          openBillingEntitlementDialog(billingBlock, {
+            runId,
+            stageLabel: "代码原型",
+          });
+        } else {
+          openGenerationResultDialog({
+            title: "生成失败",
+            tone: "destructive",
+            message: detail,
+            details: ["请在代码页面查看问题并重新处理。"],
+            runId,
+            stageLabel: "代码原型",
+          });
         }
-        if (event.type === "artifact_ready" && event.artifactKind === "uiMockup") {
-          setCodeUiMockup(event.uiMockup ?? null);
-        }
-        if (event.type === "artifact_ready" && event.artifactKind === "codeSkills") {
-          setCodeSkills(event.codeSkills ?? []);
-          setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
-        }
-        if (event.type === "artifact_ready" && event.artifactKind === "skillResourcePlan") {
-          setCodeSkillResourcePlan(event.skillResourcePlan ?? null);
-          setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
-        }
-        if (event.type === "artifact_ready" && event.artifactKind === "codeSkillContext") {
-          setCodeSkillContext(event.codeSkillContext ?? null);
-          setCodeSkillDiagnostics(event.skillDiagnostics ?? []);
-        }
-        const diagnosticEvent = summarizeEvent(event);
         setCurrentRunDiagnostics((current) => ({
           ...current,
-          finishedAt:
-            isTerminalRunEvent(event)
-              ? diagnosticEvent.at
-              : current.finishedAt,
-          activeStage:
-            "stage" in event
-              ? event.stage
-              : current.activeStage,
-          streamText:
-            isMeaningfulLlmChunkEvent(event)
-              ? appendDiagnosticStream(current.streamText, event.chunk)
-              : current.streamText,
-          chunkCount:
-            isMeaningfulLlmChunkEvent(event)
-              ? current.chunkCount + 1
-              : current.chunkCount,
-          stageStartedAt:
-            event.type === "stage_started"
-              ? { ...current.stageStartedAt, [event.stage]: diagnosticEvent.at }
-              : current.stageStartedAt,
-          stageMessages:
-            event.type === "stage_progress" && event.message
-              ? { ...current.stageMessages, [event.stage]: event.message }
-              : current.stageMessages,
-          events: shouldDisplayDiagnosticEvent(event)
-            ? [...current.events, diagnosticEvent].slice(-80)
-            : current.events,
-          uiMockup:
-            event.type === "artifact_ready" && event.artifactKind === "uiMockup"
-              ? event.uiMockup ?? current.uiMockup
-              : current.uiMockup,
-          uiReferenceSpec:
-            event.type === "artifact_ready" && event.artifactKind === "uiReferenceSpec"
-              ? event.uiReferenceSpec ?? current.uiReferenceSpec
-              : event.type === "completed" && "uiReferenceSpec" in event.snapshot
-                ? event.snapshot.uiReferenceSpec ?? current.uiReferenceSpec
-              : current.uiReferenceSpec,
-          uiFidelityReport:
-            event.type === "artifact_ready" && event.artifactKind === "uiFidelityReport"
-              ? event.uiFidelityReport ?? current.uiFidelityReport
-              : event.type === "completed" && "uiFidelityReport" in event.snapshot
-                ? event.snapshot.uiFidelityReport ?? current.uiFidelityReport
-                : current.uiFidelityReport,
-          visualDirection:
-            event.type === "artifact_ready" && event.artifactKind === "visualDirection"
-              ? event.visualDirection ?? current.visualDirection
-              : event.type === "completed" && "visualDirection" in event.snapshot
-                ? event.snapshot.visualDirection ?? current.visualDirection
-                : current.visualDirection,
-          skillResourceDiscoveryPlan:
-            event.type === "artifact_ready" && event.artifactKind === "skillResourceDiscoveryPlan"
-              ? event.skillResourceDiscoveryPlan ?? current.skillResourceDiscoveryPlan
-              : event.type === "completed" && "skillResourceDiscoveryPlan" in event.snapshot
-                ? event.snapshot.skillResourceDiscoveryPlan ?? current.skillResourceDiscoveryPlan
-                : current.skillResourceDiscoveryPlan,
-          skillResourcePreviews:
-            event.type === "artifact_ready" && event.artifactKind === "skillResourcePreviews"
-              ? event.skillResourcePreviews ?? current.skillResourcePreviews
-              : event.type === "completed" && "skillResourcePreviews" in event.snapshot
-                ? event.snapshot.skillResourcePreviews ?? current.skillResourcePreviews
-                : current.skillResourcePreviews,
-          skillResourcePlan:
-            event.type === "artifact_ready" && event.artifactKind === "skillResourcePlan"
-              ? event.skillResourcePlan ?? current.skillResourcePlan
-              : event.type === "completed" && "skillResourcePlan" in event.snapshot
-                ? event.snapshot.skillResourcePlan ?? current.skillResourcePlan
-                : current.skillResourcePlan,
-          codeSkillContext:
-            event.type === "artifact_ready" && event.artifactKind === "codeSkillContext"
-              ? event.codeSkillContext ?? current.codeSkillContext
-              : event.type === "completed" && "codeSkillContext" in event.snapshot
-                ? event.snapshot.codeSkillContext ?? current.codeSkillContext
-                : current.codeSkillContext,
-          codeTrace:
-            event.type === "completed" && "codeTrace" in event.snapshot
-              ? event.snapshot.codeTrace ?? []
-              : current.codeTrace,
-        }));
-
-        setRunUiState((current) => ({
-          runStatus: statusFromRunEvent(event),
-          runProgress: progress ?? current.runProgress,
-          runMessage:
-            event.type === "code_file_changed"
-              ? `已写入 ${event.path}`
-              : event.type === "stage_progress"
-                ? event.message ?? current.runMessage
-                : event.type === "queued"
-                  ? "代码生成任务已进入队列"
-                  : event.type === "completed"
-                    ? "files" in event.snapshot &&
-                      event.snapshot.generationMode === "continue" &&
-                      event.snapshot.changedFileCount === 0
-                      ? "本次未产生文件变更"
-                      : "代码生成完成"
-                    : event.type === "cancelled"
-                      ? event.message
-                    : event.type === "failed"
-                      ? event.error.message
-                      : current.runMessage,
-          errorMessage:
-            event.type === "failed" ? event.error.message : current.errorMessage,
-        }));
-      });
-
-      const snapshot =
-        (await repository.getCodeRunSnapshot(runId)) ?? lastCompletedSnapshot;
-      if (!snapshot || !runController.isCurrentRun(runRequestId, "code")) {
-        return;
-      }
-      if (snapshot.status === "cancelled") {
-        setRunUiState({
-          runStatus: "cancelled",
-          runProgress: 100,
-          runMessage: cancelledRunMessage(snapshot),
-          errorMessage: null,
-        });
-        openGenerationResultDialog({
-          title: "任务已取消",
-          tone: "warning",
-          message: cancelledRunMessage(snapshot),
-          runId: snapshot.runId,
-          stageLabel: "代码原型",
-        });
-        return;
-      }
-
-      applyCodeRunSnapshot(snapshot);
-      setCurrentRunDiagnostics((current) => ({
-        ...current,
-        codeTrace: snapshot.codeTrace ?? [],
-      }));
-      await saveHistorySnapshot(snapshot, {
-        providerModel,
-        durationMs: Date.now() - startedAtMs,
-      });
-      setRunUiState({
-        runStatus: "completed",
-        runProgress: 100,
-        runMessage:
-          snapshot.generationMode === "continue" && snapshot.changedFileCount === 0
-            ? "本次未产生文件变更"
-            : "代码生成完成",
-        errorMessage: null,
-      });
-      openGenerationResultDialog({
-        title: "代码原型已生成",
-        tone: "success",
-        message:
-          snapshot.generationMode === "continue" && snapshot.changedFileCount === 0
-            ? "本次未产生文件变更。"
-            : snapshot.generationMode === "regenerate"
-              ? "代码重新生成完成。"
-              : "代码生成完成。",
-        runId: snapshot.runId,
-        stageLabel: "代码原型",
-        targetLabel: "当前代码原型",
-      });
-      if (
-        baseInputFingerprint !==
-        snapshotInputFingerprint({
-            requirementText: latestInputRef.current.requirementText,
-            rules: latestInputRef.current.rules,
-            designModels: latestInputRef.current.designModels,
-            designModelTraceability: latestInputRef.current.designModelTraceability,
-          }) ||
-          baseCodeEditVersion !== latestInputRef.current.codeEditVersion
-      ) {
-        notifyGenerationResultStale();
-      }
-    } catch (error) {
-      const billingBlock = parseBillingEntitlementError(error);
-      const detail =
-        billingBlock?.message ??
-        (error instanceof Error ? error.message : "代码生成失败");
-      if (clientTaskId) {
-        updateGenerationTask(clientTaskId, (task) => ({
-          ...task,
-          status: "failed",
-          progress: 100,
-          message: null,
-          errorMessage: detail,
           finishedAt: new Date().toISOString(),
-          diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+          events: [
+            ...current.events,
+            {
+              id: `${new Date().toISOString()}:failed-local`,
+              at: new Date().toISOString(),
+              label: "failed",
+              detail,
+            },
+          ].slice(-80),
         }));
+        notifyGenerationFailed(`代码生成失败：${detail}`);
       }
-      if (!runController.isCurrentRun(runRequestId, "code")) {
-        return;
-      }
-      if (runId && repository.getCodeRunSnapshot) {
-        try {
-          const failedSnapshot = await repository.getCodeRunSnapshot(runId);
-          applyCodeRunSnapshot(failedSnapshot);
-          setCurrentRunDiagnostics((current) => ({
-            ...current,
-            codeTrace: failedSnapshot.codeTrace ?? current.codeTrace,
-          }));
-          await saveHistorySnapshot(failedSnapshot, {
-            providerModel,
-            durationMs: Date.now() - startedAtMs,
-          });
-        } catch {
-          // The visible error state below is more useful than a secondary snapshot failure.
-        }
-      }
-      setRunUiState({
-        runStatus: "failed",
-        runProgress: 100,
-        runMessage: null,
-        errorMessage: detail,
-      });
-      if (billingBlock) {
-        openBillingEntitlementDialog(billingBlock, {
-          runId,
-          stageLabel: "代码原型",
-        });
-      } else {
-        openGenerationResultDialog({
-          title: "生成失败",
-          tone: "destructive",
-          message: detail,
-          details: ["请在代码页面查看问题并重新处理。"],
-          runId,
-          stageLabel: "代码原型",
-        });
-      }
-      setCurrentRunDiagnostics((current) => ({
-        ...current,
-        finishedAt: new Date().toISOString(),
-        events: [
-          ...current.events,
-          {
-            id: `${new Date().toISOString()}:failed-local`,
-            at: new Date().toISOString(),
-            label: "failed",
-            detail,
-          },
-        ].slice(-80),
-      }));
-      notifyGenerationFailed(`代码生成失败：${detail}`);
-    }
-  }, [
-    applyCodeRunSnapshot,
-    codeFiles,
-    codeEditVersion,
-    designInputFingerprints,
-    designModelTraceability,
-    designModels,
-    designPlantUml,
-    diagramInputFingerprints,
-    diagramVersions,
-    generatedDesignDiagrams,
-    generatedDiagrams,
-    manualModelEditStatus,
-    models,
-    openBillingEntitlementDialog,
-    openGenerationResultDialog,
-    repository,
-    requirementBaseline,
-    requirementInputFingerprint,
-    requirementModelTraceability,
-    requirementReviewCandidates,
-    requirementText,
-    runController,
-    rules,
-    rulesBasedOnTextVersion,
-    rulesVersion,
-    saveHistorySnapshot,
-    textVersion,
-  ]);
+    },
+    [
+      applyCodeRunSnapshot,
+      codeFiles,
+      codeEditVersion,
+      designInputFingerprints,
+      designModelTraceability,
+      designModels,
+      designPlantUml,
+      diagramInputFingerprints,
+      diagramVersions,
+      generatedDesignDiagrams,
+      generatedDiagrams,
+      manualModelEditStatus,
+      models,
+      openBillingEntitlementDialog,
+      openGenerationResultDialog,
+      repository,
+      requirementBaseline,
+      requirementInputFingerprint,
+      requirementModelTraceability,
+      requirementReviewCandidates,
+      requirementText,
+      runController,
+      rules,
+      rulesBasedOnTextVersion,
+      rulesVersion,
+      saveHistorySnapshot,
+      textVersion,
+    ],
+  );
 
   const runDocumentGeneration = useCallback(
-    async (documentKind: DocumentKind, documentStyle?: DocumentStyleSettings) => {
+    async (
+      documentKind: DocumentKind,
+      documentStyle?: DocumentStyleSettings,
+    ) => {
       const startedAtMs = Date.now();
       let providerModel = "";
       let runId: string | null = null;
@@ -4211,7 +4850,8 @@ export function WorkspaceSessionProvider({
           .filter((entry): entry is [DiagramType, string] => Boolean(entry[1]))
           .map(([diagramKind, source]) => ({ diagramKind, source }));
         const requirementSvgArtifacts = Object.values(svgArtifacts).filter(
-          (artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact),
+          (artifact): artifact is NonNullable<typeof artifact> =>
+            Boolean(artifact),
         );
         const availableDesignModels = Object.values(designModels).filter(
           (model): model is DesignDiagramModelSpec => Boolean(model),
@@ -4231,23 +4871,31 @@ export function WorkspaceSessionProvider({
             };
           });
         const designSvgArtifactList = Object.values(designSvgArtifacts).filter(
-          (artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact),
+          (artifact): artifact is NonNullable<typeof artifact> =>
+            Boolean(artifact),
         );
 
-        if (documentKind === "requirementsSpec" && requirementModels.length === 0) {
+        if (
+          documentKind === "requirementsSpec" &&
+          requirementModels.length === 0
+        ) {
           throw new Error("请先在需求页生成需求模型，再导出需求规格说明书");
         }
-        if (documentKind === "softwareDesignSpec" && availableDesignModels.length === 0) {
+        if (
+          documentKind === "softwareDesignSpec" &&
+          availableDesignModels.length === 0
+        ) {
           throw new Error("请先在设计页生成设计模型，再导出软件设计说明书");
         }
         const activeRequirementFingerprint = requirementInputFingerprintFor(
           requirementText,
           rules,
         );
-        const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
-          requirementBaseline,
-          requirementReviewCandidates,
-        );
+        const currentPendingRequirementReviews =
+          requirementRuleIdsBlockingGeneration(
+            requirementBaseline,
+            requirementReviewCandidates,
+          );
         if (currentPendingRequirementReviews.length > 0) {
           throw new Error("请先确认需求规则修复结果");
         }
@@ -4270,36 +4918,43 @@ export function WorkspaceSessionProvider({
             ]),
           ),
         );
-        const currentStaleDiagrams = currentRequirementDiagrams.filter((diagram) =>
-          isRequirementDiagramStale({
-            diagram,
-            activeRequirementFingerprint,
-            generatedDiagrams,
-            requirementInputFingerprint,
-            diagramInputFingerprints,
-            diagramVersions,
-            rulesVersion,
-            models,
+        const currentStaleDiagrams = currentRequirementDiagrams.filter(
+          (diagram) =>
+            isRequirementDiagramStale({
+              diagram,
+              activeRequirementFingerprint,
+              generatedDiagrams,
+              requirementInputFingerprint,
+              diagramInputFingerprints,
+              diagramVersions,
+              rulesVersion,
+              models,
+              requirementModelTraceability,
+              manualModelEditStatus,
+            }),
+        );
+        const requirementTraceabilityComplete =
+          hasCompleteRequirementTraceability(
+            Object.values(models),
             requirementModelTraceability,
             manualModelEditStatus,
-          }),
-        );
-        const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
-          Object.values(models),
-          requirementModelTraceability,
-          manualModelEditStatus,
-        );
+          );
         const requirementTraceabilityMissing =
           requirementModelTraceability.length > 0
             ? !requirementTraceabilityComplete
             : generatedDiagrams.length > 0;
         const activeDesignFingerprint = designInputFingerprintFor(
-          Object.values(models).filter((model): model is DiagramModelSpec => Boolean(model)),
+          Object.values(models).filter((model): model is DiagramModelSpec =>
+            Boolean(model),
+          ),
           requirementModelTraceability,
         );
         const designFreshnessComplete = Object.entries(designModels).every(
           ([modelId]) =>
-            designFingerprintMatches(designInputFingerprints[modelId], activeDesignFingerprint),
+            designFingerprintMatches(
+              designInputFingerprints[modelId],
+              activeDesignFingerprint,
+            ),
         );
         const designTraceabilityComplete = hasCompleteDesignTraceability(
           Object.values(designModels),
@@ -4311,7 +4966,8 @@ export function WorkspaceSessionProvider({
           documentKind === "requirementsSpec" &&
           (currentRulesStale ||
             currentStaleDiagrams.length > 0 ||
-            (currentRequirementDiagrams.length > 0 && requirementTraceabilityMissing))
+            (currentRequirementDiagrams.length > 0 &&
+              requirementTraceabilityMissing))
         ) {
           throw new Error("需求模型或元素级映射已过期，请先重新生成需求模型");
         }
@@ -4319,11 +4975,14 @@ export function WorkspaceSessionProvider({
           documentKind === "softwareDesignSpec" &&
           (currentRulesStale ||
             currentStaleDiagrams.length > 0 ||
-            (currentRequirementDiagrams.length > 0 && requirementTraceabilityMissing) ||
+            (currentRequirementDiagrams.length > 0 &&
+              requirementTraceabilityMissing) ||
             (generatedDesignDiagrams.length > 0 &&
               (!designFreshnessComplete || !designTraceabilityComplete)))
         ) {
-          throw new Error("设计链路或元素级映射已过期，请先重新生成需求模型和设计模型");
+          throw new Error(
+            "设计链路或元素级映射已过期，请先重新生成需求模型和设计模型",
+          );
         }
 
         const startInput = createStartDocumentRunInput(
@@ -4392,22 +5051,22 @@ export function WorkspaceSessionProvider({
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) => ({
             ...current,
-            finishedAt:
-              isTerminalRunEvent(event)
-                ? diagnosticEvent.at
-                : current.finishedAt,
+            finishedAt: isTerminalRunEvent(event)
+              ? diagnosticEvent.at
+              : current.finishedAt,
             activeStage: "stage" in event ? event.stage : current.activeStage,
-            streamText:
-              isMeaningfulLlmChunkEvent(event)
-                ? appendDiagnosticStream(current.streamText, event.chunk)
-                : current.streamText,
-            chunkCount:
-              isMeaningfulLlmChunkEvent(event)
-                ? current.chunkCount + 1
-                : current.chunkCount,
+            streamText: isMeaningfulLlmChunkEvent(event)
+              ? appendDiagnosticStream(current.streamText, event.chunk)
+              : current.streamText,
+            chunkCount: isMeaningfulLlmChunkEvent(event)
+              ? current.chunkCount + 1
+              : current.chunkCount,
             stageStartedAt:
               event.type === "stage_started"
-                ? { ...current.stageStartedAt, [event.stage]: diagnosticEvent.at }
+                ? {
+                    ...current.stageStartedAt,
+                    [event.stage]: diagnosticEvent.at,
+                  }
                 : current.stageStartedAt,
             stageMessages:
               event.type === "stage_progress" && event.message
@@ -4423,23 +5082,26 @@ export function WorkspaceSessionProvider({
             runProgress: progress ?? current.runProgress,
             runMessage:
               event.type === "stage_progress"
-                ? event.message ?? current.runMessage
+                ? (event.message ?? current.runMessage)
                 : event.type === "queued"
                   ? "说明书生成任务已进入队列"
                   : event.type === "completed"
                     ? "说明书生成完成"
                     : event.type === "cancelled"
                       ? event.message
-                    : event.type === "failed"
-                      ? event.error.message
-                      : current.runMessage,
+                      : event.type === "failed"
+                        ? event.error.message
+                        : current.runMessage,
             errorMessage:
-              event.type === "failed" ? event.error.message : current.errorMessage,
+              event.type === "failed"
+                ? event.error.message
+                : current.errorMessage,
           }));
         });
 
         const snapshot =
-          (await repository.getDocumentRunSnapshot(runId)) ?? lastCompletedSnapshot;
+          (await repository.getDocumentRunSnapshot(runId)) ??
+          lastCompletedSnapshot;
         if (!snapshot) {
           return null;
         }
@@ -4497,7 +5159,8 @@ export function WorkspaceSessionProvider({
         }
         if (runId && repository.getDocumentRunSnapshot) {
           try {
-            const failedSnapshot = await repository.getDocumentRunSnapshot(runId);
+            const failedSnapshot =
+              await repository.getDocumentRunSnapshot(runId);
             await saveHistorySnapshot(failedSnapshot, {
               providerModel,
               durationMs: Date.now() - startedAtMs,
@@ -4575,13 +5238,19 @@ export function WorkspaceSessionProvider({
     ],
   );
 
-  const generateRequirementsSpec = useCallback(async (documentStyle?: DocumentStyleSettings) => {
-    return runDocumentGeneration("requirementsSpec", documentStyle);
-  }, [runDocumentGeneration]);
+  const generateRequirementsSpec = useCallback(
+    async (documentStyle?: DocumentStyleSettings) => {
+      return runDocumentGeneration("requirementsSpec", documentStyle);
+    },
+    [runDocumentGeneration],
+  );
 
-  const generateSoftwareDesignSpec = useCallback(async (documentStyle?: DocumentStyleSettings) => {
-    return runDocumentGeneration("softwareDesignSpec", documentStyle);
-  }, [runDocumentGeneration]);
+  const generateSoftwareDesignSpec = useCallback(
+    async (documentStyle?: DocumentStyleSettings) => {
+      return runDocumentGeneration("softwareDesignSpec", documentStyle);
+    },
+    [runDocumentGeneration],
+  );
 
   const renderPlantUml = useCallback(
     async (diagram: DiagramType, source: string) => {
@@ -4618,25 +5287,31 @@ export function WorkspaceSessionProvider({
     [repository],
   );
 
-  const createManualEditStatus = useCallback((status: "dirty" | "rerendered") => {
-    const now = new Date().toISOString();
-    return {
-      status,
-      warning:
-        status === "dirty"
-          ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
-          : null,
-      editedAt: now,
-      ...(status === "rerendered" ? { rerenderedAt: now } : {}),
-    } satisfies ManualModelEditStatus;
-  }, []);
+  const createManualEditStatus = useCallback(
+    (status: "dirty" | "rerendered") => {
+      const now = new Date().toISOString();
+      return {
+        status,
+        warning:
+          status === "dirty"
+            ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
+            : null,
+        editedAt: now,
+        ...(status === "rerendered" ? { rerenderedAt: now } : {}),
+      } satisfies ManualModelEditStatus;
+    },
+    [],
+  );
 
   const saveRequirementModelEdit = useCallback(
     async (diagramKind: DiagramType, model: DiagramModelSpec) => {
       const status = createManualEditStatus("dirty");
       const modelKey = getRequirementModelId(model);
       setModels((current) => ({ ...current, [modelKey]: model }));
-      setManualModelEditStatus((current) => ({ ...current, [modelKey]: status }));
+      setManualModelEditStatus((current) => ({
+        ...current,
+        [modelKey]: status,
+      }));
       await repository.saveRequirementModelEdit?.(diagramKind, model, status);
     },
     [createManualEditStatus, repository],
@@ -4646,7 +5321,10 @@ export function WorkspaceSessionProvider({
     async (modelId: string, model: DesignDiagramModelSpec) => {
       const status = createManualEditStatus("dirty");
       setDesignModels((current) => ({ ...current, [modelId]: model }));
-      setManualModelEditStatus((current) => ({ ...current, [modelId]: status }));
+      setManualModelEditStatus((current) => ({
+        ...current,
+        [modelId]: status,
+      }));
       await repository.saveDesignModelEdit?.(modelId, model, status);
     },
     [createManualEditStatus, repository],
@@ -4674,7 +5352,10 @@ export function WorkspaceSessionProvider({
         svg: rendered.svg,
         renderMeta: rendered.renderMeta,
       };
-      setPlantUml((current) => ({ ...current, [modelKey]: rendered.plantUmlSource }));
+      setPlantUml((current) => ({
+        ...current,
+        [modelKey]: rendered.plantUmlSource,
+      }));
       setSvgArtifacts((current) => ({ ...current, [modelKey]: svgArtifact }));
       setDiagramErrors((current) => {
         const next = { ...current };
@@ -4685,7 +5366,10 @@ export function WorkspaceSessionProvider({
       setGeneratedDiagrams((current) =>
         current.includes(diagramKind) ? current : [...current, diagramKind],
       );
-      setManualModelEditStatus((current) => ({ ...current, [modelKey]: status }));
+      setManualModelEditStatus((current) => ({
+        ...current,
+        [modelKey]: status,
+      }));
       await repository.saveManualModelRerender?.(modelKey, status, {
         plantUmlSource: rendered.plantUmlSource,
         svgArtifact,
@@ -4718,17 +5402,28 @@ export function WorkspaceSessionProvider({
         svg: rendered.svg,
         renderMeta: rendered.renderMeta,
       };
-      setDesignPlantUml((current) => ({ ...current, [modelId]: rendered.plantUmlSource }));
-      setDesignSvgArtifacts((current) => ({ ...current, [modelId]: svgArtifact }));
+      setDesignPlantUml((current) => ({
+        ...current,
+        [modelId]: rendered.plantUmlSource,
+      }));
+      setDesignSvgArtifacts((current) => ({
+        ...current,
+        [modelId]: svgArtifact,
+      }));
       setDesignDiagramErrors((current) => {
         const next = { ...current };
         delete next[model.diagramKind];
         return next;
       });
       setGeneratedDesignDiagrams((current) =>
-        current.includes(model.diagramKind) ? current : [...current, model.diagramKind],
+        current.includes(model.diagramKind)
+          ? current
+          : [...current, model.diagramKind],
       );
-      setManualModelEditStatus((current) => ({ ...current, [modelId]: status }));
+      setManualModelEditStatus((current) => ({
+        ...current,
+        [modelId]: status,
+      }));
       await repository.saveManualModelRerender?.(modelId, status, {
         plantUmlSource: rendered.plantUmlSource,
         svgArtifact,
@@ -4851,25 +5546,26 @@ export function WorkspaceSessionProvider({
       const confirmed = await confirmGeneration(
         analyzeRequirementGeneration(
           diagrams,
-          Object.keys(models) as DiagramType[],
+          collectExistingRequirementDiagramKinds(models),
           plan,
         ),
       );
       if (!confirmed) return;
 
       const rulesSnapshot = plan.needsRulesRun
-        ? await runGeneration(
-            [],
-            { kind: "rules-only" },
-            undefined,
-            { suppressSuccessDialog: true },
-          )
+        ? await runGeneration([], { kind: "rules-only" }, undefined, {
+            suppressSuccessDialog: true,
+            skipRuleRepairCandidates: true,
+          })
         : null;
       if (plan.needsRulesRun && !rulesSnapshot) return;
       const rulesForRun =
         rulesSnapshot && plan.rulesRunMode === "merge"
-          ? mergeAutoCompletedRuleMappings(rules, rulesSnapshot.rules)
-          : rulesSnapshot?.rules ?? rules;
+          ? ensureAutoCompletedRuleMappings(
+              mergeAutoCompletedRuleMappings(rules, rulesSnapshot.rules),
+              plan.ruleMappingDiagrams,
+            )
+          : (rulesSnapshot?.rules ?? rules);
       if (rulesSnapshot && plan.rulesRunMode === "merge") {
         setRules(rulesForRun);
         setRulesVersion((current) => current + 1);
@@ -4885,8 +5581,12 @@ export function WorkspaceSessionProvider({
       }
       const reviewedRuleIds =
         plan.rulesRunMode === "replace"
-          ? rulesSnapshot?.rules.map((rule) => rule.id) ?? []
+          ? (rulesSnapshot?.rules.map((rule) => rule.id) ?? [])
           : [];
+      const analysisTargetUseCaseIds = analysisTargetUseCaseIdsForRun(
+        plan.effectiveDiagrams,
+        models,
+      );
       const modelSnapshot = await runGeneration(
         plan.effectiveDiagrams,
         only
@@ -4894,9 +5594,12 @@ export function WorkspaceSessionProvider({
           : { kind: "full-diagrams" },
         {
           rules: rulesForRun,
+          analysisTargetUseCaseIds,
         },
       );
-      const reviews: Array<WorkspaceRecord["autoGeneratedUpstreamReviews"][string]> = [];
+      const reviews: Array<
+        WorkspaceRecord["autoGeneratedUpstreamReviews"][string]
+      > = [];
       if (rulesSnapshot && plan.rulesRunMode === "replace") {
         for (const ruleId of reviewedRuleIds) {
           reviews.push(
@@ -4958,14 +5661,17 @@ export function WorkspaceSessionProvider({
 
   const generateDesignDiagrams = useCallback(
     async (only?: DesignDiagramType[]) => {
-      const requestedDiagrams = orderedDesignDiagrams(only ?? selectedDesignDiagrams);
+      const requestedDiagrams = orderedDesignDiagrams(
+        only ?? selectedDesignDiagrams,
+      );
       if (requestedDiagrams.length === 0) {
         return;
       }
-      const currentPendingRequirementReviews = requirementRuleIdsBlockingGeneration(
-        requirementBaseline,
-        requirementReviewCandidates,
-      );
+      const currentPendingRequirementReviews =
+        requirementRuleIdsBlockingGeneration(
+          requirementBaseline,
+          requirementReviewCandidates,
+        );
       if (currentPendingRequirementReviews.length > 0) {
         const message = "请先确认需求规则修复结果";
         setRunUiState((current) => ({
@@ -5022,19 +5728,20 @@ export function WorkspaceSessionProvider({
           ),
         ),
       );
-      const staleRequirementSources = requiredExistingRequirementSources.filter((diagram) =>
-        isRequirementDiagramStale({
-          diagram,
-          activeRequirementFingerprint,
-          generatedDiagrams,
-          requirementInputFingerprint,
-          diagramInputFingerprints,
-          diagramVersions,
-          rulesVersion,
-          models,
-          requirementModelTraceability,
-          manualModelEditStatus,
-        }),
+      const staleRequirementSources = requiredExistingRequirementSources.filter(
+        (diagram) =>
+          isRequirementDiagramStale({
+            diagram,
+            activeRequirementFingerprint,
+            generatedDiagrams,
+            requirementInputFingerprint,
+            diagramInputFingerprints,
+            diagramVersions,
+            rulesVersion,
+            models,
+            requirementModelTraceability,
+            manualModelEditStatus,
+          }),
       );
       if (staleRequirementSources.length > 0) {
         const message = `已有需求阶段${diagramLabels(staleRequirementSources).join("、")}基于旧规则，请先回到需求页更新`;
@@ -5051,11 +5758,12 @@ export function WorkspaceSessionProvider({
         });
         return;
       }
-      const existingRequirementTraceabilityComplete = hasCompleteRequirementTraceability(
-        Object.values(models),
-        requirementModelTraceability,
-        manualModelEditStatus,
-      );
+      const existingRequirementTraceabilityComplete =
+        hasCompleteRequirementTraceability(
+          Object.values(models),
+          requirementModelTraceability,
+          manualModelEditStatus,
+        );
       const existingRequirementTraceabilityMissing =
         requiredExistingRequirementSources.length > 0 &&
         (requirementModelTraceability.length > 0
@@ -5077,10 +5785,13 @@ export function WorkspaceSessionProvider({
         return;
       }
       const activeDesignFingerprint = designInputFingerprintFor(
-        Object.values(models).filter((model): model is DiagramModelSpec => Boolean(model)),
+        Object.values(models).filter((model): model is DiagramModelSpec =>
+          Boolean(model),
+        ),
         requirementModelTraceability,
       );
-      const existingDesignDiagrams = collectExistingDesignDiagramKinds(designModels);
+      const existingDesignDiagrams =
+        collectExistingDesignDiagramKinds(designModels);
       const needsSequenceDependency = requestedDiagrams.some(
         (diagram) => diagram !== "sequence",
       );
@@ -5107,7 +5818,7 @@ export function WorkspaceSessionProvider({
         requestedDiagrams.includes("table") &&
         existingDesignDiagrams.includes("class") &&
         !designFingerprintMatches(
-          designInputFingerprints.class,
+          currentDesignClassFingerprint(designModels, designInputFingerprints),
           activeDesignFingerprint,
         )
       ) {
@@ -5126,7 +5837,10 @@ export function WorkspaceSessionProvider({
         return;
       }
       const { effectiveDiagrams, dependencyDiagrams } =
-        resolveDesignGenerationDiagrams(requestedDiagrams, existingDesignDiagrams);
+        resolveDesignGenerationDiagrams(
+          requestedDiagrams,
+          existingDesignDiagrams,
+        );
       const confirmed = await confirmGeneration(
         analyzeDesignGeneration(
           requestedDiagrams,
@@ -5139,24 +5853,28 @@ export function WorkspaceSessionProvider({
       if (!confirmed) return;
 
       const rulesSnapshot = requirementPlan.needsRulesRun
-        ? await runGeneration(
-            [],
-            { kind: "rules-only" },
-            undefined,
-            { suppressSuccessDialog: true },
-          )
+        ? await runGeneration([], { kind: "rules-only" }, undefined, {
+            suppressSuccessDialog: true,
+            skipRuleRepairCandidates: true,
+          })
         : null;
       if (requirementPlan.needsRulesRun && !rulesSnapshot) return;
       const rulesForRequirementRun =
         rulesSnapshot && requirementPlan.rulesRunMode === "merge"
-          ? mergeAutoCompletedRuleMappings(rules, rulesSnapshot.rules)
-          : rulesSnapshot?.rules ?? rules;
+          ? ensureAutoCompletedRuleMappings(
+              mergeAutoCompletedRuleMappings(rules, rulesSnapshot.rules),
+              requirementPlan.ruleMappingDiagrams,
+            )
+          : (rulesSnapshot?.rules ?? rules);
       if (rulesSnapshot && requirementPlan.rulesRunMode === "merge") {
         setRules(rulesForRequirementRun);
         setRulesVersion((current) => current + 1);
         setRulesBasedOnTextVersion(textVersion);
         setRequirementInputFingerprint(
-          requirementInputFingerprintFor(requirementText, rulesForRequirementRun),
+          requirementInputFingerprintFor(
+            requirementText,
+            rulesForRequirementRun,
+          ),
         );
         latestInputRef.current = {
           ...latestInputRef.current,
@@ -5166,31 +5884,44 @@ export function WorkspaceSessionProvider({
       }
       const reviewedRuleIds =
         requirementPlan.rulesRunMode === "replace"
-          ? rulesSnapshot?.rules.map((rule) => rule.id) ?? []
+          ? (rulesSnapshot?.rules.map((rule) => rule.id) ?? [])
           : [];
+      const analysisTargetUseCaseIds = analysisTargetUseCaseIdsForRun(
+        requirementPlan.effectiveDiagrams,
+        models,
+      );
 
-      const requirementModelSnapshot = requirementPlan.effectiveDiagrams.length > 0
-        ? await runGeneration(
-            requirementPlan.effectiveDiagrams,
-            { kind: "partial-diagrams", diagrams: requirementPlan.effectiveDiagrams },
-            {
-              rules: rulesForRequirementRun,
-              contextModels: Object.values(models).filter(
-                (model): model is DiagramModelSpec => Boolean(model),
-              ),
-              contextRequirementModelTraceability: requirementModelTraceability,
-            },
-            { suppressSuccessDialog: true },
-          )
-        : null;
-      if (requirementPlan.effectiveDiagrams.length > 0 && !requirementModelSnapshot) {
+      const requirementModelSnapshot =
+        requirementPlan.effectiveDiagrams.length > 0
+          ? await runGeneration(
+              requirementPlan.effectiveDiagrams,
+              {
+                kind: "partial-diagrams",
+                diagrams: requirementPlan.effectiveDiagrams,
+              },
+              {
+                rules: rulesForRequirementRun,
+                contextModels: Object.values(models).filter(
+                  (model): model is DiagramModelSpec => Boolean(model),
+                ),
+                contextRequirementModelTraceability:
+                  requirementModelTraceability,
+                analysisTargetUseCaseIds,
+              },
+              { suppressSuccessDialog: true },
+            )
+          : null;
+      if (
+        requirementPlan.effectiveDiagrams.length > 0 &&
+        !requirementModelSnapshot
+      ) {
         return;
       }
 
       const activeRequirementModels =
         requirementModelSnapshot?.models ??
-        Object.values(models).filter(
-          (model): model is DiagramModelSpec => Boolean(model),
+        Object.values(models).filter((model): model is DiagramModelSpec =>
+          Boolean(model),
         );
       const activeRequirementBaseline =
         requirementModelSnapshot?.requirementBaseline ??
@@ -5218,7 +5949,9 @@ export function WorkspaceSessionProvider({
           rules: rulesForRequirementRun,
         },
       );
-      const reviews: Array<WorkspaceRecord["autoGeneratedUpstreamReviews"][string]> = [];
+      const reviews: Array<
+        WorkspaceRecord["autoGeneratedUpstreamReviews"][string]
+      > = [];
       if (rulesSnapshot && requirementPlan.rulesRunMode === "replace") {
         for (const ruleId of reviewedRuleIds) {
           reviews.push(
@@ -5295,11 +6028,12 @@ export function WorkspaceSessionProvider({
     ],
   );
 
-  const generateCodePrototype = useCallback(async (
-    mode: "continue" | "regenerate" = "continue",
-  ) => {
-    await runCodeGeneration(mode);
-  }, [runCodeGeneration]);
+  const generateCodePrototype = useCallback(
+    async (mode: "continue" | "regenerate" = "continue") => {
+      await runCodeGeneration(mode);
+    },
+    [runCodeGeneration],
+  );
 
   const currentRequirementInputFingerprint = requirementInputFingerprintFor(
     requirementText,
@@ -5350,17 +6084,18 @@ export function WorkspaceSessionProvider({
       ? !requirementTraceabilityComplete
       : generatedDiagrams.length > 0;
   const currentDesignInputFingerprint = designInputFingerprintFor(
-    Object.values(models).filter((model): model is DiagramModelSpec => Boolean(model)),
+    Object.values(models).filter((model): model is DiagramModelSpec =>
+      Boolean(model),
+    ),
     requirementModelTraceability,
   );
   const designFreshnessComplete =
     generatedDesignDiagrams.length === 0 ||
-    Object.entries(designModels).every(
-      ([modelId]) =>
-        designFingerprintMatches(
-          designInputFingerprints[modelId],
-          currentDesignInputFingerprint,
-        ),
+    Object.entries(designModels).every(([modelId]) =>
+      designFingerprintMatches(
+        designInputFingerprints[modelId],
+        currentDesignInputFingerprint,
+      ),
     );
   const designTraceabilityComplete = hasCompleteDesignTraceability(
     Object.values(designModels),
@@ -5370,10 +6105,14 @@ export function WorkspaceSessionProvider({
   );
   const requirementTraceabilityStale =
     generatedRequirementDiagramSet.size > 0 &&
-    (isRulesStale || staleDiagrams.length > 0 || requirementTraceabilityMissing);
+    (isRulesStale ||
+      staleDiagrams.length > 0 ||
+      requirementTraceabilityMissing);
   const designTraceabilityStale =
     generatedDesignDiagrams.length > 0 &&
-    (requirementTraceabilityStale || !designFreshnessComplete || !designTraceabilityComplete);
+    (requirementTraceabilityStale ||
+      !designFreshnessComplete ||
+      !designTraceabilityComplete);
   const pendingRequirementReviewRuleIds = requirementRuleIdsBlockingGeneration(
     requirementBaseline,
     requirementReviewCandidates,
@@ -5396,9 +6135,12 @@ export function WorkspaceSessionProvider({
     return generationTasks.find(isTaskActive) ?? generationTasks[0] ?? null;
   }, [generationTasks, selectedGenerationTaskId]);
 
-  const visibleRunStatus = visibleGenerationTask?.status ?? runUiState.runStatus;
-  const visibleRunProgress = visibleGenerationTask?.progress ?? runUiState.runProgress;
-  const visibleRunMessage = visibleGenerationTask?.message ?? runUiState.runMessage;
+  const visibleRunStatus =
+    visibleGenerationTask?.status ?? runUiState.runStatus;
+  const visibleRunProgress =
+    visibleGenerationTask?.progress ?? runUiState.runProgress;
+  const visibleRunMessage =
+    visibleGenerationTask?.message ?? runUiState.runMessage;
   const visibleErrorMessage =
     visibleGenerationTask?.errorMessage ?? runUiState.errorMessage;
   const visibleRunDiagnostics =
@@ -5420,6 +6162,7 @@ export function WorkspaceSessionProvider({
       decideAutoGeneratedUpstreamReview,
       acceptRequirementAiSuggestions,
       rejectRequirementAiSuggestions,
+      confirmRequirementQualityHint,
       repairRequirementRule,
       decideRequirementReviewCandidate,
       addRequirementRule,
@@ -5514,6 +6257,7 @@ export function WorkspaceSessionProvider({
       requirementReviewCandidates,
       autoGeneratedUpstreamReviews,
       acceptRequirementAiSuggestions,
+      confirmRequirementQualityHint,
       decideAutoGeneratedUpstreamReview,
       decideRequirementReviewCandidate,
       rejectRequirementAiSuggestions,

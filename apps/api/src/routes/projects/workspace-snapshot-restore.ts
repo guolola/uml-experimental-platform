@@ -144,7 +144,10 @@ function applySnapshotToWorkspaceState(
       ...arrayValue(next.designModelTraceability).filter(
         (entry) =>
           !affected.has(
-            readNestedString(entry, ["source", "diagramKind"]) as DesignDiagramKind,
+            readNestedString(entry, [
+              "source",
+              "diagramKind",
+            ]) as DesignDiagramKind,
           ),
       ),
       ...snapshot.designModelTraceability,
@@ -178,7 +181,10 @@ function applySnapshotToWorkspaceState(
     next.models = {
       ...clearScopedRecords(recordValue(next.models), requirementDiagrams),
       ...Object.fromEntries(
-        snapshot.requirementModels.map((model) => [getRequirementModelId(model), model]),
+        snapshot.requirementModels.map((model) => [
+          getRequirementModelId(model),
+          model,
+        ]),
       ),
     };
     next.requirementModelTraceability = mergeRequirementTraceability(
@@ -221,19 +227,52 @@ function applySnapshotToWorkspaceState(
   }
 
   const records = mapRequirementSnapshotToRecords(snapshot);
+  const erroredDiagrams = new Set(
+    Object.keys(snapshot.diagramErrors)
+      .map(diagramKindFromErrorKey)
+      .filter((diagram): diagram is DiagramKind => Boolean(diagram)),
+  );
   const modelDiagrams = uniqueStrings(
-    snapshot.models.map((model) => model.diagramKind),
+    Object.values(records.modelMap)
+      .map((model) => model.diagramKind)
+      .filter((diagram): diagram is DiagramKind =>
+        Boolean(diagram && !erroredDiagrams.has(diagram)),
+      ),
   ) as DiagramKind[];
-  const artifactDiagrams = uniqueStrings([
-    ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-    ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-    ...Object.keys(snapshot.diagramErrors).map((key) => key.split(":")[0] ?? key),
-  ]) as DiagramKind[];
-  const affected = uniqueStrings([
+  const artifactDiagrams = uniqueStrings(
+    [
+      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+    ].filter(
+      (diagram): diagram is DiagramKind => !erroredDiagrams.has(diagram),
+    ),
+  );
+  const selectedModelDiagrams = modelDiagrams.filter((diagram) =>
+    snapshot.selectedDiagrams.includes(diagram),
+  );
+  const canFallbackToContextModels =
+    snapshot.selectedDiagrams.length === 0 &&
+    Object.keys(snapshot.diagramErrors).length === 0;
+  const successfulAffected = uniqueStrings(
+    artifactDiagrams.length > 0
+      ? artifactDiagrams
+      : selectedModelDiagrams.length > 0
+        ? selectedModelDiagrams
+        : canFallbackToContextModels
+          ? modelDiagrams
+          : [],
+  ) as DiagramKind[];
+  const affectedForErrors = uniqueStrings([
     ...snapshot.selectedDiagrams,
-    ...modelDiagrams,
-    ...artifactDiagrams,
+    ...successfulAffected,
+    ...Array.from(erroredDiagrams),
   ]) as DiagramKind[];
+  const affected =
+    affectedForErrors.length > 0 ? affectedForErrors : successfulAffected;
+  const affectedModelMap = keepScopedRecords(
+    records.modelMap,
+    successfulAffected,
+  );
   const inputChanged =
     next.requirementInputFingerprint !== null &&
     next.requirementInputFingerprint !== undefined &&
@@ -256,29 +295,33 @@ function applySnapshotToWorkspaceState(
     return next;
   }
 
-  next.models = {
-    ...clearScopedRecords(recordValue(next.models), affected),
-    ...records.modelMap,
-  };
+  if (successfulAffected.length > 0) {
+    next.models = {
+      ...clearScopedRecords(recordValue(next.models), successfulAffected),
+      ...affectedModelMap,
+    };
+  }
   next.requirementModelTraceability = mergeRequirementTraceability(
     arrayValue(
       next.requirementModelTraceability,
     ) as RequirementModelTraceabilityEntry[],
     snapshot.requirementModelTraceability ?? [],
-    affected,
+    successfulAffected,
   );
   next.generatedDiagramTypes = uniqueStrings([
     ...stringArrayValue(next.generatedDiagramTypes),
-    ...affected,
+    ...successfulAffected,
   ]);
-  next.plantUml = {
-    ...clearScopedRecords(recordValue(next.plantUml), affected),
-    ...records.plantUmlMap,
-  };
-  next.svgArtifacts = {
-    ...clearScopedRecords(recordValue(next.svgArtifacts), affected),
-    ...records.svgMap,
-  };
+  if (successfulAffected.length > 0) {
+    next.plantUml = {
+      ...clearScopedRecords(recordValue(next.plantUml), successfulAffected),
+      ...keepScopedRecords(records.plantUmlMap, successfulAffected),
+    };
+    next.svgArtifacts = {
+      ...clearScopedRecords(recordValue(next.svgArtifacts), successfulAffected),
+      ...keepScopedRecords(records.svgMap, successfulAffected),
+    };
+  }
   next.diagramErrors = clearAndMergeDiagramErrors(
     recordValue(next.diagramErrors),
     snapshot.diagramErrors,
@@ -286,18 +329,25 @@ function applySnapshotToWorkspaceState(
   );
   next.diagramVersions = {
     ...recordValue(next.diagramVersions),
-    ...Object.fromEntries(affected.map((diagram) => [diagram, nextRulesVersion])),
+    ...Object.fromEntries(
+      successfulAffected.map((diagram) => [diagram, nextRulesVersion]),
+    ),
   };
   next.diagramInputFingerprints = {
     ...recordValue(next.diagramInputFingerprints),
     ...Object.fromEntries(
-      affected.map((diagram) => [diagram, workspaceRequirementFingerprint]),
+      successfulAffected.map((diagram) => [
+        diagram,
+        workspaceRequirementFingerprint,
+      ]),
     ),
   };
   return next;
 }
 
-function isCodeRunSnapshot(snapshot: RestorableRunSnapshot): snapshot is CodeRunSnapshot {
+function isCodeRunSnapshot(
+  snapshot: RestorableRunSnapshot,
+): snapshot is CodeRunSnapshot {
   return "files" in snapshot;
 }
 
@@ -314,7 +364,10 @@ function getDesignModelId(
 }
 
 function getDesignArtifactId(
-  artifact: Pick<DesignPlantUmlArtifact | DesignSvgArtifact, "diagramKind" | "modelId">,
+  artifact: Pick<
+    DesignPlantUmlArtifact | DesignSvgArtifact,
+    "diagramKind" | "modelId"
+  >,
 ) {
   return artifact.modelId ?? artifact.diagramKind;
 }
@@ -397,16 +450,53 @@ function clearScopedRecords(
   current: Record<string, unknown>,
   affected: readonly string[],
 ) {
-  const next = { ...current };
-  for (const diagram of affected) {
-    delete next[diagram];
-    for (const key of Object.keys(next)) {
-      if (key.startsWith(`${diagram}:`)) {
-        delete next[key];
+  const affectedSet = new Set(affected);
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      if (affectedSet.has(key)) return false;
+      for (const diagram of affected) {
+        if (key.startsWith(`${diagram}:`)) {
+          return false;
+        }
       }
-    }
-  }
-  return next;
+      const diagramKind = readNestedString(value, ["diagramKind"]);
+      return !diagramKind || !affectedSet.has(diagramKind);
+    }),
+  );
+}
+
+function keepScopedRecords<T>(
+  current: Record<string, T>,
+  affected: readonly string[],
+) {
+  const affectedSet = new Set(affected);
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      if (affectedSet.has(key)) return true;
+      for (const diagram of affected) {
+        if (key.startsWith(`${diagram}:`)) {
+          return true;
+        }
+      }
+      const diagramKind = readNestedString(value, ["diagramKind"]);
+      return Boolean(diagramKind && affectedSet.has(diagramKind));
+    }),
+  ) as Record<string, T>;
+}
+
+function diagramKindFromErrorKey(key: string) {
+  const [candidate] = key.split(":");
+  return candidate &&
+    [
+      "usecase",
+      "class",
+      "activity",
+      "deployment",
+      "prototype",
+      "analysis",
+    ].includes(candidate)
+    ? (candidate as DiagramKind)
+    : null;
 }
 
 function mergeRequirementTraceability(
@@ -416,8 +506,12 @@ function mergeRequirementTraceability(
 ) {
   const affected = new Set<DiagramKind>(affectedDiagrams);
   return [
-    ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramKind)),
-    ...incoming.filter((entry) => affected.has(entry.target.diagramKind as DiagramKind)),
+    ...current.filter(
+      (entry) => !affected.has(entry.target.diagramKind as DiagramKind),
+    ),
+    ...incoming.filter((entry) =>
+      affected.has(entry.target.diagramKind as DiagramKind),
+    ),
   ];
 }
 
@@ -467,7 +561,12 @@ function sortFingerprintValue(value: unknown): unknown {
   );
 }
 
-const DIAGRAM_FINGERPRINT_ORDER = ["usecase", "class", "activity", "deployment"];
+const DIAGRAM_FINGERPRINT_ORDER = [
+  "usecase",
+  "class",
+  "activity",
+  "deployment",
+];
 
 function normalizeDesignInputFingerprintValue(value: unknown) {
   const record = isRecord(value) ? value : {};
@@ -488,7 +587,10 @@ function normalizeDesignInputFingerprintValue(value: unknown) {
 function sortByFingerprintKey<T>(values: T[], keyFor: (value: T) => string) {
   return values
     .map((value, index) => ({ index, key: keyFor(value), value }))
-    .sort((left, right) => left.key.localeCompare(right.key) || left.index - right.index)
+    .sort(
+      (left, right) =>
+        left.key.localeCompare(right.key) || left.index - right.index,
+    )
     .map((entry) => entry.value);
 }
 
@@ -511,7 +613,10 @@ function traceabilityFingerprintKey(value: unknown) {
   return [
     modelElementRefFingerprintKey(record.source),
     Array.isArray(record.targets)
-      ? sortByFingerprintKey(record.targets, modelElementRefFingerprintKey).join("|")
+      ? sortByFingerprintKey(
+          record.targets,
+          modelElementRefFingerprintKey,
+        ).join("|")
       : "",
     compactFingerprintValue(record.ruleId),
     snapshotInputFingerprint(value),

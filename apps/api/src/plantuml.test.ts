@@ -40,6 +40,66 @@ async function renderDesignActivityModel(model: ActivityDiagramSpec) {
   return artifact.source;
 }
 
+test("usecase PlantUML renders include and extend without duplicate labels", () => {
+  const model: UseCaseDiagramSpec = {
+    diagramKind: "usecase",
+    title: "用例图",
+    summary: "用例关系",
+    notes: [],
+    actors: [{ id: "actor_user", name: "用户", actorType: "human" }],
+    useCases: [
+      {
+        id: "uc_order",
+        name: "提交订单",
+        goal: "提交订单",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+      {
+        id: "uc_pay",
+        name: "支付订单",
+        goal: "完成支付",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+      {
+        id: "uc_coupon",
+        name: "使用优惠券",
+        goal: "抵扣金额",
+        preconditions: [],
+        postconditions: [],
+        supportingActorIds: [],
+      },
+    ],
+    systemBoundaries: [{ id: "system", name: "订单系统" }],
+    relationships: [
+      {
+        id: "rel_include",
+        type: "include",
+        sourceId: "uc_order",
+        targetId: "uc_pay",
+        label: "include",
+      },
+      {
+        id: "rel_extend",
+        type: "extend",
+        sourceId: "uc_coupon",
+        targetId: "uc_order",
+        label: "extend",
+      },
+    ],
+  };
+
+  const source = generatePlantUmlArtifacts([model])[0]?.source ?? "";
+
+  assert.match(source, /uc_order \.\.> uc_pay : <<include>>/);
+  assert.match(source, /uc_coupon \.\.> uc_order : <<extend>>/);
+  assert.doesNotMatch(source, /<<include>>\s+include/);
+  assert.doesNotMatch(source, /<<extend>>\s+extend/);
+});
+
 test("activity PlantUML keeps swimlane declarations valid", async () => {
   const source = await renderActivityModel({
     diagramKind: "activity",
@@ -78,6 +138,45 @@ test("activity PlantUML keeps swimlane declarations valid", async () => {
   });
 
   assert.ok(source.indexOf("|用户|") < source.indexOf("\nstart"));
+});
+
+test("activity PlantUML skips start nodes that have incoming flows", async () => {
+  const source = await renderActivityModel({
+    diagramKind: "activity",
+    title: "定时任务流程",
+    summary: "防御错误入边",
+    notes: [],
+    swimlanes: [],
+    nodes: [
+      { id: "start", type: "start", name: "开始" },
+      {
+        id: "prepare",
+        type: "activity",
+        name: "准备数据",
+        input: [],
+        output: [],
+      },
+      { id: "timer_start", type: "start", name: "定时触发" },
+      {
+        id: "run_timer",
+        type: "activity",
+        name: "执行定时任务",
+        input: [],
+        output: [],
+      },
+      { id: "end", type: "end", name: "结束" },
+    ],
+    relationships: [
+      { id: "f1", type: "control_flow", sourceId: "start", targetId: "prepare" },
+      { id: "f2", type: "control_flow", sourceId: "prepare", targetId: "timer_start" },
+      { id: "f3", type: "control_flow", sourceId: "timer_start", targetId: "run_timer" },
+      { id: "f4", type: "control_flow", sourceId: "run_timer", targetId: "end" },
+    ],
+  });
+
+  assert.equal(source.match(/^start$/gm)?.length, 1);
+  assert.doesNotMatch(source, /:定时触发;/);
+  assert.match(source, /:执行定时任务;/);
 });
 
 test("activity PlantUML renders decision branches", async () => {
@@ -401,6 +500,58 @@ test("design activity PlantUML treats object flows as traversable flow edges", a
   assert.match(source, /:查询公开活动;/);
   assert.match(source, /:查看活动信息;/);
   assert.ok(source.indexOf(":查询公开活动;") > source.indexOf(":请求公开活动列表;"));
+});
+
+test("design activity PlantUML renders connected screen nodes mislabeled as starts", async () => {
+  const source = await renderDesignActivityModel({
+    diagramKind: "activity",
+    title: "预约审批界面关系图",
+    summary: "DeepSeek can label interface screens as start nodes while preserving edges.",
+    notes: [],
+    swimlanes: [],
+    nodes: [
+      { id: "screen-app-list", type: "start", name: "申请列表页" },
+      { id: "module-filter", type: "start", name: "筛选栏模块" },
+      { id: "screen-progress-detail", type: "start", name: "审批进度详情页" },
+      { id: "entry-main-menu", type: "start", name: "主菜单入口" },
+    ],
+    relationships: [
+      {
+        id: "rel-contains-filter",
+        type: "control_flow",
+        sourceId: "screen-app-list",
+        targetId: "module-filter",
+        description: "申请列表页包含筛选栏模块",
+      },
+      {
+        id: "rel-nav-to-progress",
+        type: "control_flow",
+        sourceId: "screen-app-list",
+        targetId: "screen-progress-detail",
+        trigger: "点击申请项",
+      },
+      {
+        id: "rel-return",
+        type: "control_flow",
+        sourceId: "screen-progress-detail",
+        targetId: "screen-app-list",
+        description: "返回申请列表页",
+      },
+      {
+        id: "rel-entry",
+        type: "control_flow",
+        sourceId: "entry-main-menu",
+        targetId: "screen-app-list",
+        description: "从主菜单入口导航至申请列表页",
+      },
+    ],
+  });
+
+  assert.match(source, /:申请列表页;/);
+  assert.match(source, /:筛选栏模块;/);
+  assert.match(source, /:审批进度详情页;/);
+  assert.match(source, /:主菜单入口;/);
+  assert.notEqual(source.trim(), "@startuml\nstart\nstop\n@enduml");
 });
 
 test("design activity PlantUML renders multiple start subflows in one diagram", async () => {

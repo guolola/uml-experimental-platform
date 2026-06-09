@@ -9,6 +9,7 @@ import {
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
+import { designInputFingerprint } from "../../../shared/lib/fingerprint";
 import { DesignModelPage } from "./design-model-page";
 
 type StartDesignRunInput = Parameters<
@@ -512,6 +513,15 @@ describe("DesignModelPage", () => {
     expect(
       screen.getAllByText(/已有需求阶段用例模型基于旧规则，请先回到需求页更新/).length,
     ).toBeGreaterThan(0);
+    const sourceRegion = screen.getByRole("heading", { name: "需求阶段来源" });
+    const sourceGrid = sourceRegion.closest("section");
+    const usecaseSourceCard = within(sourceGrid as HTMLElement)
+      .getByText("用例模型")
+      .closest("div");
+    expect(usecaseSourceCard).toHaveTextContent("需更新");
+    expect(
+      screen.getByText(/请先回到「需求阶段」更新用例模型/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /生成设计模型/ })).toBeDisabled();
     expect(startRun).not.toHaveBeenCalled();
     expect(startDesignRun).not.toHaveBeenCalled();
@@ -874,5 +884,59 @@ describe("DesignModelPage", () => {
     expect(input).not.toHaveProperty("requirementText");
     expect(input).not.toHaveProperty("rules");
     expect(input).toHaveProperty("requirementBaseline");
+  });
+
+  it("allows database design when the current design class diagram is keyed by model id", async () => {
+    const designClassModel = {
+      diagramKind: "class" as const,
+      modelId: "class:design-class-diagram",
+      title: "设计类图",
+      summary: "按当前需求生成的设计类图",
+      notes: [],
+      classes: [],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          models: {
+            usecase: useCaseModel,
+            class: classModel,
+          },
+          designModels: {
+            "class:design-class-diagram": designClassModel,
+          },
+          designInputFingerprints: {
+            "class:design-class-diagram": designInputFingerprint(
+              [useCaseModel, classModel],
+              [],
+            ),
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("设计模型");
+    expect(screen.queryByText("设计类图已存在但基于旧需求，请先手动更新设计类图")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /数据库设计/ })).toBeEnabled();
   });
 });

@@ -1402,6 +1402,7 @@ export function registerRunRoutes({
         {
           models: input.contextModels,
           requirementModelTraceability: input.contextRequirementModelTraceability,
+          analysisTargetUseCaseIds: input.analysisTargetUseCaseIds,
         },
       ),
       events: [],

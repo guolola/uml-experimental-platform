@@ -123,6 +123,7 @@ export interface WorkspaceSessionState {
     fieldValues?: Partial<Record<AtomicRequirementField, string>>,
   ) => Promise<void>;
   rejectRequirementAiSuggestions: (ruleId: string) => Promise<void>;
+  confirmRequirementQualityHint: (ruleId: string) => Promise<void>;
   addRequirementRule: () => void;
   createRequirementRule: (input: {
     category: RequirementRule["category"];

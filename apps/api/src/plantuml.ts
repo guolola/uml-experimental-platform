@@ -68,9 +68,9 @@ function renderUseCaseRelationship(relation: UseCaseRelationship) {
     case "association":
       return `${source} --> ${target}${suffix}`;
     case "include":
-      return `${source} ..> ${target} : <<include>>${labelParts.length > 0 ? ` ${labelParts.join(" | ")}` : ""}`.trim();
+      return `${source} ..> ${target} : <<include>>`;
     case "extend":
-      return `${source} ..> ${target} : <<extend>>${labelParts.length > 0 ? ` ${labelParts.join(" | ")}` : ""}`.trim();
+      return `${source} ..> ${target} : <<extend>>`;
     case "generalization":
       return `${source} --|> ${target}${suffix}`;
   }
@@ -258,6 +258,16 @@ function renderActivity(model: ActivityDiagramSpec) {
   );
   const outgoing = new Map<string, ActivityDiagramSpec["relationships"]>();
   const incoming = new Map<string, ActivityDiagramSpec["relationships"]>();
+  const shouldRenderStartNodesAsActions =
+    model.nodes.some((node) => node.type === "start" && node.name.trim().length > 0) &&
+    !model.nodes.some(
+      (node) =>
+        node.type === "activity" ||
+        node.type === "decision" ||
+        node.type === "fork" ||
+        node.type === "join" ||
+        node.type === "merge",
+    );
 
   for (const relation of activityFlows) {
     const nextOutgoing = outgoing.get(relation.sourceId) ?? [];
@@ -444,12 +454,53 @@ function renderActivity(model: ActivityDiagramSpec) {
 
       switch (node.type) {
         case "start":
-          if (!renderedNodes.has(node.id)) {
-            lines.push("start");
-            if (entryNodes.length > 1 && node.name) {
+          // LLM output can occasionally wire a timer/start marker into an existing flow.
+          if ((incoming.get(node.id) ?? []).length > 0) {
+            if (shouldRenderStartNodesAsActions && node.name) {
               lines.push(`:${escapeActivityLabel(node.name)};`);
             }
             renderedNodes.add(node.id);
+            {
+              const branches = outgoing.get(node.id) ?? [];
+              if (branches.length > 1) {
+                const commonContinuation = renderBranches(
+                  `${node.name || node.id}后续路径`,
+                  branches,
+                  stopBefore,
+                  pathSeen,
+                );
+                if (!commonContinuation) {
+                  return undefined;
+                }
+                nodeId = commonContinuation;
+                continue;
+              }
+            }
+            nodeId = followSingleOutgoing(node.id);
+            continue;
+          }
+          if (!renderedNodes.has(node.id)) {
+            lines.push("start");
+            if ((shouldRenderStartNodesAsActions || entryNodes.length > 1) && node.name) {
+              lines.push(`:${escapeActivityLabel(node.name)};`);
+            }
+            renderedNodes.add(node.id);
+          }
+          {
+            const branches = outgoing.get(node.id) ?? [];
+            if (branches.length > 1) {
+              const commonContinuation = renderBranches(
+                `${node.name || node.id}后续路径`,
+                branches,
+                stopBefore,
+                pathSeen,
+              );
+              if (!commonContinuation) {
+                return undefined;
+              }
+              nodeId = commonContinuation;
+              continue;
+            }
           }
           nodeId = followSingleOutgoing(node.id);
           continue;
@@ -540,7 +591,9 @@ function renderActivity(model: ActivityDiagramSpec) {
     return nodeId;
   }
 
-  const explicitStartNodes = model.nodes.filter((node) => node.type === "start");
+  const explicitStartNodes = model.nodes.filter(
+    (node) => node.type === "start" && (incoming.get(node.id) ?? []).length === 0,
+  );
   const sourceNodes = model.nodes.filter(
     (node) =>
       node.type !== "end" &&
@@ -574,14 +627,21 @@ function renderActivity(model: ActivityDiagramSpec) {
     }
   }
 
-  const missingNodes = model.nodes.filter(
-    (node) => node.type !== "start" && !renderedNodes.has(node.id),
-  );
+  const missingNodes = model.nodes.filter((node) => {
+    if (renderedNodes.has(node.id)) return false;
+    if (node.type !== "start") return true;
+    return (
+      shouldRenderStartNodesAsActions &&
+      ((incoming.get(node.id) ?? []).length > 0 || (outgoing.get(node.id) ?? []).length > 0)
+    );
+  });
   if (missingNodes.length > 0) {
     currentLane = null;
     lines.push(`partition "未结构化关系补充" {`);
     for (const node of missingNodes) {
-      if (node.type === "activity") {
+      if (node.type === "start") {
+        lines.push(`:${escapeActivityLabel(node.name)};`);
+      } else if (node.type === "activity") {
         pushLane(node.actorOrLane);
         lines.push(`:${escapeActivityLabel(node.name)};`);
       } else if (node.type === "decision") {

@@ -207,6 +207,13 @@ export function summarizeEvent(event: RunEvent): DiagnosticEvent {
         label: "任务失败",
         detail: sanitizeDiagnosticText(event.error.message),
       };
+    case "cancelled":
+      return {
+        id: `${suffix}:cancelled`,
+        at,
+        label: "任务已取消",
+        detail: sanitizeDiagnosticText(event.message),
+      };
     case "llm_chunk":
       if (!isMeaningfulLlmChunkEvent(event)) {
         return {
@@ -282,6 +289,8 @@ export function getProgressFromEvent(event: RunEvent) {
     case "completed":
       return 100;
     case "failed":
+      return 100;
+    case "cancelled":
       return 100;
     case "llm_chunk":
     case "artifact_ready":

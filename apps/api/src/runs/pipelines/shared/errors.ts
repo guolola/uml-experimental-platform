@@ -151,9 +151,11 @@ export function normalizeRunError(error: unknown): RunError {
   if (
     /http\s+402/.test(lower) ||
     lower.includes("insufficient balance") ||
+    lower.includes("balance is insufficient") ||
     lower.includes("insufficient quota") ||
     lower.includes("quota exhausted") ||
     lower.includes("余额不足") ||
+    lower.includes("额度不足") ||
     lower.includes("账户余额") ||
     lower.includes("欠费")
   ) {

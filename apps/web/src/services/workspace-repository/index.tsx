@@ -50,9 +50,7 @@ import type {
   WorkspaceRecord,
 } from "../../entities/workspace/model";
 import type { RequirementRule } from "../../entities/requirement-rule/model";
-import {
-  loadUserSettings,
-} from "../../shared/lib/user-settings";
+import { loadUserSettings } from "../../shared/lib/user-settings";
 import type { ModelCapability } from "../../shared/lib/model-catalog";
 import {
   ApiClientError,
@@ -103,7 +101,9 @@ type ProviderSettingsPresence = {
   providerConfigId?: string;
 };
 
-function shouldSendProviderSettings(providerSettings?: ProviderSettingsPresence | null) {
+function shouldSendProviderSettings(
+  providerSettings?: ProviderSettingsPresence | null,
+) {
   return Boolean(providerSettings?.providerConfigId?.trim());
 }
 
@@ -139,6 +139,7 @@ export interface StartRunInput {
   rules: RequirementRule[];
   contextModels: DiagramModelSpec[];
   contextRequirementModelTraceability: RequirementModelTraceabilityEntry[];
+  analysisTargetUseCaseIds?: string[];
   providerSettings: ProviderSettingsInput;
 }
 
@@ -276,9 +277,7 @@ export interface WorkspaceRepository {
       svgArtifact: SvgArtifact | DesignSvgArtifact;
     },
   ): Promise<void>;
-  testProviderSettings(
-    providerSettings: ProviderSettingsInput,
-  ): Promise<{
+  testProviderSettings(providerSettings: ProviderSettingsInput): Promise<{
     ok: boolean;
     message: string;
     capability: ModelCapability;
@@ -400,7 +399,9 @@ function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
   return structuredClone(workspace) as WorkspaceRecord;
 }
 
-function mergeWorkspaceState(state?: Partial<WorkspaceRecord>): WorkspaceRecord {
+function mergeWorkspaceState(
+  state?: Partial<WorkspaceRecord>,
+): WorkspaceRecord {
   return {
     ...createEmptyWorkspace(),
     ...(state ?? {}),
@@ -443,9 +444,12 @@ function applySnapshotToWorkspace(
   if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
     next.requirementText = snapshot.requirementText;
     next.rules = [...snapshot.rules];
-    next.requirementBaseline = snapshot.requirementBaseline ?? next.requirementBaseline ?? null;
+    next.requirementBaseline =
+      snapshot.requirementBaseline ?? next.requirementBaseline ?? null;
     next.requirementQualityReport =
-      snapshot.requirementBaseline?.qualityReport ?? next.requirementQualityReport ?? null;
+      snapshot.requirementBaseline?.qualityReport ??
+      next.requirementQualityReport ??
+      null;
   }
   const workspaceRequirementFingerprint = requirementInputFingerprint(
     next.requirementText,
@@ -457,7 +461,10 @@ function applySnapshotToWorkspace(
       snapshot.designModels.map((model) => [getDesignModelId(model), model]),
     ) as WorkspaceRecord["designModels"];
     next.designPlantUml = Object.fromEntries(
-      snapshot.designPlantUml.map((artifact) => [getDesignArtifactId(artifact), artifact.source]),
+      snapshot.designPlantUml.map((artifact) => [
+        getDesignArtifactId(artifact),
+        artifact.source,
+      ]),
     ) as WorkspaceRecord["designPlantUml"];
     next.codeSpec = snapshot.spec;
     next.codeBusinessLogic = snapshot.businessLogic;
@@ -477,11 +484,15 @@ function applySnapshotToWorkspace(
   if (isDesignRunSnapshot(snapshot)) {
     const designRecords = mapDesignSnapshotToRecords(snapshot);
     const affected = new Set(snapshot.selectedDiagrams);
-    const requirementDiagrams = snapshot.requirementModels.map((model) => model.diagramKind);
-    const currentRequirementVersion =
-      fingerprintMatches(next.requirementInputFingerprint, workspaceRequirementFingerprint)
-        ? next.rulesVersion
-        : next.rulesVersion + 1;
+    const requirementDiagrams = snapshot.requirementModels.map(
+      (model) => model.diagramKind,
+    );
+    const currentRequirementVersion = fingerprintMatches(
+      next.requirementInputFingerprint,
+      workspaceRequirementFingerprint,
+    )
+      ? next.rulesVersion
+      : next.rulesVersion + 1;
     const currentDesignFingerprint = designInputFingerprint(
       snapshot.requirementModels,
       snapshot.requirementModelTraceability,
@@ -495,7 +506,10 @@ function applySnapshotToWorkspace(
       ...snapshot.designModelTraceability,
     ];
     next.generatedDesignDiagramTypes = Array.from(
-      new Set([...next.generatedDesignDiagramTypes, ...snapshot.selectedDiagrams]),
+      new Set([
+        ...next.generatedDesignDiagramTypes,
+        ...snapshot.selectedDiagrams,
+      ]),
     );
     next.designInputFingerprints = {
       ...next.designInputFingerprints,
@@ -506,8 +520,14 @@ function applySnapshotToWorkspace(
         ]),
       ),
     };
-    next.designPlantUml = { ...next.designPlantUml, ...designRecords.plantUmlMap };
-    next.designSvgArtifacts = { ...next.designSvgArtifacts, ...designRecords.svgMap };
+    next.designPlantUml = {
+      ...next.designPlantUml,
+      ...designRecords.plantUmlMap,
+    };
+    next.designSvgArtifacts = {
+      ...next.designSvgArtifacts,
+      ...designRecords.svgMap,
+    };
     next.designDiagramErrors = clearAndMergeDiagramErrors(
       next.designDiagramErrors,
       snapshot.diagramErrors,
@@ -516,7 +536,10 @@ function applySnapshotToWorkspace(
     next.models = {
       ...clearRequirementScopedRecord(next.models, requirementDiagrams),
       ...(Object.fromEntries(
-        snapshot.requirementModels.map((model) => [getRequirementModelId(model), model]),
+        snapshot.requirementModels.map((model) => [
+          getRequirementModelId(model),
+          model,
+        ]),
       ) as WorkspaceRecord["models"]),
     };
     next.requirementModelTraceability = mergeRequirementTraceability(
@@ -534,40 +557,88 @@ function applySnapshotToWorkspace(
     next.diagramInputFingerprints = {
       ...next.diagramInputFingerprints,
       ...Object.fromEntries(
-        requirementDiagrams.map((diagram) => [diagram, workspaceRequirementFingerprint]),
+        requirementDiagrams.map((diagram) => [
+          diagram,
+          workspaceRequirementFingerprint,
+        ]),
       ),
     };
     next.diagramVersions = {
       ...next.diagramVersions,
       ...Object.fromEntries(
-        requirementDiagrams.map((diagram) => [diagram, currentRequirementVersion]),
+        requirementDiagrams.map((diagram) => [
+          diagram,
+          currentRequirementVersion,
+        ]),
       ),
     };
     return next;
   }
 
   const records = mapSnapshotToRecords(snapshot);
+  const erroredDiagrams = new Set(
+    Object.keys(snapshot.diagramErrors)
+      .map(diagramKindFromErrorKey)
+      .filter((diagram): diagram is DiagramType => Boolean(diagram)),
+  );
   const modelDiagrams = Array.from(
     new Set(
       Object.values(records.modelMap)
         .map((model) => model?.diagramKind)
-        .filter((diagram): diagram is DiagramType => Boolean(diagram)),
+        .filter((diagram): diagram is DiagramType =>
+          Boolean(diagram && !erroredDiagrams.has(diagram)),
+        ),
     ),
   );
   const artifactDiagrams = Array.from(
-    new Set([
-      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-      ...Object.keys(snapshot.diagramErrors),
-    ]),
+    new Set(
+      [
+        ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+        ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+      ].filter(
+        (diagram): diagram is DiagramType => !erroredDiagrams.has(diagram),
+      ),
+    ),
   ) as DiagramType[];
-  const affected = Array.from(
-    new Set([...snapshot.selectedDiagrams, ...modelDiagrams, ...artifactDiagrams]),
+  const selectedModelDiagrams = modelDiagrams.filter((diagram) =>
+    snapshot.selectedDiagrams.includes(diagram),
+  );
+  const canFallbackToContextModels =
+    snapshot.selectedDiagrams.length === 0 &&
+    Object.keys(snapshot.diagramErrors).length === 0;
+  const successfulAffected = Array.from(
+    new Set(
+      artifactDiagrams.length > 0
+        ? artifactDiagrams
+        : selectedModelDiagrams.length > 0
+          ? selectedModelDiagrams
+          : canFallbackToContextModels
+            ? modelDiagrams
+            : [],
+    ),
+  );
+  const affectedForErrors = Array.from(
+    new Set([
+      ...snapshot.selectedDiagrams,
+      ...successfulAffected,
+      ...erroredDiagrams,
+    ]),
+  );
+  const affected =
+    affectedForErrors.length > 0 ? affectedForErrors : successfulAffected;
+  const affectedModelMap = keepRequirementScopedRecord(
+    records.modelMap,
+    successfulAffected,
   );
   const inputChanged =
     next.requirementInputFingerprint !== null &&
-    !fingerprintMatches(next.requirementInputFingerprint, workspaceRequirementFingerprint);
-  const nextRulesVersion = inputChanged ? next.rulesVersion + 1 : next.rulesVersion || 1;
+    !fingerprintMatches(
+      next.requirementInputFingerprint,
+      workspaceRequirementFingerprint,
+    );
+  const nextRulesVersion = inputChanged
+    ? next.rulesVersion + 1
+    : next.rulesVersion || 1;
   next.selectedDiagramTypes = [];
   next.rulesVersion = nextRulesVersion;
   next.rulesBasedOnTextVersion = 0;
@@ -575,26 +646,30 @@ function applySnapshotToWorkspace(
   if (affected.length === 0) {
     return next;
   }
-  next.models = {
-    ...clearRequirementScopedRecord(next.models, affected),
-    ...records.modelMap,
-  };
+  if (successfulAffected.length > 0) {
+    next.models = {
+      ...clearRequirementScopedRecord(next.models, successfulAffected),
+      ...affectedModelMap,
+    };
+  }
   next.requirementModelTraceability = mergeRequirementTraceability(
     next.requirementModelTraceability,
     snapshot.requirementModelTraceability ?? [],
-    affected,
+    successfulAffected,
   );
   next.generatedDiagramTypes = Array.from(
-    new Set([...next.generatedDiagramTypes, ...affected]),
+    new Set([...next.generatedDiagramTypes, ...successfulAffected]),
   );
-  next.plantUml = {
-    ...clearRequirementScopedRecord(next.plantUml, affected),
-    ...records.plantUmlMap,
-  };
-  next.svgArtifacts = {
-    ...clearRequirementScopedRecord(next.svgArtifacts, affected),
-    ...records.svgMap,
-  };
+  if (successfulAffected.length > 0) {
+    next.plantUml = {
+      ...clearRequirementScopedRecord(next.plantUml, successfulAffected),
+      ...keepRequirementScopedRecord(records.plantUmlMap, successfulAffected),
+    };
+    next.svgArtifacts = {
+      ...clearRequirementScopedRecord(next.svgArtifacts, successfulAffected),
+      ...keepRequirementScopedRecord(records.svgMap, successfulAffected),
+    };
+  }
   next.diagramErrors = clearAndMergeDiagramErrors(
     next.diagramErrors,
     snapshot.diagramErrors,
@@ -602,11 +677,18 @@ function applySnapshotToWorkspace(
   );
   next.diagramVersions = {
     ...next.diagramVersions,
-    ...Object.fromEntries(affected.map((diagram) => [diagram, nextRulesVersion])),
+    ...Object.fromEntries(
+      successfulAffected.map((diagram) => [diagram, nextRulesVersion]),
+    ),
   };
   next.diagramInputFingerprints = {
     ...next.diagramInputFingerprints,
-    ...Object.fromEntries(affected.map((diagram) => [diagram, workspaceRequirementFingerprint])),
+    ...Object.fromEntries(
+      successfulAffected.map((diagram) => [
+        diagram,
+        workspaceRequirementFingerprint,
+      ]),
+    ),
   };
   return next;
 }
@@ -640,6 +722,21 @@ function clearAndMergeDiagramErrors<T extends string, V>(
   return { ...next, ...incoming };
 }
 
+function diagramKindFromErrorKey(key: string) {
+  const [candidate] = key.split(":");
+  return candidate &&
+    [
+      "usecase",
+      "class",
+      "activity",
+      "deployment",
+      "prototype",
+      "analysis",
+    ].includes(candidate)
+    ? (candidate as DiagramType)
+    : null;
+}
+
 function clearRequirementScopedRecord<T>(
   current: Record<string, T | undefined>,
   affectedDiagrams: readonly DiagramType[],
@@ -651,8 +748,27 @@ function clearRequirementScopedRecord<T>(
       for (const diagram of affected) {
         if (key.startsWith(`${diagram}:`)) return false;
       }
-      const diagramKind = (value as { diagramKind?: string } | undefined)?.diagramKind;
+      const diagramKind = (value as { diagramKind?: string } | undefined)
+        ?.diagramKind;
       return !diagramKind || !affected.has(diagramKind as DiagramType);
+    }),
+  ) as Record<string, T | undefined>;
+}
+
+function keepRequirementScopedRecord<T>(
+  current: Record<string, T | undefined>,
+  affectedDiagrams: readonly DiagramType[],
+) {
+  const affected = new Set(affectedDiagrams);
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      if (affected.has(key as DiagramType)) return true;
+      for (const diagram of affected) {
+        if (key.startsWith(`${diagram}:`)) return true;
+      }
+      const diagramKind = (value as { diagramKind?: string } | undefined)
+        ?.diagramKind;
+      return Boolean(diagramKind && affected.has(diagramKind as DiagramType));
     }),
   ) as Record<string, T | undefined>;
 }
@@ -664,12 +780,18 @@ function mergeRequirementTraceability(
 ) {
   const affected = new Set<DiagramType>(affectedDiagrams);
   return [
-    ...current.filter((entry) => !affected.has(entry.target.diagramKind as DiagramType)),
-    ...incoming.filter((entry) => affected.has(entry.target.diagramKind as DiagramType)),
+    ...current.filter(
+      (entry) => !affected.has(entry.target.diagramKind as DiagramType),
+    ),
+    ...incoming.filter((entry) =>
+      affected.has(entry.target.diagramKind as DiagramType),
+    ),
   ];
 }
 
-function stableWorkspaceState(workspace: WorkspaceRecord): Partial<WorkspaceRecord> {
+function stableWorkspaceState(
+  workspace: WorkspaceRecord,
+): Partial<WorkspaceRecord> {
   const {
     currentStage: _currentStage,
     runStatus: _runStatus,
@@ -687,10 +809,16 @@ function mapSnapshotToRecords(snapshot: RunSnapshot) {
       snapshot.models.map((model) => [getRequirementModelId(model), model]),
     ) as WorkspaceRecord["models"],
     plantUmlMap: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [getRequirementArtifactId(artifact), artifact.source]),
+      snapshot.plantUml.map((artifact) => [
+        getRequirementArtifactId(artifact),
+        artifact.source,
+      ]),
     ) as WorkspaceRecord["plantUml"],
     svgMap: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [getRequirementArtifactId(artifact), artifact]),
+      snapshot.svgArtifacts.map((artifact) => [
+        getRequirementArtifactId(artifact),
+        artifact,
+      ]),
     ) as WorkspaceRecord["svgArtifacts"],
   };
 }
@@ -701,16 +829,23 @@ function mapDesignSnapshotToRecords(snapshot: DesignRunSnapshot) {
       snapshot.models.map((model) => [getDesignModelId(model), model]),
     ) as WorkspaceRecord["designModels"],
     plantUmlMap: Object.fromEntries(
-      snapshot.plantUml.map((artifact) => [getDesignArtifactId(artifact), artifact.source]),
+      snapshot.plantUml.map((artifact) => [
+        getDesignArtifactId(artifact),
+        artifact.source,
+      ]),
     ) as WorkspaceRecord["designPlantUml"],
     svgMap: Object.fromEntries(
-      snapshot.svgArtifacts.map((artifact) => [getDesignArtifactId(artifact), artifact]),
+      snapshot.svgArtifacts.map((artifact) => [
+        getDesignArtifactId(artifact),
+        artifact,
+      ]),
     ) as WorkspaceRecord["designSvgArtifacts"],
   };
 }
 
 function documentTimestamp(date = new Date()) {
-  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
+  const pad = (value: number, length = 2) =>
+    String(value).padStart(length, "0");
   const datePart = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(
     date.getDate(),
   )}`;
@@ -765,14 +900,20 @@ async function readRunSnapshot(runId: string, projectId: string | null = null) {
   });
 }
 
-async function readDesignRunSnapshot(runId: string, projectId: string | null = null) {
+async function readDesignRunSnapshot(
+  runId: string,
+  projectId: string | null = null,
+) {
   return requestJson<DesignRunSnapshot>(`/api/design-runs/${runId}`, {
     errorMessage: "读取设计运行快照失败",
     headers: projectHeaders(projectId),
   });
 }
 
-async function readCodeRunSnapshot(runId: string, projectId: string | null = null) {
+async function readCodeRunSnapshot(
+  runId: string,
+  projectId: string | null = null,
+) {
   try {
     return await requestJson<CodeRunSnapshot>(`/api/code-runs/${runId}`, {
       errorMessage: "读取代码运行快照失败",
@@ -780,20 +921,28 @@ async function readCodeRunSnapshot(runId: string, projectId: string | null = nul
     });
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) {
-      throw new Error("代码生成任务已丢失，可能是本地 API 服务重启，请重新生成");
+      throw new Error(
+        "代码生成任务已丢失，可能是本地 API 服务重启，请重新生成",
+      );
     }
     throw error;
   }
 }
 
-async function readDocumentRunSnapshot(runId: string, projectId: string | null = null) {
+async function readDocumentRunSnapshot(
+  runId: string,
+  projectId: string | null = null,
+) {
   return requestJson<DocumentRunSnapshot>(`/api/document-runs/${runId}`, {
     errorMessage: "读取说明书运行快照失败",
     headers: projectHeaders(projectId),
   });
 }
 
-async function readRunEvidencePackage(runId: string, projectId: string | null = null) {
+async function readRunEvidencePackage(
+  runId: string,
+  projectId: string | null = null,
+) {
   const scopedProjectId = requireProjectScope(projectId);
   const response = await requestJson<{ evidencePackage: EvidencePackage }>(
     `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}/evidence`,
@@ -1032,7 +1181,9 @@ function normalizeProjectHistoryResponse(payload: unknown): RunHistoryItem[] {
 }
 
 function projectRunSummaryToHistoryItem(
-  run: NonNullable<ProjectRunsResponse["runs"]>[number] | ProjectRunDetailResponse["run"],
+  run:
+    | NonNullable<ProjectRunsResponse["runs"]>[number]
+    | ProjectRunDetailResponse["run"],
   snapshot?: RunHistorySnapshot | null,
 ): RunHistoryItem | null {
   const runId = run?.runId?.trim();
@@ -1106,8 +1257,10 @@ export function createHttpWorkspaceRepository(
   let localRequirementText = "";
   let localRequirementRules: RequirementRule[] = [];
   let localRequirementBaseline: RequirementBaseline | null = null;
-  let localRequirementReviewCandidates: WorkspaceRecord["requirementReviewCandidates"] = {};
-  let localAutoGeneratedUpstreamReviews: WorkspaceRecord["autoGeneratedUpstreamReviews"] = {};
+  let localRequirementReviewCandidates: WorkspaceRecord["requirementReviewCandidates"] =
+    {};
+  let localAutoGeneratedUpstreamReviews: WorkspaceRecord["autoGeneratedUpstreamReviews"] =
+    {};
   let projectWorkspace: WorkspaceRecord | null = null;
   let projectWorkspaceVersion = 0;
   let projectWorkspaceUpdateQueue: Promise<unknown> = Promise.resolve();
@@ -1170,7 +1323,9 @@ export function createHttpWorkspaceRepository(
           throw error;
         }
         await loadProjectWorkspace();
-        const latest = cloneWorkspace(projectWorkspace ?? createEmptyWorkspace());
+        const latest = cloneWorkspace(
+          projectWorkspace ?? createEmptyWorkspace(),
+        );
         mutate(latest);
         return saveProjectWorkspace(latest, sourceRunId);
       }
@@ -1254,21 +1409,22 @@ export function createHttpWorkspaceRepository(
     const runs = (await readProjectRuns()).runs ?? [];
     const candidates = runs
       .filter((run) => run.runId && run.snapshotAvailable && run.canRestore)
-      .sort(
-        (left, right) => {
-          const documentRank =
-            Number(left.documentDownloadAvailable) - Number(right.documentDownloadAvailable);
-          if (documentRank !== 0) return documentRank;
-          const leftTime = Date.parse(
-            left.completedAt ?? left.updatedAt ?? left.startedAt ?? "",
-          );
-          const rightTime = Date.parse(
-            right.completedAt ?? right.updatedAt ?? right.startedAt ?? "",
-          );
-          return (Number.isNaN(rightTime) ? 0 : rightTime) -
-            (Number.isNaN(leftTime) ? 0 : leftTime);
-        },
-      );
+      .sort((left, right) => {
+        const documentRank =
+          Number(left.documentDownloadAvailable) -
+          Number(right.documentDownloadAvailable);
+        if (documentRank !== 0) return documentRank;
+        const leftTime = Date.parse(
+          left.completedAt ?? left.updatedAt ?? left.startedAt ?? "",
+        );
+        const rightTime = Date.parse(
+          right.completedAt ?? right.updatedAt ?? right.startedAt ?? "",
+        );
+        return (
+          (Number.isNaN(rightTime) ? 0 : rightTime) -
+          (Number.isNaN(leftTime) ? 0 : leftTime)
+        );
+      });
     for (const run of candidates) {
       try {
         await restoreProjectWorkspaceFromRun(run.runId!);
@@ -1345,47 +1501,58 @@ export function createHttpWorkspaceRepository(
         });
         return;
       }
-      localRequirementBaseline = structuredClone(baseline) as RequirementBaseline;
+      localRequirementBaseline = structuredClone(
+        baseline,
+      ) as RequirementBaseline;
     },
 
     async updateRequirementReviewCandidates(candidates) {
       if (projectId) {
         await updateProjectWorkspace((workspace) => {
-          workspace.requirementReviewCandidates =
-            structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+          workspace.requirementReviewCandidates = structuredClone(
+            candidates,
+          ) as WorkspaceRecord["requirementReviewCandidates"];
         });
         return;
       }
-      localRequirementReviewCandidates =
-        structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+      localRequirementReviewCandidates = structuredClone(
+        candidates,
+      ) as WorkspaceRecord["requirementReviewCandidates"];
     },
 
     async updateAutoGeneratedUpstreamReviews(reviews) {
       if (projectId) {
         await updateProjectWorkspace((workspace) => {
-          workspace.autoGeneratedUpstreamReviews =
-            structuredClone(reviews) as WorkspaceRecord["autoGeneratedUpstreamReviews"];
+          workspace.autoGeneratedUpstreamReviews = structuredClone(
+            reviews,
+          ) as WorkspaceRecord["autoGeneratedUpstreamReviews"];
         });
         return;
       }
-      localAutoGeneratedUpstreamReviews =
-        structuredClone(reviews) as WorkspaceRecord["autoGeneratedUpstreamReviews"];
+      localAutoGeneratedUpstreamReviews = structuredClone(
+        reviews,
+      ) as WorkspaceRecord["autoGeneratedUpstreamReviews"];
     },
 
     async updateRequirementReviewState(baseline, candidates) {
       if (projectId) {
         await updateProjectWorkspace((workspace) => {
-          workspace.requirementBaseline =
-            structuredClone(baseline) as RequirementBaseline;
+          workspace.requirementBaseline = structuredClone(
+            baseline,
+          ) as RequirementBaseline;
           workspace.requirementQualityReport = baseline.qualityReport;
-          workspace.requirementReviewCandidates =
-            structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+          workspace.requirementReviewCandidates = structuredClone(
+            candidates,
+          ) as WorkspaceRecord["requirementReviewCandidates"];
         });
         return;
       }
-      localRequirementBaseline = structuredClone(baseline) as RequirementBaseline;
-      localRequirementReviewCandidates =
-        structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"];
+      localRequirementBaseline = structuredClone(
+        baseline,
+      ) as RequirementBaseline;
+      localRequirementReviewCandidates = structuredClone(
+        candidates,
+      ) as WorkspaceRecord["requirementReviewCandidates"];
     },
 
     async repairRequirementRule(input: RepairRequirementRuleRequest) {
@@ -1469,10 +1636,17 @@ export function createHttpWorkspaceRepository(
       const scopedProjectId = requireProjectScope(projectId);
       if (projectId) {
         try {
-          await streamProjectRunEvents(`/api/runs/${runId}/events`, scopedProjectId, onEvent);
+          await streamProjectRunEvents(
+            `/api/runs/${runId}/events`,
+            scopedProjectId,
+            onEvent,
+          );
           return;
         } catch (error) {
-          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+          if (
+            error instanceof ApiClientError &&
+            (error.status === 401 || error.status === 403)
+          ) {
             throw error;
           }
           const snapshot = await readRunSnapshot(runId, scopedProjectId);
@@ -1497,33 +1671,43 @@ export function createHttpWorkspaceRepository(
         onEvent,
         onError: async () => {
           const snapshot = await readRunSnapshot(runId, projectId);
-            if (snapshot.status === "failed") {
-              throw new Error(snapshotErrorMessage(snapshot, "生成失败"));
-            }
-            if (snapshot.status === "cancelled") {
-              onEvent({
-                type: "cancelled",
-                stage: snapshot.currentStage ?? undefined,
-                message: snapshotErrorMessage(snapshot, "任务已取消"),
-              });
-              return;
-            }
-            if (snapshot.status !== "completed") {
-              throw new Error("SSE 订阅失败");
-            }
+          if (snapshot.status === "failed") {
+            throw new Error(snapshotErrorMessage(snapshot, "生成失败"));
+          }
+          if (snapshot.status === "cancelled") {
+            onEvent({
+              type: "cancelled",
+              stage: snapshot.currentStage ?? undefined,
+              message: snapshotErrorMessage(snapshot, "任务已取消"),
+            });
+            return;
+          }
+          if (snapshot.status !== "completed") {
+            throw new Error("SSE 订阅失败");
+          }
         },
       });
       await subscription.closed;
     },
 
-    async subscribeToDesignRun(runId: string, onEvent: (event: RunEvent) => void) {
+    async subscribeToDesignRun(
+      runId: string,
+      onEvent: (event: RunEvent) => void,
+    ) {
       const scopedProjectId = requireProjectScope(projectId);
       if (projectId) {
         try {
-          await streamProjectRunEvents(`/api/design-runs/${runId}/events`, scopedProjectId, onEvent);
+          await streamProjectRunEvents(
+            `/api/design-runs/${runId}/events`,
+            scopedProjectId,
+            onEvent,
+          );
           return;
         } catch (error) {
-          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+          if (
+            error instanceof ApiClientError &&
+            (error.status === 401 || error.status === 403)
+          ) {
             throw error;
           }
           const snapshot = await readDesignRunSnapshot(runId, scopedProjectId);
@@ -1570,35 +1754,58 @@ export function createHttpWorkspaceRepository(
       await subscription.closed;
     },
 
-    async subscribeToCodeRun(runId: string, onEvent: (event: RunEvent) => void) {
+    async subscribeToCodeRun(
+      runId: string,
+      onEvent: (event: RunEvent) => void,
+    ) {
       const scopedProjectId = requireProjectScope(projectId);
       if (projectId) {
         try {
-          await streamProjectRunEvents(`/api/code-runs/${runId}/events`, scopedProjectId, onEvent);
+          await streamProjectRunEvents(
+            `/api/code-runs/${runId}/events`,
+            scopedProjectId,
+            onEvent,
+          );
           return;
         } catch (error) {
-          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+          if (
+            error instanceof ApiClientError &&
+            (error.status === 401 || error.status === 403)
+          ) {
             throw error;
           }
           await waitForCodeRunSnapshot(runId, onEvent, scopedProjectId);
           return;
         }
       }
-      const subscription = subscribeToRunEvents(`/api/code-runs/${runId}/events`, {
-        onEvent,
-        onError: () => waitForCodeRunSnapshot(runId, onEvent, projectId),
-      });
+      const subscription = subscribeToRunEvents(
+        `/api/code-runs/${runId}/events`,
+        {
+          onEvent,
+          onError: () => waitForCodeRunSnapshot(runId, onEvent, projectId),
+        },
+      );
       await subscription.closed;
     },
 
-    async subscribeToDocumentRun(runId: string, onEvent: (event: RunEvent) => void) {
+    async subscribeToDocumentRun(
+      runId: string,
+      onEvent: (event: RunEvent) => void,
+    ) {
       const scopedProjectId = requireProjectScope(projectId);
       if (projectId) {
         try {
-          await streamProjectRunEvents(`/api/document-runs/${runId}/events`, scopedProjectId, onEvent);
+          await streamProjectRunEvents(
+            `/api/document-runs/${runId}/events`,
+            scopedProjectId,
+            onEvent,
+          );
           return;
         } catch (error) {
-          if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+          if (
+            error instanceof ApiClientError &&
+            (error.status === 401 || error.status === 403)
+          ) {
             throw error;
           }
           await waitForDocumentRunSnapshot(runId, onEvent, scopedProjectId);
@@ -1636,7 +1843,11 @@ export function createHttpWorkspaceRepository(
     },
 
     async submitRunReviewDecision(runId, decision) {
-      return postRunReviewDecision(runId, decision, requireProjectScope(projectId));
+      return postRunReviewDecision(
+        runId,
+        decision,
+        requireProjectScope(projectId),
+      );
     },
 
     async listDocuments() {
@@ -1829,10 +2040,7 @@ export function createHttpWorkspaceRepository(
 
 export function createMockWorkspaceRepository(
   seed: Partial<WorkspaceRecord> = {},
-  snapshotFactory?: (
-    input: StartRunInput,
-    runId: string,
-  ) => RunSnapshot,
+  snapshotFactory?: (input: StartRunInput, runId: string) => RunSnapshot,
 ): WorkspaceRepository {
   const defaultWorkspace = createEmptyWorkspace();
   let workspace: WorkspaceRecord = {
@@ -1845,7 +2053,8 @@ export function createMockWorkspaceRepository(
     plantUml: { ...defaultWorkspace.plantUml, ...seed.plantUml },
     svgArtifacts: { ...defaultWorkspace.svgArtifacts, ...seed.svgArtifacts },
     requirementInputFingerprint:
-      seed.requirementInputFingerprint ?? defaultWorkspace.requirementInputFingerprint,
+      seed.requirementInputFingerprint ??
+      defaultWorkspace.requirementInputFingerprint,
     requirementReviewCandidates: {
       ...defaultWorkspace.requirementReviewCandidates,
       ...seed.requirementReviewCandidates,
@@ -1922,7 +2131,9 @@ export function createMockWorkspaceRepository(
         selectedDiagramTypes: [...workspace.selectedDiagramTypes],
         generatedDiagramTypes: [...workspace.generatedDiagramTypes],
         models: { ...workspace.models },
-        requirementModelTraceability: [...workspace.requirementModelTraceability],
+        requirementModelTraceability: [
+          ...workspace.requirementModelTraceability,
+        ],
         plantUml: { ...workspace.plantUml },
         svgArtifacts: { ...workspace.svgArtifacts },
         diagramErrors: { ...workspace.diagramErrors },
@@ -1946,7 +2157,9 @@ export function createMockWorkspaceRepository(
         codeSkillResourcePlan: workspace.codeSkillResourcePlan,
         codeSkillContext: workspace.codeSkillContext,
         codeDiagnostics: [...workspace.codeDiagnostics],
-        requirementReviewCandidates: { ...workspace.requirementReviewCandidates },
+        requirementReviewCandidates: {
+          ...workspace.requirementReviewCandidates,
+        },
         requirementInputFingerprint: workspace.requirementInputFingerprint,
         diagramInputFingerprints: { ...workspace.diagramInputFingerprints },
         designInputFingerprints: { ...workspace.designInputFingerprints },
@@ -1982,16 +2195,18 @@ export function createMockWorkspaceRepository(
     async updateRequirementReviewCandidates(candidates) {
       workspace = {
         ...workspace,
-        requirementReviewCandidates:
-          structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"],
+        requirementReviewCandidates: structuredClone(
+          candidates,
+        ) as WorkspaceRecord["requirementReviewCandidates"],
       };
     },
 
     async updateAutoGeneratedUpstreamReviews(reviews) {
       workspace = {
         ...workspace,
-        autoGeneratedUpstreamReviews:
-          structuredClone(reviews) as WorkspaceRecord["autoGeneratedUpstreamReviews"],
+        autoGeneratedUpstreamReviews: structuredClone(
+          reviews,
+        ) as WorkspaceRecord["autoGeneratedUpstreamReviews"],
       };
     },
 
@@ -2001,8 +2216,9 @@ export function createMockWorkspaceRepository(
         ...workspace,
         requirementBaseline: nextBaseline,
         requirementQualityReport: nextBaseline.qualityReport,
-        requirementReviewCandidates:
-          structuredClone(candidates) as WorkspaceRecord["requirementReviewCandidates"],
+        requirementReviewCandidates: structuredClone(
+          candidates,
+        ) as WorkspaceRecord["requirementReviewCandidates"],
       };
     },
 
@@ -2016,25 +2232,31 @@ export function createMockWorkspaceRepository(
 
     async startRun(input: StartRunInput) {
       const runId = `run-${Math.random().toString(36).slice(2, 10)}`;
-      const snapshot =
-        snapshotFactory?.(input, runId) ?? {
-          runId,
-          requirementText: input.requirementText,
-          selectedDiagrams: input.selectedDiagrams,
-          rules: input.rules.length > 0 ? input.rules : (workspace.rules as RequirementRule[]),
-          models: Object.values(workspace.models),
-          requirementModelTraceability: [...workspace.requirementModelTraceability],
-          plantUml: Object.entries(workspace.plantUml).map(([diagramKind, source]) => ({
+      const snapshot = snapshotFactory?.(input, runId) ?? {
+        runId,
+        requirementText: input.requirementText,
+        selectedDiagrams: input.selectedDiagrams,
+        rules:
+          input.rules.length > 0
+            ? input.rules
+            : (workspace.rules as RequirementRule[]),
+        models: Object.values(workspace.models),
+        requirementModelTraceability: [
+          ...workspace.requirementModelTraceability,
+        ],
+        plantUml: Object.entries(workspace.plantUml).map(
+          ([diagramKind, source]) => ({
             diagramKind: diagramKind as DiagramType,
             source,
-          })),
-          svgArtifacts: Object.values(workspace.svgArtifacts),
-          diagramErrors: workspace.diagramErrors,
-          requirementTrace: [],
-          currentStage: "render_svg",
-          status: "completed",
-          error: null,
-        };
+          }),
+        ),
+        svgArtifacts: Object.values(workspace.svgArtifacts),
+        diagramErrors: workspace.diagramErrors,
+        requirementTrace: [],
+        currentStage: "render_svg",
+        status: "completed",
+        error: null,
+      };
       snapshots.set(runId, snapshot);
       return { runId };
     },
@@ -2052,17 +2274,21 @@ export function createMockWorkspaceRepository(
         requirementModelTraceability: input.requirementModelTraceability,
         models: Object.values(workspace.designModels),
         designModelTraceability: [...workspace.designModelTraceability],
-        plantUml: Object.entries(workspace.designPlantUml).map(([artifactId, source]) => {
-          const model = workspace.designModels[artifactId];
-          const svgArtifact = workspace.designSvgArtifacts[artifactId];
-          const diagramKind =
-            model?.diagramKind ?? svgArtifact?.diagramKind ?? (artifactId as DesignDiagramType);
-          return {
-            diagramKind,
-            modelId: model?.modelId ?? svgArtifact?.modelId,
-            source,
-          };
-        }),
+        plantUml: Object.entries(workspace.designPlantUml).map(
+          ([artifactId, source]) => {
+            const model = workspace.designModels[artifactId];
+            const svgArtifact = workspace.designSvgArtifacts[artifactId];
+            const diagramKind =
+              model?.diagramKind ??
+              svgArtifact?.diagramKind ??
+              (artifactId as DesignDiagramType);
+            return {
+              diagramKind,
+              modelId: model?.modelId ?? svgArtifact?.modelId,
+              source,
+            };
+          },
+        ),
         svgArtifacts: Object.values(workspace.designSvgArtifacts),
         diagramErrors: workspace.designDiagramErrors,
         designTrace: [],
@@ -2144,7 +2370,11 @@ export function createMockWorkspaceRepository(
         documentId,
         sections: [
           { level: 1, title: "1 引言", body: ["Mock 说明书正文。"] },
-          { level: 2, title: "1.1 编写目的", body: ["用于验证说明书生成流程。"] },
+          {
+            level: 2,
+            title: "1.1 编写目的",
+            body: ["用于验证说明书生成流程。"],
+          },
           { level: 3, title: "1.1.1 范围", body: ["当前为 Mock 快照。"] },
         ],
         fileName,
@@ -2215,7 +2445,9 @@ export function createMockWorkspaceRepository(
       onEvent({
         type: "code_file_changed",
         path: "/src/App.tsx",
-        content: snapshot.files["/src/App.tsx"] ?? "export default function App() { return null; }",
+        content:
+          snapshot.files["/src/App.tsx"] ??
+          "export default function App() { return null; }",
         reason: "Mock 生成器写入入口组件",
       });
       onEvent({ type: "completed", snapshot });
@@ -2537,7 +2769,9 @@ export function createMockWorkspaceRepository(
   };
 }
 
-const WorkspaceRepositoryContext = createContext<WorkspaceRepository | null>(null);
+const WorkspaceRepositoryContext = createContext<WorkspaceRepository | null>(
+  null,
+);
 const defaultWorkspaceRepository = createHttpWorkspaceRepository();
 
 export function WorkspaceRepositoryProvider({
@@ -2550,7 +2784,9 @@ export function WorkspaceRepositoryProvider({
   projectId?: string | null;
 }) {
   const [routeProjectId, setRouteProjectId] = useState(() =>
-    typeof window === "undefined" ? null : getProjectIdFromPath(window.location.pathname),
+    typeof window === "undefined"
+      ? null
+      : getProjectIdFromPath(window.location.pathname),
   );
 
   useEffect(() => {
@@ -2601,6 +2837,7 @@ export function createStartRunInput(
   rules: RequirementRule[] = [],
   contextModels: DiagramModelSpec[] = [],
   contextRequirementModelTraceability: RequirementModelTraceabilityEntry[] = [],
+  analysisTargetUseCaseIds: string[] = [],
 ): StartRunInput {
   const providerSettings = createProviderSettingsInput();
   return {
@@ -2609,6 +2846,7 @@ export function createStartRunInput(
     rules,
     contextModels,
     contextRequirementModelTraceability,
+    analysisTargetUseCaseIds,
     providerSettings,
   };
 }

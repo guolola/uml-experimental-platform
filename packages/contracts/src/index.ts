@@ -3296,6 +3296,7 @@ export const startRunRequestSchema = z.object({
   contextRequirementModelTraceability: z
     .array(requirementModelTraceabilityEntrySchema)
     .default([]),
+  analysisTargetUseCaseIds: z.array(z.string().min(1)).default([]),
   providerSettings: providerSettingsSchema.optional(),
 });
 export type StartRunRequest = z.infer<typeof startRunRequestSchema>;
@@ -3745,6 +3746,7 @@ export const runSnapshotSchema = z.object({
   runId: z.string().min(1),
   requirementText: z.string(),
   selectedDiagrams: z.array(diagramKindSchema),
+  analysisTargetUseCaseIds: z.array(z.string().min(1)).default([]),
   rules: z.array(requirementRuleSchema),
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),

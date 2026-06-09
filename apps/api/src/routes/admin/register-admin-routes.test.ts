@@ -3099,6 +3099,79 @@ test("provider config test opens the breaker after repeated provider failures", 
   }
 });
 
+test("admin can reset an open provider circuit breaker", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return fetchCalls <= 3
+      ? new Response("bad gateway", { status: 502 })
+      : new Response(
+          JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp();
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      createdBy: "admin",
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+
+    const reset = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/reset-breaker`,
+      headers: { cookie },
+    });
+    const retest = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    const auditLogs = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit-logs",
+      headers: { cookie },
+    });
+
+    assert.equal(reset.statusCode, 200);
+    assert.equal(reset.json().breakerState, "closed");
+    assert.equal(reset.json().breakerFailureCount, 0);
+    assert.equal(retest.statusCode, 200);
+    assert.equal(retest.json().ok, true);
+    assert.equal(fetchCalls, 4);
+    assert.match(auditLogs.body, /admin\.provider_config\.reset_breaker/);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider config test uses the most specific enabled rate limit policy", async () => {
   const originalFetch = globalThis.fetch;
   const checks: Array<{ limit: number; windowSeconds: number }> = [];

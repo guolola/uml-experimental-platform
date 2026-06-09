@@ -63,7 +63,8 @@ function createCodeRunSnapshot(
     codeGenerationMode: "json_schema_operations",
     qualityDiagnostics: [],
     files: {
-      "/src/App.tsx": "export default function App() { return <main>ok</main>; }",
+      "/src/App.tsx":
+        "export default function App() { return <main>ok</main>; }",
     },
     entryFile: "/src/App.tsx",
     dependencies: {},
@@ -150,6 +151,7 @@ describe("createStartRunInput", () => {
       rules: [],
       contextModels: [],
       contextRequirementModelTraceability: [],
+      analysisTargetUseCaseIds: [],
       providerSettings: {
         model: "gpt-5.5",
       },
@@ -175,9 +177,9 @@ describe("createStartRunInput", () => {
         model: "gpt-5.5",
       },
     });
-    expect(createStartRunInput("生成 UML", ["usecase"]).providerSettings).not.toHaveProperty(
-      "apiKey",
-    );
+    expect(
+      createStartRunInput("生成 UML", ["usecase"]).providerSettings,
+    ).not.toHaveProperty("apiKey");
   });
 
   it("includes only managed provider config references when selected", () => {
@@ -274,9 +276,9 @@ describe("createHttpWorkspaceRepository", () => {
 
     const repository = createHttpWorkspaceRepository();
 
-    await expect(
-      repository.subscribeToRun("run-1", () => {}),
-    ).rejects.toThrow("请先登录并进入项目");
+    await expect(repository.subscribeToRun("run-1", () => {})).rejects.toThrow(
+      "请先登录并进入项目",
+    );
   });
 
   it("rejects run snapshot fallback when no project scope is available", async () => {
@@ -297,40 +299,41 @@ describe("createHttpWorkspaceRepository", () => {
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            runId: "run-2",
-            requirementText: "生成 UML",
-            selectedDiagrams: ["usecase"],
-            rules: [],
-            models: [],
-            plantUml: [],
-            svgArtifacts: [],
-            currentStage: "extract_rules",
-            status: "failed",
-            error: {
-              code: "PLATFORM_PROVIDER_AUTH_FAILED",
-              message: "LLM request failed with HTTP 401",
-              category: "platform_provider",
-              retryable: false,
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              runId: "run-2",
+              requirementText: "生成 UML",
+              selectedDiagrams: ["usecase"],
+              rules: [],
+              models: [],
+              plantUml: [],
+              svgArtifacts: [],
+              currentStage: "extract_rules",
+              status: "failed",
+              error: {
+                code: "PLATFORM_PROVIDER_AUTH_FAILED",
+                message: "LLM request failed with HTTP 401",
+                category: "platform_provider",
+                retryable: false,
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+              },
             },
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        ),
+          ),
       ),
     );
 
     const repository = createHttpWorkspaceRepository();
 
-    await expect(
-      repository.subscribeToRun("run-2", () => {}),
-    ).rejects.toThrow("请先登录并进入项目");
+    await expect(repository.subscribeToRun("run-2", () => {})).rejects.toThrow(
+      "请先登录并进入项目",
+    );
   });
 
   it("rejects code subscriptions when no project scope is available", async () => {
@@ -361,7 +364,8 @@ describe("createHttpWorkspaceRepository", () => {
                 designModels: [],
                 spec: null,
                 files: {
-                  "/src/App.tsx": "export default function App() { return <main />; }",
+                  "/src/App.tsx":
+                    "export default function App() { return <main />; }",
                 },
                 entryFile: "/src/App.tsx",
                 dependencies: {},
@@ -411,18 +415,20 @@ describe("createHttpWorkspaceRepository", () => {
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            message: "代码生成任务已丢失，可能是本地 API 服务重启，请重新生成",
-          }),
-          {
-            status: 404,
-            headers: {
-              "Content-Type": "application/json",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              message:
+                "代码生成任务已丢失，可能是本地 API 服务重启，请重新生成",
+            }),
+            {
+              status: 404,
+              headers: {
+                "Content-Type": "application/json",
+              },
             },
-          },
-        ),
+          ),
       ),
     );
 
@@ -549,12 +555,18 @@ describe("createHttpWorkspaceRepository", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("/api/projects/library-booking/documents/doc-1/editor-config")) {
+      if (
+        url.includes(
+          "/api/projects/library-booking/documents/doc-1/editor-config",
+        )
+      ) {
         return new Response(
           JSON.stringify({
             documentServerUrl: "http://127.0.0.1:8080",
             document: { id: "doc-1", fileName: "doc.docx" },
-            config: { editorConfig: { customization: { uiTheme: "theme-dark" } } },
+            config: {
+              editorConfig: { customization: { uiTheme: "theme-dark" } },
+            },
           }),
           {
             status: 200,
@@ -597,11 +609,15 @@ describe("createHttpWorkspaceRepository", () => {
       expect.anything(),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/projects/library-booking/documents/doc-1/editor-config?uiTheme=theme-dark"),
+      expect.stringContaining(
+        "/api/projects/library-booking/documents/doc-1/editor-config?uiTheme=theme-dark",
+      ),
       expect.anything(),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/projects/library-booking/documents/doc-1/download"),
+      expect.stringContaining(
+        "/api/projects/library-booking/documents/doc-1/download",
+      ),
       expect.anything(),
     );
     const projectRunEventsCall = fetchMock.mock.calls.find(([url]) =>
@@ -624,7 +640,10 @@ describe("createHttpWorkspaceRepository", () => {
 
   it("loads and saves the shared project workspace with an optimistic version", async () => {
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -647,7 +666,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -659,11 +681,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     const workspace = await repository.loadWorkspace();
     expect(workspace.requirementText).toBe("已保存的项目需求");
     expect(workspace.rules[0]?.id).toBe("FR1");
@@ -685,7 +711,10 @@ describe("createHttpWorkspaceRepository", () => {
   it("serializes concurrent project workspace saves with the latest base version", async () => {
     const savedBodies: Array<Record<string, unknown>> = [];
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -701,7 +730,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         savedBodies.push(JSON.parse(String(options.body)));
         const nextVersion = 2 + savedBodies.length;
         return new Response(
@@ -716,13 +748,17 @@ describe("createHttpWorkspaceRepository", () => {
         );
       }
       return new Response(
-        JSON.stringify({ message: `unexpected request ${String(url)} ${options?.method ?? "GET"}` }),
+        JSON.stringify({
+          message: `unexpected request ${String(url)} ${options?.method ?? "GET"}`,
+        }),
         { status: 500 },
       );
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.loadWorkspace();
 
     await Promise.all([
@@ -733,12 +769,12 @@ describe("createHttpWorkspaceRepository", () => {
     expect(savedBodies).toHaveLength(2);
     expect(savedBodies[0]?.baseVersion).toBe(2);
     expect(savedBodies[1]?.baseVersion).toBe(3);
-    expect((savedBodies[0]?.state as Record<string, unknown>).requirementText).toBe(
-      "第一次需求",
-    );
-    expect((savedBodies[1]?.state as Record<string, unknown>).requirementText).toBe(
-      "第二次需求",
-    );
+    expect(
+      (savedBodies[0]?.state as Record<string, unknown>).requirementText,
+    ).toBe("第一次需求");
+    expect(
+      (savedBodies[1]?.state as Record<string, unknown>).requirementText,
+    ).toBe("第二次需求");
   });
 
   it("retries requirement review state saves after a project workspace conflict", async () => {
@@ -763,7 +799,10 @@ describe("createHttpWorkspaceRepository", () => {
     let workspaceWrites = 0;
     const savedBodies: Array<Record<string, unknown>> = [];
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         workspaceReads += 1;
         return new Response(
           JSON.stringify({
@@ -785,7 +824,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         workspaceWrites += 1;
         savedBodies.push(JSON.parse(String(options.body)));
         if (workspaceWrites === 1) {
@@ -806,23 +848,32 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.loadWorkspace();
-    await repository.updateRequirementReviewState?.(reviewedBaseline, candidates);
+    await repository.updateRequirementReviewState?.(
+      reviewedBaseline,
+      candidates,
+    );
 
     expect(workspaceReads).toBe(2);
     expect(workspaceWrites).toBe(2);
     expect(savedBodies[1]?.baseVersion).toBe(2);
-    expect((savedBodies[1]?.state as Record<string, unknown>).requirementText).toBe(
-      "其他成员刚更新的需求",
-    );
     expect(
-      ((savedBodies[1]?.state as Record<string, unknown>).requirementBaseline as RequirementBaseline)
-        .requirements[0]?.actor,
+      (savedBodies[1]?.state as Record<string, unknown>).requirementText,
+    ).toBe("其他成员刚更新的需求");
+    expect(
+      (
+        (savedBodies[1]?.state as Record<string, unknown>)
+          .requirementBaseline as RequirementBaseline
+      ).requirements[0]?.actor,
     ).toBe("用户");
     expect(
       (
@@ -839,7 +890,10 @@ describe("createHttpWorkspaceRepository", () => {
       selectedDiagrams: ["usecase"],
     });
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -868,7 +922,9 @@ describe("createHttpWorkspaceRepository", () => {
         );
       }
       if (
-        url.endsWith("/api/projects/library-booking/runs/run-restore/restore-workspace") &&
+        url.endsWith(
+          "/api/projects/library-booking/runs/run-restore/restore-workspace",
+        ) &&
         options?.method === "POST"
       ) {
         return new Response(
@@ -900,7 +956,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -911,21 +970,28 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     const item = await repository.restoreRunHistory("run-restore");
 
     expect(item?.snapshot).toBeNull();
     const restoreCall = fetchMock.mock.calls.find(
       ([url, options]) =>
-        String(url).endsWith("/api/projects/library-booking/runs/run-restore/restore-workspace") &&
-        options?.method === "POST",
+        String(url).endsWith(
+          "/api/projects/library-booking/runs/run-restore/restore-workspace",
+        ) && options?.method === "POST",
     );
     expect(restoreCall).toBeTruthy();
-    expect(JSON.parse(String(restoreCall?.[1]?.body))).toEqual({ mode: "restore" });
+    expect(JSON.parse(String(restoreCall?.[1]?.body))).toEqual({
+      mode: "restore",
+    });
     const saveCall = fetchMock.mock.calls.find(
       ([url, options]) =>
         String(url).endsWith("/api/projects/library-booking/workspace") &&
@@ -990,15 +1056,22 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     const history = await repository.listRunHistory();
 
     expect(history).toHaveLength(2);
-    expect(history.map((item) => item.id)).toEqual(["run-active", "run-complete"]);
+    expect(history.map((item) => item.id)).toEqual([
+      "run-active",
+      "run-complete",
+    ]);
     expect(history[0]?.snapshot).toBeNull();
     expect(history[1]?.providerModel).toBe("默认模型");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -1043,7 +1116,10 @@ describe("createHttpWorkspaceRepository", () => {
       ],
     });
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1060,7 +1136,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1070,11 +1149,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.saveRunHistory(snapshot, {
       providerModel: "gpt-5.4",
       durationMs: 100,
@@ -1091,6 +1174,485 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.generatedDiagramTypes).toEqual(["usecase", "class"]);
     expect(body.state.models.usecase).toEqual(existingUseCase);
     expect(body.state.models["req-class"]).toEqual(generatedClass);
+  });
+
+  it("does not mark failed requirement diagrams as generated when persisting partial snapshots", async () => {
+    const generatedActivity = {
+      diagramKind: "activity",
+      modelId: "req-activity",
+      title: "总体业务流程",
+      summary: "报名流程",
+      notes: [],
+      partitions: [],
+      nodes: [],
+      edges: [],
+    };
+    const snapshot = createRunSnapshot({
+      runId: "run-partial-failed",
+      requirementText: "活动日历需求",
+      selectedDiagrams: ["activity", "prototype"],
+      rules: [
+        {
+          id: "R1",
+          category: "功能需求",
+          text: "用户可以浏览活动页面。",
+          relatedDiagrams: ["activity", "prototype"],
+        },
+      ],
+      models: [generatedActivity as never],
+      plantUml: [{ diagramKind: "activity", source: "@startuml\n@enduml" }],
+      svgArtifacts: [
+        {
+          diagramKind: "activity",
+          svg: "<svg />",
+          renderMeta: {
+            generatedAt: "2026-05-24T00:00:00.000Z",
+          },
+        },
+      ],
+      diagramErrors: {
+        prototype: {
+          stage: "generate_models",
+          error: {
+            code: "RUN_DEPENDENCY_MISSING",
+            message: "原型界面关系生成失败",
+            category: "generation",
+            retryable: false,
+          },
+        },
+      },
+      currentStage: "generate_models",
+      status: "failed",
+      error: {
+        code: "RUN_DEPENDENCY_MISSING",
+        message: "原型界面关系生成失败",
+        category: "generation",
+        retryable: false,
+      },
+    });
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 3,
+            state: {
+              requirementText: "活动日历需求",
+              rulesVersion: 1,
+              generatedDiagramTypes: ["usecase"],
+              models: {
+                usecase: {
+                  diagramKind: "usecase",
+                  modelId: "req-usecase",
+                  actors: [],
+                  useCases: [],
+                  relationships: [],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 4,
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.4",
+      durationMs: 100,
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(body.state.generatedDiagramTypes).toEqual(["usecase", "activity"]);
+    expect(body.state.models["req-activity"]).toEqual(generatedActivity);
+    expect(body.state.models.prototype).toBeUndefined();
+    expect(body.state.diagramErrors.prototype.error.code).toBe(
+      "RUN_DEPENDENCY_MISSING",
+    );
+    expect(body.state.diagramVersions).toEqual({ activity: 1 });
+  });
+
+  it("does not clear existing artifacts when a completed snapshot only reports a selected diagram error", async () => {
+    const contextUseCase = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "既有用例。",
+      notes: [],
+      actors: [],
+      useCases: [],
+      relationships: [],
+    };
+    const contextClass = {
+      diagramKind: "class",
+      title: "领域概念模型",
+      summary: "既有领域模型。",
+      notes: [],
+      classes: [],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const contextDeployment = {
+      diagramKind: "deployment",
+      title: "部署需求模型",
+      summary: "上一子任务成功生成。",
+      notes: [],
+      nodes: [],
+      databases: [],
+      components: [],
+      externalSystems: [],
+      artifacts: [],
+      relationships: [],
+    };
+    const snapshot = createRunSnapshot({
+      runId: "run-activity-timeout",
+      requirementText: "活动日历需求",
+      selectedDiagrams: ["activity"],
+      rules: [],
+      models: [contextUseCase, contextClass, contextDeployment] as never,
+      diagramErrors: {
+        activity: {
+          stage: "generate_models",
+          error: {
+            code: "PLATFORM_PROVIDER_TIMEOUT",
+            message: "当前模型服务响应超时，请稍后重试。",
+            category: "platform_provider",
+            retryable: true,
+          },
+        },
+      },
+      currentStage: "render_svg",
+      status: "completed",
+      error: null,
+    });
+    let savedState: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 18,
+            state: {
+              requirementText: "活动日历需求",
+              rulesVersion: 1,
+              generatedDiagramTypes: ["usecase", "class", "deployment"],
+              models: {
+                usecase: contextUseCase,
+                class: contextClass,
+                deployment: contextDeployment,
+              },
+              plantUml: {
+                usecase: "@startuml\nusecase Existing\n@enduml",
+                class: "@startuml\nclass Existing\n@enduml",
+                deployment: "@startuml\nnode Existing\n@enduml",
+              },
+              svgArtifacts: {
+                usecase: { diagramKind: "usecase", svg: "<svg>usecase</svg>" },
+                class: { diagramKind: "class", svg: "<svg>class</svg>" },
+                deployment: {
+                  diagramKind: "deployment",
+                  svg: "<svg>deployment</svg>",
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        savedState = JSON.parse(String(options.body)).state;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 19,
+            state: savedState,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.5",
+      durationMs: 100,
+    });
+
+    expect(savedState?.generatedDiagramTypes).toEqual([
+      "usecase",
+      "class",
+      "deployment",
+    ]);
+    expect(
+      Object.keys(
+        (savedState?.plantUml as Record<string, unknown>) ?? {},
+      ).sort(),
+    ).toEqual(["class", "deployment", "usecase"]);
+    expect(
+      Object.keys(
+        (savedState?.svgArtifacts as Record<string, unknown>) ?? {},
+      ).sort(),
+    ).toEqual(["class", "deployment", "usecase"]);
+    expect(
+      (savedState?.models as Record<string, unknown>).activity,
+    ).toBeUndefined();
+    expect(
+      (
+        (savedState?.diagramErrors as Record<
+          string,
+          { error: { code: string } }
+        >) ?? {}
+      ).activity.error.code,
+    ).toBe("PLATFORM_PROVIDER_TIMEOUT");
+  });
+
+  it("preserves existing requirement SVG assets when an analysis-only snapshot carries context models", async () => {
+    const existingUseCase = {
+      diagramKind: "usecase",
+      title: "既有用例模型",
+      summary: "既有用例",
+      notes: [],
+      actors: [],
+      useCases: [],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const snapshotContextUseCase = {
+      ...existingUseCase,
+      title: "上下文用例模型",
+    };
+    const existingClass = {
+      diagramKind: "class",
+      title: "领域概念模型",
+      summary: "领域概念",
+      notes: [],
+      classes: [],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const existingDeployment = {
+      diagramKind: "deployment",
+      title: "部署需求模型",
+      summary: "部署需求",
+      notes: [],
+      nodes: [],
+      databases: [],
+      components: [],
+      externalSystems: [],
+      artifacts: [],
+      relationships: [],
+    };
+    const existingPrototype = {
+      diagramKind: "prototype",
+      modelId: "proto-1",
+      title: "原型界面关系",
+      summary: "原型关系",
+      notes: [],
+      pages: [],
+      modules: [],
+      entryPoints: [],
+      relationships: [],
+    };
+    const analysisModel = {
+      diagramKind: "analysis",
+      modelId: "analysis:uc_view",
+      title: "查看活动需求分析",
+      summary: "用例事件流分析",
+      notes: [],
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const snapshot = createRunSnapshot({
+      runId: "run-analysis-only",
+      requirementText: "日历需求",
+      selectedDiagrams: ["analysis"],
+      rules: [],
+      models: [
+        snapshotContextUseCase,
+        existingClass,
+        existingDeployment,
+        existingPrototype,
+        analysisModel,
+      ] as never,
+      plantUml: [
+        {
+          diagramKind: "analysis",
+          modelId: "analysis:uc_view",
+          source: "@startuml\n@enduml",
+        },
+      ],
+      svgArtifacts: [
+        {
+          diagramKind: "analysis",
+          modelId: "analysis:uc_view",
+          svg: "<svg>analysis</svg>",
+          renderMeta: {
+            generatedAt: "2026-06-08T00:00:00.000Z",
+          },
+        },
+      ],
+    });
+    let savedState: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 7,
+            state: {
+              requirementText: "日历需求",
+              rulesVersion: 1,
+              rulesBasedOnTextVersion: 0,
+              diagramVersions: {
+                usecase: 1,
+                class: 1,
+                deployment: 1,
+                prototype: 1,
+              },
+              generatedDiagramTypes: [
+                "usecase",
+                "class",
+                "deployment",
+                "prototype",
+              ],
+              models: {
+                usecase: existingUseCase,
+                class: existingClass,
+                deployment: existingDeployment,
+                "proto-1": existingPrototype,
+              },
+              plantUml: {
+                usecase: "@startuml\nusecase\n@enduml",
+                class: "@startuml\nclass\n@enduml",
+                deployment: "@startuml\ndeployment\n@enduml",
+                "proto-1": "@startuml\nprototype\n@enduml",
+              },
+              svgArtifacts: {
+                usecase: { diagramKind: "usecase", svg: "<svg>usecase</svg>" },
+                class: { diagramKind: "class", svg: "<svg>class</svg>" },
+                deployment: {
+                  diagramKind: "deployment",
+                  svg: "<svg>deployment</svg>",
+                },
+                "proto-1": {
+                  diagramKind: "prototype",
+                  modelId: "proto-1",
+                  svg: "<svg>prototype</svg>",
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        savedState = JSON.parse(String(options.body)).state;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 8,
+            state: savedState,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.saveRunHistory(snapshot, {
+      providerModel: "gpt-5.4",
+      durationMs: 100,
+    });
+
+    expect(savedState?.models).toMatchObject({
+      usecase: existingUseCase,
+      class: existingClass,
+      deployment: existingDeployment,
+      "proto-1": existingPrototype,
+      "analysis:uc_view": analysisModel,
+    });
+    expect(
+      (savedState?.models as Record<string, { title: string }>).usecase.title,
+    ).toBe("既有用例模型");
+    expect(savedState?.plantUml).toMatchObject({
+      usecase: "@startuml\nusecase\n@enduml",
+      class: "@startuml\nclass\n@enduml",
+      deployment: "@startuml\ndeployment\n@enduml",
+      "proto-1": "@startuml\nprototype\n@enduml",
+      "analysis:uc_view": "@startuml\n@enduml",
+    });
+    expect(savedState?.svgArtifacts).toMatchObject({
+      usecase: { svg: "<svg>usecase</svg>" },
+      class: { svg: "<svg>class</svg>" },
+      deployment: { svg: "<svg>deployment</svg>" },
+      "proto-1": { svg: "<svg>prototype</svg>" },
+      "analysis:uc_view": { svg: "<svg>analysis</svg>" },
+    });
+    expect(savedState?.diagramVersions).toEqual({
+      usecase: 1,
+      class: 1,
+      deployment: 1,
+      prototype: 1,
+      analysis: 1,
+    });
+    expect(
+      Object.keys(
+        savedState?.diagramInputFingerprints as Record<string, string>,
+      ),
+    ).toEqual(["analysis"]);
   });
 
   it("merges requirement model snapshots without overwriting reviewed requirements", async () => {
@@ -1129,7 +1691,10 @@ describe("createHttpWorkspaceRepository", () => {
     });
     let savedState: Record<string, unknown> | null = null;
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1156,7 +1721,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         savedState = JSON.parse(String(options.body)).state;
         return new Response(
           JSON.stringify({
@@ -1167,19 +1735,24 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.saveRunHistory(snapshot, {
       providerModel: "gpt-5.5",
       durationMs: 100,
     });
 
-    expect((savedState?.requirementBaseline as RequirementBaseline).requirements[0]?.actor).toBe(
-      "用户",
-    );
+    expect(
+      (savedState?.requirementBaseline as RequirementBaseline).requirements[0]
+        ?.actor,
+    ).toBe("用户");
     expect(
       (
         savedState?.requirementReviewCandidates as Record<
@@ -1190,7 +1763,8 @@ describe("createHttpWorkspaceRepository", () => {
     ).toBe("accepted");
     expect(savedState?.generatedDiagramTypes).toContain("usecase");
     expect(
-      (savedState?.diagramInputFingerprints as Partial<Record<string, string>>).usecase,
+      (savedState?.diagramInputFingerprints as Partial<Record<string, string>>)
+        .usecase,
     ).toBeTruthy();
   });
 
@@ -1225,7 +1799,10 @@ describe("createHttpWorkspaceRepository", () => {
     });
     let savedState: Record<string, unknown> | null = null;
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1240,7 +1817,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         savedState = JSON.parse(String(options.body)).state;
         return new Response(
           JSON.stringify({
@@ -1251,11 +1831,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.saveRunHistory(snapshot, {
       providerModel: "gpt-5.5",
       durationMs: 100,
@@ -1269,7 +1853,8 @@ describe("createHttpWorkspaceRepository", () => {
     expect(savedState?.selectedDiagramTypes).toEqual([]);
     expect(savedState?.requirementInputFingerprint).toBe(expectedFingerprint);
     expect(
-      (savedState?.diagramInputFingerprints as Partial<Record<string, string>>).usecase,
+      (savedState?.diagramInputFingerprints as Partial<Record<string, string>>)
+        .usecase,
     ).toBe(expectedFingerprint);
   });
 
@@ -1292,7 +1877,10 @@ describe("createHttpWorkspaceRepository", () => {
     });
     let savedState: Record<string, unknown> | null = null;
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1316,7 +1904,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         savedState = JSON.parse(String(options.body)).state;
         return new Response(
           JSON.stringify({
@@ -1327,11 +1918,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.saveRunHistory(snapshot, {
       providerModel: "gpt-5.5",
       durationMs: 100,
@@ -1348,8 +1943,16 @@ describe("createHttpWorkspaceRepository", () => {
   });
 
   it("persists design run snapshots incrementally without deleting existing diagrams", async () => {
-    const existingClass = { diagramKind: "class", modelId: "class", classes: [] };
-    const generatedTable = { diagramKind: "table", modelId: "table", tables: [] };
+    const existingClass = {
+      diagramKind: "class",
+      modelId: "class",
+      classes: [],
+    };
+    const generatedTable = {
+      diagramKind: "table",
+      modelId: "table",
+      tables: [],
+    };
     const snapshot = {
       runId: "design-table",
       requirementText: "图书馆需求",
@@ -1374,7 +1977,10 @@ describe("createHttpWorkspaceRepository", () => {
       error: null,
     };
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
-      if (url.endsWith("/api/projects/library-booking/workspace") && !options?.method) {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1396,7 +2002,10 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.endsWith("/api/projects/library-booking/workspace") && options?.method === "PUT") {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
         return new Response(
           JSON.stringify({
             projectId: "library-booking",
@@ -1406,11 +2015,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     await repository.saveRunHistory(snapshot as never, {
       providerModel: "gpt-5.4",
       durationMs: 100,
@@ -1446,7 +2059,9 @@ describe("createHttpWorkspaceRepository", () => {
     const first = await repository.startDocumentRun!(input);
     const second = await repository.startDocumentRun!(input);
     const firstSnapshot = await repository.getDocumentRunSnapshot!(first.runId);
-    const secondSnapshot = await repository.getDocumentRunSnapshot!(second.runId);
+    const secondSnapshot = await repository.getDocumentRunSnapshot!(
+      second.runId,
+    );
     const documents = await repository.listDocuments!();
     const requirementDocuments = documents.filter(
       (document) => document.documentKind === "requirementsSpec",
@@ -1456,12 +2071,12 @@ describe("createHttpWorkspaceRepository", () => {
     expect(firstSnapshot.documentId).toBeTruthy();
     expect(secondSnapshot.documentId).toBeTruthy();
     expect(firstSnapshot.documentId).not.toBe(secondSnapshot.documentId);
-    expect(new Set(requirementDocuments.map((document) => document.id)).size).toBe(
-      2,
-    );
-    expect(requirementDocuments.every((document) => document.version === 1)).toBe(
-      true,
-    );
+    expect(
+      new Set(requirementDocuments.map((document) => document.id)).size,
+    ).toBe(2);
+    expect(
+      requirementDocuments.every((document) => document.version === 1),
+    ).toBe(true);
     const editorConfig = await repository.getOnlyOfficeEditorConfig!(
       firstSnapshot.documentId!,
       "theme-dark",
@@ -1620,24 +2235,25 @@ describe("createHttpWorkspaceRepository", () => {
   it("renders PlantUML through the API proxy", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            svg: "<svg><text>ok</text></svg>",
-            renderMeta: {
-              engine: "plantuml",
-              generatedAt: new Date().toISOString(),
-              sourceLength: 26,
-              durationMs: 3,
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              svg: "<svg><text>ok</text></svg>",
+              renderMeta: {
+                engine: "plantuml",
+                generatedAt: new Date().toISOString(),
+                sourceLength: 26,
+                durationMs: 3,
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+              },
             },
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        ),
+          ),
       ),
     );
 
@@ -1755,11 +2371,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     const response = await repository.repairRequirementRules?.({
       requirementText: "订单需求",
       rules: [
@@ -1807,11 +2427,15 @@ describe("createHttpWorkspaceRepository", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return new Response(JSON.stringify({ message: "unexpected request" }), { status: 500 });
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const repository = createHttpWorkspaceRepository({ projectId: "library-booking" });
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
     const unmanagedProviderSettings = {
       model: "qwen3.5-plus",
     } as RepairRequirementRulesRequest["providerSettings"];

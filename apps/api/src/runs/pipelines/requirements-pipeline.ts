@@ -313,6 +313,7 @@ async function generateAnalysisModelWithRepair(
   onActivity?: ModelTaskActivity,
   onBlankActivity?: ModelTaskActivity,
   abortSignal?: AbortSignal,
+  promptOverride?: string,
 ) {
   const selectedDiagrams: DiagramKind[] = ["analysis"];
   const responseFormat = getGenerateModelsResponseFormat(
@@ -324,7 +325,7 @@ async function generateAnalysisModelWithRepair(
       ? scopedUseCaseModel.useCases[0]
       : null;
   const modelId = sourceUseCase ? analysisModelIdForUseCase(sourceUseCase) : undefined;
-  let prompt = buildGenerateRequirementAnalysisPrompt(scopedUseCaseModel);
+  let prompt = promptOverride ?? buildGenerateRequirementAnalysisPrompt(scopedUseCaseModel);
   let previousOutput = "";
   let lastErrorMessage = "";
 
@@ -427,18 +428,58 @@ async function generateAnalysisModelWithRepair(
 function missingUseCasesForAnalysis(
   analysisModels: AnalysisRequirementModel[],
   useCaseModel: DiagramModelSpec,
+  targetUseCaseIds = new Set<string>(),
 ) {
   const covered = new Set(analysisModels.map(analysisSourceUseCaseId));
-  return useCasesFromModel(useCaseModel).filter((useCase) => !covered.has(useCase.id));
+  return useCasesFromModel(useCaseModel).filter(
+    (useCase) =>
+      (targetUseCaseIds.size === 0 || targetUseCaseIds.has(useCase.id)) &&
+      !covered.has(useCase.id),
+  );
+}
+
+function analysisTargetUseCaseIds(snapshot: RunSnapshot) {
+  return new Set(
+    (snapshot.analysisTargetUseCaseIds ?? [])
+      .map((id) => compactText(id))
+      .filter((id) => id.length > 0),
+  );
+}
+
+function analysisModelMatchesTarget(
+  model: AnalysisRequirementModel,
+  targetUseCaseIds: Set<string>,
+) {
+  return targetUseCaseIds.has(analysisSourceUseCaseId(model));
+}
+
+function analysisTraceabilityMatchesTarget(
+  entry: RequirementModelTraceabilityEntry,
+  targetUseCaseIds: Set<string>,
+) {
+  if (entry.target.diagramKind !== "analysis") return false;
+  const modelId = compactText(entry.target.modelId);
+  if (!modelId.startsWith("analysis:")) return false;
+  return targetUseCaseIds.has(modelId.slice("analysis:".length));
 }
 
 function validateUseCaseAnalysisCoverage(
   analysisModels: AnalysisRequirementModel[],
   useCaseModel: DiagramModelSpec,
+  targetUseCaseIds = new Set<string>(),
 ) {
-  const useCases = useCasesFromModel(useCaseModel);
-  const missing = missingUseCasesForAnalysis(analysisModels, useCaseModel);
-  if (analysisModels.length !== useCases.length || missing.length > 0) {
+  const useCases = useCasesFromModel(useCaseModel).filter(
+    (useCase) => targetUseCaseIds.size === 0 || targetUseCaseIds.has(useCase.id),
+  );
+  const missing = missingUseCasesForAnalysis(
+    analysisModels,
+    useCaseModel,
+    targetUseCaseIds,
+  );
+  if (
+    (targetUseCaseIds.size === 0 && analysisModels.length !== useCases.length) ||
+    missing.length > 0
+  ) {
     const preview = missing
       .slice(0, 8)
       .map((useCase) => `${useCase.id}:${useCase.name}`)
@@ -447,6 +488,119 @@ function validateUseCaseAnalysisCoverage(
       `需求分析模型必须为每个用例生成一个独立分析顺序图；缺少 ${missing.length} 个用例：${preview}`,
     );
   }
+}
+
+function autoFillTraceabilityForParsedModels(
+  record: RunRecord,
+  rules: RequirementRule[],
+  models: DiagramModelSpec[],
+  attempt: number,
+  traceabilityErrorBeforeAutoFill: string,
+) {
+  const initialCoverage = normalizeRequirementTraceabilityWithCoverage(
+    [],
+    rules,
+    models,
+  );
+  const fallbackTargets =
+    initialCoverage.missingTargets.length > 0
+      ? initialCoverage.missingTargets
+      : collectModelRefs(models).refs;
+  const recoveredCoverage = normalizeRequirementTraceabilityWithCoverage(
+    autoFillRequirementTraceability(fallbackTargets, rules),
+    rules,
+    models,
+  );
+  if (
+    recoveredCoverage.traceability.length === 0 ||
+    recoveredCoverage.missingTargets.length > 0
+  ) {
+    return null;
+  }
+  appendRequirementTrace(record, {
+    stage: "generate_models",
+    attempt,
+    kind: "parsed_model",
+    parsedData: {
+      models,
+      requirementModelTraceability: recoveredCoverage.traceability,
+      autoFilledRequirementTraceability: true,
+      traceabilityErrorBeforeAutoFill,
+      missingTargetsBeforeAutoFill: fallbackTargets,
+    },
+  });
+  return recoveredCoverage.traceability;
+}
+
+function buildCompactActivityModelPrompt(
+  rules: RequirementRule[],
+  requirementBaseline: RequirementBaseline,
+) {
+  const compactRequirements = requirementBaseline.requirements.map((requirement) => ({
+    id: requirement.id,
+    type: requirement.type,
+    actor: requirement.actor,
+    action: requirement.action,
+    object: requirement.object,
+    condition: requirement.condition,
+    outcome: requirement.outcome,
+    acceptanceCriteria: requirement.acceptanceCriteria,
+  }));
+  return [
+    "请只生成需求阶段总体业务流程 activity 模型。",
+    "这是 activity 子任务超时后的精简重试：优先返回完整、合法、较小的 JSON，不要输出解释、Markdown 或代码块。",
+    "返回 JSON 对象，格式必须是 {\"models\":[...],\"requirementModelTraceability\":[]}。",
+    "models 必须且只能包含一个 diagramKind=\"activity\" 的模型。",
+    "activity 模型字段必须包含 diagramKind, title, summary, notes, swimlanes, nodes, relationships。",
+    "nodes 建议 8-16 个，必须覆盖主流程、关键状态流、权限/异常分支和超时触发。",
+    "节点类型只能使用 start, end, activity, decision, merge, fork, join。",
+    "activity 节点字段：id, type, name, description(可选), actorOrLane(可选), input(string[]), output(string[])。",
+    "decision 节点字段：id, type, name, question。",
+    "relationships 字段：id, type(control_flow|object_flow), sourceId, targetId, guard/trigger/description(可选)。",
+    "所有 relationship 的 sourceId/targetId 必须引用 nodes 中存在的 id。",
+    "必须包含一个 start 节点和至少一个 end 节点；不要把所有业务节点都标成 start 或 end。",
+    "requirementModelTraceability 固定返回 []，系统会自动补齐追踪关系。",
+    "",
+    "Activity 相关规则：",
+    JSON.stringify(rules, null, 2),
+    "",
+    "压缩后的 RequirementBaseline 需求项：",
+    JSON.stringify(compactRequirements, null, 2),
+  ].join("\n");
+}
+
+function buildCompactAnalysisModelPrompt(useCase: UseCaseForAnalysis) {
+  const compactUseCase = {
+    id: useCase.id,
+    name: useCase.name,
+    goal: useCase.goal,
+    preconditions: useCase.preconditions,
+    postconditions: useCase.postconditions,
+    eventFlows: useCase.eventFlows,
+  };
+  return [
+    "请只为单个用例生成需求分析顺序图 analysis 模型。",
+    "这是 analysis 子任务超时后的精简重试：优先返回完整、合法、较小的 JSON，不要输出解释、Markdown 或代码块。",
+    "返回 JSON 对象，格式必须是 {\"models\":[...],\"requirementModelTraceability\":[]}。",
+    "models 必须且只能包含一个 diagramKind=\"analysis\" 的模型。",
+    `analysis 模型必须使用 modelId=\"${analysisModelIdForUseCase(useCase)}\"、sourceUseCaseId=\"${useCase.id}\"、sourceUseCaseName=\"${useCase.name}\"。`,
+    "analysis 模型字段必须包含 diagramKind, modelId, sourceUseCaseId, sourceUseCaseName, title, summary, notes, participants, messages, fragments。",
+    "participants 建议 3-6 个，participantType 只能使用 actor, boundary, control, entity, external。",
+    "messages 建议 4-10 条，必须覆盖主成功场景、关键权限/异常分支和系统响应；sourceId/targetId 必须引用 participants 中存在的 id。",
+    "fragments 可以为空数组；如使用 alt/loop/opt，必须保持 messageIds 引用 messages 中存在的 id。",
+    "requirementModelTraceability 固定返回 []。",
+    "",
+    "单个用例上下文：",
+    JSON.stringify(compactUseCase, null, 2),
+  ].join("\n");
+}
+
+function isProviderTimeout(runError: ReturnType<typeof normalizeRunError>) {
+  return (
+    runError.code === "PLATFORM_PROVIDER_TIMEOUT" ||
+    runError.message.includes("长时间无有效输出") ||
+    runError.message.includes("响应超时")
+  );
 }
 
 async function generateRequirementTraceabilityWithRepair(
@@ -761,6 +915,21 @@ export async function generateModelsWithRepair(
           rawOutput: content,
           errorMessage: lastErrorMessage,
         });
+        const autoFilledTraceability = autoFillTraceabilityForParsedModels(
+          record,
+          rules,
+          selectedModels,
+          attempt + 1,
+          lastErrorMessage,
+        );
+        if (autoFilledTraceability) {
+          return {
+            models: selectedModels,
+            requirementModelTraceability: autoFilledTraceability.filter((entry) =>
+              selectedSet.has(entry.target.diagramKind as DiagramKind),
+            ),
+          };
+        }
         emitEvent(
           record,
           stageProgressRunEventSchema.parse({
@@ -786,39 +955,17 @@ export async function generateModelsWithRepair(
           );
         } catch (traceabilityError) {
           const traceabilityErrorMessage = formatParseError(traceabilityError);
-          const initialCoverage = normalizeRequirementTraceabilityWithCoverage(
-            [],
+          const autoFilledTraceability = autoFillTraceabilityForParsedModels(
+            record,
             rules,
             selectedModels,
+            attempt + 1,
+            traceabilityErrorMessage,
           );
-          const fallbackTargets =
-            initialCoverage.missingTargets.length > 0
-              ? initialCoverage.missingTargets
-              : collectModelRefs(selectedModels).refs;
-          const recoveredCoverage = normalizeRequirementTraceabilityWithCoverage(
-            autoFillRequirementTraceability(fallbackTargets, rules),
-            rules,
-            selectedModels,
-          );
-          if (
-            recoveredCoverage.traceability.length === 0 ||
-            recoveredCoverage.missingTargets.length > 0
-          ) {
+          if (!autoFilledTraceability) {
             throw traceabilityError;
           }
-          appendRequirementTrace(record, {
-            stage: "generate_models",
-            attempt: attempt + 1,
-            kind: "parsed_model",
-            parsedData: {
-              models: selectedModels,
-              requirementModelTraceability: recoveredCoverage.traceability,
-              autoFilledRequirementTraceability: true,
-              traceabilityErrorBeforeAutoFill: traceabilityErrorMessage,
-              missingTargetsBeforeAutoFill: fallbackTargets,
-            },
-          });
-          requirementModelTraceability = recoveredCoverage.traceability;
+          requirementModelTraceability = autoFilledTraceability;
         }
         return {
           models: selectedModels,
@@ -1087,24 +1234,52 @@ export async function runStagePipeline(
       );
       try {
         throwIfRunCancelled(record);
-        const result = await withModelTaskTimeout(
-          (markActivity, markBlankActivity, abortSignal) => generateModelsWithRepair(
+        const modelRules = diagramRules.length > 0 ? diagramRules : rules;
+        const timeoutConfig = readRequirementModelTaskTimeoutConfig();
+        const runModelGeneration = (promptOverride?: string, labelSuffix = "") =>
+          withModelTaskTimeout(
+            (markActivity, markBlankActivity, abortSignal) => generateModelsWithRepair(
+              record,
+              providerSettings,
+              llmTransport,
+              modelRules,
+              requirementBaseline,
+              [diagram],
+              promptOverride,
+              markActivity,
+              markBlankActivity,
+              abortSignal,
+            ),
+            {
+              ...timeoutConfig,
+              label: `${diagram}需求模型生成${labelSuffix}`,
+            },
+          );
+        let result: Awaited<ReturnType<typeof generateModelsWithRepair>>;
+        try {
+          result = await runModelGeneration();
+        } catch (error) {
+          const runError = normalizeRunError(error);
+          if (diagram !== "activity" || !isProviderTimeout(runError)) {
+            throw error;
+          }
+          emitEvent(
             record,
-            providerSettings,
-            llmTransport,
-            diagramRules.length > 0 ? diagramRules : rules,
-            requirementBaseline,
-            [diagram],
-            undefined,
-            markActivity,
-            markBlankActivity,
-            abortSignal,
-          ),
-          {
-            ...readRequirementModelTaskTimeoutConfig(),
-            label: `${diagram}需求模型生成`,
-          },
-        );
+            stageProgressRunEventSchema.parse({
+              type: "stage_progress",
+              stage: "generate_models",
+              progress: stageProgressValue("generate_models"),
+              message: "activity 需求模型长时间无有效输出，正在使用精简活动图提示重试",
+              diagramKind: diagram,
+              subtaskId: diagram,
+              subtaskStatus: "repairing",
+            }),
+          );
+          result = await runModelGeneration(
+            buildCompactActivityModelPrompt(modelRules, requirementBaseline),
+            "（精简重试）",
+          );
+        }
         models = [
           ...models.filter((model) => model.diagramKind !== diagram),
           ...result.models,
@@ -1188,9 +1363,35 @@ export async function runStagePipeline(
         throw new Error("缺少用例模型，无法基于事件流生成需求分析模型");
       }
 
-      models = models.filter((model) => model.diagramKind !== "analysis");
+      const targetUseCaseIds = analysisTargetUseCaseIds(snapshot);
+      const allAnalysisUseCases = useCasesFromModel(useCaseModel);
+      const analysisUseCases =
+        targetUseCaseIds.size > 0
+          ? allAnalysisUseCases.filter((useCase) => targetUseCaseIds.has(useCase.id))
+          : allAnalysisUseCases;
+      if (targetUseCaseIds.size > 0 && analysisUseCases.length === 0) {
+        throw new Error(
+          `未找到可补跑的需求分析用例：${Array.from(targetUseCaseIds).join("、")}`,
+        );
+      }
+
+      const preservedAnalysisModels = models.filter(
+        (model): model is AnalysisRequirementModel =>
+          model.diagramKind === "analysis" &&
+          targetUseCaseIds.size > 0 &&
+          !analysisModelMatchesTarget(model, targetUseCaseIds),
+      );
+      models = models.filter(
+        (model) =>
+          model.diagramKind !== "analysis" ||
+          (targetUseCaseIds.size > 0 &&
+            !analysisModelMatchesTarget(model as AnalysisRequirementModel, targetUseCaseIds)),
+      );
       requirementModelTraceability = requirementModelTraceability.filter(
-        (entry) => entry.target.diagramKind !== "analysis",
+        (entry) =>
+          entry.target.diagramKind !== "analysis" ||
+          (targetUseCaseIds.size > 0 &&
+            !analysisTraceabilityMatchesTarget(entry, targetUseCaseIds)),
       );
 
       const generateAnalysisForUseCase = async (useCase: UseCaseForAnalysis) => {
@@ -1218,21 +1419,52 @@ export async function runStagePipeline(
           if (!useCaseHasEventFlows(useCase)) {
             throw new Error(`${useCase.name}缺少事件流，无法生成需求分析模型`);
           }
-          const rawResult = await withModelTaskTimeout(
-            (markActivity, markBlankActivity, abortSignal) => generateAnalysisModelWithRepair(
+          const timeoutConfig = readRequirementModelTaskTimeoutConfig();
+          const runAnalysisGeneration = (promptOverride?: string, labelSuffix = "") =>
+            withModelTaskTimeout(
+              (markActivity, markBlankActivity, abortSignal) =>
+                generateAnalysisModelWithRepair(
+                  record,
+                  providerSettings,
+                  llmTransport,
+                  scopedUseCaseModel,
+                  markActivity,
+                  markBlankActivity,
+                  abortSignal,
+                  promptOverride,
+                ),
+              {
+                ...timeoutConfig,
+                label: `${useCase.name}需求分析模型生成${labelSuffix}`,
+              },
+            );
+          let rawResult: Awaited<ReturnType<typeof generateAnalysisModelWithRepair>>;
+          try {
+            rawResult = await runAnalysisGeneration();
+          } catch (error) {
+            const runError = normalizeRunError(error);
+            if (!isProviderTimeout(runError)) {
+              throw error;
+            }
+            emitEvent(
               record,
-              providerSettings,
-              llmTransport,
-              scopedUseCaseModel,
-              markActivity,
-              markBlankActivity,
-              abortSignal,
-            ),
-            {
-              ...readRequirementModelTaskTimeoutConfig(),
-              label: `${useCase.name}需求分析模型生成`,
-            },
-          );
+              stageProgressRunEventSchema.parse({
+                type: "stage_progress",
+                stage: "generate_models",
+                progress: stageProgressValue("generate_models"),
+                message: `需求分析模型 ${useCase.name} 长时间无有效输出，正在使用精简单用例提示重试`,
+                diagramKind: "analysis",
+                modelId,
+                subtaskId: modelId,
+                subtaskLabel: `需求分析模型：${useCase.name}`,
+                subtaskStatus: "repairing",
+              }),
+            );
+            rawResult = await runAnalysisGeneration(
+              buildCompactAnalysisModelPrompt(useCase),
+              "（精简重试）",
+            );
+          }
           const result = coerceAnalysisModelForUseCase(rawResult, useCase);
           models = mergeRequirementModels(models, result.models);
           requirementModelTraceability = [
@@ -1289,7 +1521,7 @@ export async function runStagePipeline(
       };
 
       let analysisResults = await mapWithConcurrency(
-        useCasesFromModel(useCaseModel),
+        analysisUseCases,
         readRequirementAnalysisConcurrency(),
         generateAnalysisForUseCase,
       );
@@ -1300,9 +1532,19 @@ export async function runStagePipeline(
           (model): model is AnalysisRequirementModel =>
             model.diagramKind === "analysis",
         );
+      analysisModels = mergeRequirementModels(
+        preservedAnalysisModels,
+        analysisModels,
+      ).filter(
+        (model): model is AnalysisRequirementModel => model.diagramKind === "analysis",
+      );
       const coverageRetryLimit = 2;
       for (let attempt = 0; attempt < coverageRetryLimit; attempt += 1) {
-        const missingUseCases = missingUseCasesForAnalysis(analysisModels, useCaseModel);
+        const missingUseCases = missingUseCasesForAnalysis(
+          analysisModels,
+          useCaseModel,
+          targetUseCaseIds,
+        );
         if (missingUseCases.length === 0) break;
         emitEvent(
           record,
@@ -1331,6 +1573,12 @@ export async function runStagePipeline(
             (model): model is AnalysisRequirementModel =>
               model.diagramKind === "analysis",
           );
+        analysisModels = mergeRequirementModels(
+          preservedAnalysisModels,
+          analysisModels,
+        ).filter(
+          (model): model is AnalysisRequirementModel => model.diagramKind === "analysis",
+        );
         emitEvent(
           record,
           stageProgressRunEventSchema.parse({
@@ -1348,7 +1596,7 @@ export async function runStagePipeline(
       if (analysisModels.length === 0) {
         throw new Error("需求分析模型生成结果缺少 analysis 模型");
       }
-      validateUseCaseAnalysisCoverage(analysisModels, useCaseModel);
+      validateUseCaseAnalysisCoverage(analysisModels, useCaseModel, targetUseCaseIds);
       models = mergeRequirementModels(models, analysisModels);
       requirementModelTraceability = [
         ...requirementModelTraceability.filter(

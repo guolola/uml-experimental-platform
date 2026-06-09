@@ -179,3 +179,39 @@ test("provider config test requests reject apiKey and apiBaseUrl overrides", asy
 
   await app.close();
 });
+
+test("provider config test includes provider error message without leaking secrets", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        code: 30001,
+        message: "Sorry, your account balance is insufficient",
+        apiKey: "sk-provider-response-should-not-leak",
+      }),
+      {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      },
+    )) as typeof fetch;
+
+  const { app, ownerCookie, systemProvider } = await createProviderRouteTestApp();
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/provider-configs/${systemProvider.id}/test`,
+      headers: { cookie: ownerCookie },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(
+      response.json().message,
+      /Provider test failed with HTTP 403: Sorry, your account balance is insufficient/,
+    );
+    assert.doesNotMatch(response.body, /sk-provider-response-should-not-leak/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+  }
+});

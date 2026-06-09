@@ -47,6 +47,13 @@ describe("workspace-session diagnostics helpers", () => {
       },
     } satisfies RunEvent);
     expect(failed.label).toBe("任务失败");
+
+    const cancelled = summarizeEvent({
+      type: "cancelled",
+      message: "任务已取消",
+    } satisfies RunEvent);
+    expect(cancelled.label).toBe("任务已取消");
+    expect(cancelled.detail).toBe("任务已取消");
   });
 
   it("does not label blank model stream chunks as regular model output", () => {
@@ -79,5 +86,6 @@ describe("workspace-session diagnostics helpers", () => {
       }),
     ).toBe(81);
     expect(getProgressFromEvent({ type: "completed", snapshot: {} as never })).toBe(100);
+    expect(getProgressFromEvent({ type: "cancelled", message: "任务已取消" })).toBe(100);
   });
 });

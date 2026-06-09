@@ -15,9 +15,8 @@ function removeOrphanDialogSideEffects() {
   ) {
     return;
   }
-  document.querySelectorAll('[data-slot="dialog-overlay"]').forEach((node) => {
-    node.remove();
-  });
+  // React/Radix still owns overlay nodes during close animations. Removing them
+  // here can race with Portal unmount and crash the app with removeChild errors.
   if (document.body.style.pointerEvents === "none") {
     document.body.style.removeProperty("pointer-events");
   }

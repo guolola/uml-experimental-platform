@@ -45,6 +45,10 @@ function isPlaceholderSvg(svg: string) {
   return /Welcome to PlantUML!/i.test(svg);
 }
 
+function stripPlantUmlTextSizingAttributes(svg: string) {
+  return svg.replace(/\s(?:textLength|lengthAdjust)=(?:"[^"]*"|'[^']*')/g, "");
+}
+
 // PlantUML render repair retries failed renders with an LLM patch while preserving trace events.
 export async function renderArtifactWithRepair(
   record: RunRecord,
@@ -76,6 +80,7 @@ export async function renderArtifactWithRepair(
       if (isPlaceholderSvg(rendered.svg)) {
         throw new Error("PlantUML returned placeholder SVG, source may be invalid");
       }
+      const normalizedSvg = stripPlantUmlTextSizingAttributes(rendered.svg);
 
       return {
         status: "success",
@@ -83,7 +88,7 @@ export async function renderArtifactWithRepair(
         svgArtifact: {
           modelId: "modelId" in currentArtifact ? currentArtifact.modelId : undefined,
           diagramKind: currentArtifact.diagramKind,
-          svg: rendered.svg,
+          svg: normalizedSvg,
           renderMeta: rendered.renderMeta,
         } as AnySvgArtifact,
       };

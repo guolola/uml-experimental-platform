@@ -92,6 +92,43 @@ function breakerDto(view: ProviderConfigView) {
   };
 }
 
+function summarizeProviderErrorText(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.slice(0, 240);
+}
+
+async function readProviderErrorDetail(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  const rawText = await response.text();
+  const textSummary = summarizeProviderErrorText(rawText);
+
+  if (contentType.includes("application/json")) {
+    try {
+      const payload = JSON.parse(rawText) as {
+        message?: unknown;
+        error?: { message?: unknown } | unknown;
+      };
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message.trim();
+      }
+      if (
+        typeof payload.error === "object" &&
+        payload.error !== null &&
+        "message" in payload.error &&
+        typeof payload.error.message === "string" &&
+        payload.error.message.trim()
+      ) {
+        return payload.error.message.trim();
+      }
+    } catch {
+      // Fall back to a compact raw response summary below.
+    }
+  }
+
+  return textSummary;
+}
+
 function parseProviderTestInput(body: unknown, reply: FastifyReply) {
   const parsed = providerConfigTestRequestSchema.safeParse(body ?? {});
   if (!parsed.success) {
@@ -182,11 +219,14 @@ async function testProviderConfig({
   );
 
   if (!response.ok) {
+    const detail = await readProviderErrorDetail(response);
     const breaker = await providerConfigs.recordFailure?.(providerConfig.id);
     reply.code(response.status >= 400 && response.status < 500 ? 400 : 502);
     return providerConfigTestResponseSchema.parse({
       ok: false,
-      message: `Provider test failed with HTTP ${response.status}`,
+      message: detail
+        ? `Provider test failed with HTTP ${response.status}: ${detail}`
+        : `Provider test failed with HTTP ${response.status}`,
       capability,
       breaker: breaker ? breakerDto(breaker) : undefined,
     });

@@ -13,6 +13,9 @@ const { toastMessage, toastError } = vi.hoisted(() => ({
   toastMessage: vi.fn(),
   toastError: vi.fn(),
 }));
+const { downloadTextFileMock } = vi.hoisted(() => ({
+  downloadTextFileMock: vi.fn(),
+}));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -22,10 +25,27 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("../../../shared/lib/download", () => ({
+  downloadTextFile: downloadTextFileMock,
+}));
+
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === "function") {
+    return blob.text();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
+    reader.addEventListener("error", () => reject(reader.error ?? new Error("Failed to read blob")));
+    reader.readAsText(blob);
+  });
+}
+
 describe("DiagramView", () => {
   beforeEach(() => {
     toastMessage.mockClear();
     toastError.mockClear();
+    downloadTextFileMock.mockClear();
   });
 
   function createRepository(
@@ -149,7 +169,7 @@ describe("DiagramView", () => {
         svgArtifacts: {
           usecase: {
             diagramKind: "usecase",
-            svg: "<svg><text>ok</text></svg>",
+            svg: '<svg><text textLength="20" lengthAdjust="spacingAndGlyphs">ok</text></svg>',
             renderMeta: {
               engine: "plantuml",
               generatedAt: new Date().toISOString(),
@@ -310,6 +330,9 @@ describe("DiagramView", () => {
     expect(screen.getByText("保存活动并刷新公开日历")).toBeInTheDocument();
     expect(screen.getByText("提示活动信息重复")).toBeInTheDocument();
     expect(screen.getAllByText("FR3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("注册用户").length).toBeGreaterThan(0);
+    expect(screen.queryByText("registered_user")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回模型概览" })).toBeInTheDocument();
   });
 
   it("loads requirement diagram details by model id", async () => {
@@ -656,8 +679,13 @@ describe("DiagramView", () => {
   });
 
   it("opens SVG preview through a blob URL and revokes it on unmount", async () => {
-    const createObjectURL = vi.fn(() => "blob:diagram-preview");
-    const revokeObjectURL = vi.fn();
+    const createObjectURL = vi.fn((blob: Blob) => {
+      expect(blob).toBeInstanceOf(Blob);
+      return "blob:diagram-preview";
+    });
+    const revokeObjectURL = vi.fn((objectUrl: string) => {
+      expect(objectUrl).toMatch(/^blob:/);
+    });
     const originalCreateObjectURL = URL.createObjectURL;
     const originalRevokeObjectURL = URL.revokeObjectURL;
     Object.defineProperty(URL, "createObjectURL", {
@@ -710,6 +738,11 @@ describe("DiagramView", () => {
       expect(link).toHaveAttribute("href", "blob:diagram-preview");
       expect(link.getAttribute("href")).not.toMatch(/^data:/);
       expect(createObjectURL).toHaveBeenCalledTimes(1);
+      const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+      const blobText = await readBlobText(blob);
+      expect(blobText).toContain("<svg");
+      expect(blobText).not.toContain("textLength");
+      expect(blobText).not.toContain("lengthAdjust");
 
       unmount();
 
@@ -889,6 +922,52 @@ describe("DiagramView", () => {
     } finally {
       restoreMatchMedia();
     }
+  });
+
+  it("downloads the same sanitized SVG markup used for preview", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase"],
+        plantUml: {
+          usecase: "@startuml\nactor 用户\n@enduml",
+        },
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例图",
+            summary: "核心用例",
+            notes: [],
+            actors: [],
+            useCases: [],
+            systemBoundaries: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          usecase: {
+            diagramKind: "usecase",
+            svg: '<svg><text textLength="20" lengthAdjust="spacingAndGlyphs">ok</text></svg>',
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "SVG" }));
+
+    expect(downloadTextFileMock).toHaveBeenCalledWith(
+      "requirements-usecase.svg",
+      expect.not.stringContaining("textLength"),
+      "image/svg+xml",
+    );
+    expect(downloadTextFileMock.mock.calls[0]?.[1]).not.toContain("lengthAdjust");
   });
 
   it("zooms only the SVG canvas on ctrl wheel and prevents page zoom", async () => {

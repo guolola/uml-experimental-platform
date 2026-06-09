@@ -351,6 +351,7 @@ function prototypeRelationshipLabel(relation: PrototypeInterfaceRelationship) {
 
 function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel {
   const actors = Array.isArray(model.actors) ? model.actors : [];
+  const actorNameById = new Map(actors.map((actor) => [actor.id, actor.name]));
   const useCases = Array.isArray(model.useCases) ? model.useCases : [];
   const systemBoundaries = Array.isArray(model.systemBoundaries)
     ? model.systemBoundaries
@@ -402,10 +403,22 @@ function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel 
             ? [{ label: "后置条件", value: joinList(postconditions) }]
             : []),
           ...(useCase.primaryActorId
-            ? [{ label: "主参与者", value: useCase.primaryActorId }]
+            ? [
+                {
+                  label: "主参与者",
+                  value: actorNameById.get(useCase.primaryActorId) ?? useCase.primaryActorId,
+                },
+              ]
             : []),
           ...(supportingActorIds.length > 0
-            ? [{ label: "协作参与者", value: joinList(supportingActorIds) }]
+            ? [
+                {
+                  label: "协作参与者",
+                  value: joinList(
+                    supportingActorIds.map((id) => actorNameById.get(id) ?? id),
+                  ),
+                },
+              ]
             : []),
           ...(flowSummary ? [{ label: "事件流", value: flowSummary }] : []),
         ],
