@@ -3512,12 +3512,13 @@ describe("App shell routes", () => {
     expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
 
-    const testProviderConfigButton = screen.getByRole("button", { name: "测试托管配置" });
     await waitFor(() => {
-      expect(testProviderConfigButton).toBeEnabled();
+      expect(
+        screen.getByRole("button", { name: "测试托管配置" }),
+      ).toBeEnabled();
     });
     vi.mocked(fetch).mockClear();
-    fireEvent.click(testProviderConfigButton);
+    await user.click(screen.getByRole("button", { name: "测试托管配置" }));
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/provider-configs/provider-config-1/test"),
