@@ -1440,6 +1440,46 @@ function mergeDesignTraceability(
   ];
 }
 
+function designModelIdsFromRecord(
+  models: WorkspaceRecord["designModels"],
+) {
+  return Object.keys(models);
+}
+
+function mergeDesignPreviewTraceability(
+  current: WorkspaceRecord["designModelTraceability"],
+  incoming: WorkspaceRecord["designModelTraceability"],
+  affectedDiagrams: readonly DesignDiagramType[],
+  incomingModelIds: readonly string[],
+) {
+  if (affectedDiagrams.length === 0 && incomingModelIds.length === 0) {
+    return current;
+  }
+  const scopedIncoming = incoming.filter((entry) =>
+    designTraceabilityTouchesDiagramKinds(
+      entry,
+      affectedDiagrams,
+      incomingModelIds,
+    ),
+  );
+  if (scopedIncoming.length === 0) {
+    return current;
+  }
+  const next = current.filter(
+    (entry) =>
+      !designTraceabilityTouchesDiagramKinds(entry, [], incomingModelIds),
+  );
+  const seen = new Set(next.map((entry) => JSON.stringify(entry)));
+  for (const entry of scopedIncoming) {
+    const signature = JSON.stringify(entry);
+    if (!seen.has(signature)) {
+      seen.add(signature);
+      next.push(entry);
+    }
+  }
+  return next;
+}
+
 function keepRequirementScopedRecordForScope<T>(
   current: Record<string, T>,
   scope: RequirementSnapshotScope,
@@ -3025,10 +3065,22 @@ export function WorkspaceSessionProvider({
         snapshot.status === "completed"
           ? successfulDesignDiagramsFromSnapshot(snapshot)
           : [];
+      const previewAffectedDesignDiagrams =
+        snapshot.status === "running"
+          ? orderedDesignDiagrams(
+              generatedOverride ?? successfulDesignDiagramsFromSnapshot(snapshot),
+            )
+          : [];
+      const mergeAffectedDesignDiagrams =
+        successfulAffectedDesignDiagrams.length > 0
+          ? successfulAffectedDesignDiagrams
+          : previewAffectedDesignDiagrams;
       const affectedDesignModelMap = keepDesignScopedRecord(
         mapped.models,
-        successfulAffectedDesignDiagrams,
+        mergeAffectedDesignDiagrams,
       );
+      const affectedDesignModelIds =
+        designModelIdsFromRecord(affectedDesignModelMap);
       const currentDesignFingerprint = designInputFingerprintFor(
         snapshot.requirementModels,
         snapshot.requirementModelTraceability,
@@ -3043,16 +3095,28 @@ export function WorkspaceSessionProvider({
               ),
               ...affectedDesignModelMap,
             }
+          : previewAffectedDesignDiagrams.length > 0
+            ? {
+                ...current,
+                ...affectedDesignModelMap,
+              }
           : current,
       );
       setDesignModelTraceability((current) => {
         const snapshotTraceability = snapshot.designModelTraceability ?? [];
-        return mergeDesignTraceability(
-          current,
-          snapshotTraceability,
-          successfulAffectedDesignDiagrams,
-          [],
-        );
+        return successfulAffectedDesignDiagrams.length > 0
+          ? mergeDesignTraceability(
+              current,
+              snapshotTraceability,
+              successfulAffectedDesignDiagrams,
+              [],
+            )
+          : mergeDesignPreviewTraceability(
+              current,
+              snapshotTraceability,
+              previewAffectedDesignDiagrams,
+              affectedDesignModelIds,
+            );
       });
       setDesignPlantUml((current) =>
         successfulAffectedDesignDiagrams.length > 0
@@ -3066,6 +3130,14 @@ export function WorkspaceSessionProvider({
                 successfulAffectedDesignDiagrams,
               ),
             }
+          : previewAffectedDesignDiagrams.length > 0
+            ? {
+                ...current,
+                ...keepDesignScopedRecord(
+                  mapped.plantUml,
+                  previewAffectedDesignDiagrams,
+                ),
+              }
           : current,
       );
       setDesignSvgArtifacts((current) =>
@@ -3080,6 +3152,14 @@ export function WorkspaceSessionProvider({
                 successfulAffectedDesignDiagrams,
               ),
             }
+          : previewAffectedDesignDiagrams.length > 0
+            ? {
+                ...current,
+                ...keepDesignScopedRecord(
+                  mapped.svgArtifacts,
+                  previewAffectedDesignDiagrams,
+                ),
+              }
           : current,
       );
       setDesignDiagramErrors((current) => {
@@ -3104,8 +3184,7 @@ export function WorkspaceSessionProvider({
           ...snapshot.diagramErrors,
         };
       });
-      const generatedDiagramsForSnapshot =
-        generatedOverride ?? successfulAffectedDesignDiagrams;
+      const generatedDiagramsForSnapshot = mergeAffectedDesignDiagrams;
       setGeneratedDesignDiagrams((current) =>
         Array.from(new Set([...current, ...generatedDiagramsForSnapshot])),
       );
@@ -3123,6 +3202,16 @@ export function WorkspaceSessionProvider({
                 ]),
               ),
             }
+          : previewAffectedDesignDiagrams.length > 0
+            ? {
+                ...current,
+                ...Object.fromEntries(
+                  Object.keys(affectedDesignModelMap).map((modelId) => [
+                    modelId,
+                    currentDesignFingerprint,
+                  ]),
+                ),
+              }
           : current,
       );
     },
