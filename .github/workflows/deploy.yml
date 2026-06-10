@@ -147,6 +147,29 @@ jobs:
           npm run build:render
           VITE_APP_API_BASE_URL="" npm run build:web
 
+      - name: Package release archive
+        run: |
+          set -euo pipefail
+          RELEASE_ARCHIVE="$RUNNER_TEMP/uml-platform-${GITHUB_SHA}.tar.gz"
+          tar -czf "$RELEASE_ARCHIVE" \
+            package.json \
+            package-lock.json \
+            ecosystem.config.cjs \
+            apps/api/package.json \
+            apps/api/dist \
+            apps/render-service/package.json \
+            apps/render-service/dist \
+            apps/web/package.json \
+            apps/web/dist \
+            packages/contracts/package.json \
+            packages/contracts/dist \
+            packages/prompts/package.json \
+            packages/prompts/dist \
+            scripts/deploy/baota-pm2-deploy.sh \
+            scripts/deploy/baota-pm2-git-deploy.sh \
+            plantuml/build/libs/plantuml-1.2026.3beta8.jar
+          echo "RELEASE_ARCHIVE=$RELEASE_ARCHIVE" >> "$GITHUB_ENV"
+
       - name: Configure SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -180,11 +203,14 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
-          REPO_URL: https://github.com/${{ github.repository }}.git
         run: |
           set -euo pipefail
           if [ -z "$DEPLOY_USER" ]; then
             echo "Missing GitHub secret: DEPLOY_USER" >&2
+            exit 1
+          fi
+          if [ -z "${RELEASE_ARCHIVE:-}" ] || [ ! -f "$RELEASE_ARCHIVE" ]; then
+            echo "Release archive was not created: ${RELEASE_ARCHIVE:-<unset>}" >&2
             exit 1
           fi
           SSH_OPTIONS=(
@@ -194,64 +220,22 @@ jobs:
             -o StrictHostKeyChecking=accept-new
             -o UserKnownHostsFile=~/.ssh/known_hosts
           )
+          SCP_OPTIONS=(
+            "${SSH_OPTIONS[@]}"
+            -i ~/.ssh/deploy_key
+            -P "$DEPLOY_PORT"
+          )
+          REMOTE_ARCHIVE="/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
+          REMOTE_SCRIPT="/tmp/baota-pm2-deploy-${GITHUB_SHA}.sh"
+          scp "${SCP_OPTIONS[@]}" "$RELEASE_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ARCHIVE"
+          scp "${SCP_OPTIONS[@]}" scripts/deploy/baota-pm2-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_SCRIPT"
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' SOURCE_REF='${GITHUB_REF_NAME}' REPO_URL='$REPO_URL' bash -s" <<'REMOTE_DEPLOY'
+            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='$REMOTE_ARCHIVE' REMOTE_SCRIPT='$REMOTE_SCRIPT' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
-
-          NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
-          SOURCE_DIR="$DEPLOY_PATH/shared/source"
-
-          command -v git >/dev/null || {
-            echo "git is required on the server" >&2
-            exit 1
-          }
-          command -v node >/dev/null || {
-            echo "node is required on the server" >&2
-            exit 1
-          }
-          command -v npm >/dev/null || {
-            echo "npm is required on the server" >&2
-            exit 1
-          }
-
-          git_network() {
-            local attempt
-            for attempt in 1 2 3; do
-              if git -c http.version=HTTP/1.1 "$@"; then
-                return 0
-              fi
-              echo "git $* failed on attempt $attempt/3; retrying after network backoff ..." >&2
-              sleep "$((attempt * 5))"
-            done
-            git -c http.version=HTTP/1.1 "$@"
-          }
-
-          mkdir -p "$DEPLOY_PATH/incoming" "$DEPLOY_PATH/releases" "$DEPLOY_PATH/shared"
-
-          if [ -e "$SOURCE_DIR" ] && [ ! -d "$SOURCE_DIR/.git" ]; then
-            echo "Refusing to overwrite non-git source directory: $SOURCE_DIR" >&2
-            exit 1
-          fi
-
-          if [ ! -d "$SOURCE_DIR/.git" ]; then
-            echo "Cloning source repository into $SOURCE_DIR ..."
-            git_network clone --filter=blob:none --no-checkout "$REPO_URL" "$SOURCE_DIR"
-          fi
-
-          echo "Fetching $SOURCE_REF for release $RELEASE_SHA ..."
-          git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
-          git_network -C "$SOURCE_DIR" fetch --prune --depth=50 origin \
-            "+refs/heads/$SOURCE_REF:refs/remotes/origin/$SOURCE_REF"
-          if ! git -C "$SOURCE_DIR" cat-file -e "$RELEASE_SHA^{commit}" 2>/dev/null; then
-            git_network -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_SHA"
-          fi
-          git -C "$SOURCE_DIR" checkout --force "$RELEASE_SHA"
-          git -C "$SOURCE_DIR" clean -fdx
-
+          chmod +x "$REMOTE_SCRIPT"
           DEPLOY_PATH="$DEPLOY_PATH" \
             RELEASE_SHA="$RELEASE_SHA" \
-            SOURCE_DIR="$SOURCE_DIR" \
-            NPM_REGISTRY="$NPM_REGISTRY" \
-            bash "$SOURCE_DIR/scripts/deploy/baota-pm2-git-deploy.sh"
+            RELEASE_ARCHIVE="$RELEASE_ARCHIVE" \
+            bash "$REMOTE_SCRIPT"
           REMOTE_DEPLOY
