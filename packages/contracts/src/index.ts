@@ -1097,6 +1097,73 @@ export const designSvgArtifactSchema = svgArtifactSchema.extend({
 });
 export type DesignSvgArtifact = z.infer<typeof designSvgArtifactSchema>;
 
+export function isDesignDiagramKind(value: unknown): value is DesignDiagramKind {
+  return (
+    typeof value === "string" &&
+    designDiagramKindSchema.options.includes(value as DesignDiagramKind)
+  );
+}
+
+export function designDiagramKindFromRecordKey(
+  key: string | null | undefined,
+): DesignDiagramKind | null {
+  if (!key) return null;
+  const scopedKind = key.includes(":") ? key.split(":", 1)[0] : key;
+  return isDesignDiagramKind(scopedKind) ? scopedKind : null;
+}
+
+function designRecordStringField(record: unknown, field: string) {
+  return record &&
+    typeof record === "object" &&
+    !Array.isArray(record) &&
+    typeof (record as Record<string, unknown>)[field] === "string"
+    ? ((record as Record<string, unknown>)[field] as string)
+    : null;
+}
+
+export function designRecordBelongsToDiagramKinds(
+  recordKey: string | null | undefined,
+  record: unknown,
+  diagramKinds: Iterable<DesignDiagramKind>,
+) {
+  const affected = new Set(diagramKinds);
+  if (affected.size === 0) return false;
+  const keyKind = designDiagramKindFromRecordKey(recordKey);
+  if (keyKind && affected.has(keyKind)) return true;
+  const diagramKind = designRecordStringField(record, "diagramKind");
+  if (isDesignDiagramKind(diagramKind) && affected.has(diagramKind)) {
+    return true;
+  }
+  const modelId = designRecordStringField(record, "modelId");
+  const modelIdKind = designDiagramKindFromRecordKey(modelId);
+  return Boolean(modelIdKind && affected.has(modelIdKind));
+}
+
+export function designTraceabilityTouchesDiagramKinds(
+  entry: DesignModelTraceabilityEntry,
+  diagramKinds: Iterable<DesignDiagramKind>,
+  deletedModelIds: Iterable<string> = [],
+) {
+  const affected = new Set(diagramKinds);
+  const deletedIds = new Set(deletedModelIds);
+  if (affected.size === 0 && deletedIds.size === 0) return false;
+  const touchesRef = (ref: ModelElementRef) => {
+    const modelId = ref.modelId ?? "";
+    const modelKind = designDiagramKindFromRecordKey(modelId);
+    if (modelId && deletedIds.has(modelId)) return true;
+    if (ref.elementId && deletedIds.has(ref.elementId)) return true;
+    if (isDesignDiagramKind(ref.diagramKind) && affected.has(ref.diagramKind)) {
+      return true;
+    }
+    return Boolean(modelKind && affected.has(modelKind));
+  };
+  return (
+    touchesRef(entry.source) ||
+    entry.targets.some(touchesRef) ||
+    (entry.upstreamDesignRefs ?? []).some(touchesRef)
+  );
+}
+
 export const resolvedProviderSettingsSchema = z.object({
   apiBaseUrl: z.string().url(),
   apiKey: z.string().min(1),

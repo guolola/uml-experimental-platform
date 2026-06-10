@@ -3429,4 +3429,263 @@ describe("WorkspaceSessionProvider", () => {
       "table",
     ]);
   });
+
+  it("replaces existing design records of the regenerated design kind in session state", async () => {
+    const usecaseModel: UseCaseDiagramSpec = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "座位预约用例",
+      notes: [],
+      actors: [],
+      useCases: [
+        {
+          id: "uc-1",
+          name: "查看座位",
+          goal: "查看可预约座位",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const oldSequenceModel: DesignDiagramModelSpec = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc_old",
+      sourceUseCaseId: "uc_old",
+      sourceUseCaseName: "旧用例",
+      title: "旧用例实现设计",
+      summary: "旧批次残留。",
+      notes: [],
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const newSequenceModel: DesignDiagramModelSpec = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc-1",
+      sourceUseCaseId: "uc-1",
+      sourceUseCaseName: "查看座位",
+      title: "查看座位用例实现设计",
+      summary: "当前用例实现。",
+      notes: [],
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const designClassModel: DesignDiagramModelSpec = {
+      diagramKind: "class",
+      modelId: "class",
+      title: "设计类图",
+      summary: "保留的上游设计。",
+      notes: [],
+      classes: [],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const snapshot: DesignRunSnapshot = {
+      runId: "design-sequence-run",
+      requirementText: "座位预约系统",
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      rules: [
+        createRule({
+          id: "r1",
+          text: "用户可以查看座位。",
+          relatedDiagrams: ["usecase"],
+        }),
+      ],
+      requirementBaseline: createRequirementBaseline([createAtomicRequirement()]),
+      coverageMatrix: null,
+      traceabilityMatrix: null,
+      evidencePackage: null,
+      requirementModels: [usecaseModel],
+      requirementModelTraceability: [
+        {
+          ruleId: "r1",
+          target: {
+            diagramKind: "usecase",
+            elementId: "uc-1",
+            elementKind: "useCase",
+            label: "查看座位",
+          },
+        },
+      ],
+      models: [newSequenceModel],
+      designModelTraceability: [
+        {
+          source: {
+            diagramKind: "usecase",
+            elementId: "uc-1",
+            elementKind: "useCase",
+            label: "查看座位",
+          },
+          targets: [
+            {
+              modelId: "sequence:uc-1",
+              diagramKind: "sequence",
+              elementId: "message-1",
+              elementKind: "message",
+              label: "查看座位",
+            },
+          ],
+        },
+      ],
+      plantUml: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc-1",
+          source: "@startuml\n@enduml",
+        },
+      ],
+      svgArtifacts: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc-1",
+          svg: "<svg></svg>",
+          renderMeta: {
+            engine: "test",
+            generatedAt: new Date().toISOString(),
+            sourceLength: 18,
+            durationMs: 1,
+          },
+        },
+      ],
+      diagramErrors: {},
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      error: null,
+    };
+    const requirementFingerprint = snapshotInputFingerprint({
+      requirementText: "座位预约系统",
+      rules: snapshot.rules,
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "座位预约系统",
+          rules: snapshot.rules,
+          requirementBaseline: snapshot.requirementBaseline,
+          requirementInputFingerprint: requirementFingerprint,
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+          generatedDiagramTypes: ["usecase"],
+          diagramVersions: { usecase: 1 },
+          diagramInputFingerprints: { usecase: requirementFingerprint },
+          models: { usecase: usecaseModel },
+          requirementModelTraceability: snapshot.requirementModelTraceability,
+          generatedDesignDiagramTypes: ["sequence", "class"],
+          designModels: {
+            "sequence:uc_old": oldSequenceModel,
+            class: designClassModel,
+          },
+          designModelTraceability: [
+            {
+              source: {
+                diagramKind: "usecase",
+                elementId: "uc_old",
+                elementKind: "useCase",
+                label: "旧用例",
+              },
+              targets: [
+                {
+                  modelId: "sequence:uc_old",
+                  diagramKind: "sequence",
+                  elementId: "old-message",
+                  elementKind: "message",
+                  label: "旧消息",
+                },
+              ],
+            },
+          ],
+          designPlantUml: {
+            "sequence:uc_old": "@startuml\n' old\n@enduml",
+            class: "@startuml\nclass Existing\n@enduml",
+          },
+          designSvgArtifacts: {
+            "sequence:uc_old": {
+              diagramKind: "sequence",
+              modelId: "sequence:uc_old",
+              svg: "<svg></svg>",
+              renderMeta: {
+                engine: "test",
+                generatedAt: new Date().toISOString(),
+                sourceLength: 18,
+                durationMs: 1,
+              },
+            },
+            class: {
+              diagramKind: "class",
+              modelId: "class",
+              svg: "<svg></svg>",
+              renderMeta: {
+                engine: "test",
+                generatedAt: new Date().toISOString(),
+                sourceLength: 18,
+                durationMs: 1,
+              },
+            },
+          },
+          designInputFingerprints: {
+            "sequence:uc_old": "old-fp",
+            class: "class-fp",
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(async () => ({ runId: "design-sequence-run" })),
+      subscribeToDesignRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "completed", snapshot });
+      }),
+      getDesignRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => ({
+        id: "history-sequence",
+        createdAt: "2026-06-10T00:00:00.000Z",
+        title: "设计生成",
+        providerModel: "gpt-5.5",
+        snapshot,
+      })),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.restoreRunHistory("history-sequence");
+    });
+
+    await waitFor(() => {
+      expect(Object.keys(result.current.designModels).sort()).toEqual([
+        "sequence:uc-1",
+      ]);
+      expect(Object.keys(result.current.designPlantUml).sort()).toEqual([
+        "sequence:uc-1",
+      ]);
+      expect(Object.keys(result.current.designSvgArtifacts).sort()).toEqual([
+        "sequence:uc-1",
+      ]);
+      expect(
+        result.current.designModelTraceability.some((entry) =>
+          entry.targets.some((target) => target.modelId === "sequence:uc_old"),
+        ),
+      ).toBe(false);
+    });
+  });
 });

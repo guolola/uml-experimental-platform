@@ -1,6 +1,9 @@
 // Restores persisted run snapshots into the project workspace state without browser round-trips.
 import {
+  designDiagramKindFromRecordKey,
   designInputFingerprint,
+  designRecordBelongsToDiagramKinds,
+  designTraceabilityTouchesDiagramKinds,
   normalizeSnapshotFingerprint,
   snapshotInputFingerprint,
 } from "@uml-platform/contracts";
@@ -120,7 +123,62 @@ function applySnapshotToWorkspaceState(
 
   if (isDesignRunSnapshot(snapshot)) {
     const designRecords = mapDesignSnapshotToRecords(snapshot);
-    const affected = new Set(snapshot.selectedDiagrams);
+    const erroredDesignDiagrams = new Set(
+      Object.keys(snapshot.diagramErrors)
+        .map(designDiagramKindFromRecordKey)
+        .filter((diagram): diagram is DesignDiagramKind => Boolean(diagram)),
+    );
+    const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
+    const modelDesignDiagrams = uniqueStrings(
+      Object.values(designRecords.modelMap)
+        .map((model) => model.diagramKind)
+        .filter(
+          (diagram): diagram is DesignDiagramKind =>
+            Boolean(
+              diagram &&
+                selectedDesignDiagrams.has(diagram) &&
+                !erroredDesignDiagrams.has(diagram),
+            ),
+        ),
+    ) as DesignDiagramKind[];
+    const artifactDesignDiagrams = uniqueStrings(
+      [
+        ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+        ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+      ].filter(
+        (diagram): diagram is DesignDiagramKind =>
+          selectedDesignDiagrams.has(diagram) &&
+          !erroredDesignDiagrams.has(diagram),
+      ),
+    ) as DesignDiagramKind[];
+    const successfulAffectedDesignDiagrams =
+      snapshot.status === "completed"
+        ? (uniqueStrings(
+            artifactDesignDiagrams.length > 0
+              ? artifactDesignDiagrams
+              : modelDesignDiagrams,
+          ) as DesignDiagramKind[])
+        : [];
+    const affectedForErrors = uniqueStrings([
+      ...snapshot.selectedDiagrams,
+      ...successfulAffectedDesignDiagrams,
+      ...Array.from(erroredDesignDiagrams),
+    ]) as DesignDiagramKind[];
+    const affectedDesignModelIds = Object.entries(
+      recordValue(next.designModels),
+    )
+      .filter(([modelId, model]) =>
+        designRecordBelongsToDiagramKinds(
+          modelId,
+          model,
+          successfulAffectedDesignDiagrams,
+        ),
+      )
+      .map(([modelId]) => modelId);
+    const affectedDesignModelMap = keepDesignScopedRecords(
+      designRecords.modelMap,
+      successfulAffectedDesignDiagrams,
+    );
     const requestedDesignDiagrams =
       snapshot.requestedDiagrams ?? snapshot.selectedDiagrams;
     const requirementDiagrams = snapshot.requirementModels.map(
@@ -141,47 +199,65 @@ function applySnapshotToWorkspaceState(
       ...stringArrayValue(next.selectedDesignDiagramTypes),
       ...requestedDesignDiagrams,
     ]);
-    next.designModels = {
-      ...recordValue(next.designModels),
-      ...designRecords.modelMap,
-    };
-    next.designModelTraceability = [
-      ...arrayValue(next.designModelTraceability).filter(
-        (entry) =>
-          !affected.has(
-            readNestedString(entry, [
-              "source",
-              "diagramKind",
-            ]) as DesignDiagramKind,
-          ),
-      ),
-      ...snapshot.designModelTraceability,
-    ];
+    if (successfulAffectedDesignDiagrams.length > 0) {
+      next.designModels = {
+        ...clearDesignScopedRecords(
+          recordValue(next.designModels),
+          successfulAffectedDesignDiagrams,
+        ),
+        ...affectedDesignModelMap,
+      };
+    }
+    next.designModelTraceability = mergeDesignTraceability(
+      arrayValue(
+        next.designModelTraceability,
+      ) as DesignRunSnapshot["designModelTraceability"],
+      snapshot.designModelTraceability,
+      successfulAffectedDesignDiagrams,
+      affectedDesignModelIds,
+    );
     next.generatedDesignDiagramTypes = uniqueStrings([
       ...stringArrayValue(next.generatedDesignDiagramTypes),
-      ...snapshot.selectedDiagrams,
+      ...successfulAffectedDesignDiagrams,
     ]);
-    next.designInputFingerprints = {
-      ...recordValue(next.designInputFingerprints),
-      ...Object.fromEntries(
-        Object.keys(designRecords.modelMap).map((modelId) => [
-          modelId,
-          currentDesignFingerprint,
-        ]),
-      ),
-    };
-    next.designPlantUml = {
-      ...recordValue(next.designPlantUml),
-      ...designRecords.plantUmlMap,
-    };
-    next.designSvgArtifacts = {
-      ...recordValue(next.designSvgArtifacts),
-      ...designRecords.svgMap,
-    };
+    if (successfulAffectedDesignDiagrams.length > 0) {
+      next.designInputFingerprints = {
+        ...clearDesignScopedRecords(
+          recordValue(next.designInputFingerprints),
+          successfulAffectedDesignDiagrams,
+        ),
+        ...Object.fromEntries(
+          Object.keys(affectedDesignModelMap).map((modelId) => [
+            modelId,
+            currentDesignFingerprint,
+          ]),
+        ),
+      };
+      next.designPlantUml = {
+        ...clearDesignScopedRecords(
+          recordValue(next.designPlantUml),
+          successfulAffectedDesignDiagrams,
+        ),
+        ...keepDesignScopedRecords(
+          designRecords.plantUmlMap,
+          successfulAffectedDesignDiagrams,
+        ),
+      };
+      next.designSvgArtifacts = {
+        ...clearDesignScopedRecords(
+          recordValue(next.designSvgArtifacts),
+          successfulAffectedDesignDiagrams,
+        ),
+        ...keepDesignScopedRecords(
+          designRecords.svgMap,
+          successfulAffectedDesignDiagrams,
+        ),
+      };
+    }
     next.designDiagramErrors = clearAndMergeDiagramErrors(
       recordValue(next.designDiagramErrors),
       snapshot.diagramErrors,
-      snapshot.selectedDiagrams,
+      affectedForErrors,
     );
     next.models = {
       ...clearScopedRecords(recordValue(next.models), requirementDiagrams),
@@ -487,6 +563,49 @@ function keepScopedRecords<T>(
       return Boolean(diagramKind && affectedSet.has(diagramKind));
     }),
   ) as Record<string, T>;
+}
+
+function clearDesignScopedRecords<T>(
+  current: Record<string, T>,
+  affected: readonly DesignDiagramKind[],
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(
+      ([key, value]) =>
+        !designRecordBelongsToDiagramKinds(key, value, affected),
+    ),
+  );
+}
+
+function keepDesignScopedRecords<T>(
+  current: Record<string, T>,
+  affected: readonly DesignDiagramKind[],
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) =>
+      designRecordBelongsToDiagramKinds(key, value, affected),
+    ),
+  ) as Record<string, T>;
+}
+
+function mergeDesignTraceability(
+  current: DesignRunSnapshot["designModelTraceability"],
+  incoming: DesignRunSnapshot["designModelTraceability"],
+  affected: readonly DesignDiagramKind[],
+  deletedModelIds: readonly string[],
+) {
+  if (affected.length === 0 && deletedModelIds.length === 0) {
+    return current;
+  }
+  return [
+    ...current.filter(
+      (entry) =>
+        !designTraceabilityTouchesDiagramKinds(entry, affected, deletedModelIds),
+    ),
+    ...incoming.filter((entry) =>
+      designTraceabilityTouchesDiagramKinds(entry, affected),
+    ),
+  ];
 }
 
 function diagramKindFromErrorKey(key: string) {

@@ -2181,6 +2181,303 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.designModels.table).toEqual(generatedTable);
   });
 
+  it("replaces old design records for the same successful design kind", async () => {
+    const oldSequence = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc_old",
+      sourceUseCaseId: "uc_old",
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const newSequence = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc-1",
+      sourceUseCaseId: "uc-1",
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const existingClass = {
+      diagramKind: "class",
+      modelId: "class",
+      classes: [],
+    };
+    const snapshot = {
+      runId: "design-sequence",
+      requirementText: "图书馆需求",
+      rules: [],
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      requirementModels: [],
+      requirementModelTraceability: [],
+      models: [newSequence],
+      designModelTraceability: [
+        {
+          source: {
+            diagramKind: "usecase",
+            elementId: "uc-1",
+            elementKind: "useCase",
+            label: "查看座位",
+          },
+          targets: [
+            {
+              modelId: "sequence:uc-1",
+              diagramKind: "sequence",
+              elementId: "message-1",
+              elementKind: "message",
+              label: "查看座位",
+            },
+          ],
+        },
+      ],
+      plantUml: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc-1",
+          source: "@startuml\n@enduml",
+        },
+      ],
+      svgArtifacts: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc-1",
+          svg: "<svg />",
+          renderMeta: {
+            engine: "plantuml",
+            generatedAt: "2026-06-10T00:00:00.000Z",
+            sourceLength: 16,
+            durationMs: 1,
+          },
+        },
+      ],
+      diagramErrors: {},
+      designTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      error: null,
+    };
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 9,
+            state: {
+              requirementText: "图书馆需求",
+              generatedDesignDiagramTypes: ["sequence", "class"],
+              designModels: {
+                "sequence:uc_old": oldSequence,
+                class: existingClass,
+              },
+              designPlantUml: {
+                "sequence:uc_old": "@startuml\n' old\n@enduml",
+                class: "@startuml\nclass Existing\n@enduml",
+              },
+              designSvgArtifacts: {
+                "sequence:uc_old": {
+                  diagramKind: "sequence",
+                  modelId: "sequence:uc_old",
+                  svg: "<svg data-old />",
+                },
+                class: { diagramKind: "class", svg: "<svg />" },
+              },
+              designInputFingerprints: {
+                "sequence:uc_old": "old-fp",
+                class: "class-fp",
+              },
+              designModelTraceability: [
+                {
+                  source: {
+                    diagramKind: "usecase",
+                    elementId: "uc_old",
+                    elementKind: "useCase",
+                    label: "旧用例",
+                  },
+                  targets: [
+                    {
+                      modelId: "sequence:uc_old",
+                      diagramKind: "sequence",
+                      elementId: "old-message",
+                      elementKind: "message",
+                      label: "旧消息",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 10,
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.saveRunHistory(snapshot as never, {
+      providerModel: "gpt-5.4",
+      durationMs: 100,
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(Object.keys(body.state.designModels).sort()).toEqual([
+      "class",
+      "sequence:uc-1",
+    ]);
+    expect(Object.keys(body.state.designPlantUml).sort()).toEqual([
+      "class",
+      "sequence:uc-1",
+    ]);
+    expect(Object.keys(body.state.designSvgArtifacts).sort()).toEqual([
+      "class",
+      "sequence:uc-1",
+    ]);
+    expect(body.state.designInputFingerprints["sequence:uc_old"]).toBeUndefined();
+    expect(
+      body.state.designModelTraceability.some((entry: {
+        targets: Array<{ modelId?: string }>;
+      }) =>
+        entry.targets.some((target) => target.modelId === "sequence:uc_old"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps old design records when the selected design kind failed", async () => {
+    const oldSequence = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc_old",
+      sourceUseCaseId: "uc_old",
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const snapshot = {
+      runId: "design-sequence-failed",
+      requirementText: "图书馆需求",
+      rules: [],
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      requirementModels: [],
+      requirementModelTraceability: [],
+      models: [],
+      designModelTraceability: [],
+      plantUml: [],
+      svgArtifacts: [],
+      diagramErrors: {
+        sequence: {
+          stage: "generate_design_models",
+          error: {
+            code: "PLATFORM_PROVIDER_TIMEOUT",
+            message: "当前模型服务响应超时，请稍后重试。",
+            category: "platform_provider",
+            retryable: true,
+          },
+        },
+      },
+      designTrace: [],
+      currentStage: "generate_design_models",
+      status: "failed",
+      error: {
+        code: "PLATFORM_PROVIDER_TIMEOUT",
+        message: "当前模型服务响应超时，请稍后重试。",
+        category: "platform_provider",
+        retryable: true,
+      },
+    };
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 9,
+            state: {
+              requirementText: "图书馆需求",
+              generatedDesignDiagramTypes: ["sequence"],
+              designModels: { "sequence:uc_old": oldSequence },
+              designPlantUml: {
+                "sequence:uc_old": "@startuml\n' old\n@enduml",
+              },
+              designSvgArtifacts: {
+                "sequence:uc_old": {
+                  diagramKind: "sequence",
+                  modelId: "sequence:uc_old",
+                  svg: "<svg data-old />",
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 10,
+            state: JSON.parse(String(options.body)).state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.saveRunHistory(snapshot as never, {
+      providerModel: "gpt-5.4",
+      durationMs: 100,
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT",
+    );
+    const body = JSON.parse(String(saveCall?.[1]?.body));
+    expect(Object.keys(body.state.designModels)).toEqual(["sequence:uc_old"]);
+    expect(Object.keys(body.state.designPlantUml)).toEqual([
+      "sequence:uc_old",
+    ]);
+    expect(body.state.designDiagramErrors.sequence).toBeTruthy();
+  });
+
   it("keeps every mock document generation as a separate document", async () => {
     const repository = createMockWorkspaceRepository();
     const input: StartDocumentRunInput = {

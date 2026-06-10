@@ -4,7 +4,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   codeRunSnapshotSchema,
   documentRunSnapshotSchema,
+  designRecordBelongsToDiagramKinds,
   designRunSnapshotSchema,
+  designTraceabilityTouchesDiagramKinds,
   evidenceReviewDecisionSchema,
   artifactReadyRunEventSchema,
   queuedRunEventSchema,
@@ -28,6 +30,7 @@ import {
   startRunRequestSchema,
   startRunResponseSchema,
   type CodeRunSnapshot,
+  type DesignDiagramKind,
   type EvidencePackage,
   type AtomicRequirement,
   type AtomicRequirementField,
@@ -553,7 +556,9 @@ async function resolveDesignRunInput(
   loadProjectWorkspace?: LoadProjectWorkspaceForRun,
 ): Promise<InputResolution<StartDesignRunRequest>> {
   const legacy = startDesignRunRequestSchema.safeParse(body);
-  if (legacy.success) return { ok: true, input: legacy.data };
+  if (legacy.success) {
+    return { ok: true, input: filterReplacingDesignContext(legacy.data) };
+  }
 
   const command: StartDesignRunCommand = startDesignRunCommandSchema.parse(body);
   const workspace = await loadWorkspaceStateForCommand({
@@ -564,7 +569,7 @@ async function resolveDesignRunInput(
   if (!workspace.ok) return workspace;
   return {
     ok: true,
-    input: startDesignRunRequestSchema.parse({
+    input: filterReplacingDesignContext(startDesignRunRequestSchema.parse({
       projectId: workspace.input.projectId,
       requirementBaseline: workspace.input.state.requirementBaseline,
       requirementModels: presentRecordValues(workspace.input.state.models),
@@ -584,7 +589,51 @@ async function resolveDesignRunInput(
         workspace.input.state.designSvgArtifacts,
       ),
       providerSettings: command.providerSettings,
-    }),
+    })),
+  };
+}
+
+function filterReplacingDesignContext(
+  input: StartDesignRunRequest,
+): StartDesignRunRequest {
+  const replacingDiagrams = Array.from(
+    new Set([
+      ...input.selectedDiagrams,
+      ...(input.requestedDiagrams ?? []),
+    ]),
+  ) as DesignDiagramKind[];
+  if (replacingDiagrams.length === 0) return input;
+  return {
+    ...input,
+    existingDesignModels: input.existingDesignModels.filter(
+      (model) =>
+        !designRecordBelongsToDiagramKinds(
+          model.modelId ?? model.diagramKind,
+          model,
+          replacingDiagrams,
+        ),
+    ),
+    existingDesignModelTraceability:
+      input.existingDesignModelTraceability.filter(
+        (entry) =>
+          !designTraceabilityTouchesDiagramKinds(entry, replacingDiagrams),
+      ),
+    existingDesignPlantUml: input.existingDesignPlantUml.filter(
+      (artifact) =>
+        !designRecordBelongsToDiagramKinds(
+          artifact.modelId ?? artifact.diagramKind,
+          artifact,
+          replacingDiagrams,
+        ),
+    ),
+    existingDesignSvgArtifacts: input.existingDesignSvgArtifacts.filter(
+      (artifact) =>
+        !designRecordBelongsToDiagramKinds(
+          artifact.modelId ?? artifact.diagramKind,
+          artifact,
+          replacingDiagrams,
+        ),
+    ),
   };
 }
 

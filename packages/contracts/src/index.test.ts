@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   diagramModelsResultSchema,
+  designRecordBelongsToDiagramKinds,
   designRunSnapshotSchema,
+  designTraceabilityTouchesDiagramKinds,
   designTraceEntrySchema,
+  type DesignModelTraceabilityEntry,
   designDiagramModelsResultSchema,
   codeRunSnapshotSchema,
   codeBusinessAssertionResultSchema,
@@ -84,6 +87,69 @@ import {
   startRunRequestSchema,
   userDtoSchema,
 } from "./index.js";
+
+test("design record scope helpers match scoped keys and model metadata", () => {
+  assert.equal(
+    designRecordBelongsToDiagramKinds(
+      "sequence:uc_login",
+      { diagramKind: "sequence", modelId: "sequence:uc_login" },
+      ["sequence"],
+    ),
+    true,
+  );
+  assert.equal(
+    designRecordBelongsToDiagramKinds(
+      "class",
+      { diagramKind: "class", modelId: "class" },
+      ["sequence"],
+    ),
+    false,
+  );
+  assert.equal(
+    designRecordBelongsToDiagramKinds(
+      "legacy-key",
+      { diagramKind: "table", modelId: "table" },
+      ["table"],
+    ),
+    true,
+  );
+});
+
+test("design traceability scope helpers inspect targets and upstream design refs", () => {
+  const entry: DesignModelTraceabilityEntry = {
+    source: {
+      modelId: "usecase",
+      diagramKind: "usecase",
+      elementId: "uc_login",
+      elementKind: "usecase",
+      label: "登录",
+    },
+    targets: [
+      {
+        modelId: "sequence:uc_login",
+        diagramKind: "sequence",
+        elementId: "msg-1",
+        elementKind: "message",
+        label: "提交登录",
+      },
+    ],
+    upstreamDesignRefs: [
+      {
+        modelId: "class",
+        diagramKind: "class",
+        elementId: "UserService",
+        elementKind: "class",
+        label: "UserService",
+      },
+    ],
+  };
+  assert.equal(designTraceabilityTouchesDiagramKinds(entry, ["sequence"]), true);
+  assert.equal(designTraceabilityTouchesDiagramKinds(entry, ["table"]), false);
+  assert.equal(
+    designTraceabilityTouchesDiagramKinds(entry, [], ["sequence:uc_login"]),
+    true,
+  );
+});
 
 test("contracts describe system notice content and admin permissions", () => {
   const created = systemNoticeCreateRequestSchema.parse({

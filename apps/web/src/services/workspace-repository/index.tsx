@@ -6,7 +6,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type {
+import {
+  designDiagramKindFromRecordKey,
+  designRecordBelongsToDiagramKinds,
+  designTraceabilityTouchesDiagramKinds,
   DesignDiagramModelSpec,
   CodeRunSnapshot,
   DocumentKind,
@@ -483,7 +486,68 @@ function applySnapshotToWorkspace(
 
   if (isDesignRunSnapshot(snapshot)) {
     const designRecords = mapDesignSnapshotToRecords(snapshot);
-    const affected = new Set(snapshot.selectedDiagrams);
+    const erroredDesignDiagrams = new Set(
+      Object.keys(snapshot.diagramErrors)
+        .map(designDiagramKindFromRecordKey)
+        .filter((diagram): diagram is DesignDiagramType => Boolean(diagram)),
+    );
+    const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
+    const modelDesignDiagrams = Array.from(
+      new Set(
+        Object.values(designRecords.modelMap)
+          .map((model) => model.diagramKind)
+          .filter(
+            (diagram): diagram is DesignDiagramType =>
+              Boolean(
+                diagram &&
+                  selectedDesignDiagrams.has(diagram) &&
+                  !erroredDesignDiagrams.has(diagram),
+              ),
+          ),
+      ),
+    );
+    const artifactDesignDiagrams = Array.from(
+      new Set(
+        [
+          ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+          ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+        ].filter(
+          (diagram): diagram is DesignDiagramType =>
+            selectedDesignDiagrams.has(diagram) &&
+            !erroredDesignDiagrams.has(diagram),
+        ),
+      ),
+    );
+    const successfulAffectedDesignDiagrams =
+      snapshot.status === "completed"
+        ? Array.from(
+            new Set(
+              artifactDesignDiagrams.length > 0
+                ? artifactDesignDiagrams
+                : modelDesignDiagrams,
+            ),
+          )
+        : [];
+    const affectedForErrors = Array.from(
+      new Set([
+        ...snapshot.selectedDiagrams,
+        ...successfulAffectedDesignDiagrams,
+        ...erroredDesignDiagrams,
+      ]),
+    );
+    const affectedDesignModelIds = Object.entries(next.designModels)
+      .filter(([modelId, model]) =>
+        designRecordBelongsToDiagramKinds(
+          modelId,
+          model,
+          successfulAffectedDesignDiagrams,
+        ),
+      )
+      .map(([modelId]) => modelId);
+    const affectedDesignModelMap = keepDesignScopedRecord(
+      designRecords.modelMap,
+      successfulAffectedDesignDiagrams,
+    );
     const requirementDiagrams = snapshot.requirementModels.map(
       (model) => model.diagramKind,
     );
@@ -498,40 +562,65 @@ function applySnapshotToWorkspace(
       snapshot.requirementModelTraceability,
     );
     next.selectedDesignDiagramTypes = [];
-    next.designModels = { ...next.designModels, ...designRecords.modelMap };
-    next.designModelTraceability = [
-      ...next.designModelTraceability.filter(
-        (entry) => !affected.has(entry.source.diagramKind as DesignDiagramType),
-      ),
-      ...snapshot.designModelTraceability,
-    ];
+    if (successfulAffectedDesignDiagrams.length > 0) {
+      next.designModels = {
+        ...clearDesignScopedRecord(
+          next.designModels,
+          successfulAffectedDesignDiagrams,
+        ),
+        ...affectedDesignModelMap,
+      };
+    }
+    next.designModelTraceability = mergeDesignTraceability(
+      next.designModelTraceability,
+      snapshot.designModelTraceability,
+      successfulAffectedDesignDiagrams,
+      affectedDesignModelIds,
+    );
     next.generatedDesignDiagramTypes = Array.from(
       new Set([
         ...next.generatedDesignDiagramTypes,
-        ...snapshot.selectedDiagrams,
+        ...successfulAffectedDesignDiagrams,
       ]),
     );
-    next.designInputFingerprints = {
-      ...next.designInputFingerprints,
-      ...Object.fromEntries(
-        Object.keys(designRecords.modelMap).map((modelId) => [
-          modelId,
-          currentDesignFingerprint,
-        ]),
-      ),
-    };
-    next.designPlantUml = {
-      ...next.designPlantUml,
-      ...designRecords.plantUmlMap,
-    };
-    next.designSvgArtifacts = {
-      ...next.designSvgArtifacts,
-      ...designRecords.svgMap,
-    };
+    if (successfulAffectedDesignDiagrams.length > 0) {
+      next.designInputFingerprints = {
+        ...clearDesignScopedRecord(
+          next.designInputFingerprints,
+          successfulAffectedDesignDiagrams,
+        ),
+        ...Object.fromEntries(
+          Object.keys(affectedDesignModelMap).map((modelId) => [
+            modelId,
+            currentDesignFingerprint,
+          ]),
+        ),
+      };
+      next.designPlantUml = {
+        ...clearDesignScopedRecord(
+          next.designPlantUml,
+          successfulAffectedDesignDiagrams,
+        ),
+        ...keepDesignScopedRecord(
+          designRecords.plantUmlMap,
+          successfulAffectedDesignDiagrams,
+        ),
+      };
+      next.designSvgArtifacts = {
+        ...clearDesignScopedRecord(
+          next.designSvgArtifacts,
+          successfulAffectedDesignDiagrams,
+        ),
+        ...keepDesignScopedRecord(
+          designRecords.svgMap,
+          successfulAffectedDesignDiagrams,
+        ),
+      };
+    }
     next.designDiagramErrors = clearAndMergeDiagramErrors(
       next.designDiagramErrors,
       snapshot.diagramErrors,
-      snapshot.selectedDiagrams,
+      affectedForErrors,
     );
     next.models = {
       ...clearRequirementScopedRecord(next.models, requirementDiagrams),
@@ -771,6 +860,53 @@ function keepRequirementScopedRecord<T>(
       return Boolean(diagramKind && affected.has(diagramKind as DiagramType));
     }),
   ) as Record<string, T | undefined>;
+}
+
+function clearDesignScopedRecord<T>(
+  current: Record<string, T | undefined>,
+  affectedDiagrams: readonly DesignDiagramType[],
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(
+      ([key, value]) =>
+        !designRecordBelongsToDiagramKinds(key, value, affectedDiagrams),
+    ),
+  ) as Record<string, T | undefined>;
+}
+
+function keepDesignScopedRecord<T>(
+  current: Record<string, T | undefined>,
+  affectedDiagrams: readonly DesignDiagramType[],
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) =>
+      designRecordBelongsToDiagramKinds(key, value, affectedDiagrams),
+    ),
+  ) as Record<string, T | undefined>;
+}
+
+function mergeDesignTraceability(
+  current: WorkspaceRecord["designModelTraceability"],
+  incoming: WorkspaceRecord["designModelTraceability"],
+  affectedDiagrams: readonly DesignDiagramType[],
+  deletedModelIds: readonly string[],
+) {
+  if (affectedDiagrams.length === 0 && deletedModelIds.length === 0) {
+    return current;
+  }
+  return [
+    ...current.filter(
+      (entry) =>
+        !designTraceabilityTouchesDiagramKinds(
+          entry,
+          affectedDiagrams,
+          deletedModelIds,
+        ),
+    ),
+    ...incoming.filter((entry) =>
+      designTraceabilityTouchesDiagramKinds(entry, affectedDiagrams),
+    ),
+  ];
 }
 
 function mergeRequirementTraceability(
@@ -2302,6 +2438,44 @@ export function createMockWorkspaceRepository(
 
     async startDesignRun(input: StartDesignRunInput) {
       const runId = `design-run-${Math.random().toString(36).slice(2, 10)}`;
+      const replacingDiagrams = Array.from(
+        new Set([
+          ...input.selectedDiagrams,
+          ...(input.requestedDiagrams ?? []),
+        ]),
+      );
+      const existingDesignModels = Object.entries(workspace.designModels)
+        .filter(
+          ([modelId, model]) =>
+            !designRecordBelongsToDiagramKinds(
+              modelId,
+              model,
+              replacingDiagrams,
+            ),
+        )
+        .map(([, model]) => model);
+      const existingDesignPlantUml = Object.entries(workspace.designPlantUml)
+        .filter(
+          ([artifactId, source]) =>
+            !designRecordBelongsToDiagramKinds(
+              artifactId,
+              { modelId: artifactId, source },
+              replacingDiagrams,
+            ),
+        )
+        .map(([artifactId, source]) => {
+          const model = workspace.designModels[artifactId];
+          const svgArtifact = workspace.designSvgArtifacts[artifactId];
+          const diagramKind =
+            model?.diagramKind ??
+            svgArtifact?.diagramKind ??
+            (artifactId as DesignDiagramType);
+          return {
+            diagramKind,
+            modelId: model?.modelId ?? svgArtifact?.modelId,
+            source,
+          };
+        });
       const snapshot: DesignRunSnapshot = {
         runId,
         requirementText: "",
@@ -2311,24 +2485,22 @@ export function createMockWorkspaceRepository(
         requirementBaseline: input.requirementBaseline,
         requirementModels: input.requirementModels,
         requirementModelTraceability: input.requirementModelTraceability,
-        models: Object.values(workspace.designModels),
-        designModelTraceability: [...workspace.designModelTraceability],
-        plantUml: Object.entries(workspace.designPlantUml).map(
-          ([artifactId, source]) => {
-            const model = workspace.designModels[artifactId];
-            const svgArtifact = workspace.designSvgArtifacts[artifactId];
-            const diagramKind =
-              model?.diagramKind ??
-              svgArtifact?.diagramKind ??
-              (artifactId as DesignDiagramType);
-            return {
-              diagramKind,
-              modelId: model?.modelId ?? svgArtifact?.modelId,
-              source,
-            };
-          },
+        models: existingDesignModels,
+        designModelTraceability: workspace.designModelTraceability.filter(
+          (entry) =>
+            !designTraceabilityTouchesDiagramKinds(entry, replacingDiagrams),
         ),
-        svgArtifacts: Object.values(workspace.designSvgArtifacts),
+        plantUml: existingDesignPlantUml,
+        svgArtifacts: Object.entries(workspace.designSvgArtifacts)
+          .filter(
+            ([artifactId, artifact]) =>
+              !designRecordBelongsToDiagramKinds(
+                artifactId,
+                artifact,
+                replacingDiagrams,
+              ),
+          )
+          .map(([, artifact]) => artifact),
         diagramErrors: workspace.designDiagramErrors,
         designTrace: [],
         currentStage: "render_svg",

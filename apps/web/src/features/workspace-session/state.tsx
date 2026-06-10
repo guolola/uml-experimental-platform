@@ -10,7 +10,12 @@ import {
 } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { billingEntitlementErrorResponseSchema } from "@uml-platform/contracts";
+import {
+  billingEntitlementErrorResponseSchema,
+  designDiagramKindFromRecordKey,
+  designRecordBelongsToDiagramKinds,
+  designTraceabilityTouchesDiagramKinds,
+} from "@uml-platform/contracts";
 import type {
   BillingEntitlementErrorResponse,
   DocumentKind,
@@ -1357,6 +1362,82 @@ function keepRequirementScopedRecord<T>(
       return Boolean(diagramKind && affected.has(diagramKind as DiagramType));
     }),
   ) as Record<string, T>;
+}
+
+function clearDesignScopedRecord<T>(
+  current: Record<string, T>,
+  affectedDiagrams: readonly DesignDiagramType[],
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(
+      ([key, value]) =>
+        !designRecordBelongsToDiagramKinds(key, value, affectedDiagrams),
+    ),
+  ) as Record<string, T>;
+}
+
+function keepDesignScopedRecord<T>(
+  current: Record<string, T>,
+  affectedDiagrams: readonly DesignDiagramType[],
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) =>
+      designRecordBelongsToDiagramKinds(key, value, affectedDiagrams),
+    ),
+  ) as Record<string, T>;
+}
+
+function designErrorDiagrams(
+  diagramErrors: WorkspaceDesignRunSnapshot["diagramErrors"],
+) {
+  return new Set(
+    Object.keys(diagramErrors)
+      .map(designDiagramKindFromRecordKey)
+      .filter((diagram): diagram is DesignDiagramType => Boolean(diagram)),
+  );
+}
+
+function successfulDesignDiagramsFromSnapshot(
+  snapshot: WorkspaceDesignRunSnapshot,
+) {
+  const errored = designErrorDiagrams(snapshot.diagramErrors);
+  const selected = new Set(snapshot.selectedDiagrams);
+  const artifactDiagrams = Array.from(
+    new Set([
+      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
+      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+    ]),
+  ).filter((diagram) => selected.has(diagram) && !errored.has(diagram));
+  const modelDiagrams = Array.from(
+    new Set(snapshot.models.map((model) => model.diagramKind)),
+  ).filter((diagram) => selected.has(diagram) && !errored.has(diagram));
+  return orderedDesignDiagrams(
+    artifactDiagrams.length > 0 ? artifactDiagrams : modelDiagrams,
+  );
+}
+
+function mergeDesignTraceability(
+  current: WorkspaceRecord["designModelTraceability"],
+  incoming: WorkspaceRecord["designModelTraceability"],
+  affectedDiagrams: readonly DesignDiagramType[],
+  deletedModelIds: readonly string[],
+) {
+  if (affectedDiagrams.length === 0 && deletedModelIds.length === 0) {
+    return current;
+  }
+  return [
+    ...current.filter(
+      (entry) =>
+        !designTraceabilityTouchesDiagramKinds(
+          entry,
+          affectedDiagrams,
+          deletedModelIds,
+        ),
+    ),
+    ...incoming.filter((entry) =>
+      designTraceabilityTouchesDiagramKinds(entry, affectedDiagrams),
+    ),
+  ];
 }
 
 function keepRequirementScopedRecordForScope<T>(
@@ -2940,37 +3021,77 @@ export function WorkspaceSessionProvider({
       generatedOverride?: DesignDiagramType[],
     ) => {
       const mapped = designSnapshotToMaps(snapshot);
+      const successfulAffectedDesignDiagrams =
+        snapshot.status === "completed"
+          ? successfulDesignDiagramsFromSnapshot(snapshot)
+          : [];
+      const affectedDesignModelMap = keepDesignScopedRecord(
+        mapped.models,
+        successfulAffectedDesignDiagrams,
+      );
       const currentDesignFingerprint = designInputFingerprintFor(
         snapshot.requirementModels,
         snapshot.requirementModelTraceability,
       );
       setSelectedDesignDiagrams([]);
-      setDesignModels((current) => ({
-        ...current,
-        ...mapped.models,
-      }));
+      setDesignModels((current) =>
+        successfulAffectedDesignDiagrams.length > 0
+          ? {
+              ...clearDesignScopedRecord(
+                current,
+                successfulAffectedDesignDiagrams,
+              ),
+              ...affectedDesignModelMap,
+            }
+          : current,
+      );
       setDesignModelTraceability((current) => {
-        const affected = new Set(snapshot.selectedDiagrams);
         const snapshotTraceability = snapshot.designModelTraceability ?? [];
-        return [
-          ...current.filter(
-            (entry) =>
-              !affected.has(entry.source.diagramKind as DesignDiagramType),
-          ),
-          ...snapshotTraceability,
-        ];
+        return mergeDesignTraceability(
+          current,
+          snapshotTraceability,
+          successfulAffectedDesignDiagrams,
+          [],
+        );
       });
-      setDesignPlantUml((current) => ({
-        ...current,
-        ...mapped.plantUml,
-      }));
-      setDesignSvgArtifacts((current) => ({
-        ...current,
-        ...mapped.svgArtifacts,
-      }));
+      setDesignPlantUml((current) =>
+        successfulAffectedDesignDiagrams.length > 0
+          ? {
+              ...clearDesignScopedRecord(
+                current,
+                successfulAffectedDesignDiagrams,
+              ),
+              ...keepDesignScopedRecord(
+                mapped.plantUml,
+                successfulAffectedDesignDiagrams,
+              ),
+            }
+          : current,
+      );
+      setDesignSvgArtifacts((current) =>
+        successfulAffectedDesignDiagrams.length > 0
+          ? {
+              ...clearDesignScopedRecord(
+                current,
+                successfulAffectedDesignDiagrams,
+              ),
+              ...keepDesignScopedRecord(
+                mapped.svgArtifacts,
+                successfulAffectedDesignDiagrams,
+              ),
+            }
+          : current,
+      );
       setDesignDiagramErrors((current) => {
+        const affectedForErrors = Array.from(
+          new Set([
+            ...snapshot.selectedDiagrams,
+            ...successfulAffectedDesignDiagrams,
+            ...designErrorDiagrams(snapshot.diagramErrors),
+          ]),
+        );
         const next = { ...current };
-        for (const diagram of snapshot.selectedDiagrams) {
+        for (const diagram of affectedForErrors) {
           delete next[diagram];
           for (const key of Object.keys(next)) {
             if (key.startsWith(`${diagram}:`)) {
@@ -2984,19 +3105,26 @@ export function WorkspaceSessionProvider({
         };
       });
       const generatedDiagramsForSnapshot =
-        generatedOverride ?? snapshot.selectedDiagrams;
+        generatedOverride ?? successfulAffectedDesignDiagrams;
       setGeneratedDesignDiagrams((current) =>
         Array.from(new Set([...current, ...generatedDiagramsForSnapshot])),
       );
-      setDesignInputFingerprints((current) => ({
-        ...current,
-        ...Object.fromEntries(
-          Object.keys(mapped.models).map((modelId) => [
-            modelId,
-            currentDesignFingerprint,
-          ]),
-        ),
-      }));
+      setDesignInputFingerprints((current) =>
+        successfulAffectedDesignDiagrams.length > 0
+          ? {
+              ...clearDesignScopedRecord(
+                current,
+                successfulAffectedDesignDiagrams,
+              ),
+              ...Object.fromEntries(
+                Object.keys(affectedDesignModelMap).map((modelId) => [
+                  modelId,
+                  currentDesignFingerprint,
+                ]),
+              ),
+            }
+          : current,
+      );
     },
     [],
   );
@@ -3095,6 +3223,22 @@ export function WorkspaceSessionProvider({
         applyCodeRunSnapshot(snapshot);
       } else if (isDesignRunSnapshot(snapshot)) {
         const mapped = designSnapshotToMaps(snapshot);
+        const restoredDesignDiagrams =
+          snapshot.status === "completed"
+            ? successfulDesignDiagramsFromSnapshot(snapshot)
+            : [];
+        const restoredDesignModels = keepDesignScopedRecord(
+          mapped.models,
+          restoredDesignDiagrams,
+        );
+        const restoredDesignPlantUml = keepDesignScopedRecord(
+          mapped.plantUml,
+          restoredDesignDiagrams,
+        );
+        const restoredDesignSvgArtifacts = keepDesignScopedRecord(
+          mapped.svgArtifacts,
+          restoredDesignDiagrams,
+        );
         const restoredRequirementModels = Object.fromEntries(
           snapshot.requirementModels.map((model) => [
             getRequirementModelId(model),
@@ -3131,15 +3275,22 @@ export function WorkspaceSessionProvider({
           ),
         );
         setSelectedDesignDiagrams([]);
-        setDesignModels(mapped.models);
-        setDesignModelTraceability(snapshot.designModelTraceability ?? []);
-        setDesignPlantUml(mapped.plantUml);
-        setDesignSvgArtifacts(mapped.svgArtifacts);
+        setDesignModels(restoredDesignModels);
+        setDesignModelTraceability(
+          (snapshot.designModelTraceability ?? []).filter((entry) =>
+            designTraceabilityTouchesDiagramKinds(
+              entry,
+              restoredDesignDiagrams,
+            ),
+          ),
+        );
+        setDesignPlantUml(restoredDesignPlantUml);
+        setDesignSvgArtifacts(restoredDesignSvgArtifacts);
         setDesignDiagramErrors(snapshot.diagramErrors);
-        setGeneratedDesignDiagrams([...snapshot.selectedDiagrams]);
+        setGeneratedDesignDiagrams(restoredDesignDiagrams);
         setDesignInputFingerprints(
           Object.fromEntries(
-            Object.keys(mapped.models).map((modelId) => [
+            Object.keys(restoredDesignModels).map((modelId) => [
               modelId,
               designInputFingerprintFor(
                 snapshot.requirementModels,

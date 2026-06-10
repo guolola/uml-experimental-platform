@@ -145,6 +145,18 @@ const minimalSequenceDesignModel: DesignDiagramModelSpec = {
   fragments: [],
 };
 
+const minimalDesignClassModel: DesignDiagramModelSpec = {
+  diagramKind: "class",
+  modelId: "class",
+  title: "设计类图",
+  summary: "保留的静态设计上下文。",
+  notes: [],
+  classes: [],
+  interfaces: [],
+  enums: [],
+  relationships: [],
+};
+
 const workspaceDesignTraceability: DesignModelTraceabilityEntry[] = [
   {
     source: {
@@ -1818,8 +1830,8 @@ test("project design start command loads complete workspace input with large svg
     },
     payload: {
       projectId: "project-a",
-      selectedDiagrams: ["sequence"],
-      requestedDiagrams: ["sequence"],
+      selectedDiagrams: ["class"],
+      requestedDiagrams: ["class"],
     },
   });
 
@@ -1830,8 +1842,8 @@ test("project design start command loads complete workspace input with large svg
   const snapshot = record.snapshot as DesignRunSnapshot;
   assert.equal(record.metadata?.projectId, "project-a");
   assert.equal(snapshot.status, "queued");
-  assert.deepEqual(snapshot.selectedDiagrams, ["sequence"]);
-  assert.deepEqual(snapshot.requestedDiagrams, ["sequence"]);
+  assert.deepEqual(snapshot.selectedDiagrams, ["class"]);
+  assert.deepEqual(snapshot.requestedDiagrams, ["class"]);
   assert.equal(snapshot.requirementBaseline.runId, "workspace-baseline");
   assert.equal(snapshot.requirementModels[0]?.diagramKind, "usecase");
   assert.equal(snapshot.requirementModelTraceability[0]?.ruleId, "REQ-001");
@@ -1839,6 +1851,190 @@ test("project design start command loads complete workspace input with large svg
   assert.equal(snapshot.designModelTraceability[0]?.mappingSource, "llm");
   assert.equal(snapshot.plantUml[0]?.source.includes("活动服务"), true);
   assert.equal(snapshot.svgArtifacts[0]?.svg, largeSvg);
+
+  await app.close();
+});
+
+test("project design start command filters old records for the replacing design kind", async () => {
+  const state = createProjectWorkspaceState();
+  state.designModels = {
+    ...state.designModels,
+    class: minimalDesignClassModel,
+  };
+  state.designPlantUml = {
+    ...state.designPlantUml,
+    class: "@startuml\nclass ExistingDesign\n@enduml",
+  };
+  state.designSvgArtifacts = {
+    ...state.designSvgArtifacts,
+    class: {
+      diagramKind: "class",
+      modelId: "class",
+      svg: "<svg><text>class</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: "2026-06-10T00:00:00.000Z",
+        sourceLength: 38,
+        durationMs: 18,
+      },
+    },
+  };
+  state.designModelTraceability = [
+    ...state.designModelTraceability,
+    {
+      source: {
+        diagramKind: "usecase",
+        elementId: "usecase-view",
+        elementKind: "useCase",
+        label: "查看活动",
+      },
+      targets: [
+        {
+          modelId: "class",
+          diagramKind: "class",
+          elementId: "ExistingDesign",
+          elementKind: "class",
+          label: "ExistingDesign",
+        },
+      ],
+      mappingSource: "llm",
+    },
+  ];
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const snapshot = runs.get(response.json().runId)?.snapshot as DesignRunSnapshot;
+  assert.deepEqual(snapshot.models.map((model) => model.diagramKind), ["class"]);
+  assert.deepEqual(snapshot.plantUml.map((artifact) => artifact.diagramKind), [
+    "class",
+  ]);
+  assert.deepEqual(
+    snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+    ["class"],
+  );
+  assert.equal(
+    snapshot.designModelTraceability.some((entry) =>
+      entry.targets.some((target) => target.diagramKind === "sequence"),
+    ),
+    false,
+  );
+
+  await app.close();
+});
+
+test("legacy design start payload filters old records for the replacing design kind", async () => {
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementBaseline: workspaceRequirementBaseline,
+      requirementModels: [minimalUseCaseModel],
+      requirementModelTraceability: workspaceRequirementTraceability,
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      existingDesignModels: [
+        minimalSequenceDesignModel,
+        minimalDesignClassModel,
+      ],
+      existingDesignModelTraceability: [
+        workspaceDesignTraceability[0],
+        {
+          source: {
+            diagramKind: "usecase",
+            elementId: "usecase-view",
+            elementKind: "useCase",
+            label: "查看活动",
+          },
+          targets: [
+            {
+              modelId: "class",
+              diagramKind: "class",
+              elementId: "ExistingDesign",
+              elementKind: "class",
+              label: "ExistingDesign",
+            },
+          ],
+        },
+      ],
+      existingDesignPlantUml: [
+        {
+          diagramKind: "sequence",
+          modelId: "design-sequence-view",
+          source: "@startuml\n@enduml",
+        },
+        {
+          diagramKind: "class",
+          modelId: "class",
+          source: "@startuml\nclass ExistingDesign\n@enduml",
+        },
+      ],
+      existingDesignSvgArtifacts: [
+        workspaceDesignSvg(),
+        {
+          diagramKind: "class",
+          modelId: "class",
+          svg: "<svg><text>class</text></svg>",
+          renderMeta: {
+            engine: "plantuml",
+            generatedAt: "2026-06-10T00:00:00.000Z",
+            sourceLength: 38,
+            durationMs: 18,
+          },
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const snapshot = runs.get(response.json().runId)?.snapshot as DesignRunSnapshot;
+  assert.deepEqual(snapshot.models.map((model) => model.diagramKind), ["class"]);
+  assert.deepEqual(snapshot.plantUml.map((artifact) => artifact.diagramKind), [
+    "class",
+  ]);
+  assert.deepEqual(
+    snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
+    ["class"],
+  );
+  assert.deepEqual(
+    snapshot.designModelTraceability.flatMap((entry) =>
+      entry.targets.map((target) => target.diagramKind),
+    ),
+    ["class"],
+  );
 
   await app.close();
 });
