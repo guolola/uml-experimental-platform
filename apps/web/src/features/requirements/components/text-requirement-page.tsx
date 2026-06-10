@@ -693,11 +693,11 @@ export function TextRequirementView() {
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full table-fixed border-collapse bg-card text-sm">
+        <table className="min-w-[960px] w-full table-fixed border-collapse bg-card text-sm">
           <thead className="text-xs tracking-[0.02em] text-muted-foreground">
             <tr className="border-b border-border">
               <th className="w-[84px] px-6 py-4 text-left font-medium">编号</th>
-              <th className="w-36 px-6 py-4 text-left font-medium">类型</th>
+              <th className="w-48 px-4 py-4 text-left font-medium">类型</th>
               <th className="w-52 px-4 py-4 text-left font-medium">状态</th>
               <th className="px-6 py-4 text-left font-medium">需求文本内容</th>
               <th className="w-28 px-6 py-4 text-right font-medium">操作</th>
@@ -770,7 +770,7 @@ export function TextRequirementView() {
                         {rule.id}
                       </span>
                     </td>
-                    <td className="px-6 py-3 align-middle">
+                    <td className="px-4 py-3 align-middle">
                       <SelectControl
                         value={rule.category}
                         onValueChange={(value) =>
