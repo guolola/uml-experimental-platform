@@ -228,11 +228,15 @@ jobs:
           REMOTE_ARCHIVE="/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
           REMOTE_SCRIPT="/tmp/baota-pm2-deploy-${GITHUB_SHA}.sh"
           scp "${SCP_OPTIONS[@]}" "$RELEASE_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ARCHIVE"
-          scp "${SCP_OPTIONS[@]}" scripts/deploy/baota-pm2-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_SCRIPT"
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='$REMOTE_ARCHIVE' REMOTE_SCRIPT='$REMOTE_SCRIPT' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
+          rm -rf "/tmp/uml-platform-deploy-script-$RELEASE_SHA"
+          mkdir -p "/tmp/uml-platform-deploy-script-$RELEASE_SHA"
+          tar -xzf "$RELEASE_ARCHIVE" -C "/tmp/uml-platform-deploy-script-$RELEASE_SHA" scripts/deploy/baota-pm2-deploy.sh
+          mv "/tmp/uml-platform-deploy-script-$RELEASE_SHA/scripts/deploy/baota-pm2-deploy.sh" "$REMOTE_SCRIPT"
+          rm -rf "/tmp/uml-platform-deploy-script-$RELEASE_SHA"
           chmod +x "$REMOTE_SCRIPT"
           DEPLOY_PATH="$DEPLOY_PATH" \
             RELEASE_SHA="$RELEASE_SHA" \
