@@ -1,5 +1,5 @@
 // Verifies the global settings dialog information architecture and managed-provider flow.
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -60,6 +60,9 @@ describe("SettingsDialog", () => {
               emailVerified: true,
             },
           });
+        }
+        if (url.includes("/api/provider-configs/provider-user-comfly/test")) {
+          return Response.json({ ok: true, message: "Provider config ok" });
         }
         if (url.includes("/api/provider-configs")) {
           return Response.json({
@@ -157,6 +160,28 @@ describe("SettingsDialog", () => {
 
     expect(toastSuccess).toHaveBeenCalledWith("设置已保存");
     expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain("provider-user-comfly");
+  });
+
+  it("tests the selected managed provider config through the API", async () => {
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <GlobalSettingsPanel active />,
+        createRepository(),
+      ),
+    );
+
+    expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    vi.mocked(fetch).mockClear();
+    await user.click(screen.getByRole("button", { name: "测试托管配置" }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/provider-configs/provider-user-comfly/test"),
+        expect.objectContaining({ method: "POST", credentials: "include" }),
+      );
+    });
+    expect(toastSuccess).toHaveBeenCalledWith("Provider config ok");
   });
 
   it("shows the embedded login prompt when global settings cannot verify auth", async () => {
