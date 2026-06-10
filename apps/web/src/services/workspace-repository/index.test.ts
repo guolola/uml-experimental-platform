@@ -549,6 +549,18 @@ describe("createHttpWorkspaceRepository", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (url.endsWith("/api/design-runs")) {
+        return new Response(JSON.stringify({ runId: "design-run-1" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/code-runs")) {
+        return new Response(JSON.stringify({ runId: "code-run-1" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (url.endsWith("/api/projects/library-booking/documents")) {
         return new Response(JSON.stringify({ documents: [] }), {
           status: 200,
@@ -587,6 +599,40 @@ describe("createHttpWorkspaceRepository", () => {
 
     await repository.startRun(createStartRunInput("生成 UML", ["usecase"]));
     await repository.subscribeToRun("run-project-1", () => {});
+    await repository.startDesignRun!({
+      requirementBaseline: createRequirementBaseline([]),
+      requirementModels: [],
+      requirementModelTraceability: [],
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      existingDesignModels: [],
+      existingDesignModelTraceability: [],
+      existingDesignPlantUml: [],
+      existingDesignSvgArtifacts: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc-demo",
+          svg: "<svg>large</svg>",
+          renderMeta: {
+            engine: "plantuml",
+            generatedAt: "2026-05-22T02:00:00.000Z",
+            sourceLength: 10,
+            durationMs: 1,
+          },
+        },
+      ],
+      providerSettings: managedProviderSettings,
+    });
+    await repository.startCodeRun!(
+      createStartCodeRunInput(
+        "生成代码",
+        [],
+        [],
+        [],
+        { "/src/App.tsx": "export default function App() { return null; }" },
+        "continue",
+      ),
+    );
     await repository.startDocumentRun!({
       documentKind: "requirementsSpec",
       requirementText: "生成说明书",
@@ -628,7 +674,43 @@ describe("createHttpWorkspaceRepository", () => {
       String(url).endsWith("/api/runs"),
     );
     const startRunBody = JSON.parse(String(startRunCall?.[1]?.body));
-    expect(startRunBody.providerSettings).toBeUndefined();
+    expect(startRunBody).toEqual({
+      projectId: "library-booking",
+      selectedDiagrams: ["usecase"],
+      analysisTargetUseCaseIds: [],
+    });
+    const startDocumentCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/document-runs"),
+    );
+    const startDocumentBody = JSON.parse(String(startDocumentCall?.[1]?.body));
+    expect(startDocumentBody).toEqual({
+      projectId: "library-booking",
+      documentKind: "requirementsSpec",
+      providerSettings: managedProviderSettings,
+      useAiText: true,
+    });
+    expect(startDocumentBody.requirementSvgArtifacts).toBeUndefined();
+    expect(startDocumentBody.designSvgArtifacts).toBeUndefined();
+    const startDesignCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/design-runs"),
+    );
+    const startDesignBody = JSON.parse(String(startDesignCall?.[1]?.body));
+    expect(startDesignBody).toEqual({
+      projectId: "library-booking",
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      providerSettings: managedProviderSettings,
+    });
+    expect(startDesignBody.existingDesignSvgArtifacts).toBeUndefined();
+    const startCodeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/code-runs"),
+    );
+    const startCodeBody = JSON.parse(String(startCodeCall?.[1]?.body));
+    expect(startCodeBody).toEqual({
+      projectId: "library-booking",
+      generationMode: "continue",
+    });
+    expect(startCodeBody.existingFiles).toBeUndefined();
 
     for (const [, options] of fetchMock.mock.calls) {
       const headers = options?.headers as Record<string, string>;
@@ -706,6 +788,65 @@ describe("createHttpWorkspaceRepository", () => {
     const body = JSON.parse(String(saveCall?.[1]?.body));
     expect(body.baseVersion).toBe(2);
     expect(body.state.requirementText).toBe("团队成员更新的需求");
+  });
+
+  it("does not start a project run when the pending workspace save failed", async () => {
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 2,
+            updatedAt: "2026-05-22T02:00:00.000Z",
+            updatedByUserId: "teacher-1",
+            state: {
+              requirementText: "已保存的项目需求",
+              rules: [],
+              selectedDiagramTypes: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        return new Response(JSON.stringify({ message: "保存失败" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/runs")) {
+        return new Response(JSON.stringify({ runId: "should-not-start" }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.loadWorkspace();
+    await expect(
+      repository.updateRequirementText("本地还没成功保存的需求"),
+    ).rejects.toThrow();
+
+    await expect(
+      repository.startRun(createStartRunInput("生成 UML", ["usecase"])),
+    ).rejects.toThrow();
+    const startCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/api/runs"),
+    );
+    expect(startCalls).toHaveLength(0);
   });
 
   it("serializes concurrent project workspace saves with the latest base version", async () => {

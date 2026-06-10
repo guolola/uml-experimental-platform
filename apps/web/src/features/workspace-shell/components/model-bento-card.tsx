@@ -107,8 +107,8 @@ export function ModelBentoCard({
                 </span>
                 {pendingReview && (
                   <Badge
-                    variant="outline"
-                    className="rounded-md border-warning/35 bg-warning/10 px-1.5 py-0 text-[10px] text-warning"
+                    variant="warning"
+                    className="rounded-md px-1.5 py-0 text-[10px]"
                   >
                     待审
                   </Badge>

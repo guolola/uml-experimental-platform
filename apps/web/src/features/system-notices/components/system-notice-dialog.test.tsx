@@ -93,9 +93,11 @@ describe("SystemNoticeButton", () => {
     expect(await screen.findByRole("dialog", { name: "系统通知" })).toBeInTheDocument();
     expect(screen.getByText("MiniMax M3 模型上线")).toBeInTheDocument();
     expect(screen.getByText("确认新主体信息。")).toBeInTheDocument();
+    expect(screen.getByText("重要")).toHaveClass("bg-destructive");
+    expect(screen.getByText("模型")).toHaveClass("bg-info/10", "text-info");
     const dots = screen.getAllByTestId("system-notice-dot");
-    expect(dots.find((dot) => dot.dataset.noticeType === "important")).toHaveClass("bg-[#ba1a1a]");
-    expect(dots.find((dot) => dot.dataset.noticeType === "model_update")).toHaveClass("bg-[#2b23ad]");
+    expect(dots.find((dot) => dot.dataset.noticeType === "important")).toHaveClass("bg-destructive");
+    expect(dots.find((dot) => dot.dataset.noticeType === "model_update")).toHaveClass("bg-info");
 
     await user.click(screen.getByRole("button", { name: "已阅览" }));
 

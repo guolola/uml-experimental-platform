@@ -4,6 +4,7 @@ import {
   normalizeDesignInputFingerprint,
   normalizeSnapshotFingerprint,
   snapshotInputFingerprint,
+  WORKSPACE_FINGERPRINT_VERSION,
 } from "./fingerprint";
 
 describe("snapshotInputFingerprint", () => {
@@ -32,6 +33,10 @@ describe("snapshotInputFingerprint", () => {
     });
 
     expect(left).toBe(right);
+    expect(left).toMatch(
+      new RegExp(`^${WORKSPACE_FINGERPRINT_VERSION}:[0-9a-f]{32}$`),
+    );
+    expect(left.length).toBeLessThan(48);
   });
 
   it("normalizes legacy JSON fingerprints before comparison", () => {
@@ -95,10 +100,14 @@ describe("designInputFingerprint", () => {
     );
 
     expect(left).toBe(right);
+    expect(left).toMatch(
+      new RegExp(`^${WORKSPACE_FINGERPRINT_VERSION}:[0-9a-f]{32}$`),
+    );
+    expect(left.length).toBeLessThan(48);
   });
 
   it("normalizes legacy design fingerprints before comparison", () => {
-    const legacyFingerprint = snapshotInputFingerprint({
+    const legacyFingerprint = JSON.stringify({
       requirementModels: [
         { diagramKind: "class", classes: [{ id: "class_order" }] },
         { diagramKind: "usecase", useCases: [{ id: "uc_submit" }] },

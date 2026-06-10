@@ -95,7 +95,7 @@ export function MobileWorkspaceNavigation() {
 
       <nav
         aria-label="工作台阶段"
-        className="grid h-[66px] shrink-0 grid-cols-5 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur"
+        className="grid h-[66px] shrink-0 grid-cols-5 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-lg backdrop-blur"
       >
         {mobileStages.map((stage) => {
           const Icon = stage.icon;

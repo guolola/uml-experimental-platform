@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "bootstrap:admin": "tsx src/bootstrap/admin-bootstrap-cli.ts",
+    "workspace:fingerprints": "node scripts/normalize-workspace-fingerprints.mjs",
     "build": "tsc -p tsconfig.json && npm run copy:code-skills",
     "copy:code-skills": "node scripts/copy-code-skills.mjs",
     "test": "tsx --test src/**/*.test.ts"

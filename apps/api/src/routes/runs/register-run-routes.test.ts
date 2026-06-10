@@ -5,9 +5,18 @@ import Fastify from "fastify";
 import type { FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import type {
+  DesignDiagramModelSpec,
+  DesignModelTraceabilityEntry,
+  DesignRunSnapshot,
+  DesignSvgArtifact,
+  CodeRunSnapshot,
   ProjectPermission,
   ProviderSettings,
+  RequirementModelTraceabilityEntry,
+  RequirementRule,
   RunEvent,
+  RunSnapshot,
+  SvgArtifact,
 } from "@uml-platform/contracts";
 import type { LlmTransport } from "../../llm.js";
 import {
@@ -78,6 +87,142 @@ const minimalUseCaseModel = {
   ],
 };
 
+const workspaceRequirementRules: RequirementRule[] = [
+  {
+    id: "REQ-001",
+    category: "功能需求",
+    text: "用户可以查看公开活动日历。",
+    relatedDiagrams: ["usecase"],
+  },
+];
+
+const workspaceRequirementBaseline = buildRequirementBaseline({
+  runId: "workspace-baseline",
+  requirementText: "用户可以查看公开活动日历。",
+  rules: workspaceRequirementRules,
+});
+
+const workspaceRequirementTraceability: RequirementModelTraceabilityEntry[] = [
+  {
+    ruleId: "REQ-001",
+    target: {
+      diagramKind: "usecase",
+      elementId: "usecase-view",
+      elementKind: "useCase",
+      label: "查看活动",
+    },
+  },
+];
+
+const minimalSequenceDesignModel: DesignDiagramModelSpec = {
+  diagramKind: "sequence",
+  modelId: "design-sequence-view",
+  title: "查看活动时序",
+  summary: "用户查询公开活动列表。",
+  notes: [],
+  participants: [
+    {
+      id: "participant-user",
+      name: "用户",
+      participantType: "actor",
+    },
+    {
+      id: "participant-calendar",
+      name: "活动服务",
+      participantType: "service",
+    },
+  ],
+  messages: [
+    {
+      id: "message-view",
+      type: "sync",
+      sourceId: "participant-user",
+      targetId: "participant-calendar",
+      name: "查看活动",
+      parameters: [],
+    },
+  ],
+  fragments: [],
+};
+
+const workspaceDesignTraceability: DesignModelTraceabilityEntry[] = [
+  {
+    source: {
+      diagramKind: "usecase",
+      elementId: "usecase-view",
+      elementKind: "useCase",
+      label: "查看活动",
+    },
+    targets: [
+      {
+        modelId: "design-sequence-view",
+        diagramKind: "sequence",
+        elementId: "message-view",
+        elementKind: "message",
+        label: "查看活动",
+      },
+    ],
+    mappingSource: "llm",
+  },
+];
+
+const workspaceRequirementSvg: SvgArtifact = {
+  diagramKind: "usecase",
+  modelId: "requirement-usecase",
+  svg: "<svg><text>usecase</text></svg>",
+  renderMeta: {
+    engine: "plantuml",
+    generatedAt: "2026-06-10T00:00:00.000Z",
+    sourceLength: 25,
+    durationMs: 12,
+  },
+};
+
+function workspaceDesignSvg(svg = "<svg><text>sequence</text></svg>"): DesignSvgArtifact {
+  return {
+    diagramKind: "sequence",
+    modelId: "design-sequence-view",
+    svg,
+    renderMeta: {
+      engine: "plantuml",
+      generatedAt: "2026-06-10T00:00:00.000Z",
+      sourceLength: 38,
+      durationMs: 18,
+    },
+  };
+}
+
+function createProjectWorkspaceState(svg = "<svg><text>sequence</text></svg>") {
+  return {
+    requirementText: "用户可以查看公开活动日历。",
+    rules: workspaceRequirementRules,
+    requirementBaseline: workspaceRequirementBaseline,
+    models: {
+      usecase: minimalUseCaseModel,
+    },
+    requirementModelTraceability: workspaceRequirementTraceability,
+    plantUml: {
+      usecase: "@startuml\nactor 用户\n@enduml",
+    },
+    svgArtifacts: {
+      usecase: workspaceRequirementSvg,
+    },
+    designModels: {
+      "sequence:view": minimalSequenceDesignModel,
+    },
+    designModelTraceability: workspaceDesignTraceability,
+    designPlantUml: {
+      "sequence:view": "@startuml\n用户 -> 活动服务: 查看活动\n@enduml",
+    },
+    designSvgArtifacts: {
+      "sequence:view": workspaceDesignSvg(svg),
+    },
+    codeFiles: {
+      "/src/App.tsx": "export default function App() { return <main>活动日历</main>; }",
+    },
+  };
+}
+
 function stringHeader(request: FastifyRequest, name: string) {
   const value = request.headers[name];
   return typeof value === "string" ? value : undefined;
@@ -114,6 +259,7 @@ async function createRunRouteTestApp(options?: {
   runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
+  loadProjectWorkspace?: Parameters<typeof registerRunRoutes>[0]["loadProjectWorkspace"];
 }) {
   return (await createRunRouteTestContext(options)).app;
 }
@@ -131,6 +277,7 @@ async function createRunRouteTestContext(options?: {
   runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
+  loadProjectWorkspace?: Parameters<typeof registerRunRoutes>[0]["loadProjectWorkspace"];
 }) {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {
@@ -202,6 +349,7 @@ async function createRunRouteTestContext(options?: {
     providerUsageTracker: options?.providerUsageTracker,
     generationUsage: options?.generationUsage,
     llmScheduler: options?.llmScheduler,
+    loadProjectWorkspace: options?.loadProjectWorkspace,
   });
 
   return { app, runs };
@@ -1642,6 +1790,198 @@ test("project document runs do not require legacy workspace credentials", async 
 
   assert.equal(response.statusCode, 202);
   assert.equal(capturedWorkspaceId, "project-project-a");
+
+  await app.close();
+});
+
+test("project design start command loads complete workspace input with large svg artifacts", async () => {
+  const largeSvg = `<svg>${"x".repeat(1024 * 1024 + 32)}</svg>`;
+  const loadedProjectIds: string[] = [];
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async (projectId) => {
+      loadedProjectIds.push(projectId);
+      return { state: createProjectWorkspaceState(largeSvg) };
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  assert.deepEqual(loadedProjectIds, ["project-a"]);
+  const record = runs.get(response.json().runId);
+  assert.ok(record);
+  const snapshot = record.snapshot as DesignRunSnapshot;
+  assert.equal(record.metadata?.projectId, "project-a");
+  assert.equal(snapshot.status, "queued");
+  assert.deepEqual(snapshot.selectedDiagrams, ["sequence"]);
+  assert.deepEqual(snapshot.requestedDiagrams, ["sequence"]);
+  assert.equal(snapshot.requirementBaseline.runId, "workspace-baseline");
+  assert.equal(snapshot.requirementModels[0]?.diagramKind, "usecase");
+  assert.equal(snapshot.requirementModelTraceability[0]?.ruleId, "REQ-001");
+  assert.equal(snapshot.models[0]?.modelId, "design-sequence-view");
+  assert.equal(snapshot.designModelTraceability[0]?.mappingSource, "llm");
+  assert.equal(snapshot.plantUml[0]?.source.includes("活动服务"), true);
+  assert.equal(snapshot.svgArtifacts[0]?.svg, largeSvg);
+
+  await app.close();
+});
+
+test("project requirements start command builds legacy run input from workspace", async () => {
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: createProjectWorkspaceState() }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      selectedDiagrams: ["usecase"],
+      analysisTargetUseCaseIds: ["usecase-view"],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const record = runs.get(response.json().runId);
+  assert.ok(record);
+  const snapshot = record.snapshot as RunSnapshot;
+  assert.equal(snapshot.requirementText, "用户可以查看公开活动日历。");
+  assert.deepEqual(snapshot.selectedDiagrams, ["usecase"]);
+  assert.equal(snapshot.rules[0]?.id, "REQ-001");
+  assert.equal(snapshot.models[0]?.diagramKind, "usecase");
+  assert.equal(snapshot.requirementModelTraceability[0]?.ruleId, "REQ-001");
+  assert.deepEqual(snapshot.analysisTargetUseCaseIds, ["usecase-view"]);
+
+  await app.close();
+});
+
+test("project code and document start commands build run inputs from workspace", async () => {
+  let capturedDocumentInput:
+    | Parameters<
+        NonNullable<
+          Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"]
+        >
+      >[1]
+    | undefined;
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+        manage_documents: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: createProjectWorkspaceState() }),
+    runDocumentStagePipeline: async (_record, input) => {
+      capturedDocumentInput = input;
+    },
+  });
+
+  const codeResponse = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      generationMode: "continue",
+    },
+  });
+
+  assert.equal(codeResponse.statusCode, 202, codeResponse.body);
+  const codeRecord = runs.get(codeResponse.json().runId);
+  assert.ok(codeRecord);
+  const codeSnapshot = codeRecord.snapshot as CodeRunSnapshot;
+  assert.equal(codeSnapshot.requirementText, "用户可以查看公开活动日历。");
+  assert.equal(codeSnapshot.designModels[0]?.modelId, "design-sequence-view");
+  assert.equal(codeSnapshot.designPlantUml[0]?.modelId, "design-sequence-view");
+  assert.equal(
+    codeSnapshot.files["/src/App.tsx"]?.includes("活动日历"),
+    true,
+  );
+
+  const documentResponse = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      documentKind: "softwareDesignSpec",
+      useAiText: false,
+    },
+  });
+
+  assert.equal(documentResponse.statusCode, 202, documentResponse.body);
+  assert.ok(capturedDocumentInput);
+  assert.equal(capturedDocumentInput.projectId, "project-a");
+  assert.equal(capturedDocumentInput.documentKind, "softwareDesignSpec");
+  assert.equal(capturedDocumentInput.useAiText, false);
+  assert.equal(capturedDocumentInput.requirementModels[0]?.diagramKind, "usecase");
+  assert.equal(capturedDocumentInput.requirementPlantUml[0]?.diagramKind, "usecase");
+  assert.equal(capturedDocumentInput.requirementSvgArtifacts[0]?.svg.includes("usecase"), true);
+  assert.equal(capturedDocumentInput.designModels[0]?.modelId, "design-sequence-view");
+  assert.equal(capturedDocumentInput.designPlantUml[0]?.modelId, "design-sequence-view");
+  assert.equal(capturedDocumentInput.designSvgArtifacts[0]?.modelId, "design-sequence-view");
+
+  await app.close();
+});
+
+test("project start commands return 400 when required workspace context is missing", async () => {
+  const app = await createRunRouteTestApp({
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({
+      state: {
+        requirementText: "用户可以查看公开活动日历。",
+      },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /designModels/);
 
   await app.close();
 });

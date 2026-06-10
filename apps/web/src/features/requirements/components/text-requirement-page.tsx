@@ -596,7 +596,9 @@ export function TextRequirementView() {
           disabled={!canRunGeneration}
         />
         {isRulesStale && (
-          <span className="text-[11px] text-warning">需求已修改</span>
+          <Badge variant="warning" className="rounded-md px-1.5 py-0 text-[11px]">
+            需求已修改
+          </Badge>
         )}
         <Button
           type="button"
@@ -742,16 +744,14 @@ export function TextRequirementView() {
                     <span className="truncate">{displayRowState}</span>
                   </Badge>
                   {reviewDecisionLabel && (
-                    <span className="shrink-0 rounded-md border border-success/30 bg-success/10 px-1.5 py-0.5 text-[11px] text-success">
+                    <Badge variant="success" className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px]">
                       {reviewDecisionLabel}
-                    </span>
+                    </Badge>
                   )}
                   {hintCount > 0 && (
-                    <span
-                      className="shrink-0 rounded-md border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
-                    >
+                    <Badge variant="warning" className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px]">
                       {hintCount}项
-                    </span>
+                    </Badge>
                   )}
                 </>
               ) : null;
@@ -865,7 +865,7 @@ export function TextRequirementView() {
 
       <div
         data-testid="requirement-rule-pagination"
-        className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/95 px-6 py-4 text-xs text-muted-foreground shadow-[0_-8px_18px_rgba(15,23,42,0.06)] backdrop-blur"
+        className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/95 px-6 py-4 text-xs text-muted-foreground shadow-lg backdrop-blur"
       >
         <div className="flex flex-wrap items-center gap-3">
           <span>

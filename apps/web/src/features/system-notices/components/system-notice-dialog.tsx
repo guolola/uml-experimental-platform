@@ -14,12 +14,24 @@ import {
 import { Badge } from "../../../shared/ui/badge";
 import { cn } from "../../../shared/ui/utils";
 import { systemNoticeApi } from "../system-notice-api";
+import type { badgeVariants } from "../../../shared/ui/badge";
+
+type NoticeBadgeVariant = NonNullable<
+  Parameters<typeof badgeVariants>[0]
+>["variant"];
 
 const NOTICE_TYPE_DOT_CLASS: Record<SystemNoticeType, string> = {
-  model_update: "bg-[#2b23ad]",
-  feature_update: "bg-[#2b23ad]",
-  important: "bg-[#ba1a1a]",
+  model_update: "bg-info",
+  feature_update: "bg-info",
+  important: "bg-destructive",
   maintenance: "bg-warning",
+};
+
+const NOTICE_TYPE_BADGE_VARIANT: Record<SystemNoticeType, NoticeBadgeVariant> = {
+  model_update: "info",
+  feature_update: "info",
+  important: "destructive",
+  maintenance: "warning",
 };
 
 const NOTICE_TYPE_LABEL: Record<SystemNoticeType, string> = {
@@ -113,29 +125,35 @@ function SystemNoticeTimelineItem({
   return (
     <article className="grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-6 px-4 py-4">
       <div className="relative flex min-h-14 flex-col items-end pr-[25px] text-right">
-        <div className="font-mono text-xs font-medium leading-4 text-[#464554] dark:text-muted-foreground">
+        <div className="font-mono text-xs font-medium leading-4 text-muted-foreground">
           {formatRelativeTime(published)}
         </div>
-        <div className="mt-1 text-sm leading-5 text-[#5b5e69] dark:text-muted-foreground">
+        <div className="mt-1 text-sm leading-5 text-muted-foreground">
           <div>{dateParts.date}</div>
           {dateParts.time && <div>{dateParts.time}</div>}
         </div>
         {!isLast && (
-          <span className="absolute bottom-0 right-[-1px] top-0 w-px bg-[#c7c4d6]" />
+          <span className="absolute bottom-0 right-[-1px] top-0 w-px bg-border" />
         )}
         <span
           data-testid="system-notice-dot"
           data-notice-type={notice.type}
           className={cn(
-            "absolute right-[-7px] top-[5px] size-[14px] rounded-full border-2 border-white shadow-sm",
+            "absolute right-[-7px] top-[5px] size-[14px] rounded-full border-2 border-card shadow-sm",
             NOTICE_TYPE_DOT_CLASS[notice.type],
           )}
         />
       </div>
       <div className="min-w-0 pb-2">
-        <h3 className="flex min-w-0 items-center gap-2 text-base font-medium leading-6 text-[#0b1c30] dark:text-foreground">
+        <h3 className="flex min-w-0 flex-wrap items-center gap-2 text-base font-medium leading-6 text-foreground">
           {notice.icon && <span className="shrink-0">{notice.icon}</span>}
           <span className="min-w-0 break-words">{notice.title}</span>
+          <Badge
+            variant={NOTICE_TYPE_BADGE_VARIANT[notice.type]}
+            className="shrink-0 text-[10px]"
+          >
+            {NOTICE_TYPE_LABEL[notice.type]}
+          </Badge>
           {notice.unread && (
             <Badge variant="secondary" className="shrink-0 text-[10px]">
               未读
@@ -143,7 +161,7 @@ function SystemNoticeTimelineItem({
           )}
         </h3>
         {notice.contentBlocks.length > 0 && (
-          <div className="mt-3 grid gap-3 rounded-md border border-[#c7c4d6]/30 bg-[#f8f9ff] px-4 py-4 text-sm leading-[22px] text-[#464554] dark:border-border dark:bg-muted dark:text-muted-foreground">
+          <div className="mt-3 grid gap-3 rounded-md border border-border bg-muted/40 px-4 py-4 text-sm leading-[22px] text-muted-foreground">
             {paragraphs.map((block, index) => (
               <p key={`paragraph-${index}`} className="break-words">
                 {block.text}
@@ -205,15 +223,15 @@ export function SystemNoticeDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="grid h-[min(928px,calc(100vh-4rem))] w-[1120px] max-w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-xl border-[#c7c4d6]/50 bg-white p-0 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:max-w-[calc(100vw-2rem)] xl:max-w-[1120px] dark:bg-card"
-        overlayClassName="bg-[#0b1c30]/40 backdrop-blur-[4px]"
+        className="grid h-[min(928px,calc(100vh-4rem))] w-[1120px] max-w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-xl border-border bg-card p-0 shadow-lg sm:max-w-[calc(100vw-2rem)] xl:max-w-[1120px]"
+        overlayClassName="bg-foreground/40 backdrop-blur-[4px]"
       >
-        <DialogHeader className="border-b border-[#c7c4d6]/30 bg-[#f8f9ff]/80 px-6 py-4 text-left backdrop-blur-md dark:bg-card/80">
+        <DialogHeader className="border-b border-border bg-background/80 px-6 py-4 text-left backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <Badge className="rounded-full border-[#c7c4d6]/30 bg-[#eff4ff] px-3 py-1 text-[11px] tracking-[0.08em] text-[#2b23ad] hover:bg-[#eff4ff]">
+            <Badge variant="info" className="rounded-full px-3 py-1 text-[11px] tracking-[0.08em]">
               公告
             </Badge>
-            <DialogTitle className="text-xl leading-7 text-[#0b1c30] dark:text-foreground">
+            <DialogTitle className="text-xl leading-7 text-foreground">
               系统通知
             </DialogTitle>
           </div>
@@ -235,11 +253,11 @@ export function SystemNoticeDialog({
             <SystemNoticeTimeline notices={notices} />
           )}
         </div>
-        <div className="flex justify-center border-t border-[#c7c4d6]/30 bg-white/90 px-4 py-4 backdrop-blur-md dark:bg-card/90">
+        <div className="flex justify-center border-t border-border bg-card/90 px-4 py-4 backdrop-blur-md">
           <Button
             type="button"
             variant="outline"
-            className="h-11 w-full max-w-md rounded-full border-[#2b23ad] text-[#2b23ad] hover:bg-[#eff4ff] hover:text-[#2b23ad]"
+            className="h-11 w-full max-w-md rounded-full border-primary text-primary hover:bg-primary/10 hover:text-primary"
             onClick={onMarkRead}
             disabled={loading}
           >

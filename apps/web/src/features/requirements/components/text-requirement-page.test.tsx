@@ -296,9 +296,7 @@ describe("TextRequirementView", () => {
     });
 
     const user = userEvent.setup();
-    const { container } = render(
-      withWorkspaceProviders(<TextRequirementView />, repository),
-    );
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     await user.click(await screen.findByRole("checkbox", { name: /用例模型/ }));
     const generateButton = await screen.findByRole("button", { name: /生成模型/i });
@@ -461,9 +459,7 @@ describe("TextRequirementView", () => {
     });
 
     const user = userEvent.setup();
-    const { container } = render(
-      withWorkspaceProviders(<TextRequirementView />, repository),
-    );
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     const analysisCheckbox = await screen.findByRole("checkbox", {
       name: /需求分析模型/,
@@ -498,9 +494,7 @@ describe("TextRequirementView", () => {
     });
 
     const user = userEvent.setup();
-    const { container } = render(
-      withWorkspaceProviders(<TextRequirementView />, repository),
-    );
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     await user.click(await screen.findByRole("checkbox", { name: /总体业务流程/ }));
 

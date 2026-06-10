@@ -597,39 +597,39 @@ function AuthSecurityPanel() {
     <aside
       data-testid="auth-security-panel"
       data-motion="auth-security"
-      className="motion-auth-security-panel relative hidden min-h-full w-full overflow-hidden bg-[#eff4ff] p-8 md:flex md:w-1/2 md:items-center md:justify-center"
+      className="motion-auth-security-panel relative hidden min-h-full w-full overflow-hidden bg-muted p-8 md:flex md:w-1/2 md:items-center md:justify-center"
     >
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(220,233,255,0.68),rgba(239,244,255,0.72))]" />
+      <div className="absolute inset-0 bg-gradient-to-br from-muted via-background/80 to-accent/70" />
       <div className="relative z-10 w-full max-w-sm">
         <div
           data-testid="auth-lifecycle-card"
-          className="motion-auth-card group rotate-[-2deg] rounded-xl border border-white/60 bg-white/70 p-6 shadow-[0_12px_40px_rgba(11,28,48,0.08)] backdrop-blur-xl transition-all duration-300 ease-in-out hover:-translate-y-1 hover:rotate-[-1deg] hover:shadow-xl"
+          className="motion-auth-card group rotate-[-2deg] rounded-xl border border-border/70 bg-card/80 p-6 shadow-xl backdrop-blur-xl transition-all duration-300 ease-in-out hover:-translate-y-1 hover:rotate-[-1deg] hover:shadow-xl"
         >
           <div className="mb-6 flex items-center">
-            <span className="mr-3 inline-flex size-10 items-center justify-center rounded-full bg-[#4441c4] text-white">
+            <span className="mr-3 inline-flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground">
               <GitBranch className="size-5" />
             </span>
             <div>
-              <div className="font-display text-xl font-semibold leading-7 text-[#0b1c30]">项目开发生命周期</div>
-              <div className="text-sm leading-5 text-[#464554]">v2.4.1 迭代中</div>
+              <div className="font-display text-xl font-semibold leading-7 text-card-foreground">项目开发生命周期</div>
+              <div className="text-sm leading-5 text-muted-foreground">v2.4.1 迭代中</div>
             </div>
           </div>
 
           <div className="space-y-6">
             <div>
-              <div className="mb-3 text-sm font-medium leading-5 text-[#0b1c30]">流程跟踪 (Process)</div>
+              <div className="mb-3 text-sm font-medium leading-5 text-card-foreground">流程跟踪 (Process)</div>
               <div className="flex items-start px-2">
                 {workflowSteps.map((step, index) => (
                   <div key={step.label} className="contents">
                     <div className="flex w-10 shrink-0 flex-col items-center gap-1">
                       {step.status === "done" ? (
-                        <CheckCircle2 className="size-5 text-[#4ade80]" />
+                        <CheckCircle2 className="size-5 text-success" />
                       ) : step.status === "active" ? (
-                        <Code2 className="size-5 text-[#4441c4]" />
+                        <Code2 className="size-5 text-primary" />
                       ) : (
-                        <span className="mt-0.5 size-4 rounded-full border border-[#777585]/40" />
+                        <span className="mt-0.5 size-4 rounded-full border border-muted-foreground/40" />
                       )}
-                      <span className={step.status === "active" ? "text-[10px] font-bold text-[#4441c4]" : "text-[10px] text-[#464554]"}>
+                      <span className={step.status === "active" ? "text-[10px] font-bold text-primary" : "text-[10px] text-muted-foreground"}>
                         {step.label}
                       </span>
                     </div>
@@ -638,10 +638,10 @@ function AuthSecurityPanel() {
                         data-testid={index < 2 ? "auth-progress-shimmer" : undefined}
                         className={
                           index < 1
-                            ? "progress-shimmer mt-2 h-0.5 flex-1 bg-[#4ade80]"
+                            ? "progress-shimmer mt-2 h-0.5 flex-1 bg-success"
                             : index === 1
-                              ? "progress-shimmer mt-2 h-0.5 flex-1 bg-[#4441c4]"
-                              : "mt-2 h-0.5 flex-1 bg-[#d3e4fe]"
+                              ? "progress-shimmer mt-2 h-0.5 flex-1 bg-primary"
+                              : "mt-2 h-0.5 flex-1 bg-border"
                         }
                       />
                     )}
@@ -651,49 +651,49 @@ function AuthSecurityPanel() {
             </div>
 
             <div>
-              <div className="mb-2 text-sm font-medium leading-5 text-[#0b1c30]">UML模型预览</div>
-              <div className="grid gap-2 rounded-lg border border-[#c7c4d6]/30 bg-[#eff4ff]/70 p-3">
+              <div className="mb-2 text-sm font-medium leading-5 text-card-foreground">UML模型预览</div>
+              <div className="grid gap-2 rounded-lg border border-border/60 bg-muted/70 p-3">
                 <div className="flex gap-2">
-                  <div className="h-12 flex-1 rounded border border-[#4441c4]/40 bg-white/60 p-1">
-                    <div className="mb-1 h-2 w-2/3 rounded bg-[#4441c4]/20" />
-                    <div className="mb-0.5 h-1 w-full rounded bg-[#d3e4fe]" />
-                    <div className="h-1 w-full rounded bg-[#d3e4fe]" />
+                  <div className="h-12 flex-1 rounded border border-primary/40 bg-card/70 p-1">
+                    <div className="mb-1 h-2 w-2/3 rounded bg-primary/20" />
+                    <div className="mb-0.5 h-1 w-full rounded bg-border" />
+                    <div className="h-1 w-full rounded bg-border" />
                   </div>
-                  <div className="h-12 flex-1 rounded border border-[#4b00b3]/40 bg-white/60 p-1">
-                    <div className="mb-1 h-2 w-2/3 rounded bg-[#4b00b3]/20" />
-                    <div className="mb-0.5 h-1 w-full rounded bg-[#d3e4fe]" />
-                    <div className="h-1 w-full rounded bg-[#d3e4fe]" />
+                  <div className="h-12 flex-1 rounded border border-info/40 bg-card/70 p-1">
+                    <div className="mb-1 h-2 w-2/3 rounded bg-info/20" />
+                    <div className="mb-0.5 h-1 w-full rounded bg-border" />
+                    <div className="h-1 w-full rounded bg-border" />
                   </div>
                 </div>
-                <div className="relative h-px bg-[#c7c4d6]/60">
-                  <span className="absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 bg-white px-1 text-[#5b5e69]">
+                <div className="relative h-px bg-border">
+                  <span className="absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 bg-card px-1 text-muted-foreground">
                     <ArrowRight className="size-3" />
                   </span>
                 </div>
-                <div className="flex h-8 items-center justify-center rounded border border-[#c7c4d6] bg-white/60 px-2">
-                  <div className="h-2 w-1/2 rounded bg-[#d3e4fe]" />
+                <div className="flex h-8 items-center justify-center rounded border border-border bg-card/70 px-2">
+                  <div className="h-2 w-1/2 rounded bg-border" />
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 flex items-center justify-between border-t border-[#c7c4d6]/40 pt-4">
-            <span className="rounded bg-[#f8f9ff] px-2 py-1 font-mono text-xs font-medium leading-4 text-[#5b5e69]">Project-Main</span>
-            <span className="flex items-center gap-1 text-sm leading-5 text-[#464554]">
-              <span className="size-2 rounded-full bg-[#4ade80] motion-auth-pulse" />
+          <div className="mt-6 flex items-center justify-between border-t border-border/60 pt-4">
+            <span className="rounded bg-muted px-2 py-1 font-mono text-xs font-medium leading-4 text-muted-foreground">Project-Main</span>
+            <span className="flex items-center gap-1 text-sm leading-5 text-muted-foreground">
+              <span className="size-2 rounded-full bg-success motion-auth-pulse" />
               编译成功
             </span>
           </div>
         </div>
 
-        <div className="motion-auth-card group absolute bottom-12 right-8 w-48 rotate-[4deg] rounded-lg border border-white/60 bg-white/70 p-4 shadow-lg backdrop-blur-xl transition-all duration-300 ease-in-out hover:-translate-y-1 hover:rotate-[3deg] hover:shadow-xl">
+        <div className="motion-auth-card group absolute bottom-12 right-8 w-48 rotate-[4deg] rounded-lg border border-border/70 bg-card/80 p-4 shadow-lg backdrop-blur-xl transition-all duration-300 ease-in-out hover:-translate-y-1 hover:rotate-[3deg] hover:shadow-xl">
           <div className="mb-2 flex items-center gap-2">
-            <Activity className="size-4 text-[#4b00b3]" />
-            <span className="font-display text-sm font-semibold leading-5 text-[#0b1c30]">API 延迟</span>
+            <Activity className="size-4 text-info" />
+            <span className="font-display text-sm font-semibold leading-5 text-card-foreground">API 延迟</span>
           </div>
           <div
             data-testid="auth-api-latency-value"
-            className="font-mono text-xl font-medium leading-7 text-[#4441c4] transition-colors duration-300 group-hover:text-[#23005c]"
+            className="font-mono text-xl font-medium leading-7 text-primary transition-colors duration-300 group-hover:text-primary/80"
           >
             24ms
           </div>
@@ -702,7 +702,7 @@ function AuthSecurityPanel() {
               <span
                 key={height}
                 data-testid={index === 3 ? "auth-progress-shimmer" : undefined}
-                className={index === 3 ? "progress-shimmer w-full rounded-t-sm bg-[#4441c4]" : "w-full rounded-t-sm bg-[#d3e4fe]"}
+                className={index === 3 ? "progress-shimmer w-full rounded-t-sm bg-primary" : "w-full rounded-t-sm bg-border"}
                 style={{ height: `${height}%` }}
               />
             ))}
@@ -791,12 +791,8 @@ function AuthenticatedRouteContent({
   }, []);
 
   useEffect(() => {
-    const canUseGrace =
-      Boolean(authSession) &&
-      verifiedRouteKey !== undefined &&
-      Date.now() - lastVerifiedAtRef.current < AUTH_ROUTE_SESSION_GRACE_MS;
-    verifySession({ blocking: !canUseGrace });
-  }, [routeKey, verifySession]);
+    verifySession({ blocking: !hasFreshSession });
+  }, [hasFreshSession, routeKey, verifySession]);
 
   useEffect(() => {
     const handleSessionChanged = () => verifySession({ blocking: true });
@@ -1045,11 +1041,11 @@ export function AuthPage({
   const passwordStrength =
     password.length >= 12 ? "强" : password.length >= 8 ? "中" : "弱";
   const authPrimaryActionClass =
-    "motion-action h-12 w-full rounded-lg border border-[#2b23ad]/10 bg-[#4441c4] px-6 font-display text-xl font-semibold leading-7 text-white shadow-sm hover:bg-[#3530b6] hover:shadow-md";
+    "motion-action h-12 w-full rounded-lg px-6 font-display text-xl font-semibold leading-7 shadow-sm hover:shadow-md";
   const authTextActionClass =
-    "motion-action font-medium text-[#2b23ad] underline-offset-4 hover:underline";
+    "motion-action font-medium text-primary underline-offset-4 hover:underline";
   const authInputClass =
-    "motion-auth-input h-12 rounded-lg !border-[#c7c4d6] !bg-white px-4 text-base leading-6 !text-[#0b1c30] placeholder:text-[#8a8da0] focus-visible:border-[#4441c4] focus-visible:ring-[#4441c4]/20 dark:!border-[#c7c4d6] dark:!bg-white dark:!text-[#0b1c30] dark:placeholder:text-[#8a8da0]";
+    "motion-auth-input h-12 rounded-lg bg-card px-4 text-base leading-6 text-foreground placeholder:text-muted-foreground";
   const submitLabel =
     path === "/login"
       ? mfaChallenge
@@ -1070,14 +1066,14 @@ export function AuthPage({
       data-testid="auth-shell"
       data-auth-layout="design-replica-card"
       data-motion="auth-shell"
-      className="relative min-h-0 flex-1 overflow-auto bg-[#f8f9ff] text-[#0b1c30]"
+      className="relative min-h-0 flex-1 overflow-auto bg-background text-foreground"
     >
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(248,249,255,0.95),rgba(229,238,255,0.78))]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle,#c7c4d6_1px,transparent_1px)] bg-[size:24px_24px] opacity-40" />
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/70 to-accent/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] bg-[size:24px_24px] opacity-40" />
       </div>
       <div className="relative z-10 flex min-h-dvh items-center justify-center px-4 py-10 md:px-12">
-        <div className="motion-auth-shell-card flex w-full max-w-[1000px] flex-col overflow-hidden rounded-xl border border-[#c7c4d6]/30 bg-white/80 shadow-[0_8px_30px_rgba(11,28,48,0.06)] backdrop-blur-xl md:flex-row">
+        <div className="motion-auth-shell-card flex w-full max-w-[1000px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card/80 shadow-lg backdrop-blur-xl md:flex-row">
           <section
             data-testid="auth-form-panel"
             data-motion="auth-form"
@@ -1090,8 +1086,8 @@ export function AuthPage({
               onClick={() => onNavigate("/")}
               aria-label="返回官网"
             >
-              <div className="font-display text-[32px] font-semibold leading-10 text-[#4441c4]">软件工程实训平台</div>
-              <div className="mt-2 text-base leading-6 text-[#464554]">
+              <div className="font-display text-[32px] font-semibold leading-10 text-primary">软件工程实训平台</div>
+              <div className="mt-2 text-base leading-6 text-muted-foreground">
                 {path === "/login" ? "欢迎回来，请登录以继续。" : "面向课程实验与项目协作的智能研发空间"}
               </div>
             </button>
@@ -1099,21 +1095,21 @@ export function AuthPage({
               className="motion-auth-title mb-6"
               style={{ "--motion-delay": "100ms" } as CSSProperties}
             >
-              <h1 className="font-display text-2xl font-semibold leading-8 text-[#0b1c30]">
+              <h1 className="font-display text-2xl font-semibold leading-8 text-foreground">
                 {path === "/verify-email" ? "验证您的邮箱" : titles[path]}
               </h1>
-              <p className="mt-2 text-sm leading-5 text-[#464554]">
+              <p className="mt-2 text-sm leading-5 text-muted-foreground">
                 {descriptions[path]}
               </p>
             </div>
             <form className="motion-auth-form grid gap-6" onSubmit={submit}>
               {path !== "/reset-password" && (
                 <div className="grid gap-2">
-                  <Label htmlFor="auth-email" className="text-sm font-medium leading-5 text-[#0b1c30]">
+                  <Label htmlFor="auth-email" className="text-sm font-medium leading-5 text-foreground">
                     {path === "/forgot-password" ? "电子邮箱" : "邮箱地址"}
                   </Label>
                   <div className="relative">
-                    <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#5b5e69]" />
+                    <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="auth-email"
                       aria-label="邮箱"
@@ -1133,7 +1129,7 @@ export function AuthPage({
               {(path === "/login" || path === "/register" || path === "/reset-password") && (
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="auth-password" className="text-sm font-medium leading-5 text-[#0b1c30]">
+                    <Label htmlFor="auth-password" className="text-sm font-medium leading-5 text-foreground">
                       {path === "/reset-password" ? "新密码" : "密码"}
                     </Label>
                     {path === "/login" && (
@@ -1147,7 +1143,7 @@ export function AuthPage({
                     )}
                   </div>
                   <div className="relative">
-                    <Lock className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#5b5e69]" />
+                    <Lock className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="auth-password"
                       aria-label={path === "/reset-password" ? "新密码" : "密码"}
@@ -1165,7 +1161,7 @@ export function AuthPage({
                       type="button"
                       aria-label={showPassword ? "隐藏密码" : "显示密码"}
                       title={showPassword ? "隐藏密码" : "显示密码"}
-                      className="motion-action absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-[#5b5e69] hover:bg-[#dce9ff] hover:text-[#2b23ad] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4441c4]/30"
+                      className="motion-action absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                       onClick={() => setShowPassword((current) => !current)}
                     >
                       {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
@@ -1175,12 +1171,12 @@ export function AuthPage({
                     <div className="grid gap-2">
                       {path === "/register" && (
                         <div className="grid grid-cols-3 gap-1">
-                          <span className="h-1.5 rounded-full bg-[#4441c4]" />
-                          <span className="h-1.5 rounded-full bg-[#dce9ff]" />
-                          <span className="h-1.5 rounded-full bg-[#dce9ff]" />
+                          <span className="h-1.5 rounded-full bg-primary" />
+                          <span className="h-1.5 rounded-full bg-border" />
+                          <span className="h-1.5 rounded-full bg-border" />
                         </div>
                       )}
-                      <span className="text-xs text-[#464554]">
+                      <span className="text-xs text-muted-foreground">
                         密码强度：{passwordStrength}
                       </span>
                     </div>
@@ -1190,20 +1186,20 @@ export function AuthPage({
               {path === "/login" && (
                 <div className="flex items-center">
                   <input
-                    className="size-4 rounded border-[#c7c4d6] bg-[#eff4ff] accent-[#4441c4]"
+                    className="size-4 rounded border-border bg-input-background accent-primary"
                     id="auth-remember"
                     type="checkbox"
                     checked={rememberLogin}
                     onChange={(event) => setRememberLogin(event.target.checked)}
                   />
-                  <Label htmlFor="auth-remember" className="ml-2 text-sm leading-5 text-[#464554]">
+                  <Label htmlFor="auth-remember" className="ml-2 text-sm leading-5 text-muted-foreground">
                     记住我
                   </Label>
                 </div>
               )}
               {path === "/login" && mfaChallenge && (
-                <div className="motion-status grid gap-2 rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-3">
-                  <Label htmlFor="auth-mfa-code" className="text-sm font-medium text-[#0b1c30]">MFA 验证码</Label>
+                <div className="motion-status grid gap-2 rounded-lg border border-border bg-muted p-3">
+                  <Label htmlFor="auth-mfa-code" className="text-sm font-medium text-foreground">MFA 验证码</Label>
                   <Input
                     id="auth-mfa-code"
                     inputMode="numeric"
@@ -1214,7 +1210,7 @@ export function AuthPage({
                     required
                     className={authInputClass}
                   />
-                  <span className="text-xs text-[#464554]">
+                  <span className="text-xs text-muted-foreground">
                     请输入认证器中的 6 位验证码完成登录。
                     {mfaChallenge.expiresAt
                       ? ` 本次挑战过期时间：${formatDateTime(mfaChallenge.expiresAt)}。`
@@ -1225,8 +1221,8 @@ export function AuthPage({
               {path === "/register" && (
                 <>
                   <div className="grid gap-2">
-                    <Label htmlFor="invite-code" className="text-sm font-medium leading-5 text-[#0b1c30]">
-                      邀请码 <span className="font-normal text-[#464554]">（选填）</span>
+                    <Label htmlFor="invite-code" className="text-sm font-medium leading-5 text-foreground">
+                      邀请码 <span className="font-normal text-muted-foreground">（选填）</span>
                     </Label>
                     <Input
                       id="invite-code"
@@ -1243,9 +1239,9 @@ export function AuthPage({
                       id="terms"
                       checked={termsAccepted}
                       onChange={(event) => setTermsAccepted(event.target.checked)}
-                      className="size-4 rounded border-[#c7c4d6] accent-[#4441c4]"
+                      className="size-4 rounded border-border accent-primary"
                     />
-                    <Label htmlFor="terms" className="text-sm text-[#464554]">
+                    <Label htmlFor="terms" className="text-sm text-muted-foreground">
                       我已阅读并同意服务条款
                     </Label>
                   </div>
@@ -1253,18 +1249,18 @@ export function AuthPage({
               )}
               {path === "/verify-email" && (
                 <>
-                  <div className="motion-status rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm leading-6 text-[#464554]">
+                  <div className="motion-status rounded-lg border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
                     {getQueryParam("sent")
                       ? `验证邮件已发送到 ${queryEmail || "你的邮箱"}。请点击邮件中的验证链接，或复制短期 token 到下方完成验证。`
                       : "请点击邮件中的验证链接，或复制短期 token 到下方完成验证。"}
                   </div>
                   {!urlToken && (
                     <div className="grid gap-2">
-                      <Label htmlFor="auth-verification-token" className="text-sm font-medium leading-5 text-[#0b1c30]">
+                      <Label htmlFor="auth-verification-token" className="text-sm font-medium leading-5 text-foreground">
                         邮件验证码 / 短期 token
                       </Label>
                       <div className="relative">
-                        <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[#5b5e69]" />
+                        <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                         <Input
                           id="auth-verification-token"
                           aria-label="邮件验证码 / 短期 token"
@@ -1274,7 +1270,7 @@ export function AuthPage({
                           className={`${authInputClass} pl-10`}
                         />
                       </div>
-                      <span className="text-xs leading-5 text-[#464554]">
+                      <span className="text-xs leading-5 text-muted-foreground">
                         没有收到邮件时，可保持此处为空并点击重新发送验证邮件。
                       </span>
                     </div>
@@ -1286,7 +1282,7 @@ export function AuthPage({
                 {submitLabel}
               </Button>
               {path === "/login" && (
-                <p className="text-center text-sm leading-5 text-[#464554]">
+                <p className="text-center text-sm leading-5 text-muted-foreground">
                   还没有账号？{" "}
                   <button type="button" className={authTextActionClass} onClick={() => onNavigate("/register")}>
                     创建账号
@@ -1294,7 +1290,7 @@ export function AuthPage({
                 </p>
               )}
               {path === "/register" && (
-                <p className="text-center text-sm leading-5 text-[#464554]">
+                <p className="text-center text-sm leading-5 text-muted-foreground">
                   已有账号？{" "}
                   <button type="button" className={authTextActionClass} onClick={() => onNavigate("/login")}>
                     去登录
@@ -1302,12 +1298,12 @@ export function AuthPage({
                 </p>
               )}
               {path !== "/login" && path !== "/register" && (
-                <Button type="button" variant="ghost" className="motion-action w-fit px-0 text-[#4441c4] hover:bg-transparent hover:text-[#3530b6]" onClick={() => onNavigate("/login")}>
+                <Button type="button" variant="ghost" className="motion-action w-fit px-0 text-primary hover:bg-transparent hover:text-primary/80" onClick={() => onNavigate("/login")}>
                   返回登录
                 </Button>
               )}
               {message && (
-                <div className="motion-status rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-3 text-sm text-[#464554]">
+                <div className="motion-status rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
                   {message}
                 </div>
               )}
@@ -1380,37 +1376,37 @@ export function InvitationAcceptPage({ onNavigate }: { onNavigate: Navigate }) {
   const invitedEmail = invitation?.email ?? "你的邮箱";
 
   return (
-    <main className="min-h-0 flex-1 overflow-auto bg-[#f8f9ff] px-4 py-10 text-[#0b1c30] md:px-12">
-      <section className="mx-auto max-w-xl rounded-xl border border-[#c7c4d6]/40 bg-white p-8 shadow-[0_8px_30px_rgba(11,28,48,0.06)]">
+    <main className="min-h-0 flex-1 overflow-auto bg-background px-4 py-10 text-foreground md:px-12">
+      <section className="mx-auto max-w-xl rounded-xl border border-border/60 bg-card p-8 shadow-lg">
         <div className="mb-6">
           <h1 className="font-display text-2xl font-semibold leading-8">接受项目邀请</h1>
-          <p className="mt-2 text-sm leading-6 text-[#464554]">
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
             请确认邀请信息后加入项目。若尚未登录，请先使用被邀请邮箱登录或注册。
           </p>
         </div>
         {loading ? (
-          <div className="flex items-center gap-2 rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm text-[#464554]">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted p-4 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             正在读取邀请信息...
           </div>
         ) : invitation ? (
           <div className="grid gap-4">
-            <div className="rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4">
-              <p className="text-sm text-[#464554]">项目</p>
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="text-sm text-muted-foreground">项目</p>
               <p className="mt-1 font-medium">{projectName}</p>
             </div>
-            <div className="rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4">
-              <p className="text-sm text-[#464554]">邀请邮箱</p>
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="text-sm text-muted-foreground">邀请邮箱</p>
               <p className="mt-1 font-medium">{invitedEmail}</p>
             </div>
-            <div className="rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4">
-              <p className="text-sm text-[#464554]">项目角色</p>
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="text-sm text-muted-foreground">项目角色</p>
               <p className="mt-1 font-medium">{memberRoleLabel(invitation.role)}</p>
             </div>
           </div>
         ) : null}
         {message && (
-          <div className="mt-5 rounded-lg border border-[#c7c4d6] bg-[#eff4ff] p-4 text-sm leading-6 text-[#464554]">
+          <div className="mt-5 rounded-lg border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
             {message}
           </div>
         )}
@@ -1423,7 +1419,7 @@ export function InvitationAcceptPage({ onNavigate }: { onNavigate: Navigate }) {
             注册新账号
           </Button>
         </div>
-        <button type="button" className="mt-4 text-sm font-medium text-[#4441c4] hover:underline" onClick={() => onNavigate("/login")}>
+        <button type="button" className="mt-4 text-sm font-medium text-primary hover:underline" onClick={() => onNavigate("/login")}>
           返回登录
         </button>
       </section>
@@ -1595,7 +1591,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </div>
           <Button
             type="button"
-            className="h-12 rounded-lg bg-[#5d5cde] px-6 text-base text-[#f1eeff] shadow-sm hover:bg-[#5351d3]"
+            className="h-12 rounded-lg px-6 text-base shadow-sm"
             onClick={openCreateProject}
           >
             <Plus className="size-4" />
@@ -1624,7 +1620,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
         )}
 
         {!authRequired && !forbidden && !listError && (
-          <section className="flex flex-col gap-4 rounded-xl border border-[rgba(199,196,214,0.3)] bg-card p-[17px] shadow-sm md:flex-row md:items-center md:justify-between">
+          <section className="flex flex-col gap-4 rounded-xl border border-border/60 bg-card p-[17px] shadow-sm md:flex-row md:items-center md:justify-between">
             <div
               className="flex gap-2 overflow-x-auto"
               role="group"
@@ -1639,7 +1635,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                     aria-pressed={selected}
                     className={
                       selected
-                        ? "shrink-0 rounded-lg bg-[#e5eeff] px-4 py-2 text-base leading-6 text-foreground dark:bg-accent"
+                        ? "shrink-0 rounded-lg bg-accent px-4 py-2 text-base leading-6 text-accent-foreground"
                         : "shrink-0 rounded-lg px-4 py-2 text-base leading-6 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                     }
                     onClick={() => setScope(option.value)}
@@ -1653,7 +1649,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
               <div className="relative w-full md:w-80 lg:w-96">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  className="h-[38px] rounded-lg border-[rgba(199,196,214,0.5)] bg-input-background pl-10 text-sm"
+                  className="h-[38px] rounded-lg border-input bg-input-background pl-10 text-sm"
                   placeholder="搜索项目、成员..."
                   aria-label="搜索项目"
                   value={search}
@@ -1664,7 +1660,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                 aria-label="排序方式"
                 value={sort}
                 onValueChange={setSort}
-                className="h-[38px] w-full rounded-lg border border-[rgba(199,196,214,0.5)] bg-input-background px-3 text-sm text-foreground md:w-28"
+                className="h-[38px] w-full rounded-lg border border-input bg-input-background px-3 text-sm text-foreground md:w-28"
                 options={[
                   { value: "recent", label: "最近打开" },
                   { value: "generated", label: "最近生成" },
@@ -1676,7 +1672,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
         )}
 
         {!authRequired && !forbidden && !listError && projects.length > 0 && visibleProjects.length === 0 && (
-          <section className="rounded-xl border border-dashed border-[rgba(199,196,214,0.3)] bg-card p-10 text-center">
+          <section className="rounded-xl border border-dashed border-border/60 bg-card p-10 text-center">
             <h2 className="text-xl font-semibold">没有匹配的项目</h2>
             <p className="mt-2 text-sm text-muted-foreground">
               当前搜索、筛选或排序条件没有命中真实项目状态数据。
@@ -1691,12 +1687,12 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                 key={project.id}
                 className={
                   project.status === "archived"
-                    ? "group relative flex min-h-[271px] flex-col overflow-hidden rounded-xl border border-[rgba(199,196,214,0.3)] bg-card opacity-75 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
-                    : "group relative flex min-h-[287px] flex-col overflow-hidden rounded-xl border border-[rgba(199,196,214,0.3)] bg-card shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+                    ? "group relative flex min-h-[271px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card opacity-75 shadow-sm"
+                    : "group relative flex min-h-[287px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm"
                 }
               >
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#4441c4] to-[#632ecd] opacity-0 transition-opacity group-hover:opacity-100" />
-                <div className="flex flex-1 flex-col gap-4 border-b border-[rgba(199,196,214,0.2)] px-6 pb-10 pt-6">
+                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary to-info opacity-0 transition-opacity group-hover:opacity-100" />
+                <div className="flex flex-1 flex-col gap-4 border-b border-border/60 px-6 pb-10 pt-6">
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="min-w-0 truncate text-xl font-semibold leading-7 text-foreground">
                       {project.name}
@@ -1706,7 +1702,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                       className={
                         project.status === "archived"
                           ? "rounded bg-secondary px-2 py-1 text-xs text-muted-foreground"
-                          : "rounded bg-[#dce9ff] px-2 py-1 text-xs text-foreground dark:bg-secondary"
+                          : "rounded bg-accent px-2 py-1 text-xs text-accent-foreground"
                       }
                     >
                       {project.statusLabel}
@@ -1732,7 +1728,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                     </span>
                   </div>
                 </div>
-                <div className="mt-auto flex items-center justify-between gap-3 bg-[#eff4ff]/50 px-6 py-4 dark:bg-secondary/40">
+                <div className="mt-auto flex items-center justify-between gap-3 bg-muted/50 px-6 py-4 dark:bg-secondary/40">
                   <div className="flex items-start">
                     {project.status === "archived" ? (
                       <span className="font-mono text-xs font-medium leading-4 text-muted-foreground">
@@ -1745,7 +1741,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                             key={`${project.id}:${member.id}`}
                             aria-label={`成员头像 ${member.label}`}
                             title={member.label}
-                            className="mr-[-8px] inline-flex size-8 items-center justify-center overflow-hidden rounded-full border-2 border-card bg-[#e5eeff] text-xs font-semibold text-primary"
+                            className="mr-[-8px] inline-flex size-8 items-center justify-center overflow-hidden rounded-full border-2 border-card bg-accent text-xs font-semibold text-primary"
                           >
                             {member.avatarUrl ? (
                               <img
@@ -1772,7 +1768,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-6 px-0 text-base text-[#4441c4] hover:bg-transparent hover:text-[#312eaa] dark:text-primary"
+                    className="h-6 px-0 text-base text-primary hover:bg-transparent hover:text-primary/80"
                     onClick={() => onNavigate(`/projects/${project.id}`)}
                   >
                     进入项目
@@ -1786,8 +1782,8 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
         )}
 
         {!authRequired && !forbidden && !listError && projects.length === 0 && (
-          <section className="mx-auto flex w-full max-w-[672px] flex-col items-center justify-center rounded-xl border border-dashed border-[rgba(199,196,214,0.3)] bg-card px-8 py-12 text-center md:px-[49px]">
-            <div className="mb-6 inline-flex size-16 items-center justify-center rounded-2xl bg-[#e5eeff] text-primary dark:bg-accent">
+          <section className="mx-auto flex w-full max-w-[672px] flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-card px-8 py-12 text-center md:px-[49px]">
+            <div className="mb-6 inline-flex size-16 items-center justify-center rounded-2xl bg-accent text-primary">
               <FileText className="size-6" />
             </div>
             <h2 className="text-xl font-semibold leading-7 text-foreground">
@@ -1798,7 +1794,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
             </p>
             <Button
               type="button"
-              className="mt-8 h-12 rounded-lg bg-[#5d5cde] px-6 text-base text-[#f1eeff] shadow-sm hover:bg-[#5351d3]"
+              className="mt-8 h-12 rounded-lg px-6 text-base shadow-sm"
               onClick={openCreateProject}
             >
               <Plus className="size-4" />

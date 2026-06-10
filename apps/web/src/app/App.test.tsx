@@ -1887,10 +1887,10 @@ describe("App shell routes", () => {
       "hover:shadow-xl",
     );
     expect(screen.getAllByTestId("auth-progress-shimmer").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("auth-api-latency-value")).toHaveClass("group-hover:text-[#23005c]");
-    expect(screen.getByRole("button", { name: "登录" })).toHaveClass("bg-[#4441c4]");
-    expect(screen.getByRole("button", { name: "创建账号" })).not.toHaveClass("bg-[#4441c4]");
-    expect(screen.getByRole("button", { name: "忘记密码？" })).not.toHaveClass("bg-[#4441c4]");
+    expect(screen.getByTestId("auth-api-latency-value")).toHaveClass("group-hover:text-primary/80");
+    expect(screen.getByRole("button", { name: "登录" })).toHaveClass("bg-primary");
+    expect(screen.getByRole("button", { name: "创建账号" })).not.toHaveClass("bg-primary");
+    expect(screen.getByRole("button", { name: "忘记密码？" })).not.toHaveClass("bg-primary");
     await user.type(screen.getByLabelText("密码"), "wrong-password");
     await user.click(screen.getByRole("button", { name: "登录" }));
 

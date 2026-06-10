@@ -193,7 +193,7 @@
 }
 
 .motion-header:hover {
-  box-shadow: 0 14px 40px rgba(11, 28, 48, 0.06);
+  box-shadow: 0 14px 40px color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
 .motion-brand,
@@ -227,7 +227,7 @@
   left: 0;
   height: 2px;
   border-radius: 999px;
-  background: #4441c4;
+  background: var(--primary);
   content: "";
   opacity: 0;
   transform: scaleX(0.5);
@@ -296,8 +296,8 @@
 }
 
 .motion-card:hover {
-  border-color: rgba(93, 92, 222, 0.55);
-  box-shadow: 0 22px 54px rgba(11, 28, 48, 0.11);
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  box-shadow: 0 22px 54px color-mix(in srgb, var(--foreground) 11%, transparent);
   transform: translateY(-4px);
 }
 
@@ -316,9 +316,9 @@
 }
 
 .motion-standard-anchor:hover {
-  border-color: rgba(93, 92, 222, 0.55);
-  background-color: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 18px 42px rgba(11, 28, 48, 0.1);
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background-color: color-mix(in srgb, var(--card) 94%, transparent);
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--foreground) 10%, transparent);
   transform: translateY(-4px);
 }
 
@@ -335,7 +335,7 @@
   position: absolute;
   inset: 0;
   width: 42%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--primary-foreground) 58%, transparent), transparent);
   content: "";
   animation: motion-progress-sheen 2.8s ease-in-out 850ms infinite;
 }
@@ -386,8 +386,8 @@
 
 .motion-auth-input:focus,
 .motion-auth-input:focus-visible {
-  border-color: rgba(93, 92, 222, 0.68);
-  box-shadow: 0 0 0 4px rgba(93, 92, 222, 0.12);
+  border-color: color-mix(in srgb, var(--primary) 68%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
 .motion-auth-shell-card {
@@ -404,8 +404,8 @@
 }
 
 .motion-auth-card:hover {
-  border-color: rgba(68, 65, 196, 0.22);
-  box-shadow: 0 18px 48px rgba(11, 28, 48, 0.1);
+  border-color: color-mix(in srgb, var(--primary) 22%, transparent);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--foreground) 10%, transparent);
 }
 
 .progress-shimmer {
@@ -417,7 +417,7 @@
   position: absolute;
   inset: 0;
   width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.58), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--primary-foreground) 58%, transparent), transparent);
   content: "";
   animation: motion-shimmer 2s ease-in-out infinite;
 }
@@ -432,30 +432,30 @@
 
 .platform-loading-screen {
   background:
-    radial-gradient(circle at 50% 42%, rgba(229, 238, 255, 0.86), transparent 46%),
-    linear-gradient(135deg, #f8f9ff 0%, #eff4ff 48%, #f8f9ff 100%);
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 86%, transparent), transparent 46%),
+    linear-gradient(135deg, var(--background) 0%, var(--muted) 48%, var(--background) 100%);
 }
 
 .dark .platform-loading-screen {
   background:
-    radial-gradient(circle at 50% 42%, rgba(67, 78, 101, 0.72), transparent 48%),
-    linear-gradient(135deg, #071827 0%, #0f1b2c 48%, #071827 100%);
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 72%, transparent), transparent 48%),
+    linear-gradient(135deg, var(--background) 0%, var(--muted) 48%, var(--background) 100%);
 }
 
 .platform-loading-screen::before {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.4), transparent 22%, transparent 78%, rgba(255, 255, 255, 0.36)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 42%, rgba(255, 255, 255, 0.18));
+    linear-gradient(90deg, color-mix(in srgb, var(--card) 40%, transparent), transparent 22%, transparent 78%, color-mix(in srgb, var(--card) 36%, transparent)),
+    linear-gradient(180deg, color-mix(in srgb, var(--card) 20%, transparent), transparent 42%, color-mix(in srgb, var(--card) 18%, transparent));
   content: "";
   animation: motion-loading-breathe 5.6s ease-in-out infinite;
 }
 
 .dark .platform-loading-screen::before {
   background:
-    linear-gradient(90deg, rgba(148, 163, 184, 0.06), transparent 22%, transparent 78%, rgba(148, 163, 184, 0.06)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 42%, rgba(255, 255, 255, 0.04));
+    linear-gradient(90deg, color-mix(in srgb, var(--muted-foreground) 6%, transparent), transparent 22%, transparent 78%, color-mix(in srgb, var(--muted-foreground) 6%, transparent)),
+    linear-gradient(180deg, color-mix(in srgb, var(--card-foreground) 8%, transparent), transparent 42%, color-mix(in srgb, var(--card-foreground) 4%, transparent));
 }
 
 .platform-loading-panel {
@@ -464,8 +464,8 @@
 
 .platform-loading-track {
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
-    0 1px 8px rgba(68, 65, 196, 0.12);
+    inset 0 0 0 1px color-mix(in srgb, var(--card) 28%, transparent),
+    0 1px 8px color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
 .platform-loading-bar {
@@ -479,7 +479,7 @@
   position: absolute;
   inset: 0;
   width: 40%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--primary-foreground) 72%, transparent), transparent);
   content: "";
   animation: motion-loading-progress 1.8s ease-in-out infinite;
 }

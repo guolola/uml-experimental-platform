@@ -541,6 +541,7 @@ export async function createApiServer(options?: {
     billingEntitlements: options?.disableBillingEntitlementGuard
       ? undefined
       : billingService,
+    loadProjectWorkspace: async (projectId) => authStore.getProjectWorkspace(projectId),
     runAccessGuard: {
       async resolveRunAccess(request) {
         const projectIdHeader = request.headers["x-uml-project-id"];

@@ -1264,6 +1264,7 @@ export function createHttpWorkspaceRepository(
   let projectWorkspace: WorkspaceRecord | null = null;
   let projectWorkspaceVersion = 0;
   let projectWorkspaceUpdateQueue: Promise<unknown> = Promise.resolve();
+  let projectWorkspaceSaveError: unknown = null;
 
   async function loadProjectWorkspace() {
     const scopedProjectId = requireProjectScope(projectId);
@@ -1331,8 +1332,22 @@ export function createHttpWorkspaceRepository(
       }
     };
     const queuedUpdate = projectWorkspaceUpdateQueue.then(runUpdate, runUpdate);
-    projectWorkspaceUpdateQueue = queuedUpdate.catch(() => undefined);
+    projectWorkspaceUpdateQueue = queuedUpdate.then(
+      () => {
+        projectWorkspaceSaveError = null;
+      },
+      (error) => {
+        projectWorkspaceSaveError = error;
+      },
+    );
     return queuedUpdate;
+  }
+
+  async function waitForProjectWorkspaceSaves() {
+    await projectWorkspaceUpdateQueue;
+    if (projectWorkspaceSaveError) {
+      throw projectWorkspaceSaveError;
+    }
   }
 
   async function readProjectRunDetail(runId: string) {
@@ -1587,9 +1602,15 @@ export function createHttpWorkspaceRepository(
 
     async startRun(input: StartRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
+      await waitForProjectWorkspaceSaves();
       return postJson<{ runId: string }>(
         "/api/runs",
-        runPayloadWithoutUnmanagedProviderSettings(input),
+        runPayloadWithoutUnmanagedProviderSettings({
+          projectId: scopedProjectId,
+          selectedDiagrams: input.selectedDiagrams,
+          analysisTargetUseCaseIds: input.analysisTargetUseCaseIds ?? [],
+          providerSettings: input.providerSettings,
+        }),
         {
           errorMessage: "启动生成失败",
           headers: projectHeaders(scopedProjectId),
@@ -1599,9 +1620,15 @@ export function createHttpWorkspaceRepository(
 
     async startDesignRun(input: StartDesignRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
+      await waitForProjectWorkspaceSaves();
       return postJson<{ runId: string }>(
         "/api/design-runs",
-        runPayloadWithoutUnmanagedProviderSettings(input),
+        runPayloadWithoutUnmanagedProviderSettings({
+          projectId: scopedProjectId,
+          selectedDiagrams: input.selectedDiagrams,
+          requestedDiagrams: input.requestedDiagrams,
+          providerSettings: input.providerSettings,
+        }),
         {
           errorMessage: "启动设计生成失败",
           headers: projectHeaders(scopedProjectId),
@@ -1611,9 +1638,14 @@ export function createHttpWorkspaceRepository(
 
     async startCodeRun(input: StartCodeRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
+      await waitForProjectWorkspaceSaves();
       return postJson<{ runId: string }>(
         "/api/code-runs",
-        runPayloadWithoutUnmanagedProviderSettings(input),
+        runPayloadWithoutUnmanagedProviderSettings({
+          projectId: scopedProjectId,
+          generationMode: input.generationMode,
+          providerSettings: input.providerSettings,
+        }),
         {
           errorMessage: "启动代码生成失败",
           headers: projectHeaders(scopedProjectId),
@@ -1623,9 +1655,16 @@ export function createHttpWorkspaceRepository(
 
     async startDocumentRun(input: StartDocumentRunInput) {
       const scopedProjectId = requireProjectScope(projectId);
+      await waitForProjectWorkspaceSaves();
       return postJson<{ runId: string }>(
         "/api/document-runs",
-        runPayloadWithoutUnmanagedProviderSettings(input),
+        runPayloadWithoutUnmanagedProviderSettings({
+          projectId: scopedProjectId,
+          documentKind: input.documentKind,
+          providerSettings: input.providerSettings,
+          useAiText: input.useAiText,
+          documentStyle: input.documentStyle,
+        }),
         withProjectHeaders(scopedProjectId, {
           errorMessage: "启动说明书生成失败",
         }),

@@ -81,15 +81,15 @@ describe("InlineSvg", () => {
     );
   });
 
-  it("uses the dedicated light blue highlight style instead of the primary token", () => {
+  it("uses the info token for SVG highlights instead of the primary token", () => {
     render(<InlineSvg svg="<svg><text>ok</text></svg>" />);
 
     const styleText = Array.from(document.querySelectorAll("style"))
       .map((style) => style.textContent ?? "")
       .join("\n");
 
-    expect(styleText).toContain("--uml-highlight: #38bdf8");
-    expect(styleText).toContain("--uml-highlight-strong: #0284c7");
+    expect(styleText).toContain("--uml-highlight: var(--info)");
+    expect(styleText).toContain("--uml-highlight-strong: var(--info)");
     expect(styleText).toContain("stroke-width: 4px");
     expect(styleText).not.toContain("--primary");
   });

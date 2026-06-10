@@ -1197,7 +1197,6 @@ export function ProjectGenerationTasksDrawerContent({
 }
 
 export function ProjectWorkspaceActions({
-  projectId: _projectId,
   onOpenDrawer,
   projectRuns = [],
 }: ProjectWorkspaceActionsProps) {
@@ -1372,8 +1371,8 @@ export function TopBar({
   return (
     <header className="flex h-14 shrink-0 flex-nowrap items-center gap-3 overflow-hidden border-b border-sidebar-border bg-background/80 px-3 font-semibold text-sidebar-foreground backdrop-blur-xl md:h-16 md:gap-6 md:px-6">
       <div className="flex min-w-0 shrink items-center gap-3 md:shrink-0">
-        <span className="inline-flex size-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#a855f7_0%,#60a5fa_100%)] shadow-sm dark:bg-[linear-gradient(135deg,#3b82f6_0%,#60a5fa_100%)]">
-          <Boxes className="size-4 text-white" />
+        <span className="inline-flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-info shadow-sm">
+          <Boxes className="size-4 text-primary-foreground" />
         </span>
         <span className="hidden whitespace-nowrap text-[18px] font-semibold leading-7 tracking-[-0.45px] sm:inline">
           软件工程实训平台

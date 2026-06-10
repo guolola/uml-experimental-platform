@@ -31,10 +31,6 @@ import { designInputFingerprint } from "../../shared/lib/fingerprint";
 import { snapshotInputFingerprint } from "./lib/fingerprint";
 import { useWorkspaceSession } from "./state";
 
-type StartDesignRunInput = Parameters<
-  NonNullable<WorkspaceRepository["startDesignRun"]>
->[0];
-
 const { toastMessage } = vi.hoisted(() => ({
   toastMessage: vi.fn(),
 }));
@@ -146,7 +142,7 @@ describe("WorkspaceSessionProvider", () => {
     });
     expect(successDialog).toHaveClass("sm:max-w-[448px]", "rounded-[12px]");
     expect(within(successDialog).getByLabelText("操作成功")).toHaveClass(
-      "bg-[rgba(74,222,128,0.1)]",
+      "bg-success/10",
     );
     expect(within(successDialog).getByText("生成完成。")).toBeInTheDocument();
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
@@ -214,7 +210,7 @@ describe("WorkspaceSessionProvider", () => {
     });
     expect(failedDialog).toHaveClass("sm:max-w-[448px]", "rounded-[12px]");
     expect(within(failedDialog).getByLabelText("操作失败")).toHaveClass(
-      "bg-[rgba(186,26,26,0.1)]",
+      "bg-destructive/10",
     );
     expect(
       within(failedDialog).getByText(
@@ -349,7 +345,6 @@ describe("WorkspaceSessionProvider", () => {
     const { result } = renderHook(() => useWorkspaceSession(), {
       wrapper: ({ children }) => withWorkspaceProviders(children, repository),
     });
-    const user = userEvent.setup();
 
     await waitFor(() => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);

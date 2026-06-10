@@ -119,9 +119,9 @@ export function InlineSvg({
     <>
       <style>{`
         .uml-inline-svg {
-          --uml-highlight: #38bdf8;
-          --uml-highlight-strong: #0284c7;
-          --uml-highlight-soft: rgba(56, 189, 248, 0.22);
+          --uml-highlight: var(--info);
+          --uml-highlight-strong: var(--info);
+          --uml-highlight-soft: color-mix(in srgb, var(--info) 22%, transparent);
         }
         .pum-highlight rect,
         .pum-highlight ellipse,
@@ -135,7 +135,7 @@ export function InlineSvg({
         path.pum-highlight {
           stroke: var(--uml-highlight) !important;
           stroke-width: 4px !important;
-          filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.75));
+          filter: drop-shadow(0 0 10px color-mix(in srgb, var(--info) 75%, transparent));
         }
         .pum-highlight rect,
         .pum-highlight ellipse,

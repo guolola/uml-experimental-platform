@@ -211,7 +211,7 @@ function currentDesignClassFingerprint(
     : designInputFingerprints.class;
 }
 
-function useCasesFromRequirementModel(model: DiagramModelSpec | undefined) {
+function extractUseCasesFromRequirementModel(model: DiagramModelSpec | undefined) {
   if (!model || model.diagramKind !== "usecase" || !("useCases" in model)) {
     return [];
   }
@@ -235,7 +235,7 @@ function analysisSourceUseCaseId(model: DiagramModelSpec) {
 }
 
 function missingAnalysisUseCaseIds(models: WorkspaceRecord["models"]) {
-  const useCases = useCasesFromRequirementModel(models.usecase);
+  const useCases = extractUseCasesFromRequirementModel(models.usecase);
   if (useCases.length === 0) return [];
   const covered = new Set(
     Object.values(models)
@@ -262,7 +262,7 @@ function sequenceModelsCoverUseCases(
   designModels: WorkspaceRecord["designModels"],
   useCaseModel: DiagramModelSpec | undefined,
 ) {
-  const useCases = useCasesFromRequirementModel(useCaseModel);
+  const useCases = extractUseCasesFromRequirementModel(useCaseModel);
   if (useCases.length === 0) return false;
   const covered = new Set(
     Object.values(designModels)
@@ -1139,7 +1139,7 @@ function GenerationResultDialog({
 
   return (
     <Dialog open={Boolean(result)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[calc(100%-2rem)] gap-0 overflow-hidden rounded-[12px] border-[rgba(199,196,214,0.5)] bg-white p-[33px] text-center shadow-[0px_8px_30px_0px_rgba(0,0,0,0.06)] sm:max-w-[448px] [&_[data-slot=dialog-close]]:hidden">
+      <DialogContent className="max-w-[calc(100%-2rem)] gap-0 overflow-hidden rounded-[12px] border-border/60 bg-card p-[33px] text-center shadow-lg sm:max-w-[448px] [&_[data-slot=dialog-close]]:hidden">
         <DialogHeader className="items-center gap-0 space-y-0 text-center sm:text-center">
           <div className="mb-6 h-[80px] w-[80px]">
             <div
@@ -1147,8 +1147,8 @@ function GenerationResultDialog({
               className={cn(
                 "relative flex size-[80px] items-center justify-center rounded-full",
                 isFailure
-                  ? "bg-[rgba(186,26,26,0.1)] text-[#BA1A1A]"
-                  : "bg-[rgba(74,222,128,0.1)] text-[#4ADE80]",
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-success/10 text-success",
               )}
             >
               <Icon className="size-10" strokeWidth={3} />
@@ -1156,17 +1156,15 @@ function GenerationResultDialog({
                 aria-hidden="true"
                 className={cn(
                   "absolute inset-0 rounded-full border opacity-20",
-                  isFailure
-                    ? "border-[rgba(186,26,26,0.2)]"
-                    : "border-[rgba(74,222,128,0.2)]",
+                  isFailure ? "border-destructive/20" : "border-success/20",
                 )}
               />
             </div>
           </div>
-          <DialogTitle className="text-center text-[20px] font-semibold leading-[28px] text-[#0B1C30]">
+          <DialogTitle className="text-center text-[20px] font-semibold leading-[28px] text-foreground">
             {displayTitle}
           </DialogTitle>
-          <DialogDescription className="mx-auto mt-2 max-w-[280px] text-center text-[14px] leading-[20px] text-[#464554]">
+          <DialogDescription className="mx-auto mt-2 max-w-[280px] text-center text-[14px] leading-[20px] text-muted-foreground">
             {displayMessage}
           </DialogDescription>
         </DialogHeader>
@@ -1174,14 +1172,14 @@ function GenerationResultDialog({
           <Button
             type="button"
             variant="ghost"
-            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-[#464554] hover:bg-muted/60"
+            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-muted-foreground hover:bg-muted/60"
             onClick={onClose}
           >
             取消
           </Button>
           <Button
             type="button"
-            className="h-10 rounded-[8px] bg-[#2B23AD] px-6 text-[14px] font-normal text-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] hover:bg-[#241d96]"
+            className="h-10 rounded-[8px] px-6 text-[14px] font-normal shadow-sm"
             onClick={onClose}
           >
             确认
@@ -1196,8 +1194,8 @@ function SummaryGroup({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
     <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left">
-      <div className="text-[13px] font-medium text-[#0B1C30]">{label}</div>
-      <div className="mt-1 text-[13px] leading-5 text-[#464554]">
+      <div className="text-[13px] font-medium text-foreground">{label}</div>
+      <div className="mt-1 text-[13px] leading-5 text-muted-foreground">
         {items.join("、")}
       </div>
     </div>
@@ -1217,12 +1215,12 @@ function GenerationConfirmationDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-w-[calc(100%-2rem)] rounded-[12px] border-[rgba(199,196,214,0.5)] bg-white p-6 shadow-[0px_8px_30px_0px_rgba(0,0,0,0.06)] sm:max-w-[520px]">
+      <DialogContent className="max-w-[calc(100%-2rem)] rounded-[12px] border-border/60 bg-card p-6 shadow-lg sm:max-w-[520px]">
         <DialogHeader className="space-y-2 text-left">
-          <DialogTitle className="text-[20px] font-semibold leading-[28px] text-[#0B1C30]">
+          <DialogTitle className="text-[20px] font-semibold leading-[28px] text-foreground">
             {confirmation.title}
           </DialogTitle>
-          <DialogDescription className="text-[14px] leading-5 text-[#464554]">
+          <DialogDescription className="text-[14px] leading-5 text-muted-foreground">
             {confirmation.description}
           </DialogDescription>
         </DialogHeader>
@@ -1253,7 +1251,7 @@ function GenerationConfirmationDialog({
             confirmation.newLabels.length === 0 &&
             confirmation.regeneratedLabels.length === 0 &&
             confirmation.dependencyLabels.length === 0 && (
-              <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left text-[13px] leading-5 text-[#464554]">
+              <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left text-[13px] leading-5 text-muted-foreground">
                 本次没有需要生成的模型。
               </div>
             )}
@@ -1262,14 +1260,14 @@ function GenerationConfirmationDialog({
           <Button
             type="button"
             variant="ghost"
-            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-[#464554] hover:bg-muted/60"
+            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-muted-foreground hover:bg-muted/60"
             onClick={onCancel}
           >
             取消
           </Button>
           <Button
             type="button"
-            className="h-10 rounded-[8px] bg-[#2B23AD] px-6 text-[14px] font-normal text-white shadow-[0px_1px_1px_rgba(0,0,0,0.05)] hover:bg-[#241d96]"
+            className="h-10 rounded-[8px] px-6 text-[14px] font-normal shadow-sm"
             onClick={onConfirm}
           >
             确认生成

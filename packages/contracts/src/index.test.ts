@@ -74,9 +74,13 @@ import {
   projectMemberRolePermissions,
   runEventSchema,
   runSnapshotSchema,
+  startCodeRunCommandSchema,
   startCodeRunRequestSchema,
+  startDesignRunCommandSchema,
   startDesignRunRequestSchema,
+  startDocumentRunCommandSchema,
   startDocumentRunRequestSchema,
+  startRunCommandSchema,
   startRunRequestSchema,
   userDtoSchema,
 } from "./index.js";
@@ -1327,6 +1331,38 @@ test("start run contracts accept optional project context", () => {
       providerSettings: baseProviderSettings,
     }).projectId,
     "project-a",
+  );
+  assert.deepEqual(
+    startRunCommandSchema.parse({
+      projectId: "project-a",
+      selectedDiagrams: ["usecase"],
+      providerSettings: baseProviderSettings,
+    }).analysisTargetUseCaseIds,
+    [],
+  );
+  assert.deepEqual(
+    startDesignRunCommandSchema.parse({
+      projectId: "project-a",
+      selectedDiagrams: ["sequence"],
+      requestedDiagrams: ["sequence"],
+      providerSettings: baseProviderSettings,
+    }).requestedDiagrams,
+    ["sequence"],
+  );
+  assert.equal(
+    startCodeRunCommandSchema.parse({
+      projectId: "project-a",
+      providerSettings: baseProviderSettings,
+    }).generationMode,
+    "continue",
+  );
+  assert.equal(
+    startDocumentRunCommandSchema.parse({
+      projectId: "project-a",
+      documentKind: "requirementsSpec",
+      providerSettings: baseProviderSettings,
+    }).useAiText,
+    true,
   );
 });
 
