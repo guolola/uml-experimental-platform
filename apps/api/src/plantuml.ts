@@ -1006,7 +1006,6 @@ function tableRelationshipArrow(relation: TableRelationship) {
 function renderTable(model: TableDiagramSpec) {
   const lines = [
     "@startuml",
-    "!define table(x) entity x << (T,#FFAAAA) >>",
     "hide circle",
     "skinparam linetype ortho",
   ];
@@ -1015,7 +1014,9 @@ function renderTable(model: TableDiagramSpec) {
     const primaryColumns = table.columns.filter((column) => column.isPrimaryKey);
     const otherColumns = table.columns.filter((column) => !column.isPrimaryKey);
     lines.push("");
-    lines.push(`table(${safeAlias(table.id)}) {`);
+    lines.push(
+      `entity ${quoteLabel(table.name)} as ${safeAlias(table.id)} << (T,#FFAAAA) >> {`,
+    );
     for (const column of primaryColumns) {
       const markers = [
         column.isPrimaryKey ? "<<PK>>" : "",

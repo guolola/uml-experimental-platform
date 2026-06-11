@@ -1096,7 +1096,8 @@ test("table PlantUML renders primary and foreign keys", async () => {
 
   const artifact = generateDesignPlantUmlArtifacts([model])[0];
   assert.equal(artifact?.diagramKind, "table");
-  assert.match(artifact?.source ?? "", /!define table\(x\)/);
+  assert.match(artifact?.source ?? "", /entity "user" as user << \(T,#FFAAAA\) >>/);
+  assert.match(artifact?.source ?? "", /entity "order" as order << \(T,#FFAAAA\) >>/);
   assert.match(artifact?.source ?? "", /<<PK>>/);
   assert.match(artifact?.source ?? "", /<<FK>>/);
   assert.match(artifact?.source ?? "", /user \|\|--o\{ order : "1对多"/);

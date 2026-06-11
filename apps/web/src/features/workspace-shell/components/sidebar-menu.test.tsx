@@ -46,6 +46,25 @@ async function confirmGenerationIfPresent(user: ReturnType<typeof userEvent.setu
   await user.click(within(dialog).getByRole("button", { name: "确认生成" }));
 }
 
+function createSidebarRepository(
+  workspace = createWorkspaceRecord(),
+): WorkspaceRepository {
+  return {
+    loadWorkspace: vi.fn(async () => workspace),
+    updateRequirementText: vi.fn(async () => {}),
+    startRun: vi.fn(),
+    subscribeToRun: vi.fn(),
+    getRunSnapshot: vi.fn(),
+    renderPlantUml: vi.fn(),
+    testProviderSettings: vi.fn(),
+    saveRunHistory: vi.fn(),
+    listRunHistory: vi.fn(async () => []),
+    restoreRunHistory: vi.fn(async () => null),
+    deleteRunHistory: vi.fn(async () => []),
+    clearRunHistory: vi.fn(async () => {}),
+  };
+}
+
 function SidebarSequenceGenerationHarness() {
   const { generateDesignDiagrams } = useWorkspaceSession();
   return (
@@ -103,6 +122,177 @@ describe("SidebarMenu", () => {
         .map((button) => button.textContent)
         .filter(Boolean),
     ).toEqual(["需求", "设计", "代码", "测试", "说明书"]);
+  });
+
+  it("nests database columns under their parent table in design navigation", async () => {
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["table"],
+        designModels: {
+          table: {
+            diagramKind: "table",
+            title: "数据库设计",
+            summary: "座位预约表结构",
+            notes: [],
+            tables: [
+              {
+                id: "tbl_user",
+                name: "user",
+                columns: [
+                  {
+                    id: "user_id",
+                    name: "user_id",
+                    dataType: "varchar(64)",
+                    isPrimaryKey: true,
+                    isForeignKey: false,
+                    nullable: false,
+                  },
+                ],
+              },
+            ],
+            relationships: [],
+          },
+        },
+        designSvgArtifacts: {
+          table: {
+            diagramKind: "table",
+            svg: "<svg><text>tbl_user</text><text>user_id : varchar(64)</text></svg>",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(screen.getByRole("button", { name: "展开 数据库设计" }));
+    await user.click(screen.getByRole("button", { name: "展开 表" }));
+    await user.click(screen.getByRole("button", { name: "展开 user" }));
+
+    expect(screen.getByRole("button", { name: "user_id" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "字段" })).not.toBeInTheDocument();
+  });
+
+  it("hides orphan use-case scoped models and structured-only analysis entries", async () => {
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase", "analysis"],
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例模型",
+            summary: "当前只有一个用例",
+            notes: [],
+            actors: [],
+            useCases: [
+              {
+                id: "uc-1",
+                name: "查询座位",
+                goal: "查询座位状态",
+                preconditions: [],
+                postconditions: [],
+                supportingActorIds: [],
+                eventFlows: [],
+              },
+            ],
+            systemBoundaries: [],
+            relationships: [],
+          },
+          "analysis:uc-1": {
+            diagramKind: "analysis",
+            modelId: "analysis:uc-1",
+            sourceUseCaseId: "uc-1",
+            sourceUseCaseName: "查询座位",
+            title: "查询座位需求分析模型",
+            summary: "结构化但未渲染",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+          "analysis:uc-2": {
+            diagramKind: "analysis",
+            modelId: "analysis:uc-2",
+            sourceUseCaseId: "uc-2",
+            sourceUseCaseName: "预约座位",
+            title: "预约座位需求分析模型",
+            summary: "孤儿模型",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+        },
+        generatedDesignDiagramTypes: ["sequence"],
+        designModels: {
+          "sequence:uc-1": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc-1",
+            sourceUseCaseId: "uc-1",
+            sourceUseCaseName: "查询座位",
+            title: "查询座位用例实现设计",
+            summary: "有效实现设计",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+          "sequence:uc-2": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc-2",
+            sourceUseCaseId: "uc-2",
+            sourceUseCaseName: "预约座位",
+            title: "预约座位用例实现设计",
+            summary: "孤儿实现设计",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+        },
+        designSvgArtifacts: {
+          "sequence:uc-1": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc-1",
+            svg: "<svg><text>查询座位</text></svg>",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+          "sequence:uc-2": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc-2",
+            svg: "<svg><text>预约座位</text></svg>",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 需求" }));
+    expect(screen.queryByText("需求分析模型")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "展开 设计" }));
+    expect(screen.getByText("查询座位")).toBeInTheDocument();
+    expect(screen.queryByText("预约座位")).not.toBeInTheDocument();
   });
 
   it("marks failed diagrams in the navigation tree", async () => {
@@ -395,7 +585,7 @@ describe("SidebarMenu", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: "展开 设计" }));
-    expect(screen.getByLabelText("设计类图已生成")).toBeInTheDocument();
+    expect(screen.queryByLabelText("设计类图已生成")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "设计类图" }));
 
@@ -479,11 +669,11 @@ describe("SidebarMenu", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
 
-    expect(screen.getByLabelText("用例模型已生成")).toBeInTheDocument();
-    expect(screen.getByLabelText("领域概念模型已生成")).toBeInTheDocument();
-    expect(screen.getByLabelText("总体业务流程已生成")).toBeInTheDocument();
-    expect(screen.getByLabelText("部署需求模型已生成")).toBeInTheDocument();
-    expect(screen.getByLabelText("原型界面关系已生成")).toBeInTheDocument();
+    expect(screen.queryByLabelText("用例模型已生成")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("领域概念模型已生成")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("总体业务流程已生成")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("部署需求模型已生成")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("原型界面关系已生成")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("用例模型模型已生成，正在生成图像")).not.toBeInTheDocument();
   });
 

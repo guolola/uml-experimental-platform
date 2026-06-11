@@ -402,13 +402,237 @@ function cloneWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
   return structuredClone(workspace) as WorkspaceRecord;
 }
 
+type UseCaseScopedDiagram = "analysis" | "sequence";
+
+function stringProperty(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return "";
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function currentUseCaseIds(
+  models: WorkspaceRecord["models"],
+): Set<string> | null {
+  const useCaseModel = models.usecase;
+  if (!useCaseModel || typeof useCaseModel !== "object") return null;
+  const useCases = (useCaseModel as { useCases?: unknown }).useCases;
+  if (!Array.isArray(useCases)) return null;
+  return new Set(
+    useCases
+      .map((useCase) => stringProperty(useCase, "id"))
+      .filter(Boolean),
+  );
+}
+
+function scopedSourceUseCaseId(
+  recordKey: string,
+  model: unknown,
+  prefix: UseCaseScopedDiagram,
+) {
+  const explicit = stringProperty(model, "sourceUseCaseId");
+  if (explicit) return explicit;
+  const modelId = stringProperty(model, "modelId") || recordKey;
+  return modelId.startsWith(`${prefix}:`) ? modelId.slice(prefix.length + 1) : "";
+}
+
+function isOrphanUseCaseScopedRecord(
+  recordKey: string,
+  model: unknown,
+  prefix: UseCaseScopedDiagram,
+  validUseCaseIds: Set<string>,
+) {
+  const diagramKind = stringProperty(model, "diagramKind");
+  const scoped =
+    recordKey.startsWith(`${prefix}:`) ||
+    stringProperty(model, "modelId").startsWith(`${prefix}:`) ||
+    diagramKind === prefix;
+  if (!scoped) return false;
+  const sourceUseCaseId = scopedSourceUseCaseId(recordKey, model, prefix);
+  return Boolean(sourceUseCaseId && !validUseCaseIds.has(sourceUseCaseId));
+}
+
+function omitRecordKeys<T extends Record<string, unknown>>(
+  record: T,
+  deletedKeys: Set<string>,
+) {
+  if (deletedKeys.size === 0) return record;
+  const next = { ...record };
+  for (const key of deletedKeys) {
+    delete next[key];
+  }
+  return next as T;
+}
+
+function cleanRequirementTraceability(
+  traceability: WorkspaceRecord["requirementModelTraceability"],
+  deletedModelIds: Set<string>,
+) {
+  if (deletedModelIds.size === 0) return traceability;
+  return traceability.filter((entry) => {
+    const modelId = entry.target.modelId;
+    return !modelId || !deletedModelIds.has(modelId);
+  });
+}
+
+function cleanDesignTraceability(
+  traceability: WorkspaceRecord["designModelTraceability"],
+  deletedModelIds: Set<string>,
+  validUseCaseIds: Set<string>,
+) {
+  if (deletedModelIds.size === 0) return traceability;
+  return traceability.flatMap((entry) => {
+    if (
+      entry.source.modelId &&
+      deletedModelIds.has(entry.source.modelId)
+    ) {
+      return [];
+    }
+    if (
+      entry.source.diagramKind === "usecase" &&
+      !validUseCaseIds.has(entry.source.elementId)
+    ) {
+      return [];
+    }
+    const targets = entry.targets.filter(
+      (target) => !target.modelId || !deletedModelIds.has(target.modelId),
+    );
+    if (targets.length === 0) return [];
+    const upstreamDesignRefs = entry.upstreamDesignRefs?.filter(
+      (target) => !target.modelId || !deletedModelIds.has(target.modelId),
+    );
+    return [
+      {
+        ...entry,
+        targets,
+        ...(upstreamDesignRefs ? { upstreamDesignRefs } : {}),
+      },
+    ];
+  });
+}
+
+function hasRequirementDiagramRecord(
+  workspace: WorkspaceRecord,
+  diagramKind: DiagramType,
+) {
+  return (
+    Boolean(workspace.models[diagramKind]) ||
+    Boolean(workspace.plantUml[diagramKind]) ||
+    Boolean(workspace.svgArtifacts[diagramKind]) ||
+    Boolean(workspace.diagramErrors[diagramKind]) ||
+    Object.entries(workspace.models).some(
+      ([key, model]) => key.startsWith(`${diagramKind}:`) || model?.diagramKind === diagramKind,
+    ) ||
+    Object.keys(workspace.plantUml).some((key) => key.startsWith(`${diagramKind}:`)) ||
+    Object.keys(workspace.svgArtifacts).some((key) => key.startsWith(`${diagramKind}:`)) ||
+    Object.keys(workspace.diagramErrors).some((key) => key.startsWith(`${diagramKind}:`))
+  );
+}
+
+function hasDesignDiagramRecord(
+  workspace: WorkspaceRecord,
+  diagramKind: DesignDiagramType,
+) {
+  return (
+    Boolean(workspace.designModels[diagramKind]) ||
+    Boolean(workspace.designPlantUml[diagramKind]) ||
+    Boolean(workspace.designSvgArtifacts[diagramKind]) ||
+    Boolean(workspace.designDiagramErrors[diagramKind]) ||
+    Object.entries(workspace.designModels).some(
+      ([key, model]) => key.startsWith(`${diagramKind}:`) || model.diagramKind === diagramKind,
+    ) ||
+    Object.keys(workspace.designPlantUml).some((key) => key.startsWith(`${diagramKind}:`)) ||
+    Object.keys(workspace.designSvgArtifacts).some((key) => key.startsWith(`${diagramKind}:`)) ||
+    Object.keys(workspace.designDiagramErrors).some((key) => key.startsWith(`${diagramKind}:`))
+  );
+}
+
+function pruneUseCaseScopedWorkspace(
+  workspace: WorkspaceRecord,
+): WorkspaceRecord {
+  const validUseCaseIds = currentUseCaseIds(workspace.models);
+  if (!validUseCaseIds) return workspace;
+
+  const deletedRequirementModelIds = new Set(
+    Object.entries(workspace.models)
+      .filter(([modelId, model]) =>
+        isOrphanUseCaseScopedRecord(modelId, model, "analysis", validUseCaseIds),
+      )
+      .map(([modelId]) => modelId),
+  );
+  const deletedDesignModelIds = new Set(
+    Object.entries(workspace.designModels)
+      .filter(([modelId, model]) =>
+        isOrphanUseCaseScopedRecord(modelId, model, "sequence", validUseCaseIds),
+      )
+      .map(([modelId]) => modelId),
+  );
+  if (deletedRequirementModelIds.size === 0 && deletedDesignModelIds.size === 0) {
+    return workspace;
+  }
+
+  const next: WorkspaceRecord = {
+    ...workspace,
+    models: omitRecordKeys(workspace.models, deletedRequirementModelIds),
+    plantUml: omitRecordKeys(workspace.plantUml, deletedRequirementModelIds),
+    svgArtifacts: omitRecordKeys(workspace.svgArtifacts, deletedRequirementModelIds),
+    diagramErrors: omitRecordKeys(workspace.diagramErrors, deletedRequirementModelIds),
+    diagramInputFingerprints: omitRecordKeys(
+      workspace.diagramInputFingerprints as Record<string, unknown>,
+      deletedRequirementModelIds,
+    ) as WorkspaceRecord["diagramInputFingerprints"],
+    diagramVersions: omitRecordKeys(
+      workspace.diagramVersions as Record<string, unknown>,
+      deletedRequirementModelIds,
+    ) as WorkspaceRecord["diagramVersions"],
+    requirementModelTraceability: cleanRequirementTraceability(
+      workspace.requirementModelTraceability,
+      deletedRequirementModelIds,
+    ),
+    designModels: omitRecordKeys(workspace.designModels, deletedDesignModelIds),
+    designPlantUml: omitRecordKeys(workspace.designPlantUml, deletedDesignModelIds),
+    designSvgArtifacts: omitRecordKeys(
+      workspace.designSvgArtifacts,
+      deletedDesignModelIds,
+    ),
+    designDiagramErrors: omitRecordKeys(
+      workspace.designDiagramErrors,
+      deletedDesignModelIds,
+    ),
+    designInputFingerprints: omitRecordKeys(
+      workspace.designInputFingerprints,
+      deletedDesignModelIds,
+    ),
+    manualModelEditStatus: omitRecordKeys(
+      workspace.manualModelEditStatus,
+      new Set([...deletedRequirementModelIds, ...deletedDesignModelIds]),
+    ),
+    designModelTraceability: cleanDesignTraceability(
+      workspace.designModelTraceability,
+      deletedDesignModelIds,
+      validUseCaseIds,
+    ),
+  };
+
+  if (!hasRequirementDiagramRecord(next, "analysis")) {
+    next.generatedDiagramTypes = next.generatedDiagramTypes.filter(
+      (diagram) => diagram !== "analysis",
+    );
+  }
+  if (!hasDesignDiagramRecord(next, "sequence")) {
+    next.generatedDesignDiagramTypes = next.generatedDesignDiagramTypes.filter(
+      (diagram) => diagram !== "sequence",
+    );
+  }
+  return next;
+}
+
 function mergeWorkspaceState(
   state?: Partial<WorkspaceRecord>,
 ): WorkspaceRecord {
-  return {
+  return pruneUseCaseScopedWorkspace({
     ...createEmptyWorkspace(),
     ...(state ?? {}),
-  };
+  });
 }
 
 function applySnapshotToWorkspace(
@@ -928,6 +1152,7 @@ function mergeRequirementTraceability(
 function stableWorkspaceState(
   workspace: WorkspaceRecord,
 ): Partial<WorkspaceRecord> {
+  const pruned = pruneUseCaseScopedWorkspace(workspace);
   const {
     currentStage: _currentStage,
     runStatus: _runStatus,
@@ -935,7 +1160,7 @@ function stableWorkspaceState(
     runMessage: _runMessage,
     errorMessage: _errorMessage,
     ...state
-  } = workspace;
+  } = pruned;
   return state;
 }
 

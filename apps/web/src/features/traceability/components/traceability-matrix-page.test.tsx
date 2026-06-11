@@ -322,6 +322,23 @@ describe("TraceabilityMatrixPage", () => {
         designModelTraceability: [
           {
             source: {
+              modelId: "sequence:submit-order",
+              diagramKind: "sequence",
+              elementId: "auth-service",
+              elementKind: "participant",
+              label: "认证服务",
+            },
+            targets: [
+              {
+                diagramKind: "class",
+                elementId: "domain-user",
+                elementKind: "class",
+                label: "UserDomain",
+              },
+            ],
+          },
+          {
+            source: {
               diagramKind: "class",
               elementId: "class-user-auth",
               elementKind: "class",
@@ -333,15 +350,6 @@ describe("TraceabilityMatrixPage", () => {
                 elementId: "domain-user",
                 elementKind: "class",
                 label: "UserDomain",
-              },
-            ],
-            upstreamDesignRefs: [
-              {
-                modelId: "sequence:submit-order",
-                diagramKind: "sequence",
-                elementId: "auth-service",
-                elementKind: "participant",
-                label: "认证服务",
               },
             ],
           },

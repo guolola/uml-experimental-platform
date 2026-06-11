@@ -426,6 +426,26 @@ function stringListValue(value: unknown) {
     : [];
 }
 
+function uniqueNonEmptyStrings(values: Array<string | undefined | null>) {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
+  );
+}
+
+function diagramHighlightAliases(element: DiagramDetailItem | undefined) {
+  if (!element) return [];
+  const fieldAliases = element.fields
+    .filter((field) => ["中文名称", "英文名称"].includes(field.label))
+    .map((field) => field.value);
+  const idTail = element.id.includes(".") ? element.id.split(".").at(-1) : "";
+  const labelTail = element.label.includes(".") ? element.label.split(".").at(-1) : "";
+  return uniqueNonEmptyStrings([
+    ...fieldAliases,
+    idTail,
+    labelTail,
+  ]).filter((alias) => alias !== element.label);
+}
+
 function textToStringList(value: string) {
   return value
     .split(/\r?\n/)
@@ -501,10 +521,6 @@ function setRelationName(relation: Record<string, unknown>, value: string) {
 function relationEndpointKey(draft: Record<string, unknown>, endpoint: "source" | "target") {
   if (draft.diagramKind === "table") return endpoint === "source" ? "sourceTableId" : "targetTableId";
   return endpoint === "source" ? "sourceId" : "targetId";
-}
-
-function compactColumnId(tableId: string, columnId: string) {
-  return `${tableId}.${columnId}`;
 }
 
 function updateDraftCollection(
@@ -2367,7 +2383,6 @@ function ModelEditPanel({
               filteredRelationships.map((relationSummary) => {
                 const {
                   id,
-                  detailRelation,
                   displayLabel,
                   sourceLabel,
                   targetLabel,
@@ -2843,6 +2858,10 @@ function DiagramDetailView({
       (e) => e.kind === effectiveHighlightedElement.kind && e.id === effectiveHighlightedElement.id,
     );
   }, [items, effectiveHighlightedElement]);
+  const highlightAliases = useMemo(
+    () => diagramHighlightAliases(highlighted),
+    [highlighted],
+  );
   const selectElementInDiagram = useCallback((element: DiagramDetailItem) => {
     setLocalHighlightedElement({ kind: element.kind, id: element.id });
     setHighlightRequestId((current) => current + 1);
@@ -3261,6 +3280,7 @@ function DiagramDetailView({
                             svg={normalizedSvgMarkup}
                             scale={svgScale}
                             highlightLabel={highlighted?.label}
+                            highlightAliases={highlightAliases}
                             highlightKey={highlightRequestId}
                             className="w-full select-none [&_*]:select-none [&>svg]:drop-shadow-sm"
                           />

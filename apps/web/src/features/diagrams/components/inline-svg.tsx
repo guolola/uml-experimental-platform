@@ -15,15 +15,38 @@ function isScopedHighlightGroup(group: Element) {
   return group.querySelectorAll("text").length <= 1;
 }
 
+function normalizedHighlightLabels(
+  highlightLabel?: string,
+  highlightAliases: string[] = [],
+) {
+  const labels = [highlightLabel, ...highlightAliases]
+    .map((label) => label?.trim())
+    .filter((label): label is string => Boolean(label));
+  return Array.from(new Set(labels));
+}
+
+function svgTextMatchesHighlight(text: string, labels: string[]) {
+  const normalized = text.trim();
+  return labels.some(
+    (label) =>
+      normalized === label ||
+      normalized.startsWith(`${label} :`) ||
+      normalized.startsWith(`${label}:`) ||
+      normalized.startsWith(`${label}：`),
+  );
+}
+
 export function InlineSvg({
   svg,
   highlightLabel,
+  highlightAliases = [],
   highlightKey,
   scale = 1,
   className,
 }: {
   svg: string;
   highlightLabel?: string;
+  highlightAliases?: string[];
   highlightKey?: string | number;
   scale?: number;
   className?: string;
@@ -64,12 +87,12 @@ export function InlineSvg({
       .querySelectorAll<SVGElement>(".pum-highlight, .pum-dim")
       .forEach((n) => n.classList.remove("pum-highlight", "pum-dim"));
 
-    if (!highlightLabel) return;
+    const targetLabels = normalizedHighlightLabels(highlightLabel, highlightAliases);
+    if (targetLabels.length === 0) return;
 
-    const target = highlightLabel.trim();
     const texts = Array.from(svgEl.querySelectorAll<SVGTextElement>("text"));
-    const matches = texts.filter(
-      (t) => (t.textContent ?? "").trim() === target,
+    const matches = texts.filter((t) =>
+      svgTextMatchesHighlight(t.textContent ?? "", targetLabels),
     );
     if (matches.length === 0) return;
 
@@ -98,7 +121,7 @@ export function InlineSvg({
         /* ignore */
       }
     }
-  }, [sanitizedSvg, highlightLabel, highlightKey, scale]);
+  }, [sanitizedSvg, highlightAliases, highlightLabel, highlightKey, scale]);
 
   if (!sanitizedSvg) {
     return (

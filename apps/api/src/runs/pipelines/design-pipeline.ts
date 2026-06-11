@@ -42,6 +42,7 @@ import {
 import {
   collectModelRefs,
   deriveDesignRelationshipTraceability,
+  deriveUpstreamDesignRefsFromTraceability,
   formatTraceabilityMissingRefs,
   mergeDesignTraceability,
   normalizeDesignTraceabilityForSources,
@@ -524,9 +525,8 @@ async function generateDesignTraceabilityWithRepair(
     );
   }
 
-  accumulatedTraceability = deriveDesignRelationshipTraceability(
-    accumulatedTraceability,
-    designModels,
+  accumulatedTraceability = deriveUpstreamDesignRefsFromTraceability(
+    deriveDesignRelationshipTraceability(accumulatedTraceability, designModels),
   );
 
   const afterDerivedCoverage = normalizeDesignTraceabilityWithCoverage(
@@ -571,16 +571,15 @@ async function generateDesignTraceabilityWithRepair(
     );
   }
 
-  accumulatedTraceability = deriveDesignRelationshipTraceability(
-    accumulatedTraceability,
-    designModels,
+  accumulatedTraceability = deriveUpstreamDesignRefsFromTraceability(
+    deriveDesignRelationshipTraceability(accumulatedTraceability, designModels),
   );
   const finalCoverage = normalizeDesignTraceabilityWithCoverage(
     accumulatedTraceability,
     designModels,
     requirementModels,
   );
-  const recoveredFinalTraceability =
+  const recoveredFinalTraceability = deriveUpstreamDesignRefsFromTraceability(
     finalCoverage.traceability.length > 0 && finalCoverage.missingSources.length > 0
       ? mergeDesignTraceability(
           finalCoverage.traceability,
@@ -590,7 +589,8 @@ async function generateDesignTraceabilityWithRepair(
             requirementModels,
           ),
         )
-      : finalCoverage.traceability;
+      : finalCoverage.traceability,
+  );
   const recoveredFinalCoverage = normalizeDesignTraceabilityWithCoverage(
     recoveredFinalTraceability,
     designModels,

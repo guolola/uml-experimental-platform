@@ -581,6 +581,47 @@ export function deriveDesignRelationshipTraceability(
   return mergeDesignTraceability(current, derived);
 }
 
+export function deriveUpstreamDesignRefsFromTraceability(
+  current: DesignModelTraceabilityEntry[],
+) {
+  const sequenceSourcesByTarget = new Map<string, ModelElementRef[]>();
+  for (const entry of current) {
+    if (entry.source.diagramKind !== "sequence") continue;
+    for (const target of entry.targets) {
+      const key = refEntryKey(target);
+      sequenceSourcesByTarget.set(key, [
+        ...(sequenceSourcesByTarget.get(key) ?? []),
+        entry.source,
+      ]);
+    }
+  }
+  if (sequenceSourcesByTarget.size === 0) return current;
+
+  return current.map((entry) => {
+    if (entry.source.diagramKind === "sequence") return entry;
+    const upstreamDesignRefs = new Map<string, ModelElementRef>();
+    for (const ref of entry.upstreamDesignRefs ?? []) {
+      upstreamDesignRefs.set(refEntryKey(ref), ref);
+    }
+    for (const target of entry.targets) {
+      for (const source of sequenceSourcesByTarget.get(refEntryKey(target)) ?? []) {
+        upstreamDesignRefs.set(refEntryKey(source), source);
+      }
+    }
+    if (upstreamDesignRefs.size === (entry.upstreamDesignRefs?.length ?? 0)) {
+      return entry;
+    }
+    return {
+      ...entry,
+      upstreamDesignRefs: Array.from(upstreamDesignRefs.values()),
+      mappingSource: entry.mappingSource ?? "derived-from-endpoints",
+      rationale:
+        entry.rationale ??
+        "由共享需求元素映射补齐与用例实现设计的上游追踪关系",
+    };
+  });
+}
+
 export function mergeRequirementTraceability(
   current: RequirementModelTraceabilityEntry[],
   patch: RequirementModelTraceabilityEntry[],

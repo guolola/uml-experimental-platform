@@ -59,6 +59,37 @@ describe("InlineSvg", () => {
     });
   });
 
+  it("highlights database tables by rendered names and field rows by type declarations", async () => {
+    const { container, rerender } = render(
+      <InlineSvg
+        svg={
+          '<svg width="220" height="100"><g><rect width="160" height="40"></rect><text x="10" y="25">user</text></g><g><rect y="50" width="200" height="30"></rect><text x="10" y="70">user_id : varchar(64)</text></g></svg>'
+        }
+        highlightLabel="user"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("text.pum-highlight")?.textContent).toBe("user");
+    });
+
+    rerender(
+      <InlineSvg
+        svg={
+          '<svg width="220" height="100"><g><rect width="160" height="40"></rect><text x="10" y="25">user</text></g><g><rect y="50" width="200" height="30"></rect><text x="10" y="70">user_id : varchar(64)</text></g></svg>'
+        }
+        highlightLabel="user.user_id"
+        highlightAliases={["user_id"]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector("text.pum-highlight")?.textContent).toBe(
+        "user_id : varchar(64)",
+      );
+    });
+  });
+
   it("does not highlight a coarse PlantUML group that contains the whole diagram", async () => {
     const { container } = render(
       <InlineSvg

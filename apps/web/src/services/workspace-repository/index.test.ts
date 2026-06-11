@@ -1593,7 +1593,7 @@ describe("createHttpWorkspaceRepository", () => {
       summary: "既有用例",
       notes: [],
       actors: [],
-      useCases: [],
+      useCases: [{ id: "uc_view", name: "查看活动" }],
       systemBoundaries: [],
       relationships: [],
     };
@@ -1637,6 +1637,7 @@ describe("createHttpWorkspaceRepository", () => {
     const analysisModel = {
       diagramKind: "analysis",
       modelId: "analysis:uc_view",
+      sourceUseCaseId: "uc_view",
       title: "查看活动需求分析",
       summary: "用例事件流分析",
       notes: [],
@@ -2366,6 +2367,221 @@ describe("createHttpWorkspaceRepository", () => {
         entry.targets.some((target) => target.modelId === "sequence:uc_old"),
       ),
     ).toBe(false);
+  });
+
+  it("prunes orphan use-case scoped analysis and sequence records from project workspace state", async () => {
+    let savedState: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 9,
+            state: {
+              requirementText: "座位预约需求",
+              generatedDiagramTypes: ["usecase", "analysis"],
+              generatedDesignDiagramTypes: ["sequence"],
+              models: {
+                usecase: {
+                  diagramKind: "usecase",
+                  actors: [],
+                  useCases: [
+                    { id: "uc-1", name: "查询座位" },
+                    { id: "uc-2", name: "预约座位" },
+                  ],
+                  systemBoundaries: [],
+                  relationships: [],
+                },
+                "analysis:uc-1": {
+                  diagramKind: "analysis",
+                  modelId: "analysis:uc-1",
+                  sourceUseCaseId: "uc-1",
+                  participants: [],
+                  messages: [],
+                  fragments: [],
+                },
+                "analysis:uc_old": {
+                  diagramKind: "analysis",
+                  modelId: "analysis:uc_old",
+                  sourceUseCaseId: "uc_old",
+                  participants: [],
+                  messages: [],
+                  fragments: [],
+                },
+              },
+              plantUml: {
+                "analysis:uc-1": "@startuml\n@enduml",
+                "analysis:uc_old": "@startuml\n' old\n@enduml",
+              },
+              svgArtifacts: {
+                "analysis:uc-1": {
+                  diagramKind: "analysis",
+                  modelId: "analysis:uc-1",
+                  svg: "<svg />",
+                },
+                "analysis:uc_old": {
+                  diagramKind: "analysis",
+                  modelId: "analysis:uc_old",
+                  svg: "<svg data-old />",
+                },
+              },
+              diagramInputFingerprints: {
+                "analysis:uc-1": "current-fp",
+                "analysis:uc_old": "old-fp",
+              },
+              diagramVersions: {
+                "analysis:uc-1": 2,
+                "analysis:uc_old": 1,
+              },
+              requirementModelTraceability: [
+                {
+                  ruleId: "r-current",
+                  target: {
+                    modelId: "analysis:uc-1",
+                    diagramKind: "analysis",
+                    elementId: "m-current",
+                    elementKind: "message",
+                    label: "当前消息",
+                  },
+                },
+                {
+                  ruleId: "r-old",
+                  target: {
+                    modelId: "analysis:uc_old",
+                    diagramKind: "analysis",
+                    elementId: "m-old",
+                    elementKind: "message",
+                    label: "旧消息",
+                  },
+                },
+              ],
+              designModels: {
+                "sequence:uc-1": {
+                  diagramKind: "sequence",
+                  modelId: "sequence:uc-1",
+                  sourceUseCaseId: "uc-1",
+                  participants: [],
+                  messages: [],
+                  fragments: [],
+                },
+                "sequence:uc_old": {
+                  diagramKind: "sequence",
+                  modelId: "sequence:uc_old",
+                  sourceUseCaseId: "uc_old",
+                  participants: [],
+                  messages: [],
+                  fragments: [],
+                },
+              },
+              designPlantUml: {
+                "sequence:uc-1": "@startuml\n@enduml",
+                "sequence:uc_old": "@startuml\n' old\n@enduml",
+              },
+              designSvgArtifacts: {
+                "sequence:uc-1": {
+                  diagramKind: "sequence",
+                  modelId: "sequence:uc-1",
+                  svg: "<svg />",
+                },
+                "sequence:uc_old": {
+                  diagramKind: "sequence",
+                  modelId: "sequence:uc_old",
+                  svg: "<svg data-old />",
+                },
+              },
+              designInputFingerprints: {
+                "sequence:uc-1": "current-design-fp",
+                "sequence:uc_old": "old-design-fp",
+              },
+              designModelTraceability: [
+                {
+                  source: {
+                    diagramKind: "usecase",
+                    elementId: "uc-1",
+                    elementKind: "useCase",
+                    label: "查询座位",
+                  },
+                  targets: [
+                    {
+                      modelId: "sequence:uc-1",
+                      diagramKind: "sequence",
+                      elementId: "m-current",
+                      elementKind: "message",
+                      label: "当前消息",
+                    },
+                  ],
+                },
+                {
+                  source: {
+                    diagramKind: "usecase",
+                    elementId: "uc_old",
+                    elementKind: "useCase",
+                    label: "旧用例",
+                  },
+                  targets: [
+                    {
+                      modelId: "sequence:uc_old",
+                      diagramKind: "sequence",
+                      elementId: "m-old",
+                      elementKind: "message",
+                      label: "旧消息",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        savedState = JSON.parse(String(options.body)).state;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 10,
+            state: savedState,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    const loaded = await repository.loadWorkspace();
+    expect(loaded.models["analysis:uc_old"]).toBeUndefined();
+    expect(loaded.designModels["sequence:uc_old"]).toBeUndefined();
+
+    await repository.updateRequirementText("座位预约需求（修订）");
+
+    expect(savedState?.models).not.toHaveProperty("analysis:uc_old");
+    expect(savedState?.plantUml).not.toHaveProperty("analysis:uc_old");
+    expect(savedState?.svgArtifacts).not.toHaveProperty("analysis:uc_old");
+    expect(savedState?.designModels).not.toHaveProperty("sequence:uc_old");
+    expect(savedState?.designPlantUml).not.toHaveProperty("sequence:uc_old");
+    expect(savedState?.designSvgArtifacts).not.toHaveProperty("sequence:uc_old");
+    expect(savedState?.diagramInputFingerprints).not.toHaveProperty("analysis:uc_old");
+    expect(savedState?.designInputFingerprints).not.toHaveProperty("sequence:uc_old");
+    expect(savedState?.requirementModelTraceability).toEqual([
+      expect.objectContaining({ ruleId: "r-current" }),
+    ]);
+    expect(savedState?.designModelTraceability).toEqual([
+      expect.objectContaining({
+        source: expect.objectContaining({ elementId: "uc-1" }),
+      }),
+    ]);
   });
 
   it("keeps old design records when the selected design kind failed", async () => {

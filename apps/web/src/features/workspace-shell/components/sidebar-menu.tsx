@@ -466,19 +466,15 @@ function buildDiagramNode(
           },
         ]
       : []),
-    ...detail.groups.map((group) => ({
-      key: `diagram-group:${modelId}:${group.kind}`,
-      label: SEMANTIC_KIND_META[group.kind].label,
-      selectable: false,
-      badge: group.items.length,
-      children: group.items.map((element) => ({
-        key: `diagram-element:${modelId}:${element.kind}:${element.id}`,
-        label: element.label,
-        icon: KIND_ICON[element.kind],
-        onSelect: () =>
-          openDiagramElement(diagram, element.kind, element.id, element.label, modelId),
-      })),
-    })),
+    ...buildDiagramElementGroupNodes(
+      detail,
+      modelId,
+      "diagram-group",
+      "diagram-element",
+      (element) =>
+        openDiagramElement(diagram, element.kind, element.id, element.label, modelId),
+      { showGroupBadges: true },
+    ),
   ];
 
   return {
@@ -531,6 +527,56 @@ function buildPendingRequirementDiagramNode(
   };
 }
 
+function buildDiagramElementGroupNodes(
+  detail: ReturnType<typeof buildDiagramDetailModel>,
+  modelId: string,
+  groupKeyPrefix: string,
+  elementKeyPrefix: string,
+  onSelectElement: (element: ReturnType<typeof buildDiagramDetailModel>["items"][number]) => void,
+  options: { showGroupBadges: boolean },
+): Node[] {
+  const tableColumnsByTableId = new Map<
+    string,
+    ReturnType<typeof buildDiagramDetailModel>["items"]
+  >();
+  for (const column of detail.groups.find((group) => group.kind === "table-column")?.items ?? []) {
+    const tableId = column.id.split(".").slice(0, -1).join(".");
+    if (!tableId) continue;
+    tableColumnsByTableId.set(tableId, [
+      ...(tableColumnsByTableId.get(tableId) ?? []),
+      column,
+    ]);
+  }
+  const hasTableHierarchy = tableColumnsByTableId.size > 0;
+
+  return detail.groups
+    .filter((group) => !(hasTableHierarchy && group.kind === "table-column"))
+    .map((group) => ({
+      key: `${groupKeyPrefix}:${modelId}:${group.kind}`,
+      label: SEMANTIC_KIND_META[group.kind].label,
+      selectable: false,
+      badge: options.showGroupBadges ? group.items.length : undefined,
+      children: group.items.map((element) => {
+        const columnChildren =
+          element.kind === "table" ? tableColumnsByTableId.get(element.id) ?? [] : [];
+        return {
+          key: `${elementKeyPrefix}:${modelId}:${element.kind}:${element.id}`,
+          label: element.label,
+          icon: KIND_ICON[element.kind],
+          children: columnChildren.map((column) => ({
+            key: `${elementKeyPrefix}:${modelId}:${column.kind}:${column.id}`,
+            label: column.label.includes(".")
+              ? column.label.split(".").slice(1).join(".")
+              : column.label,
+            icon: KIND_ICON[column.kind],
+            onSelect: () => onSelectElement(column),
+          })),
+          onSelect: () => onSelectElement(element),
+        };
+      }),
+    }));
+}
+
 function buildDesignDiagramNode(
   diagram: DesignDiagramType,
   model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
@@ -575,24 +621,21 @@ function buildDesignDiagramNode(
           },
         ]
       : []),
-    ...detail.groups.map((group) => ({
-      key: `design-diagram-group:${modelId}:${group.kind}`,
-      label: SEMANTIC_KIND_META[group.kind].label,
-      selectable: false,
-      children: group.items.map((element) => ({
-        key: `design-diagram-element:${modelId}:${element.kind}:${element.id}`,
-        label: element.label,
-        icon: KIND_ICON[element.kind],
-        onSelect: () =>
-          openDesignDiagramElement(
-            diagram,
-            element.kind,
-            element.id,
-            element.label,
-            modelId,
-          ),
-      })),
-    })),
+    ...buildDiagramElementGroupNodes(
+      detail,
+      modelId,
+      "design-diagram-group",
+      "design-diagram-element",
+      (element) =>
+        openDesignDiagramElement(
+          diagram,
+          element.kind,
+          element.id,
+          element.label,
+          modelId,
+        ),
+      { showGroupBadges: false },
+    ),
   ];
 
   return {
@@ -658,6 +701,33 @@ function analysisUseCaseNodes(
   }));
 }
 
+function useCaseIdsFromModel(
+  useCaseModel: ReturnType<typeof useWorkspaceSession>["models"]["usecase"],
+) {
+  if (!useCaseModel || !("useCases" in useCaseModel)) return new Set<string>();
+  return new Set(useCaseModel.useCases.map((useCase) => useCase.id));
+}
+
+function sourceUseCaseIdFromScopedModel(model: unknown, prefix: "analysis" | "sequence") {
+  if (!model || typeof model !== "object") return "";
+  const record = model as Record<string, unknown>;
+  const explicit =
+    typeof record.sourceUseCaseId === "string" ? record.sourceUseCaseId.trim() : "";
+  if (explicit) return explicit;
+  const modelId = typeof record.modelId === "string" ? record.modelId.trim() : "";
+  return modelId.startsWith(`${prefix}:`) ? modelId.slice(prefix.length + 1) : "";
+}
+
+function scopedModelMatchesCurrentUseCases(
+  model: unknown,
+  prefix: "analysis" | "sequence",
+  currentUseCaseIds: Set<string>,
+) {
+  if (currentUseCaseIds.size === 0) return true;
+  const sourceUseCaseId = sourceUseCaseIdFromScopedModel(model, prefix);
+  return Boolean(sourceUseCaseId && currentUseCaseIds.has(sourceUseCaseId));
+}
+
 export function SidebarMenu() {
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
@@ -688,11 +758,19 @@ export function SidebarMenu() {
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
   const selectedKey = getSelectionKey(selection);
+  const currentUseCaseIds = useCaseIdsFromModel(models.usecase);
+  const requirementModelViewable = (diagram: DiagramType, modelId?: string) =>
+    Boolean((modelId ? svgArtifacts[modelId] : undefined) ?? svgArtifacts[diagram]);
+  const designModelViewable = (diagram: DesignDiagramType, modelId?: string) =>
+    Boolean((modelId ? designSvgArtifacts[modelId] : undefined) ?? designSvgArtifacts[diagram]);
   const requirementModelsByDiagram = (Object.keys(DIAGRAM_META) as DiagramType[]).reduce(
     (acc, diagram) => {
       acc[diagram] = Object.values(models).filter(
         (model): model is NonNullable<typeof model> =>
-          Boolean(model) && model.diagramKind === diagram,
+          Boolean(model) &&
+          model.diagramKind === diagram &&
+          (diagram !== "analysis" ||
+            scopedModelMatchesCurrentUseCases(model, "analysis", currentUseCaseIds)),
       );
       return acc;
     },
@@ -701,7 +779,10 @@ export function SidebarMenu() {
   const designModelsByDiagram = DESIGN_DIAGRAM_ORDER.reduce(
     (acc, diagram) => {
       acc[diagram] = Object.values(designModels).filter(
-        (model) => model.diagramKind === diagram,
+        (model) =>
+          model.diagramKind === diagram &&
+          (diagram !== "sequence" ||
+            scopedModelMatchesCurrentUseCases(model, "sequence", currentUseCaseIds)),
       );
       return acc;
     },
@@ -741,13 +822,29 @@ export function SidebarMenu() {
     }
   }
   const requirementNodeDiagrams = (Object.keys(DIAGRAM_META) as DiagramType[]).filter(
-    (diagram) =>
-      requirementModelsByDiagram[diagram].length > 0 ||
-      generatedDiagrams.includes(diagram) ||
-      requirementSubtaskStatus.has(diagram) ||
-      [...requirementSubtaskStatus.keys()].some((id) => id.startsWith(`${diagram}:`)) ||
-      Boolean(diagramErrors[diagram]) ||
-      Object.keys(diagramErrors).some((id) => id.startsWith(`${diagram}:`)),
+    (diagram) => {
+      const scopedModelIds = requirementModelsByDiagram[diagram].map((model) =>
+        getRequirementModelId(model),
+      );
+      const hasViewableScopedModel = scopedModelIds.some((modelId) =>
+        requirementModelViewable(diagram, modelId),
+      );
+      const hasActiveScopedTask =
+        requirementSubtaskStatus.has(diagram) ||
+        [...requirementSubtaskStatus.keys()].some((id) => id.startsWith(`${diagram}:`));
+      const hasScopedError =
+        Boolean(diagramErrors[diagram]) ||
+        Object.keys(diagramErrors).some((id) => id.startsWith(`${diagram}:`));
+      if (diagram === "analysis") {
+        return hasViewableScopedModel || hasActiveScopedTask || hasScopedError;
+      }
+      return (
+        requirementModelsByDiagram[diagram].length > 0 ||
+        generatedDiagrams.includes(diagram) ||
+        hasActiveScopedTask ||
+        hasScopedError
+      );
+    },
   );
   const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter(
     (diagram) =>
@@ -768,16 +865,9 @@ export function SidebarMenu() {
       requirementSubtaskStatus.get(diagram);
     if (activeStatus) return activeStatus;
     const viewable = requirementModelViewable(diagram, modelId);
-    const hasStructuredModel = Boolean(
-      (modelId ? models[modelId] : undefined) ??
-        models[diagram] ??
-        requirementModelsByDiagram[diagram][0],
-    );
-    if (generatedDiagrams.includes(diagram) || hasStructuredModel) return "completed";
+    if (viewable) return "completed";
     return undefined;
   };
-  const requirementModelViewable = (diagram: DiagramType, modelId?: string) =>
-    Boolean((modelId ? svgArtifacts[modelId] : undefined) ?? svgArtifacts[diagram]);
   const analysisGenerationActive =
     requirementSubtaskStatus.has("analysis") ||
     [...requirementSubtaskStatus.keys()].some((id) => id.startsWith("analysis:"));
@@ -788,8 +878,18 @@ export function SidebarMenu() {
     new Set([
       ...expectedAnalysisNodes.map((node) => node.id),
       ...requirementModelsByDiagram.analysis.map((model) => getRequirementModelId(model)),
-      ...[...requirementSubtaskStatus.keys()].filter((id) => id.startsWith("analysis:")),
-      ...Object.keys(diagramErrors).filter((id) => id.startsWith("analysis:")),
+      ...[...requirementSubtaskStatus.keys()].filter(
+        (id) =>
+          id.startsWith("analysis:") &&
+          (currentUseCaseIds.size === 0 ||
+            currentUseCaseIds.has(id.slice("analysis:".length))),
+      ),
+      ...Object.keys(diagramErrors).filter(
+        (id) =>
+          id.startsWith("analysis:") &&
+          (currentUseCaseIds.size === 0 ||
+            currentUseCaseIds.has(id.slice("analysis:".length))),
+      ),
     ]),
   );
   const analysisSubtaskNodes: DesignSubtaskNode[] = analysisNodeIds.map((id) => {
@@ -813,16 +913,9 @@ export function SidebarMenu() {
       designSubtaskStatus.get(diagram);
     if (activeStatus) return activeStatus;
     const viewable = designModelViewable(diagram, modelId);
-    const hasStructuredModel = Boolean(
-      (modelId ? designModels[modelId] : undefined) ??
-        designModels[diagram] ??
-        designModelsByDiagram[diagram][0],
-    );
-    if (generatedDesignDiagrams.includes(diagram) || hasStructuredModel) return "completed";
+    if (viewable) return "completed";
     return undefined;
   };
-  const designModelViewable = (diagram: DesignDiagramType, modelId?: string) =>
-    Boolean((modelId ? designSvgArtifacts[modelId] : undefined) ?? designSvgArtifacts[diagram]);
   const sequenceGenerationActive =
     designSubtaskStatus.has("sequence") ||
     [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:"));
@@ -833,8 +926,18 @@ export function SidebarMenu() {
     new Set([
       ...expectedSequenceNodes.map((node) => node.id),
       ...designModelsByDiagram.sequence.map((model) => getDesignModelId(model)),
-      ...[...designSubtaskStatus.keys()].filter((id) => id.startsWith("sequence:")),
-      ...Object.keys(designDiagramErrors).filter((id) => id.startsWith("sequence:")),
+      ...[...designSubtaskStatus.keys()].filter(
+        (id) =>
+          id.startsWith("sequence:") &&
+          (currentUseCaseIds.size === 0 ||
+            currentUseCaseIds.has(id.slice("sequence:".length))),
+      ),
+      ...Object.keys(designDiagramErrors).filter(
+        (id) =>
+          id.startsWith("sequence:") &&
+          (currentUseCaseIds.size === 0 ||
+            currentUseCaseIds.has(id.slice("sequence:".length))),
+      ),
     ]),
   );
   const sequenceSubtaskNodes: DesignSubtaskNode[] = sequenceNodeIds.map((id) => {

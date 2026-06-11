@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   autoFillRequirementTraceability,
   deriveDesignRelationshipTraceability,
+  deriveUpstreamDesignRefsFromTraceability,
   formatTraceabilityMissingRefs,
   normalizeDesignTraceability,
   normalizeDesignTraceabilityWithCoverage,
@@ -475,4 +476,51 @@ test("design traceability can derive relationship mappings from endpoint mapping
     relationship?.targets.map((target) => target.elementId).sort(),
     ["actor_researcher", "usecase_generate"],
   );
+});
+
+test("design traceability derives upstream sequence refs from shared requirement targets", () => {
+  const current = [
+    {
+      source: {
+        modelId: "sequence:uc_submit",
+        diagramKind: "sequence" as const,
+        elementId: "submit-message",
+        elementKind: "message",
+        label: "submitReservation",
+      },
+      targets: [
+        {
+          diagramKind: "class" as const,
+          elementId: "domain-user",
+          elementKind: "class",
+          label: "UserDomain",
+        },
+      ],
+    },
+    {
+      source: {
+        diagramKind: "class" as const,
+        elementId: "reservation-service",
+        elementKind: "class",
+        label: "ReservationService",
+      },
+      targets: [
+        {
+          diagramKind: "class" as const,
+          elementId: "domain-user",
+          elementKind: "class",
+          label: "UserDomain",
+        },
+      ],
+    },
+  ];
+
+  const derived = deriveUpstreamDesignRefsFromTraceability(current);
+  const service = derived.find(
+    (entry) => entry.source.elementId === "reservation-service",
+  );
+
+  assert.equal(service?.mappingSource, "derived-from-endpoints");
+  assert.equal(service?.upstreamDesignRefs?.[0]?.modelId, "sequence:uc_submit");
+  assert.equal(service?.upstreamDesignRefs?.[0]?.elementId, "submit-message");
 });

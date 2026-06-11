@@ -354,6 +354,39 @@ function buildRequirementRows(
   });
 }
 
+function deriveVisibleUpstreamDesignRefs(
+  traceability: ReturnType<typeof useWorkspaceSession>["designModelTraceability"],
+) {
+  const sequenceSourcesByTarget = new Map<string, ModelElementRef[]>();
+  for (const entry of traceability) {
+    if (entry.source.diagramKind !== "sequence") continue;
+    for (const target of entry.targets) {
+      const key = refKey(target);
+      sequenceSourcesByTarget.set(key, [
+        ...(sequenceSourcesByTarget.get(key) ?? []),
+        entry.source,
+      ]);
+    }
+  }
+  if (sequenceSourcesByTarget.size === 0) return traceability;
+
+  return traceability.map((entry) => {
+    if (entry.source.diagramKind === "sequence") return entry;
+    const upstreamDesignRefs = new Map<string, ModelElementRef>();
+    for (const ref of entry.upstreamDesignRefs ?? []) {
+      upstreamDesignRefs.set(refKey(ref), ref);
+    }
+    for (const target of entry.targets) {
+      for (const source of sequenceSourcesByTarget.get(refKey(target)) ?? []) {
+        upstreamDesignRefs.set(refKey(source), source);
+      }
+    }
+    return upstreamDesignRefs.size > 0
+      ? { ...entry, upstreamDesignRefs: Array.from(upstreamDesignRefs.values()) }
+      : entry;
+  });
+}
+
 function buildDesignRows(
   rules: RequirementRule[],
   requirementModels: ReturnType<typeof useWorkspaceSession>["models"],
@@ -377,7 +410,7 @@ function buildDesignRows(
     string,
     ReturnType<typeof useWorkspaceSession>["designModelTraceability"][number]
   >();
-  for (const entry of designTraceability) {
+  for (const entry of deriveVisibleUpstreamDesignRefs(designTraceability)) {
     traceBySource.set(entry.source.elementId ? refKey(entry.source) : "", entry);
   }
 
