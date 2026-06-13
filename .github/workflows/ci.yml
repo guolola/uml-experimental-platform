@@ -1,0 +1,59 @@
+# Runs non-deploying validation for branch and PR changes before the main deploy workflow.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java for PlantUML tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify PlantUML jar
+        run: test -f plantuml/build/libs/plantuml-1.2026.3beta8.jar
+
+      - name: Build shared packages for tests
+        run: |
+          npm run build:contracts
+          npm run build:prompts
+
+      - name: Test
+        run: |
+          npm run test:contracts
+          npm run test:api
+          npm run test:render
+          npm run test:web
+
+      - name: Build
+        run: npm run build
