@@ -1,3 +1,4 @@
+// Provides LLM transport helpers, provider request shaping, and response parsing boundaries for API pipelines.
 import type { ImageProviderSettings, ProviderSettings } from "@uml-platform/contracts";
 
 export interface ChatMessage {

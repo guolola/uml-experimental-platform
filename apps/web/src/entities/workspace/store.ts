@@ -6,7 +6,7 @@ import type {
   RunSnapshot,
 } from "@uml-platform/contracts";
 import type { WorkspaceRecord } from "./model";
-import type { ArtifactProvenance } from "../../workflows/manifest";
+import type { ArtifactProvenance } from "./provenance";
 
 export interface ProjectRecord {
   id: string;

@@ -22,7 +22,7 @@ import {
   UserCheck,
   type LucideIcon,
 } from "lucide-react";
-import type { MarketingRoutePath } from "../../../app/app-routes";
+import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
 
 export type MarketingNavItem = {
   label: string;

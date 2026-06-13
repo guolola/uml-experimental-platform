@@ -1,3 +1,4 @@
+// Renders the workspace sidebar navigation and diagram status tree used by desktop and wide viewport layouts.
 import {
   useEffect,
   useState,
@@ -35,7 +36,6 @@ import {
 import { toast } from "sonner";
 import { cn } from "../../../shared/ui/utils";
 import {
-  DESIGN_DIAGRAM_ORDER,
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
   getDesignModelId,
@@ -53,6 +53,13 @@ import {
   getSelectionKey,
   useWorkspaceShell,
 } from "../state";
+import {
+  deriveSidebarDiagramState,
+  diagramUnavailableReason,
+  generationStatusTooltip,
+  mergeSidebarStatus,
+  type SidebarNodeStatus,
+} from "../lib/sidebar-menu-model";
 
 type Node = {
   key: string;
@@ -63,16 +70,10 @@ type Node = {
   badge?: string | number;
   badgeTooltip?: string;
   badges?: string[];
-  status?: "queued" | "running" | "completed" | "failed";
+  status?: SidebarNodeStatus;
   statusTooltip?: string;
   unavailableReason?: string;
   onSelect?: () => void;
-};
-
-type DesignSubtaskNode = {
-  id: string;
-  label: string;
-  status: Node["status"];
 };
 
 const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
@@ -177,143 +178,6 @@ function GenerationStatusIndicator({
       )}
     </span>
   );
-}
-
-function sidebarStatusFromSubtaskStatus(status: string | undefined) {
-  switch (status) {
-    case "failed":
-      return "failed" as const;
-    case "completed":
-    case "pending_review":
-      return "completed" as const;
-    case "queued":
-      return "queued" as const;
-    case "running":
-    case "repairing":
-    case "rendering":
-      return "running" as const;
-    default:
-      return null;
-  }
-}
-
-function mergeSidebarStatus(
-  current: Node["status"] | undefined,
-  next: Node["status"] | null,
-) {
-  if (!next) return current;
-  if (current === "failed" || next === "failed") return "failed";
-  if (current === "running" || next === "running") return "running";
-  if (current === "queued" || next === "queued") return "queued";
-  return "completed";
-}
-
-const STAGE_SCOPED_SUBTASK_PREFIXES = [
-  "generate_models",
-  "generate_design_sequence",
-  "generate_design_models",
-  "generate_plantuml",
-  "render_svg",
-] as const;
-
-type StageScopedSubtaskPrefix = (typeof STAGE_SCOPED_SUBTASK_PREFIXES)[number];
-type StageStatusMap = Partial<Record<StageScopedSubtaskPrefix, Node["status"] | null>>;
-
-function scopedSubtaskInfo(id: string) {
-  const prefix = STAGE_SCOPED_SUBTASK_PREFIXES.find((candidate) =>
-    id.startsWith(`${candidate}:`),
-  );
-  if (!prefix) return null;
-  return {
-    prefix,
-    rawId: id.slice(prefix.length + 1),
-  };
-}
-
-function aggregatePipelineStatus(stageStatuses: StageStatusMap) {
-  const statuses = Object.values(stageStatuses).filter(Boolean);
-  if (statuses.includes("failed")) return "failed" as const;
-  if (stageStatuses.render_svg === "completed") return "completed" as const;
-  if (
-    statuses.includes("running") ||
-    stageStatuses.generate_models === "completed" ||
-    stageStatuses.generate_design_sequence === "completed" ||
-    stageStatuses.generate_design_models === "completed" ||
-    stageStatuses.generate_plantuml === "completed"
-  ) {
-    return "running" as const;
-  }
-  if (statuses.includes("queued")) return "queued" as const;
-  return null;
-}
-
-function setSubtaskStatus(
-  statuses: Map<string, Node["status"]>,
-  labels: Map<string, string>,
-  stageStatusesByRawId: Map<string, StageStatusMap>,
-  id: string,
-  label: string,
-  status: Node["status"] | null,
-) {
-  statuses.set(id, mergeSidebarStatus(statuses.get(id), status));
-  labels.set(id, label);
-  // Generation tasks scope repeated pipeline phases by stage; the sidebar groups
-  // by model id, so keep a raw-id alias for rendering and regeneration states.
-  const scoped = scopedSubtaskInfo(id);
-  if (scoped) {
-    const stageStatuses = stageStatusesByRawId.get(scoped.rawId) ?? {};
-    stageStatuses[scoped.prefix] = status;
-    stageStatusesByRawId.set(scoped.rawId, stageStatuses);
-    const rawStatus = aggregatePipelineStatus(stageStatuses);
-    if (rawStatus) {
-      statuses.set(scoped.rawId, rawStatus);
-    } else {
-      statuses.delete(scoped.rawId);
-    }
-    labels.set(scoped.rawId, label);
-  }
-}
-
-function generationStatusTooltip(
-  label: string,
-  status: Node["status"],
-  hasViewableSvg: boolean,
-  hasStructuredModel = hasViewableSvg,
-) {
-  if (status === "queued") {
-    return hasViewableSvg
-      ? `${label}重新生成排队中，当前图仍可查看`
-      : hasStructuredModel
-        ? `${label}模型已生成，等待生成图像`
-      : `${label}生成排队中`;
-  }
-  if (status === "running") {
-    return hasViewableSvg
-      ? `${label}重新生成中，当前图仍可查看`
-      : hasStructuredModel
-        ? `${label}模型已生成，正在生成图像`
-      : `${label}生成中`;
-  }
-  if (status === "failed") return `${label}生成失败`;
-  if (status === "completed") return `${label}已生成`;
-  return undefined;
-}
-
-function diagramUnavailableReason(
-  status: Node["status"],
-  hasStructuredModel: boolean,
-) {
-  if (status === "failed") return "生成失败，请查看生成任务详情";
-  if (status === "queued") return "生成排队中，完成后可查看";
-  if (status === "running") {
-    return hasStructuredModel
-      ? "当前只有结构化模型，SVG 尚未生成"
-      : "正在生成图像，渲染完成后可查看";
-  }
-  if (status === "completed" || hasStructuredModel) {
-    return "当前只有结构化模型，SVG 尚未生成";
-  }
-  return "生成完成后可查看";
 }
 
 function TreeItem({
@@ -681,53 +545,6 @@ function buildPendingDesignDiagramNode(
   };
 }
 
-function sequenceUseCaseNodes(
-  useCaseModel: ReturnType<typeof useWorkspaceSession>["models"]["usecase"],
-) {
-  if (!useCaseModel || !("useCases" in useCaseModel)) return [];
-  return useCaseModel.useCases.map((useCase) => ({
-    id: `sequence:${useCase.id}`,
-    label: useCase.name,
-  }));
-}
-
-function analysisUseCaseNodes(
-  useCaseModel: ReturnType<typeof useWorkspaceSession>["models"]["usecase"],
-) {
-  if (!useCaseModel || !("useCases" in useCaseModel)) return [];
-  return useCaseModel.useCases.map((useCase) => ({
-    id: `analysis:${useCase.id}`,
-    label: useCase.name,
-  }));
-}
-
-function useCaseIdsFromModel(
-  useCaseModel: ReturnType<typeof useWorkspaceSession>["models"]["usecase"],
-) {
-  if (!useCaseModel || !("useCases" in useCaseModel)) return new Set<string>();
-  return new Set(useCaseModel.useCases.map((useCase) => useCase.id));
-}
-
-function sourceUseCaseIdFromScopedModel(model: unknown, prefix: "analysis" | "sequence") {
-  if (!model || typeof model !== "object") return "";
-  const record = model as Record<string, unknown>;
-  const explicit =
-    typeof record.sourceUseCaseId === "string" ? record.sourceUseCaseId.trim() : "";
-  if (explicit) return explicit;
-  const modelId = typeof record.modelId === "string" ? record.modelId.trim() : "";
-  return modelId.startsWith(`${prefix}:`) ? modelId.slice(prefix.length + 1) : "";
-}
-
-function scopedModelMatchesCurrentUseCases(
-  model: unknown,
-  prefix: "analysis" | "sequence",
-  currentUseCaseIds: Set<string>,
-) {
-  if (currentUseCaseIds.size === 0) return true;
-  const sourceUseCaseId = sourceUseCaseIdFromScopedModel(model, prefix);
-  return Boolean(sourceUseCaseId && currentUseCaseIds.has(sourceUseCaseId));
-}
-
 export function SidebarMenu() {
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
@@ -758,200 +575,30 @@ export function SidebarMenu() {
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
   const selectedKey = getSelectionKey(selection);
-  const currentUseCaseIds = useCaseIdsFromModel(models.usecase);
-  const requirementModelViewable = (diagram: DiagramType, modelId?: string) =>
-    Boolean((modelId ? svgArtifacts[modelId] : undefined) ?? svgArtifacts[diagram]);
-  const designModelViewable = (diagram: DesignDiagramType, modelId?: string) =>
-    Boolean((modelId ? designSvgArtifacts[modelId] : undefined) ?? designSvgArtifacts[diagram]);
-  const requirementModelsByDiagram = (Object.keys(DIAGRAM_META) as DiagramType[]).reduce(
-    (acc, diagram) => {
-      acc[diagram] = Object.values(models).filter(
-        (model): model is NonNullable<typeof model> =>
-          Boolean(model) &&
-          model.diagramKind === diagram &&
-          (diagram !== "analysis" ||
-            scopedModelMatchesCurrentUseCases(model, "analysis", currentUseCaseIds)),
-      );
-      return acc;
-    },
-    {} as Record<DiagramType, Array<NonNullable<ReturnType<typeof useWorkspaceSession>["models"][string]>>>,
-  );
-  const designModelsByDiagram = DESIGN_DIAGRAM_ORDER.reduce(
-    (acc, diagram) => {
-      acc[diagram] = Object.values(designModels).filter(
-        (model) =>
-          model.diagramKind === diagram &&
-          (diagram !== "sequence" ||
-            scopedModelMatchesCurrentUseCases(model, "sequence", currentUseCaseIds)),
-      );
-      return acc;
-    },
-    {} as Record<DesignDiagramType, Array<ReturnType<typeof useWorkspaceSession>["designModels"][string]>>,
-  );
-  const requirementSubtaskStatus = new Map<string, Node["status"]>();
-  const requirementSubtaskLabels = new Map<string, string>();
-  const requirementStageStatuses = new Map<string, StageStatusMap>();
-  const designSubtaskStatus = new Map<string, Node["status"]>();
-  const designSubtaskLabels = new Map<string, string>();
-  const designStageStatuses = new Map<string, StageStatusMap>();
-  for (const task of generationTasks.filter((item) =>
-    item.status === "queued" || item.status === "running"
-  )) {
-    for (const subtask of task.subtasks) {
-      const status = sidebarStatusFromSubtaskStatus(subtask.status);
-      if (task.kind === "requirements") {
-        setSubtaskStatus(
-          requirementSubtaskStatus,
-          requirementSubtaskLabels,
-          requirementStageStatuses,
-          subtask.id,
-          subtask.label,
-          status,
-        );
-      }
-      if (task.kind === "design") {
-        setSubtaskStatus(
-          designSubtaskStatus,
-          designSubtaskLabels,
-          designStageStatuses,
-          subtask.id,
-          subtask.label,
-          status,
-        );
-      }
-    }
-  }
-  const requirementNodeDiagrams = (Object.keys(DIAGRAM_META) as DiagramType[]).filter(
-    (diagram) => {
-      const scopedModelIds = requirementModelsByDiagram[diagram].map((model) =>
-        getRequirementModelId(model),
-      );
-      const hasViewableScopedModel = scopedModelIds.some((modelId) =>
-        requirementModelViewable(diagram, modelId),
-      );
-      const hasActiveScopedTask =
-        requirementSubtaskStatus.has(diagram) ||
-        [...requirementSubtaskStatus.keys()].some((id) => id.startsWith(`${diagram}:`));
-      const hasScopedError =
-        Boolean(diagramErrors[diagram]) ||
-        Object.keys(diagramErrors).some((id) => id.startsWith(`${diagram}:`));
-      if (diagram === "analysis") {
-        return hasViewableScopedModel || hasActiveScopedTask || hasScopedError;
-      }
-      return (
-        requirementModelsByDiagram[diagram].length > 0 ||
-        generatedDiagrams.includes(diagram) ||
-        hasActiveScopedTask ||
-        hasScopedError
-      );
-    },
-  );
-  const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter(
-    (diagram) =>
-      designModelsByDiagram[diagram].length > 0 ||
-      generatedDesignDiagrams.includes(diagram) ||
-      designSubtaskStatus.has(diagram) ||
-      Boolean(designDiagramErrors[diagram]) ||
-      (diagram === "sequence" &&
-        ([...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:")) ||
-          Object.keys(designDiagramErrors).some((id) => id.startsWith("sequence:")))),
-  );
-
-  const requirementStatusFor = (diagram: DiagramType, modelId?: string): Node["status"] => {
-    if (modelId && diagramErrors[modelId]) return "failed";
-    if (diagramErrors[diagram]) return "failed";
-    const activeStatus =
-      (modelId ? requirementSubtaskStatus.get(modelId) : undefined) ??
-      requirementSubtaskStatus.get(diagram);
-    if (activeStatus) return activeStatus;
-    const viewable = requirementModelViewable(diagram, modelId);
-    if (viewable) return "completed";
-    return undefined;
-  };
-  const analysisGenerationActive =
-    requirementSubtaskStatus.has("analysis") ||
-    [...requirementSubtaskStatus.keys()].some((id) => id.startsWith("analysis:"));
-  const expectedAnalysisNodes = analysisGenerationActive
-    ? analysisUseCaseNodes(models.usecase)
-    : [];
-  const analysisNodeIds = Array.from(
-    new Set([
-      ...expectedAnalysisNodes.map((node) => node.id),
-      ...requirementModelsByDiagram.analysis.map((model) => getRequirementModelId(model)),
-      ...[...requirementSubtaskStatus.keys()].filter(
-        (id) =>
-          id.startsWith("analysis:") &&
-          (currentUseCaseIds.size === 0 ||
-            currentUseCaseIds.has(id.slice("analysis:".length))),
-      ),
-      ...Object.keys(diagramErrors).filter(
-        (id) =>
-          id.startsWith("analysis:") &&
-          (currentUseCaseIds.size === 0 ||
-            currentUseCaseIds.has(id.slice("analysis:".length))),
-      ),
-    ]),
-  );
-  const analysisSubtaskNodes: DesignSubtaskNode[] = analysisNodeIds.map((id) => {
-    const model = models[id];
-    const expected = expectedAnalysisNodes.find((node) => node.id === id);
-    const rawLabel =
-      model && "sourceUseCaseName" in model
-        ? model.sourceUseCaseName ?? model.title
-        : requirementSubtaskLabels.get(id) ?? expected?.label ?? id.replace(/^analysis:/, "");
-    return {
-      id,
-      label: rawLabel.replace(/^需求分析模型[：:]\s*/u, ""),
-      status: requirementStatusFor("analysis", id),
-    };
-  });
-  const designStatusFor = (diagram: DesignDiagramType, modelId?: string): Node["status"] => {
-    if (modelId && designDiagramErrors[modelId]) return "failed";
-    if (designDiagramErrors[diagram]) return "failed";
-    const activeStatus =
-      (modelId ? designSubtaskStatus.get(modelId) : undefined) ??
-      designSubtaskStatus.get(diagram);
-    if (activeStatus) return activeStatus;
-    const viewable = designModelViewable(diagram, modelId);
-    if (viewable) return "completed";
-    return undefined;
-  };
-  const sequenceGenerationActive =
-    designSubtaskStatus.has("sequence") ||
-    [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:"));
-  const expectedSequenceNodes = sequenceGenerationActive
-    ? sequenceUseCaseNodes(models.usecase)
-    : [];
-  const sequenceNodeIds = Array.from(
-    new Set([
-      ...expectedSequenceNodes.map((node) => node.id),
-      ...designModelsByDiagram.sequence.map((model) => getDesignModelId(model)),
-      ...[...designSubtaskStatus.keys()].filter(
-        (id) =>
-          id.startsWith("sequence:") &&
-          (currentUseCaseIds.size === 0 ||
-            currentUseCaseIds.has(id.slice("sequence:".length))),
-      ),
-      ...Object.keys(designDiagramErrors).filter(
-        (id) =>
-          id.startsWith("sequence:") &&
-          (currentUseCaseIds.size === 0 ||
-            currentUseCaseIds.has(id.slice("sequence:".length))),
-      ),
-    ]),
-  );
-  const sequenceSubtaskNodes: DesignSubtaskNode[] = sequenceNodeIds.map((id) => {
-    const model = designModels[id];
-    const expected = expectedSequenceNodes.find((node) => node.id === id);
-    const rawLabel =
-      model && "sourceUseCaseName" in model
-        ? model.sourceUseCaseName ?? model.title
-        : designSubtaskLabels.get(id) ?? expected?.label ?? id.replace(/^sequence:/, "");
-    return {
-      id,
-      label: rawLabel.replace(/^(?:顺序图|用例实现设计)[：:]\s*/u, ""),
-      status: designStatusFor("sequence", id),
-    };
+  const {
+    requirementModelViewable,
+    designModelViewable,
+    requirementModelsByDiagram,
+    designModelsByDiagram,
+    requirementNodeDiagrams,
+    orderedDesignDiagrams,
+    requirementStatusFor,
+    designStatusFor,
+    analysisGenerationActive,
+    analysisSubtaskNodes,
+    sequenceGenerationActive,
+    sequenceSubtaskNodes,
+  } = deriveSidebarDiagramState({
+    generatedDiagrams,
+    models,
+    staleDiagrams,
+    diagramErrors,
+    svgArtifacts,
+    generatedDesignDiagrams,
+    designModels,
+    designSvgArtifacts,
+    designDiagramErrors,
+    generationTasks,
   });
 
   useEffect(() => {

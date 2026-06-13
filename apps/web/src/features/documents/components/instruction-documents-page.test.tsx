@@ -7,7 +7,7 @@ import type {
   DocumentLibraryItem,
   DocumentRunSnapshot,
 } from "@uml-platform/contracts";
-import { useTheme } from "../../../app/providers/theme-provider";
+import { useTheme } from "../../../shared/ui/theme-provider";
 import {
   createMockWorkspaceRepository,
   type WorkspaceRepository,

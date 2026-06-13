@@ -1,3 +1,4 @@
+// Converts normalized diagram model objects into PlantUML text expected by downstream rendering.
 import type {
   ActivityDiagramSpec,
   ActivityRelationship,

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ThemeProvider } from "../app/providers/theme-provider";
+import { ThemeProvider } from "../shared/ui/theme-provider";
 import type {
   AtomicRequirement,
   RequirementBaseline,

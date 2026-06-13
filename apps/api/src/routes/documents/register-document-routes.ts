@@ -7,39 +7,39 @@ import {
   documentLibraryVersionsResponseSchema,
   onlyOfficeEditorConfigResponseSchema,
   onlyOfficeUiThemeSchema,
-  type ProjectPermission,
 } from "@uml-platform/contracts";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
+import {
+  accessTokenFromRequest,
+  onlyOfficeAccessTokenSecret,
+  publicBaseUrlForRequest,
+} from "../../documents/onlyoffice/request-security.js";
 import {
   documentProjectContextFromRequest,
   isWorkspaceAuthError,
   requireDocumentWorkspace,
-  type DocumentProjectContext,
   type DocumentProjectMembershipGuard,
   type DocumentUserResolver,
 } from "./document-workspace-auth.js";
+import {
+  isProjectAccessError,
+  requireProjectAccessForDocument,
+  requireProjectAccessFromPath,
+  requireProjectAccessFromToken,
+  requireProjectMembership,
+} from "./document-project-access.js";
+import {
+  createDocumentEventRecorders,
+  type DocumentAuditLogRecorder,
+  type DocumentRiskEventRecorder,
+} from "./document-audit-events.js";
+import { handleOnlyOfficeCallbackSave } from "./document-onlyoffice-callback.js";
 import type { DocumentLibraryItem } from "@uml-platform/contracts";
 
-export type DocumentAuditLogRecorder = (event: {
-  actorUserId: string | null;
-  action: string;
-  targetType: "document";
-  targetId: string | null;
-  outcome: "success" | "failure";
-  message: string;
-  metadata?: Record<string, unknown>;
-}) => Promise<unknown> | unknown;
-
-export type DocumentRiskEventRecorder = (event: {
-  eventType: string;
-  severity: "low" | "medium" | "high" | "critical";
-  actorUserId: string | null;
-  projectId: string | null;
-  targetType: "document";
-  targetId: string | null;
-  message: string;
-  metadata?: Record<string, unknown>;
-}) => Promise<unknown> | unknown;
+export type {
+  DocumentAuditLogRecorder,
+  DocumentRiskEventRecorder,
+} from "./document-audit-events.js";
 
 const documentRenameRequestSchema = z.object({
   fileName: z
@@ -51,216 +51,6 @@ const documentRenameRequestSchema = z.object({
       message: "Document fileName must not contain path separators",
     }),
 });
-
-function publicBaseUrlForRequest(request: FastifyRequest) {
-  const configured = process.env.PUBLIC_API_BASE_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
-  const host = request.headers.host;
-  const protocol =
-    typeof request.protocol === "string" ? request.protocol : "http";
-  return host ? `${protocol}://${host}` : "http://127.0.0.1:4001";
-}
-
-function onlyOfficeCallbackPayload(body: unknown) {
-  if (!body || typeof body !== "object") {
-    return { status: null, url: null };
-  }
-  const status = "status" in body ? body.status : null;
-  const url = "url" in body ? body.url : null;
-  return {
-    status: typeof status === "number" ? status : null,
-    url: typeof url === "string" ? url : null,
-  };
-}
-
-function onlyOfficeAccessTokenSecret() {
-  return (
-    process.env.ONLYOFFICE_ACCESS_TOKEN_SECRET?.trim() ||
-    process.env.ONLYOFFICE_JWT_SECRET?.trim() ||
-    "uml-platform-dev-onlyoffice-access-secret"
-  );
-}
-
-function isAllowedOnlyOfficeDownloadUrl(rawUrl: string) {
-  const documentServerUrl = process.env.ONLYOFFICE_DOCUMENT_SERVER_URL?.trim();
-  if (!documentServerUrl) return false;
-
-  try {
-    const candidate = new URL(rawUrl);
-    const documentServer = new URL(documentServerUrl);
-    return (
-      (candidate.protocol === "https:" || candidate.protocol === "http:") &&
-      candidate.origin === documentServer.origin
-    );
-  } catch {
-    return false;
-  }
-}
-
-function accessTokenFromRequest(request: FastifyRequest) {
-  const query = request.query as { accessToken?: unknown };
-  return typeof query.accessToken === "string" ? query.accessToken : null;
-}
-
-function headerString(request: FastifyRequest, name: string) {
-  const value = request.headers[name];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function onlyOfficeCallbackMaxBytes() {
-  const configured = Number(process.env.ONLYOFFICE_CALLBACK_MAX_BYTES);
-  return Number.isFinite(configured) && configured > 0
-    ? configured
-    : 50 * 1024 * 1024;
-}
-
-function responseContentLength(response: Response) {
-  const raw = response.headers.get("content-length");
-  if (!raw) return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-async function projectContextFromPath(
-  request: FastifyRequest,
-  projectId: string,
-  permission: ProjectPermission,
-  resolveUserId?: DocumentUserResolver,
-) {
-  const userId = resolveUserId
-    ? await resolveUserId(request)
-    : headerString(request, "x-uml-user-id");
-  if (!userId) return "missing-project-context" as const;
-  return { projectId, userId, permission };
-}
-
-async function requireProjectMembership(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  projectMembershipGuard: DocumentProjectMembershipGuard | undefined,
-  context: DocumentProjectContext,
-) {
-  if (!projectMembershipGuard) {
-    reply.code(403);
-    return { error: { message: "缺少项目权限校验能力" } } as const;
-  }
-  if (!(await projectMembershipGuard(context, request))) {
-    reply.code(403);
-    return { error: { message: "无权访问该项目说明书" } } as const;
-  }
-  return context;
-}
-
-async function requireProjectAccessForDocument({
-  request,
-  reply,
-  document,
-  projectMembershipGuard,
-  permission,
-  resolveUserId,
-}: {
-  request: FastifyRequest;
-  reply: FastifyReply;
-  document: DocumentLibraryItem;
-  projectMembershipGuard?: DocumentProjectMembershipGuard;
-  permission: ProjectPermission;
-  resolveUserId?: DocumentUserResolver;
-}) {
-  const requestContext = await documentProjectContextFromRequest(
-    request,
-    permission,
-    resolveUserId,
-  );
-  if (requestContext === "missing-project-context") {
-    reply.code(401);
-    return { error: { message: "缺少项目访问凭据" } } as const;
-  }
-
-  const documentProjectId = document.projectId ?? null;
-  if (!requestContext) {
-    reply.code(401);
-    return { error: { message: "缺少项目访问凭据" } } as const;
-  }
-  if (documentProjectId && requestContext.projectId !== documentProjectId) {
-    reply.code(403);
-    return { error: { message: "说明书不属于当前项目" } } as const;
-  }
-
-  return requireProjectMembership(
-    request,
-    reply,
-    projectMembershipGuard,
-    requestContext,
-  );
-}
-
-function isProjectAccessError(
-  value: unknown,
-): value is { error: { message: string } } {
-  return Boolean(value && typeof value === "object" && "error" in value);
-}
-
-async function requireProjectAccessFromToken({
-  request,
-  reply,
-  document,
-  access,
-  projectMembershipGuard,
-  permission,
-}: {
-  request: FastifyRequest;
-  reply: FastifyReply;
-  document: DocumentLibraryItem;
-  access: { projectId: string | null; userId: string | null };
-  projectMembershipGuard?: DocumentProjectMembershipGuard;
-  permission: ProjectPermission;
-}) {
-  const documentProjectId = document.projectId ?? null;
-  if (!documentProjectId) return null;
-  if (access.projectId !== documentProjectId || !access.userId) {
-    reply.code(403);
-    return { error: { message: "Document access token project context invalid" } } as const;
-  }
-  return requireProjectMembership(
-    request,
-    reply,
-    projectMembershipGuard,
-    { projectId: access.projectId, userId: access.userId, permission },
-  );
-}
-
-async function requireProjectAccessFromPath({
-  request,
-  reply,
-  projectId,
-  projectMembershipGuard,
-  permission,
-  resolveUserId,
-}: {
-  request: FastifyRequest;
-  reply: FastifyReply;
-  projectId: string;
-  projectMembershipGuard?: DocumentProjectMembershipGuard;
-  permission: ProjectPermission;
-  resolveUserId?: DocumentUserResolver;
-}) {
-  const context = await projectContextFromPath(
-    request,
-    projectId,
-    permission,
-    resolveUserId,
-  );
-  if (context === "missing-project-context") {
-    reply.code(401);
-    return { error: { message: "缺少项目访问凭据" } } as const;
-  }
-  return requireProjectMembership(
-    request,
-    reply,
-    projectMembershipGuard,
-    context,
-  );
-}
 
 export function registerDocumentRoutes({
   app,
@@ -279,45 +69,11 @@ export function registerDocumentRoutes({
   recordRiskEvent?: DocumentRiskEventRecorder;
   allowLegacyWorkspaceRoutes?: boolean;
 }) {
-  async function auditDocument(input: {
-    actorUserId?: string | null;
-    action: string;
-    documentId?: string | null;
-    outcome: "success" | "failure";
-    message: string;
-    metadata?: Record<string, unknown>;
-  }) {
-    await recordAuditLog?.({
-      actorUserId: input.actorUserId ?? null,
-      action: input.action,
-      targetType: "document",
-      targetId: input.documentId ?? null,
-      outcome: input.outcome,
-      message: input.message,
-      metadata: input.metadata,
-    });
-  }
-
-  async function recordDocumentRisk(input: {
-    eventType: string;
-    severity: "low" | "medium" | "high" | "critical";
-    actorUserId?: string | null;
-    projectId?: string | null;
-    documentId?: string | null;
-    message: string;
-    metadata?: Record<string, unknown>;
-  }) {
-    await recordRiskEvent?.({
-      eventType: input.eventType,
-      severity: input.severity,
-      actorUserId: input.actorUserId ?? null,
-      projectId: input.projectId ?? null,
-      targetType: "document",
-      targetId: input.documentId ?? null,
-      message: input.message,
-      metadata: input.metadata,
-    });
-  }
+  const {
+    auditDocument,
+    auditDocumentBestEffort,
+    recordDocumentRisk,
+  } = createDocumentEventRecorders({ recordAuditLog, recordRiskEvent });
 
   const legacyWorkspaceRoutesDeprecated = async (_request: FastifyRequest, reply: FastifyReply) => {
     reply.code(410);
@@ -385,25 +141,6 @@ export function registerDocumentRoutes({
       }),
     });
   });
-  }
-
-  async function auditDocumentBestEffort(
-    request: FastifyRequest,
-    input: Parameters<typeof auditDocument>[0],
-  ) {
-    try {
-      await auditDocument(input);
-    } catch (error) {
-      request.log.warn(
-        {
-          operation: "document.audit_best_effort_failed",
-          action: input.action,
-          documentId: input.documentId ?? null,
-          err: error,
-        },
-        "document audit logging failed after access was authorized",
-      );
-    }
   }
 
   app.get("/api/projects/:projectId/documents", async (request, reply) => {
@@ -1139,141 +876,16 @@ export function registerDocumentRoutes({
       return { error: 1, message: projectAccess.error.message };
     }
 
-    const { status, url } = onlyOfficeCallbackPayload(request.body);
-
-    if ((status === 2 || status === 6) && url) {
-      if (!isAllowedOnlyOfficeDownloadUrl(url)) {
-        await auditDocument({
-          actorUserId: projectAccess?.userId ?? access.userId,
-          action: "document.onlyoffice_callback",
-          documentId,
-          outcome: "failure",
-          message: "OnlyOffice save URL origin is not allowed",
-          metadata: { workspaceId: access.workspaceId, projectId: document.projectId ?? null, url },
-        });
-        await recordDocumentRisk({
-          eventType: "document.onlyoffice_callback_untrusted_origin",
-          severity: "high",
-          actorUserId: projectAccess?.userId ?? access.userId,
-          projectId: document.projectId ?? null,
-          documentId,
-          message: "OnlyOffice save URL origin is not allowed",
-          metadata: { url },
-        });
-        reply.code(403);
-        return { error: 1, message: "OnlyOffice save URL origin is not allowed" };
-      }
-      const response = await fetch(url);
-      if (!response.ok) {
-        await auditDocument({
-          actorUserId: projectAccess?.userId ?? access.userId,
-          action: "document.onlyoffice_callback",
-          documentId,
-          outcome: "failure",
-          message: `OnlyOffice save download failed: ${response.status}`,
-          metadata: { workspaceId: access.workspaceId, projectId: document.projectId ?? null },
-        });
-        reply.code(502);
-        return { error: 1, message: `OnlyOffice save download failed: ${response.status}` };
-      }
-      const maxBytes = onlyOfficeCallbackMaxBytes();
-      const declaredLength = responseContentLength(response);
-      if (declaredLength !== null && declaredLength > maxBytes) {
-        await auditDocument({
-          actorUserId: projectAccess?.userId ?? access.userId,
-          action: "document.onlyoffice_callback",
-          documentId,
-          outcome: "failure",
-          message: `OnlyOffice save download exceeded ${maxBytes} bytes`,
-          metadata: {
-            workspaceId: access.workspaceId,
-            projectId: document.projectId ?? null,
-            declaredLength,
-            maxBytes,
-          },
-        });
-        await recordDocumentRisk({
-          eventType: "document.onlyoffice_callback_oversized",
-          severity: "high",
-          actorUserId: projectAccess?.userId ?? access.userId,
-          projectId: document.projectId ?? null,
-          documentId,
-          message: `OnlyOffice save download exceeded ${maxBytes} bytes`,
-          metadata: { declaredLength, maxBytes },
-        });
-        reply.code(413);
-        return { error: 1, message: "OnlyOffice save download is too large" };
-      }
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.byteLength > maxBytes) {
-        await auditDocument({
-          actorUserId: projectAccess?.userId ?? access.userId,
-          action: "document.onlyoffice_callback",
-          documentId,
-          outcome: "failure",
-          message: `OnlyOffice save download exceeded ${maxBytes} bytes`,
-          metadata: {
-            workspaceId: access.workspaceId,
-            projectId: document.projectId ?? null,
-            byteLength: buffer.byteLength,
-            maxBytes,
-          },
-        });
-        await recordDocumentRisk({
-          eventType: "document.onlyoffice_callback_oversized",
-          severity: "high",
-          actorUserId: projectAccess?.userId ?? access.userId,
-          projectId: document.projectId ?? null,
-          documentId,
-          message: `OnlyOffice save download exceeded ${maxBytes} bytes`,
-          metadata: { byteLength: buffer.byteLength, maxBytes },
-        });
-        reply.code(413);
-        return { error: 1, message: "OnlyOffice save download is too large" };
-      }
-      const updated = await documentLibrary.updateDocumentBuffer(
-        access.workspaceId,
-        documentId,
-        buffer,
-      );
-      if (!updated) {
-        await auditDocument({
-          actorUserId: projectAccess?.userId ?? access.userId,
-          action: "document.onlyoffice_callback",
-          documentId,
-          outcome: "failure",
-          message: "Document not found during OnlyOffice save",
-          metadata: { workspaceId: access.workspaceId, projectId: document.projectId ?? null },
-        });
-        reply.code(404);
-        return { error: 1, message: "Document not found" };
-      }
-      request.log.info(
-        {
-          operation: "document.onlyoffice_callback_save",
-          documentId,
-          workspaceId: access.workspaceId,
-          projectId: document.projectId ?? null,
-          userId: projectAccess?.userId ?? null,
-          status,
-        },
-        "OnlyOffice document save callback accepted",
-      );
-      await auditDocument({
-        actorUserId: projectAccess?.userId ?? access.userId,
-        action: "document.onlyoffice_callback",
-        documentId,
-        outcome: "success",
-        message: `OnlyOffice save callback updated document ${documentId}`,
-        metadata: {
-          workspaceId: access.workspaceId,
-          projectId: document.projectId ?? null,
-          status,
-          byteLength: updated.byteLength,
-        },
-      });
-    }
-
-    return { error: 0 };
+    return handleOnlyOfficeCallbackSave({
+      request,
+      reply,
+      documentLibrary,
+      access,
+      document,
+      documentId,
+      projectAccess,
+      auditDocument,
+      recordDocumentRisk,
+    });
   });
 }

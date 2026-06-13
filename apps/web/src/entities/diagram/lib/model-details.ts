@@ -1,3 +1,4 @@
+// Normalizes heterogeneous diagram model nodes and relations into detail rows for feature UIs.
 import type {
   ActivityDiagramSpec,
   ActivityNode,

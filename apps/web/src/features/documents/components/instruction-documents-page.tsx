@@ -43,7 +43,7 @@ import {
 import { DocumentStyleDialog } from "./document-style-dialog";
 import { OnlyOfficeEditorHost } from "./only-office-editor-host";
 import { cloneDefaultDocumentStyle } from "../lib/document-style";
-import { useTheme } from "../../../app/providers/theme-provider";
+import { useTheme } from "../../../shared/ui/theme-provider";
 
 function onlyOfficeUiThemeForProjectTheme(theme: "light" | "dark"): OnlyOfficeUiTheme {
   return theme === "light" ? "theme-classic-light" : "theme-dark";

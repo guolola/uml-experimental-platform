@@ -18,6 +18,7 @@ import {
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
+import { projectDocumentWorkspaceId } from "../../documents/library/project-document-workspace.js";
 import type { ProviderTaskType } from "../../provider-configs/provider-usage-tracker.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { isRunCancelled, isRunCancelledError } from "../records/run-cancellation.js";
@@ -114,10 +115,6 @@ function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
     subtaskId: diagramKind,
     subtaskLabel: labels[diagramKind] ?? diagramKind,
   };
-}
-
-function projectDocumentWorkspaceId(projectId: string) {
-  return `project-${projectId}`;
 }
 
 function taskTypeForRecord(record: RunRecord): ProviderTaskType {

@@ -373,6 +373,7 @@ export function createScheduledLlmTransport({
             messages: input.messages as ChatMessage[],
             responseFormat:
               input.responseFormat as ChatCompletionResponseFormat | null | undefined,
+            abortSignal: input.abortSignal,
           }),
         (status) => onStatus?.(status, requestContext),
       );

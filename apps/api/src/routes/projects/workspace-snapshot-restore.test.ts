@@ -1,3 +1,4 @@
+// Verifies project workspace snapshot restoration across requirement, design, code, and document artifacts.
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {

@@ -19,6 +19,7 @@ import { runStagePipeline } from "./requirements-pipeline.js";
 import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
 import { withModelTaskTimeout } from "./shared/model-task-timeout.js";
 import { collectTextResult } from "./shared/structured-output.js";
+import { getRunError } from "./shared/errors.js";
 
 const LIBRARY_REQUIREMENT_TEXT = `一个小型图书馆管理系统，需完成以下工作：
 (1)借书、还书；
@@ -2068,7 +2069,7 @@ test("design sequence retries when generated output is too similar to requiremen
   }
 });
 
-test("design pipeline rejects completion when a selected downstream model fails", async () => {
+test("design pipeline keeps provider timeout as the terminal selected downstream failure", async () => {
   await withTemporaryEnv("UML_DESIGN_MODEL_TASK_TIMEOUT_MS", "20", async () => {
     const useCaseModel = modelForKind("usecase");
     const classModel = modelForKind("class");
@@ -2122,7 +2123,7 @@ test("design pipeline rejects completion when a selected downstream model fails"
       },
     );
     const snapshot = createEmptyDesignSnapshot("run-design-downstream-timeout", {
-      selectedDiagrams: ["class"],
+      selectedDiagrams: ["class", "table"],
       requirementBaseline: requirementSnapshot.requirementBaseline!,
       requirementModels: [useCaseModel, classModel],
       requirementModelTraceability: [],
@@ -2137,11 +2138,23 @@ test("design pipeline rejects completion when a selected downstream model fails"
 
     await assert.rejects(
       () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
-      /设计模型生成未全部完成：设计类图：当前模型服务响应超时，请稍后重试。/,
+      (error) => {
+        const runError = getRunError(error);
+        assert.equal(runError?.code, "PLATFORM_PROVIDER_TIMEOUT");
+        assert.match(
+          `${(runError?.details as { providerMessage?: string } | undefined)?.providerMessage ?? ""}`,
+          /超过 20ms 未完成/,
+        );
+        return true;
+      },
     );
 
     assert.equal((record.snapshot as DesignRunSnapshot).status, "running");
     assert.equal((record.snapshot as DesignRunSnapshot).diagramErrors.class?.stage, "generate_design_models");
+    assert.equal(
+      (record.snapshot as DesignRunSnapshot).diagramErrors.table?.error.code,
+      "RUN_DEPENDENCY_MISSING",
+    );
     const completedEvent = record.events.find((event) => event.type === "completed");
     const failedClass = record.events.find(
       (event) =>

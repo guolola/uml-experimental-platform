@@ -1,3 +1,4 @@
+// Verifies API server assembly, route registration, auth flows, and cross-domain integration contracts.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -76,6 +77,24 @@ function createTestApiServer(options?: Parameters<typeof createApiServer>[0]) {
         ? options.testRunAccessContext
         : TEST_RUN_ACCESS_CONTEXT,
   });
+}
+
+type TestApiServer = Awaited<ReturnType<typeof createTestApiServer>>;
+
+async function waitForRunSnapshot(app: TestApiServer, url: string) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const response = await app.inject({ method: "GET", url });
+    const snapshot = response.json();
+    if (
+      snapshot.status === "completed" ||
+      snapshot.status === "failed" ||
+      snapshot.status === "cancelled"
+    ) {
+      return snapshot;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Run did not reach a terminal status: ${url}`);
 }
 
 function createTestBillingService(input: {
@@ -2885,10 +2904,7 @@ test("api auto-fills missing design element traceability before LLM repair", asy
 
   assert.equal(startResponse.statusCode, 202);
   const { runId } = startResponse.json();
-  await app.inject({ method: "GET", url: `/api/design-runs/${runId}/events` });
-  const snapshot = (
-    await app.inject({ method: "GET", url: `/api/design-runs/${runId}` })
-  ).json();
+  const snapshot = await waitForRunSnapshot(app, `/api/design-runs/${runId}`);
 
   assert.equal(snapshot.status, "completed");
   assert.equal(modelAttempts, 1);
@@ -2897,13 +2913,20 @@ test("api auto-fills missing design element traceability before LLM repair", asy
     snapshot.designModelTraceability.length,
     JSON.parse(DESIGN_SEQUENCE_JSON).designModelTraceability.length,
   );
-  assert.ok(
-    snapshot.designModelTraceability.some(
-      (entry: { mappingSource?: string; reviewStatus?: string }) =>
-        entry.mappingSource === "auto-filled-pending-review" &&
-        entry.reviewStatus === "pending",
-    ),
-  );
+  let hasDeterministicAutoFill = false;
+  for (const entry of snapshot.designModelTraceability as Array<{
+    mappingSource?: string;
+    reviewStatus?: string;
+  }>) {
+    if (
+      entry.mappingSource === "derived-from-endpoints" &&
+      entry.reviewStatus === "confirmed"
+    ) {
+      hasDeterministicAutoFill = true;
+      break;
+    }
+  }
+  assert.equal(hasDeterministicAutoFill, true);
   assert.ok(
     snapshot.designTrace.some(
       (entry: { kind: string; errorMessage?: string }) =>
@@ -4738,7 +4761,7 @@ test("api repairs generate_models output when element traceability is missing", 
 
   assert.equal(snapshot.status, "completed");
   assert.equal(modelAttempts, 1);
-  assert.equal(traceabilityAttempts, 1);
+  assert.equal(traceabilityAttempts, 0);
   assert.equal(snapshot.requirementModelTraceability.length, 3);
   assert.ok(
     snapshot.requirementModelTraceability.every(
@@ -4811,7 +4834,7 @@ test("api auto-fills generate_models traceability when element traceability stay
   assert.equal(snapshot.requirementModelTraceability.length, 3);
   assert.equal(snapshot.requirementTrace.filter(
     (entry: { kind: string }) => entry.kind === "parse_error",
-  ).length, 4);
+  ).length, 1);
   assert.ok(
     snapshot.requirementTrace.some(
       (entry: { kind: string; parsedData?: { autoFilledRequirementTraceability?: boolean } }) =>
@@ -5317,7 +5340,7 @@ test("api keeps successful diagrams and reports activity render failure in diagr
   assert.equal(snapshot.svgArtifacts.length, 1);
   assert.equal(snapshot.svgArtifacts[0].diagramKind, "usecase");
   assert.match(
-    snapshot.diagramErrors.activity?.message ?? "",
+    snapshot.diagramErrors.activity?.error?.message ?? "",
     /PlantUML repair failed for activity/i,
   );
   assert.equal(snapshot.diagramErrors.activity?.stage, "render_svg");

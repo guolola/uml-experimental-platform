@@ -37,6 +37,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../shared/ui/tab
 import { cn } from "../../../shared/ui/utils";
 import { formatSessionDevice, formatSessionRegion } from "../lib/session-device";
 import {
+  ACCOUNT_SESSION_RECORD_LIMIT,
+  AVATAR_FILE_TYPES,
+  MAX_AVATAR_BYTES,
+  accountStatusLabel,
+  formatDate,
+  generationUsagePrimaryText,
+  generationUsageSecondaryText,
+  initials,
+  loginDetail,
+  loginOutcomeLabel,
+  type AccountGenerationUsage,
+} from "../lib/account-dialog-formatting";
+import {
   notifyAuthSessionChanged,
   platformApi,
   PlatformApiError,
@@ -44,8 +57,8 @@ import {
   type PlatformLoginEvent,
   type PlatformMfaSetup,
   type PlatformUser,
-  type PlatformAccountProfileResponse,
 } from "../services/platform-api";
+import { AccountAvatarPreview } from "./account-avatar-preview";
 import { MfaSetupPanel } from "./mfa-setup-panel";
 
 type AccountDialogProps = {
@@ -54,82 +67,6 @@ type AccountDialogProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 };
-
-const AVATAR_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-const ACCOUNT_SESSION_RECORD_LIMIT = 5;
-
-type AccountGenerationUsage = NonNullable<PlatformAccountProfileResponse["generationUsage"]>;
-
-function initials(user: PlatformUser | null) {
-  const label = user?.displayName || user?.email || "登录";
-  return label.trim().slice(0, 1).toUpperCase();
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return "暂无";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function accountStatusLabel(status: string | null | undefined) {
-  switch (status) {
-    case "active":
-      return "正常";
-    case "disabled":
-      return "已停用";
-    case "pending":
-      return "待激活";
-    default:
-      return status || "未知";
-  }
-}
-
-function loginOutcomeLabel(outcome: PlatformLoginEvent["outcome"]) {
-  return outcome === "success" ? "成功" : "失败";
-}
-
-function loginDetail(event: PlatformLoginEvent) {
-  return event.message || (event.userAgent ? formatSessionDevice(event.userAgent) : "暂无详情");
-}
-
-function generationUsagePrimaryText(usage: AccountGenerationUsage | null) {
-  if (!usage) return "今日 0 次";
-  if (usage.limited && usage.limit !== null) {
-    return `今日 ${usage.usedToday} / ${usage.limit} 次`;
-  }
-  return `今日 ${usage.usedToday} 次`;
-}
-
-function generationUsageSecondaryText(usage: AccountGenerationUsage | null) {
-  if (!usage) return "不限额";
-  if (usage.limited && usage.remaining !== null) return `剩余 ${usage.remaining} 次`;
-  return "不限额";
-}
-
-function AvatarPreview({
-  src,
-  user,
-}: {
-  src: string;
-  user: PlatformUser | null;
-}) {
-  if (src) {
-    return (
-      <img
-        src={src}
-        alt="头像预览"
-        className="size-full object-cover"
-      />
-    );
-  }
-
-  return <span>{initials(user)}</span>;
-}
 
 export function AccountDialog({
   onNavigate,
@@ -620,7 +557,7 @@ export function AccountDialog({
                       htmlFor="account-avatar-file"
                       className="group relative flex size-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border bg-muted text-xl font-semibold text-primary shadow-sm"
                     >
-                      <AvatarPreview src={avatarPreviewSrc} user={user} />
+                      <AccountAvatarPreview src={avatarPreviewSrc} user={user} />
                       <span className="absolute inset-0 flex items-center justify-center bg-background/75 opacity-0 transition-opacity group-hover:opacity-100">
                         <Camera className="size-5" />
                       </span>

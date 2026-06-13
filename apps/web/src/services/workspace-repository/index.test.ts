@@ -1,3 +1,4 @@
+// Verifies workspace repository persistence, remote API mapping, history compaction, and subscription behavior.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AtomicRequirement,
@@ -17,7 +18,7 @@ import {
   RUN_HISTORY_LIMIT,
   RUN_HISTORY_STORAGE_KEY,
   buildRunMarkdownReport,
-} from "../../features/history";
+} from "../../entities/run-history";
 import { createRunSnapshot } from "../../test/workspace-test-utils";
 import { snapshotInputFingerprint } from "../../shared/lib/fingerprint";
 

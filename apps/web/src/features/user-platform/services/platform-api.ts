@@ -1,7 +1,7 @@
 // Provides cookie-based user/project API calls for the first authenticated pages.
 import { buildApiUrl } from "../../../services/api-client";
 import type { DocumentKind } from "@uml-platform/contracts";
-import type { RunHistorySnapshot } from "../../history";
+import type { RunHistorySnapshot } from "../../../entities/run-history";
 
 export const AUTH_SESSION_CHANGED_EVENT = "uml-auth-session-changed";
 

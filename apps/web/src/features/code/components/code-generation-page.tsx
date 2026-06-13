@@ -1,3 +1,4 @@
+// Renders the code generation workspace, including model selection, file browser, preview, and export actions.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SandpackProvider } from "@codesandbox/sandpack-react";
 import {

@@ -7,7 +7,7 @@ import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Switch } from "../../../shared/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../shared/ui/select";
-import { useTheme } from "../../../app/providers/theme-provider";
+import { useTheme } from "../../../shared/ui/theme-provider";
 import {
   DEFAULT_USER_SETTINGS,
   loadUserSettings,

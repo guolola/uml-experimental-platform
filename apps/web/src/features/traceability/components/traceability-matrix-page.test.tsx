@@ -1,3 +1,4 @@
+// Verifies traceability matrix filtering, coverage summaries, and evidence drill-down behavior.
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";

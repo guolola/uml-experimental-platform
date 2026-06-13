@@ -67,6 +67,7 @@ import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
 import { appendDesignTrace } from "./shared/trace-events.js";
 import {
   createRunError,
+  isPlatformProviderRunError,
   normalizeRunError,
   throwRunError,
 } from "./shared/errors.js";
@@ -129,6 +130,15 @@ function summarizeSelectedDesignDiagramFailures(
       return `${label}：${error.error.message ?? "生成失败"}`;
     })
     .join("；");
+}
+
+function firstSelectedPlatformProviderFailure(
+  failures: Array<[string, DiagramError]>,
+) {
+  const failure = failures.find(([, error]) =>
+    isPlatformProviderRunError(error.error),
+  );
+  return failure?.[1].error ?? null;
 }
 
 const REQUIREMENT_DIAGRAM_LABELS: Record<DiagramKind, string> = {
@@ -1754,6 +1764,8 @@ export async function runDesignStagePipeline(
     snapshot.selectedDiagrams,
   );
   if (selectedFailures.length > 0) {
+    const providerFailure = firstSelectedPlatformProviderFailure(selectedFailures);
+    if (providerFailure) throwRunError(providerFailure);
     throw new Error(
       `设计模型生成未全部完成：${summarizeSelectedDesignDiagramFailures(
         selectedFailures,

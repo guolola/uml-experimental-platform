@@ -1,3 +1,4 @@
+// Verifies workspace session state transitions, generation flows, persistence sync, and UI feedback contracts.
 import {
   act,
   render,

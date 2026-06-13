@@ -1,4 +1,6 @@
 // Describes the product workflow and artifact provenance contracts.
+export type { ArtifactProvenance } from "../entities/workspace/provenance";
+
 export type WorkflowRunKind = "requirements" | "design" | "code" | "document";
 
 export interface WorkflowPrerequisite {
@@ -22,17 +24,6 @@ export interface WorkflowPrerequisiteState {
   hasRequirementModels: boolean;
   hasDesignModels: boolean;
   hasCodeFiles: boolean;
-}
-
-export interface ArtifactProvenance {
-  artifactId: string;
-  artifactType: string;
-  runId: string;
-  stage: string | null;
-  model: string | null;
-  promptPackageVersion: string | null;
-  inputArtifactIds: string[];
-  createdAt: string;
 }
 
 const hasRequirementText: WorkflowPrerequisite = {

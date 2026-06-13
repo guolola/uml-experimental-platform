@@ -2,6 +2,7 @@
 
 import type { RunEvent, RunStage } from "@uml-platform/contracts";
 import type { DiagnosticEvent, RunDiagnostics } from "../model/session-state";
+import { isTerminalRunEvent } from "./run-events";
 
 export const MAX_DIAGNOSTIC_STREAM_CHARS = 30_000;
 
@@ -297,4 +298,141 @@ export function getProgressFromEvent(event: RunEvent) {
     case "code_file_changed":
       return null;
   }
+}
+
+export function deriveRunDiagnosticsFromEvent(
+  current: RunDiagnostics,
+  event: RunEvent,
+  diagnosticEvent: DiagnosticEvent,
+) {
+  const meaningfulChunk = isMeaningfulLlmChunkEvent(event);
+  return {
+    ...current,
+    finishedAt: isTerminalRunEvent(event)
+      ? diagnosticEvent.at
+      : current.finishedAt,
+    activeStage: "stage" in event ? event.stage : current.activeStage,
+    streamText: meaningfulChunk
+      ? appendDiagnosticStream(current.streamText, event.chunk)
+      : current.streamText,
+    chunkCount: meaningfulChunk ? current.chunkCount + 1 : current.chunkCount,
+    stageStartedAt:
+      event.type === "stage_started"
+        ? {
+            ...current.stageStartedAt,
+            [event.stage]: diagnosticEvent.at,
+          }
+        : current.stageStartedAt,
+    stageMessages:
+      event.type === "stage_progress" && event.message
+        ? { ...current.stageMessages, [event.stage]: event.message }
+        : current.stageMessages,
+    designTrace:
+      event.type === "completed" && "designTrace" in event.snapshot
+        ? (event.snapshot.designTrace ?? [])
+        : current.designTrace,
+    requirementTrace:
+      event.type === "completed" && "requirementTrace" in event.snapshot
+        ? (event.snapshot.requirementTrace ?? [])
+        : current.requirementTrace,
+    events: shouldDisplayDiagnosticEvent(event)
+      ? [...current.events, diagnosticEvent].slice(-80)
+      : current.events,
+  } satisfies RunDiagnostics;
+}
+
+export function deriveCodeRunDiagnosticsFromEvent(
+  current: RunDiagnostics,
+  event: RunEvent,
+  diagnosticEvent: DiagnosticEvent,
+) {
+  const base = deriveRunDiagnosticsFromEvent(current, event, diagnosticEvent);
+  return {
+    ...base,
+    uiMockup:
+      event.type === "artifact_ready" && event.artifactKind === "uiMockup"
+        ? (event.uiMockup ?? current.uiMockup)
+        : current.uiMockup,
+    uiReferenceSpec:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "uiReferenceSpec"
+        ? (event.uiReferenceSpec ?? current.uiReferenceSpec)
+        : event.type === "completed" && "uiReferenceSpec" in event.snapshot
+          ? (event.snapshot.uiReferenceSpec ?? current.uiReferenceSpec)
+          : current.uiReferenceSpec,
+    uiFidelityReport:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "uiFidelityReport"
+        ? (event.uiFidelityReport ?? current.uiFidelityReport)
+        : event.type === "completed" && "uiFidelityReport" in event.snapshot
+          ? (event.snapshot.uiFidelityReport ?? current.uiFidelityReport)
+          : current.uiFidelityReport,
+    visualDirection:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "visualDirection"
+        ? (event.visualDirection ?? current.visualDirection)
+        : event.type === "completed" && "visualDirection" in event.snapshot
+          ? (event.snapshot.visualDirection ?? current.visualDirection)
+          : current.visualDirection,
+    skillResourceDiscoveryPlan:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "skillResourceDiscoveryPlan"
+        ? (event.skillResourceDiscoveryPlan ??
+          current.skillResourceDiscoveryPlan)
+        : event.type === "completed" &&
+            "skillResourceDiscoveryPlan" in event.snapshot
+          ? (event.snapshot.skillResourceDiscoveryPlan ??
+            current.skillResourceDiscoveryPlan)
+          : current.skillResourceDiscoveryPlan,
+    skillResourcePreviews:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "skillResourcePreviews"
+        ? (event.skillResourcePreviews ?? current.skillResourcePreviews)
+        : event.type === "completed" && "skillResourcePreviews" in event.snapshot
+          ? (event.snapshot.skillResourcePreviews ??
+            current.skillResourcePreviews)
+          : current.skillResourcePreviews,
+    skillResourcePlan:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "skillResourcePlan"
+        ? (event.skillResourcePlan ?? current.skillResourcePlan)
+        : event.type === "completed" && "skillResourcePlan" in event.snapshot
+          ? (event.snapshot.skillResourcePlan ?? current.skillResourcePlan)
+          : current.skillResourcePlan,
+    codeSkillContext:
+      event.type === "artifact_ready" &&
+      event.artifactKind === "codeSkillContext"
+        ? (event.codeSkillContext ?? current.codeSkillContext)
+        : event.type === "completed" && "codeSkillContext" in event.snapshot
+          ? (event.snapshot.codeSkillContext ?? current.codeSkillContext)
+          : current.codeSkillContext,
+    codeTrace:
+      event.type === "completed" && "codeTrace" in event.snapshot
+        ? (event.snapshot.codeTrace ?? [])
+        : current.codeTrace,
+  } satisfies RunDiagnostics;
+}
+
+export function addLocalFailureToRunDiagnostics(
+  current: RunDiagnostics,
+  detail: string,
+  options?: {
+    idSuffix?: string;
+    label?: string;
+  },
+) {
+  const at = new Date().toISOString();
+  return {
+    ...current,
+    finishedAt: at,
+    events: [
+      ...current.events,
+      {
+        id: `${at}:${options?.idSuffix ?? "failed-local"}`,
+        at,
+        label: options?.label ?? "failed",
+        detail,
+      },
+    ].slice(-80),
+  } satisfies RunDiagnostics;
 }

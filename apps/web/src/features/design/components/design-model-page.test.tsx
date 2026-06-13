@@ -1,3 +1,4 @@
+// Verifies design model page generation controls, traceability views, and stale diagram handling.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";

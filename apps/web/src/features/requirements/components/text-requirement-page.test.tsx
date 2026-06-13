@@ -1,3 +1,4 @@
+// Verifies requirement authoring, rule editing, quality checks, and generation action guards.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";

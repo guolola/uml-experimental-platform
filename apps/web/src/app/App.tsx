@@ -1,3 +1,4 @@
+// Composes application providers, route matching, workspace shell layout, and top-level page selection.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ResizableHandle,

@@ -54,6 +54,7 @@ test("buildEvidencePackage blocks unresolved not-modelable coverage review items
     requirementTrace: [],
     currentStage: "render_svg",
     status: "completed",
+    error: null,
     errorMessage: null,
   });
 
@@ -113,6 +114,7 @@ test("buildEvidencePackage resolves review items with durable human decisions", 
     requirementTrace: [],
     currentStage: "render_svg",
     status: "completed",
+    error: null,
     errorMessage: null,
   });
   const initialEvidence = buildEvidencePackage({ snapshot, generatedAt });
@@ -183,6 +185,7 @@ test("assertEvidencePackageAllowsDownstream blocks failed browser evidence", () 
     requirementTrace: [],
     currentStage: "render_svg",
     status: "completed",
+    error: null,
     errorMessage: null,
   });
   const evidence = {

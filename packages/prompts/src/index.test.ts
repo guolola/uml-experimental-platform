@@ -1,3 +1,4 @@
+// Verifies prompt builders preserve stage responsibilities, output constraints, and traceability instructions.
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RequirementBaseline, RequirementRule } from "@uml-platform/contracts";

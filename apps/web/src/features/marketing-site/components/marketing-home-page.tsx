@@ -6,7 +6,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
-import type { MarketingRoutePath } from "../../../app/app-routes";
+import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { AccountDialog } from "../../user-platform/components/account-dialog";

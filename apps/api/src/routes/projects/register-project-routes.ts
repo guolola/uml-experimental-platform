@@ -4,13 +4,10 @@ import { z } from "zod";
 import {
   projectInvitationAcceptResponseSchema,
   projectInvitationCreateRequestSchema,
-  projectInvitationDtoSchema,
   projectInvitationResponseSchema,
   projectCreateRequestSchema,
-  projectDtoSchema,
   projectListResponseSchema,
   projectMemberInviteRequestSchema,
-  projectMemberRolePermissions,
   projectMemberResponseSchema,
   projectMembersResponseSchema,
   projectMemberUpdateRequestSchema,
@@ -26,12 +23,7 @@ import {
   requireProjectPermission,
 } from "../../auth/guards.js";
 import { toProjectDto, toProjectMemberDto } from "../../auth/dto.js";
-import {
-  hasProjectPermission,
-  type AuthStore,
-  type ProjectMemberRecord,
-  type ProjectRecord,
-} from "../../auth/in-memory-auth-store.js";
+import type { AuthStore } from "../../auth/in-memory-auth-store.js";
 import {
   buildTokenMail,
   createMailAdapterFromEnv,
@@ -43,47 +35,16 @@ import {
   isRestorableRunSnapshot,
   restoreRunSnapshotToWorkspaceState,
 } from "./workspace-snapshot-restore.js";
-
-const DEFAULT_PROJECT_WORKSPACE_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
-
-const stableProjectWorkspaceDefaults = {
-  requirementText: "",
-  selectedDiagramTypes: [],
-  rules: [],
-  models: {},
-  requirementReviewCandidates: {},
-  requirementModelTraceability: [],
-  generatedDiagramTypes: [],
-  plantUml: {},
-  svgArtifacts: {},
-  diagramErrors: {},
-  selectedDesignDiagramTypes: [],
-  designModels: {},
-  designModelTraceability: [],
-  generatedDesignDiagramTypes: [],
-  designPlantUml: {},
-  designSvgArtifacts: {},
-  designDiagramErrors: {},
-  manualModelEditStatus: {},
-  codeSpec: null,
-  codeBusinessLogic: null,
-  codeFiles: {},
-  codeEntryFile: null,
-  codeDependencies: {},
-  codeUiMockup: null,
-  codeAgentPlan: [],
-  codeSkills: [],
-  codeSkillDiagnostics: [],
-  codeSkillResourcePlan: null,
-  codeSkillContext: null,
-  codeDiagnostics: [],
-  requirementInputFingerprint: null,
-  diagramInputFingerprints: {},
-  designInputFingerprints: {},
-  rulesVersion: 0,
-  rulesBasedOnTextVersion: null,
-  diagramVersions: {},
-} satisfies Record<string, unknown>;
+import {
+  devTokenPayload,
+  isWorkspaceSourceRunConstraintError,
+  projectListPayload,
+  projectPayload,
+  projectWorkspaceBodyLimitBytes,
+  projectWorkspacePayload,
+  toProjectInvitationDto,
+} from "../../projects/project-route-payloads.js";
+import { requireProjectSettingsContext } from "../../projects/project-settings-access.js";
 
 const projectWorkspaceSaveRequestSchema = z.object({
   baseVersion: z.number().int().min(0),
@@ -95,132 +56,6 @@ const projectWorkspaceRestoreRequestSchema = z.object({
   baseVersion: z.number().int().min(0).optional(),
   mode: z.enum(["merge", "restore"]).optional(),
 });
-
-function projectWorkspaceBodyLimitBytes() {
-  const parsed = Number(process.env.UML_PROJECT_WORKSPACE_BODY_LIMIT_BYTES);
-  return Number.isFinite(parsed) && parsed > 0
-    ? Math.floor(parsed)
-    : DEFAULT_PROJECT_WORKSPACE_BODY_LIMIT_BYTES;
-}
-
-function isWorkspaceSourceRunConstraintError(error: unknown) {
-  const candidate = error as { code?: unknown; constraint?: unknown };
-  return (
-    candidate.code === "23503" &&
-    candidate.constraint === "project_workspace_states_source_run_id_fkey"
-  );
-}
-
-function devTokenPayload(token: string, expiresAt: string, nodeEnv: string | null) {
-  return nodeEnv === "production" ? { expiresAt } : { devToken: token, expiresAt };
-}
-
-function projectWorkspacePayload(
-  workspace: Awaited<ReturnType<AuthStore["getProjectWorkspace"]>>,
-) {
-  return {
-    projectId: workspace.projectId,
-    version: workspace.version,
-    state: {
-      ...stableProjectWorkspaceDefaults,
-      ...workspace.state,
-    },
-    updatedByUserId: workspace.updatedByUserId,
-    sourceRunId: workspace.sourceRunId,
-    updatedAt: workspace.updatedAt,
-  };
-}
-
-function toProjectInvitationDto(input: {
-  member: Parameters<typeof toProjectMemberDto>[0];
-  expiresAt: string;
-  project?: Parameters<typeof toProjectDto>[0];
-}) {
-  return projectInvitationDtoSchema.parse({
-    id: input.member.id,
-    projectId: input.member.projectId,
-    email: input.member.email,
-    role: input.member.role,
-    status: input.member.status,
-    invitedByUserId: input.member.invitedByUserId,
-    invitedAt: input.member.invitedAt,
-    expiresAt: input.expiresAt,
-    createdAt: input.member.createdAt,
-    updatedAt: input.member.updatedAt,
-    project: input.project ? toProjectDto(input.project) : undefined,
-  });
-}
-
-function projectPayload(input: {
-  project: Parameters<typeof toProjectDto>[0];
-  member: Parameters<typeof toProjectMemberDto>[0];
-}) {
-  return {
-    project: toProjectDto(input.project),
-    membership: toProjectMemberDto(input.member),
-    currentUserRole: input.member.role,
-    capabilities: projectMemberRolePermissions[input.member.role],
-  };
-}
-
-function displayNameFromMember(member: ProjectMemberRecord) {
-  return member.displayName?.trim() || member.email.split("@")[0] || member.userId || null;
-}
-
-function activeMemberPreviewSort(project: ProjectRecord) {
-  return (left: ProjectMemberRecord, right: ProjectMemberRecord) => {
-    if (left.userId === project.ownerUserId) return -1;
-    if (right.userId === project.ownerUserId) return 1;
-    return left.createdAt.localeCompare(right.createdAt);
-  };
-}
-
-async function projectListPayload(authStore: AuthStore, project: ProjectRecord) {
-  const activeMembers = (await authStore.listProjectMembers(project.id))
-    .filter((member) => member.status === "active")
-    .sort(activeMemberPreviewSort(project));
-  const ownerMember = activeMembers.find((member) => member.userId === project.ownerUserId);
-  const ownerUser = await authStore.getUser(project.ownerUserId);
-  const ownerDisplayName =
-    ownerMember ? displayNameFromMember(ownerMember) : ownerUser?.displayName ?? ownerUser?.email ?? null;
-
-  return projectDtoSchema.parse({
-    ...project,
-    ownerDisplayName,
-    ownerAvatarUrl: ownerMember?.avatarUrl ?? ownerUser?.avatarUrl ?? null,
-    memberCount: activeMembers.length,
-    memberPreviews: activeMembers.slice(0, 3).map((member) => ({
-      id: member.id,
-      userId: member.userId,
-      displayName: displayNameFromMember(member),
-      avatarUrl: member.avatarUrl ?? null,
-      role: member.role,
-      status: member.status,
-    })),
-  });
-}
-
-async function requireProjectSettingsContext(
-  request: Parameters<typeof requireAuth>[0],
-  reply: Parameters<typeof requireAuth>[1],
-  authStore: AuthStore,
-  projectId: string,
-  options: { allowDeleted?: boolean } = {},
-) {
-  const auth = await requireAuth(request, reply, authStore);
-  if (isAuthError(auth)) return auth;
-  const project = await authStore.getProject(projectId);
-  if (!project || (!options.allowDeleted && project.status === "deleted")) {
-    reply.code(404);
-    return { message: "Project not found" } as const;
-  }
-  const member = await authStore.findProjectMember(projectId, auth.user.id);
-  if (!member || !hasProjectPermission(member.role, "manage_project_settings")) {
-    reply.code(403);
-    return { message: "Project permission required" } as const;
-  }
-  return { ...auth, project, member };
-}
 
 export function registerProjectRoutes({
   app,

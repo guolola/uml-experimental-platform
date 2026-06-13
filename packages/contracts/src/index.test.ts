@@ -1,3 +1,4 @@
+// Verifies shared schema compatibility and representative DTO contracts consumed across apps and packages.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

@@ -1,3 +1,4 @@
+// Verifies diagram detail editing, rerendering, trace highlighting, and export interactions.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";

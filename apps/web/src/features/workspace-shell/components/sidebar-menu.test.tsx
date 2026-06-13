@@ -1,3 +1,4 @@
+// Verifies sidebar navigation, diagram status trees, queued task visibility, and workspace tab interactions.
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";

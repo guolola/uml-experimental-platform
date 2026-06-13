@@ -1,3 +1,4 @@
+// Owns workspace shell UI state for selected tabs, active workspace routes, and persisted navigation choices.
 import {
   createContext,
   useCallback,

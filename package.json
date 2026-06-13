@@ -40,6 +40,8 @@
     "test:render": "npm run test --workspace @uml-platform/render-service",
     "test:harness-e2e": "npm run test --workspace @uml-platform/harness-e2e",
     "test:harness-eval": "npm run test --workspace @uml-platform/harness-eval",
+    "audit:architecture": "node scripts/audit/architecture-boundaries.mjs",
+    "audit:architecture:strict": "node scripts/audit/architecture-boundaries.mjs --strict",
     "eval:harness": "npm run eval --workspace @uml-platform/harness-eval"
   }
 }

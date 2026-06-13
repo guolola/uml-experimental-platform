@@ -1,0 +1,158 @@
+// Derives stale flags, generation blockers, and visible run status for the session provider.
+import type { DiagramModelSpec, RequirementBaseline } from "@uml-platform/contracts";
+import type {
+  DesignDiagramType,
+  DiagramType,
+} from "../../../entities/diagram/model";
+import type { RequirementRule } from "../../../entities/requirement-rule/model";
+import type { WorkspaceRecord } from "../../../entities/workspace/model";
+import type { GenerationTask, RunDiagnostics } from "../model/session-state";
+import { requirementRuleIdsBlockingGeneration } from "./requirement-review";
+import type { createEmptyRunUiState } from "./run-ui-state";
+import {
+  designFingerprintMatches,
+  designInputFingerprintFor,
+  fingerprintMatches,
+  hasCompleteDesignTraceability,
+  hasCompleteRequirementTraceability,
+  isRequirementDiagramStale,
+  requirementInputFingerprintFor,
+} from "./workspace-context";
+import { orderedRequirementDiagrams } from "./generation-planning";
+
+type RunUiState = ReturnType<typeof createEmptyRunUiState>;
+
+interface WorkspaceDerivedStatusInput {
+  currentRunDiagnostics: RunDiagnostics;
+  designInputFingerprints: WorkspaceRecord["designInputFingerprints"];
+  designModelTraceability: WorkspaceRecord["designModelTraceability"];
+  designModels: WorkspaceRecord["designModels"];
+  diagramInputFingerprints: WorkspaceRecord["diagramInputFingerprints"];
+  diagramVersions: WorkspaceRecord["diagramVersions"];
+  generatedDesignDiagrams: DesignDiagramType[];
+  generatedDiagrams: DiagramType[];
+  manualModelEditStatus: WorkspaceRecord["manualModelEditStatus"];
+  models: WorkspaceRecord["models"];
+  requirementBaseline: RequirementBaseline | null;
+  requirementInputFingerprint: string | null;
+  requirementModelTraceability: WorkspaceRecord["requirementModelTraceability"];
+  requirementReviewCandidates: WorkspaceRecord["requirementReviewCandidates"];
+  requirementText: string;
+  rules: RequirementRule[];
+  rulesBasedOnTextVersion: number | null;
+  rulesVersion: number;
+  runUiState: RunUiState;
+  textVersion: number;
+  visibleGenerationTask: GenerationTask | null;
+}
+
+export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
+  const currentRequirementInputFingerprint = requirementInputFingerprintFor(
+    input.requirementText,
+    input.rules,
+  );
+  const isRulesStale =
+    input.rules.length > 0 &&
+    (input.requirementInputFingerprint
+      ? !fingerprintMatches(
+          input.requirementInputFingerprint,
+          currentRequirementInputFingerprint,
+        )
+      : input.rulesBasedOnTextVersion !== null &&
+        input.rulesBasedOnTextVersion !== input.textVersion);
+
+  const presentRequirementDiagrams = orderedRequirementDiagrams(
+    Object.keys(input.models).filter((diagram) =>
+      Boolean(input.models[diagram as DiagramType]),
+    ) as DiagramType[],
+  );
+  const generatedRequirementDiagramSet = new Set([
+    ...input.generatedDiagrams,
+    ...presentRequirementDiagrams,
+  ]);
+  const staleDiagrams = orderedRequirementDiagrams(
+    [...generatedRequirementDiagramSet].filter((diagram) =>
+      isRequirementDiagramStale({
+        diagram,
+        activeRequirementFingerprint: currentRequirementInputFingerprint,
+        generatedDiagrams: input.generatedDiagrams,
+        requirementInputFingerprint: input.requirementInputFingerprint,
+        diagramInputFingerprints: input.diagramInputFingerprints,
+        diagramVersions: input.diagramVersions,
+        rulesVersion: input.rulesVersion,
+        models: input.models,
+        requirementModelTraceability: input.requirementModelTraceability,
+        manualModelEditStatus: input.manualModelEditStatus,
+      }),
+    ),
+  );
+  const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
+    Object.values(input.models),
+    input.requirementModelTraceability,
+    input.manualModelEditStatus,
+  );
+  const requirementTraceabilityMissing =
+    input.requirementModelTraceability.length > 0
+      ? !requirementTraceabilityComplete
+      : input.generatedDiagrams.length > 0;
+  const currentDesignInputFingerprint = designInputFingerprintFor(
+    Object.values(input.models).filter((model): model is DiagramModelSpec =>
+      Boolean(model),
+    ),
+    input.requirementModelTraceability,
+  );
+  const designFreshnessComplete =
+    input.generatedDesignDiagrams.length === 0 ||
+    Object.entries(input.designModels).every(([modelId]) =>
+      designFingerprintMatches(
+        input.designInputFingerprints[modelId],
+        currentDesignInputFingerprint,
+      ),
+    );
+  const designTraceabilityComplete = hasCompleteDesignTraceability(
+    Object.values(input.designModels),
+    input.designModelTraceability,
+    input.manualModelEditStatus,
+    Object.values(input.models),
+  );
+  const requirementTraceabilityStale =
+    generatedRequirementDiagramSet.size > 0 &&
+    (isRulesStale ||
+      staleDiagrams.length > 0 ||
+      requirementTraceabilityMissing);
+  const designTraceabilityStale =
+    input.generatedDesignDiagrams.length > 0 &&
+    (requirementTraceabilityStale ||
+      !designFreshnessComplete ||
+      !designTraceabilityComplete);
+  const pendingRequirementReviewRuleIds = requirementRuleIdsBlockingGeneration(
+    input.requirementBaseline,
+    input.requirementReviewCandidates,
+  );
+  const requirementReviewBlockedReason =
+    pendingRequirementReviewRuleIds.length > 0
+      ? "请先确认需求规则修复结果"
+      : null;
+  const designGenerationBlockedReason = !input.requirementText.trim()
+    ? "请先输入需求文本"
+    : requirementReviewBlockedReason;
+
+  return {
+    designGenerationBlockedReason,
+    designTraceabilityStale,
+    errorMessage:
+      input.visibleGenerationTask?.errorMessage ?? input.runUiState.errorMessage,
+    isRulesStale,
+    requirementReviewBlockedReason,
+    requirementTraceabilityStale,
+    runMessage:
+      input.visibleGenerationTask?.message ?? input.runUiState.runMessage,
+    runProgress:
+      input.visibleGenerationTask?.progress ?? input.runUiState.runProgress,
+    runStatus:
+      input.visibleGenerationTask?.status ?? input.runUiState.runStatus,
+    staleDiagrams,
+    currentRunDiagnostics:
+      input.visibleGenerationTask?.diagnostics ?? input.currentRunDiagnostics,
+  };
+}

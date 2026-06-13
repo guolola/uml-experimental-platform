@@ -1,3 +1,4 @@
+// Renders workspace-level navigation, run controls, export actions, and account/project entry points.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -31,7 +32,7 @@ import { Badge } from "../../../shared/ui/badge";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
 import { useAuthenticatedRouteSession } from "../../user-platform/components/authenticated-route-session";
 import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
-import { useTheme } from "../../../app/providers/theme-provider";
+import { useTheme } from "../../../shared/ui/theme-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../../shared/ui/dropdown-menu";
-import { buildRunMarkdownReport } from "../../history";
+import { buildRunMarkdownReport } from "../../../entities/run-history";
 import { downloadTextFile } from "../../../shared/lib/download";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
@@ -48,7 +49,7 @@ import { SystemNoticeButton } from "../../system-notices/components/system-notic
 import {
   SHELL_ROUTE_MODULES,
   type ShellRoutePath,
-} from "../../../app/workspace-modules";
+} from "../../../entities/workspace/modules";
 
 export type { ShellRoutePath };
 

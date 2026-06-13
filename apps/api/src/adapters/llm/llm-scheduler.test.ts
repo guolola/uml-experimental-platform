@@ -1,10 +1,13 @@
 // Verifies the single-server LLM scheduler gates real model calls before pipelines use it.
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ProviderSettings } from "@uml-platform/contracts";
 import {
   createInMemoryLlmScheduler,
+  createScheduledLlmTransport,
   type LlmScheduleContext,
 } from "./llm-scheduler.js";
+import type { LlmTransport, StreamChatCompletionInput } from "../../llm.js";
 
 function context(patch: Partial<LlmScheduleContext> = {}): LlmScheduleContext {
   return {
@@ -18,6 +21,12 @@ function context(patch: Partial<LlmScheduleContext> = {}): LlmScheduleContext {
     ...patch,
   };
 }
+
+const providerSettings: ProviderSettings = {
+  apiBaseUrl: "https://llm.test",
+  apiKey: "test-key",
+  model: "test-model",
+};
 
 test("in-memory LLM scheduler enforces global, project, user, provider and run limits", async () => {
   const scheduler = createInMemoryLlmScheduler({
@@ -90,6 +99,41 @@ test("in-memory LLM scheduler cancels queued work before it calls the provider",
 
   await assert.rejects(queued, /cancelled/i);
   assert.equal(queuedCalled, false);
+});
+
+test("scheduled LLM transport forwards abort signals to the provider transport", async () => {
+  const scheduler = createInMemoryLlmScheduler({
+    globalConcurrency: 1,
+    providerConcurrency: 1,
+    projectConcurrency: 1,
+    userConcurrency: 1,
+    runConcurrency: 1,
+  });
+  const controller = new AbortController();
+  let receivedInput: StreamChatCompletionInput | undefined;
+  const providerTransport: LlmTransport = {
+    async *streamChatCompletion(input) {
+      receivedInput = input;
+      yield "ok";
+    },
+  };
+  const scheduledTransport = createScheduledLlmTransport({
+    transport: providerTransport,
+    scheduler,
+    context: context(),
+  });
+
+  const chunks: string[] = [];
+  for await (const chunk of scheduledTransport.streamChatCompletion({
+    providerSettings,
+    messages: [{ role: "user", content: "hello" }],
+    abortSignal: controller.signal,
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.deepEqual(chunks, ["ok"]);
+  assert.equal(receivedInput?.abortSignal, controller.signal);
 });
 
 test("stream scheduling applies backpressure until chunks are consumed", async () => {

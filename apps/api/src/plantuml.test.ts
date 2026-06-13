@@ -1,3 +1,4 @@
+// Verifies PlantUML generation for supported requirement and design diagram models.
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {

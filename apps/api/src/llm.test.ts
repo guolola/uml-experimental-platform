@@ -1,3 +1,4 @@
+// Verifies LLM transport request shaping, provider settings handling, and response parsing helpers.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

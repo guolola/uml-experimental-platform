@@ -1,3 +1,4 @@
+// Renders design-stage model generation controls, selection state, and requirement-to-design trace summaries.
 import { useEffect, useMemo, useState } from "react";
 import type { DiagramModelSpec } from "@uml-platform/contracts";
 import {

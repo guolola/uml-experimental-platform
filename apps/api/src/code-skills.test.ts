@@ -1,3 +1,4 @@
+// Verifies web design skill loading, resource filtering, preview planning, and runtime diagnostics.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

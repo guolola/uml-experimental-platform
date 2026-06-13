@@ -1,3 +1,4 @@
+// Verifies code generation page file browsing, preview rendering, export actions, and diagnostics.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";

@@ -1,3 +1,4 @@
+// Loads the project-owned web design code skill and formats its resources and runtime checks for code generation prompts.
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,

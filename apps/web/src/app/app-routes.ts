@@ -1,32 +1,17 @@
-import type { ShellRoutePath } from "./workspace-modules";
-
-export type AuthRoutePath =
-  | "/login"
-  | "/register"
-  | "/verify-email"
-  | "/forgot-password"
-  | "/reset-password";
-
-export type MarketingRoutePath = "/" | "/features" | "/workflow" | "/cases" | "/pricing";
-export type ProjectRouteDrawer = "settings" | "members" | "history" | "documents";
-
-export type AppRoute =
-  | { kind: "marketing-home"; path: MarketingRoutePath }
-  | { kind: "shell"; path: ShellRoutePath }
-  | { kind: "auth"; path: AuthRoutePath }
-  | { kind: "invitation-accept"; path: "/invitations/accept" }
-  | { kind: "legacy-account"; path: "/account" | "/account/security" }
-  | { kind: "account-billing"; path: "/account/billing" }
-  | { kind: "alipay-return"; path: "/billing/alipay/return" }
-  | { kind: "legacy-settings"; path: "/settings/models" }
-  | { kind: "projects-index"; path: "/projects" }
-  | { kind: "projects-new"; path: "/projects/new" }
-  | {
-      kind: "project-workspace";
-      path: string;
-      projectId: string;
-      drawer?: ProjectRouteDrawer;
-    };
+import type {
+  AppRoute,
+  AuthRoutePath,
+  MarketingRoutePath,
+  ProjectRouteDrawer,
+  ShellRoutePath,
+} from "../shared/lib/app-route-types";
+export type {
+  AppRoute,
+  AuthRoutePath,
+  MarketingRoutePath,
+  ProjectRouteDrawer,
+  ShellRoutePath,
+} from "../shared/lib/app-route-types";
 
 const SHELL_PATHS = new Set<ShellRoutePath>(["/workspace", "/exam", "/tutorial", "/about"]);
 const MARKETING_PATHS = new Set<MarketingRoutePath>([
