@@ -10,6 +10,8 @@ NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 NPM_CACHE_DIR="${NPM_CACHE_DIR:-$DEPLOY_PATH/shared/npm-cache}"
 STALE_INCOMING_DAYS="${STALE_INCOMING_DAYS:-1}"
 PLANTUML_JAR="${PLANTUML_JAR:-plantuml-1.2026.3beta8.jar}"
+WEB_ASSET_RETENTION_DAYS="${WEB_ASSET_RETENTION_DAYS:-365}"
+SHARED_WEB_ASSETS_DIR="$DEPLOY_PATH/shared/web/assets"
 
 if [[ -z "$RELEASE_SHA" ]]; then
   echo "RELEASE_SHA is required" >&2
@@ -87,6 +89,32 @@ cleanup_stale_deploy_artifacts() {
     while IFS= read -r -d '' incoming_dir; do
       rm -rf -- "$incoming_dir"
     done
+}
+
+publish_shared_web_assets() {
+  local release_dir="$1"
+  local release_assets_dir="$release_dir/apps/web/dist/assets"
+
+  # Nginx serves immutable Vite chunks from this shared cache across releases.
+  if [[ ! -d "$release_assets_dir" ]]; then
+    echo "Release is missing web assets: $release_assets_dir" >&2
+    exit 1
+  fi
+
+  echo "Publishing web assets to shared cache: $SHARED_WEB_ASSETS_DIR"
+  mkdir -p "$SHARED_WEB_ASSETS_DIR"
+  while IFS= read -r -d '' asset_file; do
+    local asset_name
+    local target_file
+    asset_name="$(basename "$asset_file")"
+    target_file="$SHARED_WEB_ASSETS_DIR/$asset_name"
+    if [[ ! -e "$target_file" ]]; then
+      cp -p "$asset_file" "$target_file"
+    fi
+  done < <(find "$release_assets_dir" -maxdepth 1 -type f -print0)
+
+  echo "Cleaning shared web assets older than $WEB_ASSET_RETENTION_DAYS days ..."
+  find "$SHARED_WEB_ASSETS_DIR" -maxdepth 1 -type f -mtime +"$WEB_ASSET_RETENTION_DAYS" -delete 2>/dev/null || true
 }
 
 copy_release_payload() {
@@ -328,6 +356,7 @@ if [[ ! -f "$TMP_DIR/apps/web/dist/index.html" ]]; then
 fi
 
 mv "$TMP_DIR" "$RELEASE_DIR"
+publish_shared_web_assets "$RELEASE_DIR"
 ln -sfnT "$RELEASE_DIR" "$DEPLOY_PATH/current"
 
 if ! reload_pm2_for_release "$RELEASE_DIR" "$RELEASE_SHA" "$RELEASE_STARTED_AT"; then

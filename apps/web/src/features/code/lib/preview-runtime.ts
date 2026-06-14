@@ -83,8 +83,20 @@ export function resolvePreviewImport(
 }
 
 export function previewErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "预览构建失败";
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  if (
+    /Failed to fetch dynamically imported module/i.test(message) ||
+    /Importing a module script failed/i.test(message)
+  ) {
+    return "页面资源已更新，请刷新页面后再运行预览。";
+  }
+
+  return message || "预览构建失败";
 }
 
 export function previewModuleUrl(source: string) {
