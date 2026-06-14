@@ -80,6 +80,9 @@ publish_shared_web_assets() {
 
   echo "Publishing web assets to shared cache: $SHARED_WEB_ASSETS_DIR"
   mkdir -p "$SHARED_WEB_ASSETS_DIR"
+  # Let Nginx traverse to public assets without making shared secrets listable.
+  chmod o+x "$DEPLOY_PATH/shared" || true
+  chmod o+rx "$DEPLOY_PATH/shared/web" "$SHARED_WEB_ASSETS_DIR" || true
   while IFS= read -r -d '' asset_file; do
     local asset_name
     local target_file
