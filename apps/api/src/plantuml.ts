@@ -465,7 +465,7 @@ function renderActivity(model: ActivityDiagramSpec) {
               const branches = outgoing.get(node.id) ?? [];
               if (branches.length > 1) {
                 const commonContinuation = renderBranches(
-                  `${node.name || node.id}后续路径`,
+                  node.name || "路径选择",
                   branches,
                   stopBefore,
                   pathSeen,
@@ -491,7 +491,7 @@ function renderActivity(model: ActivityDiagramSpec) {
             const branches = outgoing.get(node.id) ?? [];
             if (branches.length > 1) {
               const commonContinuation = renderBranches(
-                `${node.name || node.id}后续路径`,
+                node.name || "路径选择",
                 branches,
                 stopBefore,
                 pathSeen,
@@ -519,7 +519,7 @@ function renderActivity(model: ActivityDiagramSpec) {
             const branches = outgoing.get(node.id) ?? [];
             if (branches.length > 1) {
               const commonContinuation = renderBranches(
-                `${node.name}后续路径`,
+                node.name || "路径选择",
                 branches,
                 stopBefore,
                 pathSeen,
@@ -925,7 +925,7 @@ function renderSequence(
     renderedMessageIds.add(message.id);
 
     for (const fragment of [...(fragmentEnds.get(message.id) ?? [])].reverse()) {
-      lines.push(`end ${fragment.type}`);
+      lines.push("end");
     }
   }
 

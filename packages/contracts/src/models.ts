@@ -643,6 +643,10 @@ export type ModelElementRef = z.infer<typeof modelElementRefSchema>;
 export const requirementModelTraceabilityEntrySchema = z.object({
   ruleId: z.string().min(1),
   target: modelElementRefSchema,
+  mappingSource: z.enum(["llm", "auto-filled-pending-review"]).optional(),
+  reviewStatus: z.enum(["confirmed", "pending"]).optional(),
+  confidence: z.enum(["high", "medium", "low"]).optional(),
+  rationale: z.string().min(1).optional(),
 });
 export type RequirementModelTraceabilityEntry = z.infer<
   typeof requirementModelTraceabilityEntrySchema

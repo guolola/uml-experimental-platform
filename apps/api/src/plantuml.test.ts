@@ -830,7 +830,8 @@ test("activity PlantUML renders implicit branches from activity nodes", async ()
     ],
   });
 
-  assert.match(source, /查看活动安排后续路径/);
+  assert.match(source, /if \(查看活动安排\) then \(申请注册\)/);
+  assert.doesNotMatch(source, /后续路径/);
   assert.match(source, /申请注册/);
   assert.match(source, /仅浏览/);
   assert.match(source, /:提交注册申请;/);

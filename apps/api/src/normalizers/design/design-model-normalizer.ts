@@ -19,6 +19,10 @@ import {
   sanitizeTraceabilityEntries,
 } from "../traceability/traceability-normalizer.js";
 import { dedupeActivityModel } from "../diagrams/activity-dedupe.js";
+import {
+  normalizeActivityStructure,
+  normalizeDeploymentStructure,
+} from "../diagrams/diagram-structure.js";
 import { normalizeLongDiagramTextField } from "../diagrams/relationship-labels.js";
 
 function normalizeSequenceMessageType(value: unknown) {
@@ -303,7 +307,13 @@ function normalizeDesignDiagramModel(model: unknown) {
     );
   }
 
-  return diagramKind === "activity" ? dedupeActivityModel(normalized) : normalized;
+  if (diagramKind === "activity") {
+    return normalizeActivityStructure(dedupeActivityModel(normalized));
+  }
+  if (diagramKind === "deployment") {
+    return normalizeDeploymentStructure(normalized);
+  }
+  return normalized;
 }
 
 export function parseDesignDiagramModelsResult(

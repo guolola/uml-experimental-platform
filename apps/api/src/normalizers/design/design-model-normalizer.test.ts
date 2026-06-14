@@ -419,6 +419,73 @@ test("parseDesignDiagramModelsOnly keeps classKind compatible with the contract"
   assert.equal(model.classes[1]?.classKind, "entity");
 });
 
+test("parseDesignDiagramModelsOnly preserves localized class metadata", () => {
+  const parsed = parseDesignDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "class",
+          modelId: "class:design",
+          title: "设计类图",
+          summary: "设计对象",
+          notes: [],
+          classes: [
+            {
+              id: "reservation",
+              name: "Reservation",
+              chineseName: "预约记录",
+              englishName: "Reservation",
+              type: "设计实体",
+              classKind: "domain entity",
+              constraints: ["按用户隔离"],
+              attributes: [
+                {
+                  name: "status",
+                  chineseName: "状态",
+                  englishName: "status",
+                  type: "ReservationStatus",
+                  visibility: "private",
+                  constraints: ["不可为空"],
+                },
+              ],
+              operations: [],
+            },
+          ],
+          interfaces: [
+            {
+              id: "repository",
+              name: "ReservationRepository",
+              chineseName: "预约仓储",
+              englishName: "ReservationRepository",
+              type: "interface",
+              constraints: ["持久化边界"],
+              operations: [],
+            },
+          ],
+          enums: [],
+          relationships: [],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "class");
+  if (model?.diagramKind !== "class") return;
+  assert.equal(model.classes[0]?.chineseName, "预约记录");
+  assert.equal(model.classes[0]?.englishName, "Reservation");
+  assert.equal(model.classes[0]?.type, "设计实体");
+  assert.equal(model.classes[0]?.classKind, "entity");
+  assert.deepEqual(model.classes[0]?.constraints, ["按用户隔离"]);
+  assert.equal(model.classes[0]?.attributes[0]?.chineseName, "状态");
+  assert.equal(model.classes[0]?.attributes[0]?.englishName, "status");
+  assert.deepEqual(model.classes[0]?.attributes[0]?.constraints, ["不可为空"]);
+  assert.equal(model.interfaces[0]?.chineseName, "预约仓储");
+  assert.equal(model.interfaces[0]?.englishName, "ReservationRepository");
+  assert.equal(model.interfaces[0]?.type, "interface");
+  assert.deepEqual(model.interfaces[0]?.constraints, ["持久化边界"]);
+});
+
 test("parseDesignTraceabilityCoverageResult ignores nullable optional refs", () => {
   const designModels = parseDesignDiagramModelsOnly(
     JSON.stringify({
@@ -642,4 +709,53 @@ test("parseDesignTraceabilityCoverageForSources accepts a single-object traceabi
 
   assert.equal(coverage.traceability.length, 1);
   assert.equal(coverage.missingSources.length, 0);
+});
+
+test("parseDesignDiagramModelsOnly filters deployment relationships with illegal endpoints", () => {
+  const parsed = parseDesignDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "deployment",
+          modelId: "deployment",
+          title: "部署设计",
+          summary: "组件部署关系",
+          notes: [],
+          nodes: [{ id: "app_server", name: "应用服务器", nodeType: "server" }],
+          databases: [{ id: "db", name: "业务数据库" }],
+          components: [{ id: "api", name: "后端服务" }],
+          externalSystems: [],
+          artifacts: [{ id: "jar", name: "服务制品" }],
+          relationships: [
+            {
+              id: "deploy_jar",
+              type: "deployment",
+              sourceId: "jar",
+              targetId: "app_server",
+            },
+            {
+              id: "invalid_hosting",
+              type: "hosting",
+              sourceId: "jar",
+              targetId: "api",
+            },
+            {
+              id: "invalid_artifact_comm",
+              type: "communication",
+              sourceId: "jar",
+              targetId: "db",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "deployment");
+  if (model?.diagramKind !== "deployment") return;
+  assert.deepEqual(
+    model.relationships.map((relationship) => relationship.id),
+    ["deploy_jar"],
+  );
 });

@@ -170,8 +170,7 @@ function englishNameFrom(record: Record<string, unknown>, fallback: string) {
 function chineseNameFrom(record: Record<string, unknown>, fallback: string) {
   const explicit = typeof record.chineseName === "string" ? record.chineseName.trim() : "";
   if (explicit) return explicit;
-  const name = typeof record.name === "string" ? record.name.trim() : "";
-  return name || fallback;
+  return fallback;
 }
 
 function constraintsFrom(value: unknown) {
@@ -189,7 +188,7 @@ function normalizedDetailFields(
   constraints: string[] = [],
 ): DetailField[] {
   return [
-    { label: "中文名称", value: chineseNameFrom(record, fallback) },
+    { label: "中文名称", value: chineseNameFrom(record, "未标明") },
     { label: "英文名称", value: englishNameFrom(record, fallback) },
     { label: "类型", value: typeValue || "未标明" },
     { label: "约束", value: constraints.length > 0 ? joinList(constraints) : "无" },
@@ -477,15 +476,42 @@ function buildClassFields(entity: ClassEntity) {
     ...constraintsFrom(entity.constraints),
     entity.stereotype ? `构造型:${entity.stereotype}` : undefined,
     entity.classKind ? `类别:${entity.classKind}` : undefined,
-    entity.attributes.length > 0 ? `属性:${entity.attributes.length}个` : undefined,
     entity.operations.length > 0 ? `操作:${entity.operations.length}个` : undefined,
   ]);
   return normalizedDetailFields(
     entity as unknown as Record<string, unknown>,
-    entity.name,
+    "未标明",
     entity.type ?? entity.classKind ?? entity.stereotype ?? "class",
     constraints,
   );
+}
+
+function classAttributeDetailSections(entity: ClassEntity): DetailSection[] {
+  if (entity.attributes.length === 0) return [];
+
+  return [
+    {
+      id: `${entity.id}:attributes`,
+      title: "属性明细",
+      summary: `${entity.attributes.length}个`,
+      items: entity.attributes.map((attribute, index) => {
+        const fields: DetailField[] = [
+          { label: "名称", value: attribute.name },
+          {
+            label: "中文名称",
+            value: chineseNameFrom(attribute as unknown as Record<string, unknown>, "未标明"),
+          },
+          { label: "类型", value: attribute.type },
+        ];
+        return {
+          id: `${entity.id}:attribute:${index}:${attribute.name}`,
+          title: attribute.name,
+          fields,
+          description: attribute.description,
+        };
+      }),
+    },
+  ];
 }
 
 function buildClassDetailModel(model: ClassDiagramSpec): DiagramDetailModel {
@@ -496,6 +522,7 @@ function buildClassDetailModel(model: ClassDiagramSpec): DiagramDetailModel {
       label: entity.name,
       description: entity.description,
       fields: buildClassFields(entity),
+      sections: classAttributeDetailSections(entity),
     })),
     ...model.interfaces.map((entity) => ({
       kind: "interface" as const,

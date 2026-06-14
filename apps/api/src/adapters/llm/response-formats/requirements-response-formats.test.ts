@@ -45,6 +45,43 @@ test("requirement model response formats are valid for OpenAI strict JSON Schema
   );
 });
 
+test("requirement class response schema exposes localized names and constraints", () => {
+  const variants = (
+    GENERATE_MODELS_RESPONSE_FORMAT.json_schema.schema.properties as {
+      models: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } };
+    }
+  ).models.items.anyOf;
+  const classVariant = variants.find((variant) => {
+    const diagramKind = variant.properties.diagramKind as { enum?: string[] };
+    return diagramKind.enum?.includes("class");
+  });
+
+  assert.ok(classVariant);
+  const classProperties = (
+    classVariant.properties.classes as {
+      items: { properties: Record<string, unknown> };
+    }
+  ).items.properties;
+  const attributeProperties = (
+    classProperties.attributes as {
+      items: { properties: Record<string, unknown> };
+    }
+  ).items.properties;
+  const interfaceProperties = (
+    classVariant.properties.interfaces as {
+      items: { properties: Record<string, unknown> };
+    }
+  ).items.properties;
+
+  for (const field of ["chineseName", "englishName", "type", "constraints"]) {
+    assert.ok(classProperties[field], `classes[].${field} must be declared`);
+    assert.ok(interfaceProperties[field], `interfaces[].${field} must be declared`);
+  }
+  for (const field of ["chineseName", "englishName", "constraints"]) {
+    assert.ok(attributeProperties[field], `classes[].attributes[].${field} must be declared`);
+  }
+});
+
 test("requirement model response format narrows single selected diagram kind", () => {
   const format = getGenerateModelsResponseFormat("gpt-5.4", ["deployment"]);
   assert.ok(format);

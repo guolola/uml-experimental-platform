@@ -194,6 +194,22 @@ function createFigureCaption(text: string, style: ResolvedDocumentStyle) {
   });
 }
 
+function documentDiagramKey(section: DocumentSection) {
+  return section.diagramModelId ?? section.diagramKind;
+}
+
+function withDocumentPlantUmlFont(source: string) {
+  const fontSkinparams = [
+    'skinparam defaultFontName "Microsoft YaHei"',
+    'skinparam activityFontName "Microsoft YaHei"',
+    'skinparam sequenceParticipantFontName "Microsoft YaHei"',
+    'skinparam sequenceMessageFontName "Microsoft YaHei"',
+    'skinparam componentFontName "Microsoft YaHei"',
+    'skinparam classFontName "Microsoft YaHei"',
+  ].join("\n");
+  return source.replace(/@startuml\s*/u, (match) => `${match}${fontSkinparams}\n`);
+}
+
 function createCoverParagraph(
   text: string,
   style: ResolvedDocumentStyle,
@@ -303,11 +319,12 @@ export async function renderDocumentBuffer(
       bodyChildren.push(table);
     }
     if (section.diagramKind) {
-      const source = plantUmlMap.get(section.diagramKind);
+      const diagramKey = documentDiagramKey(section);
+      const source = diagramKey ? plantUmlMap.get(diagramKey) : undefined;
       if (!source) {
-        const reason = svgKinds.has(section.diagramKind)
-          ? `${section.diagramKind}: 缺少可嵌入图片源`
-          : section.diagramKind;
+        const reason = diagramKey && svgKinds.has(diagramKey)
+          ? `${diagramKey}: 缺少可嵌入图片源`
+          : (diagramKey ?? section.diagramKind);
         missingArtifacts.push(reason);
         bodyChildren.push(createTextParagraph("当前未生成该图。", style.body));
         continue;
@@ -316,7 +333,8 @@ export async function renderDocumentBuffer(
       try {
         const rendered = await pngRenderClient({
           diagramKind: section.diagramKind as UmlDiagramKind,
-          source,
+          modelId: section.diagramModelId,
+          source: withDocumentPlantUmlFont(source),
         });
         bodyChildren.push(createPngImageParagraph(rendered.png, section.title));
         bodyChildren.push(

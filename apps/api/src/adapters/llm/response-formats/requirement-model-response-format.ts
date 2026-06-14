@@ -27,6 +27,23 @@ export const modelElementRefResponseSchema = {
   required: ["diagramKind", "elementId", "elementKind", "label"],
 } as const;
 
+export const requirementTraceabilityEntryResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    ruleId: { type: "string" },
+    target: modelElementRefResponseSchema,
+    mappingSource: {
+      type: "string",
+      enum: ["llm", "auto-filled-pending-review"],
+    },
+    reviewStatus: { type: "string", enum: ["confirmed", "pending"] },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    rationale: { type: "string" },
+  },
+  required: ["ruleId", "target"],
+} as const;
+
 export const GENERATE_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
@@ -218,6 +235,13 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
                       properties: {
                         id: { type: "string" },
                         name: { type: "string" },
+                        chineseName: { type: "string" },
+                        englishName: { type: "string" },
+                        type: { type: "string" },
+                        constraints: {
+                          type: "array",
+                          items: { type: "string" },
+                        },
                         classKind: {
                           type: "string",
                           enum: [
@@ -237,7 +261,13 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
                             additionalProperties: false,
                             properties: {
                               name: { type: "string" },
+                              chineseName: { type: "string" },
+                              englishName: { type: "string" },
                               type: { type: "string" },
+                              constraints: {
+                                type: "array",
+                                items: { type: "string" },
+                              },
                               visibility: {
                                 type: "string",
                                 enum: ["public", "protected", "private", "package"],
@@ -296,6 +326,13 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
                       properties: {
                         id: { type: "string" },
                         name: { type: "string" },
+                        chineseName: { type: "string" },
+                        englishName: { type: "string" },
+                        type: { type: "string" },
+                        constraints: {
+                          type: "array",
+                          items: { type: "string" },
+                        },
                         description: { type: "string" },
                         operations: {
                           type: "array",
@@ -856,15 +893,7 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
         },
         requirementModelTraceability: {
           type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              ruleId: { type: "string" },
-              target: modelElementRefResponseSchema,
-            },
-            required: ["ruleId", "target"],
-          },
+          items: requirementTraceabilityEntryResponseSchema,
         },
       },
       required: ["models", "requirementModelTraceability"],

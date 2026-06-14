@@ -8,10 +8,12 @@ import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
 import {
   GENERATE_MODELS_RESPONSE_FORMAT,
   modelElementRefResponseSchema,
+  requirementTraceabilityEntryResponseSchema,
 } from "./requirement-model-response-format.js";
 export {
   GENERATE_MODELS_RESPONSE_FORMAT,
   modelElementRefResponseSchema,
+  requirementTraceabilityEntryResponseSchema,
 } from "./requirement-model-response-format.js";
 
 export const requirementModelOneOf = (
@@ -33,15 +35,7 @@ export const GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT: JsonSchemaRespon
       properties: {
         requirementModelTraceability: {
           type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              ruleId: { type: "string" },
-              target: modelElementRefResponseSchema,
-            },
-            required: ["ruleId", "target"],
-          },
+          items: requirementTraceabilityEntryResponseSchema,
         },
       },
       required: ["requirementModelTraceability"],

@@ -69,6 +69,71 @@ test("parseRequirementDiagramModelsOnly removes services and class operations", 
   assert.deepEqual(model.relationships, []);
 });
 
+test("parseRequirementDiagramModelsOnly preserves localized class metadata", () => {
+  const parsed = parseRequirementDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "class",
+          title: "领域概念模型",
+          summary: "实体属性关系",
+          notes: [],
+          classes: [
+            {
+              id: "reservation",
+              name: "Reservation",
+              chineseName: "预约",
+              englishName: "Reservation",
+              type: "领域实体",
+              classKind: "entity",
+              constraints: ["同一时段不可重复预约"],
+              attributes: [
+                {
+                  name: "startTime",
+                  chineseName: "开始时间",
+                  englishName: "startTime",
+                  type: "DateTime",
+                  visibility: "private",
+                  constraints: ["必填"],
+                },
+              ],
+              operations: [],
+            },
+          ],
+          interfaces: [
+            {
+              id: "auditable",
+              name: "Auditable",
+              chineseName: "可审计对象",
+              englishName: "Auditable",
+              type: "interface",
+              constraints: ["记录更新时间"],
+              operations: [],
+            },
+          ],
+          enums: [],
+          relationships: [],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "class");
+  if (model?.diagramKind !== "class") return;
+  assert.equal(model.classes[0]?.chineseName, "预约");
+  assert.equal(model.classes[0]?.englishName, "Reservation");
+  assert.equal(model.classes[0]?.type, "领域实体");
+  assert.deepEqual(model.classes[0]?.constraints, ["同一时段不可重复预约"]);
+  assert.equal(model.classes[0]?.attributes[0]?.chineseName, "开始时间");
+  assert.equal(model.classes[0]?.attributes[0]?.englishName, "startTime");
+  assert.deepEqual(model.classes[0]?.attributes[0]?.constraints, ["必填"]);
+  assert.equal(model.interfaces[0]?.chineseName, "可审计对象");
+  assert.equal(model.interfaces[0]?.englishName, "Auditable");
+  assert.equal(model.interfaces[0]?.type, "interface");
+  assert.deepEqual(model.interfaces[0]?.constraints, ["记录更新时间"]);
+});
+
 test("parseRequirementDiagramModelsOnly softly dedupes repeated interface actions", () => {
   const parsed = parseRequirementDiagramModelsOnly(
     JSON.stringify({
@@ -437,4 +502,140 @@ test("parseRequirementTraceabilityCoverageResult keeps valid entries when nearby
   assert.equal(coverage.traceability[0]?.target.elementId, "uc_reserve");
   assert.equal(coverage.missingTargets.length, 1);
   assert.equal(coverage.missingTargets[0]?.elementId, "student");
+});
+
+test("parseRequirementDiagramModelsOnly repairs activity start end and flow continuity", () => {
+  const parsed = parseRequirementDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "activity",
+          title: "总体业务流程",
+          summary: "提交和结束流程",
+          notes: [],
+          swimlanes: [],
+          nodes: [
+            { id: "submit", type: "activity", name: "提交申请", input: [], output: [] },
+            { id: "finish", type: "activity", name: "流程结束", input: [], output: [] },
+          ],
+          relationships: [],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "activity");
+  if (model?.diagramKind !== "activity") return;
+  const start = model.nodes.find((node) => node.type === "start");
+  const end = model.nodes.find((node) => node.type === "end");
+  assert.ok(start);
+  assert.equal(end?.id, "finish");
+  assert.equal(model.nodes.filter((node) => node.type === "end").length, 1);
+  assert.ok(
+    model.relationships.some(
+      (relationship) =>
+        relationship.sourceId === start.id && relationship.targetId === "submit",
+    ),
+  );
+  assert.ok(
+    model.relationships.some(
+      (relationship) =>
+        relationship.sourceId === "submit" && relationship.targetId === "finish",
+    ),
+  );
+});
+
+test("parseRequirementDiagramModelsOnly removes invalid deployment artifact links", () => {
+  const parsed = parseRequirementDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "deployment",
+          title: "部署需求模型",
+          summary: "部署关系",
+          notes: [],
+          nodes: [{ id: "server", name: "应用服务器", nodeType: "server" }],
+          databases: [],
+          components: [],
+          externalSystems: [],
+          artifacts: [
+            { id: "web_bundle", name: "前端制品" },
+            { id: "script_bundle", name: "脚本制品" },
+          ],
+          relationships: [
+            {
+              id: "deploy_web",
+              type: "deployment",
+              sourceId: "web_bundle",
+              targetId: "server",
+            },
+            {
+              id: "invalid_artifact_line",
+              type: "communication",
+              sourceId: "web_bundle",
+              targetId: "script_bundle",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "deployment");
+  if (model?.diagramKind !== "deployment") return;
+  assert.deepEqual(
+    model.relationships.map((relationship) => relationship.id),
+    ["deploy_web"],
+  );
+});
+
+test("parseRequirementDiagramModelsOnly adds prototype entry and folds placeholder path nodes", () => {
+  const parsed = parseRequirementDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "prototype",
+          title: "原型界面关系",
+          summary: "界面跳转",
+          notes: [],
+          nodes: [
+            { id: "home", name: "首页", nodeType: "screen" },
+            { id: "placeholder", name: "详情后续路径", nodeType: "module" },
+            { id: "detail", name: "活动详情页", nodeType: "screen" },
+          ],
+          relationships: [
+            {
+              id: "open_placeholder",
+              type: "navigation",
+              sourceId: "home",
+              targetId: "placeholder",
+            },
+            {
+              id: "open_detail",
+              type: "navigation",
+              sourceId: "placeholder",
+              targetId: "detail",
+              label: "查看详情",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "prototype");
+  if (model?.diagramKind !== "prototype") return;
+  assert.ok(model.nodes.some((node) => node.nodeType === "entry-point"));
+  assert.equal(model.nodes.some((node) => node.id === "placeholder"), false);
+  assert.ok(
+    model.relationships.some(
+      (relationship) =>
+        relationship.sourceId === "home" &&
+        relationship.targetId === "detail" &&
+        relationship.label === "查看详情",
+    ),
+  );
 });

@@ -336,6 +336,69 @@ describe("DiagramView", () => {
     expect(screen.getByRole("button", { name: "返回模型概览" })).toBeInTheDocument();
   });
 
+  it("shows class attribute details and explicit missing localized names in the focus panel", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "订单领域对象",
+            notes: [],
+            classes: [
+              {
+                id: "cls_order",
+                name: "Order",
+                description: "订单聚合",
+                classKind: "entity",
+                attributes: [
+                  {
+                    name: "amount",
+                    chineseName: "订单金额",
+                    englishName: "amount",
+                    type: "decimal",
+                    visibility: "private",
+                    constraints: [],
+                  },
+                  {
+                    name: "createdAt",
+                    type: "DateTime",
+                    visibility: "private",
+                    constraints: [],
+                  },
+                ],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+      }),
+    );
+
+    render(
+      withWorkspaceProviders(
+        <DiagramView type="class" highlightedElement={{ kind: "class", id: "cls_order" }} />,
+        repository,
+      ),
+    );
+
+    const panel = await screen.findByRole("complementary", { name: "焦点元素详情" });
+    expect(within(panel).getByText("属性明细")).toBeInTheDocument();
+    expect(within(panel).getByText("2个")).toBeInTheDocument();
+    expect(panel).toHaveTextContent("中文名称：未标明");
+    expect(panel).toHaveTextContent("英文名称：Order");
+    expect(panel).toHaveTextContent("名称：amount");
+    expect(panel).toHaveTextContent("中文名称：订单金额");
+    expect(panel).toHaveTextContent("类型：decimal");
+    expect(panel).toHaveTextContent("名称：createdAt");
+    expect(panel).toHaveTextContent("类型：DateTime");
+    expect(panel).not.toHaveTextContent("属性:2个");
+  });
+
   it("loads requirement diagram details by model id", async () => {
     const repository = createRepository(
       createWorkspaceRecord({

@@ -64,3 +64,34 @@ test("design model response format is valid for OpenAI strict JSON Schema", () =
   );
   assertNoOneOf(GENERATE_DESIGN_MODELS_RESPONSE_FORMAT.json_schema.schema);
 });
+
+test("design class response schema exposes localized names and constraints", () => {
+  const modelProperties = (
+    GENERATE_DESIGN_MODELS_RESPONSE_FORMAT.json_schema.schema.properties as {
+      models: { items: { properties: Record<string, unknown> } };
+    }
+  ).models.items.properties;
+  const classProperties = (
+    modelProperties.classes as {
+      items: { properties: Record<string, unknown> };
+    }
+  ).items.properties;
+  const attributeProperties = (
+    classProperties.attributes as {
+      items: { properties: Record<string, unknown> };
+    }
+  ).items.properties;
+  const interfaceProperties = (
+    modelProperties.interfaces as {
+      items: { properties: Record<string, unknown> };
+    }
+  ).items.properties;
+
+  for (const field of ["chineseName", "englishName", "type", "constraints"]) {
+    assert.ok(classProperties[field], `classes[].${field} must be declared`);
+    assert.ok(interfaceProperties[field], `interfaces[].${field} must be declared`);
+  }
+  for (const field of ["chineseName", "englishName", "constraints"]) {
+    assert.ok(attributeProperties[field], `classes[].attributes[].${field} must be declared`);
+  }
+});

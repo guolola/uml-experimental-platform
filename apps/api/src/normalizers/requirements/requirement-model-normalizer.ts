@@ -16,6 +16,11 @@ import {
   sanitizeTraceabilityEntries,
 } from "../traceability/traceability-normalizer.js";
 import { dedupeActivityModel } from "../diagrams/activity-dedupe.js";
+import {
+  normalizeActivityStructure,
+  normalizeDeploymentStructure,
+  normalizePrototypeStructure,
+} from "../diagrams/diagram-structure.js";
 import { normalizeLongDiagramTextField } from "../diagrams/relationship-labels.js";
 
 function isRequirementServiceClass(classItem: Record<string, unknown>) {
@@ -415,7 +420,16 @@ function normalizeRequirementDiagramModel(model: unknown) {
     .map((relationship) => normalizeRequirementRelationship(relationship, maps, diagramKind))
     .filter(Boolean);
 
-  return diagramKind === "activity" ? dedupeActivityModel(normalized) : normalized;
+  if (diagramKind === "activity") {
+    return normalizeActivityStructure(dedupeActivityModel(normalized));
+  }
+  if (diagramKind === "deployment") {
+    return normalizeDeploymentStructure(normalized);
+  }
+  if (diagramKind === "prototype") {
+    return normalizePrototypeStructure(normalized);
+  }
+  return normalized;
 }
 
 export function parseRequirementDiagramModelsResult(

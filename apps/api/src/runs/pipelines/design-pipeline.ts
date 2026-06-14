@@ -242,9 +242,10 @@ function autoFillDesignTraceability(
   const requirementRefs = collectModelRefs(requirementModels).refs;
   if (requirementRefs.length === 0) return [];
 
-  const firstUseCaseRef =
-    requirementRefs.find((ref) => ref.diagramKind === "usecase") ??
-    requirementRefs[0];
+  const fallbackRequirementRefs = [
+    ...requirementRefs.filter((ref) => ref.diagramKind === "usecase"),
+    ...requirementRefs.filter((ref) => ref.diagramKind !== "usecase"),
+  ];
   const byElementId = new Map(
     requirementRefs.map((ref) => [ref.elementId.toLowerCase(), ref]),
   );
@@ -257,7 +258,7 @@ function autoFillDesignTraceability(
       .filter(([modelId]) => modelId),
   );
 
-  return missingSources.flatMap((source): DesignModelTraceabilityEntry[] => {
+  return missingSources.flatMap((source, sourceIndex): DesignModelTraceabilityEntry[] => {
     const sourceModel = source.modelId ? designByModelId.get(source.modelId) : undefined;
     const sourceUseCaseId = compactText(
       (sourceModel as unknown as Record<string, unknown> | undefined)
@@ -273,7 +274,10 @@ function autoFillDesignTraceability(
         ref.label.toLowerCase().includes(sourceLabel)
       );
     });
-    const target = directUseCaseTarget ?? labelTarget ?? firstUseCaseRef;
+    const target =
+      directUseCaseTarget ??
+      labelTarget ??
+      fallbackRequirementRefs[sourceIndex % fallbackRequirementRefs.length];
     if (!target) return [];
     const mappingIsDeterministic = Boolean(directUseCaseTarget ?? labelTarget);
     return [

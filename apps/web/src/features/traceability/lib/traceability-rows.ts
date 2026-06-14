@@ -311,16 +311,43 @@ export function buildRequirementRows(
     return buildAnalysisRequirementRows(models, scope);
   }
   const rulesById = new Map(rules.map((rule) => [rule.id.toLowerCase(), rule]));
-  const traceByTarget = new Map<string, RequirementRule[]>();
+  const traceByTarget = new Map<
+    string,
+    Array<{
+      rule: RequirementRule;
+      mappingSource?: string;
+      reviewStatus?: string;
+      confidence?: string;
+      rationale?: string;
+    }>
+  >();
   for (const entry of traceability) {
     const rule = rulesById.get(entry.ruleId.toLowerCase());
     if (!rule) continue;
     const key = refKey(entry.target);
-    traceByTarget.set(key, [...(traceByTarget.get(key) ?? []), rule]);
+    traceByTarget.set(key, [
+      ...(traceByTarget.get(key) ?? []),
+      {
+        rule,
+        mappingSource: entry.mappingSource,
+        reviewStatus: entry.reviewStatus,
+        confidence: entry.confidence,
+        rationale: entry.rationale,
+      },
+    ]);
   }
 
   return refsForRequirementModels(models, scope).map(({ ref, typeLabel, description }) => {
-    const mappedRules = uniqueBy(traceByTarget.get(refKey(ref)) ?? [], (rule) => rule.id);
+    const mappedEntries = uniqueBy(
+      traceByTarget.get(refKey(ref)) ?? [],
+      (entry) => entry.rule.id,
+    );
+    const mappedRules = mappedEntries.map((entry) => entry.rule);
+    const pendingEntry = mappedEntries.find(
+      (entry) =>
+        entry.mappingSource === "auto-filled-pending-review" ||
+        entry.reviewStatus === "pending",
+    );
     return {
       id: refKey(ref),
       label: ref.label,
@@ -330,13 +357,23 @@ export function buildRequirementRows(
       groupLabel: requirementGroupLabel(ref.diagramKind),
       scopeKey: ref.modelId ?? ref.diagramKind,
       status: mappedRules.length > 0 ? "mapped" : "unmapped",
-      mappingNote: null,
+      mappingNote: pendingEntry
+        ? pendingEntry.rationale ?? "系统自动补齐，需复核确认"
+        : null,
       requirementRules: mappedRules,
       requirementElements: [],
       upstreamDesignElements: [],
-      detailLines: mappedRules.map(
+      detailLines: [
+        ...(pendingEntry
+          ? [`待确认：${pendingEntry.rationale ?? "系统自动补齐，需复核确认"}`]
+          : []),
+        ...mappedEntries
+          .filter((entry) => entry.confidence)
+          .map((entry) => `置信度：${entry.confidence}`),
+        ...mappedRules.map(
         (rule) => `${formatRuleId(rule.id)} [${rule.category}] ${rule.text}`,
-      ),
+        ),
+      ],
     };
   });
 }

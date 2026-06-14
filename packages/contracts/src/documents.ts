@@ -131,6 +131,7 @@ export const documentSectionSchema = z.object({
   body: z.array(z.string()).default([]),
   table: documentSectionTableSchema.optional(),
   diagramKind: z.string().optional(),
+  diagramModelId: z.string().min(1).optional(),
 });
 export type DocumentSection = z.infer<typeof documentSectionSchema>;
 

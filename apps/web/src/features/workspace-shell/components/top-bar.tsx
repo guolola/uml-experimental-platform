@@ -232,6 +232,30 @@ function sanitizeTaskText(text: string | null | undefined) {
   );
 }
 
+function formatTaskDateTime(value: string | null | undefined) {
+  if (!value) return "未记录";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未记录";
+  return date.toLocaleString();
+}
+
+function formatTaskDuration(
+  startedAt: string | null | undefined,
+  finishedAt: string | null | undefined,
+) {
+  if (!startedAt || !finishedAt) return "进行中";
+  const started = new Date(startedAt).getTime();
+  const finished = new Date(finishedAt).getTime();
+  if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) {
+    return "未记录";
+  }
+  const seconds = Math.round((finished - started) / 1000);
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
+}
+
 function getTaskStages(kind: RunKind | null, activeStage: RunStage | null) {
   const base = kind ? [...STAGES_BY_KIND[kind]] : [];
   if (activeStage && !base.includes(activeStage)) {
@@ -728,6 +752,16 @@ export function ProjectGenerationTasksDrawerContent({
                     const taskMessage = sanitizeTaskText(
                       task.message ?? task.errorMessage ?? "",
                     );
+                    const taskTimeSummary = [
+                      `开始 ${formatTaskDateTime(task.startedAt)}`,
+                      task.finishedAt ? `结束 ${formatTaskDateTime(task.finishedAt)}` : null,
+                      `耗时 ${formatTaskDuration(task.startedAt, task.finishedAt)}`,
+                      task.diagnostics.providerModel
+                        ? `模型 ${task.diagnostics.providerModel}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
                     return (
                       <button
                         key={task.clientTaskId}
@@ -755,6 +789,12 @@ export function ProjectGenerationTasksDrawerContent({
                           >
                             {taskMessage || RUN_STATUS_LABEL[task.status]}
                           </span>
+                          <span
+                            className="mt-0.5 block truncate text-[11px] text-muted-foreground"
+                            title={taskTimeSummary}
+                          >
+                            {taskTimeSummary}
+                          </span>
                         </span>
                         <span className="shrink-0 font-mono text-xs text-muted-foreground">
                           {task.progress}%
@@ -775,6 +815,13 @@ export function ProjectGenerationTasksDrawerContent({
                 <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
                   {activeProjectRuns.map((run) => {
                     const taskMessage = formatProjectRunMessage(run);
+                    const runTimeSummary = [
+                      `开始 ${formatTaskDateTime(run.startedAt ?? run.createdAt)}`,
+                      run.completedAt ? `结束 ${formatTaskDateTime(run.completedAt)}` : null,
+                      run.model ? `模型 ${run.model}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
                     return (
                       <div
                         key={run.runId}
@@ -790,6 +837,12 @@ export function ProjectGenerationTasksDrawerContent({
                             title={taskMessage}
                           >
                             {taskMessage}
+                          </span>
+                          <span
+                            className="mt-0.5 block truncate text-[11px] text-muted-foreground"
+                            title={runTimeSummary}
+                          >
+                            {runTimeSummary}
                           </span>
                         </span>
                         <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -832,16 +885,54 @@ export function ProjectGenerationTasksDrawerContent({
                   </span>
                 </div>
               )}
-              {currentRunDiagnostics.providerModel && (
+              {selectedProjectRun && (
+                <>
+                  <div className="grid min-w-0 gap-1">
+                    <span className="text-muted-foreground">开始时间</span>
+                    <span className="min-w-0 truncate text-xs">
+                      {formatTaskDateTime(selectedProjectRun.startedAt ?? selectedProjectRun.createdAt)}
+                    </span>
+                  </div>
+                  <div className="grid min-w-0 gap-1">
+                    <span className="text-muted-foreground">结束时间</span>
+                    <span className="min-w-0 truncate text-xs">
+                      {formatTaskDateTime(selectedProjectRun.completedAt)}
+                    </span>
+                  </div>
+                </>
+              )}
+              {(selectedTask?.diagnostics.providerModel ?? currentRunDiagnostics.providerModel) && (
                 <div className="grid min-w-0 gap-1">
                   <span className="text-muted-foreground">模型</span>
                   <span
                     className="min-w-0 truncate font-mono text-xs"
-                    title={currentRunDiagnostics.providerModel}
+                    title={selectedTask?.diagnostics.providerModel ?? currentRunDiagnostics.providerModel ?? undefined}
                   >
-                    {currentRunDiagnostics.providerModel}
+                    {selectedTask?.diagnostics.providerModel ?? currentRunDiagnostics.providerModel}
                   </span>
                 </div>
+              )}
+              {selectedTask && (
+                <>
+                  <div className="grid min-w-0 gap-1">
+                    <span className="text-muted-foreground">开始时间</span>
+                    <span className="min-w-0 truncate text-xs">
+                      {formatTaskDateTime(selectedTask.startedAt)}
+                    </span>
+                  </div>
+                  <div className="grid min-w-0 gap-1">
+                    <span className="text-muted-foreground">结束时间</span>
+                    <span className="min-w-0 truncate text-xs">
+                      {formatTaskDateTime(selectedTask.finishedAt)}
+                    </span>
+                  </div>
+                  <div className="grid min-w-0 gap-1">
+                    <span className="text-muted-foreground">耗时</span>
+                    <span className="min-w-0 truncate text-xs">
+                      {formatTaskDuration(selectedTask.startedAt, selectedTask.finishedAt)}
+                    </span>
+                  </div>
+                </>
               )}
             </div>
 

@@ -76,6 +76,14 @@ function normalizeConfidence(
     : undefined;
 }
 
+function normalizeRequirementMappingSource(
+  value: unknown,
+): RequirementModelTraceabilityEntry["mappingSource"] {
+  return value === "llm" || value === "auto-filled-pending-review"
+    ? value
+    : undefined;
+}
+
 function refKey(diagramKind: string, elementId: string, modelId?: string) {
   const scope = compactString(modelId) || diagramKind;
   return `${scope}:${diagramKind}:${elementId}`.toLowerCase();
@@ -407,7 +415,18 @@ export function normalizeRequirementTraceabilityWithCoverage(
     const ruleId = compactString(entry.ruleId);
     if (!ruleId || !validRules.has(ruleId.toLowerCase())) return [];
     const target = resolveRef(entry.target, requirementRefs);
-    return target ? [{ ruleId, target }] : [];
+    return target
+      ? [
+          {
+            ruleId,
+            target,
+            mappingSource: normalizeRequirementMappingSource(entry.mappingSource),
+            reviewStatus: normalizeReviewStatus(entry.reviewStatus),
+            confidence: normalizeConfidence(entry.confidence),
+            rationale: compactString(entry.rationale) || undefined,
+          },
+        ]
+      : [];
   });
   const missingTargets = missingRefsForTargets(
     requirementRefs.refs,
@@ -439,13 +458,15 @@ export function autoFillRequirementTraceability(
   rules: RequirementRule[],
 ): RequirementModelTraceabilityEntry[] {
   if (rules.length === 0) return [];
-  return missingTargets.flatMap((target): RequirementModelTraceabilityEntry[] => {
+  return missingTargets.flatMap((target, targetIndex): RequirementModelTraceabilityEntry[] => {
     const candidates = rules.filter((rule) =>
       rule.relatedDiagrams.some((diagram) => diagram === target.diagramKind),
     );
-    const fallback = candidates[0] ?? rules[0];
+    const fallback =
+      candidates[targetIndex % Math.max(candidates.length, 1)] ??
+      rules[targetIndex % rules.length];
     if (!fallback) return [];
-    const best = (candidates.length > 0 ? candidates : rules).reduce(
+    const scored = (candidates.length > 0 ? candidates : rules).reduce(
       (current, rule) =>
         scoreRequirementRuleForTarget(rule, target) >
         scoreRequirementRuleForTarget(current, target)
@@ -453,7 +474,21 @@ export function autoFillRequirementTraceability(
           : current,
       fallback,
     );
-    return [{ ruleId: best.id, target }];
+    const best =
+      scoreRequirementRuleForTarget(scored, target) > 10 ? scored : fallback;
+    const deterministic = scoreRequirementRuleForTarget(best, target) > 10;
+    return [
+      {
+        ruleId: best.id,
+        target,
+        mappingSource: deterministic ? "llm" : "auto-filled-pending-review",
+        reviewStatus: deterministic ? "confirmed" : "pending",
+        confidence: deterministic ? "medium" : "low",
+        rationale: deterministic
+          ? "系统根据需求规则和模型元素标签相似度补齐追踪关系。"
+          : "LLM 修复后仍缺少该需求元素映射，系统按相关图类型兜底补齐，需人工复核。",
+      },
+    ];
   });
 }
 

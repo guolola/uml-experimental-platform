@@ -189,6 +189,7 @@ test("requirement traceability prompts only ask for element mappings", () => {
   assert.match(prompt, /禁止把 requirements、requirement、design、model、traceability、page/);
   assert.match(prompt, /每一个需求业务元素和 relationship 都必须至少映射到一条需求规则/);
   assert.match(prompt, /不要为 system-boundary、swimlane、start\/end\/merge\/fork\/join/);
+  assert.match(prompt, /reviewStatus=pending、confidence=low/);
   assert.match(prompt, /allowedTargets（唯一可引用目标清单/);
   assert.match(prompt, /target 必须从 allowedTargets 清单原样复制/);
   assert.match(prompt, /"elementId": "uc1"/);
@@ -439,6 +440,7 @@ test("design traceability prompts only ask for design-to-requirement mappings", 
   assert.match(prompt, /targets\[\]\.diagramKind 只能使用: usecase, class, activity, deployment/);
   assert.match(prompt, /每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);
   assert.match(prompt, /不要为 swimlane、start\/end\/merge\/fork\/join/);
+  assert.match(prompt, /reviewStatus=pending、confidence=low/);
   assert.doesNotMatch(prompt, /返回格式必须是 \{"models"/);
 
   const repairPrompt = buildRepairDesignTraceabilityPrompt(

@@ -1,4 +1,5 @@
 // Renders the requirement quality hint and repair confirmation dialog.
+import { useState } from "react";
 import type {
   AtomicRequirement,
   AtomicRequirementField,
@@ -60,6 +61,7 @@ export function RequirementReviewDialog({
   onRepairRequirementRule,
   visibleHintDetail,
 }: RequirementReviewDialogProps) {
+  const [repairingRuleId, setRepairingRuleId] = useState<string | null>(null);
   const pendingReviewCandidate =
     visibleHintDetail?.candidate?.status === "pending"
       ? visibleHintDetail.candidate
@@ -75,8 +77,19 @@ export function RequirementReviewDialog({
     (visibleHintDetail?.rowState === "有待确认提示" ||
       visibleHintDetail?.requirement.status !== "accepted" ||
       (visibleHintDetail?.qualityIssues.length ?? 0) > 0);
+  const repairingCurrentRule =
+    Boolean(visibleHintDetail) && repairingRuleId === visibleHintDetail?.rule.id;
+  const repairDisabled = generating || repairingCurrentRule;
 
   const close = () => onOpenChange(false);
+  const runRepair = async (ruleId: string) => {
+    setRepairingRuleId(ruleId);
+    try {
+      await onRepairRequirementRule(ruleId);
+    } finally {
+      setRepairingRuleId((current) => (current === ruleId ? null : current));
+    }
+  };
 
   return (
     <Dialog open={Boolean(visibleHintDetail)} onOpenChange={onOpenChange}>
@@ -88,7 +101,7 @@ export function RequirementReviewDialog({
           <DialogDescription>
             {pendingReviewCandidate
               ? "对比修复前后的结构化需求，采纳或拒绝后都会标记为已确认。"
-              : "查看当前需求的待确认原因；可确认当前提示，或生成修复结果后再采纳/拒绝。"}
+              : "查看当前需求的待确认原因；“智能修复”仅生成当前规则的修复候选，可确认当前提示，或生成修复结果后再采纳/拒绝。"}
           </DialogDescription>
         </DialogHeader>
         {visibleHintDetail && (
@@ -259,20 +272,20 @@ export function RequirementReviewDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => void onRepairRequirementRule(visibleHintDetail.rule.id)}
-              disabled={generating}
+              onClick={() => void runRepair(visibleHintDetail.rule.id)}
+              disabled={repairDisabled}
             >
-              重新修复
+              {repairingCurrentRule ? "正在修复当前规则" : "重新修复"}
             </Button>
           ) : null}
           {visibleHintDetail && !visibleHintDetail.candidate ? (
             <Button
               type="button"
               variant="outline"
-              onClick={() => void onRepairRequirementRule(visibleHintDetail.rule.id)}
-              disabled={generating}
+              onClick={() => void runRepair(visibleHintDetail.rule.id)}
+              disabled={repairDisabled}
             >
-              智能修复
+              {repairingCurrentRule ? "正在修复当前规则" : "智能修复"}
             </Button>
           ) : null}
           {visibleHintDetail && hasConfirmableQualityHint ? (

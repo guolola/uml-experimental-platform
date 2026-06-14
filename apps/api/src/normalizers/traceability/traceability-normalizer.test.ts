@@ -233,6 +233,79 @@ test("requirement traceability can auto-fill uncovered refs from related rules",
   assert.ok(recovered.traceability.every((entry) => entry.ruleId === "r2"));
 });
 
+test("requirement auto-fill rotates fallback rules and marks low-confidence reviews", () => {
+  const rules = [
+    {
+      id: "r-class-1",
+      category: "数据需求" as const,
+      text: "系统需要维护基础资料。",
+      relatedDiagrams: ["class" as const],
+    },
+    {
+      id: "r-class-2",
+      category: "数据需求" as const,
+      text: "系统需要保存业务记录。",
+      relatedDiagrams: ["class" as const],
+    },
+  ];
+  const missingTargets = [
+    {
+      diagramKind: "class" as const,
+      elementId: "alpha",
+      elementKind: "class",
+      label: "Alpha",
+    },
+    {
+      diagramKind: "class" as const,
+      elementId: "beta",
+      elementKind: "class",
+      label: "Beta",
+    },
+  ];
+
+  const filled = autoFillRequirementTraceability(missingTargets, rules);
+
+  assert.deepEqual(
+    filled.map((entry) => entry.ruleId),
+    ["r-class-1", "r-class-2"],
+  );
+  assert.ok(
+    filled.every(
+      (entry) =>
+        entry.mappingSource === "auto-filled-pending-review" &&
+        entry.reviewStatus === "pending" &&
+        entry.confidence === "low",
+    ),
+  );
+});
+
+test("requirement traceability preserves pending review metadata", () => {
+  const normalized = normalizeRequirementTraceability(
+    [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "class",
+          elementId: "domain-user",
+          elementKind: "class",
+          label: "UserDomain",
+        },
+        mappingSource: "auto-filled-pending-review",
+        reviewStatus: "pending",
+        confidence: "low",
+        rationale: "系统兜底补齐，需复核。",
+      },
+    ],
+    [rule],
+    [requirementModel],
+  );
+
+  assert.equal(normalized[0]?.mappingSource, "auto-filled-pending-review");
+  assert.equal(normalized[0]?.reviewStatus, "pending");
+  assert.equal(normalized[0]?.confidence, "low");
+  assert.equal(normalized[0]?.rationale, "系统兜底补齐，需复核。");
+});
+
 test("requirement traceability coverage ignores structural activity elements", () => {
   const activityModel = {
     diagramKind: "activity" as const,

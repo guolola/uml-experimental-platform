@@ -96,7 +96,7 @@ function requirementDiagramSchemaLines(selectedDiagrams: DiagramKind[]) {
       "  classes[].attributes[].字段：name, chineseName(可选), englishName(可选), type, constraints(string[], 可选), visibility(public|protected|private|package), required(可选), multiplicity(可选), defaultValue(可选), description(可选)。",
       "  classes[].operations[].字段：name, returnType(可选), visibility(public|protected|private|package), parameters(array), description(可选)。",
       "  classes[].operations[].parameters[].字段：name, type, required(可选), direction(in|out|inout, 可选)。",
-      "  interfaces[].字段：id, name, description(可选), operations(array)。",
+      "  interfaces[].字段：id, name, chineseName(可选), englishName(可选), type(可选), constraints(string[], 可选), description(可选), operations(array)。",
       "  enums[].字段：id, name, literals(string[])。",
       "  relationships[].字段：id, type(association|aggregation|composition|inheritance|implementation|dependency), sourceId, targetId, sourceRole(可选), targetRole(可选), sourceMultiplicity(可选), targetMultiplicity(可选), navigability(none|source-to-target|target-to-source|bidirectional, 可选), label(可选), description(可选)。",
     );
@@ -163,6 +163,7 @@ const REQUIREMENT_TRACEABILITY_RULES = [
   "- 业务元素范围：用例图的角色/用例/关系；类图的类/接口/枚举/关系；总体业务流程的 activity/decision 节点及这些节点之间的关系；部署需求模型的节点/数据库/组件/外部系统/制品/关系；原型界面关系的页面/模块/入口点/关系；需求分析模型的参与对象/消息/组合片段。",
   "- 不要为 system-boundary、swimlane、start/end/merge/fork/join 等结构元素补映射。",
   "- 如果错误提示包含非法 diagramKind，必须改成该元素实际所属的具体图类型，不允许继续返回阶段名。",
+  "- 可选字段 mappingSource/reviewStatus/confidence/rationale 只用于说明映射来源和复核状态；不确定的低置信映射必须标记 reviewStatus=pending、confidence=low 并写明 rationale。",
 ].join("\n");
 
 const DESIGN_TRACEABILITY_RULES = [
@@ -178,6 +179,7 @@ const DESIGN_TRACEABILITY_RULES = [
   "- 业务元素范围：用例实现设计的参与对象/消息/组合片段；设计类图的类/接口/枚举/关系；界面关系图的 activity/decision 节点及这些节点之间的关系；部署设计的节点/数据库/组件/外部系统/制品/关系；数据库设计的表/字段/关系。",
   "- 不要为 swimlane、start/end/merge/fork/join 等结构元素补映射。",
   "- 如果错误提示包含非法 diagramKind，必须改成该元素实际所属的具体图类型，不允许继续返回阶段名。",
+  "- 可选字段 mappingSource/reviewStatus/confidence/rationale 只用于说明映射来源和复核状态；不确定或派生的低置信映射必须标记 reviewStatus=pending、confidence=low 并写明 rationale。",
 ].join("\n");
 
 const DESIGN_MODEL_GENERATION_TRACEABILITY_RULES = [
@@ -451,7 +453,7 @@ export function buildGenerateModelsPrompt(
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     "JSON 必须完整合法，字符串必须正确转义，不能出现未闭合字符串、未闭合数组/对象或裸换行。",
     "每个 model 必须包含：diagramKind, title, summary, notes，以及对应图类型要求的强类型字段。",
-    "如果返回 requirementModelTraceability，字段为 ruleId, target；target 字段为 diagramKind, elementId, elementKind, label。",
+    "如果返回 requirementModelTraceability，字段为 ruleId, target；target 字段为 diagramKind, elementId, elementKind, label；低置信映射可带 reviewStatus/confidence/rationale。",
     REQUIREMENT_TRACEABILITY_RULES,
     "notes 必须是字符串数组，不能是对象数组。",
     "所有 relationships[] 必须显式包含 sourceId 和 targetId；如果无法确定端点，不要输出该 relationship。",
@@ -649,6 +651,9 @@ const DESIGN_MODEL_SCHEMA_INSTRUCTIONS = [
   "- sequence.messages[].type 只能使用 sync|async|return|create|destroy；response/reply/result 必须写 return，request/call 必须写 sync，event/notify 必须写 async。",
   "- class.classes[].classKind 只能使用 entity|aggregate|valueObject|service|other；不确定时用 other 或省略，不能输出中文、自造枚举或 controller 等非枚举值。",
   "- activity/class/deployment 必须沿用需求阶段对应图的强类型字段，不允许输出通用 nodes/relations 旧结构。",
+  "  classes[].字段：id, name, chineseName(可选), englishName(可选), type(可选), constraints(string[], 可选), classKind(entity|aggregate|valueObject|service|other, 可选), stereotype(可选), description(可选), attributes(array), operations(array)。",
+  "  classes[].attributes[].字段：name, chineseName(可选), englishName(可选), type, constraints(string[], 可选), visibility(public|protected|private|package), required(可选), multiplicity(可选), defaultValue(可选), description(可选)。",
+  "  interfaces[].字段：id, name, chineseName(可选), englishName(可选), type(可选), constraints(string[], 可选), description(可选), operations(array)。",
   "- table: 必须包含 tables, relationships。",
   "  tables[].字段：id, name, chineseName(可选), englishName(可选), type(可选), constraints(string[], 可选), description(可选), columns(array)。",
   "  columns[].字段：id, name, chineseName(可选), englishName(可选), dataType, constraints(string[], 可选), isPrimaryKey(boolean), isForeignKey(boolean), nullable(boolean), references(可选), description(可选)。",

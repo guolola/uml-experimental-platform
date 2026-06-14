@@ -164,6 +164,10 @@ const designModelResponseSchema = {
         properties: {
           id: { type: "string" },
           name: { type: "string" },
+          chineseName: { type: "string" },
+          englishName: { type: "string" },
+          type: { type: "string" },
+          constraints: stringArrayResponseSchema,
           classKind: {
             type: "string",
             enum: ["entity", "aggregate", "valueObject", "service", "other"],
@@ -177,7 +181,10 @@ const designModelResponseSchema = {
               additionalProperties: false,
               properties: {
                 name: { type: "string" },
+                chineseName: { type: "string" },
+                englishName: { type: "string" },
                 type: { type: "string" },
+                constraints: stringArrayResponseSchema,
                 visibility: {
                   type: "string",
                   enum: ["public", "protected", "private", "package"],
@@ -203,6 +210,10 @@ const designModelResponseSchema = {
         properties: {
           id: { type: "string" },
           name: { type: "string" },
+          chineseName: { type: "string" },
+          englishName: { type: "string" },
+          type: { type: "string" },
+          constraints: stringArrayResponseSchema,
           description: { type: "string" },
           operations: { type: "array", items: classOperationResponseSchema },
         },
@@ -388,6 +399,13 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
                 type: "array",
                 items: modelElementRefResponseSchema,
               },
+              mappingSource: {
+                type: "string",
+                enum: ["llm", "derived-from-endpoints", "auto-filled-pending-review"],
+              },
+              reviewStatus: { type: "string", enum: ["confirmed", "pending"] },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
+              rationale: { type: "string" },
             },
             required: ["source", "targets"],
           },
@@ -422,6 +440,13 @@ export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRespons
                 type: "array",
                 items: modelElementRefResponseSchema,
               },
+              mappingSource: {
+                type: "string",
+                enum: ["llm", "derived-from-endpoints", "auto-filled-pending-review"],
+              },
+              reviewStatus: { type: "string", enum: ["confirmed", "pending"] },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
+              rationale: { type: "string" },
             },
             required: ["source", "targets"],
           },

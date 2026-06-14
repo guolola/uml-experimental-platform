@@ -988,6 +988,7 @@ describe("TopBar", () => {
       status: "running",
       stage: "generate_models",
       runKind: "requirements",
+      model: "gpt-5.5",
     };
 
     render(
@@ -1007,6 +1008,7 @@ describe("TopBar", () => {
     expect(screen.getByText("生成中 50%")).toBeInTheDocument();
     expect(screen.getByText("需求模型生成")).toBeInTheDocument();
     expect(screen.getAllByText("生成需求模型进行中")).toHaveLength(2);
+    expect(screen.getAllByText(/模型 gpt-5\.5/).length).toBeGreaterThan(0);
     expect(screen.getByText("server-run-active")).toBeInTheDocument();
   });
 

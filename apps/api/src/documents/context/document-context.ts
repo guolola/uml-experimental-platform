@@ -57,6 +57,10 @@ function designSequenceModel(input: StartDocumentRunRequest) {
   );
 }
 
+function sequenceModelIdForUseCaseId(useCaseId: string) {
+  return `sequence:${useCaseId}`;
+}
+
 function designTableModel(input: StartDocumentRunRequest) {
   return input.designModels.find(
     (model): model is Extract<DesignDiagramModelSpec, { diagramKind: "table" }> =>
@@ -110,6 +114,34 @@ function requirementActors(input: StartDocumentRunRequest, actorIds: string[]) {
     .map((actorId) => actors.find((actor) => actor.id === actorId)?.name)
     .filter(Boolean);
   return selected.length > 0 ? selected : actors.map((actor) => actor.name);
+}
+
+function eventFlowTypeLabel(flowType: string) {
+  if (flowType === "main") return "主事件流";
+  if (flowType === "alternative") return "备选事件流";
+  if (flowType === "exception") return "异常事件流";
+  return "事件流";
+}
+
+function useCaseEventFlowBody(
+  useCase: ReturnType<typeof requirementUseCases>[number],
+) {
+  if (!useCase.eventFlows || useCase.eventFlows.length === 0) {
+    return [`事件流：${useCase.description ?? "当前阶段未明确"}`];
+  }
+  return useCase.eventFlows.flatMap((flow) => [
+    `${eventFlowTypeLabel(flow.flowType)}：${flow.name}${
+      flow.condition ? `（条件：${flow.condition}）` : ""
+    }${flow.trigger ? `，触发：${flow.trigger}` : ""}`,
+    ...flow.steps.map((step) => {
+      const actorAction = step.actorAction ? `参与者：${step.actorAction}` : "";
+      const systemAction = step.systemAction ? `系统：${step.systemAction}` : "";
+      const expectedResult = step.expectedResult ? `结果：${step.expectedResult}` : "";
+      return `步骤 ${step.order}：${[actorAction, systemAction, expectedResult]
+        .filter(Boolean)
+        .join("；")}`;
+    }),
+  ]);
 }
 
 function requirementClasses(input: StartDocumentRunRequest) {
@@ -229,6 +261,7 @@ export function buildDocumentContext(input: StartDocumentRunRequest) {
       level: section.level,
       title: section.title,
       diagramKind: section.diagramKind,
+      diagramModelId: section.diagramModelId,
       tableHeaders: section.table?.headers,
     })),
   };
@@ -257,7 +290,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
             `简要描述：${useCase.goal}`,
             `参与者：${compactJoin(requirementActors(input, useCaseActorIds(useCase)))}`,
             `前置条件：${useCase.preconditions.join("；") || "当前阶段未明确"}`,
-            `事件流：${useCase.description ?? "当前阶段未明确"}`,
+            ...useCaseEventFlowBody(useCase),
             `后置条件：${useCase.postconditions.join("；") || "当前阶段未明确"}`,
             `其它：${compactJoin(
               input.rules
@@ -316,7 +349,8 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
           `描述：${useCase.goal}`,
           "用例实现设计按时序说明消息内容、格式、目的，以及对发送对象与接收对象的影响。",
         ],
-        diagramKind: index === 0 ? "sequence" : undefined,
+        diagramKind: "sequence",
+        diagramModelId: sequenceModelIdForUseCaseId(useCase.id),
       })),
       { level: 2, title: "3.2 结构设计", body: ["结构设计通过设计类图描述对象、设计类及其关系。"], diagramKind: "class" },
       { level: 3, title: "3.2.1 对象与类的关系", body: ["对象与类的关系依据设计类图识别。"] },
@@ -407,9 +441,10 @@ export function mergeDocumentSectionsWithTemplate(
 
       return {
         ...section,
-        body:
-          generatedSection.body.length > 0 ? generatedSection.body : section.body,
-        table: section.table
+            body:
+              generatedSection.body.length > 0 ? generatedSection.body : section.body,
+            diagramModelId: generatedSection.diagramModelId ?? section.diagramModelId,
+            table: section.table
           ? {
               headers: section.table.headers,
               rows:
@@ -429,7 +464,12 @@ export function diagramPlantUmlForDocument(input: StartDocumentRunRequest) {
     input.documentKind === "requirementsSpec"
       ? input.requirementPlantUml
       : input.designPlantUml;
-  return new Map(artifacts.map((artifact) => [artifact.diagramKind, artifact.source]));
+  return new Map(
+    artifacts.map((artifact) => [
+      artifact.modelId ?? artifact.diagramKind,
+      artifact.source,
+    ]),
+  );
 }
 
 export function diagramSvgKindsForDocument(input: StartDocumentRunRequest) {
@@ -437,7 +477,7 @@ export function diagramSvgKindsForDocument(input: StartDocumentRunRequest) {
     input.documentKind === "requirementsSpec"
       ? input.requirementSvgArtifacts
       : input.designSvgArtifacts;
-  return new Set(artifacts.map((artifact) => artifact.diagramKind));
+  return new Set(artifacts.map((artifact) => artifact.modelId ?? artifact.diagramKind));
 }
 
 export function documentDiagramLabel(diagramKind: string, sectionTitle?: string) {
