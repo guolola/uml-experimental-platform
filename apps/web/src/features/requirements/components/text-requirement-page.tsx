@@ -323,7 +323,12 @@ export function TextRequirementView() {
   if (hintDetail) {
     lastHintDetailRef.current = hintDetail;
   }
-  const visibleHintDetail = hintDetail ?? lastHintDetailRef.current;
+  const visibleHintDetail = hintDetailRuleId
+    ? hintDetail ??
+      (lastHintDetailRef.current?.rule.id === hintDetailRuleId
+        ? lastHintDetailRef.current
+        : null)
+    : null;
   useEffect(() => {
     if (currentRulePage > totalRulePages) {
       setCurrentRulePage(totalRulePages);

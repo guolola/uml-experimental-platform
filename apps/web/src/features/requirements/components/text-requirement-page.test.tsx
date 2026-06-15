@@ -762,7 +762,8 @@ describe("TextRequirementView", () => {
     await user.click(detailsButton);
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(screen.getByRole("dialog", { name: "需求质量提示" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "需求质量提示" });
+    expect(dialog).toBeInTheDocument();
     expect(screen.getByText("REQ-010 包含 AI 补齐待确认字段。")).toBeInTheDocument();
     expect(screen.getByText("REQ-010 缺少可验证边界。")).toBeInTheDocument();
     expect(screen.getByText("角色/执行者")).toBeInTheDocument();
@@ -775,6 +776,12 @@ describe("TextRequirementView", () => {
     expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "智能修复" })).toBeInTheDocument();
     expect(screen.queryByText(/阻断可信完成/u)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "需求质量提示" }),
+      ).not.toBeInTheDocument();
+    });
     expect(updateRequirementBaseline).not.toHaveBeenCalled();
   });
 
@@ -1447,6 +1454,68 @@ describe("TextRequirementView", () => {
         r1: expect.objectContaining({ status: "accepted" }),
       }),
     );
+  });
+
+  it("closes failed repair candidate dialogs without keeping stale details", async () => {
+    const rule = createRule({
+      id: "r11",
+      category: "功能需求",
+      text: "系统自动化稿件评审和发布流程",
+    });
+    const requirement = createAtomicRequirement({
+      id: "REQ-011",
+      sourceRuleId: "r11",
+      sourceFragment: "系统自动化稿件评审和发布流程",
+      actor: null,
+      object: null,
+      status: "pending-review",
+    });
+    const baseline = createRequirementBaseline([requirement]);
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "出版系统需求",
+          rules: [rule],
+          rulesVersion: 1,
+          requirementBaseline: baseline,
+          requirementQualityReport: baseline.qualityReport,
+          requirementReviewCandidates: {
+            r11: {
+              ruleId: "r11",
+              beforeRequirement: requirement,
+              afterRequirement: null,
+              repairRationale: null,
+              blockingReasons: [],
+              status: "failed",
+              errorMessage: "Expected array, received null",
+              createdAt: "2026-06-15T00:00:00.000Z",
+            },
+          },
+        }),
+      ),
+    });
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("修复失败待重试")).toBeInTheDocument();
+    await user.click(
+      within(table).getByRole("button", { name: "需求提示详情 r11" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "需求质量提示",
+    });
+    expect(
+      within(dialog).getByText("Expected array, received null"),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "需求质量提示" }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("allows confirming quality hints when no repair candidate is available", async () => {
