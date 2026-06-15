@@ -346,6 +346,7 @@ export function WorkspaceSessionProvider({
       setRules,
       setRulesBasedOnTextVersion,
       setRulesVersion,
+      rulesVersion,
       textVersion,
     });
 

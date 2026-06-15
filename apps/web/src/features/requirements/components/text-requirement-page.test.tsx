@@ -10,6 +10,7 @@ import {
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
+import { snapshotInputFingerprint } from "../../../shared/lib/fingerprint";
 import { TextRequirementView } from "./text-requirement-page";
 
 describe("TextRequirementView", () => {
@@ -1205,12 +1206,19 @@ describe("TextRequirementView", () => {
     );
 
     await waitFor(() => {
-      expect(updateRequirementRules).toHaveBeenLastCalledWith([
+      expect(updateRequirementRules).toHaveBeenLastCalledWith(
+        [
+          expect.objectContaining({
+            id: "r1",
+            category: "功能需求",
+          }),
+        ],
         expect.objectContaining({
-          id: "r1",
-          category: "功能需求",
+          requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+          rulesBasedOnTextVersion: 0,
+          rulesVersion: 2,
         }),
-      ]);
+      );
     });
   });
 
@@ -1249,7 +1257,14 @@ describe("TextRequirementView", () => {
     await user.click(screen.getByRole("button", { name: "删除需求项 r2" }));
 
     await waitFor(() => {
-      expect(updateRequirementRules).toHaveBeenLastCalledWith([usecaseRule]);
+      expect(updateRequirementRules).toHaveBeenLastCalledWith(
+        [usecaseRule],
+        expect.objectContaining({
+          requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+          rulesBasedOnTextVersion: 0,
+          rulesVersion: 2,
+        }),
+      );
       expect(classDiagramCheckbox).toBeChecked();
       expect(classDiagramCheckbox).toBeEnabled();
     });
@@ -1353,12 +1368,19 @@ describe("TextRequirementView", () => {
     await user.type(textEditor, "游客可以查看公开活动列表。");
 
     await waitFor(() => {
-      expect(updateRequirementRules).toHaveBeenLastCalledWith([
-        {
-          ...originalRule,
-          text: "游客可以查看公开活动列表。",
-        },
-      ]);
+      expect(updateRequirementRules).toHaveBeenLastCalledWith(
+        [
+          {
+            ...originalRule,
+            text: "游客可以查看公开活动列表。",
+          },
+        ],
+        expect.objectContaining({
+          requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+          rulesBasedOnTextVersion: 0,
+          rulesVersion: expect.any(Number),
+        }),
+      );
     });
   });
 
@@ -1744,6 +1766,77 @@ describe("TextRequirementView", () => {
     ).toBeInTheDocument();
   });
 
+  it("treats manual requirement rule edits as refreshed rules for model generation", async () => {
+    const updateRequirementRules = vi.fn(async () => {});
+    const requirementText = "订单系统需求";
+    const originalRule = createRule({
+      id: "r1",
+      category: "功能需求",
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const staleRule = {
+      ...originalRule,
+      text: "用户可以提交订单。",
+    };
+    const editedRule = {
+      ...originalRule,
+      text: "用户可以提交订单并收到确认消息。",
+    };
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText,
+          rules: [staleRule],
+          selectedDiagramTypes: [],
+          rulesVersion: 4,
+          rulesBasedOnTextVersion: 0,
+          requirementInputFingerprint: snapshotInputFingerprint({
+            requirementText,
+            rules: [originalRule],
+          }),
+        }),
+      ),
+      updateRequirementRules,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const table = await screen.findByRole("table");
+    expect(
+      screen.getByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+    ).toBeInTheDocument();
+
+    const ruleEditor = within(table).getByDisplayValue(staleRule.text);
+    await user.clear(ruleEditor);
+    await user.type(ruleEditor, editedRule.text);
+
+    const editedFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: [editedRule],
+    });
+    await waitFor(() => {
+      expect(updateRequirementRules).toHaveBeenLastCalledWith(
+        [editedRule],
+        expect.objectContaining({
+          requirementInputFingerprint: editedFingerprint,
+          rulesBasedOnTextVersion: 0,
+          rulesVersion: expect.any(Number),
+        }),
+      );
+    });
+    expect(
+      screen.queryByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+    ).not.toBeInTheDocument();
+    const useCaseCheckbox = screen.getByRole("checkbox", { name: /用例模型/ });
+    expect(useCaseCheckbox).toBeEnabled();
+    await user.click(useCaseCheckbox);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "生成模型" })).toBeEnabled();
+    });
+  });
+
   it("uses selectable page sizes and filters requirement rules by text and type", async () => {
     const rules = Array.from({ length: 10 }, (_, index) =>
       createRule({
@@ -1933,15 +2026,22 @@ describe("TextRequirementView", () => {
     await user.click(submitButton);
 
     await waitFor(() => {
-      expect(updateRequirementRules).toHaveBeenLastCalledWith([
-        existingRule,
-        {
-          id: "r2",
-          category: "数据需求",
-          text: "系统必须保存活动报名记录。",
-          relatedDiagrams: ["usecase", "activity", "class"],
-        },
-      ]);
+      expect(updateRequirementRules).toHaveBeenLastCalledWith(
+        [
+          existingRule,
+          {
+            id: "r2",
+            category: "数据需求",
+            text: "系统必须保存活动报名记录。",
+            relatedDiagrams: ["usecase", "activity", "class"],
+          },
+        ],
+        expect.objectContaining({
+          requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+          rulesBasedOnTextVersion: 0,
+          rulesVersion: 2,
+        }),
+      );
     });
     expect(screen.queryByRole("dialog", { name: "新增需求项" })).not.toBeInTheDocument();
     await waitFor(() => {

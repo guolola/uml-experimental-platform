@@ -35,7 +35,10 @@ import {
   applySnapshotToWorkspace,
   createEmptyWorkspace,
 } from "./workspace-state";
-import type { WorkspaceRepository } from "./types";
+import type {
+  RequirementRulesUpdateMetadata,
+  WorkspaceRepository,
+} from "./types";
 
 export function createMockWorkspaceRepository(
   seed: Partial<WorkspaceRecord> = {},
@@ -175,10 +178,25 @@ export function createMockWorkspaceRepository(
       };
     },
 
-    async updateRequirementRules(rules: RequirementRule[]) {
+    async updateRequirementRules(
+      rules: RequirementRule[],
+      metadata?: RequirementRulesUpdateMetadata,
+    ) {
       workspace = {
         ...workspace,
         rules: [...rules],
+        requirementInputFingerprint:
+          "requirementInputFingerprint" in (metadata ?? {})
+            ? (metadata?.requirementInputFingerprint ?? null)
+            : workspace.requirementInputFingerprint,
+        rulesBasedOnTextVersion:
+          "rulesBasedOnTextVersion" in (metadata ?? {})
+            ? (metadata?.rulesBasedOnTextVersion ?? null)
+            : workspace.rulesBasedOnTextVersion,
+        rulesVersion:
+          typeof metadata?.rulesVersion === "number"
+            ? metadata.rulesVersion
+            : workspace.rulesVersion,
       };
     },
 

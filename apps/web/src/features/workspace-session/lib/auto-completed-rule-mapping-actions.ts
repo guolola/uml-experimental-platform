@@ -32,6 +32,7 @@ interface AutoCompletedRuleMappingActionsInput {
   setRules: Dispatch<SetStateAction<RequirementRule[]>>;
   setRulesBasedOnTextVersion: Dispatch<SetStateAction<number | null>>;
   setRulesVersion: Dispatch<SetStateAction<number>>;
+  rulesVersion: number;
   textVersion: number;
 }
 
@@ -44,6 +45,7 @@ export function useAutoCompletedRuleMappingActions({
   setRules,
   setRulesBasedOnTextVersion,
   setRulesVersion,
+  rulesVersion,
   textVersion,
 }: AutoCompletedRuleMappingActionsInput) {
   const resolveAutoCompletedRulesForRun = useCallback(
@@ -61,17 +63,22 @@ export function useAutoCompletedRuleMappingActions({
           : (rulesSnapshot?.rules ?? rules);
 
       if (rulesSnapshot && rulesRunMode === "merge") {
+        const nextRulesVersion = rulesVersion + 1;
+        const nextRequirementInputFingerprint =
+          requirementInputFingerprintFor(requirementText, rulesForRun);
         setRules(rulesForRun);
-        setRulesVersion((current) => current + 1);
+        setRulesVersion(nextRulesVersion);
         setRulesBasedOnTextVersion(textVersion);
-        setRequirementInputFingerprint(
-          requirementInputFingerprintFor(requirementText, rulesForRun),
-        );
+        setRequirementInputFingerprint(nextRequirementInputFingerprint);
         latestInputRef.current = {
           ...latestInputRef.current,
           rules: rulesForRun,
         };
-        void repository.updateRequirementRules?.(rulesForRun);
+        void repository.updateRequirementRules?.(rulesForRun, {
+          requirementInputFingerprint: nextRequirementInputFingerprint,
+          rulesBasedOnTextVersion: textVersion,
+          rulesVersion: nextRulesVersion,
+        });
       }
 
       return {
@@ -87,6 +94,7 @@ export function useAutoCompletedRuleMappingActions({
       repository,
       requirementText,
       rules,
+      rulesVersion,
       setRequirementInputFingerprint,
       setRules,
       setRulesBasedOnTextVersion,

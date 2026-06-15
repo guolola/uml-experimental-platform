@@ -14,7 +14,10 @@ import type { WorkspaceRepository } from "./types";
 export { buildApiUrl } from "../api-client";
 export { createHttpWorkspaceRepository } from "./http-repository";
 export { createMockWorkspaceRepository } from "./mock-repository";
-export type { WorkspaceRepository } from "./types";
+export type {
+  RequirementRulesUpdateMetadata,
+  WorkspaceRepository,
+} from "./types";
 export {
   createStartCodeRunInput,
   createStartDesignRunInput,

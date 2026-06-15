@@ -747,6 +747,113 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.designGenerationBlockedReason).toBeNull();
   });
 
+  it("treats manual rule edits as current rules while marking existing models stale", async () => {
+    const requirementText = "订单系统需求";
+    const originalRule = createRule({
+      id: "r1",
+      category: "功能需求",
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const originalFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: [originalRule],
+    });
+    const usecaseModel: UseCaseDiagramSpec = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "用户提交订单。",
+      notes: [],
+      actors: [
+        {
+          id: "actor_user",
+          name: "用户",
+          actorType: "human",
+          responsibilities: ["提交订单"],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_submit",
+          name: "提交订单",
+          goal: "创建订单",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [{ id: "system", name: "订单系统" }],
+      relationships: [],
+    };
+    const updateRequirementRules = vi.fn(async () => {});
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText,
+          rules: [originalRule],
+          models: { usecase: usecaseModel },
+          generatedDiagramTypes: ["usecase"],
+          selectedDiagramTypes: ["usecase"],
+          requirementInputFingerprint: originalFingerprint,
+          diagramInputFingerprints: { usecase: originalFingerprint },
+          diagramVersions: { usecase: 4 },
+          rulesVersion: 4,
+          rulesBasedOnTextVersion: 0,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      updateRequirementRules,
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.isRulesStale).toBe(false);
+    expect(result.current.staleDiagrams).toEqual([]);
+
+    act(() => {
+      result.current.updateRequirementRule("r1", {
+        text: "用户提交订单并收到确认消息。",
+      });
+    });
+
+    const editedRules = [
+      {
+        ...originalRule,
+        text: "用户提交订单并收到确认消息。",
+      },
+    ];
+    const editedFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: editedRules,
+    });
+    expect(result.current.requirementInputFingerprint).toBe(editedFingerprint);
+    expect(result.current.isRulesStale).toBe(false);
+    expect(result.current.staleDiagrams).toEqual(["usecase"]);
+    expect(updateRequirementRules).toHaveBeenLastCalledWith(
+      editedRules,
+      expect.objectContaining({
+        requirementInputFingerprint: editedFingerprint,
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 5,
+      }),
+    );
+  });
+
   it("keeps restored requirement models fresh when older workspaces lack per-diagram freshness metadata", async () => {
     const rule = createRule({
       id: "r1",
@@ -1777,7 +1884,17 @@ describe("WorkspaceSessionProvider", () => {
 
     expect(startRun).toHaveBeenCalledTimes(2);
     expect(repairRequirementRules).not.toHaveBeenCalled();
-    expect(updateRequirementRules).toHaveBeenCalledWith([mappedRule]);
+    expect(updateRequirementRules).toHaveBeenCalledWith(
+      [mappedRule],
+      expect.objectContaining({
+        requirementInputFingerprint: snapshotInputFingerprint({
+          requirementText: "公开日历需求",
+          rules: [mappedRule],
+        }),
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 2,
+      }),
+    );
     expect(result.current.rules).toEqual([mappedRule]);
     expect(result.current.rules[0]?.text).toBe(existingRule.text);
     expect(result.current.requirementBaseline).toBeNull();
@@ -1903,16 +2020,23 @@ describe("WorkspaceSessionProvider", () => {
     expect(
       modelRunInput.rules.find((rule) => rule.id === "dr1")?.relatedDiagrams,
     ).toEqual(["class"]);
-    expect(updateRequirementRules).toHaveBeenCalledWith([
+    expect(updateRequirementRules).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          id: "fr1",
+          relatedDiagrams: ["usecase", "prototype"],
+        }),
+        expect.objectContaining({
+          id: "dr1",
+          relatedDiagrams: ["class"],
+        }),
+      ],
       expect.objectContaining({
-        id: "fr1",
-        relatedDiagrams: ["usecase", "prototype"],
+        requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 2,
       }),
-      expect.objectContaining({
-        id: "dr1",
-        relatedDiagrams: ["class"],
-      }),
-    ]);
+    );
   });
 
   it("does not apply failed requirement snapshots as generated models", async () => {

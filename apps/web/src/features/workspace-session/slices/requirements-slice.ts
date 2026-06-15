@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiagramType } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import { requirementInputFingerprintFor } from "../lib/workspace-context";
 
 export function useRequirementsSlice(repository: WorkspaceRepository) {
   const [requirementText, setRequirementTextRaw] = useState("");
@@ -47,12 +48,22 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
 
   const commitRequirementRules = useCallback(
     (nextRules: RequirementRule[]) => {
+      const nextRulesVersion = rulesVersion + 1;
+      const nextRequirementInputFingerprint = requirementInputFingerprintFor(
+        requirementText,
+        nextRules,
+      );
       setRules(nextRules);
-      setRulesVersion((current) => current + 1);
+      setRulesVersion(nextRulesVersion);
       setRulesBasedOnTextVersion(textVersion);
-      void repository.updateRequirementRules?.(nextRules);
+      setRequirementInputFingerprint(nextRequirementInputFingerprint);
+      void repository.updateRequirementRules?.(nextRules, {
+        requirementInputFingerprint: nextRequirementInputFingerprint,
+        rulesBasedOnTextVersion: textVersion,
+        rulesVersion: nextRulesVersion,
+      });
     },
-    [repository, textVersion],
+    [repository, requirementText, rulesVersion, textVersion],
   );
 
   const getNextRequirementRuleId = useCallback(() => {

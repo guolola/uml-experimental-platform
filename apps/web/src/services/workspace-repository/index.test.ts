@@ -791,6 +791,124 @@ describe("createHttpWorkspaceRepository", () => {
     expect(body.state.requirementText).toBe("团队成员更新的需求");
   });
 
+  it("persists requirement rule freshness metadata through project conflict retries", async () => {
+    const requirementText = "订单需求";
+    const originalRule = {
+      id: "r1",
+      category: "功能需求" as const,
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase" as const],
+    };
+    const updatedRule = {
+      ...originalRule,
+      text: "用户提交订单并收到确认消息。",
+    };
+    const updatedFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: [updatedRule],
+    });
+    let workspaceReads = 0;
+    let workspaceWrites = 0;
+    const savedBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        !options?.method
+      ) {
+        workspaceReads += 1;
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: workspaceReads === 1 ? 4 : 5,
+            state: {
+              requirementText,
+              rules: [originalRule],
+              rulesVersion: 4,
+              rulesBasedOnTextVersion: 0,
+              requirementInputFingerprint: snapshotInputFingerprint({
+                requirementText,
+                rules: [originalRule],
+              }),
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/api/projects/library-booking/workspace") &&
+        options?.method === "PUT"
+      ) {
+        workspaceWrites += 1;
+        savedBodies.push(JSON.parse(String(options.body)));
+        if (workspaceWrites === 1) {
+          return new Response(
+            JSON.stringify({
+              message: "项目已由其他成员更新，请刷新最新状态后再保存。",
+              currentVersion: 5,
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            projectId: "library-booking",
+            version: 6,
+            state: savedBodies.at(-1)?.state,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ message: "unexpected request" }), {
+        status: 500,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repository = createHttpWorkspaceRepository({
+      projectId: "library-booking",
+    });
+    await repository.loadWorkspace();
+    await repository.updateRequirementRules?.([updatedRule], {
+      requirementInputFingerprint: updatedFingerprint,
+      rulesBasedOnTextVersion: 0,
+      rulesVersion: 5,
+    });
+
+    expect(savedBodies).toHaveLength(2);
+    const retriedState = savedBodies[1]?.state as Record<string, unknown>;
+    expect(retriedState.rules).toEqual([updatedRule]);
+    expect(retriedState.requirementInputFingerprint).toBe(updatedFingerprint);
+    expect(retriedState.rulesBasedOnTextVersion).toBe(0);
+    expect(retriedState.rulesVersion).toBe(5);
+  });
+
+  it("keeps requirement rule freshness metadata in the mock repository", async () => {
+    const requirementText = "订单需求";
+    const rule = {
+      id: "r1",
+      category: "功能需求" as const,
+      text: "用户提交订单。",
+      relatedDiagrams: ["usecase" as const],
+    };
+    const fingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules: [rule],
+    });
+    const repository = createMockWorkspaceRepository({ requirementText });
+
+    await repository.updateRequirementRules?.([rule], {
+      requirementInputFingerprint: fingerprint,
+      rulesBasedOnTextVersion: 0,
+      rulesVersion: 1,
+    });
+
+    const workspace = await repository.loadWorkspace();
+    expect(workspace.rules).toEqual([rule]);
+    expect(workspace.requirementInputFingerprint).toBe(fingerprint);
+    expect(workspace.rulesBasedOnTextVersion).toBe(0);
+    expect(workspace.rulesVersion).toBe(1);
+  });
+
   it("does not start a project run when the pending workspace save failed", async () => {
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
       if (

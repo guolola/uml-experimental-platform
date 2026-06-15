@@ -41,11 +41,20 @@ import type {
   StartRunInput,
 } from "./start-inputs";
 
+export interface RequirementRulesUpdateMetadata {
+  requirementInputFingerprint?: string | null;
+  rulesBasedOnTextVersion?: number | null;
+  rulesVersion?: number;
+}
+
 export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceRecord>;
   getProjectCapabilities?(): Promise<string[]>;
   updateRequirementText(text: string): Promise<void>;
-  updateRequirementRules?(rules: RequirementRule[]): Promise<void>;
+  updateRequirementRules?(
+    rules: RequirementRule[],
+    metadata?: RequirementRulesUpdateMetadata,
+  ): Promise<void>;
   updateRequirementBaseline?(baseline: RequirementBaseline): Promise<void>;
   updateRequirementReviewCandidates?(
     candidates: WorkspaceRecord["requirementReviewCandidates"],

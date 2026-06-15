@@ -2,6 +2,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import { requirementInputFingerprintFor } from "../lib/workspace-context";
 import { useRequirementsSlice } from "./requirements-slice";
 
 function createRepository(): WorkspaceRepository {
@@ -86,13 +87,32 @@ describe("useRequirementsSlice", () => {
     });
 
     expect(result.current.rulesForDiagram("activity")).toHaveLength(1);
-    expect(repository.updateRequirementRules).toHaveBeenCalled();
+    const updatedRules = result.current.rules;
+    const updatedFingerprint = requirementInputFingerprintFor("", updatedRules);
+    expect(result.current.requirementInputFingerprint).toBe(updatedFingerprint);
+    expect(repository.updateRequirementRules).toHaveBeenLastCalledWith(
+      updatedRules,
+      expect.objectContaining({
+        requirementInputFingerprint: updatedFingerprint,
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 2,
+      }),
+    );
 
     act(() => {
       result.current.clearRequirementRules();
     });
 
     expect(result.current.rules).toEqual([]);
-    expect(repository.updateRequirementRules).toHaveBeenLastCalledWith([]);
+    const clearedFingerprint = requirementInputFingerprintFor("", []);
+    expect(result.current.requirementInputFingerprint).toBe(clearedFingerprint);
+    expect(repository.updateRequirementRules).toHaveBeenLastCalledWith(
+      [],
+      expect.objectContaining({
+        requirementInputFingerprint: clearedFingerprint,
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 3,
+      }),
+    );
   });
 });
