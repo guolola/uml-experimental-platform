@@ -779,3 +779,61 @@ export function hasCompleteDesignTraceability(
     ),
   );
 }
+
+export type DesignModelTraceabilityCheck = {
+  modelId: string;
+  diagramKind: DesignDiagramType;
+  sourceCoverageComplete: boolean;
+  targetRefsValid: boolean;
+  complete: boolean;
+};
+
+function designTraceabilityEntriesForModel(
+  model: DesignDiagramModelSpec,
+  traceability: DesignModelTraceabilityEntry[],
+) {
+  const modelId = getDesignModelId(model);
+  return traceability.filter((entry) => {
+    const sourceModelId = entry.source.modelId?.trim();
+    if (sourceModelId) return sourceModelId === modelId;
+    return modelId === model.diagramKind && entry.source.diagramKind === model.diagramKind;
+  });
+}
+
+export function checkDesignModelTraceability(input: {
+  model: DesignDiagramModelSpec;
+  traceability: DesignModelTraceabilityEntry[];
+  manualModelEditStatus?: WorkspaceRecord["manualModelEditStatus"];
+  requirementModels?: Array<DiagramModelSpec | undefined>;
+}): DesignModelTraceabilityCheck {
+  const manualStatus = input.manualModelEditStatus ?? {};
+  const modelId = getDesignModelId(input.model);
+  const entries = designTraceabilityEntriesForModel(input.model, input.traceability);
+  const sourceCoverageComplete = isManualModelRerendered(manualStatus, modelId)
+    ? true
+    : hasCompleteTraceabilityCoverage(
+        collectTraceableRefKeys([input.model]),
+        entries.map((entry) => entry.source),
+      );
+  const requirementRefs = collectTraceableRefKeys(
+    (input.requirementModels ?? []).filter((model): model is DiagramModelSpec =>
+      Boolean(model),
+    ),
+  );
+  const targetRefsValid =
+    requirementRefs.size === 0 ||
+    entries.every((entry) =>
+      entry.targets.every((target) =>
+        requirementRefs.has(
+          refKey(target.diagramKind, target.elementId, target.modelId),
+        ),
+      ),
+    );
+  return {
+    modelId,
+    diagramKind: input.model.diagramKind,
+    sourceCoverageComplete,
+    targetRefsValid,
+    complete: sourceCoverageComplete && targetRefsValid,
+  };
+}

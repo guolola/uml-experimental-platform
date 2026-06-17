@@ -1,14 +1,16 @@
 // Derives the project generation lineage graph from the workspace session state.
-import type {
-  DesignDiagramKind,
-  DiagramKind,
-  DocumentKind,
+import {
+  designDiagramKindFromRecordKey,
+  type DesignDiagramKind,
+  type DiagramKind,
+  type DocumentKind,
 } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_META,
   DESIGN_DIAGRAM_ORDER,
   DIAGRAM_META,
   DIAGRAM_ORDER,
+  getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
@@ -112,6 +114,9 @@ export type LineageGraphInput = Pick<
   | "generatedDesignDiagrams"
   | "designDiagramErrors"
   | "selectedDesignDiagrams"
+  | "staleDesignDiagrams"
+  | "staleDesignModelIds"
+  | "designStaleReasons"
   | "designTraceabilityStale"
   | "designGenerationBlockedReason"
   | "codeFiles"
@@ -281,16 +286,54 @@ function requirementDiagramsFor(input: LineageGraphInput) {
 }
 
 function designDiagramsFor(input: LineageGraphInput) {
+  const errorDiagrams = Object.keys(input.designDiagramErrors)
+    .map(designDiagramKindFromRecordKey)
+    .filter((diagram): diagram is DesignDiagramType => Boolean(diagram));
   const diagrams = new Set<DesignDiagramType>([
     ...REQUIRED_DESIGN_DIAGRAMS,
     ...input.selectedDesignDiagrams,
     ...input.generatedDesignDiagrams,
-    ...(Object.keys(input.designDiagramErrors) as DesignDiagramType[]),
+    ...input.staleDesignDiagrams,
+    ...errorDiagrams,
   ]);
   Object.values(input.designModels).forEach((model) => {
     diagrams.add(model.diagramKind);
   });
   return DESIGN_DIAGRAM_ORDER.filter((diagram) => diagrams.has(diagram));
+}
+
+function designErrorFor(input: LineageGraphInput, diagram: DesignDiagramType) {
+  return (
+    input.designDiagramErrors[diagram] ??
+    Object.entries(input.designDiagramErrors).find(
+      ([key]) => designDiagramKindFromRecordKey(key) === diagram,
+    )?.[1]
+  );
+}
+
+function designModelIdsForDiagram(input: LineageGraphInput, diagram: DesignDiagramType) {
+  return Object.values(input.designModels)
+    .filter((model) => model.diagramKind === diagram)
+    .map(getDesignModelId);
+}
+
+function designDiagramIsStale(input: LineageGraphInput, diagram: DesignDiagramType) {
+  if (input.staleDesignDiagrams.includes(diagram)) return true;
+  const staleModelIds = new Set(input.staleDesignModelIds);
+  return designModelIdsForDiagram(input, diagram).some((modelId) =>
+    staleModelIds.has(modelId),
+  );
+}
+
+function designStaleReasonForDiagram(
+  input: LineageGraphInput,
+  diagram: DesignDiagramType,
+) {
+  for (const modelId of designModelIdsForDiagram(input, diagram)) {
+    const reason = input.designStaleReasons[modelId];
+    if (reason) return reason;
+  }
+  return input.designGenerationBlockedReason ?? null;
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -388,16 +431,11 @@ function designStatus(
   input: LineageGraphInput,
   diagram: DesignDiagramType,
 ): LineageNodeStatus {
-  if (input.designDiagramErrors[diagram]) return "error";
+  if (designErrorFor(input, diagram)) return "error";
   if (subtaskFailureFor(input, "design", diagram)) return "error";
   if (subtaskActiveFor(input, "design", diagram)) return "running";
   if (hasDesignModel(input, diagram) || input.generatedDesignDiagrams.includes(diagram)) {
-    return input.designTraceabilityStale || input.designGenerationBlockedReason
-      ? "stale"
-      : "current";
-  }
-  if (input.designTraceabilityStale || input.designGenerationBlockedReason) {
-    return "stale";
+    return designDiagramIsStale(input, diagram) ? "stale" : "current";
   }
   return "not-generated";
 }
@@ -410,15 +448,16 @@ function designReason(
   const label = DESIGN_DIAGRAM_META[diagram].label;
   if (status === "error") {
     return `${label}本次生成失败，上一版${hasDesignModel(input, diagram) ? "仍可查看" : "尚不可查看"}。${errorMessage(
-      input.designDiagramErrors[diagram],
+      designErrorFor(input, diagram),
       "",
     )}`;
   }
   if (status === "running") return `${label}正在生成，完成后会刷新代码和文档影响。`;
   if (status === "stale") {
-    return input.designGenerationBlockedReason
-      ? input.designGenerationBlockedReason
-      : "需求模型已变化，此设计模型需更新。";
+    return (
+      designStaleReasonForDiagram(input, diagram) ??
+      "需求模型已变化，此设计模型需更新。"
+    );
   }
   if (status === "current") return `${label}为最新生成，可继续生成产物。`;
   return "尚未生成，生成后才能驱动代码或设计说明书。";

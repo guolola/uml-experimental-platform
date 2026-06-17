@@ -7,9 +7,11 @@ import type {
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
 import type { GenerationTask, RunDiagnostics } from "../model/session-state";
+import { getDesignModelId } from "../../../entities/diagram/model";
 import { requirementRuleIdsBlockingGeneration } from "./requirement-review";
 import type { createEmptyRunUiState } from "./run-ui-state";
 import {
+  checkDesignModelTraceability,
   designFingerprintMatches,
   designInputFingerprintFor,
   fingerprintMatches,
@@ -18,7 +20,10 @@ import {
   isRequirementDiagramStale,
   requirementInputFingerprintFor,
 } from "./workspace-context";
-import { orderedRequirementDiagrams } from "./generation-planning";
+import {
+  orderedDesignDiagrams,
+  orderedRequirementDiagrams,
+} from "./generation-planning";
 
 type RunUiState = ReturnType<typeof createEmptyRunUiState>;
 
@@ -120,11 +125,6 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
     (isRulesStale ||
       staleDiagrams.length > 0 ||
       requirementTraceabilityMissing);
-  const designTraceabilityStale =
-    input.generatedDesignDiagrams.length > 0 &&
-    (requirementTraceabilityStale ||
-      !designFreshnessComplete ||
-      !designTraceabilityComplete);
   const pendingRequirementReviewRuleIds = requirementRuleIdsBlockingGeneration(
     input.requirementBaseline,
     input.requirementReviewCandidates,
@@ -136,9 +136,48 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
   const designGenerationBlockedReason = !input.requirementText.trim()
     ? "请先输入需求文本"
     : requirementReviewBlockedReason;
+  const staleDesignReasons: Record<string, string> = {};
+  const staleDesignModelIds = Object.values(input.designModels).flatMap((model) => {
+    const modelId = getDesignModelId(model);
+    const fingerprintFresh = designFingerprintMatches(
+      input.designInputFingerprints[modelId],
+      currentDesignInputFingerprint,
+    );
+    const traceability = checkDesignModelTraceability({
+      model,
+      traceability: input.designModelTraceability,
+      manualModelEditStatus: input.manualModelEditStatus,
+      requirementModels: Object.values(input.models),
+    });
+    const reason =
+      designGenerationBlockedReason ??
+      (requirementTraceabilityStale
+        ? "上游需求模型或追踪关系需更新，此设计模型需更新。"
+        : !fingerprintFresh
+          ? "需求模型已变化，此设计模型需更新。"
+          : !traceability.sourceCoverageComplete
+            ? "设计模型追踪覆盖不完整，此设计模型需更新。"
+            : !traceability.targetRefsValid
+              ? "设计模型追踪目标已失效，此设计模型需更新。"
+              : null);
+    if (!reason) return [];
+    staleDesignReasons[modelId] = reason;
+    return [modelId];
+  });
+  const staleDesignDiagrams = orderedDesignDiagrams(
+    Object.values(input.designModels)
+      .filter((model) => staleDesignModelIds.includes(getDesignModelId(model)))
+      .map((model) => model.diagramKind),
+  );
+  const designTraceabilityStale =
+    input.generatedDesignDiagrams.length > 0 &&
+    (requirementTraceabilityStale ||
+      !designFreshnessComplete ||
+      !designTraceabilityComplete);
 
   return {
     designGenerationBlockedReason,
+    designStaleReasons: staleDesignReasons,
     designTraceabilityStale,
     errorMessage:
       input.visibleGenerationTask?.errorMessage ?? input.runUiState.errorMessage,
@@ -151,6 +190,8 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
       input.visibleGenerationTask?.progress ?? input.runUiState.runProgress,
     runStatus:
       input.visibleGenerationTask?.status ?? input.runUiState.runStatus,
+    staleDesignDiagrams,
+    staleDesignModelIds,
     staleDiagrams,
     currentRunDiagnostics:
       input.visibleGenerationTask?.diagnostics ?? input.currentRunDiagnostics,

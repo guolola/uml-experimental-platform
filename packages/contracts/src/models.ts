@@ -949,7 +949,11 @@ export function designDiagramKindFromRecordKey(
 ): DesignDiagramKind | null {
   if (!key) return null;
   const scopedKind = key.includes(":") ? key.split(":", 1)[0] : key;
-  return isDesignDiagramKind(scopedKind) ? scopedKind : null;
+  if (isDesignDiagramKind(scopedKind)) return scopedKind;
+  const legacyDesignKind = scopedKind.startsWith("design-")
+    ? scopedKind.slice("design-".length)
+    : null;
+  return isDesignDiagramKind(legacyDesignKind) ? legacyDesignKind : null;
 }
 
 function designRecordStringField(record: unknown, field: string) {

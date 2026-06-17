@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DiagramError } from "@uml-platform/contracts";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
+import type { DesignDiagramType } from "../../../entities/diagram/model";
 import type { GenerationTask } from "../../workspace-session/model/session-state";
 import {
   buildLineageGraph,
@@ -23,7 +24,7 @@ function model(diagramKind: "usecase" | "class") {
   >;
 }
 
-function designModel(diagramKind: "sequence" | "class") {
+function designModel(diagramKind: DesignDiagramType) {
   return { diagramKind, modelId: diagramKind } as unknown as WorkspaceRecord["designModels"][string];
 }
 
@@ -97,6 +98,9 @@ function input(overrides: Partial<LineageGraphInput> = {}): LineageGraphInput {
     generatedDesignDiagrams: [],
     designDiagramErrors: {},
     selectedDesignDiagrams: [],
+    staleDesignDiagrams: [],
+    staleDesignModelIds: [],
+    designStaleReasons: {},
     designTraceabilityStale: false,
     designGenerationBlockedReason: null,
     codeFiles: {},
@@ -198,6 +202,39 @@ describe("buildLineageGraph", () => {
     expect(graph.nodes.find((node) => node.id === "code:prototype")?.status).toBe(
       "current",
     );
+  });
+
+  it("keeps fresh design nodes current when only sibling design models are stale", () => {
+    const graph = buildLineageGraph(
+      input({
+        rules: [baseRule],
+        models: {
+          usecase: model("usecase"),
+          class: model("class"),
+        },
+        generatedDiagrams: ["usecase", "class"],
+        designModels: {
+          class: designModel("class"),
+          sequence: designModel("sequence"),
+        },
+        generatedDesignDiagrams: ["sequence", "class"],
+        designTraceabilityStale: true,
+        staleDesignDiagrams: ["sequence"],
+        staleDesignModelIds: ["sequence"],
+        designStaleReasons: {
+          sequence: "需求模型已变化，此设计模型需更新。",
+        },
+      }),
+    );
+
+    expect(
+      graph.nodes.find((node) => node.id === "design-model:class")?.status,
+    ).toBe("current");
+    const sequenceNode = graph.nodes.find(
+      (node) => node.id === "design-model:sequence",
+    );
+    expect(sequenceNode?.status).toBe("stale");
+    expect(sequenceNode?.reason).toContain("需求模型已变化");
   });
 
   it("marks stale downstream requirement nodes with stale-cause edges", () => {

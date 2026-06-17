@@ -828,6 +828,84 @@ describe("SidebarMenu", () => {
     expect(toast.message).toHaveBeenCalledWith("当前只有结构化模型，SVG 尚未生成");
   });
 
+  it("shows a warning dot on stale design diagram entries", async () => {
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        requirementText: "订单需求",
+        generatedDesignDiagramTypes: ["class"],
+        designModels: {
+          "design-class": {
+            diagramKind: "class",
+            modelId: "design-class",
+            title: "设计类图",
+            summary: "静态结构",
+            notes: [],
+            classes: [
+              {
+                id: "order-service",
+                name: "OrderService",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        designSvgArtifacts: {
+          "design-class": {
+            diagramKind: "class",
+            modelId: "design-class",
+            svg: "<svg />",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: "2026-06-17T00:00:00.000Z",
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+        designInputFingerprints: {
+          "design-class": "design-input:v1:stale",
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+
+    expect(await screen.findByTitle("此设计模型需更新")).toHaveClass("bg-warning");
+  });
+
+  it("maps design-prefixed error keys back to design diagram entries", async () => {
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        designDiagramErrors: {
+          "design-component": {
+            stage: "generate_design_models",
+            error: {
+              code: "RUN_STRUCTURED_OUTPUT_INVALID",
+              message: "组件关系生成失败",
+              category: "generation",
+              retryable: true,
+            },
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+
+    expect(screen.getByRole("button", { name: "组件（构件）关系" })).toBeInTheDocument();
+    expect(screen.getByTitle("此设计图生成失败")).toHaveClass("bg-destructive");
+  });
+
   it("shows a failure toast for failed design nodes without opening a tab", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>

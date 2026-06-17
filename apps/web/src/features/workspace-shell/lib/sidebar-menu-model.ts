@@ -1,4 +1,5 @@
 // Derives sidebar diagram availability, task status, and scoped use-case nodes from workspace state.
+import { designDiagramKindFromRecordKey } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_ORDER,
   DIAGRAM_ORDER,
@@ -34,6 +35,8 @@ type SidebarDiagramStateInput = {
   diagramErrors: WorkspaceRecord["diagramErrors"];
   svgArtifacts: WorkspaceRecord["svgArtifacts"];
   generatedDesignDiagrams: DesignDiagramType[];
+  staleDesignDiagrams: DesignDiagramType[];
+  staleDesignModelIds: string[];
   designModels: WorkspaceRecord["designModels"];
   designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
   designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
@@ -310,14 +313,23 @@ export function deriveSidebarDiagramState(input: SidebarDiagramStateInput) {
     },
   );
   const orderedDesignDiagrams = DESIGN_DIAGRAM_ORDER.filter(
-    (diagram) =>
-      designModelsByDiagram[diagram].length > 0 ||
-      input.generatedDesignDiagrams.includes(diagram) ||
-      designSubtaskStatus.has(diagram) ||
-      Boolean(input.designDiagramErrors[diagram]) ||
-      (diagram === "sequence" &&
-        ([...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:")) ||
-          Object.keys(input.designDiagramErrors).some((id) => id.startsWith("sequence:")))),
+    (diagram) => {
+      const hasScopedDesignError = Object.keys(input.designDiagramErrors).some(
+        (id) =>
+          id === diagram ||
+          id.startsWith(`${diagram}:`) ||
+          designDiagramKindFromRecordKey(id) === diagram,
+      );
+      return (
+        designModelsByDiagram[diagram].length > 0 ||
+        input.generatedDesignDiagrams.includes(diagram) ||
+        input.staleDesignDiagrams.includes(diagram) ||
+        designSubtaskStatus.has(diagram) ||
+        hasScopedDesignError ||
+        (diagram === "sequence" &&
+          [...designSubtaskStatus.keys()].some((id) => id.startsWith("sequence:")))
+      );
+    },
   );
 
   const requirementStatusFor = (diagram: DiagramType, modelId?: string): SidebarNodeStatus | undefined => {
@@ -375,6 +387,16 @@ export function deriveSidebarDiagramState(input: SidebarDiagramStateInput) {
   ): SidebarNodeStatus | undefined => {
     if (modelId && input.designDiagramErrors[modelId]) return "failed";
     if (input.designDiagramErrors[diagram]) return "failed";
+    if (
+      Object.keys(input.designDiagramErrors).some(
+        (id) =>
+          id === modelId ||
+          id.startsWith(`${diagram}:`) ||
+          designDiagramKindFromRecordKey(id) === diagram,
+      )
+    ) {
+      return "failed";
+    }
     const activeStatus =
       (modelId ? designSubtaskStatus.get(modelId) : undefined) ??
       designSubtaskStatus.get(diagram);

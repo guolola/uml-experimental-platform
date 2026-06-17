@@ -228,6 +228,9 @@ export interface WorkspaceSessionState {
   requirementReviewBlockedReason: string | null;
   requirementTraceabilityStale: boolean;
   designTraceabilityStale: boolean;
+  staleDesignModelIds: string[];
+  staleDesignDiagrams: DesignDiagramType[];
+  designStaleReasons: Record<string, string>;
   designGenerationBlockedReason: string | null;
   historyItems: RunHistoryItem[];
   refreshHistory: () => Promise<void>;

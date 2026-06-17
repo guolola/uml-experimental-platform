@@ -447,6 +447,7 @@ function buildDesignDiagramNode(
   diagram: DesignDiagramType,
   model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
   failed: boolean,
+  stale: boolean,
   status: Node["status"],
   statusTooltip: string | undefined,
   viewable: boolean,
@@ -510,6 +511,12 @@ function buildDesignDiagramNode(
     icon: (
       <span className="relative inline-flex">
         <Network className="size-4 text-muted-foreground" />
+        {stale && (
+          <span
+            title="此设计模型需更新"
+            className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
+          />
+        )}
         {failed && (
           <span
             title="此设计图生成失败"
@@ -553,6 +560,8 @@ export function SidebarMenu() {
     generatedDiagrams,
     models,
     staleDiagrams,
+    staleDesignDiagrams,
+    staleDesignModelIds,
     diagramErrors,
     svgArtifacts,
     generatedDesignDiagrams,
@@ -594,6 +603,8 @@ export function SidebarMenu() {
     generatedDiagrams,
     models,
     staleDiagrams,
+    staleDesignDiagrams,
+    staleDesignModelIds,
     diagramErrors,
     svgArtifacts,
     generatedDesignDiagrams,
@@ -728,6 +739,11 @@ export function SidebarMenu() {
             (sequenceSubtaskNodes.length > 1 ||
               (sequenceGenerationActive && sequenceSubtaskNodes.length > 0))
           ) {
+            const sequenceGroupStale =
+              staleDesignDiagrams.includes("sequence") ||
+              sequenceSubtaskNodes.some((node) =>
+                staleDesignModelIds.includes(node.id),
+              );
             const groupStatus = sequenceSubtaskNodes.reduce<Node["status"]>(
               (current, model) =>
                 mergeSidebarStatus(
@@ -739,7 +755,17 @@ export function SidebarMenu() {
             return {
               key: "design-diagram-group:sequence",
               label: `${DESIGN_DIAGRAM_META.sequence.label}（${sequenceSubtaskNodes.length}）`,
-              icon: <MessageSquare className="size-4 text-muted-foreground" />,
+              icon: (
+                <span className="relative inline-flex">
+                  <MessageSquare className="size-4 text-muted-foreground" />
+                  {sequenceGroupStale && (
+                    <span
+                      title="此设计模型需更新"
+                      className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
+                    />
+                  )}
+                </span>
+              ),
               selectable: false,
               status: groupStatus,
               statusTooltip:
@@ -766,10 +792,12 @@ export function SidebarMenu() {
                   }
                   const viewable = designModelViewable(diagram, node.id);
                   const hasStructuredModel = Boolean(model);
+                  const stale = staleDesignModelIds.includes(node.id);
                   return buildDesignDiagramNode(
                     diagram,
                     model,
-                    Boolean(designDiagramErrors[node.id] ?? designDiagramErrors[diagram]),
+                    status === "failed",
+                    stale,
                     status,
                     generationStatusTooltip(
                       model.title,
@@ -796,10 +824,15 @@ export function SidebarMenu() {
           const viewable = designModelViewable(diagram, modelId);
           const hasStructuredModel =
             Boolean(model) || generatedDesignDiagrams.includes(diagram);
+          const stale = Boolean(
+            (modelId && staleDesignModelIds.includes(modelId)) ||
+              staleDesignDiagrams.includes(diagram),
+          );
           return buildDesignDiagramNode(
             diagram,
             model,
-            Boolean(designDiagramErrors[diagram]),
+            status === "failed",
+            stale,
             status,
             generationStatusTooltip(
               DESIGN_DIAGRAM_META[diagram].label,

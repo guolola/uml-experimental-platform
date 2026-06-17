@@ -108,6 +108,14 @@ test("design record scope helpers match scoped keys and model metadata", () => {
   );
   assert.equal(
     designRecordBelongsToDiagramKinds(
+      "design-component",
+      { diagramKind: "component", modelId: "design-component" },
+      ["component"],
+    ),
+    true,
+  );
+  assert.equal(
+    designRecordBelongsToDiagramKinds(
       "legacy-key",
       { diagramKind: "table", modelId: "table" },
       ["table"],
