@@ -92,6 +92,12 @@ function refKey(diagramKind: string, elementId: string, modelId?: string) {
 function normalizeTraceabilityDiagramKind(value: unknown) {
   const raw = compactString(value).toLowerCase().replace(/[\s_]+/g, "-");
   switch (raw) {
+    case "function":
+    case "function-structure":
+    case "functional-structure":
+    case "wbs":
+    case "work-breakdown-structure":
+      return "function";
     case "usecase":
     case "use-case":
     case "usecase-diagram":
@@ -122,11 +128,21 @@ function normalizeTraceabilityDiagramKind(value: unknown) {
     case "requirement-analysis-sequence":
     case "sequence-analysis":
       return "analysis";
+    case "architecture":
+    case "overall-architecture":
+    case "package":
+    case "package-diagram":
+      return "architecture";
     case "sequence":
     case "sequence-diagram":
     case "usecase-realization":
     case "use-case-realization":
       return "sequence";
+    case "component":
+    case "component-diagram":
+    case "component-relationship":
+    case "component-relation":
+      return "component";
     case "table":
     case "database":
     case "database-design":
@@ -224,7 +240,15 @@ export function collectModelRefs(
       ["interfaces", "interface"],
       ["enums", "enum"],
       ["swimlanes", "swimlane"],
-      ["nodes", diagramKind === "deployment" ? "deployment-node" : "activity-node"],
+      [
+        "nodes",
+        diagramKind === "function"
+          ? "function"
+          : diagramKind === "deployment"
+            ? "deployment-node"
+            : "activity-node",
+      ],
+      ["packages", "package"],
       ["databases", "database"],
       ["components", "component"],
       ["externalSystems", "external-system"],

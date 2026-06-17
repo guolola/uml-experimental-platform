@@ -13,6 +13,7 @@ import {
   BookOpen,
   Clock3,
   FileText,
+  GitBranch,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -70,10 +71,10 @@ import { ProjectHistory } from "./project-history";
 import { ProjectMembers } from "./project-members";
 import { PageFrame, SectionCard } from "./project-page-layout";
 import { ProjectSettings } from "./project-settings";
+import { LineageGraphDialog } from "../../lineage/components/lineage-graph-dialog";
 export { AuthPage } from "./auth-page";
 export { AccountPage, AccountSecurityPage } from "./account-pages";
 export { InvitationAcceptPage } from "./invitation-accept-page";
-export { ModelSettingsPage } from "./model-settings-page";
 export { ProjectNewPage } from "./project-new-page";
 export { ProjectsIndexPage } from "./projects-index-page";
 
@@ -727,6 +728,7 @@ export function ProjectWorkspaceBanner({
   const activeServerRuns = overview.runs.filter(
     (run) => run.status === "queued" || run.status === "running",
   ).length;
+  const [lineageOpen, setLineageOpen] = useState(false);
   const activeRuns = Math.max(activeServerRuns, activeGenerationTaskCount);
   useEffect(() => {
     const defaultProviderConfigId = overview.project?.defaultProviderConfigId;
@@ -796,101 +798,116 @@ export function ProjectWorkspaceBanner({
   }
 
   return (
-    <div className="flex min-h-[53px] items-center border-b border-border bg-card px-3 py-2 md:px-4">
-      <div className="flex w-full min-w-0 items-center justify-between gap-3 text-sm md:flex-wrap">
-        <div className="flex min-w-0 items-center gap-2 md:gap-3">
-          <Badge variant="secondary">项目工作台</Badge>
-          <span className="min-w-0 truncate font-semibold">{overview.project.name}</span>
-          <span className="hidden text-muted-foreground sm:inline">成员 {overview.members.length}</span>
-          <span className="hidden text-muted-foreground sm:inline">
-            权限 {overview.membership?.role ?? "unknown"}
-          </span>
-        </div>
-        <div className="hidden flex-wrap items-center gap-2 text-muted-foreground md:flex">
-          {onOpenDrawer && (
-            <ProjectWorkspaceActions
-              projectId={projectId}
-              projectRuns={overview.runs}
-              onOpenDrawer={onOpenDrawer}
-            />
-          )}
-          {onOpenDrawer &&
-            shortcuts.map((shortcut) => {
-              const Icon = shortcut.icon;
-              return (
-                <Button
-                  key={shortcut.kind}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onOpenDrawer(shortcut.kind)}
-                >
-                  <Icon className="size-4" />
-                  {shortcut.label}
-                </Button>
-              );
-            })}
-          <span>已同步</span>
-          <span>{overview.membership?.role ?? "unknown"}</span>
-          <span className="inline-flex items-center gap-1">
-            <Clock3 className="size-4" />
-            运行中 {activeRuns}
-          </span>
-          <span>项目状态：{overview.project.status}</span>
-          <span className="inline-flex items-center gap-1">
-            <FileText className="size-4" />
-            文档 {overview.documents.length}
-          </span>
-        </div>
-        {onOpenDrawer && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-9 shrink-0 rounded-full md:hidden"
-                aria-label="打开项目操作"
-                title="打开项目操作"
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-52">
-              <DropdownMenuLabel>{overview.membership?.role ?? "unknown"} · 已同步</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => onOpenDrawer("tasks")}>
-                <Activity className="size-4" />
-                生成任务
-                <span className="ml-auto text-xs text-muted-foreground">{activeRuns}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onOpenDrawer("history")}>
-                <Clock3 className="size-4" />
-                运行历史
-              </DropdownMenuItem>
-              {shortcuts.map((shortcut) => {
+    <>
+      {lineageOpen && (
+        <LineageGraphDialog open={lineageOpen} onOpenChange={setLineageOpen} />
+      )}
+      <div className="flex min-h-[53px] items-center border-b border-border bg-card px-3 py-2 md:px-4">
+        <div className="flex w-full min-w-0 items-center justify-between gap-3 text-sm md:flex-wrap">
+          <div className="flex min-w-0 items-center gap-2 md:gap-3">
+            <Badge variant="secondary">项目工作台</Badge>
+            <span className="min-w-0 truncate font-semibold">{overview.project.name}</span>
+            <span className="hidden text-muted-foreground sm:inline">
+              成员 {overview.members.length}
+            </span>
+            <span className="hidden text-muted-foreground sm:inline">
+              权限 {overview.membership?.role ?? "unknown"}
+            </span>
+          </div>
+          <div className="hidden flex-wrap items-center gap-2 text-muted-foreground md:flex">
+            {onOpenDrawer && (
+              <ProjectWorkspaceActions
+                projectId={projectId}
+                projectRuns={overview.runs}
+                onOpenDrawer={onOpenDrawer}
+              />
+            )}
+            {onOpenDrawer &&
+              shortcuts.map((shortcut) => {
                 const Icon = shortcut.icon;
                 return (
-                  <DropdownMenuItem
+                  <Button
                     key={shortcut.kind}
-                    onSelect={() => onOpenDrawer(shortcut.kind)}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onOpenDrawer(shortcut.kind)}
                   >
                     <Icon className="size-4" />
                     {shortcut.label}
-                  </DropdownMenuItem>
+                  </Button>
                 );
               })}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>
-                项目状态：{overview.project.status}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                文档 {overview.documents.length}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+            <span>已同步</span>
+            <span>{overview.membership?.role ?? "unknown"}</span>
+            <span className="inline-flex items-center gap-1">
+              <Clock3 className="size-4" />
+              运行中 {activeRuns}
+            </span>
+            <span>项目状态：{overview.project.status}</span>
+            <span className="inline-flex items-center gap-1">
+              <FileText className="size-4" />
+              文档 {overview.documents.length}
+            </span>
+          </div>
+          {onOpenDrawer && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 shrink-0 rounded-full md:hidden"
+                  aria-label="打开项目操作"
+                  title="打开项目操作"
+                >
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-52">
+                <DropdownMenuLabel>
+                  {overview.membership?.role ?? "unknown"} · 已同步
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setLineageOpen(true)}>
+                  <GitBranch className="size-4" />
+                  链路图
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onOpenDrawer("tasks")}>
+                  <Activity className="size-4" />
+                  生成任务
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {activeRuns}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onOpenDrawer("history")}>
+                  <Clock3 className="size-4" />
+                  运行历史
+                </DropdownMenuItem>
+                {shortcuts.map((shortcut) => {
+                  const Icon = shortcut.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={shortcut.kind}
+                      onSelect={() => onOpenDrawer(shortcut.kind)}
+                    >
+                      <Icon className="size-4" />
+                      {shortcut.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled>
+                  项目状态：{overview.project.status}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled>
+                  文档 {overview.documents.length}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

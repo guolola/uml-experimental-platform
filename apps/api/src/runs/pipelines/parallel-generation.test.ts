@@ -63,6 +63,27 @@ const libraryRules: RequirementRule[] = [
 ];
 
 function modelForKind(kind: DiagramKind): DiagramModelSpec {
+  if (kind === "function") {
+    return {
+      diagramKind: "function",
+      title: "图书馆功能结构图",
+      summary: "图书馆管理功能分解。",
+      notes: [],
+      nodes: [
+        { id: "fn_library", name: "图书馆管理", sourceRequirementIds: ["REQ-001"] },
+        { id: "fn_borrow", name: "借还书", parentId: "fn_library", sourceRequirementIds: ["REQ-001"] },
+      ],
+      relationships: [
+        {
+          id: "rel_fn_borrow",
+          type: "decomposition",
+          sourceId: "fn_library",
+          targetId: "fn_borrow",
+        },
+      ],
+    };
+  }
+
   if (kind === "usecase") {
     return {
       diagramKind: "usecase",
@@ -194,7 +215,17 @@ function outputForKind(kind: DiagramKind) {
     kind === "class" ? "r2" : kind === "deployment" ? "r3" : "r1";
   const model = modelForKind(kind);
   const targets =
-    kind === "usecase"
+    kind === "function"
+      ? [
+          { elementId: "fn_library", elementKind: "function", label: "图书馆管理" },
+          { elementId: "fn_borrow", elementKind: "function", label: "借还书" },
+          {
+            elementId: "rel_fn_borrow",
+            elementKind: "relationship",
+            label: "图书馆管理 -> 借还书",
+          },
+        ]
+      : kind === "usecase"
       ? [
           { elementId: "actor_librarian", elementKind: "actor", label: "图书管理员" },
           { elementId: "uc_borrow", elementKind: "usecase", label: "借书" },

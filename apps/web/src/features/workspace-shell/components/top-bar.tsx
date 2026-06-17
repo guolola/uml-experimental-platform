@@ -9,6 +9,7 @@ import {
   Download,
   FileCode2,
   FileText,
+  GitBranch,
   History,
   Loader2,
   Menu,
@@ -50,6 +51,7 @@ import {
   SHELL_ROUTE_MODULES,
   type ShellRoutePath,
 } from "../../../entities/workspace/modules";
+import { LineageGraphDialog } from "../../lineage/components/lineage-graph-dialog";
 
 export type { ShellRoutePath };
 
@@ -96,6 +98,7 @@ const QUEUE_REASON_LABEL = {
 type RunKind = "requirements" | "design" | "code" | "document";
 
 const REQUIREMENT_DIAGRAM_KINDS = [
+  "function",
   "usecase",
   "class",
   "activity",
@@ -104,9 +107,11 @@ const REQUIREMENT_DIAGRAM_KINDS = [
   "analysis",
 ] as const satisfies readonly DiagramKind[];
 const DESIGN_DIAGRAM_KINDS = [
+  "architecture",
   "sequence",
   "class",
   "activity",
+  "component",
   "deployment",
   "table",
 ] as const satisfies readonly DesignDiagramKind[];
@@ -173,7 +178,10 @@ const topBarActionButtonClass =
   "size-10 shrink-0 rounded-full bg-transparent text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground";
 
 const taskStatusButtonClass =
-  "h-10 shrink-0 rounded-full bg-secondary px-4 text-sm text-secondary-foreground shadow-none hover:bg-secondary/80";
+  "h-10 shrink-0 rounded-full bg-transparent px-4 text-sm font-medium text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground";
+
+const mainNavButtonClass =
+  "relative h-10 px-1 text-[15px] font-semibold text-sidebar-foreground/75 transition-colors after:absolute after:inset-x-1 after:bottom-1 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-full after:bg-primary after:opacity-0 after:transition-all hover:text-primary hover:after:scale-x-100 hover:after:opacity-100 aria-[current=page]:text-primary";
 
 function formatStageLabel(stage: RunStage | null) {
   if (!stage) return "等待任务";
@@ -1292,6 +1300,7 @@ export function ProjectWorkspaceActions({
   onOpenDrawer,
   projectRuns = [],
 }: ProjectWorkspaceActionsProps) {
+  const [lineageOpen, setLineageOpen] = useState(false);
   const {
     requirementText,
     rules,
@@ -1366,6 +1375,22 @@ export function ProjectWorkspaceActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {lineageOpen && (
+        <LineageGraphDialog open={lineageOpen} onOpenChange={setLineageOpen} />
+      )}
+      <Button
+        variant="ghost"
+        className={taskStatusButtonClass}
+        title="链路图"
+        aria-label="链路图"
+        onClick={() => setLineageOpen(true)}
+      >
+        <GitBranch className="size-5" />
+        <span className="hidden max-w-28 truncate font-semibold xl:inline">
+          链路图
+        </span>
+      </Button>
+
       <Button
         variant="ghost"
         className={taskStatusButtonClass}
@@ -1451,7 +1476,6 @@ export function TopBar({
   const navItems = [
     { route: "/projects", label: "项目" },
     ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace"),
-    { route: "/account/billing", label: "购买" },
   ];
   const currentLabel =
     navItems.find(
@@ -1486,7 +1510,7 @@ export function TopBar({
                 : undefined
             }
             onClick={() => onNavigate(item.route)}
-            className="h-10 px-1 text-[15px] font-semibold text-sidebar-foreground/75 transition-colors hover:text-primary aria-[current=page]:text-primary"
+            className={mainNavButtonClass}
           >
             {item.label}
           </button>

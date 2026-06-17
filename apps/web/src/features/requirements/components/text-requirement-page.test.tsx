@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AtomicRequirement, RequirementBaseline } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import { ApiClientError } from "../../../services/api-client";
 import {
   createRule,
   createRunSnapshot,
@@ -221,6 +222,60 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("生成完成。")).toBeInTheDocument();
   });
 
+  it("shows entitlement generation blockers without purchase links", async () => {
+    const startRun = vi.fn(async () => {
+      throw new ApiClientError("需要开通生成权益", 402, {
+        error: {
+          code: "RUN_DEPENDENCY_MISSING",
+          message: "需要开通生成权益",
+          category: "user_entitlement",
+          retryable: false,
+          details: {
+            billing: {
+              reason: "no_entitlement",
+              billingSummary: {
+                creditBalance: 0,
+                activePass: null,
+                signupBonus: {
+                  granted: false,
+                  creditAmount: 0,
+                  validUntil: null,
+                },
+                passDailyUsage: {
+                  usedToday: 0,
+                  limit: 1,
+                },
+                recentOrders: [],
+              },
+              payCta: {
+                label: "购买权益",
+                href: "/pricing",
+              },
+            },
+          },
+        },
+      });
+    });
+    const repository = createBaseRepository({ startRun });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    await user.type(
+      await screen.findByPlaceholderText(
+        "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+      ),
+      "创建一个订单系统",
+    );
+    await user.click(screen.getByTitle("生成需求规则"));
+
+    expect(await screen.findAllByText("需要开通生成权益")).not.toHaveLength(0);
+    expect(screen.getByText(/可用次数 0/)).toBeInTheDocument();
+    expect(screen.getByText(/当前没有有效通行卡/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "购买权益" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "账单" })).not.toBeInTheDocument();
+  });
+
   it("starts a diagram run through session actions", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-diagrams" }));
     const snapshot = createRunSnapshot({
@@ -432,7 +487,7 @@ describe("TextRequirementView", () => {
     expect(
       screen.getAllByText(/将自动补齐：规则映射/).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText("1/6")).toBeInTheDocument();
+    expect(screen.getByText("1/7")).toBeInTheDocument();
   });
 
   it("allows analysis model selection from generated use case event flows without requirement rules", async () => {
@@ -477,7 +532,7 @@ describe("TextRequirementView", () => {
     await waitFor(() => {
       expect(analysisCheckbox).toBeChecked();
     });
-    expect(screen.getByText("1/6")).toBeInTheDocument();
+    expect(screen.getByText("1/7")).toBeInTheDocument();
   });
 
   it("labels generated but unselected requirement models as kept", async () => {
@@ -1351,7 +1406,11 @@ describe("TextRequirementView", () => {
     ).toHaveClass("h-[240px]");
     expect(within(table).getByRole("columnheader", { name: "编号" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "类型" })).toBeInTheDocument();
-    expect(within(table).getByRole("columnheader", { name: "需求文本内容" })).toBeInTheDocument();
+    expect(
+      within(table).getByRole("columnheader", {
+        name: "需求文本内容（可编辑）",
+      }),
+    ).toBeInTheDocument();
     expect(within(table).queryByRole("columnheader", { name: "相关图" })).not.toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
     expect(within(table).getByText("r1")).toBeInTheDocument();
@@ -1387,6 +1446,7 @@ describe("TextRequirementView", () => {
   it("shows repair candidates as before-after confirmation and accepts the repaired rule", async () => {
     const updateRequirementBaseline = vi.fn(async () => {});
     const updateRequirementReviewCandidates = vi.fn(async () => {});
+    const updateRequirementRules = vi.fn(async () => {});
     const rule = createRule({
       id: "r1",
       category: "功能需求",
@@ -1404,6 +1464,7 @@ describe("TextRequirementView", () => {
     });
     const afterRequirement = createAtomicRequirement({
       actor: "用户",
+      action: "提交",
       confidence: 0.84,
       fieldProvenance: {
         actor: {
@@ -1439,6 +1500,7 @@ describe("TextRequirementView", () => {
       ),
       updateRequirementBaseline,
       updateRequirementReviewCandidates,
+      updateRequirementRules,
     });
 
     const user = userEvent.setup();
@@ -1476,6 +1538,21 @@ describe("TextRequirementView", () => {
         r1: expect.objectContaining({ status: "accepted" }),
       }),
     );
+    await waitFor(() => {
+      expect(updateRequirementRules).toHaveBeenLastCalledWith(
+        [
+          expect.objectContaining({
+            id: "r1",
+            sourceFragment: "系统应允许用户提交订单。",
+            text: "用户可以提交（对象：订单），结果：系统创建订单。",
+          }),
+        ],
+        expect.objectContaining({
+          requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+          rulesVersion: expect.any(Number),
+        }),
+      );
+    });
   });
 
   it("closes failed repair candidate dialogs without keeping stale details", async () => {
@@ -2033,7 +2110,7 @@ describe("TextRequirementView", () => {
             id: "r2",
             category: "数据需求",
             text: "系统必须保存活动报名记录。",
-            relatedDiagrams: ["usecase", "activity", "class"],
+            relatedDiagrams: ["function", "usecase", "activity", "class"],
           },
         ],
         expect.objectContaining({

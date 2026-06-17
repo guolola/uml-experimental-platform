@@ -205,9 +205,10 @@ describe("DesignModelPage", () => {
           models: {
             usecase: useCaseModel,
             prototype: prototypeModel,
+            "analysis:uc": analysisModel,
           },
-          generatedDiagramTypes: ["usecase", "prototype"],
-          diagramVersions: { usecase: 1, prototype: 1 },
+          generatedDiagramTypes: ["usecase", "prototype", "analysis"],
+          diagramVersions: { usecase: 1, prototype: 1, analysis: 1 },
           requirementModelTraceability: [
             {
               ruleId: "r1",
@@ -281,6 +282,107 @@ describe("DesignModelPage", () => {
     expect(input).not.toHaveProperty("requirementText");
     expect(input).not.toHaveProperty("rules");
     expect(input).toHaveProperty("requirementBaseline");
+  });
+
+  it("auto-fills component and class dependencies before deployment design", async () => {
+    const startDesignRun = vi.fn(async () => ({ runId: "design-run" }));
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+          requirementBaseline: createRequirementBaseline(),
+          rules: [
+            createRule({
+              relatedDiagrams: ["usecase", "class", "deployment"],
+            }),
+          ],
+          models: {
+            usecase: useCaseModel,
+            "analysis:uc": analysisModel,
+            class: classModel,
+            deployment: {
+              diagramKind: "deployment",
+              title: "部署需求模型",
+              summary: "部署约束",
+              notes: [],
+              nodes: [],
+              databases: [],
+              components: [],
+              externalSystems: [],
+              artifacts: [],
+              relationships: [],
+            },
+          },
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "actor",
+                elementKind: "actor",
+                label: "用户",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc",
+                elementKind: "usecase",
+                label: "生成模型",
+              },
+            },
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "system",
+                elementKind: "system-boundary",
+                label: "平台",
+              },
+            },
+          ],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun,
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<DesignModelPage />, repository));
+
+    await screen.findByText("设计模型");
+    await user.click(screen.getByRole("button", { name: "选择部署设计" }));
+    expect(
+      screen.getByText("来源：需求阶段部署需求模型 + 设计阶段组件（构件）关系"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /生成设计模型/ }));
+    const confirmation = await screen.findByRole("dialog", { name: "确认生成设计模型" });
+    expect(within(confirmation).getByText("设计依赖补齐")).toBeInTheDocument();
+    expect(confirmation).toHaveTextContent("用例实现设计、设计类图、组件（构件）关系");
+    await user.click(within(confirmation).getByRole("button", { name: "确认生成" }));
+
+    await waitFor(() => {
+      expect(startDesignRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selectedDiagrams: ["sequence", "class", "component", "deployment"],
+          requestedDiagrams: ["deployment"],
+        }),
+      );
+    });
   });
 
   it("allows interface relation design and flags missing prototype source for auto-fill", async () => {
@@ -357,7 +459,8 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await screen.findByText("设计模型");
-    const [sequenceCheckbox, classDiagramCheckbox] = screen.getAllByRole("checkbox");
+    const sequenceCheckbox = screen.getByRole("checkbox", { name: /用例实现设计/ });
+    const classDiagramCheckbox = screen.getByRole("checkbox", { name: /设计类图/ });
     expect(sequenceCheckbox).toBeEnabled();
     expect(classDiagramCheckbox).toBeEnabled();
     expect(classDiagramCheckbox).not.toBeChecked();
@@ -366,7 +469,7 @@ describe("DesignModelPage", () => {
     await user.click(screen.getByRole("button", { name: "取消选择设计类图" }));
     expect(classDiagramCheckbox).not.toBeChecked();
     expect(screen.getAllByText(/将自动补齐：领域概念模型/).length).toBeGreaterThan(0);
-    expect(screen.getByText("0/5")).toBeInTheDocument();
+    expect(screen.getByText("0/7")).toBeInTheDocument();
     expect(screen.queryByText("0/1")).not.toBeInTheDocument();
   });
 
@@ -396,13 +499,17 @@ describe("DesignModelPage", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
+    const user = userEvent.setup();
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await screen.findByText("设计模型");
-    const [sequenceCheckbox, classDiagramCheckbox] = screen.getAllByRole("checkbox");
+    const sequenceCheckbox = screen.getByRole("checkbox", { name: /用例实现设计/ });
+    const classDiagramCheckbox = screen.getByRole("checkbox", { name: /设计类图/ });
     expect(sequenceCheckbox).toBeEnabled();
     expect(classDiagramCheckbox).toBeEnabled();
-    expect(screen.getAllByText(/将自动补齐：用例模型/).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "选择设计类图" }));
+    expect(classDiagramCheckbox).toBeChecked();
+    expect(screen.getByText("来源：需求阶段领域概念模型 + 设计阶段用例实现设计")).toBeInTheDocument();
   });
 
   it("disables sequence generation when the use case model has no use cases", async () => {
@@ -598,7 +705,7 @@ describe("DesignModelPage", () => {
     render(withWorkspaceProviders(<DesignModelPage />, repository));
 
     await screen.findByText("已生成设计模型");
-    expect(screen.getByText("0/5")).toBeInTheDocument();
+    expect(screen.getByText("0/7")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /设计类图/ })).not.toBeChecked();
     const blocker = await screen.findByRole("alert");
     await waitFor(() => {
@@ -806,11 +913,12 @@ describe("DesignModelPage", () => {
           requirementBaseline: createRequirementBaseline(),
           rules: [createRule({ relatedDiagrams: ["usecase", "class"] })],
           rulesVersion: 1,
-          diagramVersions: { usecase: 1, class: 1 },
-          generatedDiagramTypes: ["usecase", "class"],
+          diagramVersions: { usecase: 1, class: 1, analysis: 1 },
+          generatedDiagramTypes: ["usecase", "class", "analysis"],
           models: {
             usecase: useCaseModel,
             class: classModel,
+            "analysis:uc": analysisModel,
           },
           requirementModelTraceability: [
             {

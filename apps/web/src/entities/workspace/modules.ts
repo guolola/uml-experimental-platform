@@ -81,14 +81,9 @@ export const SHELL_ROUTE_MODULES = [
     description: "考试模块正在建设中，后续会承载课程测评、题目生成和评分流程。",
   },
   {
-    label: "教程",
+    label: "使用文档",
     route: "/tutorial" as const,
-    description: "教程模块正在建设中，后续会沉淀平台使用指南和 UML 建模方法。",
-  },
-  {
-    label: "关于",
-    route: "/about" as const,
-    description: "关于页面正在建设中，后续会展示平台定位、版本信息和项目说明。",
+    description: "查看项目内使用手册、操作路径、截图说明和常见问题。",
   },
 ];
 

@@ -84,7 +84,15 @@ function sortFingerprintValue(value: unknown): unknown {
   );
 }
 
-const DIAGRAM_FINGERPRINT_ORDER = ["usecase", "class", "activity", "deployment"];
+const DIAGRAM_FINGERPRINT_ORDER = [
+  "function",
+  "activity",
+  "usecase",
+  "class",
+  "prototype",
+  "deployment",
+  "analysis",
+];
 
 function normalizeDesignInputFingerprintValue(value: unknown) {
   const record = isFingerprintRecord(value) ? value : {};

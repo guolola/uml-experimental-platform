@@ -32,6 +32,7 @@ import {
   DESIGN_DIAGRAM_META,
   DESIGN_DIAGRAM_ORDER,
   DIAGRAM_META,
+  DIAGRAM_ORDER,
   getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
@@ -58,34 +59,43 @@ import {
 import { ModelBentoCard } from "../../workspace-shell/components/model-bento-card";
 import { useWorkspaceSession } from "../../workspace-session/state";
 
-const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DiagramType | "sequence"> = {
+type DesignSourceKey = DiagramType | "sequence" | "design-class" | "design-component";
+
+const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DesignSourceKey> = {
+  architecture: "function",
   sequence: "usecase",
   activity: "prototype",
   class: "class",
+  component: "design-class",
   deployment: "deployment",
-  table: "class",
+  table: "design-class",
 };
 
 const DESIGN_SOURCE_COPY: Record<DesignDiagramType, string> = {
+  architecture: "需求阶段功能结构图 + 需求规则",
   sequence: "需求阶段用例模型事件流 + 需求分析模型",
   activity: "需求阶段原型界面关系 + 设计阶段用例实现设计",
   class: "需求阶段领域概念模型 + 设计阶段用例实现设计",
-  deployment: "需求阶段部署需求模型 + 设计阶段用例实现设计",
-  table: "设计阶段设计类图 + 设计阶段用例实现设计",
+  component: "设计阶段设计类图",
+  deployment: "需求阶段部署需求模型 + 设计阶段组件（构件）关系",
+  table: "设计阶段设计类图",
 };
 
 const SEQUENCE_COVERAGE_BLOCK_REASON =
   "已有用例实现设计覆盖不足，请先手动更新用例实现设计";
 
 const DESIGN_DIAGRAM_ICON = {
+  architecture: BookOpen,
   sequence: GitBranch,
   activity: Activity,
   class: Box,
+  component: Network,
   deployment: Server,
   table: Database,
 } satisfies Record<DesignDiagramType, typeof GitBranch>;
 
 const REQUIREMENT_SOURCE_ICON = {
+  function: BookOpen,
   usecase: Network,
   activity: Activity,
   class: Box,
@@ -120,10 +130,14 @@ function sameDesignDiagramSelection(
 }
 
 function getDesignDiagramBlockReason(
-  _diagram: DesignDiagramType,
+  diagram: DesignDiagramType,
   sourceStatus: RequirementSourceDetails,
 ) {
-  if (sourceStatus.usecase && sourceStatus.useCaseCount === 0) {
+  if (
+    (diagram === "sequence" || diagram === "class" || diagram === "activity") &&
+    sourceStatus.usecase &&
+    sourceStatus.useCaseCount === 0
+  ) {
     return "需求阶段用例模型没有可生成用例实现设计的用例";
   }
 
@@ -168,11 +182,34 @@ function currentDesignClassFingerprint(
     : designInputFingerprints.class;
 }
 
+function currentDesignComponentFingerprint(
+  designModels: ReturnType<typeof useWorkspaceSession>["designModels"],
+  designInputFingerprints: ReturnType<typeof useWorkspaceSession>["designInputFingerprints"],
+) {
+  const componentModel = Object.values(designModels).find(
+    (model) => model.diagramKind === "component",
+  );
+  return componentModel
+    ? designInputFingerprints[getDesignModelId(componentModel)] ??
+        designInputFingerprints.component
+    : designInputFingerprints.component;
+}
+
+function designDiagramRequiresSequenceCoverage(diagram: DesignDiagramType) {
+  return diagram === "class" || diagram === "activity";
+}
+
 function requirementSourcesForDesign(diagram: DesignDiagramType) {
-  const sources: DiagramType[] = ["usecase"];
+  const sources: DiagramType[] = [];
   if (diagram === "sequence") sources.push("analysis");
   const directSource = DESIGN_SOURCE_MAP[diagram];
-  if (directSource !== "sequence") sources.push(directSource);
+  if (
+    directSource !== "sequence" &&
+    directSource !== "design-class" &&
+    directSource !== "design-component"
+  ) {
+    sources.push(directSource);
+  }
   return Array.from(new Set(sources));
 }
 
@@ -181,15 +218,11 @@ function autoFillRequirementLabelsForDesign(
   sourceStatus: RequirementSourceDetails,
 ) {
   const labels: string[] = [];
-  if (!sourceStatus.usecase) {
-    labels.push(DIAGRAM_META.usecase.label);
+  for (const source of requirementSourcesForDesign(diagram)) {
+    if (!sourceStatus[source]) labels.push(DIAGRAM_META[source].label);
   }
   if (diagram === "sequence" && !sourceStatus.analysis) {
     labels.push(DIAGRAM_META.analysis.label);
-  }
-  const source = DESIGN_SOURCE_MAP[diagram];
-  if (source !== "sequence" && !sourceStatus[source]) {
-    labels.push(DIAGRAM_META[source].label);
   }
   return Array.from(new Set(labels));
 }
@@ -243,6 +276,7 @@ export function DesignModelPage() {
           ? models.usecase.useCases
           : [];
       return {
+        function: Boolean(models.function),
         usecase: Boolean(models.usecase),
         activity: Boolean(models.activity),
         class: Boolean(models.class),
@@ -256,14 +290,14 @@ export function DesignModelPage() {
   );
   const staleRequirementSourceLabels = useMemo(
     () =>
-      (["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[])
+      (["function", "usecase", "class", "activity", "prototype", "deployment", "analysis"] as DiagramType[])
         .filter((diagram) => sourceStatus[diagram] && staleDiagrams.includes(diagram))
         .map((diagram) => DIAGRAM_META[diagram].label),
     [sourceStatus, staleDiagrams],
   );
   const missingRequirementSourceLabels = useMemo(
     () =>
-      (["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[])
+      (["function", "usecase", "class", "activity", "prototype", "deployment", "analysis"] as DiagramType[])
         .filter((diagram) => !sourceStatus[diagram])
         .map((diagram) => DIAGRAM_META[diagram].label),
     [sourceStatus],
@@ -324,14 +358,14 @@ export function DesignModelPage() {
       return "需求模型追踪关系不完整，请先回到需求页处理";
     }
     if (
-      diagram !== "sequence" &&
+      designDiagramRequiresSequenceCoverage(diagram) &&
       Object.values(designModels).some((model) => model.diagramKind === "sequence") &&
       !sequenceModelsCoverUseCases(designModels, models)
     ) {
       return SEQUENCE_COVERAGE_BLOCK_REASON;
     }
     if (
-      diagram === "table" &&
+      (diagram === "table" || diagram === "component") &&
       Object.values(designModels).some((model) => model.diagramKind === "class") &&
       normalizeDesignInputFingerprint(
         currentDesignClassFingerprint(designModels, designInputFingerprints),
@@ -339,13 +373,32 @@ export function DesignModelPage() {
     ) {
       return "设计类图已存在但基于旧需求，请先手动更新设计类图";
     }
+    if (
+      diagram === "deployment" &&
+      Object.values(designModels).some((model) => model.diagramKind === "component") &&
+      normalizeDesignInputFingerprint(
+        currentDesignComponentFingerprint(
+          designModels,
+          designInputFingerprints,
+        ),
+      ) !== currentDesignInputFingerprint
+    ) {
+      return "组件（构件）关系已存在但基于旧需求，请先手动更新组件（构件）关系";
+    }
     return null;
   };
   const selectedDesignBlockReason =
     effectiveSelected.map(getDesignTargetBlockReason).find(Boolean) ?? null;
+  const needsExistingSequenceCoverage =
+    effectiveSelected.some(designDiagramRequiresSequenceCoverage) ||
+    (effectiveSelected.length === 0 &&
+      Object.values(designModels).some((model) =>
+        designDiagramRequiresSequenceCoverage(model.diagramKind),
+      ));
   const existingSequenceCoverageBlockReason =
     sourceStatus.usecase &&
     sourceStatus.useCaseCount > 0 &&
+    needsExistingSequenceCoverage &&
     Object.values(designModels).some((model) => model.diagramKind === "sequence") &&
     !sequenceModelsCoverUseCases(designModels, models)
       ? SEQUENCE_COVERAGE_BLOCK_REASON
@@ -661,7 +714,7 @@ export function DesignModelPage() {
                   </div>
                 </div>
                 <MobileStatusRail className="mt-3">
-                  {(["usecase", "class", "activity", "deployment", "prototype", "analysis"] as DiagramType[]).map(
+                  {DIAGRAM_ORDER.map(
                     (diagram) => {
                       const SourceIcon = REQUIREMENT_SOURCE_ICON[diagram];
                       const stale = sourceStatus[diagram] && staleDiagrams.includes(diagram);

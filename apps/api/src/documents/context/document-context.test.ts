@@ -6,7 +6,9 @@ import {
   buildDocumentContext,
   diagramPlantUmlForDocument,
   diagramSvgKindsForDocument,
+  expectedDocumentDiagramKinds,
   fallbackDocumentSections,
+  findForbiddenDocumentPhrases,
 } from "./document-context.js";
 
 test("software design documents list pending auto-filled traceability for review", () => {
@@ -41,7 +43,7 @@ test("software design documents list pending auto-filled traceability for review
 
   const sections = fallbackDocumentSections(input);
   const reviewSection = sections.find((section) =>
-    section.title.includes("需复核追踪关系"),
+    section.title.includes("低置信追踪关系复核"),
   );
 
   assert.ok(reviewSection);
@@ -50,7 +52,7 @@ test("software design documents list pending auto-filled traceability for review
     "设计模型",
     "设计元素",
     "关联需求元素",
-    "备注",
+    "说明",
   ]);
   assert.equal(reviewSection.table?.rows[0]?.[2], "BookService");
 });
@@ -134,6 +136,78 @@ test("requirements documents use generated use case event flows", () => {
   assert.match(body, /系统：提示名额已满；结果：报名不被创建/u);
 });
 
+test("document contexts include new diagram kinds in expected order", () => {
+  assert.deepEqual(expectedDocumentDiagramKinds("requirementsSpec"), [
+    "function",
+    "activity",
+    "usecase",
+    "class",
+    "deployment",
+    "prototype",
+    "analysis",
+  ]);
+  assert.deepEqual(expectedDocumentDiagramKinds("softwareDesignSpec"), [
+    "architecture",
+    "sequence",
+    "class",
+    "activity",
+    "table",
+    "component",
+    "deployment",
+  ]);
+
+  const requirementSections = fallbackDocumentSections(
+    startDocumentRunRequestSchema.parse({
+      documentKind: "requirementsSpec",
+      requirementText: "订单系统需要支持创建订单。",
+      useAiText: false,
+    }),
+  );
+  assert.deepEqual(
+    requirementSections
+      .map((section) => section.diagramKind)
+      .filter(Boolean),
+    ["function", "activity", "usecase", "class", "deployment", "prototype", "analysis"],
+  );
+
+  const designSections = fallbackDocumentSections(
+    startDocumentRunRequestSchema.parse({
+      documentKind: "softwareDesignSpec",
+      requirementText: "订单系统需要支持创建订单。",
+      useAiText: false,
+    }),
+  );
+  assert.deepEqual(
+    designSections
+      .filter((section) => section.diagramKind)
+      .map((section) => section.diagramModelId ?? section.diagramKind),
+    [
+      "requirement:activity",
+      "architecture",
+      "sequence:UC-1",
+      "class",
+      "activity",
+      "table",
+      "component",
+      "deployment",
+    ],
+  );
+});
+
+test("fallback documents use logical headings and avoid placeholder prose", () => {
+  const sections = fallbackDocumentSections(
+    startDocumentRunRequestSchema.parse({
+      documentKind: "requirementsSpec",
+      requirementText: "订单系统需要支持创建订单。",
+      useAiText: false,
+    }),
+  );
+
+  assert.equal(sections[0]?.title, "项目引言");
+  assert.ok(sections.every((section) => !/^\d/u.test(section.title)));
+  assert.deepEqual(findForbiddenDocumentPhrases(sections), []);
+});
+
 test("software design documents keep per-use-case sequence diagram references", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
@@ -192,6 +266,12 @@ test("software design documents keep per-use-case sequence diagram references", 
         },
       },
     ],
+    requirementPlantUml: [
+      {
+        diagramKind: "activity",
+        source: "@startuml\n:需求流程;\n@enduml",
+      },
+    ],
     useAiText: false,
   });
 
@@ -213,6 +293,10 @@ test("software design documents keep per-use-case sequence diagram references", 
   assert.equal(
     diagramPlantUmlForDocument(input).get("sequence:uc_cancel"),
     "@startuml\nparticipant B\n@enduml",
+  );
+  assert.equal(
+    diagramPlantUmlForDocument(input).get("requirement:activity"),
+    "@startuml\n:需求流程;\n@enduml",
   );
   assert.equal(diagramSvgKindsForDocument(input).has("sequence:uc_apply"), true);
 });

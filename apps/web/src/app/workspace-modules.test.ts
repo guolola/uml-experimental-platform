@@ -30,8 +30,7 @@ describe("workspaceModules", () => {
       "/workspace",
       "/exam",
       "/tutorial",
-      "/about",
     ]);
-    expect(findShellRouteModule("/tutorial").label).toBe("教程");
+    expect(findShellRouteModule("/tutorial").label).toBe("使用文档");
   });
 });

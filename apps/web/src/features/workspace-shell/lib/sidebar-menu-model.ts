@@ -1,7 +1,7 @@
 // Derives sidebar diagram availability, task status, and scoped use-case nodes from workspace state.
 import {
   DESIGN_DIAGRAM_ORDER,
-  DIAGRAM_META,
+  DIAGRAM_ORDER,
   getDesignModelId,
   getRequirementModelId,
   type DesignDiagramType,
@@ -224,7 +224,7 @@ export function deriveSidebarDiagramState(input: SidebarDiagramStateInput) {
       (modelId ? input.designSvgArtifacts[modelId] : undefined) ??
         input.designSvgArtifacts[diagram],
     );
-  const requirementModelsByDiagram = (Object.keys(DIAGRAM_META) as DiagramType[]).reduce(
+  const requirementModelsByDiagram = DIAGRAM_ORDER.reduce(
     (acc, diagram) => {
       acc[diagram] = Object.values(input.models).filter(
         (model): model is NonNullable<typeof model> =>
@@ -284,7 +284,7 @@ export function deriveSidebarDiagramState(input: SidebarDiagramStateInput) {
     }
   }
 
-  const requirementNodeDiagrams = (Object.keys(DIAGRAM_META) as DiagramType[]).filter(
+  const requirementNodeDiagrams = DIAGRAM_ORDER.filter(
     (diagram) => {
       const scopedModelIds = requirementModelsByDiagram[diagram].map((model) =>
         getRequirementModelId(model),

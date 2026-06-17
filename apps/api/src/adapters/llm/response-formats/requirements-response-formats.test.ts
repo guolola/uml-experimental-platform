@@ -82,6 +82,28 @@ test("requirement class response schema exposes localized names and constraints"
   }
 });
 
+test("requirement model response schema includes function WBS structure", () => {
+  const variants = (
+    GENERATE_MODELS_RESPONSE_FORMAT.json_schema.schema.properties as {
+      models: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } };
+    }
+  ).models.items.anyOf;
+  const functionVariant = variants.find((variant) => {
+    const diagramKind = variant.properties.diagramKind as { enum?: string[] };
+    return diagramKind.enum?.includes("function");
+  });
+
+  assert.ok(functionVariant);
+  assert.ok(functionVariant.properties.nodes);
+  const relationships = functionVariant.properties.relationships as {
+    items: { properties: { type: { enum: string[] } } };
+  };
+  assert.deepEqual(relationships.items.properties.type.enum, [
+    "decomposition",
+    "dependency",
+  ]);
+});
+
 test("requirement model response format narrows single selected diagram kind", () => {
   const format = getGenerateModelsResponseFormat("gpt-5.4", ["deployment"]);
   assert.ok(format);

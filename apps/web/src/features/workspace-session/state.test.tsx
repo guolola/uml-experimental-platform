@@ -611,10 +611,10 @@ describe("WorkspaceSessionProvider", () => {
     expect(startRun).toHaveBeenCalledWith(
       expect.objectContaining({
         requirementText: "订单系统需求",
-        selectedDiagrams: ["usecase", "activity"],
+        selectedDiagrams: ["activity", "usecase"],
       }),
     );
-    expect(result.current.generatedDiagrams).toEqual(["usecase", "activity"]);
+    expect(result.current.generatedDiagrams).toEqual(["activity", "usecase"]);
     expect(result.current.svgArtifacts.usecase?.svg).toContain("<svg>");
     expect(result.current.staleDiagrams).toEqual([]);
 
@@ -629,7 +629,7 @@ describe("WorkspaceSessionProvider", () => {
 
     expect(result.current.rulesVersion).toBe(2);
     expect(result.current.rules[0]?.id).toBe("r2");
-    expect(result.current.staleDiagrams).toEqual(["usecase", "activity"]);
+    expect(result.current.staleDiagrams).toEqual(["activity", "usecase"]);
   });
 
   it("keeps restored requirement models fresh when legacy fingerprints use different key order", async () => {

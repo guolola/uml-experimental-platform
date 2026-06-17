@@ -91,6 +91,19 @@ export function currentDesignClassFingerprint(
     : designInputFingerprints.class;
 }
 
+export function currentDesignComponentFingerprint(
+  designModels: WorkspaceRecord["designModels"],
+  designInputFingerprints: WorkspaceRecord["designInputFingerprints"],
+) {
+  const componentModel = Object.values(designModels).find(
+    (model) => model.diagramKind === "component",
+  );
+  return componentModel
+    ? (designInputFingerprints[getDesignModelId(componentModel)] ??
+        designInputFingerprints.component)
+    : designInputFingerprints.component;
+}
+
 function extractUseCasesFromRequirementModel(
   model: DiagramModelSpec | undefined,
 ) {
@@ -426,6 +439,7 @@ function requirementErrorDiagrams(
         Boolean(
           diagram &&
             [
+              "function",
               "usecase",
               "class",
               "activity",
@@ -512,6 +526,19 @@ function activityNodeTraceabilityKind(nodeType: unknown) {
   }
 }
 
+function prototypeNodeTraceabilityKind(nodeType: unknown) {
+  switch (nodeType) {
+    case "screen":
+      return "screen";
+    case "module":
+      return "module";
+    case "entry-point":
+      return "entry-point";
+    default:
+      return "interface-node";
+  }
+}
+
 function isBusinessTraceabilityKind(kind: string) {
   return ![
     "system-boundary",
@@ -544,8 +571,13 @@ function collectTraceableRefKeys(
       ["swimlanes", "swimlane"],
       [
         "nodes",
-        diagramKind === "deployment" ? "deployment-node" : "activity-node",
+        diagramKind === "function"
+          ? "function"
+          : diagramKind === "deployment"
+            ? "deployment-node"
+            : "activity-node",
       ],
+      ["packages", "package"],
       ["databases", "database"],
       ["components", "component"],
       ["externalSystems", "external-system"],
@@ -566,6 +598,8 @@ function collectTraceableRefKeys(
         const kind =
           key === "nodes" && diagramKind === "activity"
             ? activityNodeTraceabilityKind(itemRecord.type)
+            : key === "nodes" && diagramKind === "prototype"
+              ? prototypeNodeTraceabilityKind(itemRecord.nodeType)
             : defaultKind;
         if (id && isBusinessTraceabilityKind(kind)) {
           keys.add(refKey(diagramKind, id, modelId || undefined));

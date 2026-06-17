@@ -181,7 +181,29 @@ function normalizeDesignDiagramModel(model: unknown) {
     normalized.modelId = diagramKind;
   }
 
-  if (diagramKind === "sequence") {
+  if (diagramKind === "architecture") {
+    normalized.packages = ensureArray(normalized.packages).map((packageItem) =>
+      isPlainRecord(packageItem)
+        ? {
+            ...packageItem,
+            componentIds: normalizeStringArray(packageItem.componentIds),
+          }
+        : packageItem,
+    );
+    normalized.components = ensureArray(normalized.components).map((component) =>
+      isPlainRecord(component)
+        ? {
+            ...component,
+            sourceRequirementIds: normalizeStringArray(component.sourceRequirementIds),
+          }
+        : component,
+    );
+    normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
+      isPlainRecord(relationship)
+        ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)
+        : relationship,
+    );
+  } else if (diagramKind === "sequence") {
     const sourceUseCaseId =
       typeof normalized.sourceUseCaseId === "string"
         ? normalized.sourceUseCaseId.trim()
@@ -300,6 +322,28 @@ function normalizeDesignDiagramModel(model: unknown) {
         indexes: ensureArray(table.indexes),
       };
     });
+    normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
+      isPlainRecord(relationship)
+        ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)
+        : relationship,
+    );
+  } else if (diagramKind === "component") {
+    normalized.components = ensureArray(normalized.components).map((component) =>
+      isPlainRecord(component)
+        ? {
+            ...component,
+            sourceClassIds: normalizeStringArray(component.sourceClassIds),
+          }
+        : component,
+    );
+    normalized.interfaces = ensureArray(normalized.interfaces).map((interfaceItem) =>
+      isPlainRecord(interfaceItem)
+        ? {
+            ...interfaceItem,
+            operationNames: normalizeStringArray(interfaceItem.operationNames),
+          }
+        : interfaceItem,
+    );
     normalized.relationships = ensureArray(normalized.relationships).map((relationship) =>
       isPlainRecord(relationship)
         ? normalizeRelationshipDisplayFields({ ...relationship }, diagramKind)

@@ -295,8 +295,8 @@ test("project workspace restore applies a completed design run snapshot server-s
     snapshot: {
       runId,
       requirementText: "用户可以筛选日期并预约座位。",
-      selectedDiagrams: ["sequence", "class", "activity", "deployment", "table"],
-      requestedDiagrams: ["sequence", "class", "activity", "deployment", "table"],
+      selectedDiagrams: ["architecture", "sequence", "class", "activity", "table", "component", "deployment"],
+      requestedDiagrams: ["architecture", "sequence", "class", "activity", "table", "component", "deployment"],
       rules: [
         {
           id: "FR1",
@@ -323,6 +323,16 @@ test("project workspace restore applies a completed design run snapshot server-s
       ],
       requirementModelTraceability: [],
       models: [
+        {
+          diagramKind: "architecture",
+          modelId: "architecture",
+          title: "总体架构图",
+          summary: "预约系统架构分层。",
+          notes: [],
+          packages: [],
+          components: [],
+          relationships: [],
+        },
         {
           diagramKind: "sequence",
           modelId: "sequence:uc_filter_date",
@@ -357,19 +367,6 @@ test("project workspace restore applies a completed design run snapshot server-s
           relationships: [],
         },
         {
-          diagramKind: "deployment",
-          modelId: "deployment",
-          title: "部署图",
-          summary: "小程序部署。",
-          notes: [],
-          nodes: [],
-          databases: [],
-          components: [],
-          externalSystems: [],
-          artifacts: [],
-          relationships: [],
-        },
-        {
           diagramKind: "table",
           modelId: "table",
           title: "表关系图",
@@ -393,9 +390,33 @@ test("project workspace restore applies a completed design run snapshot server-s
           ],
           relationships: [],
         },
+        {
+          diagramKind: "component",
+          modelId: "component",
+          title: "组件关系图",
+          summary: "预约组件与接口关系。",
+          notes: [],
+          components: [],
+          interfaces: [],
+          relationships: [],
+        },
+        {
+          diagramKind: "deployment",
+          modelId: "deployment",
+          title: "部署图",
+          summary: "小程序部署。",
+          notes: [],
+          nodes: [],
+          databases: [],
+          components: [],
+          externalSystems: [],
+          artifacts: [],
+          relationships: [],
+        },
       ],
       designModelTraceability: [],
       plantUml: [
+        { modelId: "architecture", diagramKind: "architecture", source: "@startuml\n@enduml" },
         {
           modelId: "sequence:uc_filter_date",
           diagramKind: "sequence",
@@ -403,8 +424,9 @@ test("project workspace restore applies a completed design run snapshot server-s
         },
         { modelId: "class", diagramKind: "class", source: "@startuml\n@enduml" },
         { modelId: "activity", diagramKind: "activity", source: "@startuml\n@enduml" },
-        { modelId: "deployment", diagramKind: "deployment", source: "@startuml\n@enduml" },
         { modelId: "table", diagramKind: "table", source: "@startuml\n@enduml" },
+        { modelId: "component", diagramKind: "component", source: "@startuml\n@enduml" },
+        { modelId: "deployment", diagramKind: "deployment", source: "@startuml\n@enduml" },
       ],
       svgArtifacts: [
         {
@@ -449,24 +471,30 @@ test("project workspace restore applies a completed design run snapshot server-s
   };
   assert.equal(state.requirementText, "用户可以筛选日期并预约座位。");
   assert.deepEqual(state.selectedDesignDiagramTypes, [
+    "architecture",
     "sequence",
     "class",
     "activity",
-    "deployment",
     "table",
+    "component",
+    "deployment",
   ]);
   assert.deepEqual(state.generatedDesignDiagramTypes, [
+    "architecture",
     "sequence",
     "class",
     "activity",
-    "deployment",
     "table",
+    "component",
+    "deployment",
   ]);
+  assert.ok(state.designModels.architecture);
   assert.ok(state.designModels["sequence:uc_filter_date"]);
   assert.ok(state.designModels.class);
   assert.ok(state.designModels.activity);
-  assert.ok(state.designModels.deployment);
   assert.ok(state.designModels.table);
+  assert.ok(state.designModels.component);
+  assert.ok(state.designModels.deployment);
   assert.equal(state.designPlantUml["sequence:uc_filter_date"], "@startuml\n@enduml");
   assert.ok(state.designSvgArtifacts["sequence:uc_filter_date"]);
 

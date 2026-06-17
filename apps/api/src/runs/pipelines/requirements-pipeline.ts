@@ -189,6 +189,7 @@ function requirementModelId(model: DiagramModelSpec) {
 }
 
 const REQUIREMENT_DIAGRAM_LABELS: Record<DiagramKind, string> = {
+  function: "功能结构图",
   usecase: "用例模型",
   class: "领域概念模型",
   activity: "总体业务流程",

@@ -156,7 +156,9 @@ export function RequirementRulesTable({
               <th className="w-[84px] px-6 py-4 text-left font-medium">编号</th>
               <th className="w-48 px-4 py-4 text-left font-medium">类型</th>
               <th className="w-52 px-4 py-4 text-left font-medium">状态</th>
-              <th className="px-6 py-4 text-left font-medium">需求文本内容</th>
+              <th className="px-6 py-4 text-left font-medium">
+                需求文本内容（可编辑）
+              </th>
               <th className="w-28 px-6 py-4 text-right font-medium">操作</th>
             </tr>
           </thead>

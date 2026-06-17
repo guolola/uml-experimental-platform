@@ -13,7 +13,7 @@ export type {
   ShellRoutePath,
 } from "../shared/lib/app-route-types";
 
-const SHELL_PATHS = new Set<ShellRoutePath>(["/workspace", "/exam", "/tutorial", "/about"]);
+const SHELL_PATHS = new Set<ShellRoutePath>(["/workspace", "/exam", "/tutorial"]);
 const MARKETING_PATHS = new Set<MarketingRoutePath>([
   "/",
   "/features",
@@ -58,7 +58,7 @@ export function matchAppRoute(pathname: string): AppRoute {
     return { kind: "legacy-account", path: pathname };
   }
   if (pathname === "/settings/models") {
-    return { kind: "legacy-settings", path: "/settings/models" };
+    return { kind: "legacy-redirect", path: "/settings/models", to: "/projects" };
   }
 
   if (pathname === "/projects") return { kind: "projects-index", path: "/projects" };

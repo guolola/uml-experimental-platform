@@ -321,7 +321,7 @@ render-service 的 health 返回中应包含：
 浏览器验证：
 
 - 访问站点首页。
-- 未登录访问业务页应回到官网首页；登录后刷新 `/projects`、`/exam`、`/tutorial`、`/about` 不应 404。
+- 未登录访问业务页应回到官网首页；登录后刷新 `/projects`、`/exam`、`/tutorial` 不应 404。
 - 发起一次需求生成，SSE 进度应正常滚动。
 - SVG 预览应能正常渲染。
 

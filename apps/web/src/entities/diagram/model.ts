@@ -13,6 +13,11 @@ export const DIAGRAM_META: Record<
   DiagramType,
   { label: string; english: string; description: string }
 > = {
+  function: {
+    label: "功能结构图",
+    english: "Work Breakdown Structure",
+    description: "功能分解、子功能与依赖关系",
+  },
   usecase: {
     label: "用例模型",
     english: "Use Case Diagram",
@@ -46,11 +51,12 @@ export const DIAGRAM_META: Record<
 };
 
 export const DIAGRAM_ORDER: DiagramType[] = [
+  "function",
+  "activity",
   "usecase",
   "class",
-  "activity",
-  "deployment",
   "prototype",
+  "deployment",
   "analysis",
 ];
 
@@ -58,6 +64,11 @@ export const DESIGN_DIAGRAM_META: Record<
   DesignDiagramType,
   { label: string; english: string; description: string }
 > = {
+  architecture: {
+    label: "总体架构图",
+    english: "Package Diagram",
+    description: "包、子系统、核心组件与依赖",
+  },
   sequence: {
     label: "用例实现设计",
     english: "Sequence Diagram",
@@ -73,6 +84,11 @@ export const DESIGN_DIAGRAM_META: Record<
     english: "Class Diagram",
     description: "实体、接口、聚合根及静态关联",
   },
+  component: {
+    label: "组件（构件）关系",
+    english: "Component Diagram",
+    description: "组件、接口与构件依赖关系",
+  },
   deployment: {
     label: "部署设计",
     english: "Deployment Diagram",
@@ -86,11 +102,13 @@ export const DESIGN_DIAGRAM_META: Record<
 };
 
 export const DESIGN_DIAGRAM_ORDER: DesignDiagramType[] = [
+  "architecture",
   "sequence",
   "class",
   "activity",
-  "deployment",
   "table",
+  "component",
+  "deployment",
 ];
 
 export function getDesignModelId(

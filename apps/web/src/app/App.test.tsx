@@ -1397,7 +1397,7 @@ describe("App shell routes", () => {
     expect(screen.getByRole("link", { name: "功能特性" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "使用流程" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "案例展示" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "定价" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "定价" })).not.toBeInTheDocument();
     expect(screen.getByText("UML 建模")).toBeInTheDocument();
     expect(screen.getByText("设计推导")).toBeInTheDocument();
     expect(screen.getByText("React 原型")).toBeInTheDocument();
@@ -1420,8 +1420,46 @@ describe("App shell routes", () => {
       "justify-center",
       "md:min-w-[16rem]",
     );
+    expect(screen.getByRole("button", { name: "查看产品宣传" })).toHaveClass(
+      "min-[520px]:min-w-[12rem]",
+      "justify-center",
+      "md:min-w-[16rem]",
+    );
+    expect(screen.queryByRole("button", { name: "查看案例项目" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "注册" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+  });
+
+  it("opens the marketing promo video without navigating away from the home page", async () => {
+    const user = userEvent.setup();
+    authSessionMode = "unauthenticated";
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await user.click(await screen.findByRole("button", { name: "查看产品宣传" }));
+
+    expect(window.location.pathname).toBe("/");
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveClass(
+      "w-[min(1120px,calc(100vw-2rem))]",
+      "!max-w-none",
+      "border-0",
+      "bg-transparent",
+      "p-0",
+      "shadow-none",
+    );
+    expect(screen.getByRole("heading", { name: "查看产品宣传" })).toHaveClass("sr-only");
+    const promoVideo = screen.getByLabelText("软件工程实训平台产品宣传视频");
+    expect(dialog).toContainElement(screen.getByTestId("video-player"));
+    expect(dialog.querySelector('[data-slot="dialog-header"]')).not.toBeInTheDocument();
+    expect(
+      screen.getByText("通过短片了解软件工程实训平台如何串联需求、模型、原型和说明书证据。"),
+    ).toHaveClass("sr-only");
+    expect(promoVideo.querySelector("source")).toHaveAttribute(
+      "src",
+      "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/trusted-chain-evidence-film.mp4",
+    );
+    expect(promoVideo).toHaveAttribute("autoplay");
   });
 
   it("keeps signed-out marketing visitors on the registration path when starting generation", async () => {
@@ -1480,12 +1518,6 @@ describe("App shell routes", () => {
         heading: "探索工程验证案例",
         active: "案例展示",
         text: "实验室预约系统",
-      },
-      {
-        path: "/pricing",
-        heading: "开通 AI 生成权益",
-        active: "定价",
-        text: "通行卡",
       },
     ];
 
@@ -1568,74 +1600,39 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/pricing");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    expect(
-      await screen.findByRole("heading", { name: "开通 AI 生成权益" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("通行卡")).toBeInTheDocument();
-    expect(screen.getByText("次数包")).toBeInTheDocument();
-    expect(screen.getByText("日卡")).toBeInTheDocument();
-    expect(screen.getByText("500 次包")).toBeInTheDocument();
-    expect(screen.getByTestId("pricing-payment-page")).toHaveAttribute(
-      "data-testid",
-      "pricing-payment-page",
-    );
-    expect(screen.getByTestId("billing-sku-group-time")).toBeInTheDocument();
-    expect(screen.getByTestId("billing-sku-group-credits")).toBeInTheDocument();
-    expect(screen.getByTestId("billing-recommended-sku")).toHaveTextContent("推荐套餐");
-    expect(screen.getAllByRole("button", { name: /立即开通|立即购买/u })).toHaveLength(8);
-    expect(screen.queryByText(/每日上限/u)).not.toBeInTheDocument();
-    expect(screen.queryByText(/个 SKU/u)).not.toBeInTheDocument();
-
-    expect(screen.queryByText(/私有化部署/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/模型微调/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/SLA/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/开放全量API/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/自动化批改/)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/");
+    });
+    expect(screen.queryByRole("heading", { name: "开通 AI 生成权益" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pricing-payment-page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "定价" })).not.toBeInTheDocument();
   });
 
-  it("opens the Figma-aligned payment confirm and WeChat QR dialogs from pricing", async () => {
-    const user = userEvent.setup();
+  it("redirects direct billing routes without rendering purchase UI", async () => {
     authSessionMode = "authenticated";
-    window.history.pushState({}, "", "/pricing");
-    render(withWorkspaceProviders(<Shell />, createRepository()));
+    projectApiMode = "authenticated";
 
-    const recommendedSku = await screen.findByTestId("billing-recommended-sku");
-    await user.click(within(recommendedSku).getByRole("button", { name: "立即开通" }));
-
-    expect(await screen.findByTestId("payment-confirm-dialog")).toBeInTheDocument();
-    expect(screen.getAllByTestId("payment-method-card")).toHaveLength(2);
-    expect(screen.getByRole("heading", { name: "支付确认" })).toBeInTheDocument();
-    expect(screen.getByText("支付金额以后端 SKU 为准，请在第三方支付页确认金额一致。")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "立即支付" }));
-
-    expect(await screen.findByTestId("wechat-qr-dialog")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "微信支付" })).toBeInTheDocument();
-    expect(screen.getByText("请使用微信扫一扫完成支付")).toBeInTheDocument();
-    expect(screen.getByText("支付倒计时")).toBeInTheDocument();
-  });
-
-  it("routes Alipay payments through the Figma-aligned intermediate state", async () => {
-    const user = userEvent.setup();
-    authSessionMode = "authenticated";
     window.history.pushState({}, "", "/account/billing");
-    render(withWorkspaceProviders(<Shell />, createRepository()));
-
-    const recommendedSku = await screen.findByTestId("billing-recommended-sku");
-    await user.click(within(recommendedSku).getByRole("button", { name: "立即开通" }));
-    await user.click(screen.getByRole("button", { name: /支付宝/u }));
-    await user.click(screen.getByRole("button", { name: "立即支付" }));
+    const billingView = render(withWorkspaceProviders(<Shell />, createRepository()));
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/billing/alipay/return");
+      expect(window.location.pathname).toBe("/projects");
     });
-    expect(await screen.findByTestId("alipay-processing-card")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "支付宝支付处理中" })).toBeInTheDocument();
-    expect(screen.getByText("正在连接支付宝")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "权益与账单" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("account-billing-dashboard")).not.toBeInTheDocument();
+    billingView.unmount();
+
+    window.history.pushState({}, "", "/billing/alipay/return");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects");
+    });
+    expect(screen.queryByTestId("alipay-processing-card")).not.toBeInTheDocument();
   });
 
   it("marks marketing pages that should fill a desktop viewport separately from the scrolling workflow page", async () => {
-    const fitRoutes = ["/features", "/cases", "/pricing"];
+    const fitRoutes = ["/features", "/cases"];
 
     for (const path of fitRoutes) {
       window.history.pushState({}, "", path);
@@ -1711,7 +1708,7 @@ describe("App shell routes", () => {
   });
 
   it("redirects unauthenticated top-level feature pages back to the website home", async () => {
-    for (const path of ["/exam", "/tutorial", "/about"] as const) {
+    for (const path of ["/exam", "/tutorial"] as const) {
       authSessionMode = "unauthenticated";
       window.history.pushState({}, "", path);
       const view = render(withWorkspaceProviders(<Shell />, createRepository()));
@@ -1719,7 +1716,7 @@ describe("App shell routes", () => {
       await waitFor(() => {
         expect(window.location.pathname).toBe("/");
       });
-      expect(screen.queryByRole("heading", { name: path === "/exam" ? "考试" : path === "/tutorial" ? "教程" : "关于" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: path === "/exam" ? "考试" : "使用文档" })).not.toBeInTheDocument();
       expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
 
       view.unmount();
@@ -1738,9 +1735,7 @@ describe("App shell routes", () => {
     expect(navButtons.map((button) => button.textContent)).toEqual([
       "项目",
       "考试",
-      "教程",
-      "关于",
-      "购买",
+      "使用文档",
     ]);
     expect(within(banner).queryByRole("button", { name: "工作台" })).not.toBeInTheDocument();
 
@@ -1751,21 +1746,7 @@ describe("App shell routes", () => {
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 考试" })).not.toBeInTheDocument();
 
-    await user.click(within(banner).getByRole("button", { name: "购买" }));
-
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/account/billing");
-    });
-    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
-    expect(screen.getByTestId("account-billing-dashboard")).toBeInTheDocument();
-    expect(screen.queryByTestId("account-billing-sidebar")).not.toBeInTheDocument();
-    expect(screen.getByTestId("billing-order-table")).toBeInTheDocument();
-    expect(screen.queryByText(/每日上限/u)).not.toBeInTheDocument();
-    expect(screen.queryByText(/个 SKU/u)).not.toBeInTheDocument();
-    expect(within(banner).getByRole("button", { name: "购买" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
@@ -1791,6 +1772,35 @@ describe("App shell routes", () => {
     expect(await screen.findByRole("button", { name: "账号" })).toBeInTheDocument();
   });
 
+  it("renders the product documentation page for signed-in users", async () => {
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/tutorial");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "软件工程实训平台使用手册",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "普通用户完整操作路径" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "文档目录" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "快速开始" })).toBeInTheDocument();
+    expect(screen.getByLabelText("搜索使用文档")).toBeInTheDocument();
+    expect(screen.queryByText("完整飞书文档整理中")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "模型配置" })).not.toBeInTheDocument();
+    expect(screen.getByAltText("项目内使用文档快速开始截图")).toHaveAttribute(
+      "src",
+      "/help/images/docs-quick-start.png",
+    );
+    expect(screen.getAllByRole("button", { name: /项目首页与项目创建/u }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /模型详情页、元素列表与追踪矩阵/u }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /说明书生成、样式、版本与下载/u }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /代码原型生成与预览/u }).length).toBeGreaterThan(0);
+    expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+  });
+
   it("syncs route state on browser popstate", async () => {
     authSessionMode = "authenticated";
     projectApiMode = "authenticated";
@@ -1798,11 +1808,11 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
     expect(await screen.findByText("项目导航")).toBeInTheDocument();
 
-    window.history.pushState({}, "", "/about");
+    window.history.pushState({}, "", "/tutorial");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "关于" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "软件工程实训平台使用手册" })).toBeInTheDocument();
     });
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
   });
@@ -1855,8 +1865,13 @@ describe("App shell routes", () => {
       path: "/account/security",
     });
     expect(matchAppRoute("/settings/models")).toMatchObject({
-      kind: "legacy-settings",
+      kind: "legacy-redirect",
       path: "/settings/models",
+      to: "/projects",
+    });
+    expect(matchAppRoute("/about")).toMatchObject({
+      kind: "marketing-home",
+      path: "/",
     });
     expect(matchAppRoute("/admin/system-notices")).toMatchObject({
       kind: "marketing-home",
@@ -1911,16 +1926,16 @@ describe("App shell routes", () => {
     expect(await screen.findByText(/验证邮件已发送到/)).toBeInTheDocument();
   });
 
-  it("renders the managed model settings route instead of redirecting it away", async () => {
+  it("redirects the removed model settings route to projects", async () => {
     projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/settings/models");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    window.history.pushState({}, "", "/settings/models");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-
-    expect(await screen.findByRole("heading", { name: "模型设置" })).toBeInTheDocument();
-    expect(screen.getByText("课程 OpenAI 托管配置")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/settings/models");
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects");
+    });
+    expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "模型设置" })).not.toBeInTheDocument();
   });
 
   it("remembers login credentials when requested and lets users reveal the password", async () => {

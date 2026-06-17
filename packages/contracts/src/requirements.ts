@@ -2,6 +2,7 @@
 import { z } from "zod";
 
 export const diagramKindSchema = z.enum([
+  "function",
   "usecase",
   "class",
   "activity",
@@ -12,9 +13,11 @@ export const diagramKindSchema = z.enum([
 export type DiagramKind = z.infer<typeof diagramKindSchema>;
 
 export const designDiagramKindSchema = z.enum([
+  "architecture",
   "sequence",
   "activity",
   "class",
+  "component",
   "deployment",
   "table",
 ]);
@@ -42,6 +45,7 @@ export const requirementRuleSchema = z.object({
   id: z.string().min(1),
   category: ruleCategorySchema,
   text: z.string().min(1),
+  sourceFragment: z.string().min(1).optional(),
   relatedDiagrams: z.array(diagramKindSchema).min(1),
 });
 export type RequirementRule = z.infer<typeof requirementRuleSchema>;

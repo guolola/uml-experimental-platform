@@ -77,7 +77,6 @@ export const marketingNavItems: MarketingNavItem[] = [
   { label: "功能特性", path: "/features" },
   { label: "使用流程", path: "/workflow" },
   { label: "案例展示", path: "/cases" },
-  { label: "定价", path: "/pricing" },
 ];
 
 export const heroTrustPoints = [

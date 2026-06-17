@@ -1,6 +1,8 @@
 import type { DiagramType } from "../model";
 
 export type ElementKind =
+  // function WBS
+  | "function"
   // usecase
   | "actor"
   | "usecase"
@@ -29,6 +31,7 @@ export type DiagramElement = {
 };
 
 export const KIND_META: Record<ElementKind, { label: string; order: number }> = {
+  function: { label: "功能", order: 1 },
   actor: { label: "角色", order: 1 },
   usecase: { label: "用例", order: 2 },
   package: { label: "包", order: 1 },
@@ -72,6 +75,19 @@ function uniqById(items: DiagramElement[]): DiagramElement[] {
     out.push(it);
   }
   return out;
+}
+
+function parseFunction(source: string): DiagramElement[] {
+  const out: DiagramElement[] = [];
+  const lines = getStrippedLines(source);
+  lines.forEach((line, index) => {
+    const match = line.match(/^\*+\s+(.+)$/u);
+    if (!match) return;
+    const label = match[1].replace(/\s+->\s+.*$/u, "").trim();
+    if (!label) return;
+    out.push({ id: `function-${index + 1}-${label}`, kind: "function", label });
+  });
+  return uniqById(out);
 }
 
 // Use case
@@ -220,6 +236,7 @@ function parseAnalysis(source: string): DiagramElement[] {
 }
 
 const PARSERS: Record<DiagramType, (s: string) => DiagramElement[]> = {
+  function: parseFunction,
   activity: parseActivity,
   usecase: parseUseCase,
   class: parseClass,

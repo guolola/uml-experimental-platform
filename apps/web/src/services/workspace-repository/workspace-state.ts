@@ -724,6 +724,7 @@ function diagramKindFromErrorKey(key: string) {
   const [candidate] = key.split(":");
   return candidate &&
     [
+      "function",
       "usecase",
       "class",
       "activity",

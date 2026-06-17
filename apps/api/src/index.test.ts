@@ -1877,6 +1877,7 @@ test("api normalizes requirement rule enum aliases before contract validation", 
     ["功能需求", "非功能需求", "非功能需求"],
   );
   assert.deepEqual(snapshot.rules[0].relatedDiagrams, [
+    "function",
     "usecase",
     "activity",
     "analysis",
@@ -4262,23 +4263,25 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
   assert.match(documentXml, /Heading1/);
   assert.match(documentXml, /Heading2/);
   assert.match(documentXml, /Heading3/);
-  assert.match(documentXml, /3 需求规定/);
-  assert.match(documentXml, /3\.1 功能需求/);
-  assert.match(documentXml, /3\.1\.1 用例1：生成模型（usecase_generate）/);
-  assert.match(documentXml, /3\.2\.1 用例、对象与类的关系/);
+  assert.match(documentXml, /2\.3 功能结构/);
+  assert.match(documentXml, /2\.4 总体业务流程/);
+  assert.match(documentXml, /3 功能需求（用例模型）/);
+  assert.match(documentXml, /3\.1 用例图/);
+  assert.match(documentXml, /3\.3 用例：生成模型/);
+  assert.match(documentXml, /4 数据需求（领域概念模型）/);
   assert.match(documentXml, /编号/);
-  assert.match(documentXml, /用例名称/);
-  assert.match(documentXml, /对象/);
-  assert.match(documentXml, /类/);
-  assert.match(documentXml, /备注/);
+  assert.match(documentXml, /需求规则/);
+  assert.match(documentXml, /模型元素/);
+  assert.match(documentXml, /追踪依据/);
   assert.doesNotMatch(documentXml, /图示：/);
+  assert.doesNotMatch(documentXml, /当前阶段未明确|待填写|待补充|待完善|后续评审/);
   assert.match(documentXml, /1 项目引言<\/w:t><w:tab\/><w:t(?: [^>]*)?>1<\/w:t>/);
-  assert.match(documentXml, /3 需求规定<\/w:t><w:tab\/><w:t(?: [^>]*)?>\d+<\/w:t>/);
+  assert.match(documentXml, /3 功能需求（用例模型）<\/w:t><w:tab\/><w:t(?: [^>]*)?>\d+<\/w:t>/);
   assert.match(documentXml, /<w:pgNumType w:start="1"\/>/);
-  assert.match(documentXml, /项目名称：待填写/);
+  assert.match(documentXml, /项目名称：软件系统/);
   assert.match(documentXml, /文档类型：需求规格说明书/);
   assert.match(documentXml, /生成日期：\d{4}-\d{2}-\d{2}/);
-  assert.match(documentXml, /图 功能需求/);
+  assert.match(documentXml, /图 用例图/);
   assert.match(stylesXml, /Times New Roman/);
   assert.match(stylesXml, /SimHei/);
   assert.match(stylesXml, /SimSun/);
@@ -4331,20 +4334,23 @@ test("api software design document uses generic cover without school names", asy
   assert.doesNotMatch(documentXml, /成都信息工程大学/);
   assert.doesNotMatch(documentXml, /软件工程学院/);
   assert.match(documentXml, /课程设计文档/);
-  assert.match(documentXml, /项目名称：待填写/);
+  assert.match(documentXml, /项目名称：软件系统/);
   assert.match(documentXml, /文档类型：软件设计说明书/);
-  assert.match(documentXml, /2\.2 部署设计/);
-  assert.match(documentXml, /3\.1\.1 用例实现设计1：UC-1：名称/);
-  assert.match(documentXml, /3\.4\.1 用例与界面的关系/);
+  assert.match(documentXml, /2\.1 系统总体逻辑流程设计/);
+  assert.match(documentXml, /2\.2 系统架构设计/);
+  assert.match(documentXml, /3 用例实现设计 \(Use Case Realization\)/);
+  assert.match(documentXml, /3\.1 用例 生成模型 的实现方案/);
+  assert.match(documentXml, /5 交互响应与前端组件设计/);
+  assert.match(documentXml, /5\.3 跟踪关系/);
   assert.match(documentXml, /界面名称/);
-  assert.match(documentXml, /3\.4\.2 用例与对象、类的关系/);
+  assert.match(documentXml, /4\.4 需求到类跟踪矩阵/);
   assert.match(documentXml, /对象名称/);
   assert.match(documentXml, /设计类名称/);
-  assert.match(documentXml, /3\.5\.1 类与表的关系/);
-  assert.match(documentXml, /类名（持久类）/);
-  assert.match(documentXml, /表名/);
-  assert.match(documentXml, /3\.5\.2 数据表设计/);
+  assert.match(documentXml, /6 数据库设计/);
+  assert.match(documentXml, /6\.2 表的详述/);
+  assert.match(documentXml, /6\.3 表与表的关系详述/);
   assert.doesNotMatch(documentXml, /图示：/);
+  assert.doesNotMatch(documentXml, /当前阶段未明确|待填写|待补充|待完善|后续评审/);
 
   await app.close();
 });
@@ -4461,7 +4467,7 @@ test("api document run reports missing embeddable image source when only SVG exi
   });
   const entries = extractZipEntries(download.rawPayload);
   const documentXml = entries.get("word/document.xml")?.toString("utf8") ?? "";
-  assert.match(documentXml, /当前未生成该图/);
+  assert.match(documentXml, /本节图源未随导出数据提供/);
 
   await app.close();
 });
@@ -4486,7 +4492,7 @@ test("api repairs document content JSON before rendering DOCX", async () => {
           sections: [
             {
               level: 1,
-              title: "需求规定",
+              title: "需求概述",
               body: ["修复后的说明书正文。"],
             },
           ],
@@ -4526,9 +4532,9 @@ test("api repairs document content JSON before rendering DOCX", async () => {
     })
   ).json();
   assert.equal(snapshot.status, "completed");
-  assert.equal(snapshot.sections[0].title, "1 项目引言");
+  assert.equal(snapshot.sections[0].title, "项目引言");
   const repairedSection = snapshot.sections.find(
-    (section: { title: string }) => section.title === "3 需求规定",
+    (section: { title: string }) => section.title === "需求概述",
   );
   assert.deepEqual(repairedSection?.body, ["修复后的说明书正文。"]);
 

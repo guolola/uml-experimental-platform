@@ -2002,8 +2002,17 @@ export function WorkspaceSessionProvider({
           (model): model is DiagramModelSpec => Boolean(model),
         );
         const requirementPlantUml = Object.entries(plantUml)
-          .filter((entry): entry is [DiagramType, string] => Boolean(entry[1]))
-          .map(([diagramKind, source]) => ({ diagramKind, source }));
+          .filter((entry): entry is [string, string] => Boolean(entry[1]))
+          .map(([artifactId, source]) => {
+            const diagramKind = artifactId.includes(":")
+              ? artifactId.split(":")[0]
+              : artifactId;
+            return {
+              diagramKind: diagramKind as DiagramType,
+              modelId: artifactId.includes(":") ? artifactId : undefined,
+              source,
+            };
+          });
         const requirementSvgArtifacts = Object.values(svgArtifacts).filter(
           (artifact): artifact is NonNullable<typeof artifact> =>
             Boolean(artifact),
@@ -2145,6 +2154,7 @@ export function WorkspaceSessionProvider({
           requirementText,
           rules,
           requirementModels,
+          requirementModelTraceability,
           requirementPlantUml,
           requirementSvgArtifacts,
           availableDesignModels,

@@ -346,6 +346,116 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
   });
 
+  it("orders generated requirement diagrams by the configured requirement menu order", async () => {
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: [
+          "deployment",
+          "usecase",
+          "function",
+          "prototype",
+          "class",
+          "analysis",
+          "activity",
+        ],
+        models: {
+          function: {
+            diagramKind: "function",
+            title: "功能结构图",
+            summary: "功能分解",
+            notes: [],
+            nodes: [],
+            relationships: [],
+          },
+          activity: {
+            diagramKind: "activity",
+            title: "总体业务流程",
+            summary: "业务流程",
+            notes: [],
+            swimlanes: [],
+            nodes: [],
+            relationships: [],
+          },
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例模型",
+            summary: "系统边界",
+            notes: [],
+            actors: [],
+            useCases: [],
+            systemBoundaries: [],
+            relationships: [],
+          },
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "领域对象",
+            notes: [],
+            classes: [],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+          prototype: {
+            diagramKind: "prototype",
+            title: "原型界面关系",
+            summary: "界面导航",
+            notes: [],
+            nodes: [],
+            relationships: [],
+          },
+          deployment: {
+            diagramKind: "deployment",
+            title: "部署需求模型",
+            summary: "部署约束",
+            notes: [],
+            nodes: [],
+            databases: [],
+            components: [],
+            externalSystems: [],
+            artifacts: [],
+            relationships: [],
+          },
+          "analysis:uc": {
+            diagramKind: "analysis",
+            modelId: "analysis:uc",
+            sourceUseCaseId: "uc",
+            sourceUseCaseName: "生成模型",
+            title: "生成模型需求分析模型",
+            summary: "交互分析",
+            notes: [],
+            participants: [],
+            messages: [],
+            fragments: [],
+          },
+        },
+        svgArtifacts: {
+          "analysis:uc": {
+            diagramKind: "analysis",
+            modelId: "analysis:uc",
+            svg: "<svg><text>analysis</text></svg>",
+            renderMeta: { engine: "plantuml" },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
+    const nodeLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim())
+      .filter(Boolean);
+
+    expect(nodeLabels.indexOf("功能结构图")).toBeLessThan(nodeLabels.indexOf("总体业务流程"));
+    expect(nodeLabels.indexOf("总体业务流程")).toBeLessThan(nodeLabels.indexOf("用例模型"));
+    expect(nodeLabels.indexOf("用例模型")).toBeLessThan(nodeLabels.indexOf("领域概念模型"));
+    expect(nodeLabels.indexOf("领域概念模型")).toBeLessThan(nodeLabels.indexOf("原型界面关系"));
+    expect(nodeLabels.indexOf("原型界面关系")).toBeLessThan(nodeLabels.indexOf("部署需求模型"));
+    expect(nodeLabels.indexOf("部署需求模型")).toBeLessThan(nodeLabels.indexOf("生成模型"));
+  });
+
   it("keeps requirement rule provenance badges out of generated diagram entries", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
@@ -606,7 +716,16 @@ describe("SidebarMenu", () => {
               summary: "系统边界",
               notes: [],
               actors: [],
-              useCases: [],
+              useCases: [
+                {
+                  id: "uc_generate",
+                  name: "生成模型",
+                  goal: "生成设计模型",
+                  preconditions: [],
+                  postconditions: [],
+                  supportingActorIds: [],
+                },
+              ],
               systemBoundaries: [],
               relationships: [],
             },
@@ -801,8 +920,29 @@ describe("SidebarMenu", () => {
               enums: [],
               relationships: [],
             },
+            "analysis:uc_generate": {
+              diagramKind: "analysis",
+              modelId: "analysis:uc_generate",
+              sourceUseCaseId: "uc_generate",
+              sourceUseCaseName: "生成模型",
+              title: "生成模型需求分析模型",
+              summary: "需求分析上下文",
+              notes: [],
+              participants: [],
+              messages: [],
+              fragments: [],
+            },
           },
           requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_generate",
+                elementKind: "usecase",
+                label: "生成模型",
+              },
+            },
             {
               ruleId: "r1",
               target: {
@@ -1174,13 +1314,24 @@ describe("SidebarMenu", () => {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           generatedDesignDiagramTypes: [
+            "component",
             "class",
             "deployment",
+            "architecture",
             "activity",
             "sequence",
             "table",
           ],
           designModels: {
+            architecture: {
+              diagramKind: "architecture",
+              title: "总体架构图",
+              summary: "包图",
+              notes: [],
+              packages: [],
+              components: [],
+              relationships: [],
+            },
             sequence: {
               diagramKind: "sequence",
               title: "用例实现设计",
@@ -1246,6 +1397,15 @@ describe("SidebarMenu", () => {
               ],
               relationships: [],
             },
+            component: {
+              diagramKind: "component",
+              title: "组件（构件）关系",
+              summary: "组件接口依赖",
+              notes: [],
+              components: [],
+              interfaces: [],
+              relationships: [],
+            },
           },
         }),
       ),
@@ -1273,7 +1433,9 @@ describe("SidebarMenu", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
 
+    expect(screen.getByRole("button", { name: "总体架构图" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "用例实现设计" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "组件（构件）关系" })).toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
     expect(screen.queryByText("业务逻辑模型")).not.toBeInTheDocument();
     expect(screen.queryByText("静态结构模型")).not.toBeInTheDocument();
@@ -1284,11 +1446,12 @@ describe("SidebarMenu", () => {
       .getAllByRole("button")
       .map((button) => button.textContent?.trim())
       .filter(Boolean);
-    expect(nodeLabels.indexOf("用例实现设计")).toBeLessThan(nodeLabels.indexOf("界面关系图"));
+    expect(nodeLabels.indexOf("总体架构图")).toBeLessThan(nodeLabels.indexOf("用例实现设计"));
     expect(nodeLabels.indexOf("用例实现设计")).toBeLessThan(nodeLabels.indexOf("设计类图"));
     expect(nodeLabels.indexOf("设计类图")).toBeLessThan(nodeLabels.indexOf("界面关系图"));
-    expect(nodeLabels.indexOf("界面关系图")).toBeLessThan(nodeLabels.indexOf("部署设计"));
-    expect(nodeLabels.indexOf("部署设计")).toBeLessThan(nodeLabels.indexOf("数据库设计"));
+    expect(nodeLabels.indexOf("界面关系图")).toBeLessThan(nodeLabels.indexOf("数据库设计"));
+    expect(nodeLabels.indexOf("数据库设计")).toBeLessThan(nodeLabels.indexOf("组件（构件）关系"));
+    expect(nodeLabels.indexOf("组件（构件）关系")).toBeLessThan(nodeLabels.indexOf("部署设计"));
   });
 
   it("expands design tree one level at a time", async () => {

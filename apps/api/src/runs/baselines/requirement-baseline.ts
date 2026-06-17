@@ -172,11 +172,12 @@ function buildAtomicRequirement(
   requirementText: string,
 ): AtomicRequirement {
   const type = TYPE_BY_CATEGORY[rule.category];
+  const sourceFragment = rule.sourceFragment ?? rule.text;
   const actor = inferActor(rule.text);
   const condition = inferCondition(rule.text);
   const object = inferObject(rule.text);
   const action = inferAction(rule.text, actor);
-  const sourceLocation = sourceLocationFor(rule.text, requirementText);
+  const sourceLocation = sourceLocationFor(sourceFragment, requirementText);
   const criticality = CRITICALITY_BY_TYPE[type];
   const fieldProvenance: RequirementFieldProvenance = {};
 
@@ -205,7 +206,7 @@ function buildAtomicRequirement(
 
   const requirement: AtomicRequirement = {
     id: `REQ-${String(index + 1).padStart(3, "0")}`,
-    sourceFragment: rule.text,
+    sourceFragment,
     sourceLocation,
     type,
     actor,
@@ -379,12 +380,12 @@ function sourceLocationFor(fragment: string, requirementText: string) {
 }
 
 function inferActor(text: string) {
-  const known = ACTOR_CANDIDATES.find((actor) => text.includes(actor));
-  if (known) return known;
   const match = text.match(
     new RegExp(`^([\\p{L}\\p{N}_·]{2,16}?)${MODAL_OR_ACTION_PATTERN}`, "u"),
   );
-  return match?.[1] ?? null;
+  if (match?.[1]) return match[1];
+  const known = ACTOR_CANDIDATES.find((actor) => text.includes(actor));
+  return known ?? null;
 }
 
 function inferSubject(text: string) {

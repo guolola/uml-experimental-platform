@@ -4,8 +4,11 @@ import test from "node:test";
 import type {
   ActivityDiagramSpec,
   AnalysisSequenceDiagramSpec,
+  ArchitectureDiagramSpec,
   ClassDiagramSpec,
+  ComponentRelationshipDiagramSpec,
   DeploymentDiagramSpec,
+  FunctionStructureDiagramSpec,
   PrototypeInterfaceDiagramSpec,
   SequenceDiagramSpec,
   TableDiagramSpec,
@@ -99,6 +102,78 @@ test("usecase PlantUML renders include and extend without duplicate labels", () 
   assert.match(source, /uc_coupon \.\.> uc_order : <<extend>>/);
   assert.doesNotMatch(source, /<<include>>\s+include/);
   assert.doesNotMatch(source, /<<extend>>\s+extend/);
+});
+
+test("function structure PlantUML renders WBS source", () => {
+  const model: FunctionStructureDiagramSpec = {
+    diagramKind: "function",
+    title: "功能结构图",
+    summary: "功能分解",
+    notes: [],
+    nodes: [
+      { id: "fn_root", name: "订单管理", sourceRequirementIds: ["REQ-001"] },
+      { id: "fn_create", name: "创建订单", parentId: "fn_root", sourceRequirementIds: ["REQ-001"] },
+    ],
+    relationships: [
+      {
+        id: "rel_decompose",
+        type: "decomposition",
+        sourceId: "fn_root",
+        targetId: "fn_create",
+      },
+    ],
+  };
+
+  const artifact = generatePlantUmlArtifacts([model])[0];
+
+  assert.equal(artifact?.diagramKind, "function");
+  assert.match(artifact?.source ?? "", /@startwbs/);
+  assert.match(artifact?.source ?? "", /\*\* 订单管理/);
+  assert.match(artifact?.source ?? "", /\*\*\* 创建订单/);
+  assert.match(artifact?.source ?? "", /@endwbs/);
+});
+
+test("architecture and component PlantUML render package and component notation", () => {
+  const architecture: ArchitectureDiagramSpec = {
+    diagramKind: "architecture",
+    title: "总体架构图",
+    summary: "包图",
+    notes: [],
+    packages: [
+      { id: "pkg_order", name: "订单包", componentIds: ["cmp_order"] },
+    ],
+    components: [
+      { id: "cmp_order", name: "订单服务", packageId: "pkg_order", sourceRequirementIds: ["REQ-001"] },
+    ],
+    relationships: [
+      { id: "rel_contains", type: "contains", sourceId: "pkg_order", targetId: "cmp_order" },
+    ],
+  };
+  const component: ComponentRelationshipDiagramSpec = {
+    diagramKind: "component",
+    title: "组件关系图",
+    summary: "组件接口",
+    notes: [],
+    components: [
+      { id: "cmp_order", name: "订单组件", sourceClassIds: ["OrderService"] },
+    ],
+    interfaces: [
+      { id: "if_order", name: "OrderApi", operationNames: ["createOrder"] },
+    ],
+    relationships: [
+      { id: "rel_provide", type: "provided-interface", sourceId: "cmp_order", targetId: "if_order" },
+    ],
+  };
+
+  const [architectureArtifact, componentArtifact] = generateDesignPlantUmlArtifacts([
+    architecture,
+    component,
+  ]);
+
+  assert.match(architectureArtifact?.source ?? "", /package "订单包"/);
+  assert.match(architectureArtifact?.source ?? "", /component "订单服务"/);
+  assert.match(componentArtifact?.source ?? "", /interface "OrderApi"/);
+  assert.match(componentArtifact?.source ?? "", /cmp_order \.\.\|> if_order/);
 });
 
 test("activity PlantUML keeps swimlane declarations valid", async () => {

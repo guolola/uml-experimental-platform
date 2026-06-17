@@ -39,7 +39,7 @@
 - 登录态工作台必须运行在实名项目上下文。
 - 模型设置登录态只使用托管 Provider Config，不使用明文 `apiKey/apiBaseUrl` 作为生成主路径。
 - 账号、模型、偏好、安全能力统一通过右上角弹窗进入，不再维护独立账号页、安全页或模型设置页作为当前入口。
-- 未登录访问 `/projects`、`/workspace`、`/exam`、`/tutorial`、`/about` 等业务页时回到官网首页或认证流程。
+- 未登录访问 `/projects`、`/workspace`、`/exam`、`/tutorial` 等业务页时回到官网首页或认证流程。
 
 验证重点：
 

@@ -38,10 +38,25 @@ export const DESIGN_REQUIREMENT_SOURCE_MAP: Record<
   DesignDiagramType,
   DiagramType[]
 > = {
+  architecture: ["function"],
   sequence: ["usecase", "analysis"],
   activity: ["prototype"],
   class: ["class"],
+  component: [],
   deployment: ["deployment"],
+  table: [],
+};
+
+export const DESIGN_MODEL_DEPENDENCY_MAP: Record<
+  DesignDiagramType,
+  DesignDiagramType[]
+> = {
+  architecture: [],
+  sequence: [],
+  activity: ["sequence"],
+  class: ["sequence"],
+  component: ["class"],
+  deployment: ["component"],
   table: ["class"],
 };
 
@@ -188,6 +203,11 @@ function ruleLikelySupportsDiagram(
   const category = rule.category.toLowerCase();
   const text = `${rule.category} ${rule.text}`.toLowerCase();
   switch (diagram) {
+    case "function":
+      return (
+        category.includes("功能") ||
+        /功能|模块|能力|管理|维护|处理|支持|提供/u.test(text)
+      );
     case "usecase":
       return (
         category.includes("功能") ||
@@ -439,22 +459,20 @@ export function resolveDesignGenerationDiagrams(
   const existing = new Set(existingDiagrams);
   const dependencies = new Set<DesignDiagramType>();
 
-  const needsSequence = [...requested].some(
-    (diagram) => diagram !== "sequence",
-  );
-  if (
-    needsSequence &&
-    !existing.has("sequence") &&
-    !requested.has("sequence")
-  ) {
-    dependencies.add("sequence");
-  }
-  if (
-    requested.has("table") &&
-    !existing.has("class") &&
-    !requested.has("class")
-  ) {
-    dependencies.add("class");
+  const includeDependenciesFor = (diagram: DesignDiagramType) => {
+    for (const dependency of DESIGN_MODEL_DEPENDENCY_MAP[diagram]) {
+      if (existing.has(dependency) && !requested.has(dependency)) {
+        continue;
+      }
+      if (!existing.has(dependency) && !requested.has(dependency)) {
+        dependencies.add(dependency);
+      }
+      includeDependenciesFor(dependency);
+    }
+  };
+
+  for (const diagram of requested) {
+    includeDependenciesFor(diagram);
   }
 
   const effectiveDiagrams = orderedDesignDiagrams([

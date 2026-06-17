@@ -15,6 +15,7 @@ import {
   buildGenerateCodeSpecPrompt,
   buildGenerateCodeUiBlueprintPrompt,
   buildGenerateCodeUiMockupPrompt,
+  buildExtractRulesPrompt,
   buildGenerateDesignTraceabilityPrompt,
   buildGenerateDesignSequencePrompt,
   buildGenerateRequirementTraceabilityPrompt,
@@ -35,7 +36,7 @@ const sampleRules: RequirementRule[] = [
     id: "r1",
     category: "功能需求",
     text: "用户可以提交需求",
-    relatedDiagrams: ["usecase", "class", "activity", "deployment", "prototype", "analysis"],
+    relatedDiagrams: ["function", "usecase", "class", "activity", "deployment", "prototype", "analysis"],
   },
 ];
 
@@ -75,8 +76,18 @@ const sampleBaseline: RequirementBaseline = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
+test("rule extraction prompt separates readable text from source fragments", () => {
+  const prompt = buildExtractRulesPrompt("一个小型图书馆管理系统需完成：(1)借书。");
+
+  assert.match(prompt, /可读需求文本 text/);
+  assert.match(prompt, /sourceFragment/);
+  assert.match(prompt, /relatedDiagrams 只能使用: function, usecase/);
+  assert.match(prompt, /不要只输出“\(1\)借书”/);
+});
+
 test("requirement model prompts include requirement-stage responsibilities", () => {
   const prompt = buildGenerateModelsPrompt(sampleRules, sampleBaseline, [
+    "function",
     "usecase",
     "class",
     "activity",
@@ -84,6 +95,8 @@ test("requirement model prompts include requirement-stage responsibilities", () 
   ]);
 
   assert.match(prompt, /需求阶段模型职责/);
+  assert.match(prompt, /功能结构图\(function\): 根据文本需求项抽取系统功能层级/);
+  assert.match(prompt, /PlantUML 工作分解结构图/);
   assert.match(prompt, /用例模型\(usecase\): 明确系统边界/);
   assert.match(prompt, /领域概念模型\(class\): 只描述业务领域内的核心概念实体/);
   assert.match(prompt, /禁止输出 \*Service/);
@@ -185,7 +198,7 @@ test("requirement traceability prompts only ask for element mappings", () => {
 
   assert.match(prompt, /返回格式必须是 \{"requirementModelTraceability":\[\.\.\.\]\}/);
   assert.match(prompt, /只输出能从规则文本和模型元素语义直接证明/);
-  assert.match(prompt, /target\.diagramKind 只能使用: usecase, class, activity, deployment/);
+  assert.match(prompt, /target\.diagramKind 只能使用: function, usecase, class, activity, deployment, prototype, analysis/);
   assert.match(prompt, /禁止把 requirements、requirement、design、model、traceability、page/);
   assert.match(prompt, /每一个需求业务元素和 relationship 都必须至少映射到一条需求规则/);
   assert.match(prompt, /不要为 system-boundary、swimlane、start\/end\/merge\/fork\/join/);
@@ -241,7 +254,11 @@ test("design model prompt keeps design-stage activity semantics", () => {
   );
 
   assert.match(prompt, /设计阶段模型职责/);
+  assert.match(prompt, /总体架构图\(architecture\): 系统逻辑架构层/);
   assert.match(prompt, /界面关系图\(activity\): 界面交互层/);
+  assert.match(prompt, /组件（构件）关系\(component\): 组件结构层/);
+  assert.match(prompt, /architecture: 必须包含 packages, components, relationships/);
+  assert.match(prompt, /component: 必须包含 components, interfaces, relationships/);
   assert.match(prompt, /activity 表达设计阶段界面关系图/);
   assert.match(prompt, /多分支 alt 必须优先输出 branches/);
   assert.match(prompt, /PlantUML alt\/else\/end 分隔线/);
@@ -258,7 +275,7 @@ test("design model prompt keeps design-stage activity semantics", () => {
   assert.match(prompt, /系统会在模型结构解析成功后按元素清单确定性补齐可追踪关系/);
   assert.match(prompt, /不要为了可追踪矩阵输出长映射数组/);
   assert.doesNotMatch(prompt, /矩阵会展示的每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);
-  assert.match(prompt, /设计阶段禁止使用原始需求文本或需求规则列表作为事实来源/);
+  assert.match(prompt, /设计阶段禁止使用原始需求文本作为事实来源/);
   assert.match(prompt, /RequirementBaseline（只用于约束和验收边界）/);
   assert.doesNotMatch(prompt, /原始需求：/);
   assert.doesNotMatch(prompt, /用户登录后进入首页/);
@@ -436,8 +453,8 @@ test("design traceability prompts only ask for design-to-requirement mappings", 
   assert.match(prompt, /"elementId": "m1"/);
   assert.match(prompt, /不要把整张需求模型套给每个设计元素/);
   assert.match(prompt, /允许派生映射/);
-  assert.match(prompt, /source\.diagramKind 只能使用: sequence, class, activity, deployment, table/);
-  assert.match(prompt, /targets\[\]\.diagramKind 只能使用: usecase, class, activity, deployment/);
+  assert.match(prompt, /source\.diagramKind 只能使用: architecture, sequence, class, activity, component, deployment, table/);
+  assert.match(prompt, /targets\[\]\.diagramKind 只能使用: function, usecase, class, activity, deployment, prototype, analysis/);
   assert.match(prompt, /每一个设计业务元素和 relationship 都必须至少映射到一个需求模型元素/);
   assert.match(prompt, /不要为 swimlane、start\/end\/merge\/fork\/join/);
   assert.match(prompt, /reviewStatus=pending、confidence=low/);
@@ -971,6 +988,11 @@ test("document content prompt forbids unprovided school and personal names", () 
 
   assert.match(prompt, /不得出现具体大学、学院、教师、班级、学号、姓名/);
   assert.match(prompt, /未由用户输入明确提供/);
-  assert.match(prompt, /待填写/);
-  assert.match(prompt, /当前阶段未明确/);
+  assert.match(prompt, /章节编号由平台自动生成/);
+  assert.match(prompt, /功能需求（用例模型）/);
+  assert.match(prompt, /analysis:<useCaseId>/);
+  assert.match(prompt, /不允许输出占位或跳转话术/);
+  assert.match(prompt, /在本节内写出可交付说明/);
+  assert.doesNotMatch(prompt, /保留章节并写“当前阶段未明确”/);
+  assert.doesNotMatch(prompt, /统一写“待填写”/);
 });

@@ -12,6 +12,7 @@ import {
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
+import { buildLineageStepPath } from "../../lineage/components/lineage-graph-dialog";
 import { HistoryDrawer } from "../../history/components/history-drawer";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../state";
@@ -155,6 +156,16 @@ describe("TopBar", () => {
     HTMLAnchorElement.prototype.click = vi.fn();
   });
 
+  it("builds lineage connectors as readable step paths", () => {
+    const path = buildLineageStepPath(
+      { left: 0, right: 270, centerY: 100 },
+      { left: 350, right: 620, centerY: 260 },
+    );
+
+    expect(path).toBe("M 282 100 L 305 100 L 305 260 L 328 260");
+    expect(path).not.toContain(" C ");
+  });
+
   it("keeps the logged-in navigation bar at font weight 600", () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
@@ -175,8 +186,10 @@ describe("TopBar", () => {
 
     expect(screen.getByRole("banner")).toHaveClass("font-semibold");
     expect(screen.getByRole("button", { name: "项目" })).toHaveClass(
+      "relative",
       "text-[15px]",
       "font-semibold",
+      "hover:after:opacity-100",
     );
   });
 
@@ -223,6 +236,110 @@ describe("TopBar", () => {
     expect(onOpenDrawer).toHaveBeenCalledWith("history");
   });
 
+  it("opens the lineage graph from the button before generation tasks", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-topbar" })),
+      subscribeToRun: vi.fn(async () => {}),
+      getRunSnapshot: vi.fn(async () =>
+        createRunSnapshot({
+          runId: "run-topbar",
+        }),
+      ),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    const { container } = render(
+      withWorkspaceProviders(
+        <ProjectWorkspaceActions
+          projectId="library-booking"
+          onOpenDrawer={() => {}}
+        />,
+        repository,
+      ),
+    );
+
+    const buttons = screen.getAllByRole("button");
+    const lineageIndex = buttons.findIndex(
+      (button) => button.getAttribute("aria-label") === "链路图",
+    );
+    const taskIndex = buttons.findIndex(
+      (button) => button.getAttribute("aria-label") === "生成任务",
+    );
+    expect(lineageIndex).toBeGreaterThanOrEqual(0);
+    expect(lineageIndex).toBeLessThan(taskIndex);
+    const lineageButton = buttons[lineageIndex] as HTMLElement;
+    const taskButton = buttons[taskIndex] as HTMLElement;
+    expect(lineageButton).toHaveClass("bg-transparent", "hover:bg-secondary");
+    expect(lineageButton).not.toHaveClass("bg-secondary");
+    expect(taskButton).toHaveTextContent("暂无任务");
+    expect(taskButton).toHaveClass("bg-transparent", "hover:bg-secondary");
+    expect(taskButton).not.toHaveClass("bg-secondary", "text-secondary-foreground");
+
+    await user.click(screen.getByRole("button", { name: "链路图" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "全局链路图" }),
+    ).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "全局链路图" });
+    expect(dialog).toHaveStyle({
+      width: "min(1580px, calc(100vw - 4rem))",
+      maxWidth: "min(1580px, calc(100vw - 4rem))",
+      height: "min(920px, calc(100vh - 4rem))",
+    });
+    expect(within(dialog).getByRole("region", { name: "需求规则" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("region", { name: "需求模型" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("region", { name: "设计模型" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("region", { name: "产物" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "显示全部连线" })).not.toBeInTheDocument();
+    expect(container.querySelector(".react-flow__minimap")).not.toBeInTheDocument();
+    expect(container.querySelector(".react-flow__controls")).not.toBeInTheDocument();
+    expect(within(dialog).getByTestId("lineage-node-rule:empty")).toHaveAttribute(
+      "data-lineage-kind",
+      "rule",
+    );
+    expect(
+      within(dialog).getByTestId("lineage-node-requirement-model:usecase"),
+    ).toHaveAttribute("data-lineage-kind", "requirement-model");
+    expect(
+      within(dialog).getByTestId("lineage-node-design-model:sequence"),
+    ).toHaveAttribute("data-lineage-kind", "design-model");
+    expect(
+      within(dialog).getByTestId("lineage-node-document:requirementsSpec"),
+    ).toHaveAttribute("data-lineage-kind", "document");
+    expect(within(dialog).getByTestId("lineage-node-code:prototype")).toHaveAttribute(
+      "data-lineage-kind",
+      "code",
+    );
+
+    const usecaseNode = within(dialog).getByTestId(
+      "lineage-node-requirement-model:usecase",
+    );
+    const classNode = within(dialog).getByTestId(
+      "lineage-node-requirement-model:class",
+    );
+    await user.click(usecaseNode);
+    expect(classNode).toHaveClass("opacity-25");
+
+    await user.click(within(dialog).getByRole("button", { name: "全部链路" }));
+    expect(
+      within(dialog).getByText("选择一个节点后查看上下游来源、影响范围和建议操作。"),
+    ).toBeInTheDocument();
+    expect(classNode).not.toHaveClass("opacity-25");
+
+    await user.click(within(dialog).getByRole("button", { name: "影响路径" }));
+    expect(usecaseNode).not.toHaveClass("opacity-25");
+    expect(classNode).not.toHaveClass("opacity-25");
+  });
+
   it("uses product navigation labels without opening workspace tabs", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
@@ -248,9 +365,7 @@ describe("TopBar", () => {
     expect(navButtons.map((button) => button.textContent)).toEqual([
       "项目",
       "考试",
-      "教程",
-      "关于",
-      "购买",
+      "使用文档",
     ]);
     expect(within(banner).queryByRole("button", { name: "工作台" })).not.toBeInTheDocument();
     expect(within(banner).queryByRole("button", { name: "需求" })).not.toBeInTheDocument();
@@ -259,20 +374,16 @@ describe("TopBar", () => {
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
     await user.click(within(banner).getByRole("button", { name: "考试" }));
-    await user.click(within(banner).getByRole("button", { name: "教程" }));
-    await user.click(within(banner).getByRole("button", { name: "关于" }));
-    await user.click(within(banner).getByRole("button", { name: "购买" }));
+    await user.click(within(banner).getByRole("button", { name: "使用文档" }));
 
     expect(onNavigate).toHaveBeenCalledWith("/projects");
     expect(onNavigate).toHaveBeenCalledWith("/exam");
     expect(onNavigate).toHaveBeenCalledWith("/tutorial");
-    expect(onNavigate).toHaveBeenCalledWith("/about");
-    expect(onNavigate).toHaveBeenCalledWith("/account/billing");
+    expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
+    expect(within(banner).queryByRole("button", { name: "关于" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 工作台" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 考试" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "关闭 教程" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "关闭 关于" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "关闭 购买" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关闭 使用文档" })).not.toBeInTheDocument();
   });
 
   it("keeps a compact main navigation menu available for mobile layouts", async () => {
@@ -300,12 +411,12 @@ describe("TopBar", () => {
     expect(screen.getByRole("button", { name: "打开主导航" })).toHaveClass("md:hidden");
 
     await user.click(screen.getByRole("button", { name: "打开主导航" }));
-    await user.click(screen.getByRole("menuitem", { name: "教程" }));
+    await user.click(screen.getByRole("menuitem", { name: "使用文档" }));
 
     expect(onNavigate).toHaveBeenCalledWith("/tutorial");
   });
 
-  it("marks account billing active and closes account modal on route changes", async () => {
+  it("closes account modal on route changes without exposing purchase navigation", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
       updateRequirementText: vi.fn(async () => {}),
@@ -324,15 +435,12 @@ describe("TopBar", () => {
     const user = userEvent.setup();
     render(
       withWorkspaceProviders(
-        <TopBarHarness currentRoute="/account/billing" />,
+        <TopBarHarness currentRoute="/projects" />,
         repository,
       ),
     );
 
-    expect(screen.getByRole("button", { name: "购买" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(screen.queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "登录" }));
     expect(await screen.findByRole("dialog", { name: "登录账号" })).toBeInTheDocument();

@@ -230,6 +230,9 @@ export const startDocumentRunRequestSchema = z.object({
   evidencePackage: evidencePackageSchema.nullable().optional(),
   rules: z.array(requirementRuleSchema).default([]),
   requirementModels: z.array(diagramModelSpecSchema).default([]),
+  requirementModelTraceability: z
+    .array(requirementModelTraceabilityEntrySchema)
+    .default([]),
   requirementPlantUml: z.array(plantUmlArtifactSchema).default([]),
   requirementSvgArtifacts: z.array(svgArtifactSchema).default([]),
   designModels: z.array(designDiagramModelSpecSchema).default([]),

@@ -17,9 +17,11 @@ import {
   orderedRequirementDiagrams,
   planDesignRequirementAutoUpstream,
   planRequirementAutoUpstream,
+  resolveDesignGenerationDiagrams,
   type RequirementAutoUpstreamPlan,
 } from "./generation-planning";
 import {
+  currentDesignComponentFingerprint,
   currentDesignClassFingerprint,
   designFingerprintMatches,
   designInputFingerprintFor,
@@ -226,8 +228,15 @@ export function analyzeDesignGenerationPreflight(
   if (stale) {
     return { status: "blocked", block: staleRulesBlock("已选设计模型") };
   }
+  const existingDesignDiagrams = collectExistingDesignDiagramKinds(
+    input.designModels,
+  );
+  const resolvedDesignPlan = resolveDesignGenerationDiagrams(
+    requestedDiagrams,
+    existingDesignDiagrams,
+  );
   const requirementPlan = planDesignRequirementAutoUpstream({
-    requestedDesignDiagrams: requestedDiagrams,
+    requestedDesignDiagrams: resolvedDesignPlan.effectiveDiagrams,
     requirementModels: input.models,
     rules: input.rules,
   });
@@ -294,14 +303,14 @@ export function analyzeDesignGenerationPreflight(
     ),
     input.requirementModelTraceability,
   );
-  const existingDesignDiagrams = collectExistingDesignDiagramKinds(
-    input.designModels,
-  );
-  const needsSequenceDependency = requestedDiagrams.some(
-    (diagram) => diagram !== "sequence",
+  const sequenceWillGenerate =
+    resolvedDesignPlan.effectiveDiagrams.includes("sequence");
+  const needsExistingSequenceDependency = resolvedDesignPlan.effectiveDiagrams.some(
+    (diagram) => diagram === "class" || diagram === "activity",
   );
   if (
-    needsSequenceDependency &&
+    needsExistingSequenceDependency &&
+    !sequenceWillGenerate &&
     existingDesignDiagrams.includes("sequence") &&
     !sequenceModelsCoverUseCases(input.designModels, input.models.usecase)
   ) {
@@ -317,7 +326,9 @@ export function analyzeDesignGenerationPreflight(
     };
   }
   if (
-    requestedDiagrams.includes("table") &&
+    (requestedDiagrams.includes("table") ||
+      requestedDiagrams.includes("component")) &&
+    !resolvedDesignPlan.effectiveDiagrams.includes("class") &&
     existingDesignDiagrams.includes("class") &&
     !designFingerprintMatches(
       currentDesignClassFingerprint(input.designModels, input.designInputFingerprints),
@@ -330,6 +341,29 @@ export function analyzeDesignGenerationPreflight(
         title: "设计依赖需更新",
         tone: "warning",
         message: "设计类图已存在但基于旧需求，请先手动更新设计类图",
+        stageLabel: "设计模型",
+        targetLabel: "已选设计模型",
+      },
+    };
+  }
+  if (
+    requestedDiagrams.includes("deployment") &&
+    !resolvedDesignPlan.effectiveDiagrams.includes("component") &&
+    existingDesignDiagrams.includes("component") &&
+    !designFingerprintMatches(
+      currentDesignComponentFingerprint(
+        input.designModels,
+        input.designInputFingerprints,
+      ),
+      activeDesignFingerprint,
+    )
+  ) {
+    return {
+      status: "blocked",
+      block: {
+        title: "设计依赖需更新",
+        tone: "warning",
+        message: "组件（构件）关系已存在但基于旧需求，请先手动更新组件（构件）关系",
         stageLabel: "设计模型",
         targetLabel: "已选设计模型",
       },

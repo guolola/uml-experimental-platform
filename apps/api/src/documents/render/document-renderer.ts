@@ -164,17 +164,45 @@ function createSimpleTable(section: DocumentSection, style: ResolvedDocumentStyl
   });
 }
 
+function readPngDimensions(png: Buffer) {
+  const pngSignature = "89504e470d0a1a0a";
+  if (png.length < 24 || png.subarray(0, 8).toString("hex") !== pngSignature) {
+    return null;
+  }
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+export function resolvePngImageTransformation(
+  png: Buffer,
+  constraints = { maxWidth: 560, maxHeight: 680, maxUpscale: 2 },
+) {
+  const dimensions = readPngDimensions(png);
+  if (!dimensions) {
+    return { width: constraints.maxWidth, height: 320 };
+  }
+  const scale = Math.min(
+    constraints.maxWidth / dimensions.width,
+    constraints.maxHeight / dimensions.height,
+    constraints.maxUpscale,
+  );
+  return {
+    width: Math.max(1, Math.round(dimensions.width * scale)),
+    height: Math.max(1, Math.round(dimensions.height * scale)),
+  };
+}
+
 function createPngImageParagraph(png: Buffer, title: string) {
+  const transformation = resolvePngImageTransformation(png);
   return new Paragraph({
     alignment: AlignmentType.CENTER,
+    keepNext: true,
     children: [
       new ImageRun({
         type: "png",
         data: png,
-        transformation: {
-          width: 560,
-          height: 320,
-        },
+        transformation,
         altText: {
           title,
           description: title,
@@ -207,7 +235,7 @@ function withDocumentPlantUmlFont(source: string) {
     'skinparam componentFontName "Microsoft YaHei"',
     'skinparam classFontName "Microsoft YaHei"',
   ].join("\n");
-  return source.replace(/@startuml\s*/u, (match) => `${match}${fontSkinparams}\n`);
+  return source.replace(/@(startuml|startwbs)\s*/u, (match) => `${match}${fontSkinparams}\n`);
 }
 
 function createCoverParagraph(
@@ -235,7 +263,7 @@ function createDocumentCover(documentKind: DocumentKind, style: ResolvedDocument
   return [
     createCoverParagraph("课程设计文档", style, { title: true }),
     createCoverParagraph(documentTitle(documentKind), style, { subtitle: true }),
-    createCoverParagraph("项目名称：待填写", style),
+    createCoverParagraph("项目名称：软件系统", style),
     createCoverParagraph(`文档类型：${documentTitle(documentKind)}`, style),
     createCoverParagraph(`生成日期：${generatedDate}`, style),
   ];
@@ -326,7 +354,12 @@ export async function renderDocumentBuffer(
           ? `${diagramKey}: 缺少可嵌入图片源`
           : (diagramKey ?? section.diagramKind);
         missingArtifacts.push(reason);
-        bodyChildren.push(createTextParagraph("当前未生成该图。", style.body));
+        bodyChildren.push(
+          createTextParagraph(
+            "本节图源未随导出数据提供，正文已依据模型信息展开说明。",
+            style.body,
+          ),
+        );
         continue;
       }
 
@@ -345,9 +378,14 @@ export async function renderDocumentBuffer(
         );
       } catch (error) {
         missingArtifacts.push(
-          `${section.diagramKind}: ${error instanceof Error ? error.message : "图片渲染失败"}`,
+        `${section.diagramKind}: ${error instanceof Error ? error.message : "图片渲染失败"}`,
+      );
+        bodyChildren.push(
+          createTextParagraph(
+            "本节图源未随导出数据提供，正文已依据模型信息展开说明。",
+            style.body,
+          ),
         );
-        bodyChildren.push(createTextParagraph("当前未生成该图。", style.body));
       }
     }
   }

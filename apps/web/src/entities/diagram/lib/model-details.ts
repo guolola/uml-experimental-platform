@@ -2,14 +2,20 @@
 import type {
   ActivityDiagramSpec,
   ActivityNode,
+  ArchitectureDiagramSpec,
+  ArchitectureRelationship,
   AnalysisSequenceDiagramSpec,
   ClassDiagramSpec,
   ClassEntity,
   ClassRelationship,
+  ComponentRelationship,
+  ComponentRelationshipDiagramSpec,
   DesignDiagramModelSpec,
   DeploymentDiagramSpec,
   DeploymentRelationship,
   DiagramModelSpec,
+  FunctionRelationship,
+  FunctionStructureDiagramSpec,
   PrototypeInterfaceDiagramSpec,
   PrototypeInterfaceRelationship,
   SequenceDiagramSpec,
@@ -24,6 +30,7 @@ export type SemanticElementKind =
   | "actor"
   | "usecase"
   | "system-boundary"
+  | "function"
   | "class"
   | "interface"
   | "enum"
@@ -43,6 +50,7 @@ export type SemanticElementKind =
   | "participant"
   | "message"
   | "fragment"
+  | "package"
   | "table"
   | "table-column"
   | "screen"
@@ -107,6 +115,7 @@ export const SEMANTIC_KIND_META: Record<
   actor: { label: "角色", shortLabel: "角色" },
   usecase: { label: "用例", shortLabel: "用例" },
   "system-boundary": { label: "系统边界", shortLabel: "边界" },
+  function: { label: "功能", shortLabel: "功能" },
   class: { label: "类", shortLabel: "类" },
   interface: { label: "接口", shortLabel: "接口" },
   enum: { label: "枚举", shortLabel: "枚举" },
@@ -126,6 +135,7 @@ export const SEMANTIC_KIND_META: Record<
   participant: { label: "参与对象", shortLabel: "对象" },
   message: { label: "调用消息", shortLabel: "消息" },
   fragment: { label: "组合片段", shortLabel: "片段" },
+  package: { label: "包", shortLabel: "包" },
   table: { label: "表", shortLabel: "表" },
   "table-column": { label: "字段", shortLabel: "字段" },
   screen: { label: "页面", shortLabel: "页面" },
@@ -236,6 +246,34 @@ function tableRelationshipLabel(relation: TableRelationship) {
     "one-to-one": "一对一",
     "one-to-many": "一对多",
     "many-to-many": "多对多",
+  };
+  return meta[relation.type];
+}
+
+function functionRelationshipLabel(relation: FunctionRelationship) {
+  const meta: Record<FunctionRelationship["type"], string> = {
+    decomposition: "功能分解",
+    dependency: "依赖",
+  };
+  return meta[relation.type];
+}
+
+function architectureRelationshipLabel(relation: ArchitectureRelationship) {
+  const meta: Record<ArchitectureRelationship["type"], string> = {
+    contains: "包含",
+    dependency: "依赖",
+    communication: "通信",
+  };
+  return meta[relation.type];
+}
+
+function componentRelationshipLabel(relation: ComponentRelationship) {
+  const meta: Record<ComponentRelationship["type"], string> = {
+    dependency: "依赖",
+    "provided-interface": "提供接口",
+    "required-interface": "依赖接口",
+    composition: "组合",
+    communication: "通信",
   };
   return meta[relation.type];
 }
@@ -465,6 +503,51 @@ function buildUseCaseDetailModel(model: UseCaseDiagramSpec): DiagramDetailModel 
         kind: "system-boundary",
         label: "系统边界",
         items: items.filter((item) => item.kind === "system-boundary"),
+      },
+    ]),
+    relationships,
+  };
+}
+
+function buildFunctionDetailModel(model: FunctionStructureDiagramSpec): DiagramDetailModel {
+  const nodeNameById = new Map(model.nodes.map((node) => [node.id, node.name]));
+  const items: DiagramDetailItem[] = model.nodes.map((node) => {
+    const fields: DetailField[] = [];
+    pushField(fields, "父功能", node.parentId ? nodeNameById.get(node.parentId) ?? node.parentId : "");
+    if (node.sourceRequirementIds.length > 0) {
+      fields.push({ label: "关联需求", value: joinList(node.sourceRequirementIds) });
+    }
+    return {
+      kind: "function" as const,
+      id: node.id,
+      label: node.name,
+      description: node.description,
+      fields,
+    };
+  });
+
+  const relationships: DiagramRelationshipDetail[] = model.relationships.map((relation) => {
+    const fields: DetailField[] = [];
+    pushField(fields, "标签", relation.label);
+    pushField(fields, "说明", relation.description);
+    return {
+      id: relation.id,
+      kind: "relationship",
+      label: relation.label ?? `${relation.sourceId} -> ${relation.targetId}`,
+      typeLabel: functionRelationshipLabel(relation),
+      sourceId: relation.sourceId,
+      targetId: relation.targetId,
+      fields,
+    };
+  });
+
+  return {
+    items,
+    groups: nonEmptyGroups([
+      {
+        kind: "function",
+        label: "功能",
+        items,
       },
     ]),
     relationships,
@@ -1031,6 +1114,107 @@ function buildTableDetailModel(model: TableDiagramSpec): DiagramDetailModel {
   };
 }
 
+function buildArchitectureDetailModel(model: ArchitectureDiagramSpec): DiagramDetailModel {
+  const packageNameById = new Map(model.packages.map((item) => [item.id, item.name]));
+  const packageItems: DiagramDetailItem[] = model.packages.map((item) => ({
+    kind: "package",
+    id: item.id,
+    label: item.name,
+    description: item.description,
+    fields: [
+      ...(item.stereotype ? [{ label: "构造型", value: item.stereotype }] : []),
+      ...(item.componentIds.length > 0
+        ? [{ label: "包含组件", value: joinList(item.componentIds) }]
+        : []),
+    ],
+  }));
+  const componentItems: DiagramDetailItem[] = model.components.map((component) => ({
+    kind: "component",
+    id: component.id,
+    label: component.name,
+    description: component.description,
+    fields: [
+      ...(component.packageId
+        ? [{ label: "所属包", value: packageNameById.get(component.packageId) ?? component.packageId }]
+        : []),
+      ...(component.componentType ? [{ label: "类型", value: component.componentType }] : []),
+      ...(component.sourceRequirementIds.length > 0
+        ? [{ label: "关联需求", value: joinList(component.sourceRequirementIds) }]
+        : []),
+    ],
+  }));
+  const relationships: DiagramRelationshipDetail[] = model.relationships.map((relation) => {
+    const fields: DetailField[] = [];
+    pushField(fields, "标签", relation.label);
+    pushField(fields, "说明", relation.description);
+    return {
+      id: relation.id,
+      kind: "relationship",
+      label: relation.label ?? `${relation.sourceId} -> ${relation.targetId}`,
+      typeLabel: architectureRelationshipLabel(relation),
+      sourceId: relation.sourceId,
+      targetId: relation.targetId,
+      fields,
+    };
+  });
+
+  return {
+    items: [...packageItems, ...componentItems],
+    groups: nonEmptyGroups([
+      { kind: "package", label: "包", items: packageItems },
+      { kind: "component", label: "组件", items: componentItems },
+    ]),
+    relationships,
+  };
+}
+
+function buildComponentDetailModel(model: ComponentRelationshipDiagramSpec): DiagramDetailModel {
+  const componentItems: DiagramDetailItem[] = model.components.map((component) => ({
+    kind: "component",
+    id: component.id,
+    label: component.name,
+    description: component.description,
+    fields: [
+      ...(component.componentType ? [{ label: "类型", value: component.componentType }] : []),
+      ...(component.sourceClassIds.length > 0
+        ? [{ label: "来源设计类", value: joinList(component.sourceClassIds) }]
+        : []),
+    ],
+  }));
+  const interfaceItems: DiagramDetailItem[] = model.interfaces.map((item) => ({
+    kind: "interface",
+    id: item.id,
+    label: item.name,
+    description: item.description,
+    fields: item.operationNames.length > 0
+      ? [{ label: "操作", value: joinList(item.operationNames) }]
+      : [],
+  }));
+  const relationships: DiagramRelationshipDetail[] = model.relationships.map((relation) => {
+    const fields: DetailField[] = [];
+    pushField(fields, "标签", relation.label);
+    pushField(fields, "说明", relation.description);
+    return {
+      id: relation.id,
+      kind: "relationship",
+      label: relation.label ?? `${relation.sourceId} -> ${relation.targetId}`,
+      typeLabel: componentRelationshipLabel(relation),
+      sourceId: relation.sourceId,
+      targetId: relation.targetId,
+      fields,
+    };
+  });
+
+  return {
+    items: [...componentItems, ...interfaceItems],
+    groups: nonEmptyGroups([
+      { kind: "component", label: "组件", items: componentItems },
+      { kind: "interface", label: "接口", items: interfaceItems },
+    ]),
+    relationships,
+  };
+}
+
 export function buildDiagramDetailModel(
   model?: DiagramModelSpec | DesignDiagramModelSpec | null,
 ): DiagramDetailModel {
@@ -1039,6 +1223,12 @@ export function buildDiagramDetailModel(
   }
 
   switch (model.diagramKind) {
+    case "function":
+      return buildFunctionDetailModel(model);
+    case "architecture":
+      return buildArchitectureDetailModel(model);
+    case "component":
+      return buildComponentDetailModel(model);
     case "sequence":
       return buildSequenceDetailModel(model);
     case "usecase":

@@ -4,16 +4,21 @@ import type {
   ActivityRelationship,
   ActivityNode,
   AnalysisSequenceDiagramSpec,
+  ArchitectureDiagramSpec,
+  ArchitectureRelationship,
   ClassAttribute,
   ClassDiagramSpec,
   ClassEntity,
   ClassOperation,
   ClassRelationship,
+  ComponentRelationship,
+  ComponentRelationshipDiagramSpec,
   DeploymentDiagramSpec,
   DeploymentRelationship,
   DesignDiagramModelSpec,
   DesignPlantUmlArtifact,
   DiagramModelSpec,
+  FunctionStructureDiagramSpec,
   PlantUmlArtifact,
   PrototypeInterfaceDiagramSpec,
   PrototypeInterfaceRelationship,
@@ -97,6 +102,82 @@ function renderUseCase(model: UseCaseDiagramSpec) {
 
   appendNotes(lines, model.notes);
   return `${lines.join("\n")}\n@enduml`;
+}
+
+function wbsLabel(value: unknown, maxLength = 34) {
+  return (shortDiagramLabel(value, maxLength) || "未命名功能").replace(/\*/g, "-");
+}
+
+function renderFunctionStructure(model: FunctionStructureDiagramSpec) {
+  const lines = ["@startwbs", `* ${wbsLabel(model.title)}`];
+  const nodesById = new Map(model.nodes.map((node) => [node.id, node]));
+  const childrenByParent = new Map<string, FunctionStructureDiagramSpec["nodes"]>();
+  const childIds = new Set<string>();
+
+  for (const relationship of model.relationships) {
+    if (relationship.type !== "decomposition") continue;
+    const parent = relationship.sourceId;
+    const child = relationship.targetId;
+    const childNode = nodesById.get(child);
+    if (!childNode || !nodesById.has(parent)) continue;
+    childrenByParent.set(parent, [...(childrenByParent.get(parent) ?? []), childNode]);
+    childIds.add(child);
+  }
+
+  for (const node of model.nodes) {
+    if (!node.parentId) continue;
+    const parent = node.parentId;
+    if (!nodesById.has(parent)) continue;
+    childrenByParent.set(parent, [...(childrenByParent.get(parent) ?? []), node]);
+    childIds.add(node.id);
+  }
+
+  const roots = model.nodes.filter((node) => !childIds.has(node.id));
+  const rendered = new Set<string>();
+  const renderNode = (node: FunctionStructureDiagramSpec["nodes"][number], depth: number) => {
+    if (rendered.has(node.id)) return;
+    rendered.add(node.id);
+    lines.push(`${"*".repeat(depth)} ${wbsLabel(node.name)}`);
+    for (const child of childrenByParent.get(node.id) ?? []) {
+      renderNode(child, depth + 1);
+    }
+  };
+
+  for (const root of roots.length > 0 ? roots : model.nodes.slice(0, 1)) {
+    renderNode(root, 2);
+  }
+
+  const unrendered = model.nodes.filter((node) => !rendered.has(node.id));
+  if (unrendered.length > 0) {
+    lines.push("** 未归类功能");
+    for (const node of unrendered) {
+      renderNode(node, 3);
+    }
+  }
+
+  const dependencyNotes = model.relationships.filter(
+    (relationship) => relationship.type === "dependency",
+  );
+  if (dependencyNotes.length > 0) {
+    lines.push("** 依赖关系");
+    for (const relationship of dependencyNotes) {
+      const source = nodesById.get(relationship.sourceId);
+      const target = nodesById.get(relationship.targetId);
+      const label = wbsLabel(relationship.label ?? relationship.description ?? "依赖", 16);
+      lines.push(
+        `*** ${wbsLabel(source?.name ?? relationship.sourceId, 18)} -> ${wbsLabel(target?.name ?? relationship.targetId, 18)}: ${label}`,
+      );
+    }
+  }
+
+  if (model.notes.length > 0) {
+    lines.push("** 备注");
+    for (const note of model.notes) {
+      lines.push(`*** ${wbsLabel(note, 42)}`);
+    }
+  }
+
+  return `${lines.join("\n")}\n@endwbs`;
 }
 
 function visibilityToSymbol(visibility: ClassAttribute["visibility"]) {
@@ -979,6 +1060,122 @@ function renderPrototype(model: PrototypeInterfaceDiagramSpec) {
   return `${lines.join("\n")}\n@enduml`;
 }
 
+function architectureRelationshipArrow(relation: ArchitectureRelationship) {
+  switch (relation.type) {
+    case "contains":
+      return "*--";
+    case "communication":
+      return "-->";
+    case "dependency":
+      return "..>";
+  }
+}
+
+function renderArchitecture(model: ArchitectureDiagramSpec) {
+  const lines = [
+    "@startuml",
+    "left to right direction",
+    "skinparam componentStyle rectangle",
+  ];
+  const componentsByPackage = new Map<string, ArchitectureDiagramSpec["components"]>();
+  const packagedComponentIds = new Set<string>();
+
+  for (const component of model.components) {
+    const packageId =
+      component.packageId ??
+      model.packages.find((packageItem) =>
+        packageItem.componentIds.includes(component.id),
+      )?.id;
+    if (!packageId) continue;
+    componentsByPackage.set(packageId, [
+      ...(componentsByPackage.get(packageId) ?? []),
+      component,
+    ]);
+    packagedComponentIds.add(component.id);
+  }
+
+  for (const packageItem of model.packages) {
+    const stereotype = packageItem.stereotype ? ` <<${packageItem.stereotype}>>` : "";
+    lines.push(`package ${quoteLabel(packageItem.name)} as ${safeAlias(packageItem.id)}${stereotype} {`);
+    for (const component of componentsByPackage.get(packageItem.id) ?? []) {
+      const componentStereotype = component.componentType
+        ? ` <<${component.componentType}>>`
+        : "";
+      lines.push(
+        `  component ${quoteLabel(component.name)} as ${safeAlias(component.id)}${componentStereotype}`,
+      );
+    }
+    lines.push("}");
+  }
+
+  for (const component of model.components) {
+    if (packagedComponentIds.has(component.id)) continue;
+    const stereotype = component.componentType ? ` <<${component.componentType}>>` : "";
+    lines.push(
+      `component ${quoteLabel(component.name)} as ${safeAlias(component.id)}${stereotype}`,
+    );
+  }
+
+  for (const relation of model.relationships) {
+    const label = shortLabelPart(relation.label, 16);
+    const suffix = label ? ` : ${label}` : "";
+    lines.push(
+      `${safeAlias(relation.sourceId)} ${architectureRelationshipArrow(relation)} ${safeAlias(relation.targetId)}${suffix}`,
+    );
+  }
+
+  appendNotes(lines, model.notes);
+  return `${lines.join("\n")}\n@enduml`;
+}
+
+function componentRelationshipArrow(relation: ComponentRelationship) {
+  switch (relation.type) {
+    case "provided-interface":
+      return "..|>";
+    case "required-interface":
+    case "dependency":
+      return "..>";
+    case "composition":
+      return "*--";
+    case "communication":
+      return "-->";
+  }
+}
+
+function renderComponentRelationship(model: ComponentRelationshipDiagramSpec) {
+  const lines = [
+    "@startuml",
+    "left to right direction",
+    "skinparam componentStyle rectangle",
+  ];
+
+  for (const component of model.components) {
+    const stereotype = component.componentType ? ` <<${component.componentType}>>` : "";
+    lines.push(
+      `component ${quoteLabel(component.name)} as ${safeAlias(component.id)}${stereotype}`,
+    );
+  }
+
+  for (const componentInterface of model.interfaces) {
+    lines.push(`interface ${quoteLabel(componentInterface.name)} as ${safeAlias(componentInterface.id)} {`);
+    for (const operationName of componentInterface.operationNames) {
+      lines.push(`  ${operationName}()`);
+    }
+    lines.push("}");
+  }
+
+  for (const relation of model.relationships) {
+    const label = shortLabelPart(relation.label, 16);
+    const suffix = label ? ` : ${label}` : "";
+    lines.push(
+      `${safeAlias(relation.sourceId)} ${componentRelationshipArrow(relation)} ${safeAlias(relation.targetId)}${suffix}`,
+    );
+  }
+
+  appendNotes(lines, model.notes);
+  return `${lines.join("\n")}\n@enduml`;
+}
+
 function tableRelationshipLabel(relation: TableRelationship) {
   if (relation.label) {
     return shortDiagramLabel(relation.label, 16);
@@ -1057,6 +1254,12 @@ export function generatePlantUmlArtifacts(
   return models.map((model) => {
     const modelId = "modelId" in model ? model.modelId : undefined;
     switch (model.diagramKind) {
+      case "function":
+        return {
+          modelId,
+          diagramKind: model.diagramKind,
+          source: renderFunctionStructure(model),
+        };
       case "usecase":
         return { modelId, diagramKind: model.diagramKind, source: renderUseCase(model) };
       case "class":
@@ -1094,6 +1297,12 @@ export function generateDesignPlantUmlArtifacts(
 ): DesignPlantUmlArtifact[] {
   return models.map((model) => {
     switch (model.diagramKind) {
+      case "architecture":
+        return {
+          modelId: model.modelId,
+          diagramKind: model.diagramKind,
+          source: renderArchitecture(model),
+        };
       case "sequence":
         return {
           modelId: model.modelId,
@@ -1111,6 +1320,12 @@ export function generateDesignPlantUmlArtifacts(
           modelId: model.modelId,
           diagramKind: model.diagramKind,
           source: renderActivity(model),
+        };
+      case "component":
+        return {
+          modelId: model.modelId,
+          diagramKind: model.diagramKind,
+          source: renderComponentRelationship(model),
         };
       case "deployment":
         return {

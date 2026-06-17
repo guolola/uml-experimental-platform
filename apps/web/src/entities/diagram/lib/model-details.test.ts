@@ -68,4 +68,84 @@ describe("buildDiagramDetailModel", () => {
       { label: "类型", value: "DateTime" },
     ]);
   });
+
+  it("exposes function, architecture, and component elements", () => {
+    const functionDetails = buildDiagramDetailModel({
+      diagramKind: "function",
+      title: "功能结构图",
+      summary: "功能分解",
+      notes: [],
+      nodes: [
+        { id: "fn_root", name: "订单管理", sourceRequirementIds: ["REQ-001"] },
+        { id: "fn_create", name: "创建订单", parentId: "fn_root", sourceRequirementIds: ["REQ-001"] },
+      ],
+      relationships: [
+        {
+          id: "rel_fn_create",
+          type: "decomposition",
+          sourceId: "fn_root",
+          targetId: "fn_create",
+        },
+      ],
+    });
+    expect(functionDetails.groups[0]?.kind).toBe("function");
+    expect(functionDetails.relationships[0]?.typeLabel).toBe("功能分解");
+
+    const architectureDetails = buildDiagramDetailModel({
+      diagramKind: "architecture",
+      title: "总体架构图",
+      summary: "包图",
+      notes: [],
+      packages: [
+        { id: "pkg_order", name: "订单包", componentIds: ["cmp_order"] },
+      ],
+      components: [
+        {
+          id: "cmp_order",
+          name: "订单服务",
+          packageId: "pkg_order",
+          sourceRequirementIds: ["REQ-001"],
+        },
+      ],
+      relationships: [
+        {
+          id: "rel_order",
+          type: "contains",
+          sourceId: "pkg_order",
+          targetId: "cmp_order",
+        },
+      ],
+    });
+    expect(architectureDetails.groups.map((group) => group.kind)).toEqual([
+      "package",
+      "component",
+    ]);
+    expect(architectureDetails.relationships[0]?.typeLabel).toBe("包含");
+
+    const componentDetails = buildDiagramDetailModel({
+      diagramKind: "component",
+      title: "组件关系图",
+      summary: "组件接口",
+      notes: [],
+      components: [
+        { id: "cmp_order", name: "订单组件", sourceClassIds: ["OrderService"] },
+      ],
+      interfaces: [
+        { id: "if_order", name: "OrderApi", operationNames: ["createOrder"] },
+      ],
+      relationships: [
+        {
+          id: "rel_provide",
+          type: "provided-interface",
+          sourceId: "cmp_order",
+          targetId: "if_order",
+        },
+      ],
+    });
+    expect(componentDetails.groups.map((group) => group.kind)).toEqual([
+      "component",
+      "interface",
+    ]);
+    expect(componentDetails.relationships[0]?.typeLabel).toBe("提供接口");
+  });
 });

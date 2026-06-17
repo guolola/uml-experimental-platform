@@ -285,7 +285,7 @@
 ## Test And Acceptance
 
 - 未登录用户不能访问任何项目、run snapshot、SSE、文档下载。
-- 未登录用户不能访问 `/projects`、`/workspace`、`/exam`、`/tutorial`、`/about` 等业务功能页；应回到官网首页或认证流程。
+- 未登录用户不能访问 `/projects`、`/workspace`、`/exam`、`/tutorial` 等业务功能页；应回到官网首页或认证流程。
 - A 用户不能通过猜测 `runId` 或 `documentId` 访问 B 用户项目数据。
 - 管理员只能在自己的角色和数据范围内查看/操作。
 - API Key 页面无法读回明文，轮换/吊销后旧密钥不可用。

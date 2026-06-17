@@ -10,13 +10,16 @@ export const modelElementRefResponseSchema = {
     diagramKind: {
       type: "string",
       enum: [
+        "function",
         "usecase",
         "class",
         "activity",
         "deployment",
         "prototype",
         "analysis",
+        "architecture",
         "sequence",
+        "component",
         "table",
       ],
     },
@@ -57,6 +60,65 @@ export const GENERATE_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
           type: "array",
           items: {
             oneOf: [
+              {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  diagramKind: { type: "string", enum: ["function"] },
+                  modelId: { type: "string" },
+                  title: { type: "string" },
+                  summary: { type: "string" },
+                  notes: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                  nodes: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        id: { type: "string" },
+                        name: { type: "string" },
+                        description: { type: "string" },
+                        parentId: { type: "string" },
+                        sourceRequirementIds: {
+                          type: "array",
+                          items: { type: "string" },
+                        },
+                      },
+                      required: ["id", "name", "sourceRequirementIds"],
+                    },
+                  },
+                  relationships: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        id: { type: "string" },
+                        type: {
+                          type: "string",
+                          enum: ["decomposition", "dependency"],
+                        },
+                        sourceId: { type: "string" },
+                        targetId: { type: "string" },
+                        label: { type: "string" },
+                        description: { type: "string" },
+                      },
+                      required: ["id", "type", "sourceId", "targetId"],
+                    },
+                  },
+                },
+                required: [
+                  "diagramKind",
+                  "title",
+                  "summary",
+                  "notes",
+                  "nodes",
+                  "relationships",
+                ],
+              },
               {
                 type: "object",
                 additionalProperties: false,

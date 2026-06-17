@@ -22,11 +22,13 @@ import {
 } from "../baselines/requirement-baseline.js";
 
 const DESIGN_DIAGRAM_ORDER: DesignDiagramKind[] = [
+  "architecture",
   "sequence",
   "class",
   "activity",
-  "deployment",
   "table",
+  "component",
+  "deployment",
 ];
 
 function normalizeSnapshotFilePath(path: string) {

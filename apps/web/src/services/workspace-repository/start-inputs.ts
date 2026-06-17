@@ -64,6 +64,7 @@ export interface StartDocumentRunInput {
   evidencePackage?: EvidencePackage | null;
   rules: RequirementRule[];
   requirementModels: DiagramModelSpec[];
+  requirementModelTraceability: RequirementModelTraceabilityEntry[];
   requirementPlantUml: PlantUmlArtifact[];
   requirementSvgArtifacts: SvgArtifact[];
   designModels: DesignDiagramModelSpec[];
@@ -162,6 +163,7 @@ export function createStartDocumentRunInput(
   requirementText: string,
   rules: RequirementRule[],
   requirementModels: DiagramModelSpec[],
+  requirementModelTraceability: RequirementModelTraceabilityEntry[],
   requirementPlantUml: PlantUmlArtifact[],
   requirementSvgArtifacts: SvgArtifact[],
   designModels: DesignDiagramModelSpec[],
@@ -175,6 +177,7 @@ export function createStartDocumentRunInput(
     requirementText,
     rules,
     requirementModels,
+    requirementModelTraceability,
     requirementPlantUml,
     requirementSvgArtifacts,
     designModels,

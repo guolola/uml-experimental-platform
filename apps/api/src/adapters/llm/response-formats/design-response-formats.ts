@@ -48,6 +48,9 @@ const relationshipResponseSchema = {
         "dependency",
         "control_flow",
         "object_flow",
+        "contains",
+        "provided-interface",
+        "required-interface",
         "deployment",
         "communication",
         "hosting",
@@ -88,7 +91,15 @@ const designModelResponseSchema = {
   properties: {
     diagramKind: {
       type: "string",
-      enum: ["sequence", "class", "activity", "deployment", "table"],
+      enum: [
+        "architecture",
+        "sequence",
+        "class",
+        "activity",
+        "component",
+        "deployment",
+        "table",
+      ],
     },
     modelId: { type: "string" },
     sourceUseCaseId: { type: "string" },
@@ -215,9 +226,10 @@ const designModelResponseSchema = {
           type: { type: "string" },
           constraints: stringArrayResponseSchema,
           description: { type: "string" },
+          operationNames: stringArrayResponseSchema,
           operations: { type: "array", items: classOperationResponseSchema },
         },
-        required: ["id", "name", "operations"],
+        required: ["id", "name"],
       },
     },
     enums: {
@@ -286,6 +298,21 @@ const designModelResponseSchema = {
         required: ["id", "name"],
       },
     },
+    packages: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          stereotype: { type: "string" },
+          description: { type: "string" },
+          componentIds: stringArrayResponseSchema,
+        },
+        required: ["id", "name", "componentIds"],
+      },
+    },
     components: {
       type: "array",
       items: {
@@ -295,7 +322,10 @@ const designModelResponseSchema = {
           id: { type: "string" },
           name: { type: "string" },
           componentType: { type: "string" },
+          packageId: { type: "string" },
           description: { type: "string" },
+          sourceRequirementIds: stringArrayResponseSchema,
+          sourceClassIds: stringArrayResponseSchema,
         },
         required: ["id", "name"],
       },

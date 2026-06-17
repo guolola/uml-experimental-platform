@@ -16,7 +16,7 @@ test("normalizes requirement rule category aliases and diagram aliases", () => {
         id: "r2",
         category: "接口需求",
         text: "用户通过微信一键授权登录系统。",
-        relatedDiagrams: ["用例图", "流程图"],
+        relatedDiagrams: ["功能分解图", "用例图", "流程图"],
       },
     ],
   });
@@ -32,9 +32,31 @@ test("normalizes requirement rule category aliases and diagram aliases", () => {
       id: "r2",
       category: "外部接口",
       text: "用户通过微信一键授权登录系统。",
-      relatedDiagrams: ["usecase", "activity"],
+      relatedDiagrams: ["function", "usecase", "activity"],
     },
   ]);
+});
+
+test("preserves source fragments separately from readable rule text", () => {
+  const result = normalizeRequirementRulesResult({
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "图书管理员可以借阅图书。",
+        sourceFragment: "(1)借书",
+        relatedDiagrams: ["用例图"],
+      },
+    ],
+  });
+
+  assert.deepEqual(result.rules[0], {
+    id: "r1",
+    category: "功能需求",
+    text: "图书管理员可以借阅图书。",
+    sourceFragment: "(1)借书",
+    relatedDiagrams: ["usecase"],
+  });
 });
 
 test("infers related diagrams when model returns only invalid diagram labels", () => {
@@ -58,6 +80,7 @@ test("infers related diagrams when model returns only invalid diagram labels", (
   assert.equal(result.rules[0]?.category, "非功能需求");
   assert.deepEqual(result.rules[0]?.relatedDiagrams, ["deployment"]);
   assert.deepEqual(result.rules[1]?.relatedDiagrams, [
+    "function",
     "usecase",
     "activity",
     "analysis",

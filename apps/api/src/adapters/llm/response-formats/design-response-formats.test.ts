@@ -95,3 +95,23 @@ test("design class response schema exposes localized names and constraints", () 
     assert.ok(attributeProperties[field], `classes[].attributes[].${field} must be declared`);
   }
 });
+
+test("design model response schema includes architecture and component shapes", () => {
+  const modelProperties = (
+    GENERATE_DESIGN_MODELS_RESPONSE_FORMAT.json_schema.schema.properties as {
+      models: { items: { properties: Record<string, unknown> } };
+    }
+  ).models.items.properties;
+  const diagramKind = modelProperties.diagramKind as { enum: string[] };
+  assert.ok(diagramKind.enum.includes("architecture"));
+  assert.ok(diagramKind.enum.includes("component"));
+  assert.ok(modelProperties.packages);
+  assert.ok(modelProperties.components);
+
+  const relationship = modelProperties.relationships as {
+    items: { properties: { type: { enum: string[] } } };
+  };
+  assert.ok(relationship.items.properties.type.enum.includes("contains"));
+  assert.ok(relationship.items.properties.type.enum.includes("provided-interface"));
+  assert.ok(relationship.items.properties.type.enum.includes("required-interface"));
+});

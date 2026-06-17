@@ -34,11 +34,13 @@ export function buildRequirementDiagramTraceBadge(
 }
 
 const DESIGN_UPSTREAM_BADGES: Record<DesignDiagramType, string[]> = {
-  sequence: [DIAGRAM_META.usecase.label],
+  architecture: [DIAGRAM_META.function.label],
+  sequence: [DIAGRAM_META.usecase.label, DIAGRAM_META.analysis.label],
   class: [DIAGRAM_META.class.label, DESIGN_DIAGRAM_META.sequence.label],
   activity: [DIAGRAM_META.prototype.label, DESIGN_DIAGRAM_META.sequence.label],
-  deployment: [DIAGRAM_META.deployment.label, DESIGN_DIAGRAM_META.sequence.label],
-  table: [DIAGRAM_META.class.label, DESIGN_DIAGRAM_META.sequence.label],
+  table: [DESIGN_DIAGRAM_META.class.label],
+  component: [DESIGN_DIAGRAM_META.class.label],
+  deployment: [DIAGRAM_META.deployment.label, DESIGN_DIAGRAM_META.component.label],
 };
 
 export function buildDesignDiagramTraceBadge(diagram: DesignDiagramType) {

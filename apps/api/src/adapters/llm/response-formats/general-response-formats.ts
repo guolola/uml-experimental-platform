@@ -26,7 +26,7 @@ const requirementRuleSchema = {
       type: "array",
       items: {
         type: "string",
-        enum: ["usecase", "class", "activity", "deployment", "prototype", "analysis"],
+        enum: ["function", "usecase", "class", "activity", "deployment", "prototype", "analysis"],
       },
     },
   },

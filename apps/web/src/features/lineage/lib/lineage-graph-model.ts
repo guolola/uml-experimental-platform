@@ -1,0 +1,807 @@
+// Derives the project generation lineage graph from the workspace session state.
+import type {
+  DesignDiagramKind,
+  DiagramKind,
+  DocumentKind,
+} from "@uml-platform/contracts";
+import {
+  DESIGN_DIAGRAM_META,
+  DESIGN_DIAGRAM_ORDER,
+  DIAGRAM_META,
+  DIAGRAM_ORDER,
+  type DesignDiagramType,
+  type DiagramType,
+} from "../../../entities/diagram/model";
+import type { RequirementRule } from "../../../entities/requirement-rule/model";
+import type { WorkspaceRecord } from "../../../entities/workspace/model";
+import type {
+  GenerationTask,
+  WorkspaceSessionState,
+} from "../../workspace-session/model/session-state";
+import { DESIGN_REQUIREMENT_SOURCE_MAP } from "../../workspace-session/lib/generation-planning";
+
+export type LineageStage =
+  | "requirement-rules"
+  | "requirement-models"
+  | "design-models"
+  | "code-docs";
+
+export type LineageNodeKind =
+  | "rule"
+  | "requirement-model"
+  | "design-model"
+  | "code"
+  | "document";
+
+export type LineageNodeStatus =
+  | "not-generated"
+  | "current"
+  | "stale"
+  | "error"
+  | "running";
+
+export type LineageEdgeStatus = "default" | "stale" | "error";
+
+export type LineageRecentEvent = {
+  label: string;
+  description: string;
+};
+
+export type LineageNode = {
+  id: string;
+  kind: LineageNodeKind;
+  stage: LineageStage;
+  stageLabel: string;
+  label: string;
+  eyebrow: string;
+  description: string;
+  status: LineageNodeStatus;
+  reason: string;
+  actionLabel: string;
+  upstreamIds: string[];
+  downstreamIds: string[];
+  recentEvents: LineageRecentEvent[];
+  payload?: {
+    diagramKind?: DiagramKind;
+    designDiagramKind?: DesignDiagramKind;
+    documentKind?: DocumentKind;
+  };
+};
+
+export type LineageEdge = {
+  id: string;
+  source: string;
+  target: string;
+  status: LineageEdgeStatus;
+  label?: string;
+};
+
+export type LineageGraphSummary = {
+  total: number;
+  stale: number;
+  error: number;
+  running: number;
+  notGenerated: number;
+  current: number;
+};
+
+export type LineageGraph = {
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+  summary: LineageGraphSummary;
+  defaultSelectedNodeId: string | null;
+};
+
+export type LineageColumn = {
+  id: LineageStage;
+  label: string;
+  nodes: LineageNode[];
+};
+
+export type LineageGraphInput = Pick<
+  WorkspaceSessionState,
+  | "rules"
+  | "isRulesStale"
+  | "requirementReviewCandidates"
+  | "models"
+  | "generatedDiagrams"
+  | "staleDiagrams"
+  | "diagramErrors"
+  | "selectedDiagrams"
+  | "designModels"
+  | "generatedDesignDiagrams"
+  | "designDiagramErrors"
+  | "selectedDesignDiagrams"
+  | "designTraceabilityStale"
+  | "designGenerationBlockedReason"
+  | "codeFiles"
+  | "codeEntryFile"
+  | "codeSpec"
+  | "codeDiagnostics"
+  | "generationTasks"
+  | "historyItems"
+>;
+
+export const LINEAGE_STAGE_ORDER: LineageStage[] = [
+  "requirement-rules",
+  "requirement-models",
+  "design-models",
+  "code-docs",
+];
+
+const STAGE_LABELS: Record<LineageStage, string> = {
+  "requirement-rules": "需求规则",
+  "requirement-models": "需求模型",
+  "design-models": "设计模型",
+  "code-docs": "产物",
+};
+
+const REQUIRED_REQUIREMENT_DIAGRAMS = ["usecase", "class"] as const satisfies DiagramType[];
+const REQUIRED_DESIGN_DIAGRAMS = ["sequence", "class"] as const satisfies DesignDiagramType[];
+
+const RUNNING_STATUSES = new Set(["queued", "running"]);
+const ACTIVE_SUBTASK_STATUSES = new Set([
+  "queued",
+  "running",
+  "repairing",
+  "rendering",
+]);
+
+function nodeId(kind: LineageNodeKind, id: string) {
+  return `${kind}:${id}`;
+}
+
+function ruleNodeId(ruleId: string) {
+  return nodeId("rule", ruleId);
+}
+
+function requirementNodeId(diagram: DiagramType) {
+  return nodeId("requirement-model", diagram);
+}
+
+function designNodeId(diagram: DesignDiagramType) {
+  return nodeId("design-model", diagram);
+}
+
+function codeNodeId() {
+  return nodeId("code", "prototype");
+}
+
+function documentNodeId(kind: DocumentKind) {
+  return nodeId("document", kind);
+}
+
+function statusActionLabel(status: LineageNodeStatus) {
+  switch (status) {
+    case "not-generated":
+      return "生成";
+    case "current":
+      return "查看";
+    case "stale":
+      return "更新";
+    case "error":
+      return "重试";
+    case "running":
+      return "查看进度";
+  }
+}
+
+function edgeStatus(
+  sourceStatus: LineageNodeStatus | undefined,
+  targetStatus: LineageNodeStatus | undefined,
+): LineageEdgeStatus {
+  if (sourceStatus === "error" || targetStatus === "error") return "error";
+  if (targetStatus === "stale") return "stale";
+  return "default";
+}
+
+function taskIsActive(task: GenerationTask) {
+  return RUNNING_STATUSES.has(task.status);
+}
+
+function taskKindActive(input: LineageGraphInput, kind: GenerationTask["kind"]) {
+  return input.generationTasks.some((task) => task.kind === kind && taskIsActive(task));
+}
+
+function documentTaskActive(input: LineageGraphInput, documentKind: DocumentKind) {
+  return input.generationTasks.some(
+    (task) =>
+      task.kind === "document" &&
+      task.documentKind === documentKind &&
+      taskIsActive(task),
+  );
+}
+
+function failedTaskForKind(input: LineageGraphInput, kind: GenerationTask["kind"]) {
+  return input.generationTasks.find(
+    (task) => task.kind === kind && task.status === "failed",
+  );
+}
+
+function subtaskActiveFor(
+  input: LineageGraphInput,
+  kind: GenerationTask["kind"],
+  diagram: string,
+) {
+  return input.generationTasks.some(
+    (task) =>
+      task.kind === kind &&
+      taskIsActive(task) &&
+      task.subtasks.some(
+        (subtask) =>
+          ACTIVE_SUBTASK_STATUSES.has(subtask.status) &&
+          (subtask.id === diagram ||
+            subtask.id.endsWith(`:${diagram}`) ||
+            subtask.id.includes(`:${diagram}:`)),
+      ),
+  );
+}
+
+function subtaskFailureFor(
+  input: LineageGraphInput,
+  kind: GenerationTask["kind"],
+  diagram: string,
+) {
+  return input.generationTasks
+    .flatMap((task) => (task.kind === kind ? task.subtasks : []))
+    .find(
+      (subtask) =>
+        subtask.status === "failed" &&
+        (subtask.id === diagram ||
+          subtask.id.endsWith(`:${diagram}`) ||
+          subtask.id.includes(`:${diagram}:`)),
+    );
+}
+
+function hasRequirementModel(input: LineageGraphInput, diagram: DiagramType) {
+  return Object.values(input.models).some(
+    (model) => model?.diagramKind === diagram,
+  );
+}
+
+function hasDesignModel(input: LineageGraphInput, diagram: DesignDiagramType) {
+  return Object.values(input.designModels).some(
+    (model) => model?.diagramKind === diagram,
+  );
+}
+
+function requirementDiagramsFor(input: LineageGraphInput) {
+  const diagrams = new Set<DiagramType>([
+    ...REQUIRED_REQUIREMENT_DIAGRAMS,
+    ...input.selectedDiagrams,
+    ...input.generatedDiagrams,
+    ...input.staleDiagrams,
+    ...(Object.keys(input.diagramErrors) as DiagramType[]),
+    ...input.rules.flatMap((rule) => rule.relatedDiagrams),
+  ]);
+  Object.values(input.models).forEach((model) => {
+    if (model?.diagramKind) diagrams.add(model.diagramKind);
+  });
+  return DIAGRAM_ORDER.filter((diagram) => diagrams.has(diagram));
+}
+
+function designDiagramsFor(input: LineageGraphInput) {
+  const diagrams = new Set<DesignDiagramType>([
+    ...REQUIRED_DESIGN_DIAGRAMS,
+    ...input.selectedDesignDiagrams,
+    ...input.generatedDesignDiagrams,
+    ...(Object.keys(input.designDiagramErrors) as DesignDiagramType[]),
+  ]);
+  Object.values(input.designModels).forEach((model) => {
+    diagrams.add(model.diagramKind);
+  });
+  return DESIGN_DIAGRAM_ORDER.filter((diagram) => diagrams.has(diagram));
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  if (!error || typeof error !== "object") return fallback;
+  const record = error as { error?: { message?: string } };
+  return record.error?.message ?? fallback;
+}
+
+function lastFinishedTaskEvent(
+  input: LineageGraphInput,
+  kind: GenerationTask["kind"],
+  fallback: string,
+) {
+  const task = [...input.generationTasks]
+    .reverse()
+    .find((item) => item.kind === kind && item.finishedAt);
+  if (!task?.finishedAt) return [];
+  return [
+    {
+      label: fallback,
+      description: formatRelativeDate(task.finishedAt),
+    },
+  ];
+}
+
+function formatRelativeDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function rulesStatus(input: LineageGraphInput): LineageNodeStatus {
+  if (taskKindActive(input, "requirements")) return "running";
+  if (input.rules.length === 0) return "not-generated";
+  if (input.isRulesStale) return "stale";
+  const failedRuleReviews = Object.values(input.requirementReviewCandidates).some(
+    (candidate) => candidate.status === "failed",
+  );
+  return failedRuleReviews ? "error" : "current";
+}
+
+function ruleReason(input: LineageGraphInput, rule: RequirementRule) {
+  if (input.rules.length === 0) return "尚未抽取需求规则。";
+  if (input.isRulesStale) return "需求文本已修改，需求规则需更新。";
+  const failedReview = input.requirementReviewCandidates[rule.id];
+  if (failedReview?.status === "failed") {
+    return failedReview.errorMessage ?? "规则修复失败，上一版规则仍可查看。";
+  }
+  if (taskKindActive(input, "requirements")) return "需求生成任务正在处理上游规则。";
+  return "需求规则为最新，可继续生成下游模型。";
+}
+
+function requirementStatus(
+  input: LineageGraphInput,
+  diagram: DiagramType,
+): LineageNodeStatus {
+  if (input.diagramErrors[diagram]) return "error";
+  if (subtaskFailureFor(input, "requirements", diagram)) return "error";
+  if (subtaskActiveFor(input, "requirements", diagram)) return "running";
+  if (input.staleDiagrams.includes(diagram)) return "stale";
+  if (hasRequirementModel(input, diagram) || input.generatedDiagrams.includes(diagram)) {
+    return "current";
+  }
+  return "not-generated";
+}
+
+function requirementReason(
+  input: LineageGraphInput,
+  diagram: DiagramType,
+  status: LineageNodeStatus,
+) {
+  const label = DIAGRAM_META[diagram].label;
+  if (status === "error") {
+    return `${label}本次生成失败，上一版${hasRequirementModel(input, diagram) ? "仍可查看" : "尚不可查看"}。${errorMessage(
+      input.diagramErrors[diagram],
+      "",
+    )}`;
+  }
+  if (status === "running") return `${label}正在生成，完成后会刷新下游可用状态。`;
+  if (status === "stale") {
+    return input.isRulesStale
+      ? "需求规则已修改，此需求模型需更新。"
+      : "上游需求输入已变化，此需求模型需更新。";
+  }
+  if (status === "current") return `${label}为最新生成，可继续往下。`;
+  return "尚未生成，生成后才能稳定驱动设计模型。";
+}
+
+function designStatus(
+  input: LineageGraphInput,
+  diagram: DesignDiagramType,
+): LineageNodeStatus {
+  if (input.designDiagramErrors[diagram]) return "error";
+  if (subtaskFailureFor(input, "design", diagram)) return "error";
+  if (subtaskActiveFor(input, "design", diagram)) return "running";
+  if (hasDesignModel(input, diagram) || input.generatedDesignDiagrams.includes(diagram)) {
+    return input.designTraceabilityStale || input.designGenerationBlockedReason
+      ? "stale"
+      : "current";
+  }
+  if (input.designTraceabilityStale || input.designGenerationBlockedReason) {
+    return "stale";
+  }
+  return "not-generated";
+}
+
+function designReason(
+  input: LineageGraphInput,
+  diagram: DesignDiagramType,
+  status: LineageNodeStatus,
+) {
+  const label = DESIGN_DIAGRAM_META[diagram].label;
+  if (status === "error") {
+    return `${label}本次生成失败，上一版${hasDesignModel(input, diagram) ? "仍可查看" : "尚不可查看"}。${errorMessage(
+      input.designDiagramErrors[diagram],
+      "",
+    )}`;
+  }
+  if (status === "running") return `${label}正在生成，完成后会刷新代码和文档影响。`;
+  if (status === "stale") {
+    return input.designGenerationBlockedReason
+      ? input.designGenerationBlockedReason
+      : "需求模型已变化，此设计模型需更新。";
+  }
+  if (status === "current") return `${label}为最新生成，可继续生成产物。`;
+  return "尚未生成，生成后才能驱动代码或设计说明书。";
+}
+
+function codeStatus(input: LineageGraphInput): LineageNodeStatus {
+  if (taskKindActive(input, "code")) return "running";
+  if (failedTaskForKind(input, "code")) return "error";
+  return Object.keys(input.codeFiles).length > 0 || input.codeSpec ? "current" : "not-generated";
+}
+
+function codeReason(input: LineageGraphInput, status: LineageNodeStatus) {
+  if (status === "running") return "代码原型正在生成，可在生成任务中查看实时进度。";
+  if (status === "error") {
+    return failedTaskForKind(input, "code")?.errorMessage ?? "代码生成失败，上一版仍可查看。";
+  }
+  if (status === "current") {
+    return input.codeEntryFile
+      ? `入口文件 ${input.codeEntryFile} 已生成。`
+      : "代码原型已生成，可继续查看或重新生成。";
+  }
+  return "尚未生成代码原型。";
+}
+
+function documentStatus(input: LineageGraphInput, documentKind: DocumentKind): LineageNodeStatus {
+  if (documentTaskActive(input, documentKind)) return "running";
+  const failed = input.generationTasks.find(
+    (task) =>
+      task.kind === "document" &&
+      task.documentKind === documentKind &&
+      task.status === "failed",
+  );
+  if (failed) return "error";
+  const completedHistory = input.historyItems.some(
+    (item) =>
+      item.snapshot &&
+      "documentKind" in item.snapshot &&
+      item.snapshot.documentKind === documentKind,
+  );
+  return completedHistory ? "current" : "not-generated";
+}
+
+function documentReason(
+  input: LineageGraphInput,
+  documentKind: DocumentKind,
+  status: LineageNodeStatus,
+) {
+  const label = documentKind === "requirementsSpec" ? "需求说明书" : "设计说明书";
+  if (status === "running") return `${label}正在生成。`;
+  if (status === "error") {
+    const failed = input.generationTasks.find(
+      (task) =>
+        task.kind === "document" &&
+        task.documentKind === documentKind &&
+        task.status === "failed",
+    );
+    return failed?.errorMessage ?? `${label}生成失败，上一版仍可查看。`;
+  }
+  if (status === "current") return `${label}已生成，可在文档中心查看。`;
+  return `${label}尚未生成。`;
+}
+
+function uniqueEdges(edges: LineageEdge[]) {
+  const seen = new Set<string>();
+  return edges.filter((edge) => {
+    if (seen.has(edge.id)) return false;
+    seen.add(edge.id);
+    return true;
+  });
+}
+
+function applyConnections(nodes: LineageNode[], edges: LineageEdge[]) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    const source = nodesById.get(edge.source);
+    const target = nodesById.get(edge.target);
+    if (source && !source.downstreamIds.includes(edge.target)) {
+      source.downstreamIds.push(edge.target);
+    }
+    if (target && !target.upstreamIds.includes(edge.source)) {
+      target.upstreamIds.push(edge.source);
+    }
+  }
+}
+
+function addEdge(
+  edges: LineageEdge[],
+  nodesById: Map<string, LineageNode>,
+  source: string,
+  target: string,
+  label?: string,
+) {
+  if (!nodesById.has(source) || !nodesById.has(target)) return;
+  const sourceNode = nodesById.get(source);
+  const targetNode = nodesById.get(target);
+  edges.push({
+    id: `${source}->${target}`,
+    source,
+    target,
+    status: edgeStatus(sourceNode?.status, targetNode?.status),
+    label,
+  });
+}
+
+function buildRuleNodes(input: LineageGraphInput): LineageNode[] {
+  if (input.rules.length === 0) {
+    const status = rulesStatus(input);
+    return [
+      {
+        id: nodeId("rule", "empty"),
+        kind: "rule" as const,
+        stage: "requirement-rules" as const,
+        stageLabel: STAGE_LABELS["requirement-rules"],
+        label: "需求规则",
+        eyebrow: "未生成",
+        description: "从需求文本抽取可追踪的规则。",
+        status,
+        reason: "尚未抽取需求规则，只有这里可以开始。",
+        actionLabel: statusActionLabel(status),
+        upstreamIds: [],
+        downstreamIds: [],
+        recentEvents: [],
+      },
+    ];
+  }
+  return input.rules.map((rule) => {
+    const status = rulesStatus(input);
+    return {
+      id: ruleNodeId(rule.id),
+      kind: "rule" as const,
+      stage: "requirement-rules" as const,
+      stageLabel: STAGE_LABELS["requirement-rules"],
+      label: rule.id,
+      eyebrow: rule.category,
+      description: rule.text,
+      status,
+      reason: ruleReason(input, rule),
+      actionLabel: statusActionLabel(status),
+      upstreamIds: [],
+      downstreamIds: [],
+      recentEvents: lastFinishedTaskEvent(input, "requirements", "规则生成"),
+    };
+  });
+}
+
+function buildRequirementNodes(input: LineageGraphInput): LineageNode[] {
+  return requirementDiagramsFor(input).map((diagram) => {
+    const meta = DIAGRAM_META[diagram];
+    const status = requirementStatus(input, diagram);
+    return {
+      id: requirementNodeId(diagram),
+      kind: "requirement-model" as const,
+      stage: "requirement-models" as const,
+      stageLabel: STAGE_LABELS["requirement-models"],
+      label: meta.label,
+      eyebrow: meta.english,
+      description: meta.description,
+      status,
+      reason: requirementReason(input, diagram, status),
+      actionLabel: statusActionLabel(status),
+      upstreamIds: [],
+      downstreamIds: [],
+      recentEvents: lastFinishedTaskEvent(input, "requirements", "模型生成"),
+      payload: { diagramKind: diagram },
+    };
+  });
+}
+
+function buildDesignNodes(input: LineageGraphInput): LineageNode[] {
+  return designDiagramsFor(input).map((diagram) => {
+    const meta = DESIGN_DIAGRAM_META[diagram];
+    const status = designStatus(input, diagram);
+    return {
+      id: designNodeId(diagram),
+      kind: "design-model" as const,
+      stage: "design-models" as const,
+      stageLabel: STAGE_LABELS["design-models"],
+      label: meta.label,
+      eyebrow: meta.english,
+      description: meta.description,
+      status,
+      reason: designReason(input, diagram, status),
+      actionLabel: statusActionLabel(status),
+      upstreamIds: [],
+      downstreamIds: [],
+      recentEvents: lastFinishedTaskEvent(input, "design", "设计生成"),
+      payload: { designDiagramKind: diagram },
+    };
+  });
+}
+
+function buildProductNodes(input: LineageGraphInput): LineageNode[] {
+  const code = codeStatus(input);
+  const requirementsDoc = documentStatus(input, "requirementsSpec");
+  const designDoc = documentStatus(input, "softwareDesignSpec");
+  return [
+    {
+      id: documentNodeId("requirementsSpec"),
+      kind: "document" as const,
+      stage: "code-docs" as const,
+      stageLabel: STAGE_LABELS["code-docs"],
+      label: "需求说明书",
+      eyebrow: "Document",
+      description: "汇总需求规则与需求模型的说明书。",
+      status: requirementsDoc,
+      reason: documentReason(input, "requirementsSpec", requirementsDoc),
+      actionLabel: statusActionLabel(requirementsDoc),
+      upstreamIds: [],
+      downstreamIds: [],
+      recentEvents: lastFinishedTaskEvent(input, "document", "文档生成"),
+      payload: { documentKind: "requirementsSpec" as const },
+    },
+    {
+      id: documentNodeId("softwareDesignSpec"),
+      kind: "document" as const,
+      stage: "code-docs" as const,
+      stageLabel: STAGE_LABELS["code-docs"],
+      label: "设计说明书",
+      eyebrow: "Document",
+      description: "汇总设计模型、代码规格与接口约束。",
+      status: designDoc,
+      reason: documentReason(input, "softwareDesignSpec", designDoc),
+      actionLabel: statusActionLabel(designDoc),
+      upstreamIds: [],
+      downstreamIds: [],
+      recentEvents: lastFinishedTaskEvent(input, "document", "文档生成"),
+      payload: { documentKind: "softwareDesignSpec" as const },
+    },
+    {
+      id: codeNodeId(),
+      kind: "code" as const,
+      stage: "code-docs" as const,
+      stageLabel: STAGE_LABELS["code-docs"],
+      label: "代码原型",
+      eyebrow: "React Prototype",
+      description: "由设计模型生成可运行的前端原型。",
+      status: code,
+      reason: codeReason(input, code),
+      actionLabel: statusActionLabel(code),
+      upstreamIds: [],
+      downstreamIds: [],
+      recentEvents: lastFinishedTaskEvent(input, "code", "代码生成"),
+    },
+  ];
+}
+
+function buildEdges(nodes: LineageNode[], input: LineageGraphInput) {
+  const edges: LineageEdge[] = [];
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const ruleNodes =
+    input.rules.length > 0
+      ? input.rules.map((rule) => ({ id: ruleNodeId(rule.id), rule }))
+      : [{ id: nodeId("rule", "empty"), rule: null }];
+  const requirementDiagrams = requirementDiagramsFor(input);
+
+  for (const { id, rule } of ruleNodes) {
+    const related =
+      rule?.relatedDiagrams && rule.relatedDiagrams.length > 0
+        ? rule.relatedDiagrams
+        : requirementDiagrams;
+    for (const diagram of related) {
+      addEdge(
+        edges,
+        nodesById,
+        id,
+        requirementNodeId(diagram),
+        rule ? "规则映射" : "生成前置",
+      );
+    }
+  }
+
+  for (const [designDiagram, sourceDiagrams] of Object.entries(
+    DESIGN_REQUIREMENT_SOURCE_MAP,
+  ) as Array<[DesignDiagramType, DiagramType[]]>) {
+    for (const sourceDiagram of sourceDiagrams) {
+      addEdge(
+        edges,
+        nodesById,
+        requirementNodeId(sourceDiagram),
+        designNodeId(designDiagram),
+        "模型映射",
+      );
+    }
+  }
+
+  for (const designDiagram of designDiagramsFor(input)) {
+    addEdge(edges, nodesById, designNodeId(designDiagram), codeNodeId(), "实现输入");
+    addEdge(
+      edges,
+      nodesById,
+      designNodeId(designDiagram),
+      documentNodeId("softwareDesignSpec"),
+      "设计说明",
+    );
+  }
+
+  for (const requirementDiagram of requirementDiagrams) {
+    addEdge(
+      edges,
+      nodesById,
+      requirementNodeId(requirementDiagram),
+      documentNodeId("requirementsSpec"),
+      "需求说明",
+    );
+  }
+
+  return uniqueEdges(edges);
+}
+
+function summarize(nodes: LineageNode[]): LineageGraphSummary {
+  return {
+    total: nodes.length,
+    stale: nodes.filter((node) => node.status === "stale").length,
+    error: nodes.filter((node) => node.status === "error").length,
+    running: nodes.filter((node) => node.status === "running").length,
+    notGenerated: nodes.filter((node) => node.status === "not-generated").length,
+    current: nodes.filter((node) => node.status === "current").length,
+  };
+}
+
+function defaultSelection(nodes: LineageNode[]) {
+  return (
+    nodes.find((node) => node.status === "error") ??
+    nodes.find((node) => node.status === "stale") ??
+    nodes.find((node) => node.status === "running") ??
+    nodes.find((node) => node.status === "not-generated") ??
+    nodes[0] ??
+    null
+  )?.id ?? null;
+}
+
+export function buildLineageGraph(input: LineageGraphInput): LineageGraph {
+  const nodes = [
+    ...buildRuleNodes(input),
+    ...buildRequirementNodes(input),
+    ...buildDesignNodes(input),
+    ...buildProductNodes(input),
+  ];
+  const edges = buildEdges(nodes, input);
+  applyConnections(nodes, edges);
+  return {
+    nodes,
+    edges,
+    summary: summarize(nodes),
+    defaultSelectedNodeId: defaultSelection(nodes),
+  };
+}
+
+export function collectLineagePath(
+  graph: Pick<LineageGraph, "nodes" | "edges">,
+  selectedNodeId: string | null,
+) {
+  if (!selectedNodeId) return new Set<string>();
+  const downstream = new Map<string, string[]>();
+  const upstream = new Map<string, string[]>();
+  for (const edge of graph.edges) {
+    downstream.set(edge.source, [...(downstream.get(edge.source) ?? []), edge.target]);
+    upstream.set(edge.target, [...(upstream.get(edge.target) ?? []), edge.source]);
+  }
+  const seen = new Set<string>([selectedNodeId]);
+  const visit = (start: string, adjacency: Map<string, string[]>) => {
+    const queue = [start];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) continue;
+      for (const next of adjacency.get(current) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  };
+  visit(selectedNodeId, upstream);
+  visit(selectedNodeId, downstream);
+  return seen;
+}
+
+export function groupLineageColumns(
+  graph: Pick<LineageGraph, "nodes">,
+): LineageColumn[] {
+  return LINEAGE_STAGE_ORDER.map((stage) => ({
+    id: stage,
+    label: STAGE_LABELS[stage],
+    nodes: graph.nodes.filter((node) => node.stage === stage),
+  }));
+}

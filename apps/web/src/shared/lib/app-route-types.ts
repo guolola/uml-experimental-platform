@@ -1,5 +1,5 @@
 // Shares route path type contracts with features without coupling them to app route matching.
-export type ShellRoutePath = "/workspace" | "/exam" | "/tutorial" | "/about";
+export type ShellRoutePath = "/workspace" | "/exam" | "/tutorial";
 
 export type AuthRoutePath =
   | "/login"
@@ -19,7 +19,7 @@ export type AppRoute =
   | { kind: "legacy-account"; path: "/account" | "/account/security" }
   | { kind: "account-billing"; path: "/account/billing" }
   | { kind: "alipay-return"; path: "/billing/alipay/return" }
-  | { kind: "legacy-settings"; path: "/settings/models" }
+  | { kind: "legacy-redirect"; path: "/settings/models"; to: "/projects" }
   | { kind: "projects-index"; path: "/projects" }
   | { kind: "projects-new"; path: "/projects/new" }
   | {

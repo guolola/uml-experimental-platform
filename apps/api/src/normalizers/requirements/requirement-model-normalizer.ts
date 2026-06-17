@@ -271,7 +271,20 @@ function normalizeRequirementDiagramModel(model: unknown) {
     notes: normalizeStringArray(cleaned.notes),
   };
 
-  if (diagramKind === "usecase") {
+  if (diagramKind === "function") {
+    if (typeof normalized.modelId !== "string") {
+      normalized.modelId = "function";
+    }
+    normalized.nodes = ensureArray(normalized.nodes).map((node) =>
+      isPlainRecord(node)
+        ? {
+            ...node,
+            sourceRequirementIds: normalizeStringArray(node.sourceRequirementIds),
+          }
+        : node,
+    );
+    normalized.relationships = ensureArray(normalized.relationships);
+  } else if (diagramKind === "usecase") {
     normalized.actors = ensureArray(normalized.actors).map((actor) =>
       isPlainRecord(actor)
         ? { ...actor, responsibilities: normalizeStringArray(actor.responsibilities) }

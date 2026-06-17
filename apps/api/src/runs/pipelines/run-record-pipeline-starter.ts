@@ -60,6 +60,7 @@ type DocumentPipeline = (
 ) => Promise<void>;
 
 const REQUIREMENT_LLM_SUBTASK_LABELS: Record<string, string> = {
+  function: "功能结构图",
   usecase: "用例模型",
   class: "类模型",
   activity: "总体业务流程",
@@ -69,21 +70,26 @@ const REQUIREMENT_LLM_SUBTASK_LABELS: Record<string, string> = {
 };
 
 const DESIGN_LLM_SUBTASK_LABELS: Record<string, string> = {
+  architecture: "总体架构图",
   sequence: "用例实现设计",
   class: "设计类图",
   activity: "界面关系图",
+  component: "组件（构件）关系",
   deployment: "部署设计",
   table: "数据库设计",
 };
 
 const KNOWN_LLM_DIAGRAM_KINDS = new Set([
+  "function",
   "usecase",
   "class",
   "activity",
   "deployment",
   "prototype",
   "analysis",
+  "architecture",
   "sequence",
+  "component",
   "table",
 ]);
 
@@ -138,6 +144,7 @@ function documentInputFromSnapshot(record: RunRecord): StartDocumentRunRequest {
     evidencePackage: snapshot.evidencePackage,
     rules: [],
     requirementModels: [],
+    requirementModelTraceability: [],
     requirementPlantUml: [],
     requirementSvgArtifacts: [],
     designModels: [],

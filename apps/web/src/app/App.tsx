@@ -18,6 +18,7 @@ import { TextRequirementView } from "../features/requirements/components/text-re
 import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
 import { TestModelPage } from "../features/testing/components/test-model-page";
 import { MarketingHomePage } from "../features/marketing-site/components/marketing-home-page";
+import { ProductDocsPage } from "../features/product-docs/components/product-docs-page";
 import { SidebarMenu } from "../features/workspace-shell/components/sidebar-menu";
 import {
   TopBar,
@@ -41,7 +42,6 @@ import {
   AuthenticatedRoute,
   AuthPage,
   InvitationAcceptPage,
-  ModelSettingsPage,
   ProjectNewPage,
   ProjectWorkspaceDrawer,
   type ProjectDrawerKind,
@@ -49,10 +49,6 @@ import {
   ProjectsIndexPage,
   ProjectWorkspaceBanner,
 } from "../features/user-platform/components/user-platform-pages";
-import {
-  AccountBillingPage,
-  AlipayReturnPage,
-} from "../features/user-platform/components/billing-pages";
 
 function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
   const meta = findShellRouteModule(route);
@@ -75,10 +71,7 @@ function getProtectedRoutePath(route: AppRoute) {
     route.kind === "projects-index" ||
     route.kind === "projects-new" ||
     route.kind === "project-workspace" ||
-    route.kind === "account-billing" ||
-    route.kind === "alipay-return" ||
-    route.kind === "legacy-account" ||
-    route.kind === "legacy-settings"
+    route.kind === "legacy-account"
   ) {
     return route.path;
   }
@@ -304,14 +297,19 @@ export function Shell() {
 
   const renderRoute = () => {
     if (route.kind === "marketing-home") {
+      if (route.path === "/pricing") {
+        return <RedirectRoute to="/" onNavigate={navigate} />;
+      }
       return <MarketingHomePage path={route.path} onNavigate={navigate} />;
     }
     if (route.kind === "shell") {
-      return route.path === "/workspace" ? (
-        <RedirectRoute to="/projects" onNavigate={navigate} />
-      ) : (
-        <StandaloneRoutePage route={route.path as Exclude<ShellRoutePath, "/workspace">} />
-      );
+      if (route.path === "/workspace") {
+        return <RedirectRoute to="/projects" onNavigate={navigate} />;
+      }
+      if (route.path === "/tutorial") {
+        return <ProductDocsPage onNavigate={navigate} />;
+      }
+      return <StandaloneRoutePage route={route.path as Exclude<ShellRoutePath, "/workspace">} />;
     }
     if (route.kind === "auth") {
       return <AuthPage key={route.path} path={route.path} onNavigate={navigate} />;
@@ -326,16 +324,16 @@ export function Shell() {
       return <ProjectNewPage onNavigate={navigate} />;
     }
     if (route.kind === "account-billing") {
-      return <AccountBillingPage onNavigate={navigate} />;
+      return <RedirectRoute to="/projects" onNavigate={navigate} />;
     }
     if (route.kind === "alipay-return") {
-      return <AlipayReturnPage onNavigate={navigate} />;
+      return <RedirectRoute to="/projects" onNavigate={navigate} />;
     }
     if (route.kind === "legacy-account") {
       return <RedirectRoute to="/projects" onNavigate={navigate} />;
     }
-    if (route.kind === "legacy-settings") {
-      return <ModelSettingsPage onNavigate={navigate} />;
+    if (route.kind === "legacy-redirect") {
+      return <RedirectRoute to={route.to} onNavigate={navigate} />;
     }
     if (route.kind === "project-workspace") {
       return (
@@ -360,7 +358,8 @@ export function Shell() {
   const showWorkspaceTopBar =
     route.kind !== "marketing-home" &&
     route.kind !== "auth" &&
-    route.kind !== "invitation-accept";
+    route.kind !== "invitation-accept" &&
+    route.kind !== "legacy-redirect";
   const guardedRouteContent = (
     <>
       {showWorkspaceTopBar && (

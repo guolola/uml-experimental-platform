@@ -3,14 +3,22 @@ import {
   ArrowRight,
   FileText,
   Network,
+  PlayCircle,
   ShieldCheck,
 } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
+import { MARKETING_PROMO_VIDEO_URL } from "../../../shared/lib/video-assets";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
+import { VideoPlayer } from "../../../shared/ui/video-player";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
-import { PricingBillingPage } from "../../user-platform/components/billing-pages";
 import { useAuthSession } from "../../user-platform/lib/use-auth-session";
 import type { PlatformUser } from "../../user-platform/services/platform-api";
 import {
@@ -246,71 +254,95 @@ function HomeTab({
   authUser,
 }: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
   const signedIn = Boolean(authUser);
+  const [promoDialogOpen, setPromoDialogOpen] = useState(false);
 
   return (
-    <MarketingScrollPage>
-      <section
-        data-testid="marketing-home-hero"
-        data-footer-fit="same-viewport"
-        className={`relative flex min-h-[calc(100dvh-73px-92px)] max-w-full items-center overflow-hidden bg-background ${pagePadding} py-[clamp(1rem,2vh,2rem)]`}
-      >
-        <div className="absolute right-0 top-0 size-72 rounded-full bg-primary/10 blur-3xl" />
-        <div className="absolute bottom-0 left-0 size-72 rounded-full bg-info/5 blur-3xl" />
-        <div className="relative mx-auto w-full max-w-[1680px]">
-          <div className="grid min-w-0 items-center gap-[clamp(3rem,5vw,6rem)] overflow-visible lg:grid-cols-[minmax(0,1fr)_minmax(620px,1.18fr)]">
-            <div className="grid min-w-0 max-w-full gap-[clamp(2rem,3.4vh,3.25rem)]">
-              <div className="motion-rise motion-delay-2 grid gap-4">
-                <h1
-                  aria-label="让需求、UML模型、原型和说明书一站式生成"
-                  className="max-w-[820px] break-words font-display text-[32px] font-semibold leading-[40px] tracking-normal text-foreground [overflow-wrap:anywhere] md:text-[clamp(3.75rem,4vw,5rem)] md:font-bold md:leading-[1.12]"
-                >
-                  <span className="block md:inline">让需求、UML模型、</span>
-                  <span className="block md:inline">原型和说明书</span>
-                  <span className="block bg-gradient-to-r from-primary to-info bg-clip-text text-transparent">
-                    一站式生成
-                  </span>
-                </h1>
-                <p className="max-w-[22rem] break-all text-[clamp(1rem,1.1vw,1.25rem)] font-normal leading-[1.6] text-muted-foreground md:max-w-3xl md:break-words">
-                  输入需求文本，平台辅助生成需求规则、UML模型、React 原型与实训说明书。
-                </p>
-              </div>
-              <div className="motion-rise motion-delay-3 flex flex-col gap-4 pt-4 min-[520px]:flex-row min-[520px]:flex-wrap">
-                <Button
-                  type="button"
-                  className="motion-action h-14 w-full max-w-[22rem] justify-center rounded-full px-7 font-display text-[18px] font-semibold leading-[26px] shadow-xl min-[520px]:w-auto min-[520px]:min-w-[12rem] md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
-                  onClick={() => onNavigate(signedIn ? "/projects" : "/register")}
-                >
-                  开始生成
-                  <ArrowRight className="size-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="motion-action h-14 w-full max-w-[22rem] rounded-full border-2 border-border bg-card px-7 font-display text-[18px] font-semibold leading-[26px] text-primary hover:bg-accent min-[520px]:w-auto md:h-[4.5rem] md:px-14 md:text-[20px] md:leading-[28px]"
-                  onClick={() => onNavigate("/cases")}
-                >
-                  查看案例项目
-                </Button>
-              </div>
-              <div className="grid max-w-[22rem] gap-4 border-t border-border/60 pt-8 min-[520px]:flex min-[520px]:max-w-none min-[520px]:flex-wrap min-[520px]:gap-6">
-                {heroTrustPoints.map(({ label, icon: Icon }, index) => (
-                  <span
-                    key={label}
-                    className="motion-rise inline-flex items-center gap-2 rounded-lg px-3 py-1 text-[14px] font-normal leading-[20px] text-muted-foreground"
-                    style={{ "--motion-delay": `${360 + index * 90}ms` } as CSSProperties}
+    <>
+      <MarketingScrollPage>
+        <section
+          data-testid="marketing-home-hero"
+          data-footer-fit="same-viewport"
+          className={`relative flex min-h-[calc(100dvh-73px-92px)] max-w-full items-center overflow-hidden bg-background ${pagePadding} py-[clamp(1rem,2vh,2rem)]`}
+        >
+          <div className="absolute right-0 top-0 size-72 rounded-full bg-primary/10 blur-3xl" />
+          <div className="absolute bottom-0 left-0 size-72 rounded-full bg-info/5 blur-3xl" />
+          <div className="relative mx-auto w-full max-w-[1680px]">
+            <div className="grid min-w-0 items-center gap-[clamp(3rem,5vw,6rem)] overflow-visible lg:grid-cols-[minmax(0,1fr)_minmax(620px,1.18fr)]">
+              <div className="grid min-w-0 max-w-full gap-[clamp(2rem,3.4vh,3.25rem)]">
+                <div className="motion-rise motion-delay-2 grid gap-4">
+                  <h1
+                    aria-label="让需求、UML模型、原型和说明书一站式生成"
+                    className="max-w-[820px] break-words font-display text-[32px] font-semibold leading-[40px] tracking-normal text-foreground [overflow-wrap:anywhere] md:text-[clamp(3.75rem,4vw,5rem)] md:font-bold md:leading-[1.12]"
                   >
-                    <Icon className="size-5 text-primary" />
-                    {label}
-                  </span>
-                ))}
+                    <span className="block md:inline">让需求、UML模型、</span>
+                    <span className="block md:inline">原型和说明书</span>
+                    <span className="block bg-gradient-to-r from-primary to-info bg-clip-text text-transparent">
+                      一站式生成
+                    </span>
+                  </h1>
+                  <p className="max-w-[22rem] break-all text-[clamp(1rem,1.1vw,1.25rem)] font-normal leading-[1.6] text-muted-foreground md:max-w-3xl md:break-words">
+                    输入需求文本，平台辅助生成需求规则、UML模型、React 原型与实训说明书。
+                  </p>
+                </div>
+                <div className="motion-rise motion-delay-3 flex flex-col gap-4 pt-4 min-[520px]:flex-row min-[520px]:flex-wrap">
+                  <Button
+                    type="button"
+                    className="motion-action h-14 w-full max-w-[22rem] justify-center rounded-full px-7 font-display text-[18px] font-semibold leading-[26px] shadow-xl min-[520px]:w-auto min-[520px]:min-w-[12rem] md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
+                    onClick={() => onNavigate(signedIn ? "/projects" : "/register")}
+                  >
+                    开始生成
+                    <ArrowRight className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="motion-action h-14 w-full max-w-[22rem] justify-center rounded-full border-2 border-border bg-card px-7 font-display text-[18px] font-semibold leading-[26px] text-primary hover:bg-accent min-[520px]:w-auto min-[520px]:min-w-[12rem] md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
+                    onClick={() => setPromoDialogOpen(true)}
+                  >
+                    查看产品宣传
+                    <PlayCircle className="size-4" />
+                  </Button>
+                </div>
+                <div className="grid max-w-[22rem] gap-4 border-t border-border/60 pt-8 min-[520px]:flex min-[520px]:max-w-none min-[520px]:flex-wrap min-[520px]:gap-6">
+                  {heroTrustPoints.map(({ label, icon: Icon }, index) => (
+                    <span
+                      key={label}
+                      className="motion-rise inline-flex items-center gap-2 rounded-lg px-3 py-1 text-[14px] font-normal leading-[20px] text-muted-foreground"
+                      style={{ "--motion-delay": `${360 + index * 90}ms` } as CSSProperties}
+                    >
+                      <Icon className="size-5 text-primary" />
+                      {label}
+                    </span>
+                  ))}
+                </div>
               </div>
+              <LayeredProductMockup />
             </div>
-            <LayeredProductMockup />
+            <IntegratedReferenceStandardsStrip />
           </div>
-          <IntegratedReferenceStandardsStrip />
-        </div>
-      </section>
-    </MarketingScrollPage>
+        </section>
+      </MarketingScrollPage>
+      <Dialog open={promoDialogOpen} onOpenChange={setPromoDialogOpen}>
+        <DialogContent
+          hideCloseButton
+          className="max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] !max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none"
+        >
+          <DialogTitle className="sr-only">查看产品宣传</DialogTitle>
+          <DialogDescription className="sr-only">
+            通过短片了解软件工程实训平台如何串联需求、模型、原型和说明书证据。
+          </DialogDescription>
+          {promoDialogOpen && (
+            <VideoPlayer
+              src={MARKETING_PROMO_VIDEO_URL}
+              title="软件工程实训平台产品宣传视频"
+              description="从可信链路和证据视角展示平台核心流程。"
+              caption="产品宣传视频"
+              autoPlay
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -445,17 +477,6 @@ function CasesTab() {
   );
 }
 
-function PricingTab({
-  onNavigate,
-  authUser,
-}: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
-  return (
-    <MarketingFitPage>
-      <PricingBillingPage signedIn={Boolean(authUser)} onNavigate={onNavigate} />
-    </MarketingFitPage>
-  );
-}
-
 export function MarketingHomePage({ path, onNavigate }: MarketingHomePageProps) {
   const { user: authUser } = useAuthSession();
 
@@ -466,7 +487,6 @@ export function MarketingHomePage({ path, onNavigate }: MarketingHomePageProps) 
       {path === "/features" && <FeaturesTab />}
       {path === "/workflow" && <WorkflowTab />}
       {path === "/cases" && <CasesTab />}
-      {path === "/pricing" && <PricingTab onNavigate={onNavigate} authUser={authUser} />}
     </main>
   );
 }

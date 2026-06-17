@@ -23,11 +23,12 @@ const RULE_CATEGORIES: readonly RuleCategory[] = [
 ];
 
 const DIAGRAM_KINDS: readonly DiagramKind[] = [
+  "function",
+  "activity",
   "usecase",
   "class",
-  "activity",
-  "deployment",
   "prototype",
+  "deployment",
   "analysis",
 ];
 
@@ -110,6 +111,9 @@ function diagramFromAlias(value: unknown): DiagramKind | null {
   if (DIAGRAM_KIND_SET.has(text)) return text as DiagramKind;
 
   const label = normalizeLabel(text);
+  if (["function", "wbs", "功能", "功能结构", "功能结构图", "功能分解", "功能分解图"].includes(label)) {
+    return "function";
+  }
   if (["usecase", "usecases", "用例", "用例图"].includes(label)) return "usecase";
   if (["class", "classes", "类", "类图", "领域模型", "数据模型"].includes(label)) return "class";
   if (["activity", "activities", "活动", "活动图", "流程", "流程图", "业务流程", "总体业务流程"].includes(label)) {
@@ -137,6 +141,7 @@ function inferRelatedDiagrams(ruleText: string, category: RuleCategory): Diagram
     category === "功能需求" ||
     /功能|流程|登录|授权|预约|签到|查询|管理|查看|选择|提交|取消|刷新/.test(ruleText)
   ) {
+    add("function");
     add("usecase");
     add("activity");
     add("analysis");
@@ -185,12 +190,16 @@ function normalizeRule(rawRule: unknown, index: number): RequirementRule | null 
 
   const text = normalizeText(rawRule.text ?? rawRule.requirement ?? rawRule.description);
   if (!text) return null;
+  const sourceFragment = normalizeText(
+    rawRule.sourceFragment ?? rawRule.source ?? rawRule.fragment,
+  );
 
   const category = categoryFromAlias(rawRule.category) ?? inferCategory(text);
   return {
     id: normalizeText(rawRule.id) || `r${index + 1}`,
     category,
     text,
+    ...(sourceFragment ? { sourceFragment } : {}),
     relatedDiagrams: normalizeRelatedDiagrams(rawRule.relatedDiagrams, text, category),
   };
 }

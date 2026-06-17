@@ -660,11 +660,13 @@ test("contracts validate representative stage payloads", () => {
         id: "r1",
         category: "业务规则",
         text: "用户必须登录后才能访问主要功能。",
-        relatedDiagrams: ["usecase", "activity"],
+        sourceFragment: "(1)访问主要功能",
+        relatedDiagrams: ["function", "usecase", "activity"],
       },
     ],
   });
   assert.equal(rules.rules.length, 1);
+  assert.equal(rules.rules[0]?.sourceFragment, "(1)访问主要功能");
 
   const models = diagramModelsResultSchema.parse({
     models: [
@@ -2050,6 +2052,132 @@ test("contracts validate design table relationship diagrams", () => {
   });
 
   assert.equal(result.models[0]?.diagramKind, "table");
+});
+
+test("contracts validate function, architecture, and component diagrams", () => {
+  const requirementResult = diagramModelsResultSchema.parse({
+    models: [
+      {
+        diagramKind: "function",
+        title: "功能结构图",
+        summary: "系统功能分解",
+        notes: [],
+        nodes: [
+          { id: "fn_root", name: "订单管理", sourceRequirementIds: ["REQ-001"] },
+          { id: "fn_create", name: "创建订单", parentId: "fn_root", sourceRequirementIds: ["REQ-001"] },
+        ],
+        relationships: [
+          {
+            id: "rel_fn_create",
+            type: "decomposition",
+            sourceId: "fn_root",
+            targetId: "fn_create",
+          },
+        ],
+      },
+    ],
+    requirementModelTraceability: [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "function",
+          elementId: "fn_create",
+          elementKind: "function",
+          label: "创建订单",
+        },
+      },
+    ],
+  });
+  assert.equal(requirementResult.models[0]?.diagramKind, "function");
+
+  const designResult = designDiagramModelsResultSchema.parse({
+    models: [
+      {
+        diagramKind: "architecture",
+        title: "总体架构图",
+        summary: "包图形式的分层架构",
+        notes: [],
+        packages: [
+          { id: "pkg_order", name: "订单包", componentIds: ["cmp_order_service"] },
+        ],
+        components: [
+          {
+            id: "cmp_order_service",
+            name: "订单服务",
+            packageId: "pkg_order",
+            sourceRequirementIds: ["REQ-001"],
+          },
+        ],
+        relationships: [
+          {
+            id: "rel_pkg_contains",
+            type: "contains",
+            sourceId: "pkg_order",
+            targetId: "cmp_order_service",
+          },
+        ],
+      },
+      {
+        diagramKind: "component",
+        title: "组件关系图",
+        summary: "组件与接口依赖",
+        notes: [],
+        components: [
+          { id: "cmp_order", name: "订单组件", sourceClassIds: ["OrderService"] },
+        ],
+        interfaces: [
+          { id: "if_order", name: "OrderApi", operationNames: ["createOrder"] },
+        ],
+        relationships: [
+          {
+            id: "rel_provide_order",
+            type: "provided-interface",
+            sourceId: "cmp_order",
+            targetId: "if_order",
+          },
+        ],
+      },
+    ],
+    designModelTraceability: [
+      {
+        source: {
+          diagramKind: "architecture",
+          elementId: "pkg_order",
+          elementKind: "package",
+          label: "订单包",
+        },
+        targets: [
+          {
+            diagramKind: "function",
+            elementId: "fn_create",
+            elementKind: "function",
+            label: "创建订单",
+          },
+        ],
+      },
+      {
+        source: {
+          diagramKind: "component",
+          elementId: "cmp_order",
+          elementKind: "component",
+          label: "订单组件",
+        },
+        targets: [
+          {
+            diagramKind: "class",
+            elementId: "OrderService",
+            elementKind: "class",
+            label: "OrderService",
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    designResult.models.map((model) => model.diagramKind),
+    ["architecture", "component"],
+  );
 });
 
 test("contracts require element-level traceability for generated model results", () => {

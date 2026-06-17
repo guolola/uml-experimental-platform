@@ -52,6 +52,9 @@
   --sidebar-ring: #4441c4;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
+  --scrollbar-thumb: color-mix(in srgb, var(--primary) 18%, var(--border) 82%);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--primary) 72%, var(--border) 28%);
+  --scrollbar-thumb-active: var(--primary);
 
   --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
@@ -104,6 +107,10 @@
   --chart-3: #f59e0b;
   --chart-4: #a855f7;
   --chart-5: #ec4899;
+
+  --scrollbar-thumb: color-mix(in srgb, var(--primary) 32%, var(--border) 68%);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--primary) 78%, var(--foreground) 22%);
+  --scrollbar-thumb-active: var(--primary);
 }
 
 @theme inline {
@@ -156,6 +163,8 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-width: thin;
   }
 
   html, body, #root {
@@ -178,8 +187,56 @@
   input { font-weight: 400; line-height: 1.5; }
   code, pre, .mono { font-family: var(--font-mono); }
 
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-button,
+  ::-webkit-scrollbar-button:vertical,
+  ::-webkit-scrollbar-button:horizontal,
+  ::-webkit-scrollbar-button:vertical:decrement,
+  ::-webkit-scrollbar-button:vertical:increment,
+  ::-webkit-scrollbar-button:horizontal:decrement,
+  ::-webkit-scrollbar-button:horizontal:increment,
+  ::-webkit-scrollbar-button:start:decrement,
+  ::-webkit-scrollbar-button:start:increment,
+  ::-webkit-scrollbar-button:end:decrement,
+  ::-webkit-scrollbar-button:end:increment,
+  ::-webkit-scrollbar-button:vertical:start:decrement,
+  ::-webkit-scrollbar-button:vertical:start:increment,
+  ::-webkit-scrollbar-button:vertical:end:decrement,
+  ::-webkit-scrollbar-button:vertical:end:increment,
+  ::-webkit-scrollbar-button:horizontal:start:decrement,
+  ::-webkit-scrollbar-button:horizontal:start:increment,
+  ::-webkit-scrollbar-button:horizontal:end:decrement,
+  ::-webkit-scrollbar-button:horizontal:end:increment,
+  ::-webkit-scrollbar-button:single-button:vertical:decrement,
+  ::-webkit-scrollbar-button:single-button:vertical:increment,
+  ::-webkit-scrollbar-button:single-button:horizontal:decrement,
+  ::-webkit-scrollbar-button:single-button:horizontal:increment,
+  ::-webkit-scrollbar-button:single-button,
+  ::-webkit-scrollbar-button:double-button {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    color: transparent !important;
+    width: 0 !important;
+    height: 0 !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: 0 !important;
+    max-height: 0 !important;
+    background: transparent !important;
+    background-image: none !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border: 0;
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+  ::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-thumb-active); }
   ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-corner { background: transparent; }
 }

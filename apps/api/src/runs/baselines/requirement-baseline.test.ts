@@ -63,6 +63,38 @@ test("buildRequirementBaseline infers domain actors and objects without a fixed 
   assert.equal(baseline.qualityReport.status, "passed");
 });
 
+test("buildRequirementBaseline keeps terse source fragments while inferring from readable rule text", () => {
+  const requirementText = "一个小型图书馆管理系统需完成：(1)借书。";
+  const sourceFragment = "(1)借书";
+  const baseline = buildRequirementBaseline({
+    runId: "run-readable-rule",
+    requirementText,
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "图书管理员可以借阅图书。",
+        sourceFragment,
+        relatedDiagrams: ["usecase"],
+      },
+    ],
+    createdAt: "2026-05-24T00:00:00.000Z",
+  });
+
+  const requirement = baseline.requirements[0];
+  const startOffset = requirementText.indexOf(sourceFragment);
+  assert.equal(requirement?.sourceFragment, sourceFragment);
+  assert.deepEqual(requirement?.sourceLocation, {
+    startOffset,
+    endOffset: startOffset + sourceFragment.length,
+    section: "input",
+  });
+  assert.equal(requirement?.actor, "图书管理员");
+  assert.equal(requirement?.action, "借阅图书");
+  assert.equal(requirement?.object, "图书");
+  assert.equal(requirement?.status, "accepted");
+});
+
 test("buildRequirementBaseline treats input phrases as conditions rather than generated objects", () => {
   const baseline = buildRequirementBaseline({
     runId: "run-generated-object",

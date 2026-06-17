@@ -16,6 +16,7 @@ import {
 import type { GenerationResultDialogState } from "../components/generation-dialogs";
 import {
   REVIEWABLE_REQUIREMENT_FIELDS,
+  buildReadableRequirementRuleText,
   isRequirementBlocking,
   markRequirementReviewed,
   mergeReviewedRequirement,
@@ -119,6 +120,24 @@ export function useRequirementReviewActions({
     setRequirementReviewCandidates({});
     void repository.updateRequirementReviewCandidates?.({});
   }, [repository, setRequirementReviewCandidates]);
+
+  const syncReadableRuleText = useCallback(
+    (requirement: AtomicRequirement) => {
+      if (!requirement.sourceRuleId) return;
+      const rule = rules.find((item) => item.id === requirement.sourceRuleId);
+      if (!rule) return;
+      const readableText = buildReadableRequirementRuleText(requirement);
+      const sourceFragment = rule.sourceFragment ?? requirement.sourceFragment;
+      if (rule.text === readableText && rule.sourceFragment === sourceFragment) {
+        return;
+      }
+      updateRequirementRuleBase(requirement.sourceRuleId, {
+        text: readableText,
+        sourceFragment,
+      });
+    },
+    [rules, updateRequirementRuleBase],
+  );
 
   const createRequirementRule = useCallback(
     (input: RequirementRuleCreateInput) => {
@@ -269,6 +288,9 @@ export function useRequirementReviewActions({
         showRequirementReviewSaveFailure(error, ruleId);
         return;
       }
+      if (requirement.status === "accepted" && decision !== "reject") {
+        syncReadableRuleText(requirement);
+      }
 
       if (decision === "reject") {
         openGenerationResultDialog({
@@ -313,6 +335,7 @@ export function useRequirementReviewActions({
       requirementBaseline,
       rules,
       showRequirementReviewSaveFailure,
+      syncReadableRuleText,
     ],
   );
 
@@ -356,6 +379,7 @@ export function useRequirementReviewActions({
         showRequirementReviewSaveFailure(error, ruleId);
         return;
       }
+      syncReadableRuleText(reviewedRequirement);
       openGenerationResultDialog({
         title: "需求提示已确认",
         tone: "success",
@@ -373,6 +397,7 @@ export function useRequirementReviewActions({
       requirementBaseline,
       rules,
       showRequirementReviewSaveFailure,
+      syncReadableRuleText,
     ],
   );
 
@@ -624,6 +649,7 @@ export function useRequirementReviewActions({
         showRequirementReviewSaveFailure(error, ruleId);
         return;
       }
+      syncReadableRuleText(reviewedRequirement);
       openGenerationResultDialog({
         title: decision === "accepted" ? "修复结果已采纳" : "修复结果已拒绝",
         tone: "success",
@@ -645,6 +671,7 @@ export function useRequirementReviewActions({
       requirementReviewCandidates,
       rules,
       showRequirementReviewSaveFailure,
+      syncReadableRuleText,
     ],
   );
 

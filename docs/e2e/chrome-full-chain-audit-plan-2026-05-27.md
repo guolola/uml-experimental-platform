@@ -34,7 +34,7 @@ This document preserves the Chrome MCP full-chain inspection plan so future runs
 
 ### 2. Users, Project, And Team Collaboration
 
-- 未登录访问 `/projects`、`/workspace`、`/exam`、`/tutorial`、`/about`，确认认证保护或导向登录/官网流程。
+- 未登录访问 `/projects`、`/workspace`、`/exam`、`/tutorial`，确认认证保护或导向登录/官网流程。
 - 创建或登录三个隔离用户：Owner、Editor、Viewer。
 - 本地非生产注册返回 `devToken` 时，用它完成邮箱验证。
 - Owner 新建团队项目，填写名称、描述、课程/班级/team 绑定、可见性、默认模型策略。

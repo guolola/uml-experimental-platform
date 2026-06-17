@@ -111,6 +111,46 @@ export const useCaseDiagramSpecSchema = z.object({
 });
 export type UseCaseDiagramSpec = z.infer<typeof useCaseDiagramSpecSchema>;
 
+export const functionNodeSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1).optional(),
+  parentId: z.string().min(1).optional(),
+  sourceRequirementIds: z.array(z.string().min(1)).default([]),
+});
+export type FunctionNode = z.infer<typeof functionNodeSchema>;
+
+export const functionRelationshipTypeSchema = z.enum([
+  "decomposition",
+  "dependency",
+]);
+export type FunctionRelationshipType = z.infer<
+  typeof functionRelationshipTypeSchema
+>;
+
+export const functionRelationshipSchema = z.object({
+  id: z.string().min(1),
+  type: functionRelationshipTypeSchema,
+  sourceId: z.string().min(1),
+  targetId: z.string().min(1),
+  label: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+});
+export type FunctionRelationship = z.infer<typeof functionRelationshipSchema>;
+
+export const functionStructureDiagramSpecSchema = z.object({
+  diagramKind: z.literal("function"),
+  modelId: z.string().min(1).optional(),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  notes: noteListSchema,
+  nodes: z.array(functionNodeSchema),
+  relationships: z.array(functionRelationshipSchema),
+});
+export type FunctionStructureDiagramSpec = z.infer<
+  typeof functionStructureDiagramSpecSchema
+>;
+
 export const classKindSchema = z.enum(["entity", "aggregate", "valueObject", "service", "other"]);
 export type ClassKind = z.infer<typeof classKindSchema>;
 
@@ -558,6 +598,116 @@ export type PrototypeInterfaceDiagramSpec = z.infer<
   typeof prototypeInterfaceDiagramSpecSchema
 >;
 
+export const architecturePackageSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  stereotype: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  componentIds: z.array(z.string().min(1)).default([]),
+});
+export type ArchitecturePackage = z.infer<typeof architecturePackageSchema>;
+
+export const architectureComponentSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  componentType: z.string().min(1).optional(),
+  packageId: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  sourceRequirementIds: z.array(z.string().min(1)).default([]),
+});
+export type ArchitectureComponent = z.infer<typeof architectureComponentSchema>;
+
+export const architectureRelationshipTypeSchema = z.enum([
+  "contains",
+  "dependency",
+  "communication",
+]);
+export type ArchitectureRelationshipType = z.infer<
+  typeof architectureRelationshipTypeSchema
+>;
+
+export const architectureRelationshipSchema = z.object({
+  id: z.string().min(1),
+  type: architectureRelationshipTypeSchema,
+  sourceId: z.string().min(1),
+  targetId: z.string().min(1),
+  label: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+});
+export type ArchitectureRelationship = z.infer<
+  typeof architectureRelationshipSchema
+>;
+
+export const architectureDiagramSpecSchema = z.object({
+  diagramKind: z.literal("architecture"),
+  modelId: z.string().min(1).optional(),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  notes: noteListSchema,
+  packages: z.array(architecturePackageSchema),
+  components: z.array(architectureComponentSchema),
+  relationships: z.array(architectureRelationshipSchema),
+});
+export type ArchitectureDiagramSpec = z.infer<
+  typeof architectureDiagramSpecSchema
+>;
+
+export const componentRelationshipElementSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  componentType: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  sourceClassIds: z.array(z.string().min(1)).default([]),
+});
+export type ComponentRelationshipElement = z.infer<
+  typeof componentRelationshipElementSchema
+>;
+
+export const componentInterfaceSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1).optional(),
+  operationNames: z.array(z.string().min(1)).default([]),
+});
+export type ComponentInterface = z.infer<typeof componentInterfaceSchema>;
+
+export const componentRelationshipTypeSchema = z.enum([
+  "dependency",
+  "provided-interface",
+  "required-interface",
+  "composition",
+  "communication",
+]);
+export type ComponentRelationshipType = z.infer<
+  typeof componentRelationshipTypeSchema
+>;
+
+export const componentRelationshipSchema = z.object({
+  id: z.string().min(1),
+  type: componentRelationshipTypeSchema,
+  sourceId: z.string().min(1),
+  targetId: z.string().min(1),
+  label: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+});
+export type ComponentRelationship = z.infer<
+  typeof componentRelationshipSchema
+>;
+
+export const componentRelationshipDiagramSpecSchema = z.object({
+  diagramKind: z.literal("component"),
+  modelId: z.string().min(1).optional(),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  notes: noteListSchema,
+  components: z.array(componentRelationshipElementSchema),
+  interfaces: z.array(componentInterfaceSchema),
+  relationships: z.array(componentRelationshipSchema),
+});
+export type ComponentRelationshipDiagramSpec = z.infer<
+  typeof componentRelationshipDiagramSpecSchema
+>;
+
 export const tableColumnReferenceSchema = z.object({
   tableId: z.string().min(1),
   columnId: z.string().min(1),
@@ -622,6 +772,7 @@ export const tableDiagramSpecSchema = z.object({
 export type TableDiagramSpec = z.infer<typeof tableDiagramSpecSchema>;
 
 export const diagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
+  functionStructureDiagramSpecSchema,
   useCaseDiagramSpecSchema,
   classDiagramSpecSchema,
   activityDiagramSpecSchema,
@@ -674,9 +825,11 @@ export const diagramModelsResultSchema = z.object({
 export type DiagramModelsResult = z.infer<typeof diagramModelsResultSchema>;
 
 export const designDiagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
+  architectureDiagramSpecSchema,
   sequenceDiagramSpecSchema,
   classDiagramSpecSchema,
   activityDiagramSpecSchema,
+  componentRelationshipDiagramSpecSchema,
   deploymentDiagramSpecSchema,
   tableDiagramSpecSchema,
 ]);

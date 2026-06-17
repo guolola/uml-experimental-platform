@@ -229,6 +229,48 @@ export function markRequirementReviewed(requirement: AtomicRequirement) {
   return next;
 }
 
+function readableSlot(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
+function compactAction(action: string, actor: string | null) {
+  let normalized = action.trim();
+  if (actor && normalized.startsWith(actor)) {
+    normalized = normalized.slice(actor.length).trim();
+  }
+  return normalized.replace(/^(必须|需要|可以|应当|不得|不能|禁止|支持|能够|可|需)/u, "");
+}
+
+export function buildReadableRequirementRuleText(
+  requirement: AtomicRequirement,
+) {
+  const actor = readableSlot(requirement.actor) ?? readableSlot(requirement.subject);
+  const action = readableSlot(requirement.action);
+  const object = readableSlot(requirement.object);
+  const condition = readableSlot(requirement.condition);
+  const outcome = readableSlot(requirement.outcome);
+  const actionPhrase = action ? compactAction(action, actor) : null;
+
+  if ((!actor && !object) || (!actionPhrase && !object)) {
+    return requirement.sourceFragment;
+  }
+
+  const base =
+    actor && actionPhrase
+      ? `${actor}可以${actionPhrase}`
+      : actor
+        ? `${actor}相关需求`
+        : actionPhrase
+          ? `系统需要${actionPhrase}`
+          : "系统需求";
+  const objectText =
+    object && !(actionPhrase ?? "").includes(object) ? `（对象：${object}）` : "";
+  const conditionText = condition ? `，条件：${condition}` : "";
+  const outcomeText =
+    outcome && outcome !== "系统满足该需求" ? `，结果：${outcome}` : "";
+  return `${base}${objectText}${conditionText}${outcomeText}。`;
+}
+
 export function mergeReviewedRequirement(
   baseline: RequirementBaseline,
   reviewedRequirement: AtomicRequirement,

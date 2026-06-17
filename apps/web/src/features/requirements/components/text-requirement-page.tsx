@@ -69,8 +69,9 @@ import {
 import { NewRequirementRuleDialog } from "./new-requirement-rule-dialog";
 import { RequirementAssistantPanel } from "./requirement-assistant-panel";
 
-const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["usecase", "activity"];
+const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["function", "usecase", "activity"];
 const REQUIREMENT_DIAGRAM_ICON = {
+  function: FileText,
   usecase: Network,
   activity: Activity,
   class: Box,
@@ -554,12 +555,6 @@ export function TextRequirementView() {
                       : "当前没有有效通行卡"}
                   </div>
                 </div>
-                <Button asChild size="sm" className="h-8">
-                  <a href="/pricing">购买权益</a>
-                </Button>
-                <Button asChild size="sm" variant="outline" className="h-8 bg-card">
-                  <a href="/account/billing">账单</a>
-                </Button>
                 <Button
                   type="button"
                   size="icon"

@@ -61,3 +61,19 @@ test("general response formats are valid for OpenAI strict JSON Schema", () => {
     assertStrictObjectRequirements(format.json_schema.schema);
   }
 });
+
+test("requirement rule response formats allow function structure mappings", () => {
+  const rules = (
+    EXTRACT_REQUIREMENT_RULES_RESPONSE_FORMAT.json_schema.schema.properties as {
+      rules: {
+        items: {
+          properties: {
+            relatedDiagrams: { items: { enum: string[] } };
+          };
+        };
+      };
+    }
+  ).rules;
+
+  assert.ok(rules.items.properties.relatedDiagrams.items.enum.includes("function"));
+});

@@ -27,6 +27,7 @@ import {
   diagramSvgKindsForDocument,
   ensureDocumentDiagramSections,
   fallbackDocumentSections,
+  findForbiddenDocumentPhrases,
   mergeDocumentSectionsWithTemplate,
   sanitizeDocumentSections,
 } from "../../documents/context/document-context.js";
@@ -98,9 +99,35 @@ async function generateDocumentSectionsWithRepair(
     previousOutput = content;
 
     try {
-      return documentContentResultSchema.parse(
+      const sections = documentContentResultSchema.parse(
         normalizeDocumentContentOutput(parseJson(content)),
       ).sections;
+      const forbiddenPhrases = findForbiddenDocumentPhrases(sections);
+      if (forbiddenPhrases.length === 0) {
+        return sections;
+      }
+
+      lastErrorMessage = `说明书正文包含禁用占位或跳转话术：${forbiddenPhrases.join("、")}`;
+      if (attempt === MAX_DOCUMENT_CONTENT_REPAIR_ATTEMPTS) {
+        return sections;
+      }
+
+      emitEvent(
+        record,
+        stageProgressRunEventSchema.parse({
+          type: "stage_progress",
+          stage: "generate_document_text",
+          progress: stageProgressValue("generate_document_text"),
+          message: `说明书正文包含占位或跳转话术，正在尝试改写（${attempt + 1}/${MAX_DOCUMENT_CONTENT_REPAIR_ATTEMPTS}）`,
+        }),
+      );
+
+      prompt = buildRepairDocumentContentPrompt(
+        input.documentKind,
+        context,
+        previousOutput,
+        lastErrorMessage,
+      );
     } catch (error) {
       logFailedStructuredOutput(
         "generate_document_text",

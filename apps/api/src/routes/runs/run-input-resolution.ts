@@ -85,10 +85,14 @@ function readNestedText(value: unknown, key: string) {
 
 function requirementPlantUmlArtifactsFromWorkspace(state: Record<string, unknown>) {
   return Object.entries(stringRecordValue(state.plantUml)).map(
-    ([artifactId, source]) => ({
-      diagramKind: scopedDiagramKindFromKey(artifactId),
-      source,
-    }),
+    ([artifactId, source]) => {
+      const diagramKind = scopedDiagramKindFromKey(artifactId);
+      return {
+        diagramKind,
+        ...(artifactId.includes(":") ? { modelId: artifactId } : {}),
+        source,
+      };
+    },
   );
 }
 
@@ -328,6 +332,9 @@ export async function resolveDocumentRunInput(
       requirementBaseline: workspace.input.state.requirementBaseline ?? null,
       rules: arrayValue(workspace.input.state.rules),
       requirementModels: presentRecordValues(workspace.input.state.models),
+      requirementModelTraceability: arrayValue(
+        workspace.input.state.requirementModelTraceability,
+      ),
       requirementPlantUml: requirementPlantUmlArtifactsFromWorkspace(
         workspace.input.state,
       ),
