@@ -29,6 +29,10 @@ import {
   type ResolvedParagraphStyle,
 } from "./document-style-preset.js";
 
+const DEFAULT_DOCUMENT_PLANTUML_DPI = 200;
+const DOCUMENT_PLANTUML_FONT_ENV = "UML_DOCUMENT_PLANTUML_FONT_NAME";
+const DOCUMENT_PLANTUML_DPI_ENV = "UML_DOCUMENT_PLANTUML_DPI";
+
 function ptToHalfPoints(value: number) {
   return Math.round(value * 2);
 }
@@ -176,7 +180,7 @@ function readPngDimensions(png: Buffer) {
 
 export function resolvePngImageTransformation(
   png: Buffer,
-  constraints = { maxWidth: 560, maxHeight: 680, maxUpscale: 2 },
+  constraints = { maxWidth: 560, maxHeight: 680, maxUpscale: 1 },
 ) {
   const dimensions = readPngDimensions(png);
   if (!dimensions) {
@@ -226,14 +230,33 @@ function documentDiagramKey(section: DocumentSection) {
   return section.diagramModelId ?? section.diagramKind;
 }
 
+function sanitizePlantUmlQuotedValue(value: string) {
+  return value.replace(/["\r\n]/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function resolveDocumentPlantUmlFontName() {
+  const configured = sanitizePlantUmlQuotedValue(
+    process.env[DOCUMENT_PLANTUML_FONT_ENV]?.trim() ?? "",
+  );
+  if (configured) return configured;
+  return process.platform === "win32" ? "Microsoft YaHei" : "Noto Sans CJK SC";
+}
+
+function resolveDocumentPlantUmlDpi() {
+  const parsed = Number.parseInt(process.env[DOCUMENT_PLANTUML_DPI_ENV] ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_DOCUMENT_PLANTUML_DPI;
+}
+
 function withDocumentPlantUmlFont(source: string) {
+  const fontName = resolveDocumentPlantUmlFontName();
   const fontSkinparams = [
-    'skinparam defaultFontName "Microsoft YaHei"',
-    'skinparam activityFontName "Microsoft YaHei"',
-    'skinparam sequenceParticipantFontName "Microsoft YaHei"',
-    'skinparam sequenceMessageFontName "Microsoft YaHei"',
-    'skinparam componentFontName "Microsoft YaHei"',
-    'skinparam classFontName "Microsoft YaHei"',
+    `skinparam dpi ${resolveDocumentPlantUmlDpi()}`,
+    `skinparam defaultFontName "${fontName}"`,
+    `skinparam activityFontName "${fontName}"`,
+    `skinparam sequenceParticipantFontName "${fontName}"`,
+    `skinparam sequenceMessageFontName "${fontName}"`,
+    `skinparam componentFontName "${fontName}"`,
+    `skinparam classFontName "${fontName}"`,
   ].join("\n");
   return source.replace(/@(startuml|startwbs)\s*/u, (match) => `${match}${fontSkinparams}\n`);
 }

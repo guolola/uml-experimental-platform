@@ -22,6 +22,38 @@ function pngHeader(width: number, height: number) {
   return buffer;
 }
 
+async function withDocumentPlantUmlEnv<T>(
+  env: { fontName?: string; dpi?: string },
+  run: () => Promise<T>,
+) {
+  const previousFontName = process.env.UML_DOCUMENT_PLANTUML_FONT_NAME;
+  const previousDpi = process.env.UML_DOCUMENT_PLANTUML_DPI;
+  try {
+    if (env.fontName === undefined) {
+      delete process.env.UML_DOCUMENT_PLANTUML_FONT_NAME;
+    } else {
+      process.env.UML_DOCUMENT_PLANTUML_FONT_NAME = env.fontName;
+    }
+    if (env.dpi === undefined) {
+      delete process.env.UML_DOCUMENT_PLANTUML_DPI;
+    } else {
+      process.env.UML_DOCUMENT_PLANTUML_DPI = env.dpi;
+    }
+    return await run();
+  } finally {
+    if (previousFontName === undefined) {
+      delete process.env.UML_DOCUMENT_PLANTUML_FONT_NAME;
+    } else {
+      process.env.UML_DOCUMENT_PLANTUML_FONT_NAME = previousFontName;
+    }
+    if (previousDpi === undefined) {
+      delete process.env.UML_DOCUMENT_PLANTUML_DPI;
+    } else {
+      process.env.UML_DOCUMENT_PLANTUML_DPI = previousDpi;
+    }
+  }
+}
+
 test("renderDocumentBuffer renders same-kind sequence sections by diagramModelId", async () => {
   const calls: Parameters<PngRenderClient>[0][] = [];
   const renderPng: PngRenderClient = async (request) => {
@@ -38,32 +70,36 @@ test("renderDocumentBuffer renders same-kind sequence sections by diagramModelId
   };
   const missingArtifacts: string[] = [];
 
-  const buffer = await renderDocumentBuffer(
-    "softwareDesignSpec",
-    [
-      {
-        level: 3,
-        title: "报名活动用例实现设计",
-        body: [],
-        diagramKind: "sequence",
-        diagramModelId: "sequence:uc_apply",
-      },
-      {
-        level: 3,
-        title: "取消报名用例实现设计",
-        body: [],
-        diagramKind: "sequence",
-        diagramModelId: "sequence:uc_cancel",
-      },
-    ],
-    new Map([
-      ["sequence:uc_apply", "@startuml\nparticipant Apply\n@enduml"],
-      ["sequence:uc_cancel", "@startuml\nparticipant Cancel\n@enduml"],
-    ]),
-    new Set(),
-    renderPng,
-    missingArtifacts,
-    { includeTableOfContents: false, autoNumberHeadings: false },
+  const buffer = await withDocumentPlantUmlEnv(
+    { fontName: "Noto Sans CJK SC", dpi: "200" },
+    () =>
+      renderDocumentBuffer(
+        "softwareDesignSpec",
+        [
+          {
+            level: 3,
+            title: "报名活动用例实现设计",
+            body: [],
+            diagramKind: "sequence",
+            diagramModelId: "sequence:uc_apply",
+          },
+          {
+            level: 3,
+            title: "取消报名用例实现设计",
+            body: [],
+            diagramKind: "sequence",
+            diagramModelId: "sequence:uc_cancel",
+          },
+        ],
+        new Map([
+          ["sequence:uc_apply", "@startuml\nparticipant Apply\n@enduml"],
+          ["sequence:uc_cancel", "@startuml\nparticipant Cancel\n@enduml"],
+        ]),
+        new Set(),
+        renderPng,
+        missingArtifacts,
+        { includeTableOfContents: false, autoNumberHeadings: false },
+      ),
   );
 
   assert.ok(buffer.byteLength > 0);
@@ -76,7 +112,12 @@ test("renderDocumentBuffer renders same-kind sequence sections by diagramModelId
   assert.match(calls[1]?.source ?? "", /participant Cancel/u);
   assert.ok(
     calls.every((call) =>
-      call.source.includes('skinparam defaultFontName "Microsoft YaHei"'),
+      call.source.includes('skinparam defaultFontName "Noto Sans CJK SC"'),
+    ),
+  );
+  assert.ok(
+    calls.every((call) =>
+      call.source.includes("skinparam dpi 200"),
     ),
   );
 });
@@ -96,25 +137,30 @@ test("renderDocumentBuffer injects document fonts into WBS diagrams", async () =
     };
   };
 
-  const buffer = await renderDocumentBuffer(
-    "requirementsSpec",
-    [
-      {
-        level: 2,
-        title: "功能结构",
-        body: [],
-        diagramKind: "function",
-      },
-    ],
-    new Map([["function", "@startwbs\n* 系统功能\n@endwbs"]]),
-    new Set(),
-    renderPng,
-    [],
-    { includeTableOfContents: false, autoNumberHeadings: false },
+  const buffer = await withDocumentPlantUmlEnv(
+    { fontName: "Noto Sans CJK SC", dpi: "240" },
+    () =>
+      renderDocumentBuffer(
+        "requirementsSpec",
+        [
+          {
+            level: 2,
+            title: "功能结构",
+            body: [],
+            diagramKind: "function",
+          },
+        ],
+        new Map([["function", "@startwbs\n* 系统功能\n@endwbs"]]),
+        new Set(),
+        renderPng,
+        [],
+        { includeTableOfContents: false, autoNumberHeadings: false },
+      ),
   );
 
   assert.ok(buffer.byteLength > 0);
-  assert.match(calls[0]?.source ?? "", /@startwbs\nskinparam defaultFontName/u);
+  assert.match(calls[0]?.source ?? "", /@startwbs\nskinparam dpi 240/u);
+  assert.match(calls[0]?.source ?? "", /skinparam defaultFontName "Noto Sans CJK SC"/u);
 });
 
 test("resolvePngImageTransformation preserves diagram aspect ratios", () => {
@@ -127,7 +173,7 @@ test("resolvePngImageTransformation preserves diagram aspect ratios", () => {
     height: 680,
   });
   assert.deepEqual(resolvePngImageTransformation(pngHeader(120, 80)), {
-    width: 240,
-    height: 160,
+    width: 120,
+    height: 80,
   });
 });

@@ -4,6 +4,7 @@ import {
   buildApiUrl,
   downloadBlob,
   postJson,
+  requestJson,
 } from "./index";
 
 describe("api-client", () => {
@@ -14,6 +15,29 @@ describe("api-client", () => {
   it("builds api urls without duplicating the /api prefix", () => {
     expect(buildApiUrl("/api/runs", "https://example.com/api/")).toBe(
       "https://example.com/api/runs",
+    );
+  });
+
+  it("builds same-origin api urls by default", () => {
+    expect(buildApiUrl("/api/auth/me")).toBe("/api/auth/me");
+    expect(buildApiUrl("api/auth/me")).toBe("/api/auth/me");
+  });
+
+  it("requests same-origin api paths by default", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestJson<{ ok: boolean }>("/api/auth/me")).resolves.toEqual({
+      ok: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/me",
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 

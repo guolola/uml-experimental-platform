@@ -120,6 +120,30 @@ publish_shared_web_assets() {
   find "$SHARED_WEB_ASSETS_DIR" -maxdepth 1 -type f -mtime +"$WEB_ASSET_RETENTION_DAYS" -delete 2>/dev/null || true
 }
 
+verify_web_api_base() {
+  local dist_dir="$1"
+  local matches
+
+  if [[ ! -f "$dist_dir/index.html" ]]; then
+    echo "Web dist is missing index.html: $dist_dir" >&2
+    exit 1
+  fi
+
+  matches="$(
+    find "$dist_dir" -type f \( -name 'index.html' -o -name '*.js' \) \
+      -exec grep -HnE '(127\.0\.0\.1|localhost):(4001|4101)' {} + 2>/dev/null || true
+  )"
+
+  if [[ -n "$matches" ]]; then
+    echo "Production web bundle contains a local API base URL." >&2
+    echo "Build with VITE_APP_API_BASE_URL='' so browser requests use same-origin /api." >&2
+    echo "$matches" >&2
+    exit 1
+  fi
+
+  echo "Web API base check passed: $dist_dir"
+}
+
 copy_release_payload() {
   echo "Creating release payload ..."
   rm -rf "$TMP_DIR" "$RELEASE_DIR"
@@ -346,8 +370,9 @@ echo "Building production bundles from $SOURCE_DIR ..."
   npm run build:prompts
   npm run build:api
   npm run build:render
-  VITE_APP_API_BASE_URL="" npm run build:web
+  npm run build:web:production
 )
+verify_web_api_base "$SOURCE_DIR/apps/web/dist"
 
 copy_release_payload
 ensure_plantuml_jar
@@ -357,6 +382,7 @@ if [[ ! -f "$TMP_DIR/apps/web/dist/index.html" ]]; then
   echo "Current release candidate is missing apps/web/dist/index.html" >&2
   exit 1
 fi
+verify_web_api_base "$TMP_DIR/apps/web/dist"
 
 mv "$TMP_DIR" "$RELEASE_DIR"
 publish_shared_web_assets "$RELEASE_DIR"

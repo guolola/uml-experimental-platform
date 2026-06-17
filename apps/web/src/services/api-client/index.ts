@@ -2,7 +2,7 @@
 import { runErrorSchema, type RunError } from "@uml-platform/contracts";
 
 const APP_API_BASE_URL =
-  import.meta.env.VITE_APP_API_BASE_URL ?? "http://127.0.0.1:4001";
+  import.meta.env.VITE_APP_API_BASE_URL ?? "";
 const API_PATH_PREFIX = "/api";
 
 export class ApiClientError extends Error {

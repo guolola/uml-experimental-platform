@@ -145,7 +145,21 @@ jobs:
           set -euo pipefail
           npm run build:api
           npm run build:render
-          VITE_APP_API_BASE_URL="" npm run build:web
+          npm run build:web:production
+
+      - name: Verify production web API base
+        run: |
+          set -euo pipefail
+          matches="$(
+            find apps/web/dist -type f \( -name 'index.html' -o -name '*.js' \) \
+              -exec grep -HnE '(127\.0\.0\.1|localhost):(4001|4101)' {} + || true
+          )"
+          if [ -n "$matches" ]; then
+            echo "Production web bundle contains a local API base URL." >&2
+            echo "Build with npm run build:web:production so browser requests use same-origin /api." >&2
+            echo "$matches" >&2
+            exit 1
+          fi
 
       - name: Package release archive
         run: |

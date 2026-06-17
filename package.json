@@ -31,6 +31,7 @@
     "dev:web": "npm run dev --workspace @uml-platform/web",
     "dev:web:safe": "cross-env VITE_APP_API_BASE_URL=http://localhost:4101 VITE_ENABLE_LEGACY_PROVIDER_SETTINGS=true npm run dev:web",
     "build:web": "npm run build --workspace @uml-platform/web",
+    "build:web:production": "cross-env VITE_APP_API_BASE_URL= npm run build:web",
     "typecheck:web": "npm run typecheck --workspace @uml-platform/web",
     "preview:web": "npm run preview --workspace @uml-platform/web",
     "lint:web": "npm run lint --workspace @uml-platform/web",
