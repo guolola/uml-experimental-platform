@@ -14,7 +14,7 @@ describe("sse-client", () => {
       close() {}
 
       constructor(url: string) {
-        expect(url).toBe("http://127.0.0.1:4001/api/runs/run-1/events");
+        expect(url).toBe("/api/runs/run-1/events");
         queueMicrotask(() => {
           this.onmessage?.({
             data: JSON.stringify({

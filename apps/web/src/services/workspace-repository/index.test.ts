@@ -3043,7 +3043,7 @@ describe("createHttpWorkspaceRepository", () => {
 
     expect(rendered.svg).toContain("<svg>");
     expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4001/api/render/svg",
+      "/api/render/svg",
       expect.objectContaining({
         headers: expect.objectContaining({
           "X-UML-Project-Id": "render-project",
@@ -3173,7 +3173,7 @@ describe("createHttpWorkspaceRepository", () => {
 
     expect(response?.candidates[0]?.ruleId).toBe("r1");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:4001/api/runs/requirement-rule-repairs",
+      "/api/runs/requirement-rule-repairs",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
