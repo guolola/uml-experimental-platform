@@ -1,5 +1,5 @@
 // Verifies requirement authoring, rule editing, quality checks, and generation action guards.
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AtomicRequirement, RequirementBaseline } from "@uml-platform/contracts";
@@ -13,6 +13,48 @@ import {
 } from "../../../test/workspace-test-utils";
 import { snapshotInputFingerprint } from "../../../shared/lib/fingerprint";
 import { TextRequirementView } from "./text-requirement-page";
+
+function layoutRect(width: number, height: number) {
+  return {
+    bottom: height,
+    height,
+    left: 0,
+    right: width,
+    top: 0,
+    width,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function sizeScaleFrame({
+  frame,
+  containerWidth,
+  contentWidth,
+  contentHeight,
+}: {
+  frame: HTMLElement;
+  containerWidth: number;
+  contentWidth: number;
+  contentHeight: number;
+}) {
+  const content = frame.firstElementChild as HTMLElement;
+  frame.getBoundingClientRect = () => layoutRect(containerWidth, contentHeight);
+  content.getBoundingClientRect = () => layoutRect(contentWidth, contentHeight);
+  Object.defineProperty(frame, "clientWidth", {
+    configurable: true,
+    value: containerWidth,
+  });
+  Object.defineProperty(content, "scrollWidth", {
+    configurable: true,
+    value: contentWidth,
+  });
+  Object.defineProperty(content, "scrollHeight", {
+    configurable: true,
+    value: contentHeight,
+  });
+}
 
 describe("TextRequirementView", () => {
   async function chooseSelectOption(
@@ -1533,6 +1575,14 @@ describe("TextRequirementView", () => {
     await user.click(within(dialog).getByRole("button", { name: "采纳" }));
 
     await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "需求规则修复确认" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "修复结果已采纳" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => {
       expect(updateRequirementBaseline).toHaveBeenCalledWith(
         expect.objectContaining({
           requirements: [
@@ -1567,6 +1617,10 @@ describe("TextRequirementView", () => {
           rulesVersion: expect.any(Number),
         }),
       );
+    });
+    await waitFor(() => {
+      expect(within(table).getByText("已确认")).toBeInTheDocument();
+      expect(within(table).getByText("已采纳修复")).toBeInTheDocument();
     });
   });
 
@@ -2025,6 +2079,57 @@ describe("TextRequirementView", () => {
     expect(within(table).getByDisplayValue("规则 10")).toBeInTheDocument();
     expect(within(table).queryByDisplayValue("规则 1")).not.toBeInTheDocument();
     expect(screen.getByText("1-5 / 5")).toBeInTheDocument();
+  });
+
+  it("keeps generated requirement text and rules table constrained on mobile width", async () => {
+    const rules = Array.from({ length: 5 }, (_, index) =>
+      createRule({
+        id: `r${index + 1}`,
+        text: `此日历规则 ${index + 1} 用于验证移动端规则表完整缩放显示。`,
+        category: index % 2 === 0 ? "业务规则" : "功能需求",
+        relatedDiagrams: ["usecase"],
+      }),
+    );
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText:
+            "此日历仅供公众使用，而非个人日历。此日历用于显示面向公众的活动安排。",
+          rules,
+          rulesVersion: 1,
+          selectedDiagramTypes: ["usecase"],
+        }),
+      ),
+    });
+
+    const { container } = render(
+      withWorkspaceProviders(<TextRequirementView />, repository),
+    );
+
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell).toHaveClass("min-w-0", "max-w-full", "overflow-x-hidden");
+    const sourceText = await screen.findByPlaceholderText(
+      "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+    );
+    expect(sourceText).toHaveClass("w-full");
+
+    const table = await screen.findByRole("table");
+    expect(table).toHaveStyle({ width: "max(100%, 960px)" });
+    const tableSection = table.closest("section");
+    expect(tableSection).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
+    const tableFrame = table.closest("[data-scale-to-fit]") as HTMLElement;
+    expect(tableFrame).toHaveClass("max-w-full", "overflow-hidden");
+
+    sizeScaleFrame({
+      frame: tableFrame,
+      containerWidth: 351,
+      contentWidth: 960,
+      contentHeight: 540,
+    });
+    act(() => window.dispatchEvent(new Event("resize")));
+
+    expect(tableFrame).toHaveAttribute("data-scale-to-fit", "scaled");
+    expect(tableFrame).toHaveStyle({ height: "198px" });
   });
 
   it("keeps status and related diagram cells compact in fixed-width rows", async () => {

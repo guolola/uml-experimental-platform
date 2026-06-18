@@ -650,26 +650,11 @@ export function useRequirementReviewActions({
         return;
       }
       syncReadableRuleText(reviewedRequirement);
-      openGenerationResultDialog({
-        title: decision === "accepted" ? "修复结果已采纳" : "修复结果已拒绝",
-        tone: "success",
-        message:
-          decision === "accepted"
-            ? "已保留修复后的需求规则，并标记为已确认。"
-            : "已回到修复前的需求规则，并标记为已确认。",
-        requirementId: reviewedRequirement.id,
-        ruleId,
-        stageLabel: "需求规则",
-        targetLabel:
-          rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
-      });
     },
     [
-      openGenerationResultDialog,
       persistRequirementReviewState,
       requirementBaseline,
       requirementReviewCandidates,
-      rules,
       showRequirementReviewSaveFailure,
       syncReadableRuleText,
     ],

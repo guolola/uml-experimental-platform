@@ -96,8 +96,8 @@ export function RequirementRulesTable({
   updateRequirementRule,
 }: RequirementRulesTableProps) {
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border bg-muted/40 px-6 py-6">
+    <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="min-w-0 max-w-full overflow-hidden border-b border-border bg-muted/40 px-6 py-6">
         <ScaledToolbar minWidth={790} contentClassName="w-full justify-between gap-8">
           <div className="flex shrink-0 items-center gap-3">
             <div className="flex items-center gap-2">
@@ -152,7 +152,7 @@ export function RequirementRulesTable({
           </div>
         </ScaledToolbar>
       </div>
-      <div className="max-w-full overflow-hidden">
+      <div className="min-w-0 max-w-full overflow-hidden">
         <ScaledTable minWidth={960} className="table-fixed border-collapse bg-card text-sm">
           <thead className="text-xs tracking-[0.02em] text-muted-foreground">
             <tr className="border-b border-border">

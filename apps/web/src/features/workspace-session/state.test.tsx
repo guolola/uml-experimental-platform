@@ -2437,6 +2437,9 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.requirementBaseline?.qualityReport.issues).toEqual(
       [],
     );
+    expect(
+      screen.queryByRole("dialog", { name: "修复结果已采纳" }),
+    ).not.toBeInTheDocument();
 
     let allowedGeneration: Promise<void> | null = null;
     act(() => {
@@ -2672,6 +2675,9 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.requirementReviewCandidates.r1?.status).toBe(
       "rejected",
     );
+    expect(
+      screen.queryByRole("dialog", { name: "修复结果已拒绝" }),
+    ).not.toBeInTheDocument();
   });
 
   it("blocks design generation when existing sequence diagrams do not cover current use cases", async () => {

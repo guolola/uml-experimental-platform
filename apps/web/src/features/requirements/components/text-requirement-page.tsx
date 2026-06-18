@@ -490,7 +490,7 @@ export function TextRequirementView() {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto bg-background">
+    <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto bg-background">
       {showStaleBanner && isRulesStale && (
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 text-warning" />
@@ -536,8 +536,8 @@ export function TextRequirementView() {
         </div>
       )}
 
-      <div className="w-full py-4 lg:py-5">
-        <div className="mx-auto flex w-[calc(100%-1.5rem)] max-w-none flex-col gap-5 sm:w-[calc(100%-2rem)] lg:w-[calc(100%-3rem)]">
+      <div className="min-w-0 max-w-full overflow-x-hidden py-4 lg:py-5">
+        <div className="mx-auto flex w-[calc(100%-1.5rem)] min-w-0 max-w-none flex-col gap-5 sm:w-[calc(100%-2rem)] lg:w-[calc(100%-3rem)]">
           <header className="flex flex-col gap-1.5">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
               需求分析提取
@@ -576,7 +576,7 @@ export function TextRequirementView() {
               </div>
             )}
           </header>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]">
+          <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]">
             <div className="grid min-w-0 gap-4">
               {renderRequirementInput(hasGeneratedRules ? "generated" : "empty")}
               {hasGeneratedRules && renderRequirementRules()}

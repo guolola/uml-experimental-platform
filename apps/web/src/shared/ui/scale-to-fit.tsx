@@ -50,6 +50,7 @@ export function ScaleToFitFrame({
 }: ScaleToFitFrameProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const measureFrameRef = useRef<number | null>(null);
   const [scaleState, setScaleState] = useState<ScaleState>({
     contentHeight: 0,
     scale: 1,
@@ -73,6 +74,10 @@ export function ScaleToFitFrame({
       container.getBoundingClientRect().width ||
       container.clientWidth ||
       container.offsetWidth;
+    if (containerWidth <= 0) {
+      return;
+    }
+
     const contentRect = content.getBoundingClientRect();
     const contentWidth = Math.max(
       minWidth,
@@ -101,21 +106,59 @@ export function ScaleToFitFrame({
     });
   }, [activeBelow, disabled, minWidth]);
 
+  const scheduleMeasure = useCallback(
+    (frames = 1) => {
+      if (measureFrameRef.current !== null) {
+        window.cancelAnimationFrame(measureFrameRef.current);
+      }
+
+      measure();
+      let remainingFrames = frames;
+      const runMeasure = () => {
+        measure();
+        remainingFrames -= 1;
+        measureFrameRef.current =
+          remainingFrames > 0
+            ? window.requestAnimationFrame(runMeasure)
+            : null;
+      };
+
+      measureFrameRef.current = window.requestAnimationFrame(runMeasure);
+    },
+    [measure],
+  );
+
   useLayoutEffect(() => {
     measure();
+    scheduleMeasure(3);
     const container = containerRef.current;
     const content = contentRef.current;
     if (!container || !content) return;
 
-    const resizeObserver = new ResizeObserver(measure);
+    const handleDeferredMeasure = () => scheduleMeasure(2);
+    const handleViewportSettle = () => scheduleMeasure(3);
+    const resizeObserver = new ResizeObserver(handleDeferredMeasure);
+    const visualViewport = window.visualViewport;
     resizeObserver.observe(container);
     resizeObserver.observe(content);
-    window.addEventListener("resize", measure);
+    window.addEventListener("resize", handleDeferredMeasure);
+    window.addEventListener("orientationchange", handleViewportSettle);
+    window.addEventListener("pageshow", handleViewportSettle);
+    visualViewport?.addEventListener("resize", handleDeferredMeasure);
+    visualViewport?.addEventListener("scroll", handleDeferredMeasure);
     return () => {
+      if (measureFrameRef.current !== null) {
+        window.cancelAnimationFrame(measureFrameRef.current);
+        measureFrameRef.current = null;
+      }
       resizeObserver.disconnect();
-      window.removeEventListener("resize", measure);
+      window.removeEventListener("resize", handleDeferredMeasure);
+      window.removeEventListener("orientationchange", handleViewportSettle);
+      window.removeEventListener("pageshow", handleViewportSettle);
+      visualViewport?.removeEventListener("resize", handleDeferredMeasure);
+      visualViewport?.removeEventListener("scroll", handleDeferredMeasure);
     };
-  }, [measure]);
+  }, [measure, scheduleMeasure]);
 
   const scaled = scaleState.scale < 1;
   const wrapperStyle: CSSProperties | undefined = scaled

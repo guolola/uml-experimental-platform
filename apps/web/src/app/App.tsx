@@ -375,7 +375,7 @@ export function Shell() {
   );
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background text-foreground">
+    <div className="flex h-screen h-[100dvh] min-h-[100svh] w-full flex-col overflow-hidden bg-background text-foreground">
       {protectedRoutePath ? (
         <AuthenticatedRoute routeKey={protectedRoutePath} onNavigate={navigate}>
           {guardedRouteContent}

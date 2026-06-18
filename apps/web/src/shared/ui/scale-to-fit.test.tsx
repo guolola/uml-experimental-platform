@@ -3,6 +3,8 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScaledTable, ScaledToolbar, ScaleToFitFrame } from "./scale-to-fit";
 
+const originalVisualViewport = window.visualViewport;
+
 function rect(width: number, height: number) {
   return {
     bottom: height,
@@ -66,6 +68,10 @@ function sizeScaleFrame({
 describe("ScaleToFitFrame", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: originalVisualViewport,
+    });
   });
 
   it("scales wide content on mobile and compensates the rendered height", () => {
@@ -148,6 +154,73 @@ describe("ScaleToFitFrame", () => {
     expect(frame).toHaveAttribute("data-scale-to-fit", "scaled");
     expect(frame).toHaveAttribute("data-readability", "ok");
     expect(content).toHaveStyle({ transform: "scale(0.8)" });
+  });
+
+  it("remeasures when the visual viewport changes on mobile browsers", () => {
+    mockViewport(true);
+    const visualViewport = new EventTarget();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: visualViewport,
+    });
+    render(
+      <ScaleToFitFrame activeBelow="md" minWidth={720} data-testid="scale-frame">
+        <div>wide mobile table</div>
+      </ScaleToFitFrame>,
+    );
+
+    const frame = screen.getByTestId("scale-frame");
+    const content = frame.firstElementChild as HTMLElement;
+    sizeScaleFrame({
+      container: frame,
+      content,
+      containerWidth: 360,
+      contentWidth: 720,
+      contentHeight: 100,
+    });
+
+    act(() => visualViewport.dispatchEvent(new Event("resize")));
+
+    expect(frame).toHaveAttribute("data-scale-to-fit", "scaled");
+    expect(frame).toHaveStyle({ height: "50px" });
+    expect(content).toHaveStyle({ transform: "scale(0.5)" });
+  });
+
+  it("ignores zero-width first measurements and recovers after viewport settling", () => {
+    mockViewport(true);
+    render(
+      <ScaleToFitFrame activeBelow="md" minWidth={600} data-testid="scale-frame">
+        <div>wide content after shell settles</div>
+      </ScaleToFitFrame>,
+    );
+
+    const frame = screen.getByTestId("scale-frame");
+    const content = frame.firstElementChild as HTMLElement;
+    sizeScaleFrame({
+      container: frame,
+      content,
+      containerWidth: 0,
+      contentWidth: 600,
+      contentHeight: 120,
+    });
+
+    act(() => window.dispatchEvent(new Event("resize")));
+
+    expect(frame).toHaveAttribute("data-scale-to-fit", "natural");
+    expect(frame.style.height).toBe("");
+
+    sizeScaleFrame({
+      container: frame,
+      content,
+      containerWidth: 300,
+      contentWidth: 600,
+      contentHeight: 120,
+    });
+    act(() => window.dispatchEvent(new Event("pageshow")));
+
+    expect(frame).toHaveAttribute("data-scale-to-fit", "scaled");
+    expect(frame).toHaveStyle({ height: "60px" });
+    expect(content).toHaveStyle({ transform: "scale(0.5)" });
   });
 });
 
