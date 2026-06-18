@@ -68,7 +68,6 @@ import {
   type RequirementModelRepairResult,
 } from "./requirement-traceability-dialogs";
 import { NewRequirementRuleDialog } from "./new-requirement-rule-dialog";
-import { RequirementAssistantPanel } from "./requirement-assistant-panel";
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["function", "usecase", "activity"];
 const REQUIREMENT_DIAGRAM_ICON = {
@@ -576,16 +575,11 @@ export function TextRequirementView() {
               </div>
             )}
           </header>
-          <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_minmax(220px,260px)]">
+          <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden">
             <div className="grid min-w-0 gap-4">
               {renderRequirementInput(hasGeneratedRules ? "generated" : "empty")}
               {hasGeneratedRules && renderRequirementRules()}
             </div>
-            <RequirementAssistantPanel
-              canEditRequirements={canEditRequirements}
-              editBlockedReason={editBlockedReason}
-              onApplyTemplate={setRequirementText}
-            />
           </div>
 
           <section className="flex flex-col gap-4">

@@ -158,24 +158,22 @@ describe("TextRequirementView", () => {
       "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
     );
     expect(screen.getByText("需求分析提取")).toBeInTheDocument();
-    expect(screen.getByText("AI 需求助手")).toBeInTheDocument();
+    expect(screen.queryByText("AI 需求助手")).not.toBeInTheDocument();
     expect(screen.queryByText("AI 智能辅助")).not.toBeInTheDocument();
     expect(screen.queryByText("探索与灵感")).not.toBeInTheDocument();
     expect(screen.queryByText("帮我细化功能")).not.toBeInTheDocument();
     expect(screen.queryByText("检查逻辑冲突")).not.toBeInTheDocument();
     expect(screen.queryByText("生成业务规则")).not.toBeInTheDocument();
-    expect(screen.getByText("电商系统")).toBeInTheDocument();
-    expect(screen.getByText("社交应用")).toBeInTheDocument();
-    expect(screen.getByText("健身追踪")).toBeInTheDocument();
+    expect(screen.queryByText("电商系统")).not.toBeInTheDocument();
+    expect(screen.queryByText("社交应用")).not.toBeInTheDocument();
+    expect(screen.queryByText("健身追踪")).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("目标模型")).toBeInTheDocument();
     expect(screen.queryByText(/将自动补齐：需求规则/)).not.toBeInTheDocument();
     expect(screen.getAllByText("请先输入需求描述或添加需求规则").length).toBeGreaterThan(0);
-    const assistantTemplateGrid = container.querySelector(
-      '[data-workspace-density="assistant-template-grid"]',
-    );
-    expect(assistantTemplateGrid).toBeInTheDocument();
-    expect(assistantTemplateGrid).toHaveClass("grid-cols-2");
+    expect(
+      container.querySelector('[data-workspace-density="assistant-template-grid"]'),
+    ).not.toBeInTheDocument();
     const modelGrid = container.querySelector('[data-workspace-density="compact-grid"]');
     expect(modelGrid).toBeInTheDocument();
     expect(modelGrid).toHaveAttribute("data-mobile-card-density", "two-column");
@@ -188,14 +186,6 @@ describe("TextRequirementView", () => {
     expect(requirementInput).toHaveValue("");
     await waitFor(() => {
       expect(updateRequirementText).toHaveBeenLastCalledWith("");
-    });
-
-    await user.click(screen.getAllByRole("button", { name: /应用模板/ })[0]);
-    expect((requirementInput as HTMLTextAreaElement).value).toContain("电商系统");
-    await waitFor(() => {
-      expect(updateRequirementText).toHaveBeenLastCalledWith(
-        expect.stringContaining("电商系统"),
-      );
     });
   });
 
@@ -1452,7 +1442,7 @@ describe("TextRequirementView", () => {
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     const table = await screen.findByRole("table");
-    expect(screen.getByText("AI 需求助手")).toBeInTheDocument();
+    expect(screen.queryByText("AI 需求助手")).not.toBeInTheDocument();
     expect(screen.queryByText("探索与灵感")).not.toBeInTheDocument();
     expect(
       screen.getByPlaceholderText(

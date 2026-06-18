@@ -3073,7 +3073,7 @@ describe("App shell routes", () => {
     });
     expect(screen.getByText("当前项目角色仅允许查看，不能编辑内容或启动生成。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始分析提取" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /电商系统/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /电商系统/ })).not.toBeInTheDocument();
 
     await user.type(requirementText, "访客不应写入需求");
 
