@@ -292,6 +292,24 @@ describe("applySnapshotToWorkspace", () => {
     expect(merged.requirementReviewCandidates.r1).toBeUndefined();
   });
 
+  it("restores missing requirement text without replacing existing rules", () => {
+    const existingRules = [createRule("existing")];
+    const merged = applySnapshotToWorkspace(
+      {
+        ...createEmptyWorkspace(),
+        requirementText: "",
+        rules: existingRules,
+      },
+      createSnapshot({
+        requirementText: "用户可以发布动态并关注其他用户。",
+        rules: [createRule("snapshot")],
+      }),
+    );
+
+    expect(merged.requirementText).toBe("用户可以发布动态并关注其他用户。");
+    expect(merged.rules).toEqual(existingRules);
+  });
+
   it("persists successful design artifacts from failed partial snapshots", () => {
     const tableModel = tableDesignModel();
     const workspace: WorkspaceRecord = {

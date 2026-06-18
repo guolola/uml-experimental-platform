@@ -582,6 +582,40 @@ test("restore applies successful design artifacts from failed partial snapshots"
   assert.ok((restored.designDiagramErrors as Record<string, unknown>).component);
 });
 
+test("restore fills missing requirement text without replacing existing rules", () => {
+  const existingRule = {
+    id: "existing",
+    category: "业务规则",
+    text: "已有规则。",
+    relatedDiagrams: ["usecase"],
+  };
+  const snapshot = createEmptySnapshot(
+    "run-requirement-text",
+    "用户可以发布动态并关注其他用户。",
+    ["usecase"],
+    [
+      {
+        id: "snapshot",
+        category: "业务规则",
+        text: "快照规则。",
+        relatedDiagrams: ["usecase"],
+      },
+    ],
+  );
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText: "",
+      rules: [existingRule],
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  assert.equal(restored.requirementText, "用户可以发布动态并关注其他用户。");
+  assert.deepEqual(restored.rules, [existingRule]);
+});
+
 test("restore keeps requirement analysis model instances keyed by modelId", () => {
   const snapshot = createEmptySnapshot(
     "run-analysis-restore",

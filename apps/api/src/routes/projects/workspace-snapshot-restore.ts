@@ -116,7 +116,10 @@ function applySnapshotToWorkspaceState(
   const currentHasRequirements =
     currentRequirementText.trim().length > 0 || currentRules.length > 0;
 
-  if (!currentHasRequirements) {
+  if (
+    currentRequirementText.trim().length === 0 &&
+    snapshot.requirementText.trim().length > 0
+  ) {
     next.requirementText = snapshot.requirementText;
   }
 

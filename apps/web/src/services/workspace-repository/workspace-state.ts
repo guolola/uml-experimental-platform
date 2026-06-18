@@ -431,8 +431,13 @@ export function applySnapshotToWorkspace(
   snapshot: RunHistorySnapshot,
 ): WorkspaceRecord {
   const next = cloneWorkspace(workspace);
-  const currentHasRequirements = next.requirementText.trim().length > 0 || next.rules.length > 0;
-  if (!currentHasRequirements) {
+  const currentHasRequirementText = next.requirementText.trim().length > 0;
+  const currentHasRequirements =
+    next.requirementText.trim().length > 0 || next.rules.length > 0;
+  if (
+    !currentHasRequirementText &&
+    snapshot.requirementText.trim().length > 0
+  ) {
     next.requirementText = snapshot.requirementText;
   }
   next.runStatus = "idle";
