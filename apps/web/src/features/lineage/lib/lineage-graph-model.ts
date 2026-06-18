@@ -456,7 +456,7 @@ function designReason(
   if (status === "stale") {
     return (
       designStaleReasonForDiagram(input, diagram) ??
-      "需求模型已变化，此设计模型需更新。"
+      "上游需求模型或追踪指纹已变化，此设计模型需更新。"
     );
   }
   if (status === "current") return `${label}为最新生成，可继续生成产物。`;

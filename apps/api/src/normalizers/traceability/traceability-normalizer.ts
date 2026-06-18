@@ -509,8 +509,8 @@ export function autoFillRequirementTraceability(
         reviewStatus: deterministic ? "confirmed" : "pending",
         confidence: deterministic ? "medium" : "low",
         rationale: deterministic
-          ? "系统根据需求规则和模型元素标签相似度补齐追踪关系。"
-          : "LLM 修复后仍缺少该需求元素映射，系统按相关图类型兜底补齐，需人工复核。",
+          ? "系统按需求规则文本和模型元素名称的相似度补齐；请在跟踪矩阵中确认是否采纳。"
+          : "未找到明确来源，系统仅按相关图类型临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
       },
     ];
   });

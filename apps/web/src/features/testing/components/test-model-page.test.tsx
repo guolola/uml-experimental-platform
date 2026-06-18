@@ -65,6 +65,10 @@ describe("TestModelPage", () => {
 
     render(withWorkspaceProviders(<TestModelPage />, repository));
 
+    const statsGrid = await screen.findByTestId("test-summary-grid");
+    expect(statsGrid).toHaveClass("grid-cols-4", "gap-2");
+    expect(statsGrid.closest("[data-scale-to-fit]")).toBeNull();
+
     const user = userEvent.setup();
     const generateButton = await screen.findByRole("button", { name: "生成测试用例" });
     await waitFor(() => expect(generateButton).toBeEnabled());

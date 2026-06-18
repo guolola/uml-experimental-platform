@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  parseRequirementDiagramModelsResult,
   parseRequirementDiagramModelsOnly,
   parseRequirementTraceabilityCoverageResult,
 } from "./requirement-model-normalizer.js";
@@ -67,6 +68,135 @@ test("parseRequirementDiagramModelsOnly removes services and class operations", 
   assert.deepEqual(model.classes.map((item) => item.name), ["Reservation"]);
   assert.deepEqual(model.classes[0]?.operations, []);
   assert.deepEqual(model.relationships, []);
+});
+
+test("parseRequirementDiagramModelsResult keeps function structures functional-only", () => {
+  const parsed = parseRequirementDiagramModelsResult(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "function",
+          title: "博客系统功能结构图",
+          summary: "功能分解",
+          notes: ["非功能需求归入系统支撑分支"],
+          nodes: [
+            { id: "root", name: "博客系统", sourceRequirementIds: ["r1"] },
+            { id: "post", name: "文章管理", sourceRequirementIds: ["r1"] },
+            { id: "support", name: "系统支撑", sourceRequirementIds: ["r2"] },
+          ],
+          relationships: [
+            {
+              id: "rel_post",
+              type: "contains",
+              sourceId: "root",
+              targetId: "post",
+            },
+            {
+              id: "rel_support",
+              type: "decomposition",
+              sourceId: "root",
+              targetId: "support",
+            },
+            {
+              id: "rel_dependency",
+              type: "dependency",
+              sourceId: "post",
+              targetId: "support",
+            },
+          ],
+        },
+      ],
+      requirementModelTraceability: [
+        {
+          ruleId: "r1",
+          target: {
+            diagramKind: "function",
+            modelId: "function",
+            elementId: "root",
+            elementKind: "function",
+            label: "博客系统",
+          },
+        },
+        {
+          ruleId: "r1",
+          target: {
+            diagramKind: "function",
+            modelId: "function",
+            elementId: "post",
+            elementKind: "function",
+            label: "文章管理",
+          },
+        },
+        {
+          ruleId: "r1",
+          target: {
+            diagramKind: "function",
+            modelId: "function",
+            elementId: "rel_post",
+            elementKind: "relationship",
+            label: "root -> post",
+          },
+        },
+      ],
+    }),
+    [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "用户可以管理博客文章。",
+        relatedDiagrams: ["function"],
+      },
+      {
+        id: "r2",
+        category: "非功能需求",
+        text: "系统响应时间小于 2 秒。",
+        relatedDiagrams: ["deployment"],
+      },
+    ],
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "function");
+  if (model?.diagramKind !== "function") return;
+  assert.deepEqual(model.notes, []);
+  assert.deepEqual(model.nodes.map((node) => node.id), ["root", "post"]);
+  assert.deepEqual(
+    model.relationships.map((relationship) => [relationship.id, relationship.type]),
+    [["rel_post", "decomposition"]],
+  );
+});
+
+test("parseRequirementDiagramModelsOnly keeps sourced function nodes without rule context", () => {
+  const parsed = parseRequirementDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "function",
+          title: "功能结构图",
+          summary: "功能分解",
+          notes: ["旧备注"],
+          nodes: [
+            { id: "root", name: "系统", sourceRequirementIds: ["r1"] },
+            { id: "child", name: "核心功能", sourceRequirementIds: ["r1"] },
+          ],
+          relationships: [
+            {
+              id: "rel_child",
+              type: "decomposition",
+              source: "root",
+              target: "child",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "function");
+  if (model?.diagramKind !== "function") return;
+  assert.deepEqual(model.nodes.map((node) => node.id), ["root", "child"]);
+  assert.deepEqual(model.notes, []);
 });
 
 test("parseRequirementDiagramModelsOnly preserves localized class metadata", () => {

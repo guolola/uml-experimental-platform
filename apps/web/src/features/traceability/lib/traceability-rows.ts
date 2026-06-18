@@ -20,6 +20,9 @@ import {
 } from "../../../entities/diagram/lib/model-details";
 import type { useWorkspaceSession } from "../../workspace-session/state";
 
+const AUTO_FILLED_PENDING_REVIEW_NOTE =
+  "未找到明确来源，系统仅临时补齐；请采纳、忽略或稍后处理。";
+
 export type RowStatus = "mapped" | "unmapped";
 export type MatrixScope = {
   diagramKind: DiagramKind | DesignDiagramKind;
@@ -358,14 +361,14 @@ export function buildRequirementRows(
       scopeKey: ref.modelId ?? ref.diagramKind,
       status: mappedRules.length > 0 ? "mapped" : "unmapped",
       mappingNote: pendingEntry
-        ? pendingEntry.rationale ?? "系统自动补齐，需复核确认"
+        ? pendingEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE
         : null,
       requirementRules: mappedRules,
       requirementElements: [],
       upstreamDesignElements: [],
       detailLines: [
         ...(pendingEntry
-          ? [`待确认：${pendingEntry.rationale ?? "系统自动补齐，需复核确认"}`]
+          ? [`待确认：${pendingEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE}`]
           : []),
         ...mappedEntries
           .filter((entry) => entry.confidence)
@@ -465,7 +468,7 @@ export function buildDesignRows(
       mappingNote:
         traceEntry?.mappingSource === "auto-filled-pending-review" ||
         traceEntry?.reviewStatus === "pending"
-          ? traceEntry.rationale ?? "系统自动补齐，需复核确认"
+          ? traceEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE
           : traceEntry?.mappingSource === "derived-from-endpoints"
             ? traceEntry.rationale ?? "由端点映射推导"
             : null,
@@ -475,7 +478,7 @@ export function buildDesignRows(
       detailLines: [
         ...(traceEntry?.mappingSource === "auto-filled-pending-review" ||
         traceEntry?.reviewStatus === "pending"
-          ? [`待确认：${traceEntry.rationale ?? "系统自动补齐，需复核确认"}`]
+          ? [`待确认：${traceEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE}`]
           : []),
         ...(traceEntry?.mappingSource === "derived-from-endpoints"
           ? [`映射说明：${traceEntry.rationale ?? "由端点映射推导"}`]

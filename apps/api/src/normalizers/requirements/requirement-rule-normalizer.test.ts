@@ -32,7 +32,7 @@ test("normalizes requirement rule category aliases and diagram aliases", () => {
       id: "r2",
       category: "外部接口",
       text: "用户通过微信一键授权登录系统。",
-      relatedDiagrams: ["function", "usecase", "activity"],
+      relatedDiagrams: ["usecase", "activity"],
     },
   ]);
 });
@@ -86,4 +86,26 @@ test("infers related diagrams when model returns only invalid diagram labels", (
     "analysis",
     "class",
   ]);
+});
+
+test("filters function structure mappings from non-functional and interface rules", () => {
+  const result = normalizeRequirementRulesResult({
+    rules: [
+      {
+        id: "r5",
+        category: "非功能需求",
+        text: "系统响应时间应小于 2 秒。",
+        relatedDiagrams: ["功能结构图", "部署图"],
+      },
+      {
+        id: "r6",
+        category: "界面需求",
+        text: "首页展示博客列表和登录入口。",
+        relatedDiagrams: ["功能分解图", "原型界面关系"],
+      },
+    ],
+  });
+
+  assert.deepEqual(result.rules[0]?.relatedDiagrams, ["deployment"]);
+  assert.deepEqual(result.rules[1]?.relatedDiagrams, ["prototype"]);
 });

@@ -186,37 +186,8 @@ function applySnapshotToWorkspaceState(
         .map(designDiagramKindFromRecordKey)
         .filter((diagram): diagram is DesignDiagramKind => Boolean(diagram)),
     );
-    const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
-    const modelDesignDiagrams = uniqueStrings(
-      Object.values(designRecords.modelMap)
-        .map((model) => model.diagramKind)
-        .filter(
-          (diagram): diagram is DesignDiagramKind =>
-            Boolean(
-              diagram &&
-                selectedDesignDiagrams.has(diagram) &&
-                !erroredDesignDiagrams.has(diagram),
-            ),
-        ),
-    ) as DesignDiagramKind[];
-    const artifactDesignDiagrams = uniqueStrings(
-      [
-        ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-        ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-      ].filter(
-        (diagram): diagram is DesignDiagramKind =>
-          selectedDesignDiagrams.has(diagram) &&
-          !erroredDesignDiagrams.has(diagram),
-      ),
-    ) as DesignDiagramKind[];
     const successfulAffectedDesignDiagrams =
-      snapshot.status === "completed"
-        ? (uniqueStrings(
-            artifactDesignDiagrams.length > 0
-              ? artifactDesignDiagrams
-              : modelDesignDiagrams,
-          ) as DesignDiagramKind[])
-        : [];
+      successfulDesignDiagramsFromSnapshot(snapshot, designRecords);
     const affectedForErrors = uniqueStrings([
       ...snapshot.selectedDiagrams,
       ...successfulAffectedDesignDiagrams,
@@ -523,6 +494,49 @@ function getRequirementArtifactId(
   },
 ) {
   return artifact.modelId ?? artifact.diagramKind;
+}
+
+function hasWholeDesignDiagramError(
+  diagramErrors: DesignRunSnapshot["diagramErrors"],
+  diagram: DesignDiagramKind,
+) {
+  return Object.keys(diagramErrors).some((key) => {
+    if (key === diagram) return true;
+    if (key.startsWith(`${diagram}:`)) return false;
+    return designDiagramKindFromRecordKey(key) === diagram;
+  });
+}
+
+function successfulDesignDiagramsFromSnapshot(
+  snapshot: DesignRunSnapshot,
+  designRecords: ReturnType<typeof mapDesignSnapshotToRecords>,
+) {
+  const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
+  const artifactDesignDiagrams = uniqueStrings(
+    snapshot.svgArtifacts
+      .filter((artifact) => {
+        if (!selectedDesignDiagrams.has(artifact.diagramKind)) return false;
+        if (hasWholeDesignDiagramError(snapshot.diagramErrors, artifact.diagramKind)) {
+          return false;
+        }
+        const artifactId = artifact.modelId ?? artifact.diagramKind;
+        return !snapshot.diagramErrors[artifactId];
+      })
+      .map((artifact) => artifact.diagramKind),
+  ) as DesignDiagramKind[];
+  const modelDesignDiagrams = uniqueStrings(
+    Object.values(designRecords.modelMap)
+      .filter((model) => {
+        if (!selectedDesignDiagrams.has(model.diagramKind)) return false;
+        if (hasWholeDesignDiagramError(snapshot.diagramErrors, model.diagramKind)) {
+          return false;
+        }
+        return !snapshot.diagramErrors[getDesignModelId(model)];
+      })
+      .map((model) => model.diagramKind),
+  ) as DesignDiagramKind[];
+  const successful = new Set([...artifactDesignDiagrams, ...modelDesignDiagrams]);
+  return snapshot.selectedDiagrams.filter((diagram) => successful.has(diagram));
 }
 
 function mapRequirementSnapshotToRecords(snapshot: RunSnapshot) {

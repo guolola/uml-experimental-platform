@@ -124,6 +124,36 @@ function selectedDesignDiagramFailures(
   });
 }
 
+function hasWholeDesignDiagramError(
+  diagramErrors: Record<string, DiagramError>,
+  diagram: DesignDiagramKind,
+) {
+  return Object.keys(diagramErrors).some((id) => {
+    if (id === diagram) return true;
+    if (id.startsWith(`${diagram}:`)) return false;
+    return designDiagramKindFromErrorId(id) === diagram;
+  });
+}
+
+function successfulSelectedDesignDiagrams(input: {
+  selectedDiagrams: DesignDiagramKind[];
+  svgArtifacts: DesignSvgArtifact[];
+  diagramErrors: Record<string, DiagramError>;
+}) {
+  const selected = new Set(input.selectedDiagrams);
+  const successful = new Set<DesignDiagramKind>();
+  for (const artifact of input.svgArtifacts) {
+    if (!selected.has(artifact.diagramKind)) continue;
+    if (hasWholeDesignDiagramError(input.diagramErrors, artifact.diagramKind)) {
+      continue;
+    }
+    const artifactId = artifact.modelId ?? artifact.diagramKind;
+    if (input.diagramErrors[artifactId]) continue;
+    successful.add(artifact.diagramKind);
+  }
+  return Array.from(successful);
+}
+
 function summarizeSelectedDesignDiagramFailures(
   failures: Array<[string, DiagramError]>,
 ) {
@@ -295,8 +325,8 @@ function autoFillDesignTraceability(
         reviewStatus: mappingIsDeterministic ? "confirmed" : "pending",
         confidence: mappingIsDeterministic ? "medium" : "low",
         rationale: mappingIsDeterministic
-          ? "系统根据用例实现设计的来源用例或元素标签确定性补齐追踪关系。"
-          : "LLM 修复后仍缺少该设计元素映射，系统按最接近的需求元素兜底补齐，需人工复核。",
+          ? "系统按用例实现设计的来源用例或元素名称确定追踪关系；请在跟踪矩阵中确认是否采纳。"
+          : "未找到明确上游来源，系统仅按最接近的需求元素临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
       },
     ];
   });
@@ -486,16 +516,7 @@ function validateUseCaseSequenceCoverage(
 ) {
   const useCases = useCasesFromModel(useCaseModel);
   const covered = new Set(sequenceModels.map((model) => model.sourceUseCaseId));
-  const missing = useCases.filter((useCase) => !covered.has(useCase.id));
-  if (sequenceModels.length !== useCases.length || missing.length > 0) {
-    const preview = missing
-      .slice(0, 8)
-      .map((useCase) => `${useCase.id}:${useCase.name}`)
-      .join("、");
-    throw new Error(
-      `用例实现设计生成结果必须为每个用例生成一个独立模型；缺少 ${missing.length} 个用例实现设计：${preview}`,
-    );
-  }
+  return useCases.filter((useCase) => !covered.has(useCase.id));
 }
 
 async function generateDesignTraceabilityWithRepair(
@@ -1540,7 +1561,21 @@ export async function runDesignStagePipeline(
           ),
       );
     }
-    validateUseCaseSequenceCoverage(sequenceModels, useCaseModel);
+    const missingUseCaseSequences = validateUseCaseSequenceCoverage(
+      sequenceModels,
+      useCaseModel,
+    );
+    for (const useCase of missingUseCaseSequences) {
+      const modelId = sequenceModelIdForUseCase(useCase);
+      if (diagramErrors[modelId]) continue;
+      diagramErrors[modelId] = diagramErrorSchema.parse({
+        stage: "generate_design_sequence",
+        error: createRunError(
+          "RUN_MODEL_OUTPUT_EMPTY",
+          `${useCase.name}用例实现设计未生成有效结果`,
+        ),
+      });
+    }
     models = mergeDesignModels(models, sequenceModels);
     designModelTraceability = [
       ...designModelTraceability.filter(
@@ -1850,7 +1885,12 @@ export async function runDesignStagePipeline(
     diagramErrors,
     snapshot.selectedDiagrams,
   );
-  if (selectedFailures.length > 0) {
+  const selectedSuccesses = successfulSelectedDesignDiagrams({
+    selectedDiagrams: snapshot.selectedDiagrams,
+    svgArtifacts: snapshot.svgArtifacts,
+    diagramErrors,
+  });
+  if (selectedFailures.length > 0 && selectedSuccesses.length === 0) {
     const providerFailure = firstSelectedPlatformProviderFailure(selectedFailures);
     if (providerFailure) throwRunError(providerFailure);
     throw new Error(

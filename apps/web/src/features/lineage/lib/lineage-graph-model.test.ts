@@ -222,7 +222,7 @@ describe("buildLineageGraph", () => {
         staleDesignDiagrams: ["sequence"],
         staleDesignModelIds: ["sequence"],
         designStaleReasons: {
-          sequence: "需求模型已变化，此设计模型需更新。",
+          sequence: "上游需求模型或追踪指纹已变化，此设计模型需更新。",
         },
       }),
     );
@@ -234,7 +234,7 @@ describe("buildLineageGraph", () => {
       (node) => node.id === "design-model:sequence",
     );
     expect(sequenceNode?.status).toBe("stale");
-    expect(sequenceNode?.reason).toContain("需求模型已变化");
+    expect(sequenceNode?.reason).toContain("上游需求模型或追踪指纹已变化");
   });
 
   it("marks stale downstream requirement nodes with stale-cause edges", () => {

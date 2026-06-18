@@ -173,6 +173,8 @@ test("architecture and component PlantUML render package and component notation"
   assert.match(architectureArtifact?.source ?? "", /package "订单包"/);
   assert.match(architectureArtifact?.source ?? "", /component "订单服务"/);
   assert.match(componentArtifact?.source ?? "", /interface "OrderApi"/);
+  assert.doesNotMatch(componentArtifact?.source ?? "", /interface "OrderApi" as if_order \{/);
+  assert.doesNotMatch(componentArtifact?.source ?? "", /createOrder\(\)/);
   assert.match(componentArtifact?.source ?? "", /cmp_order \.\.\|> if_order/);
 });
 

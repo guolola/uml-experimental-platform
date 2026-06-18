@@ -14,7 +14,7 @@ import type {
 } from "@uml-platform/contracts";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
-import { ScaleToFitFrame, ScaledTable, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
+import { ScaledTable, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
@@ -297,19 +297,26 @@ export function TestModelPage() {
             </ScaledToolbar>
           </header>
 
-          <ScaleToFitFrame minWidth={760} contentClassName="grid w-full grid-cols-4 gap-3">
+          <div
+            data-testid="test-summary-grid"
+            className="grid w-full grid-cols-4 gap-2 md:gap-3"
+          >
             {[
               ["测试用例", result?.testCases.length ?? 0],
               ["覆盖需求", coveredRequirements.size],
               ["覆盖用例", coveredUseCases.size],
               ["覆盖关系", result?.coverageRelations.length ?? 0],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-border bg-card p-4">
-                <div className="text-xs text-muted-foreground">{label}</div>
-                <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
+              <div key={label} className="min-w-0 rounded-lg border border-border bg-card p-2.5 md:p-4">
+                <div className="truncate text-[12px] leading-4 text-muted-foreground md:text-xs">
+                  {label}
+                </div>
+                <div className="mt-1 text-xl font-semibold leading-6 text-foreground md:mt-2 md:text-2xl md:leading-8">
+                  {value}
+                </div>
               </div>
             ))}
-          </ScaleToFitFrame>
+          </div>
 
           <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div className="border-b border-border bg-muted/30 px-4 py-3">

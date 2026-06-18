@@ -43,6 +43,53 @@ function fingerprintMatches(
   return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
 }
 
+function hasWholeDesignDiagramError(
+  diagramErrors: DesignRunSnapshot["diagramErrors"],
+  diagram: DesignDiagramType,
+) {
+  return Object.keys(diagramErrors).some((key) => {
+    if (key === diagram) return true;
+    if (key.startsWith(`${diagram}:`)) return false;
+    return designDiagramKindFromRecordKey(key) === diagram;
+  });
+}
+
+function successfulDesignDiagramsFromSnapshot(
+  snapshot: DesignRunSnapshot,
+  designRecords: ReturnType<typeof mapDesignSnapshotToRecords>,
+) {
+  const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
+  const artifactDesignDiagrams = Array.from(
+    new Set(
+      snapshot.svgArtifacts
+        .filter((artifact) => {
+          if (!selectedDesignDiagrams.has(artifact.diagramKind)) return false;
+          if (hasWholeDesignDiagramError(snapshot.diagramErrors, artifact.diagramKind)) {
+            return false;
+          }
+          const artifactId = artifact.modelId ?? artifact.diagramKind;
+          return !snapshot.diagramErrors[artifactId];
+        })
+        .map((artifact) => artifact.diagramKind),
+    ),
+  );
+  const modelDesignDiagrams = Array.from(
+    new Set(
+      Object.values(designRecords.modelMap)
+        .filter((model) => {
+          if (!selectedDesignDiagrams.has(model.diagramKind)) return false;
+          if (hasWholeDesignDiagramError(snapshot.diagramErrors, model.diagramKind)) {
+            return false;
+          }
+          return !snapshot.diagramErrors[getDesignModelId(model)];
+        })
+        .map((model) => model.diagramKind),
+    ),
+  );
+  const successful = new Set([...artifactDesignDiagrams, ...modelDesignDiagrams]);
+  return snapshot.selectedDiagrams.filter((diagram) => successful.has(diagram));
+}
+
 type RequirementReviewCandidate =
   WorkspaceRecord["requirementReviewCandidates"][string];
 
@@ -462,43 +509,8 @@ export function applySnapshotToWorkspace(
         .map(designDiagramKindFromRecordKey)
         .filter((diagram): diagram is DesignDiagramType => Boolean(diagram)),
     );
-    const selectedDesignDiagrams = new Set(snapshot.selectedDiagrams);
-    const modelDesignDiagrams = Array.from(
-      new Set(
-        Object.values(designRecords.modelMap)
-          .map((model) => model.diagramKind)
-          .filter(
-            (diagram): diagram is DesignDiagramType =>
-              Boolean(
-                diagram &&
-                  selectedDesignDiagrams.has(diagram) &&
-                  !erroredDesignDiagrams.has(diagram),
-              ),
-          ),
-      ),
-    );
-    const artifactDesignDiagrams = Array.from(
-      new Set(
-        [
-          ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-          ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-        ].filter(
-          (diagram): diagram is DesignDiagramType =>
-            selectedDesignDiagrams.has(diagram) &&
-            !erroredDesignDiagrams.has(diagram),
-        ),
-      ),
-    );
     const successfulAffectedDesignDiagrams =
-      snapshot.status === "completed"
-        ? Array.from(
-            new Set(
-              artifactDesignDiagrams.length > 0
-                ? artifactDesignDiagrams
-                : modelDesignDiagrams,
-            ),
-          )
-        : [];
+      successfulDesignDiagramsFromSnapshot(snapshot, designRecords);
     const affectedForErrors = Array.from(
       new Set([
         ...snapshot.selectedDiagrams,

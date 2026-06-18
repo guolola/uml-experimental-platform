@@ -212,10 +212,7 @@ function restoredDesignArtifacts(input: {
     throw new Error("Expected a design run snapshot");
   }
   const mapped = designSnapshotToMaps(snapshot);
-  const restoredDesignDiagrams =
-    snapshot.status === "completed"
-      ? successfulDesignDiagramsFromSnapshot(snapshot)
-      : [];
+  const restoredDesignDiagrams = successfulDesignDiagramsFromSnapshot(snapshot);
   const restoredDesignModels = keepDesignScopedRecord(
     mapped.models,
     restoredDesignDiagrams,

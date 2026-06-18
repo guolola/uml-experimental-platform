@@ -152,7 +152,7 @@ function requirementDiagramSchemaLines(selectedDiagrams: DiagramKind[]) {
       "- analysis: 必须包含 modelId, sourceUseCaseId, sourceUseCaseName, participants, messages, fragments；必须为每个输入 useCase 输出一个独立 modelId=analysis:<useCaseId> 的需求分析顺序图，禁止把多个用例合成一个总需求分析模型，且必须基于该 useCase 的 eventFlows。",
       "  participants[].字段：id, name, participantType(actor|boundary|control|entity|service|database|external), description(可选)。",
       "  messages[].字段：id, type(sync|async|return|create|destroy), sourceId, targetId, name, parameters(string[]), returnValue(可选), condition(可选), description(可选)。",
-      "  fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选)。",
+      "  fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选)。fragment.id 必须唯一；alt 必须至少包含两个非空分支；loop 只能包裹真实重复步骤，禁止把整段流程包成 loop；不得输出空 messageIds 或空分支。",
     );
   }
   return lines;
@@ -160,7 +160,7 @@ function requirementDiagramSchemaLines(selectedDiagrams: DiagramKind[]) {
 
 const REQUIREMENT_STAGE_SEMANTICS = [
   "需求阶段模型职责：",
-  "- 功能结构图(function): 根据文本需求项抽取系统功能层级，用 PlantUML 工作分解结构图表示功能分解与少量跨功能依赖。",
+  "- 功能结构图(function): 只根据功能需求/业务规则抽取系统功能层级，用 PlantUML 工作分解结构图表示功能分解；不得纳入非功能需求、界面需求或部署约束，不输出 dependency 关系和备注块。",
   "- 用例模型(usecase): 明确系统边界，直观展示“谁（角色）能做什么（用例）”，并为每个关键用例补充主事件流、备选事件流和异常事件流。",
   "- 领域概念模型(class): 只描述业务领域内的核心概念实体、属性及实体之间的关联，不表达服务、控制器、仓储或对象方法。",
   "- 总体业务流程(activity): 描述跨角色的业务活动、分支、并行和结束条件，不表达 UI 页面跳转。",
@@ -524,7 +524,7 @@ export function buildGenerateRequirementAnalysisPrompt(
     "analysis 结构约束：",
     "participants[].字段：id, name, participantType(actor|boundary|control|entity|service|database|external), description(可选)。",
     "messages[].字段：id, type(sync|async|return|create|destroy), sourceId, targetId, name, parameters(string[]), returnValue(可选), condition(可选), description(可选)。",
-    "fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选)。",
+    "fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选)。fragment.id 必须唯一；alt 必须至少包含两个非空分支；loop 只能包裹真实重复步骤，禁止把整段流程包成 loop；不得输出空 messageIds 或空分支。",
     "messages[].name 和 fragments[].label 必须是短标签；完整业务解释放 description。",
     "",
     "单用例需求阶段用例模型（唯一分析来源）：",
@@ -673,7 +673,7 @@ const DESIGN_MODEL_SCHEMA_INSTRUCTIONS = [
   "  messages[].字段：id, type(sync|async|return|create|destroy), sourceId, targetId, name, parameters(string[]), returnValue(可选), condition(可选), description(可选)。",
   "  sequence.messages[].name 必须优先使用方法调用语义，例如 deleteEvent、validatePermission、removeEvent、commitChanges；不要原样复用需求分析模型中的业务短语。",
   "  fragments[].字段：id, type(alt|opt|loop|par), label, messageIds(string[]), condition(可选), description(可选), branches(可选)。",
-  "  多分支 alt 必须优先输出 branches: [{label, condition(可选), messageIds}]，每个分支的 messageIds 不得交叠；渲染时 branches 会生成 PlantUML alt/else/end 分隔线。",
+  "  多分支 alt 必须优先输出 branches: [{label, condition(可选), messageIds}]，每个分支的 messageIds 不得交叠；渲染时 branches 会生成 PlantUML alt/else/end 分隔线。fragment.id 必须唯一；alt 至少两个非空分支；loop 只包裹真实重复步骤，禁止把整段流程包成 loop；不得输出空 messageIds 或空分支。",
   "- 所有设计模型都必须包含 notes 字段，且 notes 永远是字符串数组；没有备注时输出 []，不要输出字符串。",
   "- architecture: 必须包含 packages, components, relationships。",
   "  packages[].字段：id, name, stereotype(可选), description(可选), componentIds(string[])。",

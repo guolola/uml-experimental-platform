@@ -2509,8 +2509,8 @@ test("api preserves successful sequences when one use-case sequence keeps failin
     })
   ).json();
 
-  assert.equal(snapshot.status, "failed");
-  assert.match(snapshot.error.message, /uc_filter_date:日期筛选/);
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.error, null);
   assert.deepEqual(
     snapshot.models.map((model: { sourceUseCaseId: string }) => model.sourceUseCaseId),
     ["usecase_generate"],

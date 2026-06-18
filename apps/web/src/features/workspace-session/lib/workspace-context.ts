@@ -318,23 +318,49 @@ export function designErrorDiagrams(
   );
 }
 
+function hasWholeDesignDiagramError(
+  diagramErrors: WorkspaceDesignRunSnapshot["diagramErrors"],
+  diagram: DesignDiagramType,
+) {
+  return Object.keys(diagramErrors).some((key) => {
+    if (key === diagram) return true;
+    if (key.startsWith(`${diagram}:`)) return false;
+    return designDiagramKindFromRecordKey(key) === diagram;
+  });
+}
+
 export function successfulDesignDiagramsFromSnapshot(
   snapshot: WorkspaceDesignRunSnapshot,
 ) {
-  const errored = designErrorDiagrams(snapshot.diagramErrors);
   const selected = new Set(snapshot.selectedDiagrams);
   const artifactDiagrams = Array.from(
-    new Set([
-      ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-      ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-    ]),
-  ).filter((diagram) => selected.has(diagram) && !errored.has(diagram));
-  const modelDiagrams = Array.from(
-    new Set(snapshot.models.map((model) => model.diagramKind)),
-  ).filter((diagram) => selected.has(diagram) && !errored.has(diagram));
-  return orderedDesignDiagrams(
-    artifactDiagrams.length > 0 ? artifactDiagrams : modelDiagrams,
+    new Set(
+      snapshot.svgArtifacts
+        .filter((artifact) => {
+          if (!selected.has(artifact.diagramKind)) return false;
+          if (hasWholeDesignDiagramError(snapshot.diagramErrors, artifact.diagramKind)) {
+            return false;
+          }
+          const artifactId = artifact.modelId ?? artifact.diagramKind;
+          return !snapshot.diagramErrors[artifactId];
+        })
+        .map((artifact) => artifact.diagramKind),
+    ),
   );
+  const modelDiagrams = Array.from(
+    new Set(
+      snapshot.models
+        .filter((model) => {
+          if (!selected.has(model.diagramKind)) return false;
+          if (hasWholeDesignDiagramError(snapshot.diagramErrors, model.diagramKind)) {
+            return false;
+          }
+          return !snapshot.diagramErrors[getDesignModelId(model)];
+        })
+        .map((model) => model.diagramKind),
+    ),
+  );
+  return orderedDesignDiagrams([...new Set([...artifactDiagrams, ...modelDiagrams])]);
 }
 
 export function mergeDesignTraceability(
@@ -709,8 +735,6 @@ export function isRequirementDiagramStale(input: {
     diagramVersions,
     rulesVersion,
     models,
-    requirementModelTraceability,
-    manualModelEditStatus,
   } = input;
   const diagramFingerprint = diagramInputFingerprints[diagram];
   if (diagramFingerprint) {
@@ -724,22 +748,10 @@ export function isRequirementDiagramStale(input: {
   const diagramVersion = diagramVersions[diagram];
   if (diagramVersion !== undefined) return diagramVersion !== rulesVersion;
 
-  const model = models[diagram];
-  const traceabilityForDiagram = requirementModelTraceability.filter(
-    (entry) => entry.target.diagramKind === diagram,
-  );
-  return !(
-    model &&
-    requirementInputFingerprint &&
-    fingerprintMatches(
-      requirementInputFingerprint,
-      activeRequirementFingerprint,
-    ) &&
-    hasCompleteRequirementTraceability(
-      [model],
-      traceabilityForDiagram,
-      manualModelEditStatus,
-    )
+  if (!models[diagram] || !requirementInputFingerprint) return false;
+  return !fingerprintMatches(
+    requirementInputFingerprint,
+    activeRequirementFingerprint,
   );
 }
 

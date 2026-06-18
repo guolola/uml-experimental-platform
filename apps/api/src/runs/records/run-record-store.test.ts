@@ -7,6 +7,7 @@ import {
   serializeRunRecordStore,
 } from "./run-record-store.js";
 import { createEmptySnapshot } from "./snapshots.js";
+import { summarizeRunRecord } from "./run-record-summaries.js";
 
 test("run record store serializes metadata, snapshots, and events without listeners", () => {
   const runs = createRunRecordStore();
@@ -123,4 +124,25 @@ test("run record store ignores late progress after terminal events", () => {
   assert.deepEqual(seen, ["completed"]);
   assert.equal(record.events.length, 1);
   assert.equal(record.events[0]?.type, "completed");
+});
+
+test("run summaries use terminal metadata timestamps for completedAt", () => {
+  const snapshot = createEmptySnapshot("run-summary", "项目需求", ["usecase"]);
+  snapshot.status = "failed";
+  const record = {
+    snapshot,
+    events: [],
+    listeners: new Set<() => void>(),
+    terminal: true,
+    metadata: {
+      createdAt: "2026-06-18T13:49:59.000Z",
+      completedAt: "2026-06-18T14:48:23.000Z",
+    },
+  };
+
+  const summary = summarizeRunRecord(record);
+
+  assert.equal(summary.startedAt, "2026-06-18T13:49:59.000Z");
+  assert.equal(summary.completedAt, "2026-06-18T14:48:23.000Z");
+  assert.equal(summary.updatedAt, "2026-06-18T14:48:23.000Z");
 });

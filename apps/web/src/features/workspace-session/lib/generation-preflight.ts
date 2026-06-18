@@ -1,9 +1,14 @@
 // Computes generation preflight blockers and dependency plans without mutating session state.
-import type { DiagramModelSpec, RequirementBaseline } from "@uml-platform/contracts";
+import {
+  designDiagramKindFromRecordKey,
+  type DiagramModelSpec,
+  type RequirementBaseline,
+} from "@uml-platform/contracts";
 import type {
   DesignDiagramType,
   DiagramType,
 } from "../../../entities/diagram/model";
+import { getDesignModelId } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
 import type { GenerationResultDialogState } from "../components/generation-dialogs";
@@ -81,8 +86,10 @@ interface RequirementGenerationPreflightInput
 }
 
 interface DesignGenerationPreflightInput extends SharedRequirementPreflightInput {
+  designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
   designInputFingerprints: WorkspaceRecord["designInputFingerprints"];
   designModels: WorkspaceRecord["designModels"];
+  designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
   only?: DesignDiagramType[];
   selectedDesignDiagrams: DesignDiagramType[];
 }
@@ -109,6 +116,49 @@ function pendingReviewBlock(
     stageLabel: "需求规则",
     targetLabel,
   };
+}
+
+function designDiagramHasError(
+  diagramErrors: WorkspaceRecord["designDiagramErrors"],
+  diagram: DesignDiagramType,
+) {
+  return Object.keys(diagramErrors).some((id) => {
+    if (id === diagram) return true;
+    if (id.startsWith(`${diagram}:`)) return true;
+    return designDiagramKindFromRecordKey(id) === diagram;
+  });
+}
+
+function designDiagramHasViewableArtifact(
+  input: Pick<DesignGenerationPreflightInput, "designModels" | "designSvgArtifacts">,
+  diagram: DesignDiagramType,
+) {
+  return Object.values(input.designModels)
+    .filter((model) => model.diagramKind === diagram)
+    .some((model) => Boolean(input.designSvgArtifacts[getDesignModelId(model)]));
+}
+
+function requestedDesignDiagramsForPreflight(
+  input: DesignGenerationPreflightInput,
+) {
+  const requestedDiagrams = orderedDesignDiagrams(
+    input.only ?? input.selectedDesignDiagrams,
+  );
+  const shouldResumeFailedBatch =
+    requestedDiagrams.length > 1 &&
+    Object.keys(input.designDiagramErrors).length > 0;
+  if (!shouldResumeFailedBatch) return requestedDiagrams;
+
+  return requestedDiagrams.filter((diagram) => {
+    if (designDiagramHasError(input.designDiagramErrors, diagram)) return true;
+    if (
+      diagram === "sequence" &&
+      !sequenceModelsCoverUseCases(input.designModels, input.models.usecase)
+    ) {
+      return true;
+    }
+    return !designDiagramHasViewableArtifact(input, diagram);
+  });
 }
 
 function hasStaleRules(input: SharedRequirementPreflightInput) {
@@ -211,9 +261,7 @@ export function analyzeRequirementGenerationPreflight(
 export function analyzeDesignGenerationPreflight(
   input: DesignGenerationPreflightInput,
 ): DesignGenerationPreflight {
-  const requestedDiagrams = orderedDesignDiagrams(
-    input.only ?? input.selectedDesignDiagrams,
-  );
+  const requestedDiagrams = requestedDesignDiagramsForPreflight(input);
   if (requestedDiagrams.length === 0) {
     return { status: "empty" };
   }

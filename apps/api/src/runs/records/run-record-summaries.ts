@@ -34,6 +34,7 @@ function inferRunKind(snapshot: RunRecord["snapshot"]) {
 
 export function summarizeRunRecord(record: RunRecord) {
   const createdAt = record.metadata?.createdAt ?? new Date().toISOString();
+  const completedAt = record.metadata?.completedAt ?? (record.terminal ? createdAt : null);
   const status = displayRunStatus(record);
   const stage = record.snapshot.currentStage ?? status;
   const isActive = !record.terminal && (status === "running" || status === "queued");
@@ -55,8 +56,8 @@ export function summarizeRunRecord(record: RunRecord) {
       "documentKind" in record.snapshot ? record.snapshot.documentKind : null,
     createdByUserId: record.metadata?.userId ?? null,
     startedAt: createdAt,
-    updatedAt: createdAt,
-    completedAt: record.terminal ? createdAt : null,
+    updatedAt: completedAt ?? createdAt,
+    completedAt,
     metadata: record.metadata ?? null,
     eventCount: record.events.length,
     terminal: record.terminal,

@@ -333,7 +333,8 @@ describe("DiagramView", () => {
     expect(screen.getAllByText("FR3").length).toBeGreaterThan(0);
     expect(screen.getAllByText("注册用户").length).toBeGreaterThan(0);
     expect(screen.queryByText("registered_user")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "返回模型概览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关闭焦点" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "返回模型概览" })).not.toBeInTheDocument();
   });
 
   it("shows class attribute details and explicit missing localized names in the focus panel", async () => {

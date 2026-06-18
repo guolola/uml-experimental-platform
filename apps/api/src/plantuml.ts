@@ -155,28 +155,6 @@ function renderFunctionStructure(model: FunctionStructureDiagramSpec) {
     }
   }
 
-  const dependencyNotes = model.relationships.filter(
-    (relationship) => relationship.type === "dependency",
-  );
-  if (dependencyNotes.length > 0) {
-    lines.push("** 依赖关系");
-    for (const relationship of dependencyNotes) {
-      const source = nodesById.get(relationship.sourceId);
-      const target = nodesById.get(relationship.targetId);
-      const label = wbsLabel(relationship.label ?? relationship.description ?? "依赖", 16);
-      lines.push(
-        `*** ${wbsLabel(source?.name ?? relationship.sourceId, 18)} -> ${wbsLabel(target?.name ?? relationship.targetId, 18)}: ${label}`,
-      );
-    }
-  }
-
-  if (model.notes.length > 0) {
-    lines.push("** 备注");
-    for (const note of model.notes) {
-      lines.push(`*** ${wbsLabel(note, 42)}`);
-    }
-  }
-
   return `${lines.join("\n")}\n@endwbs`;
 }
 
@@ -1157,11 +1135,7 @@ function renderComponentRelationship(model: ComponentRelationshipDiagramSpec) {
   }
 
   for (const componentInterface of model.interfaces) {
-    lines.push(`interface ${quoteLabel(componentInterface.name)} as ${safeAlias(componentInterface.id)} {`);
-    for (const operationName of componentInterface.operationNames) {
-      lines.push(`  ${operationName}()`);
-    }
-    lines.push("}");
+    lines.push(`interface ${quoteLabel(componentInterface.name)} as ${safeAlias(componentInterface.id)}`);
   }
 
   for (const relation of model.relationships) {

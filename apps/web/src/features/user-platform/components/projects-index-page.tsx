@@ -45,6 +45,13 @@ type Navigate = (path: string) => void;
 const STABLE_PLATFORM_SCROLL_CLASS =
   "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-scroll bg-background [scrollbar-gutter:stable]";
 
+const PROJECT_SCOPE_SHORT_LABELS: Record<(typeof PROJECT_SCOPE_OPTIONS)[number]["value"], string> = {
+  all: "全部",
+  mine: "我的",
+  team: "团队",
+  archived: "归档",
+};
+
 function ProjectsIndexSectionCard({
   children,
   className = "",
@@ -252,13 +259,13 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
         )}
 
         {!authRequired && !forbidden && !listError && (
-          <section className="rounded-xl border border-border/60 bg-card p-[17px] shadow-sm">
-            <ScaledToolbar
-              minWidth={760}
-              contentClassName="w-full justify-between gap-8"
-            >
+          <section
+            data-testid="projects-filter-panel"
+            className="rounded-xl border border-border/60 bg-card p-3 shadow-sm md:p-[17px]"
+          >
+            <div className="flex min-w-0 items-center justify-between gap-2 md:gap-8">
               <div
-                className="flex shrink-0 gap-2"
+                className="grid shrink-0 grid-cols-4 gap-1.5 md:flex md:gap-2"
                 role="group"
                 aria-label="项目范围"
               >
@@ -268,24 +275,26 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                     <button
                       key={option.value}
                       type="button"
+                      aria-label={option.label}
                       aria-pressed={selected}
                       className={
                         selected
-                          ? "shrink-0 rounded-lg bg-accent px-4 py-2 text-base leading-6 text-accent-foreground"
-                          : "shrink-0 rounded-lg px-4 py-2 text-base leading-6 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          ? "h-8 shrink-0 rounded-md bg-accent px-2 text-[12px] font-medium leading-4 text-accent-foreground md:h-auto md:rounded-lg md:px-4 md:py-2 md:text-base md:leading-6"
+                          : "h-8 shrink-0 rounded-md px-2 text-[12px] font-medium leading-4 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:h-auto md:rounded-lg md:px-4 md:py-2 md:text-base md:leading-6"
                       }
                       onClick={() => setScope(option.value)}
                     >
-                      {option.label}
+                      <span className="md:hidden">{PROJECT_SCOPE_SHORT_LABELS[option.value]}</span>
+                      <span className="hidden md:inline">{option.label}</span>
                     </button>
                   );
                 })}
               </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <div className="relative w-96">
-                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-2 md:shrink-0 md:gap-4">
+                <div className="relative min-w-[108px] flex-1 md:w-96 md:flex-none">
+                  <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground md:left-3 md:size-4" />
                   <Input
-                    className="h-[38px] rounded-lg border-input bg-input-background pl-10 text-sm"
+                    className="h-8 rounded-lg border-input bg-input-background pl-8 text-[12px] md:h-[38px] md:pl-10 md:text-sm"
                     placeholder="搜索项目、成员..."
                     aria-label="搜索项目"
                     value={search}
@@ -296,7 +305,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                   aria-label="排序方式"
                   value={sort}
                   onValueChange={setSort}
-                  className="h-[38px] w-28 rounded-lg border border-input bg-input-background px-3 text-sm text-foreground"
+                  className="h-8 w-[82px] shrink-0 rounded-lg border border-input bg-input-background px-2 text-[12px] text-foreground md:h-[38px] md:w-28 md:px-3 md:text-sm"
                   options={[
                     { value: "recent", label: "最近打开" },
                     { value: "generated", label: "最近生成" },
@@ -304,7 +313,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                   ]}
                 />
               </div>
-            </ScaledToolbar>
+            </div>
           </section>
         )}
 
@@ -328,14 +337,14 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                 key={project.id}
                 className={
                   project.status === "archived"
-                    ? "group relative flex min-h-[232px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-card opacity-75 shadow-sm md:min-h-[271px] md:rounded-xl"
-                    : "group relative flex min-h-[244px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-card shadow-sm md:min-h-[287px] md:rounded-xl"
+                    ? "group relative flex min-h-[174px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-card opacity-75 shadow-sm md:min-h-[271px] md:rounded-xl"
+                    : "group relative flex min-h-[182px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-card shadow-sm md:min-h-[287px] md:rounded-xl"
                 }
               >
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary to-info opacity-0 transition-opacity group-hover:opacity-100" />
-                <div className="flex flex-1 flex-col gap-3 border-b border-border/60 px-3 pb-5 pt-4 md:gap-4 md:px-6 md:pb-10 md:pt-6">
+                <div className="flex flex-1 flex-col gap-2 border-b border-border/60 px-3 pb-3 pt-3 md:gap-4 md:px-6 md:pb-10 md:pt-6">
                   <div className="flex min-w-0 items-start justify-between gap-2 md:gap-3">
-                    <h2 className="line-clamp-2 min-w-0 text-sm font-semibold leading-5 text-foreground md:text-xl md:leading-7">
+                    <h2 className="line-clamp-2 min-w-0 text-[15px] font-semibold leading-5 text-foreground md:text-xl md:leading-7">
                       {project.name}
                     </h2>
                     <Badge
@@ -349,10 +358,10 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                       {project.statusLabel}
                     </Badge>
                   </div>
-                  <p className="line-clamp-2 min-h-8 min-w-0 max-w-full overflow-hidden text-xs leading-4 text-muted-foreground md:min-h-10 md:text-sm md:leading-5">
+                  <p className="line-clamp-1 min-h-5 min-w-0 max-w-full overflow-hidden text-[12px] leading-5 text-muted-foreground md:line-clamp-2 md:min-h-10 md:text-sm md:leading-5">
                     {project.description}
                   </p>
-                  <div className="grid gap-1.5 pt-1 text-xs leading-4 text-muted-foreground md:gap-2 md:pt-2 md:text-sm md:leading-5">
+                  <div className="grid gap-1 pt-0.5 text-[12px] leading-4 text-muted-foreground md:gap-2 md:pt-2 md:text-sm md:leading-5">
                     <span className="flex min-w-0 items-center gap-1.5 md:gap-2">
                       <UserRound className="size-3.5 shrink-0" />
                       <span className="min-w-0 truncate">负责人：{project.owner}</span>
@@ -369,7 +378,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                     </span>
                   </div>
                 </div>
-                <div className="mt-auto flex items-center justify-between gap-2 bg-muted/50 px-3 py-3 dark:bg-secondary/40 md:gap-3 md:px-6 md:py-4">
+                <div className="mt-auto flex items-center justify-between gap-2 bg-muted/50 px-3 py-2 dark:bg-secondary/40 md:gap-3 md:px-6 md:py-4">
                   <div className="flex items-start">
                     {project.status === "archived" ? (
                       <span className="line-clamp-2 font-mono text-[10px] font-medium leading-4 text-muted-foreground md:text-xs">
@@ -409,7 +418,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-6 shrink-0 px-0 text-[13px] leading-5 text-primary hover:bg-transparent hover:text-primary/80 md:text-base"
+                    className="h-7 shrink-0 px-0 text-sm leading-5 text-primary hover:bg-transparent hover:text-primary/80 md:text-base"
                     onClick={() => onNavigate(`/projects/${project.id}`)}
                   >
                     进入项目

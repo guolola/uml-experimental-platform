@@ -176,13 +176,23 @@ function inferRelatedDiagrams(ruleText: string, category: RuleCategory): Diagram
   return inferred.length > 0 ? inferred : ["usecase"];
 }
 
+function diagramAllowedForCategory(diagram: DiagramKind, category: RuleCategory) {
+  if (diagram !== "function") return true;
+  return category === "功能需求" || category === "业务规则";
+}
+
 function normalizeRelatedDiagrams(value: unknown, ruleText: string, category: RuleCategory) {
   const diagrams = normalizeStringArray(value).flatMap((item) => {
     const normalized = diagramFromAlias(item);
     return normalized ? [normalized] : [];
   });
-  const unique = diagrams.filter((item, index) => diagrams.indexOf(item) === index);
-  return unique.length > 0 ? unique : inferRelatedDiagrams(ruleText, category);
+  const unique = diagrams
+    .filter((item, index) => diagrams.indexOf(item) === index)
+    .filter((diagram) => diagramAllowedForCategory(diagram, category));
+  if (unique.length > 0) return unique;
+  return inferRelatedDiagrams(ruleText, category).filter((diagram) =>
+    diagramAllowedForCategory(diagram, category),
+  );
 }
 
 function normalizeRule(rawRule: unknown, index: number): RequirementRule | null {

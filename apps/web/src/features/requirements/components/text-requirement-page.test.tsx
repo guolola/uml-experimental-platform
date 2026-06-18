@@ -1,8 +1,11 @@
 // Verifies requirement authoring, rule editing, quality checks, and generation action guards.
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { AtomicRequirement, RequirementBaseline } from "@uml-platform/contracts";
+import type {
+  AtomicRequirement,
+  RequirementBaseline,
+} from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import { ApiClientError } from "../../../services/api-client";
 import {
@@ -13,48 +16,6 @@ import {
 } from "../../../test/workspace-test-utils";
 import { snapshotInputFingerprint } from "../../../shared/lib/fingerprint";
 import { TextRequirementView } from "./text-requirement-page";
-
-function layoutRect(width: number, height: number) {
-  return {
-    bottom: height,
-    height,
-    left: 0,
-    right: width,
-    top: 0,
-    width,
-    x: 0,
-    y: 0,
-    toJSON: () => ({}),
-  } as DOMRect;
-}
-
-function sizeScaleFrame({
-  frame,
-  containerWidth,
-  contentWidth,
-  contentHeight,
-}: {
-  frame: HTMLElement;
-  containerWidth: number;
-  contentWidth: number;
-  contentHeight: number;
-}) {
-  const content = frame.firstElementChild as HTMLElement;
-  frame.getBoundingClientRect = () => layoutRect(containerWidth, contentHeight);
-  content.getBoundingClientRect = () => layoutRect(contentWidth, contentHeight);
-  Object.defineProperty(frame, "clientWidth", {
-    configurable: true,
-    value: containerWidth,
-  });
-  Object.defineProperty(content, "scrollWidth", {
-    configurable: true,
-    value: contentWidth,
-  });
-  Object.defineProperty(content, "scrollHeight", {
-    configurable: true,
-    value: contentHeight,
-  });
-}
 
 describe("TextRequirementView", () => {
   async function chooseSelectOption(
@@ -139,7 +100,9 @@ describe("TextRequirementView", () => {
             ]
           : [],
         blockingIssueIds: ["issue-actor"],
-        reviewRequiredRequirementIds: requirements[0] ? [requirements[0].id] : [],
+        reviewRequiredRequirementIds: requirements[0]
+          ? [requirements[0].id]
+          : [],
       },
       ...overrides,
     };
@@ -170,11 +133,17 @@ describe("TextRequirementView", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("目标模型")).toBeInTheDocument();
     expect(screen.queryByText(/将自动补齐：需求规则/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("请先输入需求描述或添加需求规则").length).toBeGreaterThan(0);
     expect(
-      container.querySelector('[data-workspace-density="assistant-template-grid"]'),
+      screen.getAllByText("请先输入需求描述或添加需求规则").length,
+    ).toBeGreaterThan(0);
+    expect(
+      container.querySelector(
+        '[data-workspace-density="assistant-template-grid"]',
+      ),
     ).not.toBeInTheDocument();
-    const modelGrid = container.querySelector('[data-workspace-density="compact-grid"]');
+    const modelGrid = container.querySelector(
+      '[data-workspace-density="compact-grid"]',
+    );
     expect(modelGrid).toBeInTheDocument();
     expect(modelGrid).toHaveAttribute("data-mobile-card-density", "two-column");
     expect(modelGrid).toHaveClass("grid-cols-2");
@@ -202,14 +171,21 @@ describe("TextRequirementView", () => {
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     await screen.findByText("目标模型");
-    expect(screen.getAllByText(/将自动补齐：需求规则/).length).toBeGreaterThan(0);
-    expect(screen.queryByText("请先输入需求描述或添加需求规则")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/将自动补齐：需求规则/).length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      screen.queryByText("请先输入需求描述或添加需求规则"),
+    ).not.toBeInTheDocument();
   });
 
   it("starts a rules-only run through session actions", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-rules" }));
     const subscribeToRun = vi.fn(
-      async (_runId: string, onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1]) => {
+      async (
+        _runId: string,
+        onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1],
+      ) => {
         onEvent({ type: "queued" });
         onEvent({
           type: "completed",
@@ -310,8 +286,12 @@ describe("TextRequirementView", () => {
     expect(await screen.findAllByText("需要开通生成权益")).not.toHaveLength(0);
     expect(screen.getByText(/可用次数 0/)).toBeInTheDocument();
     expect(screen.getByText(/当前没有有效通行卡/)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "购买权益" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "账单" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "购买权益" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "账单" }),
+    ).not.toBeInTheDocument();
   });
 
   it("starts a diagram run through session actions", async () => {
@@ -357,7 +337,9 @@ describe("TextRequirementView", () => {
           ],
         },
       ],
-      plantUml: [{ diagramKind: "usecase", source: "@startuml\nactor 用户\n@enduml" }],
+      plantUml: [
+        { diagramKind: "usecase", source: "@startuml\nactor 用户\n@enduml" },
+      ],
       svgArtifacts: [
         {
           diagramKind: "usecase",
@@ -382,7 +364,10 @@ describe("TextRequirementView", () => {
       ),
       startRun,
       subscribeToRun: vi.fn(
-        async (_runId: string, onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1]) => {
+        async (
+          _runId: string,
+          onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1],
+        ) => {
           onEvent({ type: "queued" });
           onEvent({ type: "completed", snapshot });
         },
@@ -394,7 +379,9 @@ describe("TextRequirementView", () => {
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     await user.click(await screen.findByRole("checkbox", { name: /用例模型/ }));
-    const generateButton = await screen.findByRole("button", { name: /生成模型/i });
+    const generateButton = await screen.findByRole("button", {
+      name: /生成模型/i,
+    });
 
     await waitFor(() => {
       expect(generateButton).toBeEnabled();
@@ -454,7 +441,9 @@ describe("TextRequirementView", () => {
                   supportingActorIds: [],
                 },
               ],
-              systemBoundaries: [{ id: "boundary_library", name: "图书馆系统" }],
+              systemBoundaries: [
+                { id: "boundary_library", name: "图书馆系统" },
+              ],
               relationships: [],
             },
           },
@@ -491,7 +480,9 @@ describe("TextRequirementView", () => {
       within(dialog).getByText(/需求规则 r1 需要解释其在用例模型中的覆盖关系/u),
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/补齐 r1 -> 查询自己借出的书目 的追踪关系和覆盖说明/u),
+      within(dialog).getByText(
+        /补齐 r1 -> 查询自己借出的书目 的追踪关系和覆盖说明/u,
+      ),
     ).toBeInTheDocument();
     expect(within(dialog).getAllByText("证明已补齐").length).toBeGreaterThan(0);
   });
@@ -514,7 +505,9 @@ describe("TextRequirementView", () => {
 
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
-    expect(await screen.findByRole("checkbox", { name: /用例模型/ })).toBeEnabled();
+    expect(
+      await screen.findByRole("checkbox", { name: /用例模型/ }),
+    ).toBeEnabled();
     const classDiagramCheckbox = screen.getByRole("checkbox", {
       name: /领域概念模型/,
     });
@@ -522,9 +515,9 @@ describe("TextRequirementView", () => {
     expect(classDiagramCheckbox).not.toBeChecked();
     await userEvent.click(classDiagramCheckbox);
     expect(classDiagramCheckbox).toBeChecked();
-    expect(
-      screen.getAllByText(/将自动补齐：规则映射/).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/将自动补齐：规则映射/).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByText("1/7")).toBeInTheDocument();
   });
 
@@ -563,7 +556,9 @@ describe("TextRequirementView", () => {
     expect(
       screen.getByText("基于用例模型事件流生成，不要求需求规则直接映射。"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("需先选择或生成用例模型")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("需先选择或生成用例模型"),
+    ).not.toBeInTheDocument();
 
     await user.click(analysisCheckbox);
 
@@ -591,7 +586,9 @@ describe("TextRequirementView", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
-    await user.click(await screen.findByRole("checkbox", { name: /总体业务流程/ }));
+    await user.click(
+      await screen.findByRole("checkbox", { name: /总体业务流程/ }),
+    );
 
     expect(
       await screen.findByRole("button", {
@@ -688,7 +685,11 @@ describe("TextRequirementView", () => {
                 id: "REQ-010",
                 sourceRuleId: "r10",
                 sourceFragment: "功能(4)可供普通读者查找他们自己借出的书目。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 24 },
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 24,
+                },
                 type: "business-rule",
                 actor: "普通读者",
                 subject: "普通读者",
@@ -707,21 +708,24 @@ describe("TextRequirementView", () => {
                     status: "accepted",
                     value: "普通读者",
                     originalValue: null,
-                    rationale: "原文明确出现普通读者，AI 自动补齐角色/执行者字段。",
+                    rationale:
+                      "原文明确出现普通读者，AI 自动补齐角色/执行者字段。",
                   },
                   object: {
                     source: "ai-suggested",
                     status: "accepted",
                     value: "自己借出的书目",
                     originalValue: null,
-                    rationale: "原文描述普通读者查询自己借出的书目，AI 自动补齐对象字段。",
+                    rationale:
+                      "原文描述普通读者查询自己借出的书目，AI 自动补齐对象字段。",
                   },
                   condition: {
                     source: "ai-suggested",
                     status: "accepted",
                     value: "登录身份为普通读者",
                     originalValue: null,
-                    rationale: "该规则涉及普通读者权限边界，AI 自动补齐身份条件。",
+                    rationale:
+                      "该规则涉及普通读者权限边界，AI 自动补齐身份条件。",
                   },
                 },
               },
@@ -738,23 +742,49 @@ describe("TextRequirementView", () => {
     });
     expect(within(row).getByText("已确认")).toBeInTheDocument();
     expect(within(row).getByText("3项")).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
-    expect(within(row).queryByText(/角色\/执行者：普通读者/u)).not.toBeInTheDocument();
-    expect(within(row).queryByText(/修复原因：原文明确出现普通读者/u)).not.toBeInTheDocument();
-    expect(within(row).queryByText(/actor|object|condition/u)).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求质量提示" })).not.toBeInTheDocument();
+    expect(
+      within(row).queryByRole("button", { name: /复核详情/u }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByText(/角色\/执行者：普通读者/u),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByText(/修复原因：原文明确出现普通读者/u),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByText(/actor|object|condition/u),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "需求规则修复确认" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "需求质量提示" }),
+    ).not.toBeInTheDocument();
 
-    await user.click(within(row).getByRole("button", { name: /需求提示详情 r10/u }));
+    await user.click(
+      within(row).getByRole("button", { name: /需求提示详情 r10/u }),
+    );
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(screen.getByRole("dialog", { name: "需求质量提示" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "需求质量提示" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("角色/执行者")).toBeInTheDocument();
-    expect(screen.getByText("原文明确出现普通读者，AI 自动补齐角色/执行者字段。")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "采纳" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "智能修复" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "确认提示" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("原文明确出现普通读者，AI 自动补齐角色/执行者字段。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "采纳" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "拒绝" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "智能修复" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "确认提示" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭" })).toBeInTheDocument();
   });
 
@@ -809,7 +839,11 @@ describe("TextRequirementView", () => {
                 id: "REQ-010",
                 sourceRuleId: "r10",
                 sourceFragment: "功能(4)可供普通读者查找他们自己借出的书目。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 24 },
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 24,
+                },
                 type: "business-rule",
                 actor: "普通读者",
                 subject: "普通读者",
@@ -853,27 +887,51 @@ describe("TextRequirementView", () => {
       name: /需求提示详情 r10/u,
     });
     expect(detailsButton).not.toHaveAttribute("title");
-    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求质量提示" })).not.toBeInTheDocument();
-    expect(screen.queryByText("REQ-010 包含 AI 补齐待确认字段。")).not.toBeInTheDocument();
-    expect(screen.queryByText("REQ-010 缺少可验证边界。")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "需求规则修复确认" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "需求质量提示" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("REQ-010 包含 AI 补齐待确认字段。"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("REQ-010 缺少可验证边界。"),
+    ).not.toBeInTheDocument();
 
     await user.click(detailsButton);
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     const dialog = screen.getByRole("dialog", { name: "需求质量提示" });
     expect(dialog).toBeInTheDocument();
-    expect(screen.getByText("REQ-010 包含 AI 补齐待确认字段。")).toBeInTheDocument();
+    expect(
+      screen.getByText("REQ-010 包含 AI 补齐待确认字段。"),
+    ).toBeInTheDocument();
     expect(screen.getByText("REQ-010 缺少可验证边界。")).toBeInTheDocument();
     expect(screen.getByText("角色/执行者")).toBeInTheDocument();
     expect(screen.getByText("对象")).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "编辑后采纳" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "采纳 AI 补齐" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "拒绝建议" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "采纳" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "智能修复" })).toBeInTheDocument();
+    expect(
+      within(row).queryByRole("button", { name: /复核详情/u }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "编辑后采纳" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "采纳 AI 补齐" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "拒绝建议" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "采纳" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "拒绝" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "智能修复" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/阻断可信完成/u)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "关闭" }));
     await waitFor(() => {
@@ -913,7 +971,11 @@ describe("TextRequirementView", () => {
                 id: "REQ-001",
                 sourceRuleId: "r1",
                 sourceFragment: "系统应提供订单提交能力。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 12 },
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 12,
+                },
                 type: "functional",
                 actor: "用户",
                 subject: "用户",
@@ -940,8 +1002,12 @@ describe("TextRequirementView", () => {
       name: /r1.*系统应提供订单提交能力/u,
     });
     expect(within(row).getByText("已生成")).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: /查看需求提示详情/u })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
+    expect(
+      within(row).queryByRole("button", { name: /查看需求提示详情/u }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "需求规则修复确认" }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not expose single-rule repair actions from the requirement table", async () => {
@@ -1037,8 +1103,13 @@ describe("TextRequirementView", () => {
               {
                 id: "REQ-013",
                 sourceRuleId: "r13",
-                sourceFragment: "同一时刻，一本书不能既处于已借出状态，又处于可借阅状态。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 28 },
+                sourceFragment:
+                  "同一时刻，一本书不能既处于已借出状态，又处于可借阅状态。",
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 28,
+                },
                 type: "business-rule",
                 actor: null,
                 subject: null,
@@ -1057,7 +1128,11 @@ describe("TextRequirementView", () => {
                 id: "REQ-014",
                 sourceRuleId: "r14",
                 sourceFragment: "一个读者一次借出的书籍数目不能超过预定值。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 20 },
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 20,
+                },
                 type: "business-rule",
                 actor: "读者",
                 subject: "读者",
@@ -1095,15 +1170,27 @@ describe("TextRequirementView", () => {
     });
     expect(within(r14Row).getByText("有待确认提示")).toBeInTheDocument();
 
-    expect(within(r13Row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "重新智能修复" })).not.toBeInTheDocument();
+    expect(
+      within(r13Row).queryByRole("button", { name: /复核详情/u }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "重新智能修复" }),
+    ).not.toBeInTheDocument();
     expect(startRun).not.toHaveBeenCalled();
     expect(repairRequirementRule).not.toHaveBeenCalled();
     expect(updateRequirementBaseline).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog", { name: "单项智能修复完成" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/REQ-013|runId|requirementId|EvidencePackage/u)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "单项智能修复完成" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/REQ-013|runId|requirementId|EvidencePackage/u),
+    ).not.toBeInTheDocument();
     expect(within(r14Row).getByText("有待确认提示")).toBeInTheDocument();
-    expect(within(r14Row).getByDisplayValue("一个读者一次借出的书籍数目不能超过预定值。")).toBeInTheDocument();
+    expect(
+      within(r14Row).getByDisplayValue(
+        "一个读者一次借出的书籍数目不能超过预定值。",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows missing business facts as AI suggestions that still require confirmation", async () => {
@@ -1144,7 +1231,11 @@ describe("TextRequirementView", () => {
                 id: "REQ-014",
                 sourceRuleId: "r14",
                 sourceFragment: "一个读者一次借出的书籍数目不能超过预定值。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 20 },
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 20,
+                },
                 type: "business-rule",
                 actor: "读者",
                 subject: "读者",
@@ -1181,9 +1272,15 @@ describe("TextRequirementView", () => {
     });
     expect(within(row).getByText("有待确认提示")).toBeInTheDocument();
     expect(within(row).getByText("2项")).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: /复核详情/u })).not.toBeInTheDocument();
-    expect(within(row).queryByText(/预定值缺少具体数值/u)).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "需求规则修复确认" })).not.toBeInTheDocument();
+    expect(
+      within(row).queryByRole("button", { name: /复核详情/u }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByText(/预定值缺少具体数值/u),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "需求规则修复确认" }),
+    ).not.toBeInTheDocument();
   });
 
   it("toggles selectable target diagrams from the whole model card", async () => {
@@ -1368,9 +1465,9 @@ describe("TextRequirementView", () => {
       expect(classDiagramCheckbox).toBeChecked();
       expect(classDiagramCheckbox).toBeEnabled();
     });
-    expect(
-      screen.getAllByText(/将自动补齐：规则映射/).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/将自动补齐：规则映射/).length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("keeps generation in the background without opening diagnostics overlay", async () => {
@@ -1383,11 +1480,22 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       startRun: vi.fn(async () => ({ runId: "run-stream" })),
       subscribeToRun: vi.fn(
-        async (_runId: string, onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1]) => {
+        async (
+          _runId: string,
+          onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1],
+        ) => {
           onEvent({ type: "queued" });
           onEvent({ type: "stage_started", stage: "extract_rules" });
-          onEvent({ type: "llm_chunk", stage: "extract_rules", chunk: "{\"rules\":" });
-          onEvent({ type: "llm_chunk", stage: "extract_rules", chunk: "[{\"id\":\"r1\"}]" });
+          onEvent({
+            type: "llm_chunk",
+            stage: "extract_rules",
+            chunk: '{"rules":',
+          });
+          onEvent({
+            type: "llm_chunk",
+            stage: "extract_rules",
+            chunk: '[{"id":"r1"}]',
+          });
           await new Promise<void>((resolve) => {
             completeRun = () => {
               onEvent({ type: "completed", snapshot });
@@ -1413,8 +1521,12 @@ describe("TextRequirementView", () => {
     expect(screen.getByTitle("生成需求规则")).toBeDisabled();
     expect(screen.queryByText("查看详情")).not.toBeInTheDocument();
     expect(screen.queryByText(/Run ID：/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/\{"rules":\[\{"id":"r1"\}\]/)).not.toBeInTheDocument();
-    expect(screen.queryByText("extract_rules 收到模型输出")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/\{"rules":\[\{"id":"r1"\}\]/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("extract_rules 收到模型输出"),
+    ).not.toBeInTheDocument();
 
     completeRun();
   });
@@ -1449,18 +1561,28 @@ describe("TextRequirementView", () => {
         "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
       ),
     ).toHaveClass("h-[240px]");
-    expect(within(table).getByRole("columnheader", { name: "编号" })).toBeInTheDocument();
-    expect(within(table).getByRole("columnheader", { name: "类型" })).toBeInTheDocument();
+    expect(
+      within(table).getByRole("columnheader", { name: "编号" }),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByRole("columnheader", { name: "类型" }),
+    ).toBeInTheDocument();
     expect(
       within(table).getByRole("columnheader", {
         name: "需求文本内容（可编辑）",
       }),
     ).toBeInTheDocument();
-    expect(within(table).queryByRole("columnheader", { name: "相关图" })).not.toBeInTheDocument();
-    expect(within(table).getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
+    expect(
+      within(table).queryByRole("columnheader", { name: "相关图" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(table).getByRole("columnheader", { name: "操作" }),
+    ).toBeInTheDocument();
     expect(within(table).getByText("r1")).toBeInTheDocument();
     expect(within(table).getByText("业务规则")).toBeInTheDocument();
-    expect(within(table).getByRole("combobox", { name: "需求类型 r1" })).toBeInTheDocument();
+    expect(
+      within(table).getByRole("combobox", { name: "需求类型 r1" }),
+    ).toBeInTheDocument();
     expect(within(table).queryByRole("checkbox")).not.toBeInTheDocument();
 
     const textEditor = within(table).getByDisplayValue(
@@ -1555,13 +1677,19 @@ describe("TextRequirementView", () => {
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("修复结果待确认")).toBeInTheDocument();
-    await user.click(within(table).getByRole("button", { name: "需求提示详情 r1" }));
+    await user.click(
+      within(table).getByRole("button", { name: "需求提示详情 r1" }),
+    );
 
-    const dialog = await screen.findByRole("dialog", { name: "需求规则修复确认" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "需求规则修复确认",
+    });
     expect(within(dialog).getByText("修复前后对比")).toBeInTheDocument();
     expect(within(dialog).getByText("补齐参与者字段。")).toBeInTheDocument();
     expect(within(dialog).getByText("缺少参与者")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "拒绝" })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "拒绝" }),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "采纳" }));
 
     await waitFor(() => {
@@ -1712,33 +1840,36 @@ describe("TextRequirementView", () => {
       status: "pending-review",
       fieldProvenance: {},
     });
-    const baseline = createRequirementBaseline([requirement, otherRequirement], {
-      qualityReport: {
-        runId: "run-baseline",
-        status: "pending-review",
-        summary: "发现 2 个需求质量提示。",
-        issues: [
-          {
-            id: "ISS-003",
-            code: "missing-actor",
-            message: "REQ-006 缺少明确角色/执行者。",
-            severity: "critical",
-            requirementId: "REQ-006",
-            blocksDownstream: false,
-          },
-          {
-            id: "ISS-004",
-            code: "missing-actor",
-            message: "REQ-007 缺少明确角色/执行者。",
-            severity: "critical",
-            requirementId: "REQ-007",
-            blocksDownstream: false,
-          },
-        ],
-        blockingIssueIds: [],
-        reviewRequiredRequirementIds: ["REQ-006", "REQ-007"],
+    const baseline = createRequirementBaseline(
+      [requirement, otherRequirement],
+      {
+        qualityReport: {
+          runId: "run-baseline",
+          status: "pending-review",
+          summary: "发现 2 个需求质量提示。",
+          issues: [
+            {
+              id: "ISS-003",
+              code: "missing-actor",
+              message: "REQ-006 缺少明确角色/执行者。",
+              severity: "critical",
+              requirementId: "REQ-006",
+              blocksDownstream: false,
+            },
+            {
+              id: "ISS-004",
+              code: "missing-actor",
+              message: "REQ-007 缺少明确角色/执行者。",
+              severity: "critical",
+              requirementId: "REQ-007",
+              blocksDownstream: false,
+            },
+          ],
+          blockingIssueIds: [],
+          reviewRequiredRequirementIds: ["REQ-006", "REQ-007"],
+        },
       },
-    });
+    );
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -1780,9 +1911,9 @@ describe("TextRequirementView", () => {
     expect(
       savedBaseline.requirements.find((item) => item.id === "REQ-007")?.status,
     ).toBe("pending-review");
-    expect(savedBaseline.qualityReport.issues.map((issue) => issue.id)).toEqual([
-      "ISS-004",
-    ]);
+    expect(savedBaseline.qualityReport.issues.map((issue) => issue.id)).toEqual(
+      ["ISS-004"],
+    );
     expect(savedBaseline.qualityReport.reviewRequiredRequirementIds).toEqual([
       "REQ-007",
     ]);
@@ -1800,8 +1931,7 @@ describe("TextRequirementView", () => {
     const requirement = createAtomicRequirement({
       id: "REQ-008",
       sourceRuleId: "r8",
-      sourceFragment:
-        "超过 30 天未处理的信息自动提醒发布人，超过 90 天可归档",
+      sourceFragment: "超过 30 天未处理的信息自动提醒发布人，超过 90 天可归档",
       actor: null,
       subject: null,
       confidence: 0.56,
@@ -1918,12 +2048,16 @@ describe("TextRequirementView", () => {
       "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
     );
     expect(sourceText).toHaveValue("创建一个订单系统");
-    expect(screen.queryByRole("button", { name: "返回修改描述" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "返回修改描述" }),
+    ).not.toBeInTheDocument();
 
     await user.type(sourceText, "，并支持退款");
 
     await waitFor(() => {
-      expect(updateRequirementText).toHaveBeenLastCalledWith("创建一个订单系统，并支持退款");
+      expect(updateRequirementText).toHaveBeenLastCalledWith(
+        "创建一个订单系统，并支持退款",
+      );
     });
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(
@@ -2030,7 +2164,10 @@ describe("TextRequirementView", () => {
     expect(within(table).queryByDisplayValue("规则 9")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("requirement-rule-row-slot")).toHaveLength(8);
     expect(screen.getByText("1-8 / 10")).toBeInTheDocument();
-    expect(screen.getByTestId("requirement-rule-pagination")).toHaveClass("sticky", "bottom-0");
+    expect(screen.getByTestId("requirement-rule-pagination")).toHaveClass(
+      "sticky",
+      "bottom-0",
+    );
     await chooseSelectOption(
       user,
       screen.getByRole("combobox", { name: "每页需求规则数量" }),
@@ -2103,23 +2240,54 @@ describe("TextRequirementView", () => {
     );
     expect(sourceText).toHaveClass("w-full");
 
-    const table = await screen.findByRole("table");
-    expect(table).toHaveStyle({ width: "max(100%, 960px)" });
-    const tableSection = table.closest("section");
-    expect(tableSection).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
-    const tableFrame = table.closest("[data-scale-to-fit]") as HTMLElement;
-    expect(tableFrame).toHaveClass("max-w-full", "overflow-hidden");
-
-    sizeScaleFrame({
-      frame: tableFrame,
-      containerWidth: 351,
-      contentWidth: 960,
-      contentHeight: 540,
+    const table = await screen.findByTestId("requirement-rules-compact-table");
+    expect(table).toHaveClass("w-full", "table-fixed", "text-[12px]");
+    expect(table).not.toHaveStyle({ width: "max(100%, 960px)" });
+    const numberHeader = within(table).getByRole("columnheader", {
+      name: "编号",
     });
-    act(() => window.dispatchEvent(new Event("resize")));
-
-    expect(tableFrame).toHaveAttribute("data-scale-to-fit", "scaled");
-    expect(tableFrame).toHaveStyle({ height: "198px" });
+    const typeHeader = within(table).getByRole("columnheader", {
+      name: "类型",
+    });
+    const actionHeader = within(table).getByRole("columnheader", {
+      name: "操作",
+    });
+    expect(numberHeader).toHaveClass("text-center");
+    expect(typeHeader).toHaveClass("text-center");
+    expect(actionHeader).toHaveClass("text-center");
+    expect(
+      within(table).getByRole("columnheader", { name: "状态" }),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByRole("columnheader", {
+        name: "需求文本内容（可编辑）",
+      }),
+    ).toBeInTheDocument();
+    const firstRuleCell = within(table)
+      .getByText("r1")
+      .closest("td") as HTMLElement;
+    const typeControl = within(table).getByRole("combobox", {
+      name: "需求类型 r1",
+    });
+    const typeCell = typeControl.closest("td") as HTMLElement;
+    const deleteButton = within(table).getByRole("button", {
+      name: "删除需求项 r1",
+    });
+    const actionCell = deleteButton.closest("td") as HTMLElement;
+    expect(firstRuleCell).toHaveClass("text-center");
+    expect(typeCell).toHaveClass("text-center");
+    expect(typeControl).toHaveClass(
+      "*:data-[slot=select-value]:justify-center",
+    );
+    expect(actionCell).toHaveClass("text-center");
+    expect(deleteButton).toHaveClass("mx-auto");
+    const tableSection = table.closest("section");
+    expect(tableSection).toHaveClass(
+      "min-w-0",
+      "max-w-full",
+      "overflow-hidden",
+    );
+    expect(table.closest("[data-scale-to-fit]")).toBeNull();
   });
 
   it("keeps status and related diagram cells compact in fixed-width rows", async () => {
@@ -2152,7 +2320,11 @@ describe("TextRequirementView", () => {
                 id: "REQ-010",
                 sourceRuleId: "r10",
                 sourceFragment: "普通读者只能使用查找自己已借出书目的功能。",
-                sourceLocation: { section: "input", startOffset: 0, endOffset: 21 },
+                sourceLocation: {
+                  section: "input",
+                  startOffset: 0,
+                  endOffset: 21,
+                },
                 type: "business-rule",
                 actor: "普通读者",
                 subject: "普通读者",
@@ -2195,7 +2367,7 @@ describe("TextRequirementView", () => {
       name: /r10.*普通读者只能使用查找自己已借出书目的功能/u,
     });
     const cells = within(row).getAllByRole("cell");
-    expect(cells[2]).toHaveClass("px-4");
+    expect(cells[2]).toHaveClass("px-1.5", "md:px-4");
     expect(within(cells[2]).getByText("已确认")).toBeInTheDocument();
     expect(within(cells[2]).getByText("3项")).toBeInTheDocument();
     expect(within(cells[2]).queryByText("3项提示")).not.toBeInTheDocument();
@@ -2230,11 +2402,19 @@ describe("TextRequirementView", () => {
 
     await user.click(await screen.findByRole("button", { name: /新增需求项/ }));
     const dialog = await screen.findByRole("dialog", { name: "新增需求项" });
-    const submitButton = within(dialog).getByRole("button", { name: "创建需求项" });
+    const submitButton = within(dialog).getByRole("button", {
+      name: "创建需求项",
+    });
     expect(submitButton).toBeDisabled();
 
-    await chooseSelectOption(user, within(dialog).getByRole("combobox"), "数据需求");
-    await user.click(within(dialog).getByRole("checkbox", { name: "领域概念模型" }));
+    await chooseSelectOption(
+      user,
+      within(dialog).getByRole("combobox"),
+      "数据需求",
+    );
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "领域概念模型" }),
+    );
     await user.type(
       within(dialog).getByPlaceholderText("填写这条需求项的具体内容"),
       "系统必须保存活动报名记录。",
@@ -2259,12 +2439,16 @@ describe("TextRequirementView", () => {
         }),
       );
     });
-    expect(screen.queryByRole("dialog", { name: "新增需求项" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "新增需求项" }),
+    ).not.toBeInTheDocument();
     await waitFor(() => {
       const table = screen.getByRole("table");
       expect(within(table).getByText("r2")).toBeInTheDocument();
       expect(within(table).getByText("数据需求")).toBeInTheDocument();
-      expect(within(table).getByDisplayValue("系统必须保存活动报名记录。")).toBeInTheDocument();
+      expect(
+        within(table).getByDisplayValue("系统必须保存活动报名记录。"),
+      ).toBeInTheDocument();
     });
   });
 });

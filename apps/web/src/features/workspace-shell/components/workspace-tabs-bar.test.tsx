@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -66,14 +66,20 @@ function TabsHarness() {
 }
 
 describe("WorkspaceTabsBar", () => {
-  it("collapses open tabs into a compact menu on mobile viewports", async () => {
+  it("renders fixed-width scrollable tabs plus the actions menu on mobile viewports", async () => {
     stubCompactViewport(true);
     render(withWorkspaceProviders(<TabsHarness />, createRepository()));
 
     await userEvent.click(screen.getByRole("button", { name: "open usecase" }));
     await userEvent.click(screen.getByRole("button", { name: "open design" }));
 
-    expect(screen.getByTitle("设计")).toHaveTextContent("设计");
+    const tabStrip = screen.getByTestId("workspace-mobile-tab-strip");
+    expect(tabStrip).toHaveClass("overflow-x-auto");
+    expect(within(tabStrip).getByRole("button", { name: "需求" })).toBeInTheDocument();
+    expect(within(tabStrip).getByRole("button", { name: "用例模型" })).toBeInTheDocument();
+    expect(within(tabStrip).getByRole("button", { name: "设计" })).toBeInTheDocument();
+    expect(tabStrip.querySelectorAll(".w-28").length).toBeGreaterThanOrEqual(3);
+
     await userEvent.click(screen.getByRole("button", { name: "标签页操作" }));
 
     expect(screen.getByText("打开的标签")).toBeInTheDocument();

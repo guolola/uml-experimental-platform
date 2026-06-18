@@ -24,6 +24,7 @@ import {
   normalizeDeploymentStructure,
 } from "../diagrams/diagram-structure.js";
 import { normalizeLongDiagramTextField } from "../diagrams/relationship-labels.js";
+import { normalizeSequenceFragments } from "../diagrams/sequence-fragments.js";
 
 function normalizeSequenceMessageType(value: unknown) {
   if (value === "async" || value === "return" || value === "create" || value === "destroy") {
@@ -65,33 +66,6 @@ function normalizeClassKind(value: unknown) {
     if (lower.includes("entity") || lower.includes("domain")) return "entity";
   }
   return undefined;
-}
-
-function normalizeSequenceFragment(fragment: Record<string, unknown>) {
-  const branches: Array<Record<string, unknown> & { messageIds: string[] }> = ensureArray(fragment.branches)
-    .map((branch) => {
-      if (!isPlainRecord(branch)) return null;
-      const nextBranch = {
-        ...branch,
-        messageIds: normalizeStringArray(branch.messageIds),
-      };
-      dropBlankOptionalTextFields(nextBranch, ["condition"]);
-      return nextBranch;
-    })
-    .filter((branch): branch is Record<string, unknown> & { messageIds: string[] } => Boolean(branch));
-  const branchMessageIds = branches.flatMap((branch) => branch.messageIds);
-  const messageIds = normalizeStringArray(fragment.messageIds);
-  const next: Record<string, unknown> = {
-    ...fragment,
-    messageIds: messageIds.length > 0 ? messageIds : branchMessageIds,
-  };
-  if (branches.length > 0) {
-    next.branches = branches;
-  } else {
-    delete next.branches;
-  }
-  dropBlankOptionalTextFields(next, ["condition", "description"]);
-  return next;
 }
 
 function dropBlankOptionalTextFields(
@@ -238,10 +212,10 @@ function normalizeDesignDiagramModel(model: unknown) {
         parameters: normalizeStringArray(message.parameters),
       };
     });
-    normalized.fragments = ensureArray(normalized.fragments).map((fragment) => {
-      if (!isPlainRecord(fragment)) return fragment;
-      return normalizeSequenceFragment(fragment);
-    });
+    normalized.fragments = normalizeSequenceFragments(
+      normalized.fragments,
+      ensureArray(normalized.messages),
+    );
     normalizeSequenceDisplayFields(normalized);
   } else if (diagramKind === "class") {
     normalized.classes = ensureArray(normalized.classes).map((classItem) => {

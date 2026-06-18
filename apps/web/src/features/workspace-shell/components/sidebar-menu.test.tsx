@@ -873,11 +873,21 @@ describe("SidebarMenu", () => {
     );
 
     const user = userEvent.setup();
-    render(withWorkspaceProviders(<SidebarMenu />, repository));
+    render(
+      withWorkspaceProviders(
+        <>
+          <SidebarMenu />
+          <WorkspaceTabsBar />
+        </>,
+        repository,
+      ),
+    );
 
     await user.click(await screen.findByRole("button", { name: "展开 设计" }));
 
-    expect(await screen.findByTitle("此设计模型需更新")).toHaveClass("bg-warning");
+    expect(
+      await screen.findByTitle("上游需求模型或追踪指纹已变化，此设计模型需更新。"),
+    ).toHaveClass("bg-warning");
   });
 
   it("maps design-prefixed error keys back to design diagram entries", async () => {
@@ -898,12 +908,90 @@ describe("SidebarMenu", () => {
     );
 
     const user = userEvent.setup();
-    render(withWorkspaceProviders(<SidebarMenu />, repository));
+    render(
+      withWorkspaceProviders(
+        <>
+          <SidebarMenu />
+          <WorkspaceTabsBar />
+        </>,
+        repository,
+      ),
+    );
 
     await user.click(await screen.findByRole("button", { name: "展开 设计" }));
 
     expect(screen.getByRole("button", { name: "组件（构件）关系" })).toBeInTheDocument();
     expect(screen.getByTitle("此设计图生成失败")).toHaveClass("bg-destructive");
+  });
+
+  it("keeps successful design sequence subtasks clickable when a sibling failed", async () => {
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        generatedDesignDiagramTypes: ["sequence"],
+        designModels: {
+          "sequence:uc_view": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc_view",
+            sourceUseCaseId: "uc_view",
+            sourceUseCaseName: "查看动态",
+            title: "查看动态用例实现设计",
+            summary: "查看动态的对象交互。",
+            notes: [],
+            participants: [
+              { id: "actor_user", name: "用户", participantType: "actor" },
+            ],
+            messages: [],
+            fragments: [],
+          },
+        },
+        designSvgArtifacts: {
+          "sequence:uc_view": {
+            diagramKind: "sequence",
+            modelId: "sequence:uc_view",
+            svg: "<svg data-model-id=\"sequence:uc_view\" />",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: "2026-06-18T00:00:00.000Z",
+              sourceLength: 32,
+              durationMs: 1,
+            },
+          },
+        },
+        designDiagramErrors: {
+          "sequence:uc_report": {
+            stage: "generate_design_sequence",
+            error: {
+              code: "PLATFORM_PROVIDER_TIMEOUT",
+              message: "审核举报用例实现设计超时",
+              category: "platform_provider",
+              retryable: true,
+            },
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <>
+          <SidebarMenu />
+          <WorkspaceTabsBar />
+        </>,
+        repository,
+      ),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(screen.getByRole("button", { name: "展开 用例实现设计（2）" }));
+
+    await user.click(screen.getByRole("button", { name: "查看动态" }));
+
+    expect(
+      await screen.findByRole("button", { name: "关闭 查看动态" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "uc_report" })).toBeInTheDocument();
+    expect(screen.getByTitle("uc_report生成失败")).toBeInTheDocument();
   });
 
   it("shows a failure toast for failed design nodes without opening a tab", async () => {

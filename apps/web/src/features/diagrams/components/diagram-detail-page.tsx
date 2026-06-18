@@ -354,7 +354,6 @@ function DiagramDetailView({
     () => sourceRules.map((rule) => rule.id).filter((id): id is string => Boolean(id)),
     [sourceRules],
   );
-  const focusActionLabel = localHighlightedElement ? "关闭焦点" : "返回模型概览";
   const runFocusAction = useCallback(() => {
     if (localHighlightedElement) {
       setLocalHighlightedElement(null);
@@ -532,7 +531,6 @@ function DiagramDetailView({
                   compactViewport={compactViewport}
                   onOpenOverviewPanel={openOverviewPanel}
                   onCloseOverviewPanel={closeOverviewPanel}
-                  focusActionLabel={focusActionLabel}
                   onFocusAction={runFocusAction}
                   sourceRuleIds={sourceRuleIds}
                   relatedRelationships={relatedRelationships}

@@ -323,6 +323,9 @@ describe("CodeGenerationPage", () => {
     expect(screen.getByText(/files/u)).toBeInTheDocument();
     expect(screen.getByText(/设计模型\s*0/u)).toBeInTheDocument();
     expect(document.querySelector('[data-panel-group-direction="horizontal"]')).not.toBeInTheDocument();
+    const fileTabs = screen.getByTestId("code-file-tabs");
+    expect(fileTabs).toHaveClass("overflow-x-auto");
+    expect(fileTabs.querySelectorAll(".w-32").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "文件" }));
     expect(screen.getByText("WorkspaceShell.tsx")).toBeInTheDocument();

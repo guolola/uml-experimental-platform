@@ -57,7 +57,6 @@ type DiagramPreviewPanelProps = {
   compactViewport: boolean;
   onOpenOverviewPanel: () => void;
   onCloseOverviewPanel: () => void;
-  focusActionLabel: string;
   onFocusAction: () => void;
   sourceRuleIds: string[];
   relatedRelationships: DiagramRelationshipDetail[];
@@ -93,7 +92,6 @@ export function DiagramPreviewPanel({
   compactViewport,
   onOpenOverviewPanel,
   onCloseOverviewPanel,
-  focusActionLabel,
   onFocusAction,
   sourceRuleIds,
   relatedRelationships,
@@ -263,8 +261,8 @@ export function DiagramPreviewPanel({
                 variant="ghost"
                 size="sm"
                 className="h-8 px-2"
-                aria-label="关闭模型概览"
-                onClick={onCloseOverviewPanel}
+                aria-label={highlighted ? "关闭焦点" : "关闭模型概览"}
+                onClick={highlighted ? onFocusAction : onCloseOverviewPanel}
               >
                 <X className="size-3.5" />
               </Button>
@@ -282,15 +280,6 @@ export function DiagramPreviewPanel({
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                       {highlighted.label}
                     </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8"
-                      aria-label={focusActionLabel}
-                      onClick={onFocusAction}
-                    >
-                      {focusActionLabel}
-                    </Button>
                   </div>
                   <div className="mt-4 text-xs text-muted-foreground">
                     <div className="font-medium text-foreground">职责与属性</div>

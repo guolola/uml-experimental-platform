@@ -1120,6 +1120,51 @@ describe("TopBar", () => {
     expect(screen.getByText("server-run-active")).toBeInTheDocument();
   });
 
+  it("shows the latest terminal server run when there is no active task", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const failedRun = {
+      runId: "server-run-failed",
+      status: "failed",
+      stage: "generate_design_models",
+      runKind: "design",
+      updatedAt: "2026-06-18T09:30:00.000Z",
+      errorMessage: "缺少设计类图",
+    };
+    const completedRun = {
+      runId: "server-run-completed",
+      status: "completed",
+      stage: "render_svg",
+      runKind: "requirements",
+      updatedAt: "2026-06-18T08:30:00.000Z",
+    };
+
+    render(
+      withWorkspaceProviders(
+        <ProjectWorkspaceActions
+          projectId="library-booking"
+          projectRuns={[completedRun, failedRun]}
+          onOpenDrawer={() => {}}
+        />,
+        repository,
+      ),
+    );
+
+    expect(screen.getByText("失败")).toBeInTheDocument();
+  });
+
   it("shows Chinese task stages and streamed details in the task drawer", async () => {
     let completeRun!: () => void;
     const snapshot = createRunSnapshot({

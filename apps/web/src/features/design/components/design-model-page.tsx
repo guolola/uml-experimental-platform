@@ -444,7 +444,7 @@ export function DesignModelPage() {
           id: `${entry.source.modelId ?? entry.source.diagramKind}:${entry.source.elementId}`,
           reason:
             entry.rationale ??
-            "设计元素缺少完整上游来源，系统自动补充设计模型到需求模型的追踪关系。",
+            "设计元素缺少明确上游来源，系统仅临时补齐到需求模型；请采纳、忽略或稍后处理。",
           repair: `补齐 ${entry.source.label} -> ${entry.targets
             .map((target) => target.label)
             .join("、")} 追踪关系`,

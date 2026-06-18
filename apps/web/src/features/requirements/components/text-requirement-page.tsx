@@ -576,7 +576,7 @@ export function TextRequirementView() {
             )}
           </header>
           <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden">
-            <div className="grid min-w-0 gap-4">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
               {renderRequirementInput(hasGeneratedRules ? "generated" : "empty")}
               {hasGeneratedRules && renderRequirementRules()}
             </div>
@@ -714,6 +714,9 @@ export function TextRequirementView() {
                                   .map((review) => review.label)
                                   .join("、")}
                               </span>
+                            </div>
+                            <div className="mt-1 text-[11px] leading-relaxed">
+                              缺少明确上游映射，系统仅临时补齐；可采纳、忽略或稍后处理。
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Button

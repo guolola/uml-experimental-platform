@@ -89,7 +89,7 @@ function classDesignModel(): DesignDiagramModelSpec {
 }
 
 function designSvgArtifact(
-  diagramKind: "sequence" | "class",
+  diagramKind: "sequence" | "class" | "table",
   modelId: string,
 ): DesignSvgArtifact {
   return {
@@ -102,6 +102,34 @@ function designSvgArtifact(
       sourceLength: 32,
       durationMs: 1,
     },
+  };
+}
+
+function tableDesignModel(): DesignDiagramModelSpec {
+  return {
+    diagramKind: "table",
+    modelId: "table",
+    title: "数据库设计",
+    summary: "用户表。",
+    notes: [],
+    tables: [
+      {
+        id: "users",
+        name: "users",
+        columns: [
+          {
+            id: "id",
+            name: "id",
+            dataType: "VARCHAR",
+            constraints: [],
+            isPrimaryKey: true,
+            isForeignKey: false,
+            nullable: false,
+          },
+        ],
+      },
+    ],
+    relationships: [],
   };
 }
 
@@ -496,6 +524,62 @@ test("restore preserves old design records when selected design kind failed", ()
     ["sequence:uc_old"],
   );
   assert.ok((restored.designDiagramErrors as Record<string, unknown>).sequence);
+});
+
+test("restore applies successful design artifacts from failed partial snapshots", () => {
+  const tableModel = tableDesignModel();
+  const snapshot = designSnapshot({
+    selectedDiagrams: ["table", "component"],
+    requestedDiagrams: ["table", "component"],
+    status: "failed",
+    error: {
+      code: "RUN_RENDER_FAILED",
+      message: "组件图渲染失败",
+      category: "render",
+      retryable: true,
+    },
+    models: [tableModel],
+    plantUml: [
+      {
+        diagramKind: "table",
+        modelId: "table",
+        source: "@startuml\n@enduml",
+      },
+    ],
+    svgArtifacts: [designSvgArtifact("table", "table")],
+    diagramErrors: {
+      component: {
+        stage: "render_svg",
+        error: {
+          code: "RUN_RENDER_FAILED",
+          message: "组件图渲染失败",
+          category: "render",
+          retryable: true,
+        },
+      },
+    },
+  });
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      generatedDesignDiagramTypes: ["class"],
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  assert.deepEqual(
+    (restored.generatedDesignDiagramTypes as string[]).sort(),
+    ["class", "table"],
+  );
+  assert.deepEqual(Object.keys(restored.designModels as Record<string, unknown>), [
+    "table",
+  ]);
+  assert.deepEqual(
+    Object.keys(restored.designSvgArtifacts as Record<string, unknown>),
+    ["table"],
+  );
+  assert.ok((restored.designDiagramErrors as Record<string, unknown>).component);
 });
 
 test("restore keeps requirement analysis model instances keyed by modelId", () => {

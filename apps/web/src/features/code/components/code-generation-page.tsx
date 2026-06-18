@@ -301,19 +301,26 @@ export function CodeGenerationPage() {
       <div className="border-b border-border px-3">
         <ScaledToolbar
           data-testid="code-generation-toolbar"
-          minWidth={980}
-          contentClassName="min-h-12 w-full gap-2"
+          minWidth={0}
+          contentClassName="min-h-10 w-full gap-1.5"
         >
-          <div className="flex min-w-0 shrink-0 items-center gap-2">
+          <div className="flex min-w-0 shrink items-center gap-1.5">
             <Code2 className="size-4 text-primary" />
-            <span className="truncate text-sm font-semibold">前端原型代码</span>
-            <Badge variant="secondary" className="font-mono">
+            <span className="hidden truncate text-sm font-semibold min-[430px]:inline">
+              前端原型代码
+            </span>
+            <Badge variant="secondary" className="px-1.5 font-mono text-[11px]">
               {sortedFiles.length} files
             </Badge>
-            <Badge variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}>
+            <Badge
+              variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}
+              className="hidden px-1.5 text-[11px] min-[520px]:inline-flex"
+            >
               {modelCapability.modeLabel}
             </Badge>
-            <Badge variant="secondary">设计模型 {designModelCount}</Badge>
+            <Badge variant="secondary" className="hidden px-1.5 text-[11px] min-[520px]:inline-flex">
+              设计模型 {designModelCount}
+            </Badge>
           </div>
           {generating && (
             <div className="ml-2 flex min-w-0 shrink items-center gap-2 text-xs text-muted-foreground">
@@ -327,11 +334,11 @@ export function CodeGenerationPage() {
             value={defaultModel}
             onValueChange={updateModel}
             align="end"
-            triggerClassName="h-8 bg-card"
+            triggerClassName="h-8 max-w-[150px] bg-card px-2 text-xs"
           />
           <Button
             size="sm"
-            className="h-8"
+            className="h-8 px-2 text-xs"
             onClick={() =>
               void generateCodePrototype(
             generatedFileCount > 0 ? "continue" : "regenerate",
@@ -346,13 +353,18 @@ export function CodeGenerationPage() {
             ) : (
               <Play className="size-3.5" />
             )}
-            {generatedFileCount > 0 ? "继续生成" : "启动生成"}
+            <span className="hidden min-[430px]:inline">
+              {generatedFileCount > 0 ? "继续生成" : "启动生成"}
+            </span>
+            <span className="min-[430px]:hidden">
+              {generatedFileCount > 0 ? "继续" : "生成"}
+            </span>
           </Button>
           {generatedFileCount > 0 && (
             <Button
               variant="outline"
               size="sm"
-              className="h-8"
+              className="h-8 px-2 text-xs"
               onClick={() => void generateCodePrototype("regenerate")}
               disabled={!canGenerate || generating}
             >
@@ -361,17 +373,20 @@ export function CodeGenerationPage() {
               ) : (
                 <Play className="size-3.5" />
               )}
-              重新生成
+              <span className="hidden min-[430px]:inline">重新生成</span>
+              <span className="min-[430px]:hidden">重做</span>
             </Button>
           )}
           <Button
             variant="outline"
             size="sm"
-            className="h-8"
+            aria-label="导出"
+            className="h-8 px-2 text-xs"
             onClick={exportBundle}
             disabled={sortedFiles.length === 0}
           >
-            <Download className="size-3.5" /> 导出
+            <Download className="size-3.5" />
+            <span className="hidden min-[430px]:inline">导出</span>
           </Button>
           </div>
         </ScaledToolbar>
@@ -447,7 +462,7 @@ export function CodeGenerationPage() {
         <SandpackFileSync files={previewFiles} />
         {compactViewport ? (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="grid w-full min-w-0 grid-cols-3 gap-1 border-b border-border bg-card px-2 py-2">
+            <div className="grid w-full min-w-0 grid-cols-3 gap-1 border-b border-border bg-card px-2 py-1.5">
               {[
                 { id: "files" as const, label: "文件" },
                 { id: "editor" as const, label: "编辑" },
@@ -458,7 +473,7 @@ export function CodeGenerationPage() {
                   type="button"
                   aria-pressed={mobilePane === pane.id}
                   className={cn(
-                    "h-8 min-w-0 rounded-md text-xs font-medium transition-colors",
+                    "h-8 min-w-0 rounded-md text-[13px] font-medium transition-colors",
                     mobilePane === pane.id
                       ? "bg-primary text-primary-foreground"
                       : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
@@ -491,14 +506,17 @@ export function CodeGenerationPage() {
             )}
             {mobilePane === "editor" && (
               <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div className="flex h-10 items-end gap-1 overflow-x-auto border-b border-border bg-card px-2 pt-1">
+                <div
+                  data-testid="code-file-tabs"
+                  className="flex h-10 items-end gap-1 overflow-x-auto border-b border-border bg-card px-2 pt-1 [scrollbar-width:thin]"
+                >
                   {sortedFiles.map((path) => (
                     <button
                       key={path}
                       type="button"
                       onClick={() => setActiveFile(path)}
                       className={cn(
-                        "h-8 max-w-40 shrink-0 truncate rounded-t-md border border-b-0 px-3 text-xs",
+                        "h-8 w-32 shrink-0 truncate rounded-t-md border border-b-0 px-3 text-xs",
                         activeFile === path
                           ? "border-border bg-background text-foreground"
                           : "border-transparent text-muted-foreground hover:bg-muted",
@@ -583,14 +601,17 @@ export function CodeGenerationPage() {
                   </div>
                 </aside>
                 <section className="flex min-h-0 min-w-0 flex-col">
-                  <div className="flex h-10 items-end gap-1 overflow-x-auto border-b border-border bg-card px-2 pt-1">
+                  <div
+                    data-testid="code-file-tabs"
+                    className="flex h-10 items-end gap-1 overflow-x-auto border-b border-border bg-card px-2 pt-1 [scrollbar-width:thin]"
+                  >
                     {sortedFiles.map((path) => (
                       <button
                         key={path}
                         type="button"
                         onClick={() => setActiveFile(path)}
                         className={cn(
-                          "h-8 max-w-40 shrink-0 truncate rounded-t-md border border-b-0 px-3 text-xs",
+                          "h-8 w-32 shrink-0 truncate rounded-t-md border border-b-0 px-3 text-xs",
                           activeFile === path
                             ? "border-border bg-background text-foreground"
                             : "border-transparent text-muted-foreground hover:bg-muted",

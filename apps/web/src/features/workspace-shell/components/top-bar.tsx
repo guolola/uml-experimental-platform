@@ -295,6 +295,19 @@ function isActiveProjectRun(run: PlatformRunSummary) {
   return run.status === "queued" || run.status === "running";
 }
 
+function projectRunTimestamp(run: PlatformRunSummary) {
+  const timestamp =
+    run.updatedAt ?? run.completedAt ?? run.startedAt ?? run.createdAt ?? "";
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function latestProjectRun(runs: PlatformRunSummary[]) {
+  return [...runs].sort(
+    (left, right) => projectRunTimestamp(right) - projectRunTimestamp(left),
+  )[0] ?? null;
+}
+
 function getProjectRunProgress(run: PlatformRunSummary) {
   const status = normalizeRunStatus(run.status);
   if (status === "queued") return 0;
@@ -959,7 +972,7 @@ export function ProjectGenerationTasksDrawerContent({
               <div className="mt-5 min-w-0 max-w-full overflow-hidden rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-warning">
                 {isRequirementRulesTask(selectedTask)
                   ? `有 ${pendingReviewCount} 条需求规则修复候选需确认，确认后才能继续生成模型。`
-                  : `有 ${pendingReviewCount} 条追踪关系由系统自动补齐，需复核后再视为确认结果。`}
+                  : `有 ${pendingReviewCount} 条追踪关系仅被临时补齐，请在跟踪矩阵中采纳、忽略或稍后处理。`}
               </div>
             )}
 
@@ -1318,8 +1331,11 @@ export function ProjectWorkspaceActions({
   ).length;
   const taskIsActive = runStatus === "queued" || runStatus === "running";
   const activeProjectRuns = projectRuns.filter(isActiveProjectRun);
+  const recentProjectRun = latestProjectRun(projectRuns);
   const selectedProjectRun =
-    taskIsActive || activeTaskCount > 0 ? null : (activeProjectRuns[0] ?? null);
+    taskIsActive || activeTaskCount > 0
+      ? null
+      : (activeProjectRuns[0] ?? recentProjectRun);
   const visibleTaskIsActive = taskIsActive || activeProjectRuns.length > 0;
   const visibleActiveTaskCount = activeTaskCount || activeProjectRuns.length;
   const visibleRunStatus = selectedProjectRun
@@ -1400,9 +1416,9 @@ export function ProjectWorkspaceActions({
       >
         {visibleTaskIsActive ? (
           <Loader2 className="size-5 animate-spin text-primary" />
-        ) : runStatus === "failed" ? (
+        ) : visibleRunStatus === "failed" ? (
           <AlertCircle className="size-5 text-destructive" />
-        ) : runStatus === "completed" ? (
+        ) : visibleRunStatus === "completed" ? (
           <CheckCircle2 className="size-5 text-success" />
         ) : (
           <Activity className="size-5" />
@@ -1412,7 +1428,7 @@ export function ProjectWorkspaceActions({
             ? `${visibleActiveTaskCount} 个任务`
             : visibleTaskIsActive
               ? `${RUN_STATUS_LABEL[visibleRunStatus]} ${visibleRunProgress}%`
-              : RUN_STATUS_LABEL[runStatus]}
+              : RUN_STATUS_LABEL[visibleRunStatus]}
         </span>
       </Button>
 

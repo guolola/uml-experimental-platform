@@ -2,6 +2,8 @@
 import { describe, expect, it } from "vitest";
 import type {
   AtomicRequirement,
+  DesignDiagramModelSpec,
+  DesignRunSnapshot,
   DiagramModelSpec,
   RequirementBaseline,
   RunSnapshot,
@@ -106,6 +108,61 @@ function createSnapshot(
     status: "completed",
     error: null,
     ...overrides,
+  };
+}
+
+function createDesignSnapshot(
+  overrides: Partial<DesignRunSnapshot>,
+): DesignRunSnapshot {
+  return {
+    runId: "design-run-snapshot",
+    requirementText: "图书馆管理系统",
+    selectedDiagrams: ["table", "component"],
+    requestedDiagrams: ["table", "component"],
+    rules: [],
+    requirementBaseline: null,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
+    requirementModels: [],
+    requirementModelTraceability: [],
+    models: [],
+    designModelTraceability: [],
+    plantUml: [],
+    svgArtifacts: [],
+    diagramErrors: {},
+    designTrace: [],
+    currentStage: "render_svg",
+    status: "completed",
+    error: null,
+    ...overrides,
+  };
+}
+
+function tableDesignModel(): DesignDiagramModelSpec {
+  return {
+    diagramKind: "table",
+    title: "数据库设计",
+    summary: "用户表。",
+    notes: [],
+    tables: [
+      {
+        id: "users",
+        name: "users",
+        columns: [
+          {
+            id: "id",
+            name: "id",
+            dataType: "VARCHAR",
+            constraints: [],
+            isPrimaryKey: true,
+            isForeignKey: false,
+            nullable: false,
+          },
+        ],
+      },
+    ],
+    relationships: [],
   };
 }
 
@@ -233,5 +290,58 @@ describe("applySnapshotToWorkspace", () => {
 
     expect(merged.requirementBaseline?.qualityReport.status).toBe("passed");
     expect(merged.requirementReviewCandidates.r1).toBeUndefined();
+  });
+
+  it("persists successful design artifacts from failed partial snapshots", () => {
+    const tableModel = tableDesignModel();
+    const workspace: WorkspaceRecord = {
+      ...createEmptyWorkspace(),
+      generatedDesignDiagramTypes: ["class"],
+    };
+
+    const merged = applySnapshotToWorkspace(
+      workspace,
+      createDesignSnapshot({
+        status: "failed",
+        error: {
+          code: "RUN_RENDER_FAILED",
+          message: "组件图渲染失败",
+          category: "render",
+          retryable: true,
+        },
+        models: [tableModel],
+        plantUml: [{ diagramKind: "table", source: "@startuml\n@enduml" }],
+        svgArtifacts: [
+          {
+            diagramKind: "table",
+            svg: "<svg data-kind=\"table\" />",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: "2026-06-18T00:00:00.000Z",
+              sourceLength: 18,
+              durationMs: 1,
+            },
+          },
+        ],
+        diagramErrors: {
+          component: {
+            stage: "render_svg",
+            error: {
+              code: "RUN_RENDER_FAILED",
+              message: "组件图渲染失败",
+              category: "render",
+              retryable: true,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(merged.generatedDesignDiagramTypes.sort()).toEqual(["class", "table"]);
+    expect(merged.designModels.table).toEqual(tableModel);
+    expect(merged.designSvgArtifacts.table?.svg).toContain("table");
+    expect(merged.designDiagramErrors.component?.error.code).toBe(
+      "RUN_RENDER_FAILED",
+    );
   });
 });

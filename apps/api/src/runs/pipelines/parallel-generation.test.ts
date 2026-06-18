@@ -1780,7 +1780,7 @@ test("design pipeline renders a completed use case sequence before slower sequen
   assert.equal((record.snapshot as DesignRunSnapshot).status, "completed");
 });
 
-test("design sequence emits failed subtasks when one use case generation times out", async () => {
+test("design sequence completes with partial artifacts when one use case generation times out", async () => {
   await withTemporaryEnv("UML_DESIGN_MODEL_TASK_TIMEOUT_MS", "20", async () => {
     const useCaseModel: DiagramModelSpec = {
       diagramKind: "usecase",
@@ -1915,10 +1915,7 @@ test("design sequence emits failed subtasks when one use case generation times o
       terminal: false,
     };
 
-    await assert.rejects(
-      () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
-      /缺少 1 个用例实现设计/,
-    );
+    await runDesignStagePipeline(record, providerSettings, transport, renderClient);
 
     const fastSvg = record.events.find(
       (event) =>
@@ -1935,6 +1932,13 @@ test("design sequence emits failed subtasks when one use case generation times o
     );
     assert.ok(fastSvg);
     assert.ok(failedSlow);
+    assert.equal((record.snapshot as DesignRunSnapshot).status, "completed");
+    assert.ok(record.events.some((event) => event.type === "completed"));
+    assert.equal(
+      (record.snapshot as DesignRunSnapshot).diagramErrors["sequence:uc_slow"]
+        ?.error.code,
+      "PLATFORM_PROVIDER_TIMEOUT",
+    );
     assert.equal(failedSlow.error?.code, "PLATFORM_PROVIDER_TIMEOUT");
     assert.match(
       `${

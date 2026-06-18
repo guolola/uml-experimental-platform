@@ -108,6 +108,82 @@ test("parseDesignDiagramModelsOnly normalizes sequence fragment branches", () =>
   assert.equal(fragment?.branches?.length, 2);
 });
 
+test("parseDesignDiagramModelsOnly sanitizes malformed sequence fragments", () => {
+  const parsed = parseDesignDiagramModelsOnly(
+    JSON.stringify({
+      models: [
+        {
+          diagramKind: "sequence",
+          modelId: "sequence:uc_publish",
+          sourceUseCaseId: "uc_publish",
+          sourceUseCaseName: "发布文章",
+          title: "发布文章用例实现设计",
+          summary: "发布文章的对象交互流程。",
+          notes: [],
+          participants: [
+            { id: "user", name: "作者", participantType: "actor" },
+            { id: "svc", name: "文章服务", participantType: "service" },
+          ],
+          messages: [
+            {
+              id: "m1",
+              type: "sync",
+              sourceId: "user",
+              targetId: "svc",
+              name: "submitPost",
+              parameters: [],
+            },
+            {
+              id: "m2",
+              type: "return",
+              sourceId: "svc",
+              targetId: "user",
+              name: "returnResult",
+              parameters: [],
+            },
+          ],
+          fragments: [
+            {
+              id: "alt1",
+              type: "alt",
+              label: "发布结果",
+              messageIds: [],
+              branches: [
+                { label: "空分支", messageIds: [] },
+                { label: "成功", messageIds: ["m1"] },
+              ],
+            },
+            {
+              id: "alt1",
+              type: "opt",
+              label: "返回提示",
+              messageIds: ["m2", "missing"],
+            },
+            {
+              id: "loop_all",
+              type: "loop",
+              label: "循环全部流程",
+              messageIds: ["m1", "m2"],
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  const model = parsed.models[0];
+  assert.equal(model?.diagramKind, "sequence");
+  if (model?.diagramKind !== "sequence") return;
+  assert.deepEqual(
+    model.fragments.map((fragment) => [fragment.id, fragment.type, fragment.messageIds]),
+    [
+      ["alt1", "opt", ["m1"]],
+      ["alt1-2", "opt", ["m2"]],
+    ],
+  );
+  assert.equal(model.fragments[0]?.branches?.length, 1);
+});
+
 test("parseDesignDiagramModelsOnly drops blank optional sequence fields", () => {
   const parsed = parseDesignDiagramModelsOnly(
     JSON.stringify({

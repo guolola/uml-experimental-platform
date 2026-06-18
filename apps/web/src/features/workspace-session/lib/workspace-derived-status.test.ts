@@ -75,7 +75,7 @@ const designTableModel = {
 } as unknown as DesignDiagramModelSpec;
 
 describe("deriveWorkspaceStatus", () => {
-  it("keeps fresh design models current while marking only incomplete design traces stale", () => {
+  it("keeps fresh design models current while tracking incomplete design traces separately", () => {
     const requirementFingerprint = requirementInputFingerprintFor("订单需求", [rule]);
     const designFingerprint = designInputFingerprintFor(
       [requirementClassModel],
@@ -126,9 +126,9 @@ describe("deriveWorkspaceStatus", () => {
     });
 
     expect(status.designTraceabilityStale).toBe(true);
-    expect(status.staleDesignModelIds).toEqual(["design-table"]);
-    expect(status.staleDesignDiagrams).toEqual(["table"]);
-    expect(status.designStaleReasons["design-table"]).toContain("追踪覆盖不完整");
+    expect(status.staleDesignModelIds).toEqual([]);
+    expect(status.staleDesignDiagrams).toEqual([]);
+    expect(status.designStaleReasons["design-table"]).toBeUndefined();
     expect(status.designStaleReasons["design-class"]).toBeUndefined();
   });
 });

@@ -2357,6 +2357,9 @@ describe("App shell routes", () => {
         "two-column",
       );
       expect(screen.getByTestId("projects-card-grid")).toHaveClass("grid-cols-2");
+      expect(screen.getByTestId("projects-filter-panel")).toHaveClass("p-3", "md:p-[17px]");
+      expect(screen.getByTestId("projects-filter-panel").querySelector("[data-scale-to-fit]")).toBeNull();
+      expect(screen.getAllByRole("article")[0]).toHaveClass("min-h-[182px]");
       expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
 
       await advanceTimersByTime(800);
@@ -2952,17 +2955,21 @@ describe("App shell routes", () => {
     expect(screen.getByRole("button", { name: "归档项目" })).toBeInTheDocument();
     const searchInput = screen.getByPlaceholderText("搜索项目、成员...");
     expect(searchInput).toBeInTheDocument();
-    expect(searchInput.parentElement).toHaveClass("w-96");
+    expect(searchInput.parentElement).toHaveClass("min-w-[108px]", "md:w-96");
     const sortTrigger = getSelectTrigger("排序方式");
     expect(sortTrigger).toHaveTextContent("最近打开");
-    expect(sortTrigger).toHaveClass("w-28");
+    expect(sortTrigger).toHaveClass("w-[82px]", "md:w-28");
     expect(screen.queryByRole("navigation", { name: "项目导航" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "生成任务" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "历史" })).not.toBeInTheDocument();
 
     expect(screen.getByText("负责人：New Student")).toBeInTheDocument();
-    expect(screen.getByText("真实项目数据")).toHaveClass("line-clamp-2", "overflow-hidden");
+    expect(screen.getByText("真实项目数据")).toHaveClass(
+      "line-clamp-1",
+      "md:line-clamp-2",
+      "overflow-hidden",
+    );
     expect(screen.queryByText("e91237c8-5ccf-45aa-b0d2-822b96915a24")).not.toBeInTheDocument();
     expect(screen.getByText("团队成员可见")).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 New Student")).toBeInTheDocument();

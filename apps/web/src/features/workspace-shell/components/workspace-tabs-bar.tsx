@@ -24,19 +24,52 @@ export function WorkspaceTabsBar() {
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
   const compactViewport = useCompactViewport();
-  const activeTab = openTabs.find((tab) => tab.id === activeTabId) ?? openTabs[0];
 
   if (compactViewport) {
     return (
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
-        <button
-          type="button"
-          className="min-w-0 flex-1 truncate rounded-full border border-border bg-card px-3 py-1.5 text-left text-sm font-medium text-foreground shadow-sm"
-          title={activeTab?.label}
-          onClick={() => activeTab && activateWorkspaceTab(activeTab.id)}
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background px-2">
+        <div
+          data-testid="workspace-mobile-tab-strip"
+          className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:thin]"
         >
-          {activeTab?.label ?? "工作台"}
-        </button>
+          {openTabs.map((tab) => {
+            const active = tab.id === activeTabId;
+            return (
+              <div
+                key={tab.id}
+                className={cn(
+                  "group flex h-8 w-28 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[12px] font-medium transition-colors",
+                  active
+                    ? "border-border bg-card text-foreground shadow-sm"
+                    : "border-transparent bg-secondary/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                title={tab.label}
+              >
+                <button
+                  type="button"
+                  onClick={() => activateWorkspaceTab(tab.id)}
+                  className="min-w-0 flex-1 cursor-pointer truncate text-left"
+                >
+                  {tab.label}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`关闭 ${tab.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeWorkspaceTab(tab.id);
+                  }}
+                  className={cn(
+                    "inline-flex size-5 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    active ? "opacity-100" : "opacity-70 group-hover:opacity-100",
+                  )}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

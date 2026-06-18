@@ -171,7 +171,11 @@ function shanghaiTodayIso(hour: number, minute = 0) {
 }
 
 function shanghaiYesterdayIso(hour: number, minute = 0) {
-  return new Date(new Date(shanghaiTodayIso(hour, minute)).getTime() - 24 * 60 * 60 * 1000)
+  return shanghaiDaysAgoIso(1, hour, minute);
+}
+
+function shanghaiDaysAgoIso(daysAgo: number, hour: number, minute = 0) {
+  return new Date(new Date(shanghaiTodayIso(hour, minute)).getTime() - daysAgo * 24 * 60 * 60 * 1000)
     .toISOString();
 }
 
@@ -417,12 +421,12 @@ test("admin header bootstrap remains available behind the explicit local switch"
 
 test("admin metrics expose cumulative overview and single-day generation breakdowns", async () => {
   const runs = createRunRecordStore();
-  const todayOne = shanghaiTodayIso(1);
-  const todayTwo = shanghaiTodayIso(2);
-  const todayThree = shanghaiTodayIso(3);
-  const todayFourThirty = shanghaiTodayIso(4, 30);
-  const todayFourThirtyFive = shanghaiTodayIso(4, 35);
-  const yesterday = shanghaiYesterdayIso(1);
+  const todayOne = shanghaiYesterdayIso(1);
+  const todayTwo = shanghaiYesterdayIso(2);
+  const todayThree = shanghaiYesterdayIso(3);
+  const todayFourThirty = shanghaiYesterdayIso(4, 30);
+  const todayFourThirtyFive = shanghaiYesterdayIso(4, 35);
+  const yesterday = shanghaiDaysAgoIso(2, 1);
 
   const requirementSnapshot = createEmptySnapshot("req-completed", "需求", ["usecase"]);
   (requirementSnapshot as unknown as { rules: unknown[]; models: unknown[] }).rules = [
@@ -545,7 +549,7 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
           { taskType: "code_generation", units: 4 },
         ];
       }
-      if (input.createdAfter === shanghaiYesterdayIso(0)) {
+      if (input.createdAfter === shanghaiDaysAgoIso(2, 0)) {
         return [
           { taskType: "requirements_to_uml", units: 2 },
           { taskType: "design_modeling", units: 0 },
@@ -589,7 +593,7 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
 
   const response = await app.inject({
     method: "GET",
-    url: "/api/admin/metrics",
+    url: `/api/admin/metrics?date=${shanghaiDateFromIso(todayOne)}`,
     headers: { Cookie: cookie },
   });
 

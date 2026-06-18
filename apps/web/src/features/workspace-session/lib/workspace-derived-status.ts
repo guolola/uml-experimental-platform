@@ -11,7 +11,6 @@ import { getDesignModelId } from "../../../entities/diagram/model";
 import { requirementRuleIdsBlockingGeneration } from "./requirement-review";
 import type { createEmptyRunUiState } from "./run-ui-state";
 import {
-  checkDesignModelTraceability,
   designFingerprintMatches,
   designInputFingerprintFor,
   fingerprintMatches,
@@ -120,11 +119,12 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
     input.manualModelEditStatus,
     Object.values(input.models),
   );
+  const requirementInputStale =
+    generatedRequirementDiagramSet.size > 0 &&
+    (isRulesStale || staleDiagrams.length > 0);
   const requirementTraceabilityStale =
     generatedRequirementDiagramSet.size > 0 &&
-    (isRulesStale ||
-      staleDiagrams.length > 0 ||
-      requirementTraceabilityMissing);
+    (requirementInputStale || requirementTraceabilityMissing);
   const pendingRequirementReviewRuleIds = requirementRuleIdsBlockingGeneration(
     input.requirementBaseline,
     input.requirementReviewCandidates,
@@ -139,27 +139,17 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
   const staleDesignReasons: Record<string, string> = {};
   const staleDesignModelIds = Object.values(input.designModels).flatMap((model) => {
     const modelId = getDesignModelId(model);
+    const storedDesignFingerprint = input.designInputFingerprints[modelId];
     const fingerprintFresh = designFingerprintMatches(
-      input.designInputFingerprints[modelId],
+      storedDesignFingerprint,
       currentDesignInputFingerprint,
     );
-    const traceability = checkDesignModelTraceability({
-      model,
-      traceability: input.designModelTraceability,
-      manualModelEditStatus: input.manualModelEditStatus,
-      requirementModels: Object.values(input.models),
-    });
     const reason =
-      designGenerationBlockedReason ??
-      (requirementTraceabilityStale
-        ? "上游需求模型或追踪关系需更新，此设计模型需更新。"
-        : !fingerprintFresh
-          ? "需求模型已变化，此设计模型需更新。"
-          : !traceability.sourceCoverageComplete
-            ? "设计模型追踪覆盖不完整，此设计模型需更新。"
-            : !traceability.targetRefsValid
-              ? "设计模型追踪目标已失效，此设计模型需更新。"
-              : null);
+      requirementInputStale
+        ? "需求文本或规则指纹已变化，此设计模型需更新。"
+        : storedDesignFingerprint && !fingerprintFresh
+          ? "上游需求模型或追踪指纹已变化，此设计模型需更新。"
+          : null;
     if (!reason) return [];
     staleDesignReasons[modelId] = reason;
     return [modelId];

@@ -458,6 +458,7 @@ function buildDesignDiagramNode(
   model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
   failed: boolean,
   stale: boolean,
+  staleReason: string | undefined,
   status: Node["status"],
   statusTooltip: string | undefined,
   viewable: boolean,
@@ -523,7 +524,7 @@ function buildDesignDiagramNode(
         <Network className="size-4 text-muted-foreground" />
         {stale && (
           <span
-            title="此设计模型需更新"
+            title={staleReason ?? "此设计模型需更新"}
             className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
           />
         )}
@@ -572,6 +573,7 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
     staleDiagrams,
     staleDesignDiagrams,
     staleDesignModelIds,
+    designStaleReasons,
     diagramErrors,
     svgArtifacts,
     generatedDesignDiagrams,
@@ -754,6 +756,13 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
               sequenceSubtaskNodes.some((node) =>
                 staleDesignModelIds.includes(node.id),
               );
+            const sequenceGroupStaleReason =
+              sequenceSubtaskNodes
+                .map((node) => designStaleReasons[node.id])
+                .find(Boolean) ??
+              (staleDesignDiagrams.includes("sequence")
+                ? "上游需求模型或追踪指纹已变化，此设计模型需更新。"
+                : undefined);
             const groupStatus = sequenceSubtaskNodes.reduce<Node["status"]>(
               (current, model) =>
                 mergeSidebarStatus(
@@ -770,7 +779,7 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
                   <MessageSquare className="size-4 text-muted-foreground" />
                   {sequenceGroupStale && (
                     <span
-                      title="此设计模型需更新"
+                      title={sequenceGroupStaleReason ?? "此设计模型需更新"}
                       className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
                     />
                   )}
@@ -803,11 +812,13 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
                   const viewable = designModelViewable(diagram, node.id);
                   const hasStructuredModel = Boolean(model);
                   const stale = staleDesignModelIds.includes(node.id);
+                  const staleReason = designStaleReasons[node.id];
                   return buildDesignDiagramNode(
                     diagram,
                     model,
                     status === "failed",
                     stale,
+                    staleReason,
                     status,
                     generationStatusTooltip(
                       model.title,
@@ -838,11 +849,15 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
             (modelId && staleDesignModelIds.includes(modelId)) ||
               staleDesignDiagrams.includes(diagram),
           );
+          const staleReason =
+            (modelId ? designStaleReasons[modelId] : undefined) ??
+            (stale ? "上游需求模型或追踪指纹已变化，此设计模型需更新。" : undefined);
           return buildDesignDiagramNode(
             diagram,
             model,
             status === "failed",
             stale,
+            staleReason,
             status,
             generationStatusTooltip(
               DESIGN_DIAGRAM_META[diagram].label,
