@@ -7,6 +7,7 @@ import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Switch } from "../../../shared/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../shared/ui/select";
+import { ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { useTheme } from "../../../shared/ui/theme-provider";
 import {
   DEFAULT_USER_SETTINGS,
@@ -338,7 +339,7 @@ export function GlobalSettingsPanel({
         </section>
       </div>
 
-      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <ScaledToolbar className="mt-5" contentClassName="justify-end" minWidth={520}>
         <Button variant="ghost" onClick={reset}>
           <RotateCw className="size-4" />
           恢复默认
@@ -351,7 +352,7 @@ export function GlobalSettingsPanel({
           <KeyRound className="size-4" />
           保存
         </Button>
-      </div>
+      </ScaledToolbar>
     </>
   );
 }

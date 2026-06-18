@@ -140,14 +140,6 @@ export function GenerationResultDialog({
         <DialogFooter className="mt-6 flex-row justify-center gap-3 sm:justify-center">
           <Button
             type="button"
-            variant="ghost"
-            className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-muted-foreground hover:bg-muted/60"
-            onClick={onClose}
-          >
-            取消
-          </Button>
-          <Button
-            type="button"
             className="h-10 rounded-[8px] px-6 text-[14px] font-normal shadow-sm"
             onClick={onClose}
           >

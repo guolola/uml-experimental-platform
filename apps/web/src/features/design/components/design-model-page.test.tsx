@@ -113,7 +113,10 @@ describe("DesignModelPage", () => {
       .closest("div");
 
     expect(analysisSourceCard).toHaveTextContent("可用");
-    expect(container.querySelector('[data-workspace-density="compact-grid"]')).toBeInTheDocument();
+    const modelGrid = container.querySelector('[data-workspace-density="compact-grid"]');
+    expect(modelGrid).toBeInTheDocument();
+    expect(modelGrid).toHaveAttribute("data-mobile-card-density", "two-column");
+    expect(modelGrid).toHaveClass("grid-cols-2");
     expect(sourceGrid?.querySelector('[data-workspace-density="status-rail"]')).toBeInTheDocument();
   });
 
@@ -796,7 +799,7 @@ describe("DesignModelPage", () => {
       name: /用例实现设计/,
     });
     const sequenceCard = screen.getByRole("button", { name: "选择用例实现设计" });
-    expect(sequenceCard).toHaveClass("min-h-[236px]");
+    expect(sequenceCard).toHaveClass("min-h-[212px]", "sm:min-h-[236px]");
     expect(sequenceCard).toHaveClass("bg-gradient-to-br");
     expect(sequenceCheckbox).not.toBeChecked();
     expect(screen.getByText("2 个用例实现设计")).toBeInTheDocument();

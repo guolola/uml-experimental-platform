@@ -4,6 +4,7 @@ import {
   designRecordBelongsToDiagramKinds,
   designTraceabilityTouchesDiagramKinds,
   type DesignRunSnapshot,
+  type RequirementBaseline,
   type RunSnapshot,
 } from "@uml-platform/contracts";
 import {
@@ -40,6 +41,63 @@ function fingerprintMatches(
   currentFingerprint: string,
 ) {
   return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
+}
+
+type RequirementReviewCandidate =
+  WorkspaceRecord["requirementReviewCandidates"][string];
+
+function reviewCandidateStillNeeded(
+  baseline: RequirementBaseline,
+  ruleId: string,
+) {
+  const qualityIssueRequirementIds = new Set(
+    baseline.qualityReport.issues.map((issue) => issue.requirementId),
+  );
+  const reviewRequiredRequirementIds = new Set(
+    baseline.qualityReport.reviewRequiredRequirementIds,
+  );
+  return baseline.requirements.some((requirement) => {
+    if (requirement.sourceRuleId !== ruleId) return false;
+    if (reviewRequiredRequirementIds.has(requirement.id)) return true;
+    if (qualityIssueRequirementIds.has(requirement.id)) return true;
+    if (requirement.status !== "accepted") return true;
+    return Object.values(requirement.fieldProvenance).some(
+      (provenance) =>
+        provenance?.status === "pending-review" ||
+        provenance?.status === "rejected",
+    );
+  });
+}
+
+function pruneRequirementReviewCandidatesForBaseline(
+  candidates: WorkspaceRecord["requirementReviewCandidates"],
+  baseline: RequirementBaseline,
+) {
+  const next = { ...candidates };
+  for (const [ruleId, candidate] of Object.entries(next) as Array<
+    [string, RequirementReviewCandidate]
+  >) {
+    if (
+      (candidate.status === "pending" || candidate.status === "failed") &&
+      !reviewCandidateStillNeeded(baseline, ruleId)
+    ) {
+      delete next[ruleId];
+    }
+  }
+  return next;
+}
+
+function applyRequirementBaselineToWorkspace(
+  workspace: WorkspaceRecord,
+  baseline: RequirementBaseline,
+) {
+  workspace.requirementBaseline = baseline;
+  workspace.requirementQualityReport = baseline.qualityReport;
+  workspace.requirementReviewCandidates =
+    pruneRequirementReviewCandidatesForBaseline(
+      workspace.requirementReviewCandidates,
+      baseline,
+    );
 }
 
 export function createEmptyWorkspace(): WorkspaceRecord {
@@ -356,17 +414,21 @@ export function applySnapshotToWorkspace(
   if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
     next.requirementText = snapshot.requirementText;
     next.rules = [...snapshot.rules];
-    next.requirementBaseline =
-      snapshot.requirementBaseline ?? next.requirementBaseline ?? null;
-    next.requirementQualityReport =
-      snapshot.requirementBaseline?.qualityReport ??
-      next.requirementQualityReport ??
-      null;
   }
   const workspaceRequirementFingerprint = requirementInputFingerprint(
     next.requirementText,
     next.rules,
   );
+  if (
+    snapshot.requirementBaseline &&
+    (!currentHasRequirements ||
+      fingerprintMatches(
+        snapshotRequirementFingerprint,
+        workspaceRequirementFingerprint,
+      ))
+  ) {
+    applyRequirementBaselineToWorkspace(next, snapshot.requirementBaseline);
+  }
 
   if (isCodeRunSnapshot(snapshot)) {
     next.designModels = Object.fromEntries(

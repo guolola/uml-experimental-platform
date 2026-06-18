@@ -2,10 +2,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
+  AtomicRequirement,
   DesignDiagramModelSpec,
   DesignRunSnapshot,
   DesignSvgArtifact,
   DiagramModelSpec,
+  RequirementBaseline,
   RunSnapshot,
 } from "@uml-platform/contracts";
 import { createEmptySnapshot } from "../../runs/records/snapshots.js";
@@ -103,6 +105,82 @@ function designSvgArtifact(
   };
 }
 
+function requirementRule(
+  id: string,
+  text = `${id} 需求规则。`,
+): RunSnapshot["rules"][number] {
+  return {
+    id,
+    category: "业务规则",
+    text,
+    relatedDiagrams: ["usecase"],
+  };
+}
+
+function atomicRequirement(
+  overrides: Partial<AtomicRequirement> = {},
+): AtomicRequirement {
+  return {
+    id: "REQ-001",
+    sourceRuleId: "r1",
+    sourceFragment: "用户通过邮箱注册账号。",
+    sourceLocation: { section: "input", startOffset: 0, endOffset: 10 },
+    type: "functional",
+    actor: "用户",
+    subject: "用户",
+    action: "注册",
+    object: "账号",
+    condition: null,
+    outcome: "系统创建账号",
+    confidence: 0.86,
+    status: "accepted",
+    criticality: "high",
+    acceptanceCriteria: ["用户提交邮箱后系统创建账号。"],
+    priority: "must",
+    fieldProvenance: {},
+    ...overrides,
+  };
+}
+
+function requirementBaseline(
+  requirements: AtomicRequirement[],
+  overrides: Partial<RequirementBaseline> = {},
+): RequirementBaseline {
+  return {
+    runId: "run-baseline",
+    sourceDocumentId: "inline-requirement",
+    createdAt: "2026-06-18T00:00:00.000Z",
+    assumptions: [],
+    conflicts: [],
+    requirements,
+    qualityReport: {
+      runId: "run-baseline",
+      status: "passed",
+      summary: "需求规则已确认。",
+      issues: [],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: [],
+    },
+    ...overrides,
+  };
+}
+
+function pendingReviewCandidate(requirement: AtomicRequirement) {
+  return {
+    ruleId: requirement.sourceRuleId ?? "r1",
+    beforeRequirement: requirement,
+    afterRequirement: {
+      ...requirement,
+      status: "accepted",
+    },
+    repairRationale: "补齐缺失字段。",
+    blockingReasons: [],
+    status: "pending",
+    errorMessage: null,
+    createdAt: "2026-06-18T00:00:00.000Z",
+  };
+}
+
 function designSnapshot(
   overrides: Partial<DesignRunSnapshot> = {},
 ): DesignRunSnapshot {
@@ -130,6 +208,131 @@ function designSnapshot(
     ...overrides,
   };
 }
+
+test("restore applies requirement baseline from model snapshots when input matches", () => {
+  const requirementText = "用户通过邮箱注册账号，联系方式在认领通过前隐藏。";
+  const rules = [
+    requirementRule("r1", "用户通过邮箱注册账号。"),
+    requirementRule("r6", "联系方式在认领通过前隐藏。"),
+  ];
+  const pendingRequirement = atomicRequirement({
+    id: "REQ-006",
+    sourceRuleId: "r6",
+    sourceFragment: "联系方式在认领通过前隐藏。",
+    actor: null,
+    status: "pending-review",
+  });
+  const pendingBaseline = requirementBaseline([pendingRequirement], {
+    runId: "run-pending-baseline",
+    qualityReport: {
+      runId: "run-pending-baseline",
+      status: "pending-review",
+      summary: "发现 1 个需求质量提示。",
+      issues: [
+        {
+          id: "ISS-006",
+          code: "missing-actor",
+          message: "REQ-006 缺少明确角色/执行者。",
+          severity: "warning",
+          requirementId: "REQ-006",
+          blocksDownstream: false,
+        },
+      ],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: ["REQ-006"],
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-pending-baseline",
+    requirementText,
+    ["usecase"],
+    rules,
+    { models: [requirementUseCaseModel()] },
+  ) as RunSnapshot;
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_svg";
+  snapshot.requirementBaseline = pendingBaseline;
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText,
+      rules,
+      requirementBaseline: requirementBaseline([
+        atomicRequirement({
+          id: "REQ-006",
+          sourceRuleId: "r6",
+          status: "accepted",
+        }),
+      ]),
+      requirementQualityReport: requirementBaseline([]).qualityReport,
+      requirementReviewCandidates: {
+        r6: pendingReviewCandidate(pendingRequirement),
+      },
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  const restoredBaseline = restored.requirementBaseline as RequirementBaseline;
+  assert.equal(restoredBaseline.qualityReport.status, "pending-review");
+  assert.deepEqual(
+    restoredBaseline.qualityReport.reviewRequiredRequirementIds,
+    ["REQ-006"],
+  );
+  assert.equal(
+    (
+      (restored.requirementReviewCandidates as Record<string, { status: string }>)
+        .r6
+    ).status,
+    "pending",
+  );
+});
+
+test("restore drops stale pending candidates when the new baseline has passed", () => {
+  const requirementText = "用户通过邮箱注册账号。";
+  const rules = [requirementRule("r1", "用户通过邮箱注册账号。")];
+  const requirement = atomicRequirement({
+    id: "REQ-001",
+    sourceRuleId: "r1",
+    status: "accepted",
+  });
+  const snapshot = createEmptySnapshot(
+    "run-passed-baseline",
+    requirementText,
+    ["usecase"],
+    rules,
+    { models: [requirementUseCaseModel()] },
+  ) as RunSnapshot;
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_svg";
+  snapshot.requirementBaseline = requirementBaseline([requirement]);
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText,
+      rules,
+      requirementBaseline: requirementBaseline([
+        {
+          ...requirement,
+          status: "pending-review",
+        },
+      ]),
+      requirementQualityReport: requirementBaseline([]).qualityReport,
+      requirementReviewCandidates: {
+        r1: pendingReviewCandidate(requirement),
+      },
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  const restoredBaseline = restored.requirementBaseline as RequirementBaseline;
+  assert.equal(restoredBaseline.qualityReport.status, "passed");
+  assert.equal(
+    (restored.requirementReviewCandidates as Record<string, unknown>).r1,
+    undefined,
+  );
+});
 
 test("restore replaces old design records by successful selected design kind", () => {
   const oldSequence = sequenceDesignModel("sequence:uc_old", "uc_old");

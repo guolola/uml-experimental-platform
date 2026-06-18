@@ -18,6 +18,7 @@ import type {
   DiagramModelSpec,
   DocumentRunSnapshot,
   PlantUmlArtifact,
+  RequirementBaseline,
   RequirementModelTraceabilityEntry,
   RunSnapshot,
   SvgArtifact,
@@ -35,6 +36,61 @@ export function isRestorableRunSnapshot(
   snapshot: AnyRunSnapshot,
 ): snapshot is RestorableRunSnapshot {
   return !("documentKind" in snapshot);
+}
+
+function reviewCandidateStillNeeded(
+  baseline: RequirementBaseline,
+  ruleId: string,
+) {
+  const qualityIssueRequirementIds = new Set(
+    baseline.qualityReport.issues.map((issue) => issue.requirementId),
+  );
+  const reviewRequiredRequirementIds = new Set(
+    baseline.qualityReport.reviewRequiredRequirementIds,
+  );
+  return baseline.requirements.some((requirement) => {
+    if (requirement.sourceRuleId !== ruleId) return false;
+    if (reviewRequiredRequirementIds.has(requirement.id)) return true;
+    if (qualityIssueRequirementIds.has(requirement.id)) return true;
+    if (requirement.status !== "accepted") return true;
+    return Object.values(requirement.fieldProvenance).some((provenance) => {
+      if (!provenance || typeof provenance !== "object") return false;
+      const status = stringValue(
+        (provenance as Record<string, unknown>).status,
+      );
+      return status === "pending-review" || status === "rejected";
+    });
+  });
+}
+
+function pruneRequirementReviewCandidatesForBaseline(
+  candidates: unknown,
+  baseline: RequirementBaseline,
+) {
+  const next = { ...recordValue(candidates) };
+  for (const [ruleId, candidate] of Object.entries(next)) {
+    const status = isRecord(candidate) ? stringValue(candidate.status) : "";
+    if (
+      (status === "pending" || status === "failed") &&
+      !reviewCandidateStillNeeded(baseline, ruleId)
+    ) {
+      delete next[ruleId];
+    }
+  }
+  return next;
+}
+
+function applyRequirementBaselineToWorkspaceState(
+  state: WorkspaceState,
+  baseline: RequirementBaseline,
+) {
+  state.requirementBaseline = baseline;
+  state.requirementQualityReport = baseline.qualityReport;
+  state.requirementReviewCandidates =
+    pruneRequirementReviewCandidatesForBaseline(
+      state.requirementReviewCandidates,
+      baseline,
+    );
 }
 
 export function restoreRunSnapshotToWorkspaceState({
@@ -81,20 +137,22 @@ function applySnapshotToWorkspaceState(
   if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
     next.requirementText = snapshot.requirementText;
     next.rules = [...snapshot.rules];
-    next.requirementBaseline =
-      snapshot.requirementBaseline ??
-      (next.requirementBaseline as unknown) ??
-      null;
-    next.requirementQualityReport =
-      snapshot.requirementBaseline?.qualityReport ??
-      (next.requirementQualityReport as unknown) ??
-      null;
   }
 
   const workspaceRequirementFingerprint = snapshotInputFingerprint({
     requirementText: stringValue(next.requirementText),
     rules: arrayValue(next.rules),
   });
+  if (
+    snapshot.requirementBaseline &&
+    (!currentHasRequirements ||
+      fingerprintMatches(
+        snapshotRequirementFingerprint,
+        workspaceRequirementFingerprint,
+      ))
+  ) {
+    applyRequirementBaselineToWorkspaceState(next, snapshot.requirementBaseline);
+  }
 
   if (isCodeRunSnapshot(snapshot)) {
     next.designModels = Object.fromEntries(

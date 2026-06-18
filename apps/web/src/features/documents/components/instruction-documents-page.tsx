@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
+import { ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { downloadBlobFile } from "../../../shared/lib/download";
@@ -644,41 +645,43 @@ export function InstructionDocumentsPage({
           </div>
         </header>
 
-        <section className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-            <div className="relative min-w-64 flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-10 rounded-lg bg-background pl-9"
-                placeholder="搜索已生成的文档..."
-              />
+        <section>
+          <ScaledToolbar minWidth={760} contentClassName="w-full justify-between gap-4">
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="relative w-96">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="h-10 rounded-lg bg-background pl-9"
+                  placeholder="搜索已生成的文档..."
+                />
+              </div>
+              <label className="inline-flex h-10 items-center gap-2 text-sm text-muted-foreground">
+                <SlidersHorizontal className="size-4" />
+                <SelectControl
+                  value={typeFilter}
+                  onValueChange={(value) => setTypeFilter(value as DocumentKind | "all")}
+                  className="h-10 min-w-44"
+                  aria-label="说明书类型"
+                  options={[
+                    { value: "all", label: "所有类型" },
+                    { value: "requirementsSpec", label: "需求规格说明书" },
+                    { value: "softwareDesignSpec", label: "软件设计说明书" },
+                  ]}
+                />
+              </label>
             </div>
-            <label className="inline-flex h-10 items-center gap-2 text-sm text-muted-foreground">
-              <SlidersHorizontal className="size-4" />
-              <SelectControl
-                value={typeFilter}
-                onValueChange={(value) => setTypeFilter(value as DocumentKind | "all")}
-                className="h-10 min-w-44"
-                aria-label="说明书类型"
-                options={[
-                  { value: "all", label: "所有类型" },
-                  { value: "requirementsSpec", label: "需求规格说明书" },
-                  { value: "softwareDesignSpec", label: "软件设计说明书" },
-                ]}
-              />
-            </label>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-10 rounded-full bg-background"
-            onClick={() => void loadDocuments()}
-          >
-            <RefreshCw className="size-4" />
-            刷新列表
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 shrink-0 rounded-full bg-background"
+              onClick={() => void loadDocuments()}
+            >
+              <RefreshCw className="size-4" />
+              刷新列表
+            </Button>
+          </ScaledToolbar>
         </section>
 
         {errorMessage && (
@@ -695,7 +698,10 @@ export function InstructionDocumentsPage({
         ) : (
           <>
             <section>
-              <MobileCompactGrid className="sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]">
+              <MobileCompactGrid
+                minWidth={760}
+                className="grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]"
+              >
               {DOCUMENT_DEFINITIONS.map((definition) => {
                 const generating = documentGeneratingByKind[definition.kind];
                 return (
@@ -727,7 +733,10 @@ export function InstructionDocumentsPage({
                   暂无匹配的说明书
                 </div>
               ) : (
-                <MobileCompactGrid className="sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]">
+                <MobileCompactGrid
+                  minWidth={760}
+                  className="grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]"
+                >
                   {filteredDocuments.map((document) => (
                     <GeneratedDocumentCard
                       key={document.id}

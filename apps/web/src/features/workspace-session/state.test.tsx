@@ -100,7 +100,7 @@ function createRequirementBaseline(
 }
 
 describe("WorkspaceSessionProvider", () => {
-  it("shows Figma-style generation result dialogs with cancel and confirm close actions", async () => {
+  it("shows Figma-style generation result dialogs with a single confirm close action", async () => {
     toastMessage.mockClear();
     let runIndex = 0;
     const createSuccessSnapshot = () =>
@@ -151,8 +151,11 @@ describe("WorkspaceSessionProvider", () => {
       screen.queryByRole("dialog", { name: "生成成功" }),
     ).not.toBeInTheDocument();
     expect(toastMessage).not.toHaveBeenCalled();
+    expect(
+      within(successDialog).queryByRole("button", { name: "取消" }),
+    ).not.toBeInTheDocument();
     await user.click(
-      within(successDialog).getByRole("button", { name: "取消" }),
+      within(successDialog).getByRole("button", { name: "确认" }),
     );
     await waitFor(() => {
       expect(
@@ -219,8 +222,8 @@ describe("WorkspaceSessionProvider", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      within(failedDialog).getByRole("button", { name: "取消" }),
-    ).toBeInTheDocument();
+      within(failedDialog).queryByRole("button", { name: "取消" }),
+    ).not.toBeInTheDocument();
     expect(
       within(failedDialog).getByRole("button", { name: "确认" }),
     ).toBeInTheDocument();

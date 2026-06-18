@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../../../shared/ui/dialog";
+import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import { GlobalSettingsPanel } from "./global-settings-panel";
 
 type SettingsDialogProps = {
@@ -39,14 +40,16 @@ export function SettingsDialog({ onNavigate }: SettingsDialogProps) {
           <DialogTitle>设置</DialogTitle>
         </DialogHeader>
 
-        <GlobalSettingsPanel
-          active={open}
-          onNavigate={(route) => {
-            setOpen(false);
-            onNavigate?.(route);
-          }}
-          onSaved={() => setOpen(false)}
-        />
+        <ScaleToFitFrame minWidth={640} contentClassName="w-[640px]">
+          <GlobalSettingsPanel
+            active={open}
+            onNavigate={(route) => {
+              setOpen(false);
+              onNavigate?.(route);
+            }}
+            onSaved={() => setOpen(false)}
+          />
+        </ScaleToFitFrame>
       </DialogContent>
     </Dialog>
   );

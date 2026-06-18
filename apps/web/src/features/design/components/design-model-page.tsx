@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { ModelPicker } from "../../../shared/ui/model-picker";
+import { ScaleToFitFrame, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { cn } from "../../../shared/ui/utils";
 import {
   DESIGN_DIAGRAM_META,
@@ -144,7 +145,7 @@ function getDesignDiagramBlockReason(
   return null;
 }
 
-function useCasesFromRequirementModel(models: ReturnType<typeof useWorkspaceSession>["models"]) {
+function getUseCasesFromRequirementModel(models: ReturnType<typeof useWorkspaceSession>["models"]) {
   const model = models.usecase;
   return model && "useCases" in model && Array.isArray(model.useCases)
     ? model.useCases
@@ -155,7 +156,7 @@ function sequenceModelsCoverUseCases(
   designModels: ReturnType<typeof useWorkspaceSession>["designModels"],
   models: ReturnType<typeof useWorkspaceSession>["models"],
 ) {
-  const useCases = useCasesFromRequirementModel(models);
+  const useCases = getUseCasesFromRequirementModel(models);
   if (useCases.length === 0) return false;
   const covered = new Set(
     Object.values(designModels)
@@ -488,42 +489,48 @@ export function DesignModelPage() {
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background">
       <div className="w-full p-4 lg:p-5">
         <div className="mx-auto flex w-full max-w-none flex-col gap-5">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
-                  设计模型
-                </h2>
-                <Badge variant="secondary" className="rounded-full font-mono">
-                  {effectiveSelected.length}/{DESIGN_DIAGRAM_ORDER.length}
-                </Badge>
+          <header>
+            <ScaledToolbar
+              minWidth={500}
+              minReadableScale={0.68}
+              contentClassName="w-full items-end justify-between gap-6"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-nowrap items-center gap-2">
+                  <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
+                    设计模型
+                  </h2>
+                  <Badge variant="secondary" className="rounded-full font-mono">
+                    {effectiveSelected.length}/{DESIGN_DIAGRAM_ORDER.length}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  基于需求自动生成或手动构建系统架构模型
+                </p>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                基于需求自动生成或手动构建系统架构模型
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <ModelPicker
-                value={defaultModel}
-                onValueChange={updateModel}
-                align="end"
-                triggerClassName="bg-card"
-              />
-              <Button
-                size="sm"
-                className="h-9 rounded-lg"
-                onClick={runGenerate}
-                disabled={!canGenerate || generating}
-                title={designGenerationBlockedReason ?? selectedDesignBlockReason ?? undefined}
-              >
-                {generating ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Wand2 className="size-4" />
-                )}
-                生成设计模型
-              </Button>
-            </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <ModelPicker
+                  value={defaultModel}
+                  onValueChange={updateModel}
+                  align="end"
+                  triggerClassName="bg-card"
+                />
+                <Button
+                  size="sm"
+                  className="h-9 rounded-lg"
+                  onClick={runGenerate}
+                  disabled={!canGenerate || generating}
+                  title={designGenerationBlockedReason ?? selectedDesignBlockReason ?? undefined}
+                >
+                  {generating ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="size-4" />
+                  )}
+                  生成设计模型
+                </Button>
+              </div>
+            </ScaledToolbar>
           </header>
 
           {visibleGenerationBlockReason && (
@@ -560,7 +567,10 @@ export function DesignModelPage() {
           <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(260px,300px)]">
             <main className="flex min-w-0 flex-col gap-4">
               <section>
-                <MobileCompactGrid className="grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
+                <MobileCompactGrid
+                  minWidth={720}
+                  className="grid-cols-2 2xl:grid-cols-3"
+                >
                   {DESIGN_DIAGRAM_ORDER.map((diagram) => {
                     const meta = DESIGN_DIAGRAM_META[diagram];
                     const checked = effectiveSelected.includes(diagram);
@@ -825,7 +835,8 @@ export function DesignModelPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-auto pr-1">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
+            <ScaleToFitFrame minWidth={640} contentClassName="w-[640px]">
+            <div className="flex flex-nowrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
               <div>
                 <div className="text-sm font-medium text-foreground">
                   来源追踪
@@ -877,6 +888,7 @@ export function DesignModelPage() {
                 </div>
               ))}
             </div>
+            </ScaleToFitFrame>
           </div>
           <DialogFooter>
             <Button type="button" onClick={() => setTraceabilityDialogOpen(false)}>

@@ -76,6 +76,10 @@ type Node = {
   onSelect?: () => void;
 };
 
+type SidebarMenuProps = {
+  onNavigateItemSelect?: () => void;
+};
+
 const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
   actor: <User className="size-3.5 text-muted-foreground" />,
   usecase: <CircleDot className="size-3.5 text-muted-foreground" />,
@@ -188,12 +192,14 @@ function TreeItem({
   selectedKey,
   openKeys,
   setOpenKeys,
+  onNavigateItemSelect,
 }: {
   node: Node;
   depth: number;
   selectedKey: string;
   openKeys: Set<string>;
   setOpenKeys: Dispatch<SetStateAction<Set<string>>>;
+  onNavigateItemSelect?: () => void;
 }) {
   const hasChildren = !!node.children?.length;
   const open = openKeys.has(node.key);
@@ -211,7 +217,10 @@ function TreeItem({
     });
   const handleSelect = () => {
     if (selectable) {
-      node.onSelect?.();
+      if (node.onSelect) {
+        node.onSelect();
+        onNavigateItemSelect?.();
+      }
       return;
     }
     if (node.unavailableReason) {
@@ -283,6 +292,7 @@ function TreeItem({
               selectedKey={selectedKey}
               openKeys={openKeys}
               setOpenKeys={setOpenKeys}
+              onNavigateItemSelect={onNavigateItemSelect}
             />
           ))}
         </div>
@@ -554,7 +564,7 @@ function buildPendingDesignDiagramNode(
   };
 }
 
-export function SidebarMenu() {
+export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
     generatedDiagrams,
@@ -890,6 +900,7 @@ export function SidebarMenu() {
               selectedKey={selectedKey}
               openKeys={openKeys}
               setOpenKeys={setOpenKeys}
+              onNavigateItemSelect={onNavigateItemSelect}
             />
           ))}
         </div>

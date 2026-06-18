@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Input } from "../../../shared/ui/input";
+import { ScaledTable, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
@@ -193,27 +194,29 @@ export function TraceabilityMatrixPage({
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background">
       <div className="w-full p-4 lg:p-5">
         <div className="mx-auto flex w-full max-w-none flex-col gap-5">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
-                  {title}
-                </h2>
-                <Badge variant="secondary" className="rounded-full font-mono">
-                  {rows.length} 项
-                </Badge>
+          <header>
+            <ScaledToolbar minWidth={720} contentClassName="w-full items-end justify-between gap-6">
+              <div className="min-w-0">
+                <div className="flex flex-nowrap items-center gap-2">
+                  <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
+                    {title}
+                  </h2>
+                  <Badge variant="secondary" className="rounded-full font-mono">
+                    {rows.length} 项
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{description}</p>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-            </div>
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索矩阵…"
-                className="h-9 rounded-full bg-card pl-9"
-              />
-            </div>
+              <div className="relative w-72 shrink-0">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索矩阵…"
+                  className="h-9 rounded-full bg-card pl-9"
+                />
+              </div>
+            </ScaledToolbar>
           </header>
 
           {!hasTraceability && rows.length > 0 && (
@@ -238,39 +241,41 @@ export function TraceabilityMatrixPage({
 
           <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
             <section className="min-w-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  {isDesign ? (
-                    <GitBranch className="size-4 text-primary" />
-                  ) : (
-                    <Network className="size-4 text-primary" />
+              <div className="border-b border-border bg-muted/30 px-4 py-3">
+                <ScaledToolbar minWidth={560} contentClassName="w-full justify-between gap-4">
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isDesign ? (
+                      <GitBranch className="size-4 text-primary" />
+                    ) : (
+                      <Network className="size-4 text-primary" />
+                    )}
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {isDesign ? "设计元素映射" : "需求元素映射"}
+                    </h3>
+                    <Badge variant="secondary" className="rounded-full font-mono text-[11px]">
+                      {filteredRows.length}/{rows.length}
+                    </Badge>
+                  </div>
+                  {!scope && (
+                    <label className="inline-flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      分类
+                      <SelectControl
+                        aria-label={groupFilterLabel}
+                        value={groupFilter}
+                        onValueChange={setGroupFilter}
+                        className="h-8 min-w-32 text-sm"
+                        size="sm"
+                        options={[
+                          { value: ALL_GROUPS, label: isDesign ? "全部模型" : "全部模型" },
+                          ...groupOptions.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          })),
+                        ]}
+                      />
+                    </label>
                   )}
-                  <h3 className="text-sm font-semibold text-foreground">
-                    {isDesign ? "设计元素映射" : "需求元素映射"}
-                  </h3>
-                  <Badge variant="secondary" className="rounded-full font-mono text-[11px]">
-                    {filteredRows.length}/{rows.length}
-                  </Badge>
-                </div>
-                {!scope && (
-                  <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                    分类
-                    <SelectControl
-                      aria-label={groupFilterLabel}
-                      value={groupFilter}
-                      onValueChange={setGroupFilter}
-                      className="h-8 min-w-32 text-sm"
-                      size="sm"
-                      options={[
-                        { value: ALL_GROUPS, label: isDesign ? "全部模型" : "全部模型" },
-                        ...groupOptions.map((option) => ({
-                          value: option.value,
-                          label: option.label,
-                        })),
-                      ]}
-                    />
-                  </label>
-                )}
+                </ScaledToolbar>
               </div>
 
               {rows.length === 0 ? (
@@ -285,8 +290,8 @@ export function TraceabilityMatrixPage({
                   </div>
                 </div>
               ) : (
-                <div className="overflow-auto">
-                  <table className="w-full min-w-[900px] border-collapse text-sm">
+                <div className="max-w-full overflow-hidden">
+                  <ScaledTable minWidth={900} className="border-collapse text-sm">
                     <thead className="bg-muted/20 text-xs text-muted-foreground">
                       <tr>
                         <th className="w-[34%] border-b border-r border-border px-4 py-4 text-left font-medium">
@@ -385,9 +390,13 @@ export function TraceabilityMatrixPage({
                         ))
                       )}
                     </tbody>
-                  </table>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                    <div className="flex flex-wrap items-center gap-3">
+                  </ScaledTable>
+                  <ScaledToolbar
+                    minWidth={560}
+                    className="border-t border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
+                    contentClassName="w-full justify-between gap-3"
+                  >
+                    <div className="flex shrink-0 items-center gap-3">
                       <span className="font-mono text-xs">
                         {pageRangeStart}-{pageRangeEnd} / {filteredRows.length}
                       </span>
@@ -409,7 +418,7 @@ export function TraceabilityMatrixPage({
                         条
                       </label>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <button
                         type="button"
                         aria-label="上一页"
@@ -432,7 +441,7 @@ export function TraceabilityMatrixPage({
                         ›
                       </button>
                     </div>
-                  </div>
+                  </ScaledToolbar>
                 </div>
               )}
             </section>

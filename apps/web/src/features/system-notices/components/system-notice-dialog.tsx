@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { Badge } from "../../../shared/ui/badge";
+import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import { cn } from "../../../shared/ui/utils";
 import { systemNoticeApi } from "../system-notice-api";
 import type { badgeVariants } from "../../../shared/ui/badge";
@@ -250,7 +251,9 @@ export function SystemNoticeDialog({
               {error}
             </div>
           ) : (
-            <SystemNoticeTimeline notices={notices} />
+            <ScaleToFitFrame minWidth={1040} contentClassName="w-[1040px]">
+              <SystemNoticeTimeline notices={notices} />
+            </ScaleToFitFrame>
           )}
         </div>
         <div className="flex justify-center border-t border-border bg-card/90 px-4 py-4 backdrop-blur-md">

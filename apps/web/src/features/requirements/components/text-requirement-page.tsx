@@ -48,6 +48,7 @@ import {
   patchUserSettings,
   USER_SETTINGS_CHANGED_EVENT,
 } from "../../../shared/lib/user-settings";
+import { ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import {
   MobileCompactGrid,
 } from "../../workspace-shell/components/mobile-density";
@@ -404,49 +405,56 @@ export function TextRequirementView() {
           mode === "empty" ? "h-[clamp(360px,48vh,620px)] min-h-80" : "h-[240px]",
         )}
       />
-      <div className="relative mt-6 flex flex-wrap items-center gap-2">
-        <ModelPicker
-          value={defaultModel}
-          onValueChange={updateModel}
-          disabled={!canRunGeneration}
-        />
-        {isRulesStale && (
-          <Badge variant="warning" className="rounded-md px-1.5 py-0 text-[11px]">
-            需求已修改
-          </Badge>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="ml-auto h-10 rounded-full px-6"
-          onClick={() => setRequirementText("")}
-          disabled={!requirementText || generating || !canEditRequirements}
-          title={!canEditRequirements ? editBlockedReason : undefined}
-        >
-          清空
-        </Button>
-        <button
-          type="button"
-          onClick={runGenerateRules}
-          disabled={!requirementText.trim() || generating || !canRunGeneration}
-          title={
-            !canRunGeneration
-              ? generationBlockedByPermissionReason
-              : isRulesStale
-                ? "更新需求规则"
-                : "生成需求规则"
-          }
-          className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {generating ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <ArrowUp className="size-4" />
+      <ScaledToolbar
+        minWidth={420}
+        minReadableScale={0.7}
+        className="relative mt-6"
+        contentClassName="w-full gap-2"
+      >
+          <ModelPicker
+            value={defaultModel}
+            onValueChange={updateModel}
+            disabled={!canRunGeneration}
+          />
+          {isRulesStale && (
+            <Badge variant="warning" className="rounded-md px-1.5 py-0 text-[11px]">
+              需求已修改
+            </Badge>
           )}
-          {isRulesStale ? "更新需求规则" : "开始分析提取"}
-        </button>
-      </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-10 rounded-full px-6"
+              onClick={() => setRequirementText("")}
+              disabled={!requirementText || generating || !canEditRequirements}
+              title={!canEditRequirements ? editBlockedReason : undefined}
+            >
+              清空
+            </Button>
+            <button
+              type="button"
+              onClick={runGenerateRules}
+              disabled={!requirementText.trim() || generating || !canRunGeneration}
+              title={
+                !canRunGeneration
+                  ? generationBlockedByPermissionReason
+                  : isRulesStale
+                    ? "更新需求规则"
+                    : "生成需求规则"
+              }
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {generating ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <ArrowUp className="size-4" />
+              )}
+              {isRulesStale ? "更新需求规则" : "开始分析提取"}
+            </button>
+          </div>
+      </ScaledToolbar>
     </div>
   );
 
@@ -581,20 +589,24 @@ export function TextRequirementView() {
           </div>
 
           <section className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
+            <ScaledToolbar
+              minWidth={500}
+              minReadableScale={0.68}
+              contentClassName="w-full justify-between gap-6"
+            >
+              <div className="flex shrink-0 items-center gap-2">
                 <Network className="size-5 text-primary" />
                 <h2 className="text-xl font-semibold tracking-normal text-foreground">
                   目标模型
                 </h2>
+                <Badge
+                  variant="secondary"
+                  className="rounded-md border-0 px-3 py-1 font-mono text-xs"
+                >
+                  {selectedDiagrams.length}/{DIAGRAM_ORDER.length}
+                </Badge>
               </div>
-              <Badge
-                variant="secondary"
-                className="rounded-md border-0 px-3 py-1 font-mono text-xs"
-              >
-                {selectedDiagrams.length}/{DIAGRAM_ORDER.length}
-              </Badge>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {requirementModelRepairRecords.length > 0 && (
                   <Button
                     type="button"
@@ -643,7 +655,7 @@ export function TextRequirementView() {
                   {generateDiagramsButtonLabel}
                 </button>
               </div>
-            </div>
+            </ScaledToolbar>
             {requirementReviewBlockedReason && (
               <div className="flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 <AlertTriangle className="size-3.5" />
@@ -651,7 +663,10 @@ export function TextRequirementView() {
               </div>
             )}
 
-            <MobileCompactGrid className="grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
+            <MobileCompactGrid
+              minWidth={720}
+              className="grid-cols-2 2xl:grid-cols-3"
+            >
               {DIAGRAM_ORDER.map((diagram) => {
                 const meta = DIAGRAM_META[diagram];
                 const {

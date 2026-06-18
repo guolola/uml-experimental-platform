@@ -17,6 +17,7 @@ import type { WorkspaceRecord } from "../../../entities/workspace/model";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
+import { ScaledTable, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import {
@@ -96,61 +97,63 @@ export function RequirementRulesTable({
 }: RequirementRulesTableProps) {
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border bg-muted/40 px-6 py-6">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <ListChecks className="size-5 text-primary" />
-            <h2 className="text-xl font-semibold tracking-normal text-foreground">
-              需求规则
-            </h2>
+      <div className="border-b border-border bg-muted/40 px-6 py-6">
+        <ScaledToolbar minWidth={790} contentClassName="w-full justify-between gap-8">
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="flex items-center gap-2">
+              <ListChecks className="size-5 text-primary" />
+              <h2 className="text-xl font-semibold tracking-normal text-foreground">
+                需求规则
+              </h2>
+            </div>
+            <Badge
+              variant="secondary"
+              className="rounded-full border-0 px-2.5 py-0.5 font-mono text-xs font-bold"
+            >
+              {rulesCount}
+            </Badge>
           </div>
-          <Badge
-            variant="secondary"
-            className="rounded-full border-0 px-2.5 py-0.5 font-mono text-xs font-bold"
-          >
-            {rulesCount}
-          </Badge>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索规则..."
-              className="h-9 rounded-lg bg-background pl-9 text-sm"
+          <div className="flex shrink-0 items-center gap-4">
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索规则..."
+                className="h-9 rounded-lg bg-background pl-9 text-sm"
+              />
+            </div>
+            <SelectControl
+              value={ruleCategoryFilter}
+              onValueChange={(value) =>
+                setRuleCategoryFilter(value as RequirementRuleCategoryFilter)
+              }
+              className="h-9 w-36 rounded-lg bg-background text-sm"
+              aria-label="需求类型筛选"
+              options={[
+                { value: ALL_RULE_CATEGORIES, label: "全部类型" },
+                ...RULE_CATEGORY_ORDER.map((category) => ({
+                  value: category,
+                  label: category,
+                })),
+              ]}
             />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-lg bg-background px-4"
+              onClick={onAddRule}
+              disabled={generating || !canEditRequirements}
+              title={!canEditRequirements ? editBlockedReason : undefined}
+            >
+              <Plus className="size-3.5" /> 新增需求项
+            </Button>
           </div>
-          <SelectControl
-            value={ruleCategoryFilter}
-            onValueChange={(value) =>
-              setRuleCategoryFilter(value as RequirementRuleCategoryFilter)
-            }
-            className="h-9 w-36 rounded-lg bg-background text-sm"
-            aria-label="需求类型筛选"
-            options={[
-              { value: ALL_RULE_CATEGORIES, label: "全部类型" },
-              ...RULE_CATEGORY_ORDER.map((category) => ({
-                value: category,
-                label: category,
-              })),
-            ]}
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-9 rounded-lg bg-background px-4"
-            onClick={onAddRule}
-            disabled={generating || !canEditRequirements}
-            title={!canEditRequirements ? editBlockedReason : undefined}
-          >
-            <Plus className="size-3.5" /> 新增需求项
-          </Button>
-        </div>
+        </ScaledToolbar>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-[960px] w-full table-fixed border-collapse bg-card text-sm">
+      <div className="max-w-full overflow-hidden">
+        <ScaledTable minWidth={960} className="table-fixed border-collapse bg-card text-sm">
           <thead className="text-xs tracking-[0.02em] text-muted-foreground">
             <tr className="border-b border-border">
               <th className="w-[84px] px-6 py-4 text-left font-medium">编号</th>
@@ -330,12 +333,14 @@ export function RequirementRulesTable({
               </tr>
             ))}
           </tbody>
-        </table>
+        </ScaledTable>
       </div>
 
-      <div
+      <ScaledToolbar
         data-testid="requirement-rule-pagination"
-        className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/95 px-6 py-4 text-xs text-muted-foreground shadow-lg backdrop-blur"
+        minWidth={650}
+        className="sticky bottom-0 z-10 border-t border-border bg-muted/95 px-6 py-4 text-xs text-muted-foreground shadow-lg backdrop-blur"
+        contentClassName="w-full justify-between gap-3"
       >
         <div className="flex flex-wrap items-center gap-3">
           <span>
@@ -395,7 +400,7 @@ export function RequirementRulesTable({
             <ChevronRight className="size-4" />
           </button>
         </div>
-      </div>
+      </ScaledToolbar>
     </section>
   );
 }

@@ -129,9 +129,15 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("目标模型")).toBeInTheDocument();
     expect(screen.queryByText(/将自动补齐：需求规则/)).not.toBeInTheDocument();
     expect(screen.getAllByText("请先输入需求描述或添加需求规则").length).toBeGreaterThan(0);
-    expect(container.querySelectorAll('[data-workspace-density="rail"]')).toHaveLength(1);
-    expect(container.querySelectorAll('[data-workspace-density="rail-card"]')).toHaveLength(3);
-    expect(container.querySelector('[data-workspace-density="compact-grid"]')).toBeInTheDocument();
+    const assistantTemplateGrid = container.querySelector(
+      '[data-workspace-density="assistant-template-grid"]',
+    );
+    expect(assistantTemplateGrid).toBeInTheDocument();
+    expect(assistantTemplateGrid).toHaveClass("grid-cols-2");
+    const modelGrid = container.querySelector('[data-workspace-density="compact-grid"]');
+    expect(modelGrid).toBeInTheDocument();
+    expect(modelGrid).toHaveAttribute("data-mobile-card-density", "two-column");
+    expect(modelGrid).toHaveClass("grid-cols-2");
 
     await user.type(requirementInput, "创建一个订单系统");
     expect(requirementInput).toHaveValue("创建一个订单系统");
@@ -715,11 +721,16 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("原文明确出现普通读者，AI 自动补齐角色/执行者字段。")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "采纳" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "智能修复" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认提示" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关闭" })).toBeInTheDocument();
   });
 
   it("shows quality issues as lightweight hints instead of review actions", async () => {
     const user = userEvent.setup();
-    const updateRequirementBaseline = vi.fn(async () => {});
+    const updateRequirementBaseline = vi.fn<
+      NonNullable<WorkspaceRepository["updateRequirementBaseline"]>
+    >(async () => {});
     const repository = createBaseRepository({
       updateRequirementBaseline,
       loadWorkspace: vi.fn(async () =>
@@ -903,7 +914,9 @@ describe("TextRequirementView", () => {
 
   it("does not expose single-rule repair actions from the requirement table", async () => {
     const startRun = vi.fn();
-    const updateRequirementBaseline = vi.fn(async () => {});
+    const updateRequirementBaseline = vi.fn<
+      NonNullable<WorkspaceRepository["updateRequirementBaseline"]>
+    >(async () => {});
     const repairRequirementRule = vi.fn(async (input) => {
       const requirement = {
         ...input.baseline.requirements[0],
@@ -1163,7 +1176,7 @@ describe("TextRequirementView", () => {
       name: /用例模型/,
     });
     const useCaseCard = screen.getByRole("button", { name: "选择用例模型" });
-    expect(useCaseCard).toHaveClass("min-h-[236px]");
+    expect(useCaseCard).toHaveClass("min-h-[212px]", "sm:min-h-[236px]");
     expect(useCaseCard).toHaveClass("bg-gradient-to-br");
     expect(useCaseCheckbox).not.toBeChecked();
 
@@ -1444,7 +1457,9 @@ describe("TextRequirementView", () => {
   });
 
   it("shows repair candidates as before-after confirmation and accepts the repaired rule", async () => {
-    const updateRequirementBaseline = vi.fn(async () => {});
+    const updateRequirementBaseline = vi.fn<
+      NonNullable<WorkspaceRepository["updateRequirementBaseline"]>
+    >(async () => {});
     const updateRequirementReviewCandidates = vi.fn(async () => {});
     const updateRequirementRules = vi.fn(async () => {});
     const rule = createRule({
@@ -1618,11 +1633,18 @@ describe("TextRequirementView", () => {
   });
 
   it("allows confirming quality hints when no repair candidate is available", async () => {
-    const updateRequirementBaseline = vi.fn(async () => {});
+    const updateRequirementBaseline = vi.fn<
+      NonNullable<WorkspaceRepository["updateRequirementBaseline"]>
+    >(async () => {});
     const rule = createRule({
       id: "r6",
       category: "业务规则",
       text: "联系方式在认领通过前隐藏",
+    });
+    const otherRule = createRule({
+      id: "r7",
+      category: "业务规则",
+      text: "失物被认领后通知发布人",
     });
     const requirement = createAtomicRequirement({
       id: "REQ-006",
@@ -1635,11 +1657,22 @@ describe("TextRequirementView", () => {
       status: "pending-review",
       fieldProvenance: {},
     });
-    const baseline = createRequirementBaseline([requirement], {
+    const otherRequirement = createAtomicRequirement({
+      id: "REQ-007",
+      sourceRuleId: "r7",
+      sourceFragment: "失物被认领后通知发布人",
+      actor: null,
+      subject: null,
+      object: "发布人",
+      confidence: 0.58,
+      status: "pending-review",
+      fieldProvenance: {},
+    });
+    const baseline = createRequirementBaseline([requirement, otherRequirement], {
       qualityReport: {
         runId: "run-baseline",
         status: "pending-review",
-        summary: "发现 1 个需求质量提示。",
+        summary: "发现 2 个需求质量提示。",
         issues: [
           {
             id: "ISS-003",
@@ -1649,16 +1682,24 @@ describe("TextRequirementView", () => {
             requirementId: "REQ-006",
             blocksDownstream: false,
           },
+          {
+            id: "ISS-004",
+            code: "missing-actor",
+            message: "REQ-007 缺少明确角色/执行者。",
+            severity: "critical",
+            requirementId: "REQ-007",
+            blocksDownstream: false,
+          },
         ],
         blockingIssueIds: [],
-        reviewRequiredRequirementIds: ["REQ-006"],
+        reviewRequiredRequirementIds: ["REQ-006", "REQ-007"],
       },
     });
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           requirementText: "校园失物招领需求",
-          rules: [rule],
+          rules: [rule, otherRule],
           rulesVersion: 1,
           requirementBaseline: baseline,
           requirementQualityReport: baseline.qualityReport,
@@ -1671,7 +1712,7 @@ describe("TextRequirementView", () => {
     render(withWorkspaceProviders(<TextRequirementView />, repository));
 
     const table = await screen.findByRole("table");
-    expect(within(table).getByText("有待确认提示")).toBeInTheDocument();
+    expect(within(table).getAllByText("有待确认提示")).toHaveLength(2);
     await user.click(
       within(table).getByRole("button", { name: "需求提示详情 r6" }),
     );
@@ -1685,25 +1726,28 @@ describe("TextRequirementView", () => {
     await user.click(within(dialog).getByRole("button", { name: "确认提示" }));
 
     await waitFor(() => {
-      expect(updateRequirementBaseline).toHaveBeenCalledWith(
-        expect.objectContaining({
-          requirements: [
-            expect.objectContaining({
-              id: "REQ-006",
-              status: "accepted",
-            }),
-          ],
-          qualityReport: expect.objectContaining({
-            issues: [],
-            reviewRequiredRequirementIds: [],
-          }),
-        }),
-      );
+      expect(updateRequirementBaseline).toHaveBeenCalled();
     });
+    const savedBaseline = updateRequirementBaseline.mock
+      .calls[0][0] as RequirementBaseline;
+    expect(
+      savedBaseline.requirements.find((item) => item.id === "REQ-006")?.status,
+    ).toBe("accepted");
+    expect(
+      savedBaseline.requirements.find((item) => item.id === "REQ-007")?.status,
+    ).toBe("pending-review");
+    expect(savedBaseline.qualityReport.issues.map((issue) => issue.id)).toEqual([
+      "ISS-004",
+    ]);
+    expect(savedBaseline.qualityReport.reviewRequiredRequirementIds).toEqual([
+      "REQ-007",
+    ]);
   });
 
   it("allows confirming quality hints when an old candidate was already accepted", async () => {
-    const updateRequirementBaseline = vi.fn(async () => {});
+    const updateRequirementBaseline = vi.fn<
+      NonNullable<WorkspaceRepository["updateRequirementBaseline"]>
+    >(async () => {});
     const rule = createRule({
       id: "r8",
       category: "业务规则",

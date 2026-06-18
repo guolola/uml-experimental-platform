@@ -1,4 +1,5 @@
 // Provides compact workspace navigation without leaking mobile layout logic into feature pages.
+import { useState } from "react";
 import {
   BookOpen,
   Code2,
@@ -65,10 +66,11 @@ const mobileStages: Array<{
 export function MobileWorkspaceNavigation() {
   const shell = useWorkspaceShell();
   const activeStage = stageForSelection(shell.selection);
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   return (
     <>
-      <Dialog>
+      <Dialog open={navigationOpen} onOpenChange={setNavigationOpen}>
         <DialogTrigger asChild>
           <Button
             type="button"
@@ -88,7 +90,7 @@ export function MobileWorkspaceNavigation() {
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-hidden">
-            <SidebarMenu />
+            <SidebarMenu onNavigateItemSelect={() => setNavigationOpen(false)} />
           </div>
         </DialogContent>
       </Dialog>

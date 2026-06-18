@@ -15,6 +15,7 @@ import {
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { ModelPicker } from "../../../shared/ui/model-picker";
+import { ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -41,10 +42,6 @@ import {
   type LocalPrototypePreviewHandle,
 } from "./prototype-preview";
 import { useWorkspaceSession } from "../../workspace-session/state";
-import {
-  MobileStatusPill,
-  MobileStatusRail,
-} from "../../workspace-shell/components/mobile-density";
 import { useCompactViewport } from "../../workspace-shell/hooks/use-compact-viewport";
 import { usePrototypeFiles } from "../hooks/use-prototype-files";
 
@@ -301,68 +298,40 @@ export function CodeGenerationPage() {
         data-testid="code-workspace-frame"
         className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background shadow-sm"
       >
-      <div
-        className={cn(
-          "flex min-h-12 items-center gap-2 border-b border-border px-3",
-          compactViewport && "min-h-0 flex-col items-stretch py-2",
-        )}
-      >
-        <div
-          className={cn(
-            "flex min-w-0 items-center gap-2",
-            compactViewport && "w-full",
-          )}
+      <div className="border-b border-border px-3">
+        <ScaledToolbar
+          data-testid="code-generation-toolbar"
+          minWidth={980}
+          contentClassName="min-h-12 w-full gap-2"
         >
-          <Code2 className="size-4 text-primary" />
-          <span className="truncate text-sm font-semibold">前端原型代码</span>
-          {!compactViewport && (
-            <>
-              <Badge variant="secondary" className="font-mono">
-                {sortedFiles.length} files
-              </Badge>
-              <Badge variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}>
-                {modelCapability.modeLabel}
-              </Badge>
-            </>
-          )}
-        </div>
-        {compactViewport && (
-          <MobileStatusRail>
-            <MobileStatusPill className="font-mono">
+          <div className="flex min-w-0 shrink-0 items-center gap-2">
+            <Code2 className="size-4 text-primary" />
+            <span className="truncate text-sm font-semibold">前端原型代码</span>
+            <Badge variant="secondary" className="font-mono">
               {sortedFiles.length} files
-            </MobileStatusPill>
-            <MobileStatusPill>{modelCapability.modeLabel}</MobileStatusPill>
-            <MobileStatusPill>设计模型 {designModelCount}</MobileStatusPill>
-            {generating && (
-              <MobileStatusPill>
-                <Loader2 className="size-3.5 animate-spin" />
-                {runProgress}%
-              </MobileStatusPill>
-            )}
-          </MobileStatusRail>
-        )}
-        {!compactViewport && generating && (
-          <div className="ml-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
-            <span className="truncate">{runMessage ?? "正在生成代码"}</span>
-            <span className="font-mono">{runProgress}%</span>
+            </Badge>
+            <Badge variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}>
+              {modelCapability.modeLabel}
+            </Badge>
+            <Badge variant="secondary">设计模型 {designModelCount}</Badge>
           </div>
-        )}
-        <div
-          className={cn(
-            "ml-auto flex items-center gap-2",
-            compactViewport && "ml-0 w-full overflow-x-auto pb-1",
+          {generating && (
+            <div className="ml-2 flex min-w-0 shrink items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              <span className="truncate">{runMessage ?? "正在生成代码"}</span>
+              <span className="font-mono">{runProgress}%</span>
+            </div>
           )}
-        >
+          <div className="ml-auto flex shrink-0 items-center gap-2">
           <ModelPicker
             value={defaultModel}
             onValueChange={updateModel}
             align="end"
-            triggerClassName={cn("h-8 bg-card", compactViewport && "h-10 shrink-0")}
+            triggerClassName="h-8 bg-card"
           />
           <Button
             size="sm"
-            className={cn("h-8", compactViewport && "h-10 shrink-0")}
+            className="h-8"
             onClick={() =>
               void generateCodePrototype(
             generatedFileCount > 0 ? "continue" : "regenerate",
@@ -383,7 +352,7 @@ export function CodeGenerationPage() {
             <Button
               variant="outline"
               size="sm"
-              className={cn("h-8", compactViewport && "h-10 shrink-0")}
+              className="h-8"
               onClick={() => void generateCodePrototype("regenerate")}
               disabled={!canGenerate || generating}
             >
@@ -398,13 +367,14 @@ export function CodeGenerationPage() {
           <Button
             variant="outline"
             size="sm"
-            className={cn("h-8", compactViewport && "h-10 shrink-0")}
+            className="h-8"
             onClick={exportBundle}
             disabled={sortedFiles.length === 0}
           >
             <Download className="size-3.5" /> 导出
           </Button>
-        </div>
+          </div>
+        </ScaledToolbar>
       </div>
 
       {!canGenerate && (

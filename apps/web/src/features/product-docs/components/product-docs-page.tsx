@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { ArrowRight, BookOpenCheck, FolderOpen } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
+import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import { PRODUCT_DOC_ARTICLES, PRODUCT_DOC_CATEGORIES } from "../model/docs-content";
 import {
   extractMarkdownHeadings,
@@ -58,7 +59,10 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
           </div>
         </section>
 
-        <section className="grid min-h-0 gap-5 lg:grid-cols-[292px_minmax(0,1fr)] xl:grid-cols-[292px_minmax(0,1fr)_250px]">
+        <ScaleToFitFrame
+          minWidth={980}
+          contentClassName="grid min-h-0 w-full grid-cols-[292px_minmax(0,1fr)] gap-5 xl:grid-cols-[292px_minmax(0,1fr)_250px]"
+        >
           <DocsSidebar
             articles={PRODUCT_DOC_ARTICLES}
             categories={PRODUCT_DOC_CATEGORIES}
@@ -76,7 +80,7 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
           />
 
           <DocsOnThisPage headings={headings} />
-        </section>
+        </ScaleToFitFrame>
 
         <section className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-sm text-muted-foreground">
           <span className="inline-flex items-center gap-2">

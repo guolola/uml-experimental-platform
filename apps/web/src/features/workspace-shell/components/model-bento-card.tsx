@@ -64,7 +64,7 @@ export function ModelBentoCard({
         }
       }}
       className={cn(
-        "group relative flex min-h-[236px] min-w-0 flex-col justify-between overflow-hidden rounded-lg border border-border/80 bg-card/90 bg-gradient-to-br from-card/95 to-card/60 p-4 shadow-sm shadow-primary/5 backdrop-blur-[10px] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:p-5",
+        "group relative flex min-h-[212px] min-w-0 flex-col justify-between overflow-hidden rounded-lg border border-border/80 bg-card/90 bg-gradient-to-br from-card/95 to-card/60 p-3 shadow-sm shadow-primary/5 backdrop-blur-[10px] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:min-h-[236px] sm:p-5",
         selected &&
           "border-primary/35 shadow-lg shadow-primary/10 ring-1 ring-primary/10",
         disabled
@@ -81,28 +81,28 @@ export function ModelBentoCard({
       )}
 
       <div className="min-w-0">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className="flex items-start justify-between gap-2 sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-3">
             <span
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/10 bg-primary/10 text-primary shadow-inner shadow-primary/5",
+                "flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/10 bg-primary/10 text-primary shadow-inner shadow-primary/5 sm:size-10",
                 disabled && "bg-muted text-muted-foreground",
               )}
             >
-              <Icon className="size-5" />
+              <Icon className="size-4 sm:size-5" />
             </span>
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
                 <h3
                   className={cn(
-                    "text-base font-semibold leading-6 text-foreground",
+                    "text-sm font-semibold leading-5 text-foreground sm:text-base sm:leading-6",
                     selected && "text-primary",
                     disabled && "text-muted-foreground",
                   )}
                 >
                   {label}
                 </h3>
-                <span className="font-mono text-xs leading-5 text-muted-foreground">
+                <span className="max-w-full truncate font-mono text-[11px] leading-4 text-muted-foreground sm:text-xs sm:leading-5">
                   {english}
                 </span>
                 {pendingReview && (
@@ -114,17 +114,17 @@ export function ModelBentoCard({
                   </Badge>
                 )}
               </div>
-              <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+              <p className="mt-2 line-clamp-2 text-xs leading-4 text-muted-foreground sm:leading-5">
                 {description}
               </p>
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {countLabel !== undefined && (
               <span
                 className={cn(
-                  "rounded-md bg-accent px-2 py-0.5 font-mono text-xs font-semibold text-accent-foreground",
+                  "rounded-md bg-accent px-1.5 py-0.5 font-mono text-[11px] font-semibold leading-4 text-accent-foreground sm:px-2 sm:text-xs",
                   disabled && "bg-muted text-muted-foreground",
                 )}
               >
@@ -148,7 +148,7 @@ export function ModelBentoCard({
 
       <div
         className={cn(
-          "mt-5 rounded-lg border border-border/70 bg-secondary/80 px-3 py-3 text-xs leading-5 text-muted-foreground",
+          "mt-4 rounded-lg border border-border/70 bg-secondary/80 px-2.5 py-2.5 text-[11px] leading-4 text-muted-foreground sm:mt-5 sm:px-3 sm:py-3 sm:text-xs sm:leading-5",
           disabled && "border-dashed bg-muted/50",
           statusClassName,
         )}

@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../../shared/ui/dialog";
+import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import { cn } from "../../../shared/ui/utils";
 import {
   REQUIREMENT_FIELD_LABELS,
@@ -70,13 +71,22 @@ export function RequirementReviewDialog({
     visibleHintDetail?.candidate?.status === "failed"
       ? visibleHintDetail.candidate
       : null;
-  const hasConfirmableQualityHint =
+  const hasOpenFieldReview =
+    visibleHintDetail?.fieldEntries.some(
+      ([, provenance]) =>
+        provenance.status === "pending-review" ||
+        provenance.status === "rejected",
+    ) ?? false;
+  const hasActionableQualityHint =
     Boolean(visibleHintDetail) &&
-    !pendingReviewCandidate &&
-    !failedReviewCandidate &&
     (visibleHintDetail?.rowState === "有待确认提示" ||
       visibleHintDetail?.requirement.status !== "accepted" ||
+      hasOpenFieldReview ||
       (visibleHintDetail?.qualityIssues.length ?? 0) > 0);
+  const hasConfirmableQualityHint =
+    hasActionableQualityHint &&
+    !pendingReviewCandidate &&
+    !failedReviewCandidate;
   const repairingCurrentRule =
     Boolean(visibleHintDetail) && repairingRuleId === visibleHintDetail?.rule.id;
   const repairDisabled = generating || repairingCurrentRule;
@@ -101,11 +111,14 @@ export function RequirementReviewDialog({
           <DialogDescription>
             {pendingReviewCandidate
               ? "对比修复前后的结构化需求，采纳或拒绝后都会标记为已确认。"
-              : "查看当前需求的待确认原因；“智能修复”仅生成当前规则的修复候选，可确认当前提示，或生成修复结果后再采纳/拒绝。"}
+              : hasActionableQualityHint
+                ? "查看当前需求的待确认原因；“智能修复”仅生成当前规则的修复候选，可确认当前提示，或生成修复结果后再采纳/拒绝。"
+                : "查看当前需求的字段来源与确认记录。"}
           </DialogDescription>
         </DialogHeader>
         {visibleHintDetail && (
           <div className="max-h-[60vh] overflow-auto pr-1">
+            <ScaleToFitFrame minWidth={640} contentClassName="w-[640px]">
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-xs uppercase text-muted-foreground">
@@ -265,6 +278,7 @@ export function RequirementReviewDialog({
                 )}
               </div>
             </div>
+            </ScaleToFitFrame>
           </div>
         )}
         <DialogFooter>
@@ -278,7 +292,9 @@ export function RequirementReviewDialog({
               {repairingCurrentRule ? "正在修复当前规则" : "重新修复"}
             </Button>
           ) : null}
-          {visibleHintDetail && !visibleHintDetail.candidate ? (
+          {visibleHintDetail &&
+          !visibleHintDetail.candidate &&
+          hasActionableQualityHint ? (
             <Button
               type="button"
               variant="outline"

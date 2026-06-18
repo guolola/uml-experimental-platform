@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
+import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import {
   UNASSIGNED_ACADEMIC_OPTION,
@@ -111,7 +112,8 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
   };
 
   return (
-    <form className="grid gap-5 lg:grid-cols-2">
+    <ScaleToFitFrame minWidth={760} contentClassName="w-[760px]">
+    <form className="grid grid-cols-2 gap-5">
       <div className="grid gap-1.5">
         <Label htmlFor="project-name">项目名称</Label>
         <Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} />
@@ -132,7 +134,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         />
         {academicStatus && <span className="text-xs text-muted-foreground">{academicStatus}</span>}
       </div>
-      <div className="grid gap-1.5 lg:col-span-2">
+      <div className="col-span-2 grid gap-1.5">
         <Label htmlFor="project-description">项目描述</Label>
         <Input
           id="project-description"
@@ -170,7 +172,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
           ]}
         />
       </div>
-      <div className="grid gap-1.5 lg:col-span-2">
+      <div className="col-span-2 grid gap-1.5">
         <Label htmlFor="default-model-policy">默认模型策略</Label>
         <SelectControl
           id="default-model-policy"
@@ -192,7 +194,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         />
         {providerStatus && <span className="text-xs text-muted-foreground">{providerStatus}</span>}
       </div>
-      <div className="lg:col-span-2">
+      <div className="col-span-2">
         <Button type="button" onClick={createProject} disabled={creating}>
           {creating && <Loader2 className="size-4 animate-spin" />}
           创建并进入项目
@@ -204,5 +206,6 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         )}
       </div>
     </form>
+    </ScaleToFitFrame>
   );
 }

@@ -32,6 +32,7 @@ import {
 } from "../../../shared/ui/dialog";
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
+import { ScaleToFitFrame, ScaledTable } from "../../../shared/ui/scale-to-fit";
 import { Separator } from "../../../shared/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../shared/ui/tabs";
 import { cn } from "../../../shared/ui/utils";
@@ -469,8 +470,9 @@ export function AccountDialog({
             </Button>
           </div>
         ) : (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="h-[min(85vh,700px)] min-h-0 gap-0 overflow-hidden md:flex-row">
-            <aside className="flex shrink-0 flex-col border-b border-border bg-muted/30 p-4 md:w-64 md:border-r md:border-b-0">
+          <ScaleToFitFrame minWidth={900} contentClassName="w-[900px]">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-[min(85vh,700px)] min-h-0 flex-row gap-0 overflow-hidden">
+            <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-muted/30 p-4">
               <DialogHeader className="mb-4 flex-row items-center gap-3 space-y-0 text-left">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-primary shadow-sm">
                   <Settings className="size-5" aria-hidden="true" />
@@ -483,7 +485,7 @@ export function AccountDialog({
                 </div>
               </DialogHeader>
 
-              <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none bg-transparent p-0 md:flex-col md:items-stretch md:overflow-visible">
+              <TabsList className="h-auto w-full flex-col items-stretch justify-start overflow-visible rounded-none bg-transparent p-0">
                 <TabsTrigger
                   value="profile"
                   className="h-10 flex-none justify-start rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
@@ -514,7 +516,7 @@ export function AccountDialog({
                 </TabsTrigger>
               </TabsList>
 
-              <div className="mt-auto hidden pt-4 md:block">
+              <div className="mt-auto pt-4">
                 <Button
                   type="button"
                   variant="outline"
@@ -527,7 +529,7 @@ export function AccountDialog({
               </div>
             </aside>
 
-            <main className="min-w-0 flex-1 overflow-y-auto bg-background p-6 md:p-8">
+            <main className="min-w-0 flex-1 overflow-y-auto bg-background p-8">
               {loading && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
@@ -542,7 +544,7 @@ export function AccountDialog({
                   <p className="mt-1 text-sm text-muted-foreground">管理你的头像、昵称和账号基础信息。</p>
                 </div>
 
-                <div className="flex flex-col gap-8 md:flex-row">
+                <div className="flex flex-row gap-8">
                   <div className="flex shrink-0 flex-col items-center gap-4">
                     <input
                       ref={avatarInputRef}
@@ -599,7 +601,7 @@ export function AccountDialog({
 
                     <div className="grid gap-1.5">
                       <Label htmlFor="account-email">电子邮箱</Label>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="flex flex-row items-center gap-2">
                         <Input
                           id="account-email"
                           value={user.email}
@@ -624,7 +626,7 @@ export function AccountDialog({
                         <Mail className="size-4 text-muted-foreground" />
                         账号状态
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-nowrap gap-2">
                         <Badge variant="outline">{accountStatus}</Badge>
                         <Badge variant="outline">{user.emailVerified ? "邮箱已验证" : "邮箱未验证"}</Badge>
                         <Badge variant="outline">{mfaEnabled ? "MFA 已启用" : "MFA 未启用"}</Badge>
@@ -636,7 +638,7 @@ export function AccountDialog({
                         <Activity className="size-4 text-muted-foreground" />
                         今日生成次数
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-nowrap gap-2">
                         <Badge variant="outline">{generationUsagePrimaryText(generationUsage)}</Badge>
                         <Badge
                           variant="outline"
@@ -663,7 +665,7 @@ export function AccountDialog({
               </TabsContent>
 
               <TabsContent value="security" className="m-0 space-y-6">
-                <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div className="flex flex-row items-end justify-between gap-3 border-b border-border pb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-foreground">安全设置</h3>
                     <p className="mt-1 text-sm text-muted-foreground">管理 MFA 多因素身份验证和账号会话安全。</p>
@@ -767,7 +769,7 @@ export function AccountDialog({
                 </div>
 
                 <Separator />
-                <div className="flex flex-wrap justify-between gap-2">
+                <div className="flex flex-nowrap justify-between gap-2">
                   <Button variant="outline" onClick={revokeOtherSessions}>
                     退出其他设备
                   </Button>
@@ -779,7 +781,7 @@ export function AccountDialog({
               </TabsContent>
 
               <TabsContent value="sessions" className="m-0 space-y-6">
-                <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div className="flex flex-row items-end justify-between gap-3 border-b border-border pb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-foreground">活跃会话</h3>
                     <p className="mt-1 text-sm text-muted-foreground">查看当前登录设备、地区、最近活动和过期时间。</p>
@@ -810,11 +812,11 @@ export function AccountDialog({
                           <Laptop className="size-5" />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-nowrap items-center gap-2">
                             <span className="font-medium text-foreground">{formatSessionDevice(session.userAgent)}</span>
                             {isCurrent && <Badge variant="outline" className="text-primary">当前设备</Badge>}
                           </div>
-                          <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                          <div className="mt-2 grid grid-cols-3 gap-1 text-xs text-muted-foreground">
                             <span>地区: {formatSessionRegion(session)}</span>
                             <span>最后活跃: {formatDate(session.lastSeenAt)}</span>
                             <span>过期: {formatDate(session.expiresAt)}</span>
@@ -831,7 +833,7 @@ export function AccountDialog({
                     登录历史
                   </div>
                   <div className="overflow-hidden rounded-md border border-border">
-                    <table className="w-full border-collapse text-left text-sm" aria-label="登录历史">
+                    <ScaledTable minWidth={620} className="border-collapse text-left text-sm" aria-label="登录历史">
                       <thead className="bg-muted/50 text-xs text-muted-foreground">
                         <tr>
                           <th className="px-4 py-2 font-medium">状态</th>
@@ -858,16 +860,10 @@ export function AccountDialog({
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </ScaledTable>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4 md:hidden">
-                  <Button variant="outline" onClick={logout}>
-                    <LogOut className="size-4" />
-                    退出登录
-                  </Button>
-                </div>
               </TabsContent>
 
               <TabsContent value="global" className="m-0 space-y-6">
@@ -888,7 +884,8 @@ export function AccountDialog({
                 {currentSessionId ? `当前会话 ${currentSessionId}` : ""}
               </div>
             </main>
-          </Tabs>
+            </Tabs>
+          </ScaleToFitFrame>
         )}
       </DialogContent>
     </Dialog>

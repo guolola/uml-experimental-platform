@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Clock, ImageIcon } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
+import { ScaledTable } from "../../../shared/ui/scale-to-fit";
 import { VideoPlayer } from "../../../shared/ui/video-player";
 import { cn } from "../../../shared/ui/utils";
 import {
@@ -202,10 +203,10 @@ function createMarkdownComponents({
     },
     table({ children, node: _node, ...props }) {
       return (
-        <div className="mt-5 max-w-full overflow-auto rounded-lg border border-border">
-          <table className="w-full min-w-[620px] border-collapse text-left text-sm" {...props}>
+        <div className="mt-5 max-w-full overflow-hidden rounded-lg border border-border">
+          <ScaledTable minWidth={620} className="border-collapse text-left text-sm" {...props}>
             {children}
-          </table>
+          </ScaledTable>
         </div>
       );
     },

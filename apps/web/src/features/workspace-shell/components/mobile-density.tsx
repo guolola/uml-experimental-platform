@@ -10,12 +10,13 @@ export function MobileStatusRail({
 }: {
   children: ReactNode;
   className?: string;
+  minWidth?: number;
 }) {
   return (
     <div
       data-workspace-density="status-rail"
       className={cn(
-        "-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0",
+        "grid min-w-0 grid-cols-2 gap-2 min-[430px]:grid-cols-3 md:flex md:flex-wrap",
         className,
       )}
     >
@@ -50,14 +51,12 @@ export function MobileRail({
 }: {
   children: ReactNode;
   className?: string;
+  minWidth?: number;
 }) {
   return (
     <div
       data-workspace-density="rail"
-      className={cn(
-        "-mx-1 flex min-w-0 snap-x gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:grid md:gap-2 md:overflow-visible md:px-0 md:pb-0",
-        className,
-      )}
+      className={cn("grid min-w-0 grid-cols-1 gap-2 md:grid md:gap-2", className)}
     >
       {children}
     </div>
@@ -75,7 +74,7 @@ export function MobileRailCard({
     <div
       data-workspace-density="rail-card"
       className={cn(
-        "min-w-[168px] shrink-0 snap-start md:min-w-0 md:shrink",
+        "min-w-0 snap-start",
         className,
       )}
     >
@@ -90,12 +89,14 @@ export function MobileCompactGrid({
 }: {
   children: ReactNode;
   className?: string;
+  minWidth?: number;
 }) {
   return (
     <div
       data-workspace-density="compact-grid"
+      data-mobile-card-density="two-column"
       className={cn(
-        "grid min-w-0 grid-cols-[repeat(auto-fit,minmax(156px,1fr))] gap-2 md:gap-3",
+        "grid min-w-0 grid-cols-2 gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-3",
         className,
       )}
     >

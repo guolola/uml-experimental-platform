@@ -14,6 +14,7 @@ import type {
 } from "@uml-platform/contracts";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
+import { ScaleToFitFrame, ScaledTable, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
@@ -266,35 +267,37 @@ export function TestModelPage() {
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background">
       <div className="w-full p-4 lg:p-5">
         <div className="mx-auto flex w-full max-w-none flex-col gap-5">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <ClipboardCheck className="size-6 text-primary" />
-                <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
-                  测试
-                </h2>
+          <header>
+            <ScaledToolbar minWidth={520} contentClassName="w-full items-end justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ClipboardCheck className="size-6 text-primary" />
+                  <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
+                    测试
+                  </h2>
+                </div>
+                {blockedReason && (
+                  <p className="mt-2 text-sm text-destructive">{blockedReason}</p>
+                )}
               </div>
-              {blockedReason && (
-                <p className="mt-2 text-sm text-destructive">{blockedReason}</p>
-              )}
-            </div>
-            <Button
-              type="button"
-              className="gap-2"
-              disabled={Boolean(blockedReason)}
-              onClick={() => {
-                if (!useCaseModel || !("useCases" in useCaseModel)) return;
-                setResult(
-                  generateBlackBoxTests(rules, useCaseModel, Object.values(designModels)),
-                );
-              }}
-            >
-              <Play className="size-4" />
-              生成测试用例
-            </Button>
+              <Button
+                type="button"
+                className="shrink-0 gap-2"
+                disabled={Boolean(blockedReason)}
+                onClick={() => {
+                  if (!useCaseModel || !("useCases" in useCaseModel)) return;
+                  setResult(
+                    generateBlackBoxTests(rules, useCaseModel, Object.values(designModels)),
+                  );
+                }}
+              >
+                <Play className="size-4" />
+                生成测试用例
+              </Button>
+            </ScaledToolbar>
           </header>
 
-          <section className="grid gap-3 md:grid-cols-4">
+          <ScaleToFitFrame minWidth={760} contentClassName="grid w-full grid-cols-4 gap-3">
             {[
               ["测试用例", result?.testCases.length ?? 0],
               ["覆盖需求", coveredRequirements.size],
@@ -306,33 +309,35 @@ export function TestModelPage() {
                 <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
               </div>
             ))}
-          </section>
+          </ScaleToFitFrame>
 
           <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="size-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">黑盒测试用例</h3>
-                <Badge variant="secondary" className="rounded-full font-mono text-[11px]">
-                  {filteredCases.length}
-                </Badge>
-              </div>
-              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                <Filter className="size-3.5" />
-                <SelectControl
-                  aria-label="按测试场景筛选"
-                  value={scenarioFilter}
-                  onValueChange={(value) => setScenarioFilter(value as TestScenarioType | "all")}
-                  className="h-8 min-w-32 text-sm"
-                  size="sm"
-                  options={SCENARIO_OPTIONS}
-                />
-              </label>
+            <div className="border-b border-border bg-muted/30 px-4 py-3">
+              <ScaledToolbar minWidth={540} contentClassName="w-full justify-between gap-4">
+                <div className="flex shrink-0 items-center gap-2">
+                  <ShieldCheck className="size-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-foreground">黑盒测试用例</h3>
+                  <Badge variant="secondary" className="rounded-full font-mono text-[11px]">
+                    {filteredCases.length}
+                  </Badge>
+                </div>
+                <label className="inline-flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Filter className="size-3.5" />
+                  <SelectControl
+                    aria-label="按测试场景筛选"
+                    value={scenarioFilter}
+                    onValueChange={(value) => setScenarioFilter(value as TestScenarioType | "all")}
+                    className="h-8 min-w-32 text-sm"
+                    size="sm"
+                    options={SCENARIO_OPTIONS}
+                  />
+                </label>
+              </ScaledToolbar>
             </div>
 
             {result ? (
-              <div className="overflow-auto">
-                <table className="w-full min-w-[920px] border-collapse text-sm">
+              <div className="max-w-full overflow-hidden">
+                <ScaledTable minWidth={920} className="border-collapse text-sm">
                   <thead className="bg-muted/20 text-xs text-muted-foreground">
                     <tr>
                       <th className="w-[28%] border-b border-r border-border px-4 py-4 text-left font-medium">
@@ -410,7 +415,7 @@ export function TestModelPage() {
                       );
                     })}
                   </tbody>
-                </table>
+                </ScaledTable>
               </div>
             ) : (
               <div className="flex min-h-72 items-center justify-center px-6 text-center text-sm text-muted-foreground">

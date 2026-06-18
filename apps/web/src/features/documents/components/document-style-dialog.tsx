@@ -15,6 +15,7 @@ import {
 } from "../../../shared/ui/dialog";
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
+import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import {
   Select,
   SelectContent,
@@ -95,8 +96,9 @@ export function DocumentStyleDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <ScaleToFitFrame minWidth={720} contentClassName="w-[720px]">
         <div className="grid gap-4">
-          <div className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 rounded-md border border-border p-3">
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="doc-style-toc">自动添加目录</Label>
               <Switch
@@ -138,7 +140,7 @@ export function DocumentStyleDialog({
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div className="grid gap-1.5">
                     <Label htmlFor={`doc-style-eastasia-${key}`}>中文字体</Label>
                     <Input
@@ -181,7 +183,7 @@ export function DocumentStyleDialog({
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-4 gap-3">
                   <div className="grid gap-1.5">
                     <Label>行距类型</Label>
                     <Select
@@ -252,7 +254,7 @@ export function DocumentStyleDialog({
                 </div>
 
                 {key === "body" && (
-                  <div className="grid gap-1.5 sm:w-48">
+                  <div className="grid w-48 gap-1.5">
                     <Label htmlFor="doc-style-body-indent">首行缩进字符</Label>
                     <Input
                       id="doc-style-body-indent"
@@ -277,6 +279,7 @@ export function DocumentStyleDialog({
             );
           })}
         </div>
+        </ScaleToFitFrame>
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button

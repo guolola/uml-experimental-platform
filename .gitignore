@@ -44,6 +44,7 @@ vite.config.*.timestamp-*
 
 # local codex/dev artifacts
 .codex/
+.codex-remote-attachments/
 .codex-artifacts/
 .codex-chrome-profile*/
 .codex-e2e-logs/

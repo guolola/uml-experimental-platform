@@ -1918,7 +1918,7 @@ describe("createHttpWorkspaceRepository", () => {
     ).toEqual(["analysis"]);
   });
 
-  it("merges requirement model snapshots without overwriting reviewed requirements", async () => {
+  it("applies requirement model snapshot baselines over old workspace review state", async () => {
     const rule = {
       id: "r1",
       category: "功能需求" as const,
@@ -1930,7 +1930,7 @@ describe("createHttpWorkspaceRepository", () => {
       status: "accepted",
     });
     const reviewedBaseline = createRequirementBaseline([reviewedRequirement]);
-    const staleSnapshotBaseline = createRequirementBaseline([
+    const snapshotBaseline = createRequirementBaseline([
       createAtomicRequirement({ actor: null, status: "pending-review" }),
     ]);
     const snapshot = createRunSnapshot({
@@ -1938,7 +1938,7 @@ describe("createHttpWorkspaceRepository", () => {
       requirementText: "订单需求",
       selectedDiagrams: ["usecase"],
       rules: [rule],
-      requirementBaseline: staleSnapshotBaseline,
+      requirementBaseline: snapshotBaseline,
       models: [
         {
           diagramKind: "usecase",
@@ -2014,8 +2014,12 @@ describe("createHttpWorkspaceRepository", () => {
 
     expect(
       (savedState?.requirementBaseline as RequirementBaseline).requirements[0]
+        ?.status,
+    ).toBe("pending-review");
+    expect(
+      (savedState?.requirementBaseline as RequirementBaseline).requirements[0]
         ?.actor,
-    ).toBe("用户");
+    ).toBeNull();
     expect(
       (
         savedState?.requirementReviewCandidates as Record<

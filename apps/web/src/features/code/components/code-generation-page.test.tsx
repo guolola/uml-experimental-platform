@@ -297,7 +297,7 @@ describe("CodeGenerationPage", () => {
   it("uses mobile panes instead of the desktop split editor on compact viewports", async () => {
     stubCompactViewport(true);
 
-    const { container } = render(
+    render(
       withWorkspaceProviders(<CodeGenerationPage />, createRepository()),
     );
 
@@ -315,8 +315,13 @@ describe("CodeGenerationPage", () => {
       "aria-pressed",
       "false",
     );
-    expect(container.querySelector('[data-workspace-density="status-rail"]')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-workspace-density="status-pill"]').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByTestId("code-generation-toolbar")).toHaveAttribute(
+      "data-scale-to-fit",
+      "natural",
+    );
+    expect(screen.getByText("前端原型代码")).toBeInTheDocument();
+    expect(screen.getByText(/files/u)).toBeInTheDocument();
+    expect(screen.getByText(/设计模型\s*0/u)).toBeInTheDocument();
     expect(document.querySelector('[data-panel-group-direction="horizontal"]')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "文件" }));

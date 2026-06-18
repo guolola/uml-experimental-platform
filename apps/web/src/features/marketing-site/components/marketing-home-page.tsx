@@ -222,7 +222,8 @@ function IntegratedReferenceStandardsStrip() {
   return (
     <section
       aria-label="参考标准"
-      className="relative z-10 mt-[clamp(1.25rem,2vh,2rem)] grid max-w-[22rem] gap-4 border-t border-border/60 pt-6 min-[520px]:flex min-[520px]:max-w-none min-[520px]:flex-wrap min-[520px]:gap-6"
+      data-testid="marketing-standards-row"
+      className="relative z-10 mt-[clamp(1.25rem,2vh,2rem)] grid grid-cols-4 gap-2 border-t border-border/60 pt-5 md:flex md:flex-wrap md:gap-6 md:pt-6"
     >
       {referenceStandards.map((standard, index) => (
         <a
@@ -231,16 +232,16 @@ function IntegratedReferenceStandardsStrip() {
           target="_blank"
           rel="noreferrer"
           aria-label={`${standard.name}: ${standard.description}`}
-          className="motion-standard-anchor w-[180px] shrink-0 rounded-xl border border-border/60 bg-card/80 p-[17px] text-left shadow-sm backdrop-blur-md"
+          className="motion-standard-anchor min-w-0 rounded-lg border border-border/60 bg-card/80 px-1.5 py-2 text-center shadow-sm backdrop-blur-md md:w-[180px] md:shrink-0 md:rounded-xl md:p-[17px] md:text-left"
           style={{ "--motion-delay": `${360 + index * 80}ms` } as CSSProperties}
         >
-          <span className="flex items-center gap-2">
-            <ShieldCheck className="size-[16.5px] shrink-0 text-primary" />
-            <span className="font-display text-[15px] font-bold leading-6 text-foreground">
+          <span className="flex min-w-0 flex-col items-center gap-1 md:flex-row md:gap-2">
+            <ShieldCheck className="size-4 shrink-0 text-primary md:size-[16.5px]" />
+            <span className="max-w-full truncate font-display text-[12px] font-bold leading-4 text-foreground md:text-[15px] md:leading-6">
               {standard.shortName}
             </span>
           </span>
-          <span className="mt-1 block truncate text-[12px] leading-6 text-muted-foreground">
+          <span className="mt-1 hidden truncate text-[12px] leading-6 text-muted-foreground md:block">
             {standard.topic}
           </span>
         </a>
@@ -284,10 +285,13 @@ function HomeTab({
                     输入需求文本，平台辅助生成需求规则、UML模型、React 原型与实训说明书。
                   </p>
                 </div>
-                <div className="motion-rise motion-delay-3 flex flex-col gap-4 pt-4 min-[520px]:flex-row min-[520px]:flex-wrap">
+                <div
+                  data-testid="marketing-cta-row"
+                  className="motion-rise motion-delay-3 grid grid-cols-2 gap-3 pt-4 md:flex md:flex-wrap md:gap-4"
+                >
                   <Button
                     type="button"
-                    className="motion-action h-14 w-full max-w-[22rem] justify-center rounded-full px-7 font-display text-[18px] font-semibold leading-[26px] shadow-xl min-[520px]:w-auto min-[520px]:min-w-[12rem] md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
+                    className="motion-action h-12 min-w-0 justify-center rounded-full px-3 font-display text-[15px] font-semibold leading-5 shadow-xl md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
                     onClick={() => onNavigate(signedIn ? "/projects" : "/register")}
                   >
                     开始生成
@@ -296,22 +300,26 @@ function HomeTab({
                   <Button
                     type="button"
                     variant="outline"
-                    className="motion-action h-14 w-full max-w-[22rem] justify-center rounded-full border-2 border-border bg-card px-7 font-display text-[18px] font-semibold leading-[26px] text-primary hover:bg-accent min-[520px]:w-auto min-[520px]:min-w-[12rem] md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
+                    className="motion-action h-12 min-w-0 justify-center rounded-full border-2 border-border bg-card px-3 font-display text-[15px] font-semibold leading-5 text-primary hover:bg-accent md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
                     onClick={() => setPromoDialogOpen(true)}
                   >
                     查看产品宣传
                     <PlayCircle className="size-4" />
                   </Button>
                 </div>
-                <div className="grid max-w-[22rem] gap-4 border-t border-border/60 pt-8 min-[520px]:flex min-[520px]:max-w-none min-[520px]:flex-wrap min-[520px]:gap-6">
+                <div
+                  data-testid="marketing-trust-row"
+                  className="grid grid-cols-5 gap-1.5 border-t border-border/60 pt-6 md:flex md:max-w-none md:flex-wrap md:gap-6 md:pt-8"
+                >
                   {heroTrustPoints.map(({ label, icon: Icon }, index) => (
                     <span
                       key={label}
-                      className="motion-rise inline-flex items-center gap-2 rounded-lg px-3 py-1 text-[14px] font-normal leading-[20px] text-muted-foreground"
+                      className="motion-rise inline-flex min-w-0 flex-col items-center gap-1 rounded-lg px-0.5 py-1 text-center text-[12px] font-medium leading-4 text-muted-foreground md:flex-row md:gap-2 md:px-3 md:text-[14px] md:font-normal md:leading-[20px]"
                       style={{ "--motion-delay": `${360 + index * 90}ms` } as CSSProperties}
+                      aria-label={label}
                     >
-                      <Icon className="size-5 text-primary" />
-                      {label}
+                      <Icon className="size-4 shrink-0 text-primary md:size-5" />
+                      <span className="max-w-full truncate">{label}</span>
                     </span>
                   ))}
                 </div>

@@ -29,6 +29,7 @@ import type {
 } from "@uml-platform/contracts";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
+import { ScaleToFitFrame, ScaledTable } from "../../../shared/ui/scale-to-fit";
 import {
   Dialog,
   DialogContent,
@@ -249,77 +250,79 @@ function PaymentConfirmDialog({
         overlayClassName="bg-foreground/40 backdrop-blur-[1px]"
         className="overflow-hidden rounded-xl border-border bg-card p-0 shadow-xl sm:max-w-[440px]"
       >
-        <DialogHeader className="border-b border-border px-6 py-5 pr-12 text-left">
-          <DialogTitle className="font-display text-[20px] font-semibold leading-7 text-foreground">
-            支付确认
-          </DialogTitle>
-          <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
-            请确认套餐内容与支付方式。
-          </DialogDescription>
-        </DialogHeader>
-        {sku && (
-          <div className="grid gap-4 px-6 py-5">
-            <section className="rounded-xl border border-border bg-muted/30 p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-[12px] font-medium leading-5 text-muted-foreground">购买内容</div>
-                  <div className="mt-1 font-display text-[16px] font-semibold leading-6 text-foreground">
-                    {sku.name}
+        <ScaleToFitFrame minWidth={440} contentClassName="w-[440px]">
+          <DialogHeader className="border-b border-border px-6 py-5 pr-12 text-left">
+            <DialogTitle className="font-display text-[20px] font-semibold leading-7 text-foreground">
+              支付确认
+            </DialogTitle>
+            <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
+              请确认套餐内容与支付方式。
+            </DialogDescription>
+          </DialogHeader>
+          {sku && (
+            <div className="grid gap-4 px-6 py-5">
+              <section className="rounded-xl border border-border bg-muted/30 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-[12px] font-medium leading-5 text-muted-foreground">购买内容</div>
+                    <div className="mt-1 font-display text-[16px] font-semibold leading-6 text-foreground">
+                      {sku.name}
+                    </div>
+                    <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{sku.description}</p>
                   </div>
-                  <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{sku.description}</p>
+                  <Badge variant={sku.kind === "time_pass" ? "info" : "success"}>
+                    {skuMetric(sku)}
+                  </Badge>
                 </div>
-                <Badge variant={sku.kind === "time_pass" ? "info" : "success"}>
-                  {skuMetric(sku)}
-                </Badge>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <span className="text-[12px] leading-5 text-muted-foreground">订单金额</span>
+                  <span className="font-display text-[28px] font-bold leading-9 tracking-normal text-primary">
+                    {formatCny(sku.amountCents)}
+                  </span>
+                </div>
+              </section>
+              <div className="grid grid-cols-2 gap-3">
+                <PaymentMethodCard
+                  channel="wechat_native"
+                  active={channel === "wechat_native"}
+                  onSelect={onChannelChange}
+                />
+                <PaymentMethodCard
+                  channel="alipay_page"
+                  active={channel === "alipay_page"}
+                  onSelect={onChannelChange}
+                />
               </div>
-              <div className="mt-4 flex items-end justify-between gap-3">
-                <span className="text-[12px] leading-5 text-muted-foreground">订单金额</span>
-                <span className="font-display text-[28px] font-bold leading-9 tracking-normal text-primary">
-                  {formatCny(sku.amountCents)}
-                </span>
+              <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning">
+                支付金额以后端 SKU 为准，请在第三方支付页确认金额一致。
               </div>
-            </section>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <PaymentMethodCard
-                channel="wechat_native"
-                active={channel === "wechat_native"}
-                onSelect={onChannelChange}
-              />
-              <PaymentMethodCard
-                channel="alipay_page"
-                active={channel === "alipay_page"}
-                onSelect={onChannelChange}
-              />
+              {error && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+                  {error}
+                </div>
+              )}
             </div>
-            <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning">
-              支付金额以后端 SKU 为准，请在第三方支付页确认金额一致。
-            </div>
-            {error && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
-                {error}
-              </div>
-            )}
+          )}
+          <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
+            <Button
+              type="button"
+              variant="ghost"
+              className="motion-action rounded-lg px-0 text-[14px] text-muted-foreground hover:bg-transparent hover:text-foreground"
+              onClick={() => onOpenChange(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              disabled={!sku || creating}
+              className={paymentPrimaryButtonClass}
+              onClick={onConfirm}
+            >
+              {creating ? <Loader2 className="size-4 animate-spin" /> : <WalletCards className="size-4" />}
+              {creating ? "正在创建订单" : "立即支付"}
+            </Button>
           </div>
-        )}
-        <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
-          <Button
-            type="button"
-            variant="ghost"
-            className="motion-action rounded-lg px-0 text-[14px] text-muted-foreground hover:bg-transparent hover:text-foreground"
-            onClick={() => onOpenChange(false)}
-          >
-            取消
-          </Button>
-          <Button
-            type="button"
-            disabled={!sku || creating}
-            className={paymentPrimaryButtonClass}
-            onClick={onConfirm}
-          >
-            {creating ? <Loader2 className="size-4 animate-spin" /> : <WalletCards className="size-4" />}
-            {creating ? "正在创建订单" : "立即支付"}
-          </Button>
-        </div>
+        </ScaleToFitFrame>
       </DialogContent>
     </Dialog>
   );
@@ -346,21 +349,22 @@ function WechatQrDialog({
         overlayClassName="bg-foreground/40 backdrop-blur-[1px]"
         className="overflow-hidden rounded-xl border-border bg-card p-0 shadow-xl sm:max-w-[430px]"
       >
-        <DialogHeader className="border-b border-border px-6 py-5 pr-12 text-left">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-full bg-success/10 text-success">
-              <QrCode className="size-5" />
-            </span>
-            <div>
-              <DialogTitle className="font-display text-[22px] font-semibold leading-8 text-foreground">
-                微信支付
-              </DialogTitle>
-              <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
-                {order ? `订单号 ${order.merchantOrderNo}` : "等待订单"}
-              </DialogDescription>
+        <ScaleToFitFrame minWidth={430} contentClassName="w-[430px]">
+          <DialogHeader className="border-b border-border px-6 py-5 pr-12 text-left">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 place-items-center rounded-full bg-success/10 text-success">
+                <QrCode className="size-5" />
+              </span>
+              <div>
+                <DialogTitle className="font-display text-[22px] font-semibold leading-8 text-foreground">
+                  微信支付
+                </DialogTitle>
+                <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
+                  {order ? `订单号 ${order.merchantOrderNo}` : "等待订单"}
+                </DialogDescription>
+              </div>
             </div>
-          </div>
-        </DialogHeader>
+          </DialogHeader>
           <div className="grid justify-items-center gap-5 px-6 py-6">
           <div className="text-center">
             <div className="text-[13px] leading-5 text-muted-foreground">支付金额</div>
@@ -389,20 +393,21 @@ function WechatQrDialog({
             </span>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
-          <Button
-            type="button"
-            variant="ghost"
-            className="motion-action rounded-lg px-0 text-[14px] text-muted-foreground hover:bg-transparent hover:text-foreground"
-            onClick={() => onOpenChange(false)}
-          >
-            取消支付
-          </Button>
-          <Button type="button" className={paymentPrimaryButtonClass} onClick={onRefresh}>
-            <RefreshCw className="size-4" />
-            刷新状态
-          </Button>
-        </div>
+          <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
+            <Button
+              type="button"
+              variant="ghost"
+              className="motion-action rounded-lg px-0 text-[14px] text-muted-foreground hover:bg-transparent hover:text-foreground"
+              onClick={() => onOpenChange(false)}
+            >
+              取消支付
+            </Button>
+            <Button type="button" className={paymentPrimaryButtonClass} onClick={onRefresh}>
+              <RefreshCw className="size-4" />
+              刷新状态
+            </Button>
+          </div>
+        </ScaleToFitFrame>
       </DialogContent>
     </Dialog>
   );
@@ -469,13 +474,9 @@ function BillingSkuGrid({
               </Badge>
             </div>
           </div>
-          <div
-            className={cn(
-              "grid gap-4",
-              variant === "pricing"
-                ? "sm:grid-cols-2 xl:grid-cols-4"
-                : "sm:grid-cols-2 xl:grid-cols-4",
-            )}
+          <ScaleToFitFrame
+            minWidth={1040}
+            contentClassName="grid w-full grid-cols-4 gap-4"
           >
             {group.items.map((sku, index) => (
               <BillingSkuCard
@@ -489,7 +490,7 @@ function BillingSkuGrid({
                 onSelect={onSelect}
               />
             ))}
-          </div>
+          </ScaleToFitFrame>
         </section>
       ))}
     </div>
@@ -726,7 +727,7 @@ export function PricingBillingPage({
 
 function SummaryPanel({ summary }: { summary: BillingSummary }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <ScaleToFitFrame minWidth={760} contentClassName="grid w-[760px] grid-cols-2 gap-4">
       <section className="motion-card rounded-xl border border-border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="text-[13px] font-medium leading-5 text-muted-foreground">可用次数</div>
@@ -755,7 +756,7 @@ function SummaryPanel({ summary }: { summary: BillingSummary }) {
           {summary.activePass ? `有效至 ${formatDate(summary.activePass.validUntil)}` : "可购买日卡、周卡、月卡或年卡"}
         </div>
       </section>
-    </div>
+    </ScaleToFitFrame>
   );
 }
 
@@ -855,8 +856,8 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
               </Badge>
             </div>
             {summary?.recentOrders.length ? (
-              <div className="overflow-x-auto">
-                <table data-testid="billing-order-table" className="w-full min-w-[640px] text-left text-[13px] leading-5">
+              <div className="max-w-full overflow-hidden">
+                <ScaledTable minWidth={640} data-testid="billing-order-table" className="text-left text-[13px] leading-5">
                   <thead className="bg-muted/40 text-muted-foreground">
                     <tr>
                       <th className="px-5 py-3 font-medium">订单号</th>
@@ -883,7 +884,7 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ScaledTable>
               </div>
             ) : (
               <div className="px-5 py-8 text-center text-[14px] leading-6 text-muted-foreground">

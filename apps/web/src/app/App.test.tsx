@@ -1415,15 +1415,20 @@ describe("App shell routes", () => {
     expect(screen.queryByText("可信锚点")).not.toBeInTheDocument();
     expect(screen.queryByText("可信生成链路")).not.toBeInTheDocument();
     expect(screen.queryByText("结构化需求基线")).not.toBeInTheDocument();
+    expect(screen.getByTestId("marketing-cta-row")).toHaveClass("grid-cols-2");
+    expect(screen.getByTestId("marketing-trust-row")).toHaveClass("grid-cols-5");
+    expect(screen.getByTestId("marketing-standards-row")).toHaveClass("grid-cols-4");
     expect(screen.getByRole("button", { name: "开始生成" })).toHaveClass(
-      "min-[520px]:min-w-[12rem]",
+      "h-12",
+      "min-w-0",
       "justify-center",
-      "md:min-w-[16rem]",
+      "text-[15px]",
     );
     expect(screen.getByRole("button", { name: "查看产品宣传" })).toHaveClass(
-      "min-[520px]:min-w-[12rem]",
+      "h-12",
+      "min-w-0",
       "justify-center",
-      "md:min-w-[16rem]",
+      "text-[15px]",
     );
     expect(screen.queryByRole("button", { name: "查看案例项目" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "注册" }).length).toBeGreaterThan(0);
@@ -2330,6 +2335,11 @@ describe("App shell routes", () => {
         "[scrollbar-gutter:stable]",
       );
       expect(screen.getAllByText("智慧图书馆预约系统").length).toBeGreaterThan(0);
+      expect(screen.getByTestId("projects-card-grid")).toHaveAttribute(
+        "data-mobile-card-density",
+        "two-column",
+      );
+      expect(screen.getByTestId("projects-card-grid")).toHaveClass("grid-cols-2");
       expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
 
       await advanceTimersByTime(800);
@@ -2925,10 +2935,10 @@ describe("App shell routes", () => {
     expect(screen.getByRole("button", { name: "归档项目" })).toBeInTheDocument();
     const searchInput = screen.getByPlaceholderText("搜索项目、成员...");
     expect(searchInput).toBeInTheDocument();
-    expect(searchInput.parentElement).toHaveClass("md:w-80", "lg:w-96");
+    expect(searchInput.parentElement).toHaveClass("w-96");
     const sortTrigger = getSelectTrigger("排序方式");
     expect(sortTrigger).toHaveTextContent("最近打开");
-    expect(sortTrigger).toHaveClass("md:w-28");
+    expect(sortTrigger).toHaveClass("w-28");
     expect(screen.queryByRole("navigation", { name: "项目导航" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "生成任务" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument();
