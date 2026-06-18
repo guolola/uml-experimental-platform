@@ -130,6 +130,15 @@ describe("AccountDialog generation usage", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the account trigger visible as a compact mobile avatar button", () => {
+    render(<AccountDialog onNavigate={() => {}} initialUser={baseUser} />);
+
+    const trigger = screen.getByRole("button", { name: "账号" });
+    expect(trigger).toHaveClass("inline-flex", "size-10", "md:w-auto");
+    expect(trigger).not.toHaveClass("hidden");
+    expect(within(trigger).getByText("Student")).toHaveClass("hidden", "md:inline");
+  });
+
   it("shows today's generation count as unlimited for regular users", async () => {
     const user = userEvent.setup();
     stubAccountFetch(

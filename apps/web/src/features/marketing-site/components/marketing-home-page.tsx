@@ -158,15 +158,18 @@ function LayeredProductMockup() {
       <div className="absolute right-[8%] top-[8%] size-[27rem] rounded-full bg-primary/10 blur-[40px]" />
       <div className="absolute bottom-[17%] left-[17%] size-[20rem] rounded-full bg-info/10 blur-[30px]" />
 
-      <article className="motion-layer-main absolute left-[16%] top-[11%] z-20 w-[min(37rem,70%)] rounded-[24px] border border-border/60 bg-card/70 p-10 shadow-xl backdrop-blur-md">
-        <div className="border-b border-border/60 pb-6">
-          <div className="flex items-center justify-between gap-5">
-            <div className="flex items-center gap-4">
-              <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-inner">
-                <FileText className="size-5" />
+      <article
+        data-testid="marketing-mockup-main-card"
+        className="motion-layer-main absolute left-[16%] top-[11%] z-20 w-[min(37rem,70%)] overflow-hidden rounded-[24px] border border-border/60 bg-card/70 p-5 shadow-xl backdrop-blur-md md:p-10"
+      >
+        <div className="border-b border-border/60 pb-5 md:pb-6">
+          <div className="flex min-w-0 items-center justify-between gap-3 md:gap-5">
+            <div className="flex min-w-0 items-center gap-3 md:gap-4">
+              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-inner md:size-12">
+                <FileText className="size-4 md:size-5" />
               </span>
-              <div className="grid gap-1">
-                <h2 className="whitespace-nowrap font-display text-[22px] font-semibold leading-6 text-foreground">
+              <div className="grid min-w-0 gap-1">
+                <h2 className="truncate font-display text-[18px] font-semibold leading-6 text-foreground md:text-[22px]">
                   图书馆借阅系统
                 </h2>
                 <p className="font-mono text-[12px] font-medium leading-4 text-primary">
@@ -174,10 +177,10 @@ function LayeredProductMockup() {
                 </p>
               </div>
             </div>
-            <div className="flex shrink-0 gap-2">
-              <span className="size-3.5 rounded-full bg-destructive/80" />
-              <span className="size-3.5 rounded-full bg-info/80" />
-              <span className="size-3.5 rounded-full bg-primary/80" />
+            <div data-testid="marketing-mockup-status-dots" className="flex shrink-0 gap-1.5 md:gap-2" aria-hidden="true">
+              <span className="size-2.5 rounded-full bg-destructive/80 md:size-3.5" />
+              <span className="size-2.5 rounded-full bg-info/80 md:size-3.5" />
+              <span className="size-2.5 rounded-full bg-primary/80 md:size-3.5" />
             </div>
           </div>
         </div>

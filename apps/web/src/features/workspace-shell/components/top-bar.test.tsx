@@ -484,8 +484,8 @@ describe("TopBar", () => {
     expect(screen.getByRole("button", { name: /切换到(深色|浅色)/ })).toHaveClass("size-10");
     expect(screen.queryByRole("button", { name: "全局设置" })).not.toBeInTheDocument();
     const accountTrigger = screen.getByRole("button", { name: /登录|账号/ });
-    expect(accountTrigger).toHaveClass("h-10");
-    expect(accountTrigger).not.toHaveClass("justify-center");
+    expect(accountTrigger).toHaveClass("inline-flex", "size-10", "justify-center", "md:h-10", "md:w-auto", "md:justify-start");
+    expect(accountTrigger).not.toHaveClass("hidden");
     expect(accountTrigger).not.toHaveClass("whitespace-nowrap");
     expect(accountTrigger).not.toHaveClass("transition-all");
     expect(accountTrigger).not.toHaveTextContent(/justify-center|whitespace-nowrap|transition-all/u);

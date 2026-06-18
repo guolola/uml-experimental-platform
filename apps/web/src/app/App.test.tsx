@@ -1408,7 +1408,11 @@ describe("App shell routes", () => {
     expect(screen.getByText("IEEE")).toBeInTheDocument();
     expect(screen.getByText("INCOSE")).toBeInTheDocument();
     expect(screen.getByText("CMMI")).toBeInTheDocument();
-    expect(screen.getByText("图书馆借阅系统")).toBeInTheDocument();
+    const mockupTitle = screen.getByText("图书馆借阅系统");
+    expect(mockupTitle).toBeInTheDocument();
+    expect(mockupTitle).toHaveClass("truncate");
+    expect(screen.getByTestId("marketing-mockup-main-card")).toHaveClass("overflow-hidden", "p-5", "md:p-10");
+    expect(screen.getByTestId("marketing-mockup-status-dots")).toHaveClass("shrink-0");
     expect(screen.getByText("需求报告")).toBeInTheDocument();
     expect(screen.getByText("UML 预览")).toBeInTheDocument();
     expect(screen.getByText("正在生成 UML...")).toBeInTheDocument();
@@ -1484,7 +1488,10 @@ describe("App shell routes", () => {
     authSessionMode = "authenticated";
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    expect(await screen.findByRole("button", { name: "账号" })).toBeInTheDocument();
+    const accountButton = await screen.findByRole("button", { name: "账号" });
+    expect(accountButton).toBeInTheDocument();
+    expect(accountButton).toHaveClass("inline-flex", "size-10", "md:w-auto");
+    expect(accountButton).not.toHaveClass("hidden");
     expect(screen.queryByRole("button", { name: "项目首页" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "登录" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "注册" })).not.toBeInTheDocument();

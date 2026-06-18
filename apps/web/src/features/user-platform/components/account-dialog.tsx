@@ -415,7 +415,7 @@ export function AccountDialog({
       <DialogTrigger
         type="button"
         className={cn(
-          "hidden h-10 shrink-0 items-center gap-2 rounded-full bg-secondary py-1 pl-1 pr-3 text-sm font-medium text-secondary-foreground shadow-none hover:bg-secondary/80 md:flex",
+          "inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary p-1 text-sm font-medium text-secondary-foreground shadow-none hover:bg-secondary/80 md:h-10 md:w-auto md:justify-start md:gap-2 md:py-1 md:pl-1 md:pr-3",
           "outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
           "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         )}
@@ -429,8 +429,12 @@ export function AccountDialog({
             initials(user)
           )}
         </span>
-        <span className="max-w-24 truncate">{title}</span>
-        {user ? <ShieldCheck className="size-5 text-muted-foreground" /> : <LogIn className="size-5 text-muted-foreground" />}
+        <span className="hidden max-w-24 truncate md:inline">{title}</span>
+        {user ? (
+          <ShieldCheck className="hidden size-5 text-muted-foreground md:block" />
+        ) : (
+          <LogIn className="hidden size-5 text-muted-foreground md:block" />
+        )}
       </DialogTrigger>
       <DialogContent
         ref={dialogContentRef}
