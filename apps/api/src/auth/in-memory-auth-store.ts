@@ -17,6 +17,7 @@ import {
 export type UserRecord = {
   id: string;
   email: string;
+  username: string;
   displayName: string;
   avatarUrl: string | null;
   status: UserStatus;
@@ -143,6 +144,7 @@ function hashToken(token: string) {
 export function createInMemoryAuthStore() {
   const users = new Map<string, UserRecord>();
   const usersByEmail = new Map<string, string>();
+  const usersByUsername = new Map<string, string>();
   const sessions = new Map<string, SessionRecord>();
   const projects = new Map<string, ProjectRecord>();
   const projectWorkspaces = new Map<string, ProjectWorkspaceRecord>();
@@ -160,8 +162,30 @@ export function createInMemoryAuthStore() {
     return email.trim().toLowerCase();
   }
 
+  function normalizeUsername(username: string) {
+    return username.trim().toLowerCase();
+  }
+
+  function usernameFromEmail(email: string) {
+    const base = normalizeEmail(email)
+      .split("@")[0]
+      ?.replace(/[^a-z0-9_]+/gu, "_")
+      .replace(/^_+|_+$/gu, "")
+      .slice(0, 32);
+    const safeBase = base && base.length >= 3 ? base : "user";
+    let candidate = safeBase;
+    let suffix = 1;
+    while (usersByUsername.has(candidate)) {
+      const suffixText = String(suffix);
+      candidate = `${safeBase.slice(0, 32 - suffixText.length)}${suffixText}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+
   function createUser(input: {
     email: string;
+    username?: string;
     displayName: string;
     passwordHash: string;
     systemRoles?: AdminRole[];
@@ -169,11 +193,16 @@ export function createInMemoryAuthStore() {
   }) {
     const email = normalizeEmail(input.email);
     if (usersByEmail.has(email)) return null;
+    const username = input.username
+      ? normalizeUsername(input.username)
+      : usernameFromEmail(email);
+    if (usersByUsername.has(username)) return null;
 
     const createdAt = now();
     const user: UserRecord = {
       id: randomUUID(),
       email,
+      username,
       displayName: input.displayName,
       avatarUrl: null,
       status: "active",
@@ -190,12 +219,23 @@ export function createInMemoryAuthStore() {
     };
     users.set(user.id, user);
     usersByEmail.set(user.email, user.id);
+    usersByUsername.set(user.username, user.id);
     return user;
   }
 
   function findUserByEmail(email: string) {
     const userId = usersByEmail.get(normalizeEmail(email));
     return userId ? users.get(userId) ?? null : null;
+  }
+
+  function findUserByUsername(username: string) {
+    const userId = usersByUsername.get(normalizeUsername(username));
+    return userId ? users.get(userId) ?? null : null;
+  }
+
+  function findUserByLoginIdentifier(identifier: string) {
+    const value = identifier.trim();
+    return value.includes("@") ? findUserByEmail(value) : findUserByUsername(value);
   }
 
   function listUsers() {
@@ -718,6 +758,8 @@ export function createInMemoryAuthStore() {
   return {
     createUser,
     findUserByEmail,
+    findUserByUsername,
+    findUserByLoginIdentifier,
     listUsers,
     getUser,
     updateUser,

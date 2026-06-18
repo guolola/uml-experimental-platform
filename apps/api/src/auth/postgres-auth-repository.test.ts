@@ -23,6 +23,7 @@ class CapturingClient implements Queryable {
 const userRow = {
   id: "user-1",
   email: "owner@example.com",
+  username: "owner_user",
   display_name: "Owner User",
   avatar_url: null,
   status: "active",
@@ -103,11 +104,31 @@ test("postgres auth repository creates users with normalized email and JSON syst
   assert.match(String(client.calls[0]?.params[0] ?? ""), /^[0-9a-f-]{36}$/i);
   assert.deepEqual(client.calls[0]?.params.slice(1, 6), [
     "owner@example.com",
+    "owner",
     "Owner User",
     "hash",
     ["super-admin"],
+  ]);
+  assert.deepEqual(client.calls[0]?.params.slice(6, 7), [
     true,
   ]);
+});
+
+test("postgres auth repository creates users with explicit username", async () => {
+  const client = new CapturingClient();
+  client.nextRows = [{ ...userRow, username: "owner_user" }];
+
+  const repository = createPostgresAuthRepository(client);
+  const user = await repository.createUser({
+    email: " Owner@Example.COM ",
+    username: "Owner_User",
+    displayName: "Owner User",
+    passwordHash: "hash",
+    systemRoles: ["super-admin"],
+  });
+
+  assert.equal(user?.username, "owner_user");
+  assert.equal(client.calls[0]?.params[2], "owner_user");
 });
 
 test("postgres auth repository returns null when unique user creation conflicts", async () => {
@@ -129,6 +150,7 @@ test("postgres auth repository maps snake_case rows when finding users by email"
     {
       id: "user-2",
       email: "viewer@example.com",
+      username: "viewer_user",
       display_name: "Viewer",
       avatar_url: "https://example.com/avatar.png",
       status: "active",

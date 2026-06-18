@@ -13,6 +13,7 @@ import {
   migrations,
   providerConfigStoreSql,
   runMigrations,
+  usernamesSql,
 } from "./migrations.js";
 import {
   checkDatabaseHealth,
@@ -122,6 +123,16 @@ test("base schema includes DB-backed document metadata and versions", () => {
   assert.match(
     migrations.map((migration) => migration.id).join("\n"),
     /document_repository_metadata/i,
+  );
+});
+
+test("user schema and migrations include unique login usernames", () => {
+  assert.match(baseSchemaSql, /username text not null unique/i);
+  assert.match(usernamesSql, /alter table users add column if not exists username text/i);
+  assert.match(usernamesSql, /create unique index if not exists users_username_unique_idx/i);
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /015_usernames/,
   );
 });
 

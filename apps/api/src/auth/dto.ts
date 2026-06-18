@@ -19,6 +19,7 @@ export function toUserDto(user: UserRecord) {
   return userDtoSchema.parse({
     id: user.id,
     email: user.email,
+    username: user.username,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     status: user.status,

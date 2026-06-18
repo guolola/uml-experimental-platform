@@ -8,6 +8,7 @@ import type { PlatformAccountProfileResponse } from "../services/platform-api";
 const baseUser = {
   id: "user-1",
   email: "student@example.edu",
+  username: "student",
   displayName: "Student",
   status: "active",
   emailVerified: true,

@@ -1891,7 +1891,7 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/login");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
-    await user.type(await screen.findByLabelText("邮箱"), "student@example.edu");
+    await user.type(await screen.findByLabelText("邮箱或用户名"), "student@example.edu");
     expect(screen.getByTestId("auth-shell")).toHaveAttribute("data-auth-layout", "design-replica-card");
     expect(screen.getByTestId("auth-shell")).toHaveAttribute("data-motion", "auth-shell");
     expect(screen.getByTestId("auth-form-panel")).toBeInTheDocument();
@@ -1915,12 +1915,14 @@ describe("App shell routes", () => {
     await user.type(screen.getByLabelText("密码"), "wrong-password");
     await user.click(screen.getByRole("button", { name: "登录" }));
 
-    expect(await screen.findByText("邮箱或密码错误。")).toBeInTheDocument();
+    expect(await screen.findByText("邮箱或用户名或密码错误。")).toBeInTheDocument();
     expect(screen.getByText("编译成功")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "创建账号" }));
     await user.type(await screen.findByLabelText("邮箱"), "new-student@example.edu");
     await user.type(screen.getByLabelText("密码"), "StrongPass123");
+    await user.type(screen.getByLabelText("用户名"), "new_student");
+    await user.type(screen.getByLabelText("昵称"), "New Student");
     await user.click(screen.getByLabelText("我已阅读并同意服务条款"));
     await user.click(screen.getByRole("button", { name: "注册并发送验证邮件" }));
 
@@ -1958,7 +1960,7 @@ describe("App shell routes", () => {
     await user.click(screen.getByRole("button", { name: "隐藏密码" }));
     expect(passwordInput).toHaveAttribute("type", "password");
 
-    await user.type(screen.getByLabelText("邮箱"), "student@example.edu");
+    await user.type(screen.getByLabelText("邮箱或用户名"), "student@example.edu");
     await user.type(passwordInput, "password-123");
     await user.click(screen.getByLabelText("记住我"));
     await user.click(screen.getByRole("button", { name: "登录" }));
@@ -1971,7 +1973,7 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/login");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
-    expect(await screen.findByLabelText("邮箱")).toHaveValue("student@example.edu");
+    expect(await screen.findByLabelText("邮箱或用户名")).toHaveValue("student@example.edu");
     expect(screen.getByLabelText("密码")).toHaveValue("password-123");
     expect(screen.getByLabelText("记住我")).toBeChecked();
   });
@@ -2013,7 +2015,7 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/login?redirect=%2Fworkspace");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await user.type(await screen.findByLabelText("邮箱"), "student@example.edu");
+    await user.type(await screen.findByLabelText("邮箱或用户名"), "student@example.edu");
     await user.type(screen.getByLabelText("密码"), "StrongPass123");
     await user.click(screen.getByRole("button", { name: "登录" }));
 
@@ -2029,7 +2031,7 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/login");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await user.type(await screen.findByLabelText("邮箱"), "student@example.edu");
+    await user.type(await screen.findByLabelText("邮箱或用户名"), "student@example.edu");
     await user.type(screen.getByLabelText("密码"), "StrongPass123");
     await user.click(screen.getByRole("button", { name: "登录" }));
 
@@ -2049,7 +2051,7 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/login");
     window.dispatchEvent(new PopStateEvent("popstate"));
 
-    await user.type(await screen.findByLabelText("邮箱"), "student@example.edu");
+    await user.type(await screen.findByLabelText("邮箱或用户名"), "student@example.edu");
     await user.type(screen.getByLabelText("密码"), "StrongPass123");
     await user.click(screen.getByRole("button", { name: "登录" }));
 
@@ -2083,6 +2085,8 @@ describe("App shell routes", () => {
 
     await user.type(await screen.findByLabelText("邮箱"), "new-student@example.edu");
     await user.type(screen.getByLabelText("密码"), "StrongPass123");
+    await user.type(screen.getByLabelText("用户名"), "new_student");
+    await user.type(screen.getByLabelText("昵称"), "New Student");
     expect(screen.getByLabelText("邀请码")).toHaveValue("course-token-123");
     await user.click(screen.getByLabelText("我已阅读并同意服务条款"));
     await user.click(screen.getByRole("button", { name: "注册并发送验证邮件" }));
@@ -2093,8 +2097,9 @@ describe("App shell routes", () => {
         method: "POST",
         body: JSON.stringify({
           email: "new-student@example.edu",
+          username: "new_student",
           password: "StrongPass123",
-          displayName: "new-student",
+          displayName: "New Student",
           invitationToken: "course-token-123",
         }),
       }),
@@ -2147,7 +2152,9 @@ describe("App shell routes", () => {
     window.dispatchEvent(new PopStateEvent("popstate"));
 
     await user.click(await screen.findByRole("button", { name: "完成邮箱验证" }));
-    expect(await screen.findByText("邮箱验证已完成，请返回登录。")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/auth/verify-email"),
       expect.objectContaining({
@@ -2164,7 +2171,10 @@ describe("App shell routes", () => {
       "manual-token-789",
     );
     await user.click(screen.getByRole("button", { name: "完成邮箱验证" }));
-    expect(await screen.findByText("邮箱验证已完成，请返回登录。")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
+    expect(window.location.search).toContain("email=new-student%40example.edu");
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/auth/verify-email"),
       expect.objectContaining({

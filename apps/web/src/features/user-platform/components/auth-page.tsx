@@ -203,6 +203,8 @@ export function AuthPage({
   const [email, setEmail] = useState(() =>
     path === "/login" ? readRememberedLoginCredentials().email : "",
   );
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState(() =>
     path === "/login" ? readRememberedLoginCredentials().password : "",
   );
@@ -246,11 +248,14 @@ export function AuthPage({
     if (path !== "/login") return;
     const rememberedCredentials = readRememberedLoginCredentials();
     setRememberLogin(Boolean(rememberedCredentials.email));
-    if (rememberedCredentials.email) {
+    if (queryEmail) {
+      setEmail(queryEmail);
+      setPassword("");
+    } else if (rememberedCredentials.email) {
       setEmail(rememberedCredentials.email);
       setPassword(rememberedCredentials.password);
     }
-  }, [path]);
+  }, [path, queryEmail]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -269,7 +274,7 @@ export function AuthPage({
           onNavigate(redirectPath);
           return;
         }
-        const response = await platformApi.login({ email, password });
+        const response = await platformApi.login({ identifier: email, password });
         const nextMfaChallenge =
           response.mfaChallenge ??
           (response.mfa?.required && response.mfa.challengeId
@@ -298,8 +303,9 @@ export function AuthPage({
         const trimmedInvitationToken = invitationToken.trim();
         await platformApi.register({
           email,
+          username: username.trim(),
           password,
-          displayName: email.split("@")[0] || "UML 用户",
+          displayName: displayName.trim(),
           ...(trimmedInvitationToken
             ? { invitationToken: trimmedInvitationToken }
             : {}),
@@ -330,7 +336,11 @@ export function AuthPage({
         const token = urlToken || verificationToken.trim();
         if (token) {
           await platformApi.verifyEmail({ token });
-          setMessage("邮箱验证已完成，请返回登录。");
+          const loginEmail = email || queryEmail;
+          setMessage("邮箱验证已完成，正在前往登录。");
+          onNavigate(
+            loginEmail ? `/login?email=${encodeURIComponent(loginEmail)}` : "/login",
+          );
           return;
         }
         await platformApi.resendVerification({ email: email || queryEmail });
@@ -441,20 +451,24 @@ export function AuthPage({
               {path !== "/reset-password" && (
                 <div className="grid gap-2">
                   <Label htmlFor="auth-email" className="text-sm font-medium leading-5 text-foreground">
-                    {path === "/forgot-password" ? "电子邮箱" : "邮箱地址"}
+                    {path === "/login"
+                      ? "邮箱或用户名"
+                      : path === "/forgot-password"
+                        ? "电子邮箱"
+                        : "邮箱地址"}
                   </Label>
                   <div className="relative">
                     <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="auth-email"
-                      aria-label="邮箱"
-                      type="email"
+                      aria-label={path === "/login" ? "邮箱或用户名" : "邮箱"}
+                      type={path === "/login" ? "text" : "email"}
                       value={email || (path === "/verify-email" ? queryEmail : "")}
                       onChange={(event) => {
                         setEmail(event.target.value);
                         setMfaChallenge(null);
                       }}
-                      placeholder={path === "/login" ? "name@company.com" : "name@example.edu"}
+                      placeholder={path === "/login" ? "邮箱或用户名" : "name@example.edu"}
                       required={path !== "/verify-email" || !urlToken}
                       className={`${authInputClass} pl-10`}
                     />
@@ -555,6 +569,39 @@ export function AuthPage({
               )}
               {path === "/register" && (
                 <>
+                  <div className="grid gap-2">
+                    <Label htmlFor="auth-username" className="text-sm font-medium leading-5 text-foreground">
+                      用户名
+                    </Label>
+                    <Input
+                      id="auth-username"
+                      aria-label="用户名"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value.toLowerCase())}
+                      pattern="[a-z0-9_]{3,32}"
+                      title="用户名需为 3-32 位小写字母、数字或下划线"
+                      placeholder="teacher_001"
+                      required
+                      className={authInputClass}
+                    />
+                    <span className="text-xs leading-5 text-muted-foreground">
+                      3-32 位小写字母、数字或下划线，可用于登录。
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="auth-display-name" className="text-sm font-medium leading-5 text-foreground">
+                      昵称
+                    </Label>
+                    <Input
+                      id="auth-display-name"
+                      aria-label="昵称"
+                      value={displayName}
+                      onChange={(event) => setDisplayName(event.target.value)}
+                      placeholder="王老师"
+                      required
+                      className={authInputClass}
+                    />
+                  </div>
                   <div className="grid gap-2">
                     <Label htmlFor="invite-code" className="text-sm font-medium leading-5 text-foreground">
                       邀请码 <span className="font-normal text-muted-foreground">（选填）</span>

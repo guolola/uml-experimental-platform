@@ -16,6 +16,11 @@ const emailAddressSchema = z
   .transform((value) => value.toLowerCase());
 const publicNameSchema = z.string().trim().min(1).max(120);
 const passwordSchema = z.string().min(8).max(128);
+const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9_]{3,32}$/u);
 
 export const userStatusSchema = z.enum([
   "pending_email_verification",
@@ -29,6 +34,7 @@ export const userDtoSchema = z
   .object({
     id: z.string().min(1),
     email: emailAddressSchema,
+    username: usernameSchema,
     displayName: publicNameSchema,
     avatarUrl: z.string().url().nullable(),
     status: userStatusSchema,
@@ -59,15 +65,32 @@ export type SessionDto = z.infer<typeof sessionDtoSchema>;
 
 export const authRegisterRequestSchema = z.object({
   email: emailAddressSchema,
+  username: usernameSchema,
   password: passwordSchema,
   displayName: publicNameSchema,
 });
 export type AuthRegisterRequest = z.infer<typeof authRegisterRequestSchema>;
 
-export const authLoginRequestSchema = z.object({
-  email: emailAddressSchema,
-  password: z.string().min(1).max(128),
-});
+const loginIdentifierSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .transform((value) => value.toLowerCase());
+export const authLoginRequestSchema = z
+  .object({
+    identifier: loginIdentifierSchema.optional(),
+    email: emailAddressSchema.optional(),
+    password: z.string().min(1).max(128),
+  })
+  .refine((input) => Boolean(input.identifier ?? input.email), {
+    message: "Login identifier is required",
+    path: ["identifier"],
+  })
+  .transform((input) => ({
+    identifier: input.identifier ?? input.email ?? "",
+    password: input.password,
+  }));
 export type AuthLoginRequest = z.infer<typeof authLoginRequestSchema>;
 
 export const authMfaChallengeResponseSchema = z

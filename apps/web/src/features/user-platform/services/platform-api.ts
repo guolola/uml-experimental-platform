@@ -13,6 +13,7 @@ export function notifyAuthSessionChanged() {
 export interface PlatformUser {
   id: string;
   email: string;
+  username: string;
   displayName: string;
   avatarUrl?: string | null;
   status: string;
@@ -388,7 +389,7 @@ export const platformApi = {
       formData,
     );
   },
-  login(input: { email: string; password: string }) {
+  login(input: { identifier: string; password: string }) {
     return requestJson<PlatformSessionResponse>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify(input),
@@ -396,6 +397,7 @@ export const platformApi = {
   },
   register(input: {
     email: string;
+    username: string;
     password: string;
     displayName: string;
     invitationToken?: string;
@@ -411,7 +413,7 @@ export const platformApi = {
     });
   },
   verifyEmail(input: { token: string }) {
-    return requestJson<{ message: string }>("/api/auth/verify-email", {
+    return requestJson<{ message?: string; user?: PlatformUser }>("/api/auth/verify-email", {
       method: "POST",
       body: JSON.stringify(input),
     });

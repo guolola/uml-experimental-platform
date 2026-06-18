@@ -1447,6 +1447,7 @@ test("contracts describe user, session, admin, and account security DTOs", () =>
   const user = userDtoSchema.parse({
     id: "user-1",
     email: "owner@example.com",
+    username: "owner_user",
     displayName: "Owner User",
     avatarUrl: null,
     status: "active",
@@ -1506,16 +1507,24 @@ test("contracts describe user, session, admin, and account security DTOs", () =>
   assert.throws(() =>
     authRegisterRequestSchema.parse({
       email: "bad-email",
+      username: "bad user",
       password: "short",
       displayName: "",
     }),
   );
   assert.equal(
     authLoginRequestSchema.parse({
-      email: "OWNER@EXAMPLE.COM",
+      identifier: "OWNER@EXAMPLE.COM",
       password: "password-123",
-    }).email,
+    }).identifier,
     "owner@example.com",
+  );
+  assert.equal(
+    authLoginRequestSchema.parse({
+      email: "LEGACY@EXAMPLE.COM",
+      password: "password-123",
+    }).identifier,
+    "legacy@example.com",
   );
   assert.throws(() =>
     accountSecurityUpdateRequestSchema.parse({
@@ -1572,6 +1581,7 @@ test("contracts describe admin session RBAC and capabilities", () => {
     user: {
       id: "admin-1",
       email: "admin@example.com",
+      username: "admin_user",
       displayName: "Admin User",
       avatarUrl: null,
       status: "active",

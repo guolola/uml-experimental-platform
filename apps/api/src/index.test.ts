@@ -6173,6 +6173,7 @@ test("api registers users, stores sessions in HttpOnly cookies, and logs out", a
     url: "/api/auth/register",
     payload: {
       email: "owner@example.com",
+      username: "owner_user",
       password: "password-123",
       displayName: "Owner User",
     },
@@ -6234,6 +6235,7 @@ test("api lists active sessions and can revoke other devices", async () => {
     url: "/api/auth/register",
     payload: {
       email: "sessions@example.com",
+      username: "sessions_user",
       password: "password-123",
       displayName: "Session User",
     },
@@ -6318,6 +6320,7 @@ test("api updates profile and changes password through account routes", async ()
     url: "/api/auth/register",
     payload: {
       email: "profile@example.com",
+      username: "profile_user",
       password: "password-123",
       displayName: "Profile User",
     },
@@ -6441,6 +6444,7 @@ test("api uploads and serves account avatar files", async () => {
       url: "/api/auth/register",
       payload: {
         email: "avatar@example.com",
+        username: "avatar_user",
         password: "password-123",
         displayName: "Avatar User",
       },
@@ -6571,6 +6575,7 @@ test("api enforces project membership and member management guard rules", async 
     url: "/api/auth/register",
     payload: {
       email: "project-owner@example.com",
+      username: "project_owner",
       password: "password-123",
       displayName: "Project Owner",
     },
@@ -6582,6 +6587,7 @@ test("api enforces project membership and member management guard rules", async 
     url: "/api/auth/register",
     payload: {
       email: "project-viewer@example.com",
+      username: "project_viewer",
       password: "password-123",
       displayName: "Project Viewer",
     },
@@ -6726,6 +6732,7 @@ test("api server injects the configured mail adapter into project invitations", 
     url: "/api/auth/register",
     payload: {
       email: "mail-project-owner@example.com",
+      username: "mail_project_owner",
       password: "password-123",
       displayName: "Mail Project Owner",
     },

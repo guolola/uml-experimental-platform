@@ -2,6 +2,7 @@
 create table if not exists users (
   id text primary key,
   email text not null unique,
+  username text not null unique,
   display_name text not null,
   avatar_url text,
   status text not null default 'active',

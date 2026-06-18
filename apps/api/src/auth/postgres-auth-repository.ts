@@ -25,6 +25,7 @@ import type {
 type UserRow = {
   id: string;
   email: string;
+  username: string;
   display_name: string;
   avatar_url: string | null;
   status: UserStatus;
@@ -142,6 +143,19 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function normalizeUsername(username: string) {
+  return username.trim().toLowerCase();
+}
+
+function usernameFromEmail(email: string) {
+  const normalized = normalizeEmail(email)
+    .split("@")[0]
+    ?.replace(/[^a-z0-9_]+/gu, "_")
+    .replace(/^_+|_+$/gu, "")
+    .slice(0, 32);
+  return normalized && normalized.length >= 3 ? normalized : "user";
+}
+
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -154,6 +168,7 @@ function mapUserRow(row: UserRow): UserRecord {
   return {
     id: row.id,
     email: row.email,
+    username: row.username,
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
     status: row.status,
@@ -285,6 +300,7 @@ function mapAuditLogRow(row: AuditLogRow): AuditLogDto {
 const userColumns = `
   id,
   email,
+  username,
   display_name,
   avatar_url,
   status,
@@ -444,29 +460,35 @@ export function createPostgresAuthRepository(db: Queryable) {
 
     async createUser(input: {
       email: string;
+      username?: string;
       displayName: string;
       passwordHash: string;
       systemRoles?: AdminRole[];
       emailVerified?: boolean;
     }) {
       const email = normalizeEmail(input.email);
+      const username = input.username
+        ? normalizeUsername(input.username)
+        : usernameFromEmail(email);
       const result = await db.query<UserRow>(
         `
           insert into users (
             id,
             email,
+            username,
             display_name,
             password_hash,
             system_roles,
             email_verified
           )
-          values ($1, $2, $3, $4, $5, $6)
-          on conflict (email) do nothing
+          values ($1, $2, $3, $4, $5, $6, $7)
+          on conflict do nothing
           returning ${userColumns}
         `,
         [
           randomUUID(),
           email,
+          username,
           input.displayName,
           input.passwordHash,
           input.systemRoles ?? [],
@@ -489,6 +511,27 @@ export function createPostgresAuthRepository(db: Queryable) {
       );
 
       return result.rows[0] ? mapUserRow(result.rows[0]) : null;
+    },
+
+    async findUserByUsername(username: string) {
+      const result = await db.query<UserRow>(
+        `
+          select ${userColumns}
+          from users
+          where username = $1
+          limit 1
+        `,
+        [normalizeUsername(username)],
+      );
+
+      return result.rows[0] ? mapUserRow(result.rows[0]) : null;
+    },
+
+    async findUserByLoginIdentifier(identifier: string) {
+      const value = identifier.trim();
+      return value.includes("@")
+        ? this.findUserByEmail(value)
+        : this.findUserByUsername(value);
     },
 
     async listUsers() {

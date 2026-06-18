@@ -52,13 +52,14 @@ export function registerAuthRoutes({
     const input = authRegisterRequestSchema.parse(request.body);
     const user = await authStore.createUser({
       email: input.email,
+      username: input.username,
       displayName: input.displayName,
       passwordHash: hashPassword(input.password),
       emailVerified: false,
     });
     if (!user) {
       reply.code(409);
-      return { message: "Email is already registered" };
+      return { message: "Email or username is already registered" };
     }
 
     const session = await authStore.createSession({
@@ -106,12 +107,13 @@ export function registerAuthRoutes({
 
   app.post("/api/auth/login", async (request, reply) => {
     const input = authLoginRequestSchema.parse(request.body);
-    const user = await authStore.findUserByEmail(input.email);
+    const user = await authStore.findUserByLoginIdentifier(input.identifier);
+    const eventEmail = input.identifier.includes("@") ? input.identifier : null;
     if (!user || !verifyPassword(input.password, user.passwordHash)) {
       reply.code(401);
       await authStore.recordLoginEvent({
         userId: user?.id ?? null,
-        email: input.email,
+        email: user?.email ?? eventEmail,
         outcome: "failure",
         ipAddress: request.ip ?? null,
         userAgent: request.headers["user-agent"] ?? null,
@@ -242,12 +244,13 @@ export function registerAuthRoutes({
 
   app.post("/api/admin/auth/login", async (request, reply) => {
     const input = authLoginRequestSchema.parse(request.body);
-    const user = await authStore.findUserByEmail(input.email);
+    const user = await authStore.findUserByLoginIdentifier(input.identifier);
+    const eventEmail = input.identifier.includes("@") ? input.identifier : null;
     if (!user || !verifyPassword(input.password, user.passwordHash)) {
       reply.code(401);
       await authStore.recordLoginEvent({
         userId: user?.id ?? null,
-        email: input.email,
+        email: user?.email ?? eventEmail,
         outcome: "failure",
         ipAddress: request.ip ?? null,
         userAgent: request.headers["user-agent"] ?? null,

@@ -7,6 +7,7 @@ export const baseSchemaSql = `
 create table if not exists users (
   id text primary key,
   email text not null unique,
+  username text not null unique,
   display_name text not null,
   avatar_url text,
   status text not null default 'active',
@@ -849,6 +850,45 @@ where event_type = 'failed'
 create index if not exists run_records_error_code_idx on run_records(error_code);
 `;
 
+export const usernamesSql = `
+alter table users add column if not exists username text;
+
+with normalized as (
+  select
+    id,
+    case
+      when length(trim(both '_' from left(regexp_replace(lower(split_part(email, '@', 1)), '[^a-z0-9_]+', '_', 'g'), 32))) >= 3
+        then trim(both '_' from left(regexp_replace(lower(split_part(email, '@', 1)), '[^a-z0-9_]+', '_', 'g'), 32))
+      else 'user'
+    end as base_username
+  from users
+  where username is null or username = ''
+),
+ranked as (
+  select
+    id,
+    base_username,
+    count(*) over (partition by base_username) as duplicate_count
+  from normalized
+),
+resolved as (
+  select
+    id,
+    case
+      when duplicate_count = 1 then base_username
+      else left(base_username, 23) || '_' || left(regexp_replace(id, '[^a-z0-9]+', '', 'g'), 8)
+    end as username
+  from ranked
+)
+update users
+set username = resolved.username
+from resolved
+where users.id = resolved.id;
+
+alter table users alter column username set not null;
+create unique index if not exists users_username_unique_idx on users(username);
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -905,6 +945,10 @@ export const migrations = [
   {
     id: "014_run_error_objects",
     sql: runErrorObjectsSql,
+  },
+  {
+    id: "015_usernames",
+    sql: usernamesSql,
   },
 ] as const;
 

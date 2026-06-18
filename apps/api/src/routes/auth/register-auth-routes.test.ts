@@ -47,6 +47,7 @@ test("auth registration issues an email verification token and verify-email mark
     url: "/api/auth/register",
     payload: {
       email: "verify@example.com",
+      username: "verify_user",
       password: "password-123",
       displayName: "Verify User",
     },
@@ -84,6 +85,19 @@ test("auth registration issues an email verification token and verify-email mark
   });
   assert.equal(reused.statusCode, 400);
 
+  const duplicateUsername = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: {
+      email: "verify-other@example.com",
+      username: "verify_user",
+      password: "password-123",
+      displayName: "Verify Other",
+    },
+  });
+  assert.equal(duplicateUsername.statusCode, 409);
+  assert.match(duplicateUsername.json().message, /Email or username/);
+
   await app.close();
 });
 
@@ -95,6 +109,7 @@ test("auth reset password token revokes old sessions and accepts the new passwor
     url: "/api/auth/register",
     payload: {
       email: "reset@example.com",
+      username: "reset_user",
       password: "password-123",
       displayName: "Reset User",
     },
@@ -167,6 +182,7 @@ test("auth login requires email verification", async () => {
     url: "/api/auth/register",
     payload: {
       email: "unverified@example.com",
+      username: "unverified_user",
       password: "password-123",
       displayName: "Unverified User",
     },
@@ -202,6 +218,16 @@ test("auth login requires email verification", async () => {
   });
   assert.equal(allowed.statusCode, 200);
 
+  const allowedByUsername = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: {
+      identifier: "unverified_user",
+      password: "password-123",
+    },
+  });
+  assert.equal(allowedByUsername.statusCode, 200);
+
   await app.close();
 });
 
@@ -213,6 +239,7 @@ test("account security exposes login events and enforces TOTP MFA challenge", as
     url: "/api/auth/register",
     payload: {
       email: "security@example.com",
+      username: "security_user",
       password: "password-123",
       displayName: "Security User",
     },
@@ -257,7 +284,7 @@ test("account security exposes login events and enforces TOTP MFA challenge", as
     method: "POST",
     url: "/api/auth/login",
     payload: {
-      email: "security@example.com",
+      identifier: "security_user",
       password: "password-123",
     },
   });
@@ -282,6 +309,7 @@ test("admin auth uses a dedicated admin session cookie without replacing fronten
   const authStore = createInMemoryAuthStore();
   const admin = authStore.createUser({
     email: "admin@example.edu",
+    username: "admin_user",
     displayName: "Admin User",
     passwordHash: hashPassword("password-123"),
     systemRoles: ["super_admin"],
@@ -295,7 +323,7 @@ test("admin auth uses a dedicated admin session cookie without replacing fronten
     method: "POST",
     url: "/api/auth/login",
     payload: {
-      email: "admin@example.edu",
+      identifier: "admin_user",
       password: "password-123",
     },
   });
@@ -321,7 +349,7 @@ test("admin auth uses a dedicated admin session cookie without replacing fronten
     method: "POST",
     url: "/api/admin/auth/login",
     payload: {
-      email: "admin@example.edu",
+      identifier: "admin_user",
       password: "password-123",
     },
   });
