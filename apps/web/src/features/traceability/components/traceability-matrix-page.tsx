@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Input } from "../../../shared/ui/input";
-import { ScaledTable, ScaledToolbar } from "../../../shared/ui/scale-to-fit";
+import { ScaledToolbar } from "../../../shared/ui/scale-to-fit";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
@@ -290,8 +290,8 @@ export function TraceabilityMatrixPage({
                   </div>
                 </div>
               ) : (
-                <div className="max-w-full overflow-hidden">
-                  <ScaledTable minWidth={900} className="border-collapse text-sm">
+                <div className="max-w-full overflow-x-auto">
+                  <table className="w-full min-w-[900px] border-collapse text-sm">
                     <thead className="bg-muted/20 text-xs text-muted-foreground">
                       <tr>
                         <th className="w-[34%] border-b border-r border-border px-4 py-4 text-left font-medium">
@@ -390,7 +390,7 @@ export function TraceabilityMatrixPage({
                         ))
                       )}
                     </tbody>
-                  </ScaledTable>
+                  </table>
                   <ScaledToolbar
                     minWidth={560}
                     className="border-t border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground"
