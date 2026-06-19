@@ -115,9 +115,9 @@ const ARTICLE_MANIFEST = [
     },
     video: {
       src: TUTORIAL_QUICK_START_VIDEO_URL,
-      title: "快速开始教程视频",
-      description: "从项目入口、需求规则、UML、设计、代码、测试到说明书证据的完整演示。",
-      caption: "快速开始视频",
+      title: "快速开始项目演示视频",
+      description: "带着真实项目操作一遍，从项目入口、需求规则、UML、设计、代码、测试到说明书证据。",
+      caption: "项目演示视频",
     },
   },
   {

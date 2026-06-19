@@ -1700,6 +1700,12 @@ describe("App shell routes", () => {
       "data-motion",
       "marketing-page",
     );
+    expect(screen.getByTestId("workflow-chain-video-section")).toBeInTheDocument();
+    const workflowVideo = screen.getByLabelText("可信链路功能演示视频");
+    expect(workflowVideo.querySelector("source")).toHaveAttribute(
+      "src",
+      "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/trusted-chain-demo.mp4",
+    );
     expect(screen.getAllByTestId("workflow-motion-card").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("marketing-fit-page")).not.toBeInTheDocument();
 

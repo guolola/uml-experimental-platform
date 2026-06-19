@@ -8,7 +8,10 @@ import {
 } from "lucide-react";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
-import { MARKETING_PROMO_VIDEO_URL } from "../../../shared/lib/video-assets";
+import {
+  MARKETING_PROMO_VIDEO_URL,
+  WORKFLOW_CHAIN_VIDEO_URL,
+} from "../../../shared/lib/video-assets";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import {
@@ -406,6 +409,28 @@ function WorkflowTab() {
           <p className="motion-rise motion-delay-2 w-full break-all text-[16px] font-normal leading-[24px] text-muted-foreground md:break-words">
             软件工程实训平台提供从需求输入到 UML模型、React 原型和 DOCX 说明书导出的标准化流程，通过大模型推理与结构化校验保留每一步实训产物。
           </p>
+        </div>
+      </section>
+      <section
+        data-testid="workflow-chain-video-section"
+        className={`bg-background ${pagePadding} pb-16`}
+      >
+        <div className="mx-auto grid max-w-5xl justify-items-center gap-6 text-center">
+          <div className="grid max-w-3xl gap-3">
+            <h2 className="break-words font-display text-[24px] font-semibold leading-[32px] tracking-normal text-foreground md:text-[32px] md:leading-[40px]">
+              可信链路功能演示
+            </h2>
+            <p className="break-words text-[16px] font-normal leading-[24px] text-muted-foreground">
+              用一段短片快速了解需求、模型、原型、说明书和证据如何在同一条链路中连接。
+            </p>
+          </div>
+          <VideoPlayer
+            className="w-full shadow-xl"
+            src={WORKFLOW_CHAIN_VIDEO_URL}
+            title="可信链路功能演示视频"
+            description="从可信链路和证据视角展示平台核心流程。"
+            caption="使用流程视频"
+          />
         </div>
       </section>
       <section className={`bg-background ${pagePadding} pb-24`}>

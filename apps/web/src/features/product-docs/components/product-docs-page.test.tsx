@@ -20,11 +20,11 @@ describe("ProductDocsPage", () => {
       screen.queryByRole("heading", { name: "普通用户完整操作路径" }),
     ).not.toBeInTheDocument();
     expect(screen.getByLabelText("搜索使用文档")).toBeInTheDocument();
-    const quickStartVideo = screen.getByLabelText("快速开始教程视频");
+    const quickStartVideo = screen.getByLabelText("快速开始项目演示视频");
     expect(quickStartVideo).toBeInTheDocument();
     expect(quickStartVideo.querySelector("source")).toHaveAttribute(
       "src",
-      "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/trusted-chain-demo.mp4",
+      "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/%E9%A1%B9%E7%9B%AE%E6%BC%94%E7%A4%BA.mp4",
     );
     expect(screen.getAllByRole("table").length).toBeGreaterThan(0);
     for (const category of PRODUCT_DOC_CATEGORIES) {
@@ -199,8 +199,8 @@ describe("ProductDocsPage", () => {
     const quickStart = PRODUCT_DOC_ARTICLES.find((article) => article.id === "quick-start");
 
     expect(quickStart?.video).toMatchObject({
-      title: "快速开始教程视频",
-      src: "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/trusted-chain-demo.mp4",
+      title: "快速开始项目演示视频",
+      src: "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/%E9%A1%B9%E7%9B%AE%E6%BC%94%E7%A4%BA.mp4",
     });
   });
 
