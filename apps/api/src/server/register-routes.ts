@@ -306,6 +306,10 @@ export function registerApiRoutes({
       const project = await authStore.getProject(projectId);
       return project?.defaultProviderConfigId ?? null;
     },
+    resolveProjectName: async (projectId: string) => {
+      const project = await authStore.getProject(projectId);
+      return project?.name ?? null;
+    },
     providerUsageTracker,
     generationUsage,
     billingEntitlements: disableBillingEntitlementGuard

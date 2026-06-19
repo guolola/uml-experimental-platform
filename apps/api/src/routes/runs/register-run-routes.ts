@@ -58,7 +58,10 @@ import {
   storeEvidenceReviewDecision,
 } from "../../runs/evidence/run-evidence-gates.js";
 import { stageProgressValue } from "../../runs/pipelines/shared/pipeline-events.js";
-import { startRunRecordPipeline } from "../../runs/pipelines/run-record-pipeline-starter.js";
+import {
+  handleRunPipelineError,
+  startRunRecordPipeline,
+} from "../../runs/pipelines/run-record-pipeline-starter.js";
 import {
   checkGenerationUsageLimit,
   checkProviderUsageLimit,
@@ -107,6 +110,17 @@ import {
   type RunAccessGuard,
 } from "./run-access.js";
 import { createProjectRunAction } from "../../runs/actions/project-run-actions.js";
+import {
+  completeOfflineDemoCodeRun,
+  completeOfflineDemoDesignRun,
+  completeOfflineDemoRequirementRun,
+  createOfflineDemoDocumentInput,
+  createOfflineDemoRequirementRuleRepair,
+  createOfflineDemoRequirementRulesRepair,
+  isOfflineDemoProject,
+  offlineDemoLlmTransport,
+  offlineDemoProviderSettings,
+} from "../../runs/demo/offline-demo-runs.js";
 
 export type { RunAccessContext, RunAccessGuard } from "./run-access.js";
 
@@ -156,6 +170,7 @@ export function registerRunRoutes({
   runAccessGuard = defaultRunAccessGuard,
   providerConfigs,
   resolveProjectDefaultProviderConfig,
+  resolveProjectName,
   providerUsageTracker,
   generationUsage,
   billingEntitlements,
@@ -182,6 +197,7 @@ export function registerRunRoutes({
   runAccessGuard?: RunAccessGuard;
   providerConfigs?: ProviderConfigStore;
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
+  resolveProjectName?: (projectId: string) => Promise<string | null | undefined>;
   providerUsageTracker?: ProviderUsageTracker;
   generationUsage?: GenerationUsageService;
   billingEntitlements?: Pick<
@@ -222,6 +238,17 @@ export function registerRunRoutes({
     });
   };
 
+  const isOfflineDemoRun = async (projectId: string | null | undefined) => {
+    if (!projectId) return false;
+    if (isOfflineDemoProject(projectId)) return true;
+    if (!resolveProjectName) return false;
+    return isOfflineDemoProject(projectId, await resolveProjectName(projectId));
+  };
+
+  const handleOfflineDemoError = (record: RunRecord, error: unknown) => {
+    handleRunPipelineError(record, error, addCodeDiagnostic);
+  };
+
   app.post("/api/runs/requirement-rule-repair", async (request, reply) => {
     const metadata = await metadataForStartedRun(
       request,
@@ -231,6 +258,9 @@ export function registerRunRoutes({
     );
     if (metadata === null) return runAccessDeniedMessage(reply);
     const input = repairRequirementRuleRequestSchema.parse(request.body);
+    if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
+      return createOfflineDemoRequirementRuleRepair(input);
+    }
     const providerSettings = await resolveProviderSettingsForRun({
       providerSettings: input.providerSettings,
       metadata,
@@ -299,6 +329,9 @@ export function registerRunRoutes({
     );
     if (metadata === null) return runAccessDeniedMessage(reply);
     const input = repairRequirementRulesRequestSchema.parse(request.body);
+    if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
+      return createOfflineDemoRequirementRulesRepair(input);
+    }
     const providerSettings = await resolveProviderSettingsForRun({
       providerSettings: input.providerSettings,
       metadata,
@@ -377,6 +410,33 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
+      const runId = randomUUID();
+      const record: RunRecord = {
+        snapshot: createEmptySnapshot(
+          runId,
+          input.requirementText,
+          input.selectedDiagrams,
+          input.rules,
+          {
+            models: input.contextModels,
+            requirementModelTraceability: input.contextRequirementModelTraceability,
+            analysisTargetUseCaseIds: input.analysisTargetUseCaseIds,
+          },
+        ),
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+        metadata,
+      };
+      runs.set(runId, record);
+      emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
+      void completeOfflineDemoRequirementRun(record, input).catch((error) =>
+        handleOfflineDemoError(record, error),
+      );
+      reply.code(202);
+      return startRunResponseSchema.parse({ runId });
+    }
     const providerSettings = await resolveProviderSettingsForRun({
       providerSettings: input.providerSettings,
       metadata,
@@ -489,6 +549,23 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
+      const runId = randomUUID();
+      const record: RunRecord = {
+        snapshot: createEmptyDesignSnapshot(runId, input),
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+        metadata,
+      };
+      runs.set(runId, record);
+      emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
+      void completeOfflineDemoDesignRun(record, input).catch((error) =>
+        handleOfflineDemoError(record, error),
+      );
+      reply.code(202);
+      return startDesignRunResponseSchema.parse({ runId });
+    }
     const blockedEvidence = rejectBlockedEvidencePackage(
       reply,
       input.evidencePackage,
@@ -595,6 +672,23 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
+      const runId = randomUUID();
+      const record: RunRecord = {
+        snapshot: createEmptyCodeSnapshot(runId, input),
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+        metadata,
+      };
+      runs.set(runId, record);
+      emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
+      void completeOfflineDemoCodeRun(record, input).catch((error) =>
+        handleOfflineDemoError(record, error),
+      );
+      reply.code(202);
+      return startCodeRunResponseSchema.parse({ runId });
+    }
     const blockedEvidence = rejectBlockedEvidencePackage(
       reply,
       input.evidencePackage,
@@ -705,6 +799,33 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    if (await isOfflineDemoRun(input.projectId ?? metadata.projectId)) {
+      const demoInput = createOfflineDemoDocumentInput(input);
+      const runId = randomUUID();
+      const record: RunRecord = {
+        snapshot: createEmptyDocumentSnapshot(runId, demoInput),
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+        metadata,
+      };
+      runs.set(runId, record);
+      emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
+      // Demo documents use the normal DOCX assembly boundary with AI text disabled.
+      void runDocumentStagePipeline(
+        record,
+        demoInput,
+        documentLibrary,
+        projectDocumentWorkspaceId(metadata.projectId),
+        offlineDemoProviderSettings,
+        offlineDemoLlmTransport,
+        pngRenderClient,
+      ).catch((error) => {
+        handleRunPipelineError(record, error, addCodeDiagnostic);
+      });
+      reply.code(202);
+      return startDocumentRunResponseSchema.parse({ runId });
+    }
     const blockedEvidence = rejectBlockedEvidencePackage(
       reply,
       input.evidencePackage,

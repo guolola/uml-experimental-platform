@@ -262,6 +262,7 @@ async function createRunRouteTestApp(options?: {
   runAccessGuard?: RunAccessGuard;
   providerConfigs?: ReturnType<typeof createProviderConfigStore>;
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
+  resolveProjectName?: (projectId: string) => Promise<string | null | undefined>;
   providerUsageTracker?: ProviderUsageTracker;
   llmTransport?: LlmTransport;
   completeRuns?: boolean;
@@ -280,6 +281,7 @@ async function createRunRouteTestContext(options?: {
   runAccessGuard?: RunAccessGuard;
   providerConfigs?: ReturnType<typeof createProviderConfigStore>;
   resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
+  resolveProjectName?: (projectId: string) => Promise<string | null | undefined>;
   providerUsageTracker?: ProviderUsageTracker;
   llmTransport?: LlmTransport;
   completeRuns?: boolean;
@@ -358,6 +360,7 @@ async function createRunRouteTestContext(options?: {
     resolveProjectDefaultProviderConfig:
       options?.resolveProjectDefaultProviderConfig ??
       (defaultProvider ? async () => defaultProvider.id : undefined),
+    resolveProjectName: options?.resolveProjectName,
     providerUsageTracker: options?.providerUsageTracker,
     generationUsage: options?.generationUsage,
     llmScheduler: options?.llmScheduler,
@@ -365,6 +368,18 @@ async function createRunRouteTestContext(options?: {
   });
 
   return { app, runs };
+}
+
+async function waitForRunStatus(
+  runs: ReturnType<typeof createRunRecordStore>,
+  runId: string,
+  status: RunRecord["snapshot"]["status"],
+) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (runs.get(runId)?.snapshot.status === status) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(runs.get(runId)?.snapshot.status, status);
 }
 
 test("requirement rule repair returns only the updated current requirement", async () => {
@@ -2149,6 +2164,271 @@ test("project code and document start commands build run inputs from workspace",
   assert.equal(capturedDocumentInput.designSvgArtifacts[0]?.modelId, "design-sequence-view");
 
   await app.close();
+});
+
+test("offline demo project start commands complete fixed artifacts without provider usage", async () => {
+  const demoProjectId = "project-library-seat-demo";
+  const previousDemoProjects = process.env.UML_DEMO_OFFLINE_PROJECT_IDS;
+  const previousDemoProjectNames = process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS;
+  const previousDemoStageDelay = process.env.UML_DEMO_OFFLINE_STAGE_DELAY_MS;
+  process.env.UML_DEMO_OFFLINE_PROJECT_IDS = "";
+  process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS = "图书馆座位预约系统";
+  process.env.UML_DEMO_OFFLINE_STAGE_DELAY_MS = "0";
+  let providerUsageCalls = 0;
+  let providerLimitCalls = 0;
+  let capturedDocumentInput:
+    | Parameters<
+        NonNullable<
+          Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"]
+        >
+      >[1]
+    | undefined;
+  let capturedDocumentProvider: ProviderSettings | undefined;
+  const providerUsageTracker: ProviderUsageTracker = {
+    async recordUsage() {
+      providerUsageCalls += 1;
+      throw new Error("offline demo must not record provider usage");
+    },
+    async checkLimit() {
+      providerLimitCalls += 1;
+      throw new Error("offline demo must not check provider limits");
+    },
+  };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: [demoProjectId],
+        manage_documents: [demoProjectId],
+      },
+    }),
+    providerUsageTracker,
+    resolveProjectName: async (projectId) =>
+      projectId === demoProjectId ? "图书馆座位预约系统" : "普通项目",
+    loadProjectWorkspace: async () => ({ state: createProjectWorkspaceState() }),
+    runDocumentStagePipeline: async (record, input, _documentLibrary, _workspaceId, providerSettings) => {
+      capturedDocumentInput = input;
+      capturedDocumentProvider = providerSettings;
+      record.snapshot.status = "completed";
+      emitEvent(record, { type: "completed", snapshot: record.snapshot } as RunEvent);
+    },
+  });
+
+  try {
+    const requirementResponse = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      headers: {
+        "x-test-user-id": "user-a",
+      },
+      payload: {
+        projectId: demoProjectId,
+        selectedDiagrams: ["usecase"],
+      },
+    });
+    assert.equal(requirementResponse.statusCode, 202, requirementResponse.body);
+    const requirementRunId = requirementResponse.json().runId;
+    await waitForRunStatus(runs, requirementRunId, "completed");
+    const requirementSnapshot = runs.get(requirementRunId)?.snapshot as RunSnapshot;
+    assert.equal(requirementSnapshot.status, "completed");
+    assert.equal(requirementSnapshot.rules.length, 11);
+    assert.equal(
+      requirementSnapshot.models.every((model) => model.diagramKind === "usecase"),
+      true,
+    );
+    assert.deepEqual(
+      requirementSnapshot.plantUml.map((artifact) => artifact.diagramKind),
+      ["usecase"],
+    );
+    const usecasePlantUml = requirementSnapshot.plantUml.find(
+      (artifact) => artifact.diagramKind === "usecase",
+    );
+    assert.ok(usecasePlantUml);
+    assert.match(usecasePlantUml.source, /@startuml/);
+    assert.match(usecasePlantUml.source, /actor "学生"/);
+    assert.match(usecasePlantUml.source, /usecase "提交预约"/);
+    const usecaseSvg = requirementSnapshot.svgArtifacts.find(
+      (artifact) => artifact.diagramKind === "usecase",
+    );
+    assert.ok(usecaseSvg);
+    assert.equal(usecaseSvg.renderMeta.engine, "plantuml");
+    assert.equal(usecaseSvg.svg.includes("固定演示图"), false);
+    assert.equal(usecaseSvg.svg.includes("离线演示 SVG"), false);
+
+    const designResponse = await app.inject({
+      method: "POST",
+      url: "/api/design-runs",
+      headers: {
+        "x-test-user-id": "user-a",
+      },
+      payload: {
+        projectId: demoProjectId,
+        selectedDiagrams: ["sequence"],
+      },
+    });
+    assert.equal(designResponse.statusCode, 202, designResponse.body);
+    const designRunId = designResponse.json().runId;
+    await waitForRunStatus(runs, designRunId, "completed");
+    const designSnapshot = runs.get(designRunId)?.snapshot as DesignRunSnapshot;
+    assert.equal(designSnapshot.status, "completed");
+    assert.equal(
+      designSnapshot.models.every((model) => model.diagramKind === "sequence"),
+      true,
+    );
+    assert.equal(designSnapshot.designModelTraceability.length > 0, true);
+    assert.equal(
+      designSnapshot.designModelTraceability.every(
+        (entry) => entry.source.diagramKind === "sequence",
+      ),
+      true,
+    );
+
+    const codeResponse = await app.inject({
+      method: "POST",
+      url: "/api/code-runs",
+      headers: {
+        "x-test-user-id": "user-a",
+      },
+      payload: {
+        projectId: demoProjectId,
+        generationMode: "regenerate",
+      },
+    });
+    assert.equal(codeResponse.statusCode, 202, codeResponse.body);
+    const codeRunId = codeResponse.json().runId;
+    await waitForRunStatus(runs, codeRunId, "completed");
+    const codeSnapshot = runs.get(codeRunId)?.snapshot as CodeRunSnapshot;
+    assert.equal(codeSnapshot.status, "completed");
+    assert.equal(Boolean(codeSnapshot.files["/src/components/ui/dialog.tsx"]), true);
+    assert.match(
+      codeSnapshot.files["/src/components/ui/dialog.tsx"] ?? "",
+      /DialogContent/,
+    );
+    const loginPageSource = codeSnapshot.files["/src/pages/LoginPage.tsx"] ?? "";
+    assert.match(loginPageSource, /useState\('student1'\)/);
+    assert.match(loginPageSource, /useState\('123456'\)/);
+    assert.equal(loginPageSource.includes("setTimeout"), false);
+    assert.match(loginPageSource, /const success = onLogin/);
+    assert.match(loginPageSource, /const handleLogin = \(\) =>/);
+    assert.match(loginPageSource, /onClick=\{handleLogin\}/);
+    assert.equal(loginPageSource.includes("import { Button }"), false);
+    const workspaceShellSource =
+      codeSnapshot.files["/src/components/WorkspaceShell.tsx"] ?? "";
+    assert.match(workspaceShellSource, /请输入用户名和密码/);
+    assert.equal(
+      workspaceShellSource.includes("setErrorWithRetry('网络异常，请重试'"),
+      false,
+    );
+
+    const documentResponse = await app.inject({
+      method: "POST",
+      url: "/api/document-runs",
+      headers: {
+        "x-test-user-id": "user-a",
+      },
+      payload: {
+        projectId: demoProjectId,
+        documentKind: "softwareDesignSpec",
+        useAiText: true,
+      },
+    });
+    assert.equal(documentResponse.statusCode, 202, documentResponse.body);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(capturedDocumentInput);
+    assert.equal(capturedDocumentInput.useAiText, false);
+    assert.equal(
+      capturedDocumentInput.requirementSvgArtifacts.some(
+        (artifact) => artifact.diagramKind === "usecase",
+      ),
+      true,
+    );
+    const documentUsecaseSvg = capturedDocumentInput.requirementSvgArtifacts.find(
+      (artifact) => artifact.diagramKind === "usecase",
+    );
+    assert.ok(documentUsecaseSvg);
+    assert.equal(documentUsecaseSvg.renderMeta.engine, "plantuml");
+    assert.equal(capturedDocumentInput.designModels.length > 0, true);
+    assert.equal(capturedDocumentProvider?.model, "offline-demo-fixed-artifacts");
+    assert.equal(providerUsageCalls, 0);
+    assert.equal(providerLimitCalls, 0);
+  } finally {
+    if (previousDemoProjects === undefined) {
+      delete process.env.UML_DEMO_OFFLINE_PROJECT_IDS;
+    } else {
+      process.env.UML_DEMO_OFFLINE_PROJECT_IDS = previousDemoProjects;
+    }
+    if (previousDemoProjectNames === undefined) {
+      delete process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS;
+    } else {
+      process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS = previousDemoProjectNames;
+    }
+    if (previousDemoStageDelay === undefined) {
+      delete process.env.UML_DEMO_OFFLINE_STAGE_DELAY_MS;
+    } else {
+      process.env.UML_DEMO_OFFLINE_STAGE_DELAY_MS = previousDemoStageDelay;
+    }
+    await app.close();
+  }
+});
+
+test("offline demo project name patterns do not affect unmatched projects", async () => {
+  const previousDemoProjects = process.env.UML_DEMO_OFFLINE_PROJECT_IDS;
+  const previousDemoProjectNames = process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS;
+  process.env.UML_DEMO_OFFLINE_PROJECT_IDS = "";
+  process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS = "图书馆座位预约系统";
+  let providerUsageCalls = 0;
+  let providerLimitCalls = 0;
+  const providerUsageTracker: ProviderUsageTracker = {
+    async recordUsage(_input: ProviderUsageInput) {
+      providerUsageCalls += 1;
+    },
+    async checkLimit(_input: ProviderLimitCheckInput) {
+      providerLimitCalls += 1;
+      return { allowed: true };
+    },
+  };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: true,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["ordinary-project"],
+      },
+    }),
+    providerUsageTracker,
+    resolveProjectName: async () => "普通项目",
+    loadProjectWorkspace: async () => ({ state: createProjectWorkspaceState() }),
+  });
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      headers: {
+        "x-test-user-id": "user-a",
+      },
+      payload: {
+        projectId: "ordinary-project",
+        selectedDiagrams: ["usecase"],
+      },
+    });
+
+    assert.equal(response.statusCode, 202, response.body);
+    await waitForRunStatus(runs, response.json().runId, "completed");
+    assert.equal(providerLimitCalls, 1);
+    assert.equal(providerUsageCalls, 1);
+  } finally {
+    if (previousDemoProjects === undefined) {
+      delete process.env.UML_DEMO_OFFLINE_PROJECT_IDS;
+    } else {
+      process.env.UML_DEMO_OFFLINE_PROJECT_IDS = previousDemoProjects;
+    }
+    if (previousDemoProjectNames === undefined) {
+      delete process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS;
+    } else {
+      process.env.UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS = previousDemoProjectNames;
+    }
+    await app.close();
+  }
 });
 
 test("project start commands return 400 when required workspace context is missing", async () => {

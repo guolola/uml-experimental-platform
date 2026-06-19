@@ -390,6 +390,79 @@ export function findMissingLocalUiComponentImports(snapshot: CodeRunSnapshot) {
   return [...missing];
 }
 
+function localUiImportPath(importName: string) {
+  const normalizedName = importName
+    .replace(/\.(tsx?|jsx?)$/, "")
+    .split("/")[0];
+  if (!normalizedName || normalizedName.includes("*")) return null;
+  return {
+    displayPath: `/src/components/ui/${normalizedName}.tsx`,
+    candidates: [
+      `/src/components/ui/${normalizedName}.tsx`,
+      `/src/components/ui/${normalizedName}/index.tsx`,
+    ],
+  };
+}
+
+function exportedNamesFromSource(source: string) {
+  const names = new Set<string>();
+  const declarationPattern =
+    /export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g;
+  for (const match of source.matchAll(declarationPattern)) {
+    if (match[1]) names.add(match[1]);
+  }
+  const namedExportPattern = /export\s*\{([^}]+)\}/g;
+  for (const match of source.matchAll(namedExportPattern)) {
+    const specifiers = (match[1] ?? "").split(",");
+    for (const specifier of specifiers) {
+      const cleaned = specifier.trim().replace(/^type\s+/, "");
+      if (!cleaned) continue;
+      const exportedName = cleaned.includes(" as ")
+        ? cleaned.split(/\s+as\s+/).at(-1)
+        : cleaned;
+      if (exportedName) names.add(exportedName.trim());
+    }
+  }
+  return names;
+}
+
+function importedExportNames(specifierList: string) {
+  return specifierList
+    .split(",")
+    .map((specifier) => specifier.trim().replace(/^type\s+/, ""))
+    .map((specifier) => specifier.split(/\s+as\s+/)[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
+export function findMissingLocalUiNamedExports(snapshot: CodeRunSnapshot) {
+  const missing = new Map<string, Set<string>>();
+  const importPattern =
+    /import\s+(type\s+)?\{([^}]*)\}\s+from\s+["'](?:@\/components\/ui\/([^"']+)|(?:\.{1,2}\/)+[^"']*components\/ui\/([^"']+))["']/g;
+  for (const content of Object.values(snapshot.files)) {
+    for (const match of content.matchAll(importPattern)) {
+      const isTypeOnlyImport = Boolean(match[1]);
+      if (isTypeOnlyImport) continue;
+      const importInfo = localUiImportPath(match[3] ?? match[4] ?? "");
+      if (!importInfo) continue;
+      const targetPath = importInfo.candidates.find(
+        (candidate) => !isBlankCodeFile(snapshot.files[candidate]),
+      );
+      if (!targetPath) continue;
+      const exportedNames = exportedNamesFromSource(snapshot.files[targetPath] ?? "");
+      for (const importedName of importedExportNames(match[2] ?? "")) {
+        if (exportedNames.has(importedName)) continue;
+        const names = missing.get(importInfo.displayPath) ?? new Set<string>();
+        names.add(importedName);
+        missing.set(importInfo.displayPath, names);
+      }
+    }
+  }
+  return Array.from(missing.entries()).map(([path, names]) => ({
+    path,
+    names: Array.from(names).sort(),
+  }));
+}
+
 // Deterministic quality audit catches broken previews before users see generated code.
 export function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualityDiagnostic {
   const issues: CodeQualityDiagnostic["issues"] = [];
@@ -484,6 +557,13 @@ export function auditCodePrototypeQuality(snapshot: CodeRunSnapshot): CodeQualit
       severity: "error",
       path: missingPath,
       message: "引用了本地 shadcn 风格组件但缺少对应源码文件，必须补齐 /src/components/ui/*",
+    });
+  }
+  for (const missingExport of findMissingLocalUiNamedExports(snapshot)) {
+    issues.push({
+      severity: "error",
+      path: missingExport.path,
+      message: `本地 shadcn 风格组件缺少命名导出 ${missingExport.names.join("、")}，引用方无法在预览中加载`,
     });
   }
   if (filePaths.filter((path) => path.startsWith("/src/")).length < 8) {

@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "npm run dev:office && concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api:safe\" \"npm run dev:web:safe\"",
     "dev:postgres": "cross-env DATABASE_URL=postgres://uml_user:uml_dev_password_123@127.0.0.1:5432/uml_platform npm run dev",
+    "dev:postgres:demo": "cross-env UML_DEMO_OFFLINE_PROJECT_IDS=f131e098-904f-4900-bf83-5e32506dc76b \"UML_DEMO_OFFLINE_PROJECT_NAME_PATTERNS=图书馆座位预约系统,课程 UML 实验项目\" UML_DEMO_OFFLINE_STAGE_DELAY_MS=700 DATABASE_URL=postgres://uml_user:uml_dev_password_123@127.0.0.1:5432/uml_platform npm run dev",
     "dev:default": "concurrently -k -n render,api,web -c blue,green,magenta \"npm run dev:render\" \"npm run dev:api\" \"npm run dev:web\"",
     "dev:office": "node scripts/dev/ensure-onlyoffice.mjs",
     "dev:api": "npm run dev --workspace @uml-platform/api",
