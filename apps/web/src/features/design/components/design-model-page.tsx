@@ -728,9 +728,15 @@ export function DesignModelPage() {
                     (diagram) => {
                       const SourceIcon = REQUIREMENT_SOURCE_ICON[diagram];
                       const stale = sourceStatus[diagram] && staleDiagrams.includes(diagram);
+                      const sourceStateLabel = stale
+                        ? "需更新"
+                        : sourceStatus[diagram]
+                          ? "可用"
+                          : "未生成";
                       return (
                         <MobileStatusPill
                           key={diagram}
+                          aria-label={`${DIAGRAM_META[diagram].label} ${sourceStateLabel}`}
                           className={cn(
                             stale
                               ? "border-warning/35 bg-warning/10 text-warning"
@@ -750,7 +756,7 @@ export function DesignModelPage() {
                             {DIAGRAM_META[diagram].label}
                           </span>
                           <span className="font-mono text-[10px] text-muted-foreground">
-                            {stale ? "需更新" : sourceStatus[diagram] ? "可用" : "未生成"}
+                            {sourceStateLabel}
                           </span>
                         </MobileStatusPill>
                       );

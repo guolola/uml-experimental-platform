@@ -1,5 +1,5 @@
 // Provides compact mobile layout primitives for workspace pages without changing business data flow.
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../../shared/ui/utils";
 
 export const mobileTouchTargetClass = "min-h-11";
@@ -28,12 +28,14 @@ export function MobileStatusRail({
 export function MobileStatusPill({
   children,
   className,
+  ...props
 }: {
   children: ReactNode;
   className?: string;
-}) {
+} & HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
+      {...props}
       data-workspace-density="status-pill"
       className={cn(
         "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-medium text-muted-foreground shadow-sm md:h-8",

@@ -108,9 +108,14 @@ describe("DesignModelPage", () => {
     const sourceRegion = await screen.findByRole("heading", { name: "需求阶段来源" });
     const sourceGrid = sourceRegion.closest("section");
 
-    const analysisSourceCard = within(sourceGrid as HTMLElement)
-      .getByText("需求分析模型")
-      .closest("div");
+    await waitFor(() =>
+      expect(
+        within(sourceGrid as HTMLElement).getByLabelText("需求分析模型 可用"),
+      ).toBeInTheDocument(),
+    );
+    const analysisSourceCard = within(sourceGrid as HTMLElement).getByLabelText(
+      "需求分析模型 可用",
+    );
 
     expect(analysisSourceCard).toHaveTextContent("可用");
     const modelGrid = container.querySelector('[data-workspace-density="compact-grid"]');
@@ -152,9 +157,14 @@ describe("DesignModelPage", () => {
     const sourceRegion = await screen.findByRole("heading", { name: "需求阶段来源" });
     const sourceGrid = sourceRegion.closest("section");
 
-    const prototypeSourceCard = within(sourceGrid as HTMLElement)
-      .getByText("原型界面关系")
-      .closest("div");
+    await waitFor(() =>
+      expect(
+        within(sourceGrid as HTMLElement).getByLabelText("原型界面关系 可用"),
+      ).toBeInTheDocument(),
+    );
+    const prototypeSourceCard = within(sourceGrid as HTMLElement).getByLabelText(
+      "原型界面关系 可用",
+    );
 
     expect(prototypeSourceCard).toHaveTextContent("可用");
   });
