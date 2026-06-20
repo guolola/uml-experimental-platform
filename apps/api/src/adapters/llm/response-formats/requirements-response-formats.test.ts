@@ -82,7 +82,7 @@ test("requirement class response schema exposes localized names and constraints"
   }
 });
 
-test("requirement model response schema includes function WBS structure", () => {
+test("requirement model response schema includes function MindMap structure", () => {
   const variants = (
     GENERATE_MODELS_RESPONSE_FORMAT.json_schema.schema.properties as {
       models: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } };

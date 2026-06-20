@@ -2362,6 +2362,75 @@ test("design pipeline accepts downstream model output with empty traceability an
   assert.ok(designSnapshot.svgArtifacts.some((artifact) => artifact.diagramKind === "activity"));
 });
 
+test("design pipeline records downstream dependency errors per selected diagram", async () => {
+  const deploymentModel = modelForKind("deployment");
+  const requirementSnapshot = createEmptySnapshot(
+    "run-design-dependency-errors-requirements",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["deployment"],
+    libraryRules,
+    {
+      models: [deploymentModel],
+      requirementModelTraceability: [],
+    },
+  );
+  const snapshot = createEmptyDesignSnapshot("run-design-dependency-errors", {
+    selectedDiagrams: ["component", "deployment"],
+    requestedDiagrams: ["component", "deployment"],
+    requirementBaseline: requirementSnapshot.requirementBaseline!,
+    requirementModels: [deploymentModel],
+    requirementModelTraceability: [],
+    existingDesignModels: [],
+  });
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      throw new Error("LLM should not be called when design dependencies are missing");
+    },
+  };
+  const renderClient: RenderClient = async () => {
+    throw new Error("Render should not be called when design dependencies are missing");
+  };
+
+  await assert.rejects(
+    () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
+    /设计模型生成未全部完成/,
+  );
+
+  const designSnapshot = record.snapshot as DesignRunSnapshot;
+  assert.equal(
+    designSnapshot.diagramErrors.component?.error.code,
+    "RUN_DEPENDENCY_MISSING",
+  );
+  assert.match(
+    designSnapshot.diagramErrors.component?.error.message ?? "",
+    /缺少设计类图，无法生成组件/,
+  );
+  assert.equal(
+    designSnapshot.diagramErrors.deployment?.error.code,
+    "RUN_DEPENDENCY_MISSING",
+  );
+  assert.match(
+    designSnapshot.diagramErrors.deployment?.error.message ?? "",
+    /缺少组件（构件）关系，无法生成部署设计/,
+  );
+  const failedSubtasks = record.events.filter(
+    (event) =>
+      event.type === "stage_progress" &&
+      event.stage === "generate_design_models" &&
+      event.subtaskStatus === "failed",
+  );
+  assert.deepEqual(
+    failedSubtasks.map((event) => event.subtaskId),
+    ["component", "deployment"],
+  );
+});
+
 test("design sequence generation inherits run concurrency when no narrower limit is configured", async () => {
   const previousSequenceConcurrency = process.env.UML_DESIGN_SEQUENCE_CONCURRENCY;
   delete process.env.UML_DESIGN_SEQUENCE_CONCURRENCY;

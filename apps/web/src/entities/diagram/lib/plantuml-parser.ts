@@ -1,7 +1,7 @@
 import type { DiagramType } from "../model";
 
 export type ElementKind =
-  // function WBS
+  // function MindMap
   | "function"
   // usecase
   | "actor"

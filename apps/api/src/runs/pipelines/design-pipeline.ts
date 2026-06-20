@@ -1606,20 +1606,33 @@ export async function runDesignStagePipeline(
   if (sequenceRequiredDiagrams.length > 0 && sequenceModels.length === 0) {
     throwRunError(createRunError("RUN_DEPENDENCY_MISSING", "缺少用例实现设计，无法生成所选设计模型；请先生成用例实现设计或在本次请求中包含用例实现设计"));
   }
-  if (
-    (requestedDownstream.includes("table") || requestedDownstream.includes("component")) &&
-    !selectedDesignDiagrams.has("class") &&
-    !models.some((model) => model.diagramKind === "class")
-  ) {
-    throwRunError(createRunError("RUN_DEPENDENCY_MISSING", "缺少设计类图，无法生成数据库设计或组件（构件）关系；请先生成设计类图或在本次请求中包含设计类图"));
-  }
-  if (
-    requestedDownstream.includes("deployment") &&
-    !selectedDesignDiagrams.has("component") &&
-    !models.some((model) => model.diagramKind === "component")
-  ) {
-    throwRunError(createRunError("RUN_DEPENDENCY_MISSING", "缺少组件（构件）关系，无法生成部署设计；请先生成组件（构件）关系或在本次请求中包含组件（构件）关系"));
-  }
+
+  const markDesignDependencyError = (
+    diagram: Exclude<DesignDiagramKind, "sequence">,
+    message: string,
+  ) => {
+    const dependencyError = createRunError("RUN_DEPENDENCY_MISSING", message);
+    diagramErrors[diagram] = diagramErrorSchema.parse({
+      stage: "generate_design_models",
+      error: dependencyError,
+    });
+    publishDesignModelSnapshot();
+    emitEvent(
+      record,
+      stageProgressRunEventSchema.parse({
+        type: "stage_progress",
+        stage: "generate_design_models",
+        progress: stageProgressValue("generate_design_models"),
+        message,
+        error: dependencyError,
+        diagramKind: diagram,
+        subtaskId: diagram,
+        subtaskLabel: designDiagramLabel(diagram),
+        subtaskStatus: "failed",
+      }),
+    );
+  };
+
   const downstreamWithSources = requestedDownstream.filter((diagram) => {
     const sourceKinds = sourceRequirementKindsForDesign(diagram);
     if (sourceKinds.length === 0) {
@@ -1639,10 +1652,7 @@ export async function runDesignStagePipeline(
         ? `缺少需求阶段${requirementDiagramLabel(sourceKind)}，无法生成${designDiagramLabel(diagram)}`
         : `缺少上游设计来源，无法生成${designDiagramLabel(diagram)}`,
     );
-    diagramErrors[diagram] = diagramErrorSchema.parse({
-      stage: "generate_design_models",
-      error: dependencyError,
-    });
+    markDesignDependencyError(diagram, dependencyError.message);
     return false;
   });
 
@@ -1788,15 +1798,10 @@ export async function runDesignStagePipeline(
       if (diagram === "table") {
         const classModel = models.find((model) => model.diagramKind === "class");
         if (!classModel) {
-          const dependencyError = createRunError(
-            "RUN_DEPENDENCY_MISSING",
-            "缺少设计类图，无法生成数据库设计",
+          markDesignDependencyError(
+            "table",
+            "缺少设计类图，无法生成数据库设计；请先生成设计类图或在本次请求中包含设计类图",
           );
-          diagramErrors.table = diagramErrorSchema.parse({
-            stage: "generate_design_models",
-            error: dependencyError,
-          });
-          publishDesignModelSnapshot();
           continue;
         }
         await runDownstreamDiagram("table", [classModel]);
@@ -1805,15 +1810,10 @@ export async function runDesignStagePipeline(
       if (diagram === "component") {
         const classModel = models.find((model) => model.diagramKind === "class");
         if (!classModel) {
-          const dependencyError = createRunError(
-            "RUN_DEPENDENCY_MISSING",
-            "缺少设计类图，无法生成组件（构件）关系",
+          markDesignDependencyError(
+            "component",
+            "缺少设计类图，无法生成组件（构件）关系；请先生成设计类图或在本次请求中包含设计类图",
           );
-          diagramErrors.component = diagramErrorSchema.parse({
-            stage: "generate_design_models",
-            error: dependencyError,
-          });
-          publishDesignModelSnapshot();
           continue;
         }
         await runDownstreamDiagram("component", [classModel]);
@@ -1822,15 +1822,10 @@ export async function runDesignStagePipeline(
       if (diagram === "deployment") {
         const componentModel = models.find((model) => model.diagramKind === "component");
         if (!componentModel) {
-          const dependencyError = createRunError(
-            "RUN_DEPENDENCY_MISSING",
-            "缺少组件（构件）关系，无法生成部署设计",
+          markDesignDependencyError(
+            "deployment",
+            "缺少组件（构件）关系，无法生成部署设计；请先生成组件（构件）关系或在本次请求中包含组件（构件）关系",
           );
-          diagramErrors.deployment = diagramErrorSchema.parse({
-            stage: "generate_design_models",
-            error: dependencyError,
-          });
-          publishDesignModelSnapshot();
           continue;
         }
         await runDownstreamDiagram("deployment", [componentModel]);

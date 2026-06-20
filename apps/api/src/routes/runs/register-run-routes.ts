@@ -121,6 +121,10 @@ import {
   offlineDemoLlmTransport,
   offlineDemoProviderSettings,
 } from "../../runs/demo/offline-demo-runs.js";
+import {
+  attachProjectWorkspaceSync,
+  type ProjectWorkspaceSync,
+} from "./project-workspace-sync.js";
 
 export type { RunAccessContext, RunAccessGuard } from "./run-access.js";
 
@@ -177,6 +181,7 @@ export function registerRunRoutes({
   providerRateLimitPolicy = resolveProviderRateLimitPolicy(),
   llmScheduler,
   loadProjectWorkspace,
+  syncProjectWorkspace,
 }: {
   app: FastifyInstance;
   runs: RunRecordStore;
@@ -207,6 +212,7 @@ export function registerRunRoutes({
   providerRateLimitPolicy?: ProviderRateLimitPolicy;
   llmScheduler?: LlmScheduler;
   loadProjectWorkspace?: LoadProjectWorkspaceForRun;
+  syncProjectWorkspace?: ProjectWorkspaceSync;
 }) {
   const startRecordPipeline = ({
     record,
@@ -430,6 +436,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
+      attachProjectWorkspaceSync(record, syncProjectWorkspace);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       void completeOfflineDemoRequirementRun(record, input).catch((error) =>
         handleOfflineDemoError(record, error),
@@ -517,6 +524,7 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
+    attachProjectWorkspaceSync(record, syncProjectWorkspace);
 
     // Routes create queued records; pipelines advance them to running/completed/failed.
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
@@ -559,6 +567,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
+      attachProjectWorkspaceSync(record, syncProjectWorkspace);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       void completeOfflineDemoDesignRun(record, input).catch((error) =>
         handleOfflineDemoError(record, error),
@@ -641,6 +650,7 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
+    attachProjectWorkspaceSync(record, syncProjectWorkspace);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
@@ -682,6 +692,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
+      attachProjectWorkspaceSync(record, syncProjectWorkspace);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       void completeOfflineDemoCodeRun(record, input).catch((error) =>
         handleOfflineDemoError(record, error),
@@ -764,6 +775,7 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
+    attachProjectWorkspaceSync(record, syncProjectWorkspace);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
@@ -810,6 +822,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
+      attachProjectWorkspaceSync(record, syncProjectWorkspace);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       // Demo documents use the normal DOCX assembly boundary with AI text disabled.
       void runDocumentStagePipeline(
@@ -910,6 +923,7 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
+    attachProjectWorkspaceSync(record, syncProjectWorkspace);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 

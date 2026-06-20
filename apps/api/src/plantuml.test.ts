@@ -104,7 +104,7 @@ test("usecase PlantUML renders include and extend without duplicate labels", () 
   assert.doesNotMatch(source, /<<extend>>\s+extend/);
 });
 
-test("function structure PlantUML renders WBS source", () => {
+test("function structure PlantUML renders MindMap source", async () => {
   const model: FunctionStructureDiagramSpec = {
     diagramKind: "function",
     title: "功能结构图",
@@ -127,10 +127,15 @@ test("function structure PlantUML renders WBS source", () => {
   const artifact = generatePlantUmlArtifacts([model])[0];
 
   assert.equal(artifact?.diagramKind, "function");
-  assert.match(artifact?.source ?? "", /@startwbs/);
-  assert.match(artifact?.source ?? "", /\*\* 订单管理/);
-  assert.match(artifact?.source ?? "", /\*\*\* 创建订单/);
-  assert.match(artifact?.source ?? "", /@endwbs/);
+  assert.match(artifact?.source ?? "", /@startmindmap/);
+  assert.match(artifact?.source ?? "", /^\* 订单管理/m);
+  assert.match(artifact?.source ?? "", /^\*\* 创建订单/m);
+  assert.match(artifact?.source ?? "", /@endmindmap/);
+  const rendered = await renderSvgWithPlantUml({
+    diagramKind: "function",
+    plantUmlSource: artifact?.source ?? "",
+  });
+  assert.match(rendered.svg, /<svg/i);
 });
 
 test("architecture and component PlantUML render package and component notation", () => {

@@ -99,7 +99,7 @@ export function buildMockRulesFromText(text: string): RequirementRule[] {
 }
 
 const MOCK_PLANT_UML_TEMPLATES: Record<DiagramType, string> = {
-  function: `@startwbs
+  function: `@startmindmap
 * 预约平台
 ** 账户与登录
 *** 微信登录
@@ -111,7 +111,7 @@ const MOCK_PLANT_UML_TEMPLATES: Record<DiagramType, string> = {
 ** 签到与通知
 *** 到场签到
 *** 预约提醒
-@endwbs`,
+@endmindmap`,
   activity: `@startuml
 start
 :用户提交请求;

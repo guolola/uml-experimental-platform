@@ -111,7 +111,7 @@ function diagramFromAlias(value: unknown): DiagramKind | null {
   if (DIAGRAM_KIND_SET.has(text)) return text as DiagramKind;
 
   const label = normalizeLabel(text);
-  if (["function", "wbs", "功能", "功能结构", "功能结构图", "功能分解", "功能分解图"].includes(label)) {
+  if (["function", "wbs", "mindmap", "思维导图", "脑图", "功能", "功能结构", "功能结构图", "功能分解", "功能分解图"].includes(label)) {
     return "function";
   }
   if (["usecase", "usecases", "用例", "用例图"].includes(label)) return "usecase";

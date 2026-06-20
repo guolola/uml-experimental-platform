@@ -95,8 +95,8 @@ test("requirement model prompts include requirement-stage responsibilities", () 
   ]);
 
   assert.match(prompt, /需求阶段模型职责/);
-  assert.match(prompt, /功能结构图\(function\): 根据文本需求项抽取系统功能层级/);
-  assert.match(prompt, /PlantUML 工作分解结构图/);
+  assert.match(prompt, /功能结构图\(function\): 只根据功能需求\/业务规则抽取系统功能层级/);
+  assert.match(prompt, /PlantUML MindMap/);
   assert.match(prompt, /用例模型\(usecase\): 明确系统边界/);
   assert.match(prompt, /领域概念模型\(class\): 只描述业务领域内的核心概念实体/);
   assert.match(prompt, /禁止输出 \*Service/);

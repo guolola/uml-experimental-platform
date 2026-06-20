@@ -258,7 +258,7 @@ function withDocumentPlantUmlFont(source: string) {
     `skinparam componentFontName "${fontName}"`,
     `skinparam classFontName "${fontName}"`,
   ].join("\n");
-  return source.replace(/@(startuml|startwbs)\s*/u, (match) => `${match}${fontSkinparams}\n`);
+  return source.replace(/@(startuml|startwbs|startmindmap)\s*/u, (match) => `${match}${fontSkinparams}\n`);
 }
 
 function createCoverParagraph(

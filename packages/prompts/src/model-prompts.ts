@@ -85,7 +85,7 @@ function requirementDiagramSchemaLines(selectedDiagrams: DiagramKind[]) {
   const lines: string[] = [];
   if (include("function")) {
     lines.push(
-      "- function: 必须包含 nodes, relationships，用于 PlantUML 工作分解结构图（WBS）表示功能结构图。",
+      "- function: 必须包含 nodes, relationships，用于 PlantUML MindMap（@startmindmap）表示功能结构图。",
       "  nodes[].字段：id, name, description(可选), parentId(可选), sourceRequirementIds(string[])。每个节点表示一个功能、子功能或功能分组。",
       "  relationships[].字段：id, type(decomposition|dependency), sourceId, targetId, label(可选), description(可选)。decomposition 表示功能分解父子关系，dependency 只表示跨功能依赖。",
       "  功能结构图必须根据文本需求项抽取功能分解，不要输出用例 actors/useCases、流程 swimlanes 或部署节点作为主结构。",
@@ -160,7 +160,7 @@ function requirementDiagramSchemaLines(selectedDiagrams: DiagramKind[]) {
 
 const REQUIREMENT_STAGE_SEMANTICS = [
   "需求阶段模型职责：",
-  "- 功能结构图(function): 只根据功能需求/业务规则抽取系统功能层级，用 PlantUML 工作分解结构图表示功能分解；不得纳入非功能需求、界面需求或部署约束，不输出 dependency 关系和备注块。",
+  "- 功能结构图(function): 只根据功能需求/业务规则抽取系统功能层级，用 PlantUML MindMap 表示功能分解；不得纳入非功能需求、界面需求或部署约束，不输出 dependency 关系和备注块。",
   "- 用例模型(usecase): 明确系统边界，直观展示“谁（角色）能做什么（用例）”，并为每个关键用例补充主事件流、备选事件流和异常事件流。",
   "- 领域概念模型(class): 只描述业务领域内的核心概念实体、属性及实体之间的关联，不表达服务、控制器、仓储或对象方法。",
   "- 总体业务流程(activity): 描述跨角色的业务活动、分支、并行和结束条件，不表达 UI 页面跳转。",

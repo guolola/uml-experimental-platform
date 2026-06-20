@@ -122,7 +122,7 @@ test("renderDocumentBuffer renders same-kind sequence sections by diagramModelId
   );
 });
 
-test("renderDocumentBuffer injects document fonts into WBS diagrams", async () => {
+test("renderDocumentBuffer injects document fonts into MindMap diagrams", async () => {
   const calls: Parameters<PngRenderClient>[0][] = [];
   const renderPng: PngRenderClient = async (request) => {
     calls.push(request);
@@ -150,7 +150,7 @@ test("renderDocumentBuffer injects document fonts into WBS diagrams", async () =
             diagramKind: "function",
           },
         ],
-        new Map([["function", "@startwbs\n* 系统功能\n@endwbs"]]),
+        new Map([["function", "@startmindmap\n* 系统功能\n@endmindmap"]]),
         new Set(),
         renderPng,
         [],
@@ -159,7 +159,7 @@ test("renderDocumentBuffer injects document fonts into WBS diagrams", async () =
   );
 
   assert.ok(buffer.byteLength > 0);
-  assert.match(calls[0]?.source ?? "", /@startwbs\nskinparam dpi 240/u);
+  assert.match(calls[0]?.source ?? "", /@startmindmap\nskinparam dpi 240/u);
   assert.match(calls[0]?.source ?? "", /skinparam defaultFontName "Noto Sans CJK SC"/u);
 });
 

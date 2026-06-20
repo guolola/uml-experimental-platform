@@ -104,12 +104,12 @@ function renderUseCase(model: UseCaseDiagramSpec) {
   return `${lines.join("\n")}\n@enduml`;
 }
 
-function wbsLabel(value: unknown, maxLength = 34) {
+function mindMapLabel(value: unknown, maxLength = 34) {
   return (shortDiagramLabel(value, maxLength) || "未命名功能").replace(/\*/g, "-");
 }
 
 function renderFunctionStructure(model: FunctionStructureDiagramSpec) {
-  const lines = ["@startwbs", `* ${wbsLabel(model.title)}`];
+  const lines = ["@startmindmap"];
   const nodesById = new Map(model.nodes.map((node) => [node.id, node]));
   const childrenByParent = new Map<string, FunctionStructureDiagramSpec["nodes"]>();
   const childIds = new Set<string>();
@@ -137,14 +137,22 @@ function renderFunctionStructure(model: FunctionStructureDiagramSpec) {
   const renderNode = (node: FunctionStructureDiagramSpec["nodes"][number], depth: number) => {
     if (rendered.has(node.id)) return;
     rendered.add(node.id);
-    lines.push(`${"*".repeat(depth)} ${wbsLabel(node.name)}`);
+    lines.push(`${"*".repeat(depth)} ${mindMapLabel(node.name)}`);
     for (const child of childrenByParent.get(node.id) ?? []) {
       renderNode(child, depth + 1);
     }
   };
 
-  for (const root of roots.length > 0 ? roots : model.nodes.slice(0, 1)) {
-    renderNode(root, 2);
+  const rootNodes = roots.length > 0 ? roots : model.nodes.slice(0, 1);
+  if (rootNodes.length === 0) {
+    lines.push(`* ${mindMapLabel(model.title)}`);
+  } else if (rootNodes.length === 1) {
+    renderNode(rootNodes[0]!, 1);
+  } else {
+    lines.push(`* ${mindMapLabel(model.title)}`);
+    for (const root of rootNodes) {
+      renderNode(root, 2);
+    }
   }
 
   const unrendered = model.nodes.filter((node) => !rendered.has(node.id));
@@ -155,7 +163,7 @@ function renderFunctionStructure(model: FunctionStructureDiagramSpec) {
     }
   }
 
-  return `${lines.join("\n")}\n@endwbs`;
+  return `${lines.join("\n")}\n@endmindmap`;
 }
 
 function visibilityToSymbol(visibility: ClassAttribute["visibility"]) {

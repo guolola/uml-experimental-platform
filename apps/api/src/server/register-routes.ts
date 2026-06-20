@@ -37,6 +37,7 @@ import {
   startRunRecordPipeline,
 } from "../runs/pipelines/run-record-pipeline-starter.js";
 import { addCodeDiagnostic } from "../runs/pipelines/code/code-run-diagnostics.js";
+import { createProjectWorkspaceSync } from "../routes/runs/project-workspace-sync.js";
 import type { GenerationUsageService } from "../generation/generation-usage.js";
 import type { AcademicAdminRepository } from "../db/academic-admin-repository.js";
 import type { SystemNoticeStore } from "../system-notices/records/system-notice-store.js";
@@ -316,6 +317,7 @@ export function registerApiRoutes({
       ? undefined
       : billingService,
     loadProjectWorkspace: async (projectId) => authStore.getProjectWorkspace(projectId),
+    syncProjectWorkspace: createProjectWorkspaceSync(authStore),
     runAccessGuard: {
       async resolveRunAccess(request) {
         const projectIdHeader = request.headers["x-uml-project-id"];
