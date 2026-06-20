@@ -51,6 +51,7 @@ export function ProjectHistory({
   const [selectedErrorRunId, setSelectedErrorRunId] = useState("");
   const {
     historyItems,
+    refreshHistory,
     restoreRunHistory,
     deleteRunHistory,
   } = useWorkspaceSession();
@@ -201,6 +202,23 @@ export function ProjectHistory({
     } catch (deleteError) {
       setError(
         deleteError instanceof Error ? deleteError.message : "删除运行历史失败。",
+      );
+    }
+  };
+
+  const refreshRuns = async () => {
+    setMessage("");
+    setError("");
+    try {
+      const [runResponse] = await Promise.all([
+        platformApi.listProjectRuns(projectId),
+        refreshHistory().catch(() => undefined),
+      ]);
+      setRuns(runResponse.runs ?? []);
+      setMessage("运行历史已刷新。");
+    } catch (refreshError) {
+      setError(
+        refreshError instanceof Error ? refreshError.message : "刷新运行历史失败。",
       );
     }
   };
@@ -516,7 +534,7 @@ export function ProjectHistory({
         </div>
 
         <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-2 border-t border-border/60 bg-card/90 px-6 py-4 backdrop-blur-md">
-          <Button type="button" variant="outline" size="sm" onClick={() => setMessage("运行历史已是最新。")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void refreshRuns()}>
             <RotateCw className="size-4" />
             刷新历史
           </Button>

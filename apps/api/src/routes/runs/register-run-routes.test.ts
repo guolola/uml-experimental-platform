@@ -2540,6 +2540,7 @@ test("project run history supports detail and status filters for authorized memb
     history.json().runs.map((run: { runId: string }) => run.runId),
     [failedRunId],
   );
+  assert.equal(history.json().runs[0].errorMessage, "LLM repair exhausted");
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json().snapshot.runId, failedRunId);
   assert.equal(detail.json().snapshot.status, "failed");

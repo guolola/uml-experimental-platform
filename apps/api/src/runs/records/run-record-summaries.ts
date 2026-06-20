@@ -50,6 +50,7 @@ export function summarizeRunRecord(record: RunRecord) {
     stage,
     currentStage: record.snapshot.currentStage,
     error: record.snapshot.error,
+    errorMessage: record.snapshot.error?.message ?? null,
     model: readSnapshotModel(record.snapshot) ?? null,
     runKind: inferRunKind(record.snapshot),
     documentKind:

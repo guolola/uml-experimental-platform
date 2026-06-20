@@ -100,6 +100,63 @@ function createRequirementBaseline(
 }
 
 describe("WorkspaceSessionProvider", () => {
+  it("refreshes workspace and history after the browser comes back online without an active generation task", async () => {
+    let loadCount = 0;
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => {
+        loadCount += 1;
+        return createWorkspaceRecord({
+          requirementText:
+            loadCount === 1 ? "初始出版系统需求" : "恢复后的出版系统需求",
+        });
+      }),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () =>
+        loadCount > 1
+          ? [
+              {
+                id: "run-restored",
+                createdAt: "2026-06-20T00:00:00.000Z",
+                title: "恢复后的运行",
+                snapshot: null,
+                providerModel: "gpt-5.5",
+                status: "completed",
+              },
+            ]
+          : [],
+      ),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(result.current.requirementText).toBe("初始出版系统需求");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(2);
+      expect(result.current.requirementText).toBe("恢复后的出版系统需求");
+    });
+    expect(result.current.historyItems.map((item) => item.id)).toEqual([
+      "run-restored",
+    ]);
+  });
+
   it("shows Figma-style generation result dialogs with a single confirm close action", async () => {
     toastMessage.mockClear();
     let runIndex = 0;

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -359,6 +360,15 @@ export function WorkspaceSessionProvider({
     updateGenerationTask,
     visibleGenerationTask,
   } = useGenerationTaskActions();
+  const generationTasksRef = useRef(generationTasks);
+  generationTasksRef.current = generationTasks;
+  const getHasActiveGenerationTask = useCallback(
+    () =>
+      generationTasksRef.current.some(
+        (task) => task.status === "queued" || task.status === "running",
+      ),
+    [],
+  );
 
   const applyWorkspaceRecord = useCallback((workspace: WorkspaceRecord) => {
     applyWorkspaceRecordToSessionState(workspace, {
@@ -408,6 +418,7 @@ export function WorkspaceSessionProvider({
 
   useWorkspaceInitialization({
     applyWorkspaceRecord,
+    getHasActiveGenerationTask,
     repository,
     setHistoryItems,
     setRunUiState,

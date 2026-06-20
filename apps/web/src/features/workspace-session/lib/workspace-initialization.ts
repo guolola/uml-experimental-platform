@@ -13,6 +13,7 @@ type RunUiState = ReturnType<typeof createEmptyRunUiState>;
 
 interface WorkspaceInitializationInput {
   applyWorkspaceRecord: (workspace: WorkspaceRecord) => void;
+  getHasActiveGenerationTask?: () => boolean;
   repository: WorkspaceRepository;
   setHistoryItems: Dispatch<SetStateAction<RunHistoryItem[]>>;
   setRunUiState: Dispatch<SetStateAction<RunUiState>>;
@@ -20,6 +21,7 @@ interface WorkspaceInitializationInput {
 
 export function useWorkspaceInitialization({
   applyWorkspaceRecord,
+  getHasActiveGenerationTask,
   repository,
   setHistoryItems,
   setRunUiState,
@@ -27,38 +29,74 @@ export function useWorkspaceInitialization({
   useEffect(() => {
     let active = true;
 
-    void repository
-      .loadWorkspace()
-      .then((workspace) => {
+    const refreshHistory = async () => {
+      try {
+        const items = await repository.listRunHistory();
         if (!active) return;
-        applyWorkspaceRecord(workspace);
-        void repository
-          .listRunHistory()
-          .then((items) => {
-            if (active) {
-              setHistoryItems(items);
-            }
-          })
-          .catch((error) => {
-            if (!active) return;
-            setRunUiState((current) => ({
-              ...current,
-              errorMessage:
-                error instanceof Error ? error.message : "读取运行历史失败",
-            }));
-          });
-      })
-      .catch((error) => {
+        setHistoryItems(items);
+      } catch (error) {
         if (!active) return;
         setRunUiState((current) => ({
           ...current,
           errorMessage:
-            error instanceof Error ? error.message : "加载工作台失败",
+            error instanceof Error ? error.message : "读取运行历史失败",
         }));
-      });
+      }
+    };
+
+    const refreshWorkspaceAndHistory = async (applyWorkspace: boolean) => {
+      if (applyWorkspace) {
+        try {
+          const workspace = await repository.loadWorkspace();
+          if (!active) return;
+          applyWorkspaceRecord(workspace);
+        } catch (error) {
+          if (!active) return;
+          setRunUiState((current) => ({
+            ...current,
+            errorMessage:
+              error instanceof Error ? error.message : "加载工作台失败",
+          }));
+          return;
+        }
+      }
+      await refreshHistory();
+    };
+
+    const refreshAfterResume = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      const hasActiveGenerationTask = getHasActiveGenerationTask?.() ?? false;
+      void refreshWorkspaceAndHistory(!hasActiveGenerationTask);
+    };
+
+    void refreshWorkspaceAndHistory(true);
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", refreshAfterResume);
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", refreshAfterResume);
+    }
 
     return () => {
       active = false;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", refreshAfterResume);
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", refreshAfterResume);
+      }
     };
-  }, [applyWorkspaceRecord, repository, setHistoryItems, setRunUiState]);
+  }, [
+    applyWorkspaceRecord,
+    getHasActiveGenerationTask,
+    repository,
+    setHistoryItems,
+    setRunUiState,
+  ]);
 }
