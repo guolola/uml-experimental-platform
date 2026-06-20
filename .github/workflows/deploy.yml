@@ -234,14 +234,13 @@ jobs:
             -o StrictHostKeyChecking=accept-new
             -o UserKnownHostsFile=~/.ssh/known_hosts
           )
-          SCP_OPTIONS=(
-            "${SSH_OPTIONS[@]}"
-            -i ~/.ssh/deploy_key
-            -P "$DEPLOY_PORT"
-          )
           REMOTE_ARCHIVE="/tmp/uml-platform-${GITHUB_SHA}.tar.gz"
           REMOTE_SCRIPT="/tmp/baota-pm2-deploy-${GITHUB_SHA}.sh"
-          scp "${SCP_OPTIONS[@]}" "$RELEASE_ARCHIVE" "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ARCHIVE"
+          # Stream the archive over SSH instead of scp/SFTP; some BaoTa SSH stacks
+          # leave sftp-server open after upload and keep the Actions step running.
+          ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cat > '$REMOTE_ARCHIVE'" < "$RELEASE_ARCHIVE"
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='$REMOTE_ARCHIVE' REMOTE_SCRIPT='$REMOTE_SCRIPT' bash -s" <<'REMOTE_DEPLOY'
