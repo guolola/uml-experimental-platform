@@ -28,6 +28,7 @@ import type { RenderClient } from "../adapters/render/render-client.js";
 import type { PngRenderClient } from "../adapters/render/png-render-client.js";
 import type { LlmTransport } from "../llm.js";
 import type { LlmScheduler } from "../adapters/llm/llm-scheduler.js";
+import type { RunQueue } from "../runs/queue/run-queue.js";
 import { runCodeStagePipeline } from "../runs/pipelines/code-pipeline.js";
 import { runDesignStagePipeline } from "../runs/pipelines/design-pipeline.js";
 import { runDocumentStagePipeline } from "../runs/pipelines/document-pipeline.js";
@@ -64,6 +65,7 @@ export type RegisterApiRoutesOptions = {
   providerConfigs: ProviderConfigStore;
   providerUsageTracker?: ProviderUsageTracker;
   llmScheduler: LlmScheduler;
+  runQueue?: RunQueue;
   llmTransport: LlmTransport;
   renderClient: RenderClient;
   pngRenderClient: PngRenderClient;
@@ -100,6 +102,7 @@ export function registerApiRoutes({
   providerConfigs,
   providerUsageTracker,
   llmScheduler,
+  runQueue,
   llmTransport,
   renderClient,
   pngRenderClient,
@@ -294,6 +297,7 @@ export function registerApiRoutes({
     documentLibrary,
     llmTransport,
     llmScheduler,
+    runQueue,
     renderClient,
     pngRenderClient,
     defaultSseAllowOrigin: DEFAULT_SSE_ALLOW_ORIGIN,

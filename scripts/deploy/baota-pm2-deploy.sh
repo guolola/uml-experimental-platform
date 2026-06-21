@@ -205,6 +205,7 @@ echo "Reloading PM2 processes ..."
   export UML_RELEASE_DIR="$RELEASE_DIR"
   export UML_RELEASE_STARTED_AT="$RELEASE_STARTED_AT"
 
+  pm2 delete uml-generation-worker >/dev/null 2>&1 || true
   pm2 delete uml-api >/dev/null 2>&1 || true
   pm2 delete uml-render-service >/dev/null 2>&1 || true
   pm2 start ecosystem.config.cjs --env production

@@ -277,6 +277,7 @@ reload_pm2_for_release() {
     export UML_RELEASE_DIR="$release_dir"
     export UML_RELEASE_STARTED_AT="$started_at"
 
+    pm2 delete uml-generation-worker >/dev/null 2>&1 || true
     pm2 delete uml-api >/dev/null 2>&1 || true
     pm2 delete uml-render-service >/dev/null 2>&1 || true
     pm2 start ecosystem.config.cjs --env production

@@ -8,6 +8,9 @@ interface RunRecordRow {
   id: string;
   user_id: string | null;
   project_id: string | null;
+  source_run_id: string | null;
+  source_action: RunRecordMetadata["sourceAction"] | null;
+  source_run_status: string | null;
   snapshot: RunRecord["snapshot"];
   status: string;
   stage: string;
@@ -35,6 +38,8 @@ type PersistJob = Promise<void>;
 
 export interface PersistentRunRecordStore extends RunRecordStore {
   flush(): Promise<void>;
+  refreshRun(runId: string): Promise<RunRecord | null>;
+  refreshProject(projectId: string): Promise<void>;
 }
 
 function toIsoString(value: Date | string | null | undefined) {
@@ -93,10 +98,23 @@ function readCompletedAt(record: RunRecord, event?: RunEvent) {
 }
 
 function createMetadata(row: RunRecordRow): RunRecordMetadata | undefined {
-  if (!row.user_id && !row.project_id && !row.completed_at && !row.model) return undefined;
+  if (
+    !row.user_id &&
+    !row.project_id &&
+    !row.source_run_id &&
+    !row.source_action &&
+    !row.source_run_status &&
+    !row.completed_at &&
+    !row.model
+  ) {
+    return undefined;
+  }
   return {
     userId: row.user_id ?? undefined,
     projectId: row.project_id ?? undefined,
+    sourceRunId: row.source_run_id ?? undefined,
+    sourceAction: row.source_action ?? undefined,
+    sourceRunStatus: row.source_run_status ?? undefined,
     model: row.model ?? undefined,
     createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
     completedAt: toIsoString(row.completed_at),
@@ -134,6 +152,19 @@ function hydratePersistedEvent(
   return event;
 }
 
+function shouldMarkActiveRunsInterruptedOnRestore(env: NodeJS.ProcessEnv = process.env) {
+  const queueMode = env.UML_RUN_QUEUE_MODE?.trim().toLowerCase();
+  return queueMode !== "bullmq" && env.UML_ENABLE_RUN_QUEUE !== "true";
+}
+
+function cloneSnapshot(snapshot: RunRecord["snapshot"]) {
+  return JSON.parse(JSON.stringify(snapshot)) as RunRecord["snapshot"];
+}
+
+function isActiveStatus(status: string) {
+  return status === "queued" || status === "running";
+}
+
 class PostgresRunRecordStore extends Map<string, RunRecord> implements PersistentRunRecordStore {
   private readonly pending = new Set<PersistJob>();
   private readonly chains = new Map<string, PersistJob>();
@@ -162,7 +193,7 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
 
   async restore() {
     const records = await this.db.query<RunRecordRow>(`
-      select id, user_id, project_id, snapshot, status, stage, model, provider_config_id, error_message, error, error_code, created_at, completed_at
+      select id, user_id, project_id, source_run_id, source_action, source_run_status, snapshot, status, stage, model, provider_config_id, error_message, error, error_code, created_at, completed_at
       from run_records
       order by created_at asc
     `);
@@ -171,30 +202,102 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
       from run_events
       order by run_id asc, sequence asc
     `);
-    const eventsByRun = new Map<string, RunEvent[]>();
-    for (const row of events.rows) {
-      const list = eventsByRun.get(row.run_id) ?? [];
-      const snapshot = records.rows.find((recordRow) => recordRow.id === row.run_id)?.snapshot;
-      if (!snapshot) continue;
-      list.push(hydratePersistedEvent(row.payload, snapshot));
-      eventsByRun.set(row.run_id, list);
+    this.applyLoadedRows(records.rows, events.rows, {
+      markActiveInterrupted: shouldMarkActiveRunsInterruptedOnRestore(),
+    });
+  }
+
+  async refreshRun(runId: string) {
+    const records = await this.db.query<RunRecordRow>(
+      `
+        select id, user_id, project_id, source_run_id, source_action, source_run_status, snapshot, status, stage, model, provider_config_id, error_message, error, error_code, created_at, completed_at
+        from run_records
+        where id = $1
+      `,
+      [runId],
+    );
+    const events = await this.loadEventsForRunIds(records.rows.map((row) => row.id));
+    this.applyLoadedRows(records.rows, events, { markActiveInterrupted: false });
+    return super.get(runId) ?? null;
+  }
+
+  async refreshProject(projectId: string) {
+    const records = await this.db.query<RunRecordRow>(
+      `
+        select id, user_id, project_id, source_run_id, source_action, source_run_status, snapshot, status, stage, model, provider_config_id, error_message, error, error_code, created_at, completed_at
+        from run_records
+        where project_id = $1
+        order by created_at asc
+      `,
+      [projectId],
+    );
+    const events = await this.loadEventsForRunIds(records.rows.map((row) => row.id));
+    this.applyLoadedRows(records.rows, events, { markActiveInterrupted: false });
+  }
+
+  async flush() {
+    while (this.pending.size > 0) {
+      await Promise.all(Array.from(this.pending));
+    }
+    if (this.failures.length > 0) {
+      throw this.failures.shift();
+    }
+  }
+
+  private attachPersistence(record: RunRecord) {
+    record.persist = (nextRecord, event) => {
+      this.enqueue(nextRecord.snapshot.runId, () => this.saveRecord(nextRecord, event));
+    };
+  }
+
+  private async loadEventsForRunIds(runIds: string[]) {
+    if (runIds.length === 0) return [];
+    const events = await this.db.query<RunEventRow>(
+      `
+        select run_id, sequence, payload
+        from run_events
+        where run_id = any($1::text[])
+        order by run_id asc, sequence asc
+      `,
+      [runIds],
+    );
+    return events.rows;
+  }
+
+  private applyLoadedRows(
+    rows: RunRecordRow[],
+    eventRows: RunEventRow[],
+    { markActiveInterrupted }: { markActiveInterrupted: boolean },
+  ) {
+    const eventRowsByRun = new Map<string, RunEventRow[]>();
+    for (const row of eventRows) {
+      const list = eventRowsByRun.get(row.run_id) ?? [];
+      list.push(row);
+      eventRowsByRun.set(row.run_id, list);
     }
 
-    for (const row of records.rows) {
-      const hasActiveStatus = row.status === "queued" || row.status === "running";
-      const restoredActiveRun = hasActiveStatus && !row.completed_at;
-      const restoredInterruptedRun = hasActiveStatus;
+    for (const row of rows) {
+      const existing = super.get(row.id);
+      const snapshot = cloneSnapshot(row.snapshot);
+      const events = (eventRowsByRun.get(row.id) ?? []).map((eventRow) =>
+        hydratePersistedEvent(eventRow.payload, snapshot),
+      );
+      const activeStatus = isActiveStatus(row.status);
+      const staleActiveWithCompletedAt = activeStatus && Boolean(row.completed_at);
+      const restoredInterruptedRun =
+        staleActiveWithCompletedAt || (markActiveInterrupted && activeStatus);
       const record: RunRecord = {
-        snapshot: row.snapshot,
-        events: eventsByRun.get(row.id) ?? [],
-        listeners: new Set(),
+        snapshot,
+        events,
+        listeners: existing?.listeners ?? new Set(),
         terminal:
-          restoredActiveRun ||
+          restoredInterruptedRun ||
           row.status === "completed" ||
           row.status === "failed" ||
           row.status === "cancelled" ||
           Boolean(row.completed_at),
         metadata: createMetadata(row),
+        documentBuffer: existing?.documentBuffer,
       };
       if (restoredInterruptedRun && !record.snapshot.error) {
         record.snapshot.error = createRunError(
@@ -222,21 +325,6 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
     }
   }
 
-  async flush() {
-    while (this.pending.size > 0) {
-      await Promise.all(Array.from(this.pending));
-    }
-    if (this.failures.length > 0) {
-      throw this.failures.shift();
-    }
-  }
-
-  private attachPersistence(record: RunRecord) {
-    record.persist = (nextRecord, event) => {
-      this.enqueue(nextRecord.snapshot.runId, () => this.saveRecord(nextRecord, event));
-    };
-  }
-
   private enqueue(runId: string, job: () => PersistJob) {
     const previous = this.chains.get(runId) ?? Promise.resolve();
     const chained = previous.catch(() => undefined).then(job);
@@ -262,13 +350,17 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
       await this.db.query(
         `
           insert into run_records (
-            id, user_id, project_id, stage, status, model, provider_config_id,
+            id, user_id, project_id, source_run_id, source_action, source_run_status,
+            stage, status, model, provider_config_id,
             snapshot, error, error_code, completed_at, created_at, updated_at
           )
-          values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, now())
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15, now())
           on conflict (id) do update set
             user_id = excluded.user_id,
             project_id = excluded.project_id,
+            source_run_id = excluded.source_run_id,
+            source_action = excluded.source_action,
+            source_run_status = excluded.source_run_status,
             stage = excluded.stage,
             status = excluded.status,
             model = excluded.model,
@@ -283,6 +375,9 @@ class PostgresRunRecordStore extends Map<string, RunRecord> implements Persisten
           snapshot.runId,
           metadata?.userId ?? null,
           metadata?.projectId ?? null,
+          metadata?.sourceRunId ?? null,
+          metadata?.sourceAction ?? null,
+          metadata?.sourceRunStatus ?? null,
           readStage(snapshot),
           readPersistedStatus(record, event),
           readModel(snapshot),

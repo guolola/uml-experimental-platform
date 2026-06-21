@@ -43,6 +43,40 @@ const documentEnv = {
     : {}),
 };
 
+const queueEnv = {
+  ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
+  ...(process.env.UML_RUN_QUEUE_MODE
+    ? { UML_RUN_QUEUE_MODE: process.env.UML_RUN_QUEUE_MODE }
+    : {}),
+  ...(process.env.UML_RUN_QUEUE_NAME
+    ? { UML_RUN_QUEUE_NAME: process.env.UML_RUN_QUEUE_NAME }
+    : {}),
+  ...(process.env.UML_GENERATION_WORKER_CONCURRENCY
+    ? {
+        UML_GENERATION_WORKER_CONCURRENCY:
+          process.env.UML_GENERATION_WORKER_CONCURRENCY,
+      }
+    : {}),
+  ...(process.env.DATABASE_POOL_MAX
+    ? { DATABASE_POOL_MAX: process.env.DATABASE_POOL_MAX }
+    : {}),
+  ...(process.env.UML_LLM_GLOBAL_CONCURRENCY
+    ? { UML_LLM_GLOBAL_CONCURRENCY: process.env.UML_LLM_GLOBAL_CONCURRENCY }
+    : {}),
+  ...(process.env.UML_LLM_PROVIDER_CONCURRENCY
+    ? { UML_LLM_PROVIDER_CONCURRENCY: process.env.UML_LLM_PROVIDER_CONCURRENCY }
+    : {}),
+  ...(process.env.UML_LLM_PROJECT_CONCURRENCY
+    ? { UML_LLM_PROJECT_CONCURRENCY: process.env.UML_LLM_PROJECT_CONCURRENCY }
+    : {}),
+  ...(process.env.UML_LLM_USER_CONCURRENCY
+    ? { UML_LLM_USER_CONCURRENCY: process.env.UML_LLM_USER_CONCURRENCY }
+    : {}),
+  ...(process.env.UML_LLM_RUN_CONCURRENCY
+    ? { UML_LLM_RUN_CONCURRENCY: process.env.UML_LLM_RUN_CONCURRENCY }
+    : {}),
+};
+
 const renderServiceEnv = {
   NODE_ENV: "production",
   RENDER_SERVICE_HOST: "127.0.0.1",
@@ -55,11 +89,32 @@ const apiEnv = {
   NODE_ENV: "production",
   API_HOST: "127.0.0.1",
   API_PORT: "4001",
+  UML_API_AUTOSTART: "true",
   RENDER_SERVICE_BASE_URL: "http://127.0.0.1:4002",
   ...releaseEnv,
   ...corsEnv,
   ...documentEnv,
+  ...queueEnv,
 };
+
+const workerEnv = {
+  NODE_ENV: "production",
+  RENDER_SERVICE_BASE_URL: "http://127.0.0.1:4002",
+  ...releaseEnv,
+  ...documentEnv,
+  ...queueEnv,
+};
+
+const apiInstances = Number.parseInt(process.env.UML_API_INSTANCES ?? "1", 10);
+const workerInstances = Number.parseInt(
+  process.env.UML_GENERATION_WORKER_INSTANCES ?? "1",
+  10,
+);
+const apiMaxMemoryRestart = process.env.UML_API_MAX_MEMORY_RESTART ?? "1536M";
+const workerMaxMemoryRestart =
+  process.env.UML_GENERATION_WORKER_MAX_MEMORY_RESTART ?? "1536M";
+const resolvedApiInstances =
+  Number.isInteger(apiInstances) && apiInstances > 0 ? apiInstances : 1;
 
 module.exports = {
   apps: [
@@ -81,17 +136,35 @@ module.exports = {
     {
       name: "uml-api",
       cwd: __dirname,
-      script: "bash",
-      args: [
-        "-lc",
-        "cd \"$PWD\" && API_HOST=127.0.0.1 API_PORT=4001 RENDER_SERVICE_BASE_URL=http://127.0.0.1:4002 node apps/api/dist/index.js",
-      ],
-      instances: 1,
-      exec_mode: "fork",
+      script: "apps/api/dist/index.js",
+      instances: resolvedApiInstances,
+      exec_mode: resolvedApiInstances > 1 ? "cluster" : "fork",
       env: apiEnv,
       env_production: apiEnv,
-      max_memory_restart: "768M",
+      max_memory_restart: apiMaxMemoryRestart,
       time: true,
     },
+    ...(process.env.UML_ENABLE_GENERATION_WORKER === "true"
+      ? [
+          {
+            name: "uml-generation-worker",
+            cwd: __dirname,
+            script: "bash",
+            args: [
+              "-lc",
+              "cd \"$PWD\" && node apps/api/dist/workers/generation-worker.js",
+            ],
+            instances:
+              Number.isInteger(workerInstances) && workerInstances > 0
+                ? workerInstances
+                : 1,
+            exec_mode: "fork",
+            env: workerEnv,
+            env_production: workerEnv,
+            max_memory_restart: workerMaxMemoryRestart,
+            time: true,
+          },
+        ]
+      : []),
   ],
 };

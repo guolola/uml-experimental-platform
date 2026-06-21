@@ -51,7 +51,11 @@ import {
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError, parseJson } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
-import { throwIfRunCancelled } from "../records/run-cancellation.js";
+import {
+  isRunCancelled,
+  RunCancelledError,
+  throwIfRunCancelled,
+} from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
@@ -1163,17 +1167,40 @@ export async function runStagePipeline(
   throwIfRunCancelled(record);
   if (rules.length === 0 || snapshot.selectedDiagrams.length === 0) {
     updateStage("extract_rules", "正在抽取需求规则");
-    const ruleResult = await collectStructuredResult(
-      llmTransport,
-      providerSettings,
-      createMessages(buildExtractRulesPrompt(snapshot.requirementText)),
-      "extract_rules",
-      createRunLlmChunkHandlers({
-        record,
-        stage: "extract_rules",
-      }),
-      (text) => normalizeRequirementRulesResult(parseJson(text)),
-      getExtractRequirementRulesResponseFormat(providerSettings.model),
+    const timeoutConfig = readRequirementModelTaskTimeoutConfig();
+    const ruleResult = await withModelTaskTimeout(
+      (markActivity, markBlankActivity, abortSignal) => {
+        const chunkHandlers = createRunLlmChunkHandlers({
+          record,
+          stage: "extract_rules",
+        });
+        return collectStructuredResult(
+          llmTransport,
+          providerSettings,
+          createMessages(buildExtractRulesPrompt(snapshot.requirementText)),
+          "extract_rules",
+          {
+            onChunk: (chunk) => {
+              markActivity();
+              chunkHandlers.onChunk(chunk);
+            },
+            onBlankChunk: (chunk) => {
+              markBlankActivity();
+              chunkHandlers.onBlankChunk?.(chunk);
+            },
+          },
+          (text) => normalizeRequirementRulesResult(parseJson(text)),
+          getExtractRequirementRulesResponseFormat(providerSettings.model),
+          undefined,
+          abortSignal,
+        );
+      },
+      {
+        ...timeoutConfig,
+        label: "需求规则抽取",
+        isCancelled: () => isRunCancelled(record),
+        createCancelError: () => new RunCancelledError(snapshot.runId),
+      },
     );
     throwIfRunCancelled(record);
     rules = ruleResult.rules;
@@ -1254,6 +1281,8 @@ export async function runStagePipeline(
             {
               ...timeoutConfig,
               label: `${diagram}需求模型生成${labelSuffix}`,
+              isCancelled: () => isRunCancelled(record),
+              createCancelError: () => new RunCancelledError(snapshot.runId),
             },
           );
         let result: Awaited<ReturnType<typeof generateModelsWithRepair>>;
@@ -1444,6 +1473,8 @@ export async function runStagePipeline(
               {
                 ...timeoutConfig,
                 label: `${useCase.name}需求分析模型生成${labelSuffix}`,
+                isCancelled: () => isRunCancelled(record),
+                createCancelError: () => new RunCancelledError(snapshot.runId),
               },
             );
           let rawResult: Awaited<ReturnType<typeof generateAnalysisModelWithRepair>>;

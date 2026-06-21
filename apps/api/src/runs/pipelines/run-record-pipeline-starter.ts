@@ -323,6 +323,65 @@ export function startRunRecordPipeline({
     message: string,
   ) => void;
 }) {
+  void runRunRecordPipeline({
+    record,
+    providerSettings,
+    providerConfigId,
+    llmTransport,
+    llmScheduler,
+    renderClient,
+    pngRenderClient,
+    documentLibrary,
+    runStagePipeline,
+    runDesignStagePipeline,
+    runCodeStagePipeline,
+    runDocumentStagePipeline,
+    addCodeDiagnostic,
+    documentInput,
+    billingEntitlements,
+  });
+}
+
+export async function runRunRecordPipeline({
+  record,
+  providerSettings,
+  providerConfigId,
+  llmTransport,
+  llmScheduler,
+  renderClient,
+  pngRenderClient,
+  documentLibrary,
+  runStagePipeline,
+  runDesignStagePipeline,
+  runCodeStagePipeline,
+  runDocumentStagePipeline,
+  addCodeDiagnostic,
+  documentInput,
+  billingEntitlements,
+}: {
+  record: RunRecord;
+  providerSettings: ProviderSettings;
+  providerConfigId: string | null;
+  llmTransport: LlmTransport;
+  llmScheduler?: LlmScheduler;
+  renderClient: RenderClient;
+  pngRenderClient: PngRenderClient;
+  documentLibrary: DocumentLibrary;
+  runStagePipeline: RequirementPipeline;
+  runDesignStagePipeline: DesignPipeline;
+  runCodeStagePipeline: CodePipeline;
+  runDocumentStagePipeline: DocumentPipeline;
+  documentInput?: StartDocumentRunRequest;
+  billingEntitlements?: Pick<
+    BillingService,
+    "confirmRunUsage" | "releaseRunUsage" | "compensateRunUsage"
+  >;
+  addCodeDiagnostic: (
+    snapshot: CodeRunSnapshot,
+    stage: RunStage,
+    message: string,
+  ) => void;
+}) {
   const taskType = taskTypeForRecord(record);
   const scheduledTransport = createRunLlmTransport({
     record,
@@ -362,19 +421,19 @@ export function startRunRecordPipeline({
           : runStagePipeline(record, providerSettings, entitlementTransport, renderClient);
 
   let terminalError: RunError | null = null;
-  void runPromise
-    .catch((error) => {
-      terminalError = handleRunPipelineError(record, error, addCodeDiagnostic);
-    })
-    .finally(() => {
-      if (terminalError && isPlatformProviderRunError(terminalError)) {
-        void billingEntitlements?.compensateRunUsage({
-          runId: record.snapshot.runId,
-          errorCode: terminalError.code,
-          reason: terminalError.message,
-        });
-        return;
-      }
-      void billingEntitlements?.releaseRunUsage(record.snapshot.runId);
-    });
+  try {
+    await runPromise;
+  } catch (error) {
+    terminalError = handleRunPipelineError(record, error, addCodeDiagnostic);
+  } finally {
+    if (terminalError && isPlatformProviderRunError(terminalError)) {
+      await billingEntitlements?.compensateRunUsage({
+        runId: record.snapshot.runId,
+        errorCode: terminalError.code,
+        reason: terminalError.message,
+      });
+      return;
+    }
+    await billingEntitlements?.releaseRunUsage(record.snapshot.runId);
+  }
 }

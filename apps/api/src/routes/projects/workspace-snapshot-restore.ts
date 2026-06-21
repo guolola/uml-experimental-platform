@@ -103,18 +103,23 @@ export function restoreRunSnapshotToWorkspaceState({
   currentState,
   snapshot,
   mode = "merge",
+  replaceRequirementInput = false,
 }: {
   currentState?: WorkspaceState | null;
   snapshot: RestorableRunSnapshot;
   mode?: "merge" | "restore";
+  replaceRequirementInput?: boolean;
 }) {
   const base = mode === "restore" ? {} : { ...(currentState ?? {}) };
-  return applySnapshotToWorkspaceState(base, snapshot);
+  return applySnapshotToWorkspaceState(base, snapshot, {
+    replaceRequirementInput,
+  });
 }
 
 function applySnapshotToWorkspaceState(
   state: WorkspaceState,
   snapshot: RestorableRunSnapshot,
+  options: { replaceRequirementInput?: boolean } = {},
 ) {
   const next: WorkspaceState = { ...state };
   const currentRequirementText = stringValue(next.requirementText);
@@ -143,8 +148,23 @@ function applySnapshotToWorkspaceState(
     snapshot.svgArtifacts.length === 0 &&
     Object.keys(snapshot.diagramErrors).length === 0;
 
-  if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
+  if (
+    options.replaceRequirementInput &&
+    isRequirementSnapshot &&
+    snapshot.rules.length > 0
+  ) {
     next.requirementText = snapshot.requirementText;
+    next.rules = [...snapshot.rules];
+  } else if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
+    next.requirementText = snapshot.requirementText;
+    next.rules = [...snapshot.rules];
+  }
+  if (
+    isRequirementSnapshot &&
+    snapshot.rules.length > 0 &&
+    currentRules.length === 0 &&
+    stringValue(next.requirementText).trim() === snapshot.requirementText.trim()
+  ) {
     next.rules = [...snapshot.rules];
   }
 

@@ -24,6 +24,7 @@ import {
   createInMemoryLlmScheduler,
   type LlmScheduler,
 } from "../../adapters/llm/llm-scheduler.js";
+import type { RunQueue } from "../../runs/queue/run-queue.js";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import type { PngRenderClient } from "../../adapters/render/png-render-client.js";
@@ -313,6 +314,7 @@ async function createRunRouteTestApp(options?: {
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
   loadProjectWorkspace?: Parameters<typeof registerRunRoutes>[0]["loadProjectWorkspace"];
+  runQueue?: RunQueue;
 }) {
   return (await createRunRouteTestContext(options)).app;
 }
@@ -332,6 +334,7 @@ async function createRunRouteTestContext(options?: {
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
   loadProjectWorkspace?: Parameters<typeof registerRunRoutes>[0]["loadProjectWorkspace"];
+  runQueue?: RunQueue;
 }) {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {
@@ -404,6 +407,7 @@ async function createRunRouteTestContext(options?: {
     providerUsageTracker: options?.providerUsageTracker,
     generationUsage: options?.generationUsage,
     llmScheduler: options?.llmScheduler,
+    runQueue: options?.runQueue,
     loadProjectWorkspace: options?.loadProjectWorkspace,
   });
 
@@ -1132,6 +1136,56 @@ test("project run starts derive provider settings from the project default confi
       model: "gpt-5.5",
     },
   );
+
+  await app.close();
+});
+
+test("project run starts enqueue records instead of executing the pipeline when a run queue is configured", async () => {
+  const enqueuedRunIds: string[] = [];
+  const runQueue: RunQueue = {
+    enabled: true,
+    async enqueueRun({ record }) {
+      enqueuedRunIds.push(record.snapshot.runId);
+    },
+    async cancelRun() {
+      return undefined;
+    },
+    attachEventPublisher() {
+      return undefined;
+    },
+    async close() {
+      return undefined;
+    },
+  };
+  let pipelineCalls = 0;
+  const { app, runs } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"], view_runs: ["project-a"] },
+    }),
+    runQueue,
+    runStagePipeline: async () => {
+      pipelineCalls += 1;
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: "项目 A 的需求",
+      selectedDiagrams: ["usecase"],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const { runId } = response.json() as { runId: string };
+  assert.deepEqual(enqueuedRunIds, [runId]);
+  assert.equal(pipelineCalls, 0);
+  assert.equal(runs.get(runId)?.snapshot.status, "queued");
 
   await app.close();
 });

@@ -42,6 +42,8 @@ import {
 } from "../../runs/records/snapshots.js";
 import {
   emitEvent,
+  refreshProjectRunRecordsIfAvailable,
+  refreshRunRecordIfAvailable,
   type RunRecord,
   type RunRecordStore,
 } from "../../runs/records/run-record-store.js";
@@ -127,6 +129,10 @@ import {
   attachProjectWorkspaceSync,
   type ProjectWorkspaceSync,
 } from "./project-workspace-sync.js";
+import {
+  flushRunStoreIfAvailable,
+  type RunQueue,
+} from "../../runs/queue/run-queue.js";
 
 export type { RunAccessContext, RunAccessGuard } from "./run-access.js";
 
@@ -229,6 +235,7 @@ export function registerRunRoutes({
   llmScheduler,
   loadProjectWorkspace,
   syncProjectWorkspace,
+  runQueue,
 }: {
   app: FastifyInstance;
   runs: RunRecordStore;
@@ -260,8 +267,17 @@ export function registerRunRoutes({
   llmScheduler?: LlmScheduler;
   loadProjectWorkspace?: LoadProjectWorkspaceForRun;
   syncProjectWorkspace?: ProjectWorkspaceSync;
+  runQueue?: RunQueue;
 }) {
-  const startRecordPipeline = ({
+  const sideEffectRecords = new WeakSet<RunRecord>();
+  const attachRunSideEffects = (record: RunRecord) => {
+    if (sideEffectRecords.has(record)) return;
+    sideEffectRecords.add(record);
+    attachProjectWorkspaceSync(record, syncProjectWorkspace);
+    runQueue?.attachEventPublisher(record);
+  };
+
+  const startRecordPipeline = async ({
     record,
     providerSettings,
     providerConfigId,
@@ -272,6 +288,12 @@ export function registerRunRoutes({
     providerConfigId: string | null;
     documentInput?: StartDocumentRunRequest;
   }) => {
+    attachRunSideEffects(record);
+    if (runQueue?.enabled) {
+      await flushRunStoreIfAvailable(runs);
+      await runQueue.enqueueRun({ record, documentInput });
+      return;
+    }
     startRunRecordPipeline({
       record,
       providerSettings,
@@ -504,7 +526,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
-      attachProjectWorkspaceSync(record, syncProjectWorkspace);
+      attachRunSideEffects(record);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       void completeOfflineDemoRequirementRun(record, input).catch((error) =>
         handleOfflineDemoError(record, error),
@@ -594,12 +616,12 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
-    attachProjectWorkspaceSync(record, syncProjectWorkspace);
+    attachRunSideEffects(record);
 
     // Routes create queued records; pipelines advance them to running/completed/failed.
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    startRecordPipeline({
+    await startRecordPipeline({
       record,
       providerSettings,
       providerConfigId,
@@ -642,7 +664,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
-      attachProjectWorkspaceSync(record, syncProjectWorkspace);
+      attachRunSideEffects(record);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       void completeOfflineDemoDesignRun(record, input).catch((error) =>
         handleOfflineDemoError(record, error),
@@ -725,11 +747,11 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
-    attachProjectWorkspaceSync(record, syncProjectWorkspace);
+    attachRunSideEffects(record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    startRecordPipeline({
+    await startRecordPipeline({
       record,
       providerSettings,
       providerConfigId,
@@ -772,7 +794,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
-      attachProjectWorkspaceSync(record, syncProjectWorkspace);
+      attachRunSideEffects(record);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       void completeOfflineDemoCodeRun(record, input).catch((error) =>
         handleOfflineDemoError(record, error),
@@ -855,11 +877,11 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
-    attachProjectWorkspaceSync(record, syncProjectWorkspace);
+    attachRunSideEffects(record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    startRecordPipeline({
+    await startRecordPipeline({
       record,
       providerSettings,
       providerConfigId,
@@ -907,7 +929,7 @@ export function registerRunRoutes({
         metadata,
       };
       runs.set(runId, record);
-      attachProjectWorkspaceSync(record, syncProjectWorkspace);
+      attachRunSideEffects(record);
       emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
       // Demo documents use the normal DOCX assembly boundary with AI text disabled.
       void runDocumentStagePipeline(
@@ -1008,11 +1030,11 @@ export function registerRunRoutes({
       model: providerSettings.model,
     });
     runs.set(runId, record);
-    attachProjectWorkspaceSync(record, syncProjectWorkspace);
+    attachRunSideEffects(record);
 
     emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));
 
-    startRecordPipeline({
+    await startRecordPipeline({
       record,
       providerSettings,
       providerConfigId,
@@ -1029,6 +1051,7 @@ export function registerRunRoutes({
       return runAccessDeniedMessage(reply);
     }
 
+    await refreshProjectRunRecordsIfAvailable(runs, projectId);
     const projectRunRecords = Array.from(runs.values())
       .filter((record) => record.metadata?.projectId === projectId)
       .filter((record) => projectRecordMatchesFilters(record, request.query))
@@ -1059,7 +1082,7 @@ export function registerRunRoutes({
       return runAccessDeniedMessage(reply);
     }
 
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record || record.metadata?.projectId !== projectId) {
       reply.code(404);
       return { message: "Run not found" };
@@ -1085,6 +1108,7 @@ export function registerRunRoutes({
     );
     if (!access) return runAccessDeniedMessage(reply);
 
+    await refreshProjectRunRecordsIfAvailable(runs, projectId);
     const projectRecords = Array.from(runs.entries()).filter(
       ([, record]) => record.metadata?.projectId === projectId,
     );
@@ -1119,7 +1143,7 @@ export function registerRunRoutes({
       return runAccessDeniedMessage(reply);
     }
 
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record || record.metadata?.projectId !== projectId) {
       reply.code(404);
       return { message: "Run not found" };
@@ -1145,7 +1169,7 @@ export function registerRunRoutes({
     );
     if (!access) return runAccessDeniedMessage(reply);
 
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record || record.metadata?.projectId !== projectId) {
       reply.code(404);
       return { message: "Run not found" };
@@ -1195,7 +1219,7 @@ export function registerRunRoutes({
     );
     if (!access) return runAccessDeniedMessage(reply);
 
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record || record.metadata?.projectId !== projectId) {
       reply.code(404);
       return { message: "Run not found" };
@@ -1224,7 +1248,7 @@ export function registerRunRoutes({
     );
     if (!access) return runAccessDeniedMessage(reply);
 
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record || record.metadata?.projectId !== projectId) {
       reply.code(404);
       return { message: "Run not found" };
@@ -1235,6 +1259,7 @@ export function registerRunRoutes({
     }
 
     llmScheduler?.cancelRun(runId);
+    await runQueue?.cancelRun(runId);
     await billingEntitlements?.releaseRunUsage(runId);
     return cancelRunRecord(record, runId);
   });
@@ -1252,6 +1277,7 @@ export function registerRunRoutes({
       runAccessGuard,
     );
     if (!access) return runAccessDeniedMessage(reply);
+    await refreshRunRecordIfAvailable(runs, runId);
     return createProjectRunAction({
       request,
       reply,
@@ -1284,6 +1310,7 @@ export function registerRunRoutes({
       runAccessGuard,
     );
     if (!access) return runAccessDeniedMessage(reply);
+    await refreshRunRecordIfAvailable(runs, runId);
     return createProjectRunAction({
       request,
       reply,
@@ -1305,7 +1332,7 @@ export function registerRunRoutes({
 
   app.get(RUN_ROUTE_CONFIG.requirements.snapshotPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record) {
       reply.code(404);
       return { message: RUN_ROUTE_CONFIG.requirements.notFoundMessage };
@@ -1318,7 +1345,7 @@ export function registerRunRoutes({
 
   app.get(RUN_ROUTE_CONFIG.design.snapshotPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record) {
       reply.code(404);
       return { message: RUN_ROUTE_CONFIG.design.notFoundMessage };
@@ -1331,7 +1358,7 @@ export function registerRunRoutes({
 
   app.get(RUN_ROUTE_CONFIG.code.snapshotPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record) {
       reply.code(404);
       return {
@@ -1346,7 +1373,7 @@ export function registerRunRoutes({
 
   app.get(RUN_ROUTE_CONFIG.document.snapshotPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record) {
       reply.code(404);
       return { message: RUN_ROUTE_CONFIG.document.notFoundMessage };
@@ -1359,7 +1386,7 @@ export function registerRunRoutes({
 
   app.get(RUN_ROUTE_CONFIG.document.downloadPath, async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record) {
       reply.code(404);
       return { message: "Document file not found" };

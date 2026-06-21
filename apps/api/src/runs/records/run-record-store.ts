@@ -17,7 +17,24 @@ export interface RunRecord {
   persist?: (record: RunRecord, event?: RunEvent) => void | Promise<void>;
 }
 
-export type RunRecordStore = Map<string, RunRecord>;
+export type RunRecordStore = Map<string, RunRecord> & {
+  refreshRun?: (runId: string) => Promise<RunRecord | null>;
+  refreshProject?: (projectId: string) => Promise<void>;
+};
+
+export async function refreshRunRecordIfAvailable(
+  runs: RunRecordStore,
+  runId: string,
+) {
+  return runs.refreshRun ? await runs.refreshRun(runId) : (runs.get(runId) ?? null);
+}
+
+export async function refreshProjectRunRecordsIfAvailable(
+  runs: RunRecordStore,
+  projectId: string,
+) {
+  await runs.refreshProject?.(projectId);
+}
 
 export interface RunRecordMetadata {
   userId?: string;

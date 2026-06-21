@@ -1,7 +1,11 @@
 // Registers shared Server-Sent Events endpoints for all run kinds.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RunEvent } from "@uml-platform/contracts";
-import type { RunRecord } from "../runs/records/run-record-store.js";
+import {
+  refreshRunRecordIfAvailable,
+  type RunRecord,
+  type RunRecordStore,
+} from "../runs/records/run-record-store.js";
 import { DEFAULT_LOCAL_CORS_ORIGINS, readCorsOrigins } from "../server/cors.js";
 
 type CanReadRunRecord = (
@@ -20,7 +24,7 @@ export function registerRunEventsRoute({
   heartbeatMs = 15000,
 }: {
   app: FastifyInstance;
-  runs: Map<string, RunRecord>;
+  runs: RunRecordStore;
   path: string;
   notFoundMessage: string;
   defaultAllowOrigin: string;
@@ -33,7 +37,7 @@ export function registerRunEventsRoute({
 
   app.get(path, async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const record = runs.get(runId);
+    const record = await refreshRunRecordIfAvailable(runs, runId);
     if (!record) {
       reply.code(404);
       return { message: notFoundMessage };

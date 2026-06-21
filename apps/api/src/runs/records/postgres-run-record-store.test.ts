@@ -13,6 +13,9 @@ interface FakeRunRow {
   id: string;
   user_id?: string | null;
   project_id?: string | null;
+  source_run_id?: string | null;
+  source_action?: "retry" | "rerun" | null;
+  source_run_status?: string | null;
   snapshot: RunRecord["snapshot"];
   status: string;
   stage: string;
@@ -45,18 +48,28 @@ class FakeRunDb implements Queryable {
     const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
 
     if (normalized.startsWith("select id, user_id, project_id")) {
+      let rows = Array.from(this.runRows.values());
+      if (normalized.includes(" where id = $1")) {
+        rows = rows.filter((row) => row.id === params[0]);
+      }
+      if (normalized.includes(" where project_id = $1")) {
+        rows = rows.filter((row) => row.project_id === params[0]);
+      }
       return {
-        rows: Array.from(this.runRows.values()) as T[],
-        rowCount: this.runRows.size,
+        rows: rows as T[],
+        rowCount: rows.length,
       };
     }
 
     if (normalized.startsWith("select run_id, sequence, payload")) {
+      let rows = this.eventRows.slice();
+      if (normalized.includes("where run_id = any")) {
+        const ids = new Set(params[0] as string[]);
+        rows = rows.filter((row) => ids.has(row.run_id));
+      }
       return {
-        rows: this.eventRows
-          .slice()
-          .sort((left, right) => left.sequence - right.sequence) as T[],
-        rowCount: this.eventRows.length,
+        rows: rows.sort((left, right) => left.sequence - right.sequence) as T[],
+        rowCount: rows.length,
       };
     }
 
@@ -65,6 +78,9 @@ class FakeRunDb implements Queryable {
         id,
         userId,
         projectId,
+        sourceRunId,
+        sourceAction,
+        sourceRunStatus,
         stage,
         status,
         model,
@@ -83,6 +99,11 @@ class FakeRunDb implements Queryable {
         id: String(id),
         user_id: typeof userId === "string" ? userId : null,
         project_id: typeof projectId === "string" ? projectId : null,
+        source_run_id: typeof sourceRunId === "string" ? sourceRunId : null,
+        source_action:
+          sourceAction === "retry" || sourceAction === "rerun" ? sourceAction : null,
+        source_run_status:
+          typeof sourceRunStatus === "string" ? sourceRunStatus : null,
         stage: String(stage),
         status: String(status),
         model: typeof model === "string" ? model : null,
@@ -215,6 +236,40 @@ test("postgres run store persists managed provider config ids", async () => {
   assert.equal(row?.provider_config_id, "provider-deepseek-v4pro");
 });
 
+test("postgres run store persists retry and rerun source metadata", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-retry", "需求文本", ["usecase"], []);
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      userId: "user-1",
+      projectId: "project-1",
+      sourceRunId: "run-source",
+      sourceAction: "retry",
+      sourceRunStatus: "failed",
+      createdAt: "2026-05-22T00:00:00.000Z",
+    },
+  };
+
+  runs.set("run-retry", record);
+  await runs.flush();
+
+  const row = db.runRows.get("run-retry");
+  assert.equal(row?.source_run_id, "run-source");
+  assert.equal(row?.source_action, "retry");
+  assert.equal(row?.source_run_status, "failed");
+
+  const restored = await createPostgresRunRecordStore(db);
+  const restoredRecord = restored.get("run-retry");
+  assert.equal(restoredRecord?.metadata?.sourceRunId, "run-source");
+  assert.equal(restoredRecord?.metadata?.sourceAction, "retry");
+  assert.equal(restoredRecord?.metadata?.sourceRunStatus, "failed");
+});
+
 test("postgres run store restores abandoned active runs as interrupted", async () => {
   const db = new FakeRunDb();
   const snapshot = createEmptySnapshot("run-interrupted", "需求文本", ["usecase"], []);
@@ -250,6 +305,101 @@ test("postgres run store restores abandoned active runs as interrupted", async (
   assert.equal(db.runRows.get("run-interrupted")?.status, "failed");
   assert.equal(db.runRows.get("run-interrupted")?.error_code, "RUN_INTERNAL_ERROR");
   assert.ok(db.runRows.get("run-interrupted")?.completed_at);
+});
+
+test("postgres run store preserves active rows when bullmq queue mode is enabled", async () => {
+  const previousQueueMode = process.env.UML_RUN_QUEUE_MODE;
+  process.env.UML_RUN_QUEUE_MODE = "bullmq";
+
+  try {
+    const db = new FakeRunDb();
+    const snapshot = createEmptySnapshot("run-worker-owned", "需求文本", ["usecase"], []);
+    snapshot.status = "running";
+    snapshot.currentStage = "generate_models";
+    db.runRows.set("run-worker-owned", {
+      id: "run-worker-owned",
+      user_id: "user-1",
+      project_id: "project-1",
+      snapshot,
+      status: "running",
+      stage: "generate_models",
+      error_message: null,
+      created_at: "2026-05-22T00:00:00.000Z",
+      updated_at: "2026-05-22T00:01:00.000Z",
+      completed_at: null,
+    });
+
+    const restored = await createPostgresRunRecordStore(db);
+    const record = restored.get("run-worker-owned");
+    await restored.flush();
+
+    assert.equal(record?.terminal, false);
+    assert.equal(record?.snapshot.status, "running");
+    assert.equal(record?.events.some((event) => event.type === "failed"), false);
+    assert.equal(db.runRows.get("run-worker-owned")?.status, "running");
+  } finally {
+    if (previousQueueMode === undefined) {
+      delete process.env.UML_RUN_QUEUE_MODE;
+    } else {
+      process.env.UML_RUN_QUEUE_MODE = previousQueueMode;
+    }
+  }
+});
+
+test("postgres run store refreshes records updated by another process", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-refresh", "需求文本", ["class"], []);
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      userId: "user-1",
+      projectId: "project-1",
+      createdAt: "2026-05-22T00:00:00.000Z",
+    },
+  };
+  const listener = () => undefined;
+  record.listeners.add(listener);
+  runs.set("run-refresh", record);
+  await runs.flush();
+
+  const failedSnapshot = createEmptySnapshot("run-refresh", "需求文本", ["class"], []);
+  failedSnapshot.status = "failed";
+  failedSnapshot.currentStage = "generate_models";
+  failedSnapshot.error = {
+    code: "PLATFORM_PROVIDER_BALANCE_INSUFFICIENT",
+    message: "当前模型服务额度不足，请稍后重试或联系管理员。",
+    category: "platform_provider",
+    retryable: true,
+  };
+  db.runRows.set("run-refresh", {
+    ...(db.runRows.get("run-refresh") as FakeRunRow),
+    snapshot: failedSnapshot,
+    status: "failed",
+    stage: "generate_models",
+    error: failedSnapshot.error,
+    error_code: failedSnapshot.error.code,
+    completed_at: "2026-05-22T00:02:00.000Z",
+  });
+  db.eventRows.push({
+    run_id: "run-refresh",
+    sequence: 1,
+    payload: {
+      type: "failed",
+      stage: "generate_models",
+      error: failedSnapshot.error,
+    },
+  });
+
+  const refreshed = await runs.refreshRun("run-refresh");
+
+  assert.equal(refreshed?.snapshot.status, "failed");
+  assert.equal(refreshed?.terminal, true);
+  assert.equal(refreshed?.events.at(-1)?.type, "failed");
+  assert.equal(refreshed?.listeners.has(listener), true);
 });
 
 test("postgres run store normalizes active rows that already have completed timestamps", async () => {

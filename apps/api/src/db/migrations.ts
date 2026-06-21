@@ -239,6 +239,9 @@ create table if not exists run_records (
   id text primary key,
   user_id text references users(id) on delete set null,
   project_id text references projects(id) on delete cascade,
+  source_run_id text references run_records(id) on delete set null,
+  source_action text,
+  source_run_status text,
   stage text not null,
   status text not null,
   model text,
@@ -855,6 +858,12 @@ where event_type = 'failed'
 create index if not exists run_records_error_code_idx on run_records(error_code);
 `;
 
+export const runActionMetadataSql = `
+alter table run_records add column if not exists source_run_id text references run_records(id) on delete set null;
+alter table run_records add column if not exists source_action text;
+alter table run_records add column if not exists source_run_status text;
+`;
+
 export const usernamesSql = `
 alter table users add column if not exists username text;
 
@@ -958,6 +967,10 @@ export const migrations = [
   {
     id: "016_project_background_key",
     sql: projectBackgroundKeySql,
+  },
+  {
+    id: "017_run_action_metadata",
+    sql: runActionMetadataSql,
   },
 ] as const;
 

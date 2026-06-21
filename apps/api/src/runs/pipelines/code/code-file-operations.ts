@@ -25,13 +25,21 @@ import { getGenerateCodeFileOperationsResponseFormat } from "../../../adapters/l
 import { formatParseError } from "../../../normalizers/json/parse-json.js";
 import { parseCodeFileOperationsResult } from "../../../normalizers/code/code-operation-normalizer.js";
 import { emitEvent, type RunRecord } from "../../records/run-record-store.js";
+import {
+  isRunCancelled,
+  RunCancelledError,
+} from "../../records/run-cancellation.js";
 import { addFileGenerationDiagnostic } from "./code-run-diagnostics.js";
 import { stageProgressValue } from "../shared/pipeline-events.js";
 import { createMessages } from "../shared/llm-messages.js";
 import { collectTextResult, logFailedStructuredOutput } from "../shared/structured-output.js";
 import { appendCodeTrace } from "../shared/trace-events.js";
+import { withModelTaskTimeout } from "../shared/model-task-timeout.js";
 
 const MAX_CODE_OPERATION_REPAIR_ATTEMPTS = 2;
+const DEFAULT_MODEL_TASK_IDLE_TIMEOUT_MS = 300_000;
+const DEFAULT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS = 30_000;
+const DEFAULT_MODEL_TASK_MAX_RUNTIME_MS = 1_200_000;
 
 export type CodeFileGenerationContext = {
   businessLogic?: CodeBusinessLogic | null;
@@ -47,6 +55,39 @@ export type CodeFileGenerationContext = {
   codeSkillInstructions?: string;
 };
 
+function positiveIntegerEnv(value: string | undefined, fallback: number) {
+  const parsed = Number(value?.trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readCodeModelTaskTimeoutConfig() {
+  const globalIdleTimeout = positiveIntegerEnv(
+    process.env.UML_MODEL_TASK_TIMEOUT_MS,
+    DEFAULT_MODEL_TASK_IDLE_TIMEOUT_MS,
+  );
+  const idleTimeoutMs = positiveIntegerEnv(
+    process.env.UML_CODE_MODEL_TASK_TIMEOUT_MS,
+    globalIdleTimeout,
+  );
+  const globalBlankOutputTimeout = positiveIntegerEnv(
+    process.env.UML_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+    Math.min(idleTimeoutMs, DEFAULT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS),
+  );
+  const blankOutputTimeoutMs = positiveIntegerEnv(
+    process.env.UML_CODE_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+    Math.min(idleTimeoutMs, globalBlankOutputTimeout),
+  );
+  const globalMaxRuntime = positiveIntegerEnv(
+    process.env.UML_MODEL_TASK_MAX_RUNTIME_MS,
+    DEFAULT_MODEL_TASK_MAX_RUNTIME_MS,
+  );
+  const maxRuntimeMs = positiveIntegerEnv(
+    process.env.UML_CODE_MODEL_TASK_MAX_RUNTIME_MS,
+    globalMaxRuntime,
+  );
+  return { idleTimeoutMs, blankOutputTimeoutMs, maxRuntimeMs };
+}
+
 // Code file operation repair keeps the JSON operation wire shape stable across retries.
 export async function generateCodeFileOperationsWithRepair(
   record: RunRecord,
@@ -58,6 +99,7 @@ export async function generateCodeFileOperationsWithRepair(
   stage: RunStage = "generate_code_files",
 ) {
   const snapshot = record.snapshot as CodeRunSnapshot;
+  const timeoutConfig = readCodeModelTaskTimeoutConfig();
   const responseFormat = getGenerateCodeFileOperationsResponseFormat(
     providerSettings.model,
   );
@@ -77,21 +119,36 @@ export async function generateCodeFileOperationsWithRepair(
     attempt <= MAX_CODE_OPERATION_REPAIR_ATTEMPTS;
     attempt += 1
   ) {
-    const content = await collectTextResult(
-      llmTransport,
-      providerSettings,
-      createMessages(prompt),
-      (chunk) => {
-        emitEvent(
-          record,
-          llmChunkRunEventSchema.parse({
-            type: "llm_chunk",
-            stage,
-            chunk,
-          }),
-        );
+    const content = await withModelTaskTimeout(
+      (markActivity, markBlankActivity, abortSignal) =>
+        collectTextResult(
+          llmTransport,
+          providerSettings,
+          createMessages(prompt),
+          (chunk) => {
+            if (chunk.trim()) {
+              markActivity();
+            } else {
+              markBlankActivity();
+            }
+            emitEvent(
+              record,
+              llmChunkRunEventSchema.parse({
+                type: "llm_chunk",
+                stage,
+                chunk,
+              }),
+            );
+          },
+          responseFormat,
+          abortSignal,
+        ),
+      {
+        ...timeoutConfig,
+        label: `代码文件操作生成 ${stage}`,
+        isCancelled: () => isRunCancelled(record),
+        createCancelError: () => new RunCancelledError(snapshot.runId),
       },
-      responseFormat,
     );
     previousOutput = content;
     appendCodeTrace(record, {

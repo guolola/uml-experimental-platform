@@ -6,6 +6,8 @@ export interface ModelTaskTimeoutConfig {
   blankOutputTimeoutMs?: number;
   maxRuntimeMs: number;
   label: string;
+  isCancelled?: () => boolean;
+  createCancelError?: () => Error;
 }
 
 function timeoutCheckIntervalMs(config: ModelTaskTimeoutConfig) {
@@ -48,6 +50,14 @@ export async function withModelTaskTimeout<T>(
       new Promise<never>((_, reject) => {
         timeout = setInterval(() => {
           const now = Date.now();
+          if (config.isCancelled?.()) {
+            rejectTimedOut(
+              reject,
+              config.createCancelError?.() ??
+                new Error(`${config.label} was cancelled`),
+            );
+            return;
+          }
           if (now - startedAt >= config.maxRuntimeMs) {
             rejectTimedOut(
               reject,

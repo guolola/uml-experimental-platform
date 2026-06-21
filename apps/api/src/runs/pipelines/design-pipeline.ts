@@ -50,7 +50,11 @@ import {
 } from "../../normalizers/traceability/traceability-normalizer.js";
 import { formatParseError } from "../../normalizers/json/parse-json.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
-import { throwIfRunCancelled } from "../records/run-cancellation.js";
+import {
+  isRunCancelled,
+  RunCancelledError,
+  throwIfRunCancelled,
+} from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
@@ -1482,6 +1486,8 @@ export async function runDesignStagePipeline(
               {
                 ...modelTaskTimeoutConfig,
                 label: `${useCase.name}用例实现设计`,
+                isCancelled: () => isRunCancelled(record),
+                createCancelError: () => new RunCancelledError(snapshot.runId),
               },
             );
             const result = coerceSequenceModelForUseCase(rawResult, useCase);
@@ -1705,6 +1711,8 @@ export async function runDesignStagePipeline(
           {
             ...modelTaskTimeoutConfig,
             label: designDiagramLabel(diagram),
+            isCancelled: () => isRunCancelled(record),
+            createCancelError: () => new RunCancelledError(snapshot.runId),
           },
         );
         throwIfRunCancelled(record);

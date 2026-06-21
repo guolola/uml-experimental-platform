@@ -38,7 +38,7 @@ type StartProjectRunActionPipeline = (input: {
   record: RunRecord;
   providerSettings: ProviderSettings;
   providerConfigId: string | null;
-}) => void;
+}) => void | Promise<void>;
 
 type RunAccessResolver = {
   resolveRunAccess(request: FastifyRequest): Promise<{
@@ -179,7 +179,7 @@ export async function createProjectRunAction({
       providerConfigId,
       model: providerSettings.model,
     });
-    startRecordPipeline({
+    await startRecordPipeline({
       record: newRecord,
       providerSettings,
       providerConfigId,

@@ -98,10 +98,13 @@ export function createProjectWorkspaceSync(
         });
         return;
       }
+      const runKind = inferRestorableRunKind(record.snapshot);
       const state = restoreRunSnapshotToWorkspaceState({
         currentState: current.state,
         snapshot: record.snapshot,
         mode: "merge",
+        replaceRequirementInput:
+          runKind === "requirements" && record.snapshot.rules.length > 0,
       });
       const result = await authStore.saveProjectWorkspace({
         projectId,

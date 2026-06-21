@@ -32,6 +32,11 @@ import type { SystemNoticeStore } from "./system-notices/records/system-notice-s
 import type { RunRecordStore } from "./runs/records/run-record-store.js";
 import type { RenderClient } from "./adapters/render/render-client.js";
 import type { PngRenderClient } from "./adapters/render/png-render-client.js";
+import {
+  createBullMqRunQueue,
+  createRunQueueConfigFromEnv,
+  type RunQueue,
+} from "./runs/queue/run-queue.js";
 export async function createApiServer(options?: {
   llmTransport?: LlmTransport;
   imageClient?: ImageGenerationClient;
@@ -50,6 +55,7 @@ export async function createApiServer(options?: {
   billingService?: BillingService;
   disableBillingEntitlementGuard?: boolean;
   systemNoticeStore?: SystemNoticeStore;
+  runQueue?: RunQueue;
 }) {
   const runtimeNodeEnv = options?.nodeEnv ?? process.env.NODE_ENV ?? null;
   // Test-only fallback used by API integration tests that construct run records
@@ -97,6 +103,17 @@ export async function createApiServer(options?: {
   if (pool) {
     app.addHook("onClose", async () => {
       await pool.end();
+    });
+  }
+  const runQueue =
+    options?.runQueue ??
+    (() => {
+      const config = createRunQueueConfigFromEnv();
+      return config ? createBullMqRunQueue(config) : undefined;
+    })();
+  if (runQueue) {
+    app.addHook("onClose", async () => {
+      await runQueue.close();
     });
   }
   const generationUsage = createGenerationUsageService({ providerUsageTracker });
@@ -158,6 +175,7 @@ export async function createApiServer(options?: {
     providerConfigs,
     providerUsageTracker,
     llmScheduler,
+    runQueue,
     llmTransport,
     renderClient,
     pngRenderClient,
@@ -174,7 +192,7 @@ async function start() {
   await app.listen({ host: DEFAULT_HOST, port: DEFAULT_PORT });
 }
 
-if (isMainModule(import.meta.url)) {
+if (isMainModule(import.meta.url) || process.env.UML_API_AUTOSTART === "true") {
   start().catch((error) => {
     console.error(error);
     process.exit(1);

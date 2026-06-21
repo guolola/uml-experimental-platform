@@ -14,6 +14,7 @@ import type { LlmTransport, StreamChatCompletionInput } from "../../llm.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
 import { createEmptyDesignSnapshot, createEmptySnapshot } from "../records/snapshots.js";
 import type { RunRecord } from "../records/run-record-store.js";
+import { RunCancelledError } from "../records/run-cancellation.js";
 import { runDesignStagePipeline } from "./design-pipeline.js";
 import { runStagePipeline } from "./requirements-pipeline.js";
 import { createRunLlmChunkHandlers } from "./shared/llm-chunk-events.js";
@@ -444,6 +445,62 @@ test("model task timeout allows meaningful activity to extend the idle window", 
   } finally {
     if (interval) clearInterval(interval);
   }
+});
+
+test("requirement rule extraction aborts the LLM stream when the run is cancelled", async () => {
+  await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS", "5000", async () => {
+    await withTemporaryEnv("UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS", "5000", async () => {
+      const snapshot = createEmptySnapshot(
+        "run-requirement-extract-cancel",
+        "用户可以登录系统。",
+        ["usecase"],
+        [],
+      );
+      const record: RunRecord = {
+        snapshot,
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+      };
+      let abortObserved = false;
+      const transport: LlmTransport = {
+        async *streamChatCompletion(input: StreamChatCompletionInput) {
+          snapshot.status = "cancelled";
+          await new Promise<void>((resolve, reject) => {
+            const signal = input.abortSignal;
+            const guard = setTimeout(() => {
+              reject(new Error("test transport did not receive abort after cancellation"));
+            }, 1500);
+            const finish = () => {
+              clearTimeout(guard);
+              abortObserved = true;
+              resolve();
+            };
+            if (signal?.aborted) {
+              finish();
+              return;
+            }
+            signal?.addEventListener("abort", finish, { once: true });
+          });
+        },
+      };
+      const renderClient: RenderClient = async (artifact) => ({
+        svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+        renderMeta: {
+          engine: "test",
+          generatedAt: new Date().toISOString(),
+          sourceLength: artifact.source.length,
+          durationMs: 1,
+        },
+      });
+
+      await assert.rejects(
+        () => runStagePipeline(record, providerSettings, transport, renderClient),
+        RunCancelledError,
+      );
+      assert.equal(abortObserved, true);
+    });
+  });
 });
 
 test("requirement pipeline calls the LLM once per selected model and keeps successful models when one model fails", async () => {
@@ -2085,6 +2142,101 @@ test("design sequence completes with partial artifacts when one use case generat
       }`,
       /超过 20ms 未完成/,
     );
+  });
+});
+
+test("design sequence aborts the LLM stream when the run is cancelled", async () => {
+  await withTemporaryEnv("UML_DESIGN_MODEL_TASK_TIMEOUT_MS", "5000", async () => {
+    await withTemporaryEnv("UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS", "5000", async () => {
+      const useCaseModel: DiagramModelSpec = {
+        diagramKind: "usecase",
+        title: "图书检索用例模型",
+        summary: "用户检索图书。",
+        notes: [],
+        actors: [],
+        useCases: [
+          {
+            id: "uc_search",
+            name: "检索图书",
+            goal: "查找可借图书",
+            preconditions: [],
+            postconditions: [],
+            supportingActorIds: [],
+            eventFlows: [
+              {
+                id: "flow_search",
+                name: "检索主流程",
+                flowType: "main",
+                steps: [
+                  { order: 1, actor: "actor", action: "输入关键字", systemResponse: "返回结果" },
+                ],
+              },
+            ],
+          },
+        ],
+        systemBoundaries: [],
+        relationships: [],
+      };
+      const requirementSnapshot = createEmptySnapshot(
+        "run-design-sequence-cancel-requirements",
+        "图书检索系统",
+        ["usecase"],
+        [],
+        {
+          models: [useCaseModel],
+          requirementModelTraceability: [],
+        },
+      );
+      const snapshot = createEmptyDesignSnapshot("run-design-sequence-cancel", {
+        selectedDiagrams: ["sequence"],
+        requirementBaseline: requirementSnapshot.requirementBaseline!,
+        requirementModels: [useCaseModel],
+        requirementModelTraceability: [],
+      });
+      const record: RunRecord = {
+        snapshot,
+        events: [],
+        listeners: new Set(),
+        terminal: false,
+      };
+      let abortObserved = false;
+      const transport: LlmTransport = {
+        async *streamChatCompletion(input: StreamChatCompletionInput) {
+          snapshot.status = "cancelled";
+          await new Promise<void>((resolve, reject) => {
+            const signal = input.abortSignal;
+            const guard = setTimeout(() => {
+              reject(new Error("test transport did not receive abort after cancellation"));
+            }, 1500);
+            const finish = () => {
+              clearTimeout(guard);
+              abortObserved = true;
+              resolve();
+            };
+            if (signal?.aborted) {
+              finish();
+              return;
+            }
+            signal?.addEventListener("abort", finish, { once: true });
+          });
+        },
+      };
+      const renderClient: RenderClient = async (artifact) => ({
+        svg: `<svg data-kind="${artifact.diagramKind}"></svg>`,
+        renderMeta: {
+          engine: "test",
+          generatedAt: new Date().toISOString(),
+          sourceLength: artifact.source.length,
+          durationMs: 1,
+        },
+      });
+
+      await assert.rejects(
+        () => runDesignStagePipeline(record, providerSettings, transport, renderClient),
+        RunCancelledError,
+      );
+      assert.equal(abortObserved, true);
+    });
   });
 });
 

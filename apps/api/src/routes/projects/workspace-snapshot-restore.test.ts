@@ -402,6 +402,89 @@ test("restore stores snapshot input fingerprints for requirement diagrams after 
   assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
 });
 
+test("restore writes requirement rules from model snapshots when text still matches", () => {
+  const requirementText = "学生检索图书并提交借阅申请。";
+  const rules = [
+    requirementRule("r1", "学生可以检索图书。"),
+    requirementRule("r2", "学生可以提交借阅申请。"),
+  ];
+  const snapshot = createEmptySnapshot(
+    "run-usecase-with-rules",
+    requirementText,
+    ["usecase"],
+    rules,
+    {
+      models: [requirementUseCaseModel()],
+      plantUml: [{ diagramKind: "usecase", source: "@startuml\n@enduml" }],
+    },
+  ) as RunSnapshot;
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_svg";
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText,
+      rules: [],
+      rulesVersion: 1,
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  assert.deepEqual(restored.rules, rules);
+  assert.equal(
+    restored.requirementInputFingerprint,
+    snapshotInputFingerprint({ requirementText, rules }),
+  );
+  assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
+});
+
+test("restore replaces requirement input when terminal auto-sync requests it", () => {
+  const oldRules = [
+    requirementRule("old-1", "学生可以检索图书。"),
+    requirementRule("old-2", "管理员可以审核借阅申请。"),
+  ];
+  const newRules = [requirementRule("new-1", "用户可以登录系统。")];
+  const snapshot = createEmptySnapshot(
+    "run-new-usecase",
+    "用户可以登录系统。",
+    ["usecase"],
+    newRules,
+    {
+      models: [requirementUseCaseModel()],
+      plantUml: [{ diagramKind: "usecase", source: "@startuml\n@enduml" }],
+    },
+  ) as RunSnapshot;
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_svg";
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText: "学生可以检索图书并提交借阅申请。",
+      rules: oldRules,
+      requirementInputFingerprint: snapshotInputFingerprint({
+        requirementText: "学生可以检索图书并提交借阅申请。",
+        rules: oldRules,
+      }),
+      rulesVersion: 2,
+    },
+    snapshot,
+    mode: "merge",
+    replaceRequirementInput: true,
+  });
+
+  assert.equal(restored.requirementText, "用户可以登录系统。");
+  assert.deepEqual(restored.rules, newRules);
+  assert.equal(
+    restored.requirementInputFingerprint,
+    snapshotInputFingerprint({
+      requirementText: "用户可以登录系统。",
+      rules: newRules,
+    }),
+  );
+  assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
+});
+
 test("restore applies requirement baseline from model snapshots when input matches", () => {
   const requirementText = "用户通过邮箱注册账号，联系方式在认领通过前隐藏。";
   const rules = [

@@ -17,8 +17,14 @@ export function createPostgresPoolFromEnv(
     throw new Error("DATABASE_URL is required to create a PostgreSQL pool");
   }
 
+  const configuredMax = Number(env.DATABASE_POOL_MAX ?? env.PGPOOL_MAX);
+  const max = Number.isInteger(configuredMax) && configuredMax > 0
+    ? configuredMax
+    : undefined;
+
   return new Pool({
     ...options,
+    ...(max ? { max } : {}),
     connectionString: databaseUrl,
   });
 }
