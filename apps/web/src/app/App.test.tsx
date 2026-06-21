@@ -16,6 +16,7 @@ import {
   ProjectWorkspaceAccessBoundary,
   ProjectsIndexPage,
 } from "../features/user-platform/components/user-platform-pages";
+import { formatProjectDateTimeMinute } from "../features/user-platform/lib/project-presentation";
 
 let projectApiMode: "unauthenticated" | "authenticated" | "empty" | "forbidden" | "offline";
 let projectMembershipRole: "owner" | "editor" | "viewer";
@@ -2957,7 +2958,7 @@ describe("App shell routes", () => {
     );
     expect(screen.queryByText("e91237c8-5ccf-45aa-b0d2-822b96915a24")).not.toBeInTheDocument();
     expect(screen.getByText("团队成员可见")).toBeInTheDocument();
-    expect(screen.getByText("最近更新：2026-05-22 10:00")).toBeInTheDocument();
+    expect(screen.getByText(`最近更新：${formatProjectDateTimeMinute(projectUpdatedAt)}`)).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 New Student")).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 Editor User")).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 Viewer User")).toBeInTheDocument();

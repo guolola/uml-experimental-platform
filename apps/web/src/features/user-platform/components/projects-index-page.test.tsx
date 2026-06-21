@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthenticatedRouteSessionProvider } from "./authenticated-route-session";
 import { ProjectsIndexPage } from "./projects-index-page";
+import { formatProjectDateTimeMinute } from "../lib/project-presentation";
 
 describe("ProjectsIndexPage", () => {
   beforeEach(() => {
@@ -79,8 +80,8 @@ describe("ProjectsIndexPage", () => {
     const card = await screen.findByRole("article");
     expect(card).toHaveAttribute("data-background-key", "booking");
     expect(within(card).getByRole("button", { name: /进入项目/u })).toBeInTheDocument();
-    expect(card).toHaveTextContent("最近更新：2026-06-21 16:09");
-    expect(card).not.toHaveTextContent("16:09:30");
+    expect(card).toHaveTextContent(`最近更新：${formatProjectDateTimeMinute("2026-06-21T08:09:30.000Z")}`);
+    expect(card).not.toHaveTextContent(":30");
     expect(card.querySelector("img")).toHaveAttribute(
       "src",
       expect.stringContaining("57_booking"),
