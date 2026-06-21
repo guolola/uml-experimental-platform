@@ -238,9 +238,12 @@ jobs:
           REMOTE_SCRIPT="/tmp/baota-pm2-deploy-${GITHUB_SHA}.sh"
           # Stream the archive over SSH instead of scp/SFTP; some BaoTa SSH stacks
           # leave sftp-server open after upload and keep the Actions step running.
+          # Read the exact archive byte count remotely so the upload command cannot
+          # wait forever for EOF if the SSH stack keeps stdin open.
+          ARCHIVE_SIZE="$(wc -c < "$RELEASE_ARCHIVE" | tr -d '[:space:]')"
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cat > '$REMOTE_ARCHIVE'" < "$RELEASE_ARCHIVE"
+            "head -c '$ARCHIVE_SIZE' > '$REMOTE_ARCHIVE'" < "$RELEASE_ARCHIVE"
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' RELEASE_ARCHIVE='$REMOTE_ARCHIVE' REMOTE_SCRIPT='$REMOTE_SCRIPT' bash -s" <<'REMOTE_DEPLOY'
