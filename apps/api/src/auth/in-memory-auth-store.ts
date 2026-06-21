@@ -5,6 +5,7 @@ import {
   type AdminRole,
   type AuditLogDto,
   type LoginEventDto,
+  type ProjectBackgroundKey,
   type ProjectMemberRole,
   type ProjectRetentionPolicy,
   type ProjectMemberStatus,
@@ -57,6 +58,7 @@ export type ProjectRecord = {
   teamId: string | null;
   defaultProviderConfigId: string | null;
   retentionPolicy: ProjectRetentionPolicy;
+  backgroundKey: ProjectBackgroundKey | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -517,6 +519,7 @@ export function createInMemoryAuthStore() {
     teamId?: string | null;
     defaultProviderConfigId?: string | null;
     retentionPolicy?: ProjectRetentionPolicy;
+    backgroundKey?: ProjectBackgroundKey | null;
   }) {
     const createdAt = now();
     const project: ProjectRecord = {
@@ -532,6 +535,7 @@ export function createInMemoryAuthStore() {
       teamId: input.teamId ?? null,
       defaultProviderConfigId: input.defaultProviderConfigId ?? null,
       retentionPolicy: input.retentionPolicy ?? "manual",
+      backgroundKey: input.backgroundKey ?? null,
       createdAt,
       updatedAt: createdAt,
     };
@@ -614,6 +618,7 @@ export function createInMemoryAuthStore() {
         | "teamId"
         | "defaultProviderConfigId"
         | "retentionPolicy"
+        | "backgroundKey"
       >
     >,
   ) {

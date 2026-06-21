@@ -104,7 +104,15 @@ export function registerProjectRoutes({
     const auth = await requireAuth(request, reply, authStore);
     if (isAuthError(auth)) return auth;
 
-    const input = projectCreateRequestSchema.parse(request.body);
+    const parsedInput = projectCreateRequestSchema.safeParse(request.body);
+    if (!parsedInput.success) {
+      reply.code(400);
+      return {
+        message: "Invalid request body",
+        issues: parsedInput.error.issues,
+      };
+    }
+    const input = parsedInput.data;
     const { project, ownerMember } = await authStore.createProject({
       ownerUserId: auth.user.id,
       name: input.name,
@@ -116,6 +124,7 @@ export function registerProjectRoutes({
       teamId: input.teamId ?? null,
       defaultProviderConfigId: input.defaultProviderConfigId ?? null,
       retentionPolicy: input.retentionPolicy ?? "manual",
+      backgroundKey: input.backgroundKey ?? null,
     });
     await authStore.recordAuditLog({
       actorUserId: auth.user.id,
@@ -302,7 +311,15 @@ export function registerProjectRoutes({
     );
     if (isProjectPermissionError(context)) return context;
 
-    const input = projectUpdateRequestSchema.parse(request.body);
+    const parsedInput = projectUpdateRequestSchema.safeParse(request.body);
+    if (!parsedInput.success) {
+      reply.code(400);
+      return {
+        message: "Invalid request body",
+        issues: parsedInput.error.issues,
+      };
+    }
+    const input = parsedInput.data;
     const project = await authStore.updateProject(projectId, input);
     if (!project) {
       reply.code(404);

@@ -158,7 +158,13 @@ async function chooseSelectOption(
   optionName: string,
 ) {
   await user.click(combobox);
-  const listbox = await screen.findByRole("listbox");
+  const listbox = await waitFor(() => {
+    const selectListbox = screen
+      .getAllByRole("listbox")
+      .find((element) => element.getAttribute("data-slot") === "select-content");
+    expect(selectListbox).toBeTruthy();
+    return selectListbox as HTMLElement;
+  });
   const option = within(listbox).getByRole("option", { name: optionName });
   fireEvent.pointerDown(option, { button: 0, ctrlKey: false });
   fireEvent.pointerUp(option, { button: 0, ctrlKey: false });
@@ -2323,8 +2329,7 @@ describe("App shell routes", () => {
     }
   });
 
-  it("shows the product loading screen while the projects index loads", async () => {
-    vi.useFakeTimers();
+  it("keeps the projects index visually empty while the project list loads", async () => {
     const projectsDeferred = createDeferred<Response>();
     const fetchMock = vi.mocked(fetch);
     const defaultFetch = fetchMock.getMockImplementation();
@@ -2347,16 +2352,15 @@ describe("App shell routes", () => {
         ),
       );
 
-      expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
       expect(screen.getByTestId("projects-index-shell")).toHaveClass(
         "overflow-y-scroll",
         "overflow-x-hidden",
         "[scrollbar-gutter:stable]",
       );
-      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
-        "data-loading-variant",
-        "content",
-      );
+      expect(screen.queryByTestId("platform-loading-screen")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("projects-index-loading-skeleton")).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "项目首页" })).not.toBeInTheDocument();
+      expect(screen.queryByText("正在加载项目列表...")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("搜索项目")).not.toBeInTheDocument();
 
       await act(async () => {
@@ -2379,28 +2383,8 @@ describe("App shell routes", () => {
       expect(screen.getByTestId("projects-filter-panel")).toHaveClass("p-3", "md:p-[17px]");
       expect(screen.getByTestId("projects-filter-panel").querySelector("[data-scale-to-fit]")).toBeNull();
       expect(screen.getAllByRole("article")[0]).toHaveClass("min-h-[182px]");
-      expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
-
-      await advanceTimersByTime(800);
-
-      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
-        "data-loading-phase",
-        "completing",
-      );
-      expect(
-        screen.getByRole("progressbar", { name: "正在同步项目空间状态..." }),
-      ).toHaveAttribute("aria-valuenow", "100");
-
-      await advanceTimersByTime(120);
-
-      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
-        "data-loading-phase",
-        "exiting",
-      );
-
-      await advanceTimersByTime(520);
-
-      expect(screen.queryByText("正在同步项目空间状态...")).not.toBeInTheDocument();
+      expect(screen.queryByText("正在加载项目列表...")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("platform-loading-screen")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -2442,7 +2426,7 @@ describe("App shell routes", () => {
         ),
       );
 
-      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByText("正在打开项目工作台...")).toBeInTheDocument();
       expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
         "data-loading-variant",
         "content",
@@ -2454,7 +2438,7 @@ describe("App shell routes", () => {
         await flushResolvedPromises();
       });
 
-      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByText("正在打开项目工作台...")).toBeInTheDocument();
       expect(screen.getByText("项目导航")).toBeInTheDocument();
 
       await advanceTimersByTime(800);
@@ -2464,7 +2448,7 @@ describe("App shell routes", () => {
         "completing",
       );
       expect(
-        screen.getByRole("progressbar", { name: "正在同步项目状态..." }),
+        screen.getByRole("progressbar", { name: "正在打开项目工作台..." }),
       ).toHaveAttribute("aria-valuenow", "100");
 
       await advanceTimersByTime(120);
@@ -2477,13 +2461,13 @@ describe("App shell routes", () => {
       await advanceTimersByTime(520);
 
       expect(screen.getByText("项目导航")).toBeInTheDocument();
-      expect(screen.queryByText("正在同步项目状态...")).not.toBeInTheDocument();
+      expect(screen.queryByText("正在打开项目工作台...")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps one coordinated loading overlay while protected projects load", async () => {
+  it("keeps the projects index visually empty while protected projects load", async () => {
     vi.useFakeTimers();
     const projectsDeferred = createDeferred<Response>();
     const fetchMock = vi.mocked(fetch);
@@ -2506,13 +2490,16 @@ describe("App shell routes", () => {
         await flushResolvedPromises();
       });
 
-      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
-      expect(screen.getByText("正在同步项目空间状态...")).toBeInTheDocument();
       expect(screen.getByTestId("projects-index-shell")).toHaveClass(
         "overflow-y-scroll",
         "overflow-x-hidden",
         "[scrollbar-gutter:stable]",
       );
+      await advanceTimersByTime(1_440);
+      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(0);
+      expect(screen.queryByTestId("projects-index-loading-skeleton")).not.toBeInTheDocument();
+      expect(screen.queryByText("正在加载项目列表...")).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "项目首页" })).not.toBeInTheDocument();
 
       await act(async () => {
         projectsDeferred.resolve(createProjectListResponse());
@@ -2526,32 +2513,6 @@ describe("App shell routes", () => {
         "[scrollbar-gutter:stable]",
       );
       expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
-      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
-      expect(screen.getByTestId("platform-loading-screen")).toHaveClass(
-        "pointer-events-none",
-      );
-
-      await advanceTimersByTime(800);
-      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
-      expect(screen.getByTestId("platform-loading-screen")).toHaveClass(
-        "pointer-events-none",
-      );
-      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
-        "data-loading-phase",
-        "completing",
-      );
-
-      await advanceTimersByTime(120);
-      expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
-      expect(screen.getByTestId("platform-loading-screen")).toHaveClass(
-        "pointer-events-none",
-      );
-      expect(screen.getByTestId("platform-loading-screen")).toHaveAttribute(
-        "data-loading-phase",
-        "exiting",
-      );
-
-      await advanceTimersByTime(520);
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(0);
       expect(screen.getByRole("heading", { name: "项目首页" })).toBeInTheDocument();
     } finally {
@@ -2559,7 +2520,7 @@ describe("App shell routes", () => {
     }
   });
 
-  it("keeps one coordinated loading overlay while protected workspaces load", async () => {
+  it("keeps one coordinated loading overlay while direct project workspaces load", async () => {
     vi.useFakeTimers();
     const projectDeferred = createDeferred<Response>();
     const fetchMock = vi.mocked(fetch);
@@ -2590,7 +2551,7 @@ describe("App shell routes", () => {
       });
 
       expect(screen.queryAllByTestId("platform-loading-screen")).toHaveLength(1);
-      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByText("正在打开项目工作台...")).toBeInTheDocument();
       expect(screen.getByTestId("project-workspace-loading-layout")).toBeInTheDocument();
       expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
 
@@ -2697,7 +2658,9 @@ describe("App shell routes", () => {
 
       expect(window.location.pathname).toBe("/projects/library-booking");
       expect(screen.queryByText("正在校验登录状态...")).not.toBeInTheDocument();
-      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByTestId("platform-loading-screen")).toBeInTheDocument();
+      expect(screen.getByText("正在打开项目工作台...")).toBeInTheDocument();
+      expect(screen.getByTestId("project-workspace-loading-layout")).toBeInTheDocument();
       expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
       expect(screen.queryByText("需求分析提取")).not.toBeInTheDocument();
       expect(projectRequests).toEqual({
@@ -2716,7 +2679,9 @@ describe("App shell routes", () => {
         await flushResolvedPromises();
       });
 
-      expect(screen.getByText("正在同步项目状态...")).toBeInTheDocument();
+      expect(screen.getByTestId("platform-loading-screen")).toBeInTheDocument();
+      expect(screen.getByText("正在打开项目工作台...")).toBeInTheDocument();
+      expect(screen.getByTestId("project-workspace-loading-layout")).toBeInTheDocument();
       expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
       expect(projectRequests).toEqual({
         detail: 1,
@@ -2960,12 +2925,13 @@ describe("App shell routes", () => {
   it("navigates from a real project card into a project-aware workspace banner", async () => {
     const user = userEvent.setup();
     projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    window.history.pushState({}, "", "/projects");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-
-    expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "进入项目 智慧图书馆预约系统" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "项目首页" })).toBeInTheDocument();
     expect(screen.getByText("项目会绑定成员权限、运行历史、文档和模型配置。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新建项目" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部项目" })).toHaveAttribute("aria-pressed", "true");
@@ -2991,6 +2957,7 @@ describe("App shell routes", () => {
     );
     expect(screen.queryByText("e91237c8-5ccf-45aa-b0d2-822b96915a24")).not.toBeInTheDocument();
     expect(screen.getByText("团队成员可见")).toBeInTheDocument();
+    expect(screen.getByText("最近更新：2026-05-22 10:00")).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 New Student")).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 Editor User")).toBeInTheDocument();
     expect(screen.getByLabelText("成员头像 Viewer User")).toBeInTheDocument();
@@ -3054,6 +3021,16 @@ describe("App shell routes", () => {
     expect(window.location.pathname).toBe("/projects");
     expect(await screen.findByRole("dialog", { name: "创建项目" })).toBeInTheDocument();
     expect(screen.getByLabelText("项目名称")).toHaveValue("课程 UML 实验项目");
+    const descriptionInput = screen.getByLabelText("项目描述");
+    expect(descriptionInput.tagName).toBe("TEXTAREA");
+    expect(descriptionInput).toHaveAttribute("rows", "4");
+    const visibilityGroup = screen.getByRole("group", { name: "可见性" });
+    expect(
+      within(visibilityGroup).getByRole("button", { name: "团队成员可见" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const advancedButton = screen.getByRole("button", { name: "高级设置" });
+    expect(advancedButton).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("课程/班级/team")).not.toBeInTheDocument();
   });
 
   it("opens the project creation form in a dialog from the projects page", async () => {
@@ -3063,14 +3040,30 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "新建项目" })).toBeEnabled();
+    });
     await user.click(screen.getByRole("button", { name: "新建项目" }));
 
     expect(window.location.pathname).toBe("/projects");
     expect(await screen.findByRole("dialog", { name: "创建项目" })).toBeInTheDocument();
+    const descriptionInput = screen.getByLabelText("项目描述");
+    expect(descriptionInput.tagName).toBe("TEXTAREA");
+    expect(descriptionInput).toHaveAttribute("rows", "4");
+    const visibilityGroup = screen.getByRole("group", { name: "可见性" });
+    await user.click(within(visibilityGroup).getByRole("button", { name: "仅我可见" }));
+    expect(within(visibilityGroup).getByRole("button", { name: "仅我可见" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const advancedButton = screen.getByRole("button", { name: "高级设置" });
+    expect(advancedButton).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("课程/班级/team")).not.toBeInTheDocument();
+    await user.click(advancedButton);
+    expect(advancedButton).toHaveAttribute("aria-expanded", "true");
     await waitFor(() => {
       expect(getSelectTrigger("课程/班级/team")).toHaveTextContent(
-        "软件学院 / 软件工程 2026 春 / 1 班 / Team A",
+        "暂不绑定课程团队",
       );
     });
     await waitFor(() => {
@@ -3538,18 +3531,20 @@ describe("App shell routes", () => {
     expect(screen.queryByRole("button", { name: "上传新文档" })).not.toBeInTheDocument();
   });
 
-  it("creates projects with explicit unsaved preference state", async () => {
+  it("creates projects with explicit binding, visibility, and provider state", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
     window.history.pushState({}, "", "/projects/new");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
+    expect(screen.queryByLabelText("课程/班级/team")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "高级设置" }));
     await chooseSelectOption(
       user,
       await findSelectTrigger("课程/班级/team"),
       "软件学院 / 软件工程 2026 春 / 1 班 / Team A",
     );
-    await chooseSelectOption(user, getSelectTrigger("项目模板"), "说明书交付");
+    await user.click(screen.getByRole("button", { name: "课程班级可见" }));
     await chooseSelectOption(
       user,
       await findSelectTrigger("默认模型策略"),
@@ -3570,6 +3565,7 @@ describe("App shell routes", () => {
           classId: "class-software-2026-spring-1",
           teamId: "team-software-2026-a",
           defaultProviderConfigId: "provider-config-1",
+          backgroundKey: null,
         }),
       }),
     );
@@ -3623,7 +3619,9 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/projects");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "新建项目" })).toBeEnabled();
+    });
     await waitForPlatformLoadingToExit();
     authSessionMode = "unauthenticated";
     window.dispatchEvent(new Event("uml-auth-session-changed"));
@@ -3643,7 +3641,9 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
     const openProfileDialog = async () => {
-      expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "新建项目" })).toBeEnabled();
+      });
       await waitForPlatformLoadingToExit();
       authSessionMode = "authenticated";
       fireEvent.click(await screen.findByRole("button", { name: "账号" }));

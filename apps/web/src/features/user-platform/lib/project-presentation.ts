@@ -4,6 +4,10 @@ import type {
   PlatformProjectMemberPreview,
   PlatformUser,
 } from "../services/platform-api";
+import {
+  resolveProjectBackground,
+  type ProjectBackgroundOption,
+} from "./project-backgrounds";
 
 export type StaticProject = {
   id: string;
@@ -16,11 +20,13 @@ export type StaticProject = {
   status: string;
   statusLabel: string;
   updatedAt: string;
+  updatedAtDisplay: string;
   lastGeneratedAt: string;
   searchableText: string;
   memberCount: number;
   members: StaticProjectMemberPreview[];
   recentRun: string;
+  background: ProjectBackgroundOption;
 };
 
 type StaticProjectMemberPreview = {
@@ -68,6 +74,20 @@ function memberPreviewLabel(member: PlatformProjectMemberPreview) {
   return member.displayName?.trim() || (member.userId ? compactOwnerLabel(member.userId) : "未知成员");
 }
 
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+export function formatProjectDateTimeMinute(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未知";
+  return [
+    date.getFullYear(),
+    padDatePart(date.getMonth() + 1),
+    padDatePart(date.getDate()),
+  ].join("-") + ` ${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
 function projectMemberPreviewsFromApi(
   project: PlatformProject,
   ownerName: string,
@@ -99,6 +119,11 @@ export function projectFromApi(project: PlatformProject, currentUser: PlatformUs
   const memberCount = Math.max(project.memberCount ?? 1, 1);
   const ownerName = ownerNameFromProject(project, currentUser);
   const members = projectMemberPreviewsFromApi(project, ownerName);
+  const background = resolveProjectBackground({
+    id: project.id,
+    name: project.name,
+    backgroundKey: project.backgroundKey ?? null,
+  });
   return {
     id: project.id,
     name: project.name,
@@ -120,6 +145,7 @@ export function projectFromApi(project: PlatformProject, currentUser: PlatformUs
           ? "进行中"
           : project.status,
     updatedAt: new Date(project.updatedAt).toLocaleString("zh-CN"),
+    updatedAtDisplay: formatProjectDateTimeMinute(project.updatedAt),
     lastGeneratedAt: project.lastGeneratedAt ?? "",
     searchableText: [
       project.name,
@@ -132,12 +158,14 @@ export function projectFromApi(project: PlatformProject, currentUser: PlatformUs
       project.courseLabel,
       project.classLabel,
       project.teamLabel,
+      background.label,
     ]
       .filter(Boolean)
       .join(" ")
       .toLowerCase(),
     memberCount,
     members,
+    background,
     recentRun: project.lastGeneratedAt
       ? new Date(project.lastGeneratedAt).toLocaleString("zh-CN")
       : "等待首次生成",

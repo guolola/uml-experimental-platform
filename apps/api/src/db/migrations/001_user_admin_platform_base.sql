@@ -65,6 +65,7 @@ create table if not exists projects (
   team_id text,
   default_provider_config_id text,
   retention_policy text not null default 'manual',
+  background_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

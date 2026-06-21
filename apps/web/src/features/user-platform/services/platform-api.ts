@@ -1,6 +1,7 @@
 // Provides cookie-based user/project API calls for the first authenticated pages.
 import { buildApiUrl } from "../../../services/api-client";
 import type { DesignDiagramKind, DiagramKind, DocumentKind } from "@uml-platform/contracts";
+import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import type { RunHistorySnapshot } from "../../../entities/run-history";
 
 export const AUTH_SESSION_CHANGED_EVENT = "uml-auth-session-changed";
@@ -37,6 +38,7 @@ export interface PlatformProject {
   teamId?: string | null;
   defaultProviderConfigId?: string | null;
   retentionPolicy?: "manual" | "semester_180_days" | "one_year_365_days" | string;
+  backgroundKey?: ProjectBackgroundKey | null;
   createdAt?: string;
   updatedAt: string;
   lastGeneratedAt?: string | null;
@@ -520,6 +522,7 @@ export const platformApi = {
     teamId?: string | null;
     defaultProviderConfigId?: string | null;
     retentionPolicy?: string;
+    backgroundKey?: ProjectBackgroundKey | null;
   }) {
     return requestJson<{ project: PlatformProject }>("/api/projects", {
       method: "POST",
@@ -545,6 +548,7 @@ export const platformApi = {
       teamId?: string | null;
       defaultProviderConfigId?: string | null;
       retentionPolicy?: string;
+      backgroundKey?: ProjectBackgroundKey | null;
     },
   ) {
     return requestJson<{ project: PlatformProject }>(`/api/projects/${projectId}`, {

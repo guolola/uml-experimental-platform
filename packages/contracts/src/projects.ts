@@ -32,6 +32,70 @@ export const projectRetentionPolicySchema = z.enum([
 ]);
 export type ProjectRetentionPolicy = z.infer<typeof projectRetentionPolicySchema>;
 
+export const projectBackgroundKeySchema = z.enum([
+  "erp",
+  "crm",
+  "oa",
+  "hrm",
+  "finance",
+  "procurement",
+  "sales",
+  "inventory",
+  "wms",
+  "mes",
+  "scm",
+  "bi",
+  "project_management",
+  "cms",
+  "plm",
+  "eam",
+  "itsm",
+  "ticket",
+  "contract",
+  "legal",
+  "risk_control",
+  "security",
+  "permission",
+  "approval",
+  "reports",
+  "orders",
+  "after_sales",
+  "knowledge_base",
+  "equipment",
+  "iot",
+  "mrp",
+  "qms",
+  "lims",
+  "his",
+  "lms",
+  "energy",
+  "marketing_automation",
+  "ecommerce",
+  "call_center",
+  "tms",
+  "fleet",
+  "dms",
+  "archive",
+  "collaboration_portal",
+  "low_code",
+  "devops",
+  "apm",
+  "data_governance",
+  "mdm",
+  "rpa",
+  "emr",
+  "campus",
+  "hotel_pms",
+  "property_management",
+  "parking",
+  "retail_pos",
+  "booking",
+  "asset_tracking",
+  "training",
+  "quality_traceability",
+]);
+export type ProjectBackgroundKey = z.infer<typeof projectBackgroundKeySchema>;
+
 export const projectMemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
 export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
 
@@ -43,6 +107,12 @@ const optionalProjectBindingIdSchema = z
   .preprocess(
     (value) => (typeof value === "string" && value.trim() === "" ? null : value),
     nullableProjectBindingIdSchema,
+  )
+  .optional();
+const optionalProjectBackgroundKeySchema = z
+  .preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    projectBackgroundKeySchema.nullable(),
   )
   .optional();
 
@@ -77,6 +147,7 @@ export const projectDtoSchema = z
     teamId: nullableProjectBindingIdSchema.default(null),
     defaultProviderConfigId: nullableProjectBindingIdSchema.default(null),
     retentionPolicy: projectRetentionPolicySchema.default("manual"),
+    backgroundKey: projectBackgroundKeySchema.nullable().default(null),
     createdAt: isoTimestampSchema,
     updatedAt: isoTimestampSchema,
   })
@@ -93,6 +164,7 @@ export const projectCreateRequestSchema = z.object({
   teamId: optionalProjectBindingIdSchema,
   defaultProviderConfigId: optionalProjectBindingIdSchema,
   retentionPolicy: projectRetentionPolicySchema.default("manual").optional(),
+  backgroundKey: optionalProjectBackgroundKeySchema,
 });
 export type ProjectCreateRequest = z.infer<typeof projectCreateRequestSchema>;
 
@@ -108,6 +180,7 @@ export const projectUpdateRequestSchema = z
     teamId: optionalProjectBindingIdSchema,
     defaultProviderConfigId: optionalProjectBindingIdSchema,
     retentionPolicy: projectRetentionPolicySchema.optional(),
+    backgroundKey: optionalProjectBackgroundKeySchema,
   })
   .refine((input) => Object.keys(input).length > 0, {
     message: "At least one project field must be provided",

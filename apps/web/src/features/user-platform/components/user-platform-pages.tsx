@@ -659,7 +659,7 @@ export function ProjectWorkspaceAccessBoundary({
   const overview = useProjectOverview(projectId);
   const accessMessage = renderAccessMessage(overview, onNavigate);
   const coordinatedLoading = usePlatformRouteLoading(
-    "正在同步项目状态...",
+    "正在打开项目工作台...",
     overview.loading,
   );
   const loadingTransition = useLoadingTransition(overview.loading);
@@ -675,7 +675,7 @@ export function ProjectWorkspaceAccessBoundary({
     return (
       <PageFrame onNavigate={onNavigate}>
         <PlatformLoadingScreen
-          message="正在同步项目状态..."
+          message="正在打开项目工作台..."
           variant="content"
           phase={loadingTransition.phase === "hidden" ? "loading" : loadingTransition.phase}
           progress={loadingTransition.progress}
@@ -690,7 +690,7 @@ export function ProjectWorkspaceAccessBoundary({
         <PageFrame onNavigate={onNavigate}>{accessMessage}</PageFrame>
         {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
           <PlatformLoadingScreen
-            message="正在同步项目状态..."
+            message="正在打开项目工作台..."
             variant="content"
             phase={loadingTransition.phase}
             progress={loadingTransition.progress}
@@ -708,7 +708,7 @@ export function ProjectWorkspaceAccessBoundary({
       </ProjectOverviewContext.Provider>
       {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
         <PlatformLoadingScreen
-          message="正在同步项目状态..."
+          message="正在打开项目工作台..."
           variant="content"
           phase={loadingTransition.phase}
           progress={loadingTransition.progress}

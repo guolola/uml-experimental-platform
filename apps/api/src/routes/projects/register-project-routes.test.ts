@@ -587,6 +587,7 @@ test("project create and update persist academic binding and default provider me
       classId: "class-1",
       teamId: "team-1",
       defaultProviderConfigId: "provider-1",
+      backgroundKey: "booking",
     },
   });
   assert.equal(created.statusCode, 201);
@@ -595,6 +596,7 @@ test("project create and update persist academic binding and default provider me
   assert.equal(created.json().project.classId, "class-1");
   assert.equal(created.json().project.teamId, "team-1");
   assert.equal(created.json().project.defaultProviderConfigId, "provider-1");
+  assert.equal(created.json().project.backgroundKey, "booking");
 
   const updated = await app.inject({
     method: "PATCH",
@@ -605,6 +607,7 @@ test("project create and update persist academic binding and default provider me
       classId: null,
       teamId: null,
       defaultProviderConfigId: "provider-2",
+      backgroundKey: "quality_traceability",
     },
   });
   assert.equal(updated.statusCode, 200);
@@ -612,7 +615,42 @@ test("project create and update persist academic binding and default provider me
   assert.equal(updated.json().project.classId, null);
   assert.equal(updated.json().project.teamId, null);
   assert.equal(updated.json().project.defaultProviderConfigId, "provider-2");
+  assert.equal(updated.json().project.backgroundKey, "quality_traceability");
 
+  const automatic = await app.inject({
+    method: "PATCH",
+    url: `/api/projects/${created.json().project.id}`,
+    headers: { cookie: owner.cookie },
+    payload: {
+      backgroundKey: null,
+    },
+  });
+  assert.equal(automatic.statusCode, 200);
+  assert.equal(automatic.json().project.backgroundKey, null);
+
+  await app.close();
+});
+
+test("project background key rejects unknown template ids", async () => {
+  const { app, authStore } = await createTestApp();
+  const owner = await registerUser({
+    authStore,
+    email: "background-owner@example.com",
+    displayName: "Background Owner",
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: { cookie: owner.cookie },
+    payload: {
+      name: "非法背景项目",
+      visibility: "private",
+      backgroundKey: "unknown-template",
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
   await app.close();
 });
 
@@ -638,7 +676,12 @@ test("project list includes owner identity and active member previews", async ()
     email: "list-observer@example.com",
     displayName: "List Observer",
   });
-  const project = await createProject({ app, cookie: owner.cookie, name: "Member Preview Project" });
+  const project = await createProject({
+    app,
+    cookie: owner.cookie,
+    name: "Member Preview Project",
+    payload: { backgroundKey: "project_management" },
+  });
   authStore.createMember({
     projectId: project.id,
     userId: editor.user.id,
@@ -700,6 +743,7 @@ test("project list includes owner identity and active member previews", async ()
     .projects.find((item: { id: string }) => item.id === project.id);
   assert.ok(listedProject);
   assert.equal(listedProject.ownerDisplayName, "List Owner");
+  assert.equal(listedProject.backgroundKey, "project_management");
   assert.equal(listedProject.memberCount, 4);
   assert.equal(listedProject.memberPreviews.length, 3);
   assert.deepEqual(

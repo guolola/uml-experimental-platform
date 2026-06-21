@@ -48,6 +48,7 @@ describe("ProjectWorkspaceDrawer", () => {
 
   function stubProjectWorkspaceFetch({
     defaultProviderConfigId = "provider-long",
+    backgroundKey = null,
     providerConfigs = [{
       id: "provider-long",
       name: "goal-e2e comfly 20260524021222 managed provider with long name",
@@ -89,6 +90,7 @@ describe("ProjectWorkspaceDrawer", () => {
                 status: "active",
                 ownerUserId: "owner-user",
                 defaultProviderConfigId: body.defaultProviderConfigId ?? null,
+                backgroundKey: body.backgroundKey ?? null,
                 retentionPolicy: "manual",
                 updatedAt: "2026-05-24T00:00:00.000Z",
                 memberCount: 3,
@@ -107,6 +109,7 @@ describe("ProjectWorkspaceDrawer", () => {
               status: "active",
               ownerUserId: "owner-user",
               defaultProviderConfigId,
+              backgroundKey,
               retentionPolicy: "manual",
               updatedAt: "2026-05-24T00:00:00.000Z",
               memberCount: 3,
@@ -266,6 +269,37 @@ describe("ProjectWorkspaceDrawer", () => {
         "provider-native-long-model",
       ],
       defaultModel: "gpt-5.5-preview-with-long-model-name",
+    });
+  });
+
+  it("saves a manual project background from settings", async () => {
+    const user = userEvent.setup();
+    const projectId = stubProjectWorkspaceFetch();
+
+    render(
+      withWorkspaceProviders(
+        <ProjectWorkspaceDrawer
+          projectId={projectId}
+          activeDrawer="settings"
+          onClose={() => {}}
+        />,
+        projectDrawerRepository(),
+      ),
+    );
+
+    expect(screen.queryByRole("option", { name: /质量追溯系统/u })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /选择背景图/u }));
+    await user.click(await screen.findByRole("option", { name: /质量追溯系统/u }));
+    await user.click(screen.getByRole("button", { name: "保存项目设置" }));
+    await screen.findByText("项目设置已保存。");
+
+    const fetchMock = vi.mocked(fetch);
+    const updateCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      return url.pathname === `/api/projects/${projectId}` && init?.method === "PATCH";
+    });
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({
+      backgroundKey: "quality_traceability",
     });
   });
 

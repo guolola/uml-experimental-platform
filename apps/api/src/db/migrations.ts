@@ -70,6 +70,7 @@ create table if not exists projects (
   team_id text,
   default_provider_config_id text,
   retention_policy text not null default 'manual',
+  background_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -454,6 +455,10 @@ create index if not exists projects_default_provider_idx on projects(default_pro
 
 export const projectGovernanceSql = `
 alter table projects add column if not exists retention_policy text not null default 'manual';
+`;
+
+export const projectBackgroundKeySql = `
+alter table projects add column if not exists background_key text;
 `;
 
 export const providerRateLimitPolicySql = `
@@ -949,6 +954,10 @@ export const migrations = [
   {
     id: "015_usernames",
     sql: usernamesSql,
+  },
+  {
+    id: "016_project_background_key",
+    sql: projectBackgroundKeySql,
   },
 ] as const;
 

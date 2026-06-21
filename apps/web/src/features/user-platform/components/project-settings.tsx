@@ -1,5 +1,6 @@
 // Owns project settings, provider policy, retention, and high-risk project actions.
 import { useEffect, useState } from "react";
+import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import { Archive } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
@@ -20,6 +21,7 @@ import {
   type PlatformProject,
   type PlatformProviderConfig,
 } from "../services/platform-api";
+import { ProjectBackgroundPicker } from "./project-background-picker";
 
 export function ProjectSettings({
   project,
@@ -44,6 +46,9 @@ export function ProjectSettings({
   const [defaultProviderConfigId, setDefaultProviderConfigId] = useState(
     project.defaultProviderConfigId ?? "user-default",
   );
+  const [backgroundKey, setBackgroundKey] = useState<ProjectBackgroundKey | null>(
+    project.backgroundKey ?? null,
+  );
   const [retentionPolicy, setRetentionPolicy] = useState(project.retentionPolicy ?? "manual");
   const [newOwnerUserId, setNewOwnerUserId] = useState("");
   const [currentProject, setCurrentProject] = useState(project);
@@ -64,6 +69,7 @@ export function ProjectSettings({
       )?.value ?? "unassigned",
     );
     setDefaultProviderConfigId(project.defaultProviderConfigId ?? "user-default");
+    setBackgroundKey(project.backgroundKey ?? null);
     setRetentionPolicy(project.retentionPolicy ?? "manual");
     setNewOwnerUserId("");
     setCurrentProject(project);
@@ -108,6 +114,7 @@ export function ProjectSettings({
         classId: academicBinding.classId,
         teamId: academicBinding.teamId,
         defaultProviderConfigId: activeDefaultProviderConfigId,
+        backgroundKey,
       });
       const retentionResponse = await platformApi.updateProjectRetentionPolicy(
         project.id,
@@ -244,6 +251,15 @@ export function ProjectSettings({
               placeholder="暂无项目描述"
               disabled={!canManageProjectSettings}
               title={!canManageProjectSettings ? settingsBlockedReason : undefined}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>项目背景</Label>
+            <ProjectBackgroundPicker
+              name={name}
+              value={backgroundKey}
+              onChange={setBackgroundKey}
+              disabled={!canManageProjectSettings}
             />
           </div>
           <div className="grid gap-1.5">

@@ -4,6 +4,7 @@ import type {
   AdminRole,
   AuditLogDto,
   LoginEventDto,
+  ProjectBackgroundKey,
   ProjectMemberRole,
   ProjectMemberStatus,
   ProjectRetentionPolicy,
@@ -65,6 +66,7 @@ type ProjectRow = {
   team_id: string | null;
   default_provider_config_id: string | null;
   retention_policy: ProjectRetentionPolicy;
+  background_key: ProjectBackgroundKey | null;
   created_at: string | Date;
   updated_at: string | Date;
 };
@@ -227,6 +229,7 @@ function mapProjectRow(row: ProjectRow): ProjectRecord {
     teamId: row.team_id ?? null,
     defaultProviderConfigId: row.default_provider_config_id ?? null,
     retentionPolicy: row.retention_policy ?? "manual",
+    backgroundKey: row.background_key ?? null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
   };
@@ -340,6 +343,7 @@ const projectColumns = `
   team_id,
   default_provider_config_id,
   retention_policy,
+  background_key,
   created_at,
   updated_at
 `;
@@ -1012,6 +1016,7 @@ export function createPostgresAuthRepository(db: Queryable) {
       teamId?: string | null;
       defaultProviderConfigId?: string | null;
       retentionPolicy?: ProjectRetentionPolicy;
+      backgroundKey?: ProjectBackgroundKey | null;
     }) {
       const projectResult = await db.query<ProjectRow>(
         `
@@ -1026,9 +1031,10 @@ export function createPostgresAuthRepository(db: Queryable) {
             class_id,
             team_id,
             default_provider_config_id,
-            retention_policy
+            retention_policy,
+            background_key
           )
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           returning ${projectColumns}
         `,
         [
@@ -1043,6 +1049,7 @@ export function createPostgresAuthRepository(db: Queryable) {
           input.teamId ?? null,
           input.defaultProviderConfigId ?? null,
           input.retentionPolicy ?? "manual",
+          input.backgroundKey ?? null,
         ],
       );
       const project = mapProjectRow(projectResult.rows[0]);
@@ -1184,6 +1191,7 @@ export function createPostgresAuthRepository(db: Queryable) {
           | "teamId"
           | "defaultProviderConfigId"
           | "retentionPolicy"
+          | "backgroundKey"
         >
       >,
     ) {
@@ -1202,6 +1210,7 @@ export function createPostgresAuthRepository(db: Queryable) {
             team_id = case when $18 then $19 else team_id end,
             default_provider_config_id = case when $20 then $21 else default_provider_config_id end,
             retention_policy = case when $22 then $23 else retention_policy end,
+            background_key = case when $24 then $25 else background_key end,
             updated_at = now()
           where id = $1
           returning ${projectColumns}
@@ -1230,6 +1239,8 @@ export function createPostgresAuthRepository(db: Queryable) {
           patch.defaultProviderConfigId ?? null,
           Object.hasOwn(patch, "retentionPolicy"),
           patch.retentionPolicy ?? null,
+          Object.hasOwn(patch, "backgroundKey"),
+          patch.backgroundKey ?? null,
         ],
       );
 

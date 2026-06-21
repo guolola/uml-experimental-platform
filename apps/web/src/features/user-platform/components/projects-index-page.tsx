@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowRight,
+  Clock3,
   FileText,
   Lock,
   Plus,
@@ -34,11 +35,6 @@ import {
 } from "../services/platform-api";
 import { useAuthenticatedRouteSession } from "./authenticated-route-session";
 import { ProjectCreateForm } from "./project-create-form";
-import {
-  PlatformLoadingScreen,
-  useLoadingTransition,
-  usePlatformRouteLoading,
-} from "./platform-loading-screen";
 
 type Navigate = (path: string) => void;
 
@@ -70,11 +66,6 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
   const [projects, setProjects] = useState<StaticProject[]>([]);
   const [loading, setLoading] = useState(true);
   const authSession = useAuthenticatedRouteSession();
-  const coordinatedLoading = usePlatformRouteLoading(
-    "正在同步项目空间状态...",
-    loading,
-  );
-  const loadingTransition = useLoadingTransition(loading);
   const [status, setStatus] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
   const [forbidden, setForbidden] = useState(false);
@@ -190,26 +181,12 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
   }, []);
 
   if (loading) {
-    if (coordinatedLoading) {
-      return (
-        <main
-          data-testid="projects-index-shell"
-          className={STABLE_PLATFORM_SCROLL_CLASS}
-        />
-      );
-    }
     return (
       <main
         data-testid="projects-index-shell"
-        className={cn(STABLE_PLATFORM_SCROLL_CLASS, "px-6 py-6 md:px-10 xl:px-12")}
-      >
-        <PlatformLoadingScreen
-          message="正在同步项目空间状态..."
-          variant="content"
-          phase={loadingTransition.phase === "hidden" ? "loading" : loadingTransition.phase}
-          progress={loadingTransition.progress}
-        />
-      </main>
+        className={cn("relative", STABLE_PLATFORM_SCROLL_CLASS)}
+        aria-busy="true"
+      />
     );
   }
 
@@ -335,14 +312,22 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
             {visibleProjects.map((project) => (
               <article
                 key={project.id}
+                data-background-key={project.background.key}
                 className={
                   project.status === "archived"
                     ? "group relative flex min-h-[174px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-card opacity-75 shadow-sm md:min-h-[271px] md:rounded-xl"
                     : "group relative flex min-h-[182px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-card shadow-sm md:min-h-[287px] md:rounded-xl"
                 }
               >
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary to-info opacity-0 transition-opacity group-hover:opacity-100" />
-                <div className="flex flex-1 flex-col gap-2 border-b border-border/60 px-3 pb-3 pt-3 md:gap-4 md:px-6 md:pb-10 md:pt-6">
+                <img
+                  src={project.background.imageUrl}
+                  alt=""
+                  className="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/82 to-background/38" />
+                <div className="absolute inset-x-0 top-0 z-10 h-1 bg-gradient-to-r from-primary to-info opacity-0 transition-opacity group-hover:opacity-100" />
+                <div className="relative z-10 flex flex-1 flex-col gap-2 border-b border-border/40 px-3 pb-3 pt-3 md:gap-4 md:px-6 md:pb-10 md:pt-6">
                   <div className="flex min-w-0 items-start justify-between gap-2 md:gap-3">
                     <h2 className="line-clamp-2 min-w-0 text-[15px] font-semibold leading-5 text-foreground md:text-xl md:leading-7">
                       {project.name}
@@ -376,13 +361,19 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
                       )}
                       <span className="min-w-0 truncate">{project.visibility}</span>
                     </span>
+                    <span className="flex min-w-0 items-center gap-1.5 md:gap-2">
+                      <Clock3 className="size-3.5 shrink-0" />
+                      <span className="min-w-0 truncate">
+                        最近更新：{project.updatedAtDisplay}
+                      </span>
+                    </span>
                   </div>
                 </div>
-                <div className="mt-auto flex items-center justify-between gap-2 bg-muted/50 px-3 py-2 dark:bg-secondary/40 md:gap-3 md:px-6 md:py-4">
+                <div className="relative z-10 mt-auto flex items-center justify-between gap-2 bg-background/72 px-3 py-2 backdrop-blur-[2px] md:gap-3 md:px-6 md:py-4">
                   <div className="flex items-start">
                     {project.status === "archived" ? (
                       <span className="line-clamp-2 font-mono text-[10px] font-medium leading-4 text-muted-foreground md:text-xs">
-                        最后更新: {project.updatedAt}
+                        最后更新: {project.updatedAtDisplay}
                       </span>
                     ) : (
                       <>
@@ -453,26 +444,17 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
           </section>
         )}
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogContent className="max-h-[88vh] overflow-auto sm:max-w-3xl">
+          <DialogContent className="max-h-[88vh] overflow-auto sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>创建项目</DialogTitle>
               <DialogDescription>
-                项目名称、描述、可见性、课程/班级/team 和默认模型策略会提交到项目 API。
+                项目名称、描述、可见性和默认模型策略会提交到项目 API。
               </DialogDescription>
             </DialogHeader>
             <ProjectCreateForm onNavigate={onNavigate} />
           </DialogContent>
         </Dialog>
       </div>
-      {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
-        <PlatformLoadingScreen
-          message="正在同步项目空间状态..."
-          variant="content"
-          phase={loadingTransition.phase}
-          progress={loadingTransition.progress}
-          className="absolute inset-6 z-20 md:inset-10 xl:inset-12"
-        />
-      )}
     </main>
   );
 }
