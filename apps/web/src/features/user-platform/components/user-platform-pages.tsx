@@ -112,6 +112,10 @@ const emptyProjectOverview: ProjectOverviewState = {
 const ProjectOverviewContext =
   createContext<{ projectId: string; overview: ProjectOverviewState } | null>(null);
 
+export function useCurrentProjectOverview() {
+  return useContext(ProjectOverviewContext);
+}
+
 function useProjectOverview(projectId: string) {
   const providedOverview = useContext(ProjectOverviewContext);
   const contextOverview =
@@ -800,7 +804,11 @@ export function ProjectWorkspaceBanner({
   return (
     <>
       {lineageOpen && (
-        <LineageGraphDialog open={lineageOpen} onOpenChange={setLineageOpen} />
+        <LineageGraphDialog
+          open={lineageOpen}
+          onOpenChange={setLineageOpen}
+          projectRuns={overview.runs}
+        />
       )}
       <div className="flex min-h-[53px] items-center border-b border-border bg-card px-3 py-2 md:px-4">
         <div className="flex w-full min-w-0 items-center justify-between gap-3 text-sm md:flex-wrap">

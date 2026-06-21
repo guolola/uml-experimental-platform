@@ -43,6 +43,33 @@ test("buildRequirementBaseline creates source-attributed atomic requirements fro
   assert.equal(baseline.qualityReport.status, "passed");
 });
 
+test("buildRequirementBaseline does not share sourceRuleId for duplicate rule ids", () => {
+  const baseline = buildRequirementBaseline({
+    runId: "run-duplicate-rules",
+    requirementText: "读者可以检索图书。系统需要记录图书库存。",
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "读者可以检索图书。",
+        relatedDiagrams: ["usecase"],
+      },
+      {
+        id: "R1",
+        category: "数据需求",
+        text: "系统需要记录图书库存。",
+        relatedDiagrams: ["class"],
+      },
+    ],
+    createdAt: "2026-05-24T00:00:00.000Z",
+  });
+
+  assert.deepEqual(
+    baseline.requirements.map((requirement) => requirement.sourceRuleId),
+    ["r1", "R1-2"],
+  );
+});
+
 test("buildRequirementBaseline infers domain actors and objects without a fixed vocabulary hit", () => {
   const baseline = buildRequirementBaseline({
     runId: "run-domain-actor",
@@ -142,6 +169,50 @@ test("buildRequirementBaseline marks missing actors as audit hints without block
     true,
   );
   assert.doesNotThrow(() => assertRequirementBaselineAllowsDownstream(baseline));
+});
+
+test("assertRequirementBaselineAllowsDownstream rejects blocked quality reports", () => {
+  const baseline = buildRequirementBaseline({
+    runId: "run-blocked-baseline",
+    requirementText: "管理员必须审批退款。管理员不得审批退款。",
+    rules: [
+      {
+        id: "r1",
+        category: "业务规则",
+        text: "管理员必须审批退款。",
+        relatedDiagrams: ["usecase"],
+      },
+      {
+        id: "r2",
+        category: "业务规则",
+        text: "管理员不得审批退款。",
+        relatedDiagrams: ["usecase"],
+      },
+    ],
+    createdAt: "2026-05-24T00:00:00.000Z",
+  });
+  baseline.qualityReport = {
+    ...baseline.qualityReport,
+    status: "blocked",
+    summary: "需求基线存在阻断型质量问题。",
+    issues: [
+      {
+        id: "ISS-001",
+        requirementId: "REQ-001",
+        severity: "critical",
+        code: "conflict",
+        message: "管理员审批退款规则互相冲突。",
+        blocksDownstream: true,
+      },
+    ],
+    blockingIssueIds: ["ISS-001"],
+    reviewRequiredRequirementIds: ["REQ-001"],
+  };
+
+  assert.throws(
+    () => assertRequirementBaselineAllowsDownstream(baseline),
+    /RequirementBaseline blocked downstream generation: 管理员审批退款规则互相冲突/u,
+  );
 });
 
 test("buildRequirementBaseline accepts AI repairs that are directly grounded in the source text", () => {

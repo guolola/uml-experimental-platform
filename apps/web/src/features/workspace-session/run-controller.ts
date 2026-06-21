@@ -1,7 +1,7 @@
 // Coordinates active generation runs so stale async events cannot update session state.
 import { useCallback, useMemo, useRef } from "react";
 
-type RunScope = "requirements" | "design" | "code" | "workspace";
+type RunScope = "requirements" | "design" | "code" | "document" | "workspace";
 
 export function useRunController() {
   const nextRunRequestIdRef = useRef(0);
@@ -9,6 +9,7 @@ export function useRunController() {
     requirements: 0,
     design: 0,
     code: 0,
+    document: 0,
     workspace: 0,
   });
 

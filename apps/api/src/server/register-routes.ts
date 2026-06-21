@@ -317,7 +317,7 @@ export function registerApiRoutes({
       ? undefined
       : billingService,
     loadProjectWorkspace: async (projectId) => authStore.getProjectWorkspace(projectId),
-    syncProjectWorkspace: createProjectWorkspaceSync(authStore),
+    syncProjectWorkspace: createProjectWorkspaceSync(authStore, { runs }),
     runAccessGuard: {
       async resolveRunAccess(request) {
         const projectIdHeader = request.headers["x-uml-project-id"];

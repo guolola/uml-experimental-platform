@@ -1,4 +1,4 @@
-// Renders workspace-level navigation, run controls, export actions, and account/project entry points.
+// Renders workspace-level navigation, run controls, and account/project entry points.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -6,9 +6,6 @@ import {
   Boxes,
   CheckCircle2,
   Copy,
-  Download,
-  FileCode2,
-  FileText,
   GitBranch,
   History,
   Loader2,
@@ -25,7 +22,6 @@ import type {
   DesignDiagramKind,
   DiagramKind,
   RequirementTraceEntry,
-  RunSnapshot,
   RunStage,
 } from "@uml-platform/contracts";
 import { Button } from "../../../shared/ui/button";
@@ -42,9 +38,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../../shared/ui/dropdown-menu";
-import { buildRunMarkdownReport } from "../../../entities/run-history";
-import { downloadTextFile } from "../../../shared/lib/download";
 import { cn } from "../../../shared/ui/utils";
+import { formatCodeDiagnosticSummary } from "../../../shared/lib/code-diagnostics";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { SystemNoticeButton } from "../../system-notices/components/system-notice-dialog";
 import {
@@ -75,6 +70,7 @@ const RUN_STATUS_LABEL = {
   completed: "已完成",
   failed: "失败",
   cancelled: "已取消",
+  interrupted: "服务中断，可重试",
 } as const;
 
 const SUBTASK_STATUS_LABEL = {
@@ -295,6 +291,10 @@ function isActiveProjectRun(run: PlatformRunSummary) {
   return run.status === "queued" || run.status === "running";
 }
 
+function isActiveGenerationTask(task: { status: string }) {
+  return task.status === "queued" || task.status === "running";
+}
+
 function projectRunTimestamp(run: PlatformRunSummary) {
   const timestamp =
     run.updatedAt ?? run.completedAt ?? run.startedAt ?? run.createdAt ?? "";
@@ -311,7 +311,12 @@ function latestProjectRun(runs: PlatformRunSummary[]) {
 function getProjectRunProgress(run: PlatformRunSummary) {
   const status = normalizeRunStatus(run.status);
   if (status === "queued") return 0;
-  if (status === "completed" || status === "failed" || status === "cancelled") {
+  if (
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "interrupted"
+  ) {
     return 100;
   }
   const stage = normalizeRunStage(run.stage);
@@ -330,12 +335,54 @@ function formatProjectRunTitle(run: PlatformRunSummary) {
   return "项目生成任务";
 }
 
+function runActionLabel(action?: string | null) {
+  if (action === "retry") return "重试";
+  if (action === "rerun") return "重新运行";
+  return "派生运行";
+}
+
+function projectRunRelationMessage(run: PlatformRunSummary) {
+  const parts = [
+    run.sourceRunId ? `${runActionLabel(run.sourceAction)}自 ${run.sourceRunId}` : null,
+    run.latestActionRunId
+      ? `已${runActionLabel(run.latestAction)}为 ${run.latestActionRunId}`
+      : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function projectRunCodeDiagnosticMessage(run: PlatformRunSummary) {
+  if (normalizeRunKind(run.runKind) !== "code") return null;
+  return formatCodeDiagnosticSummary({
+    codeDiagnosticCount: run.codeDiagnosticCount,
+    codeDiagnosticSummary: run.codeDiagnosticSummary,
+  });
+}
+
 function formatProjectRunMessage(run: PlatformRunSummary) {
+  const relation = projectRunRelationMessage(run);
   const status = normalizeRunStatus(run.status);
-  if (run.errorMessage) return sanitizeTaskText(run.errorMessage);
-  if (status === "queued") return "任务正在排队";
+  const codeDiagnostics = projectRunCodeDiagnosticMessage(run);
+  if (run.errorMessage) {
+    return [relation, sanitizeTaskText(run.errorMessage)].filter(Boolean).join(" · ");
+  }
+  if (status === "interrupted") {
+    return [relation, "服务中断，可从运行历史重试或重新运行"].filter(Boolean).join(" · ");
+  }
+  if (codeDiagnostics) {
+    return [relation, codeDiagnostics].filter(Boolean).join(" · ");
+  }
+  if (status === "queued") return [relation, "任务正在排队"].filter(Boolean).join(" · ");
   const stage = normalizeRunStage(run.stage);
-  return stage ? `${formatStageLabel(stage)}进行中` : RUN_STATUS_LABEL[status];
+  const statusMessage = stage ? `${formatStageLabel(stage)}进行中` : RUN_STATUS_LABEL[status];
+  return [relation, statusMessage].filter(Boolean).join(" · ");
+}
+
+function runStatusBadgeVariant(status: keyof typeof RUN_STATUS_LABEL) {
+  if (status === "failed") return "destructive";
+  if (status === "interrupted") return "warning";
+  if (status === "completed") return "success";
+  return "secondary";
 }
 
 const TRACE_KIND_LABELS: Record<string, string> = {
@@ -502,6 +549,16 @@ function retryDiagramId(id: string) {
   return rawSubtaskId(id).split(":")[0] ?? rawSubtaskId(id);
 }
 
+function retrySubtaskActionLabel(id: string) {
+  return rawSubtaskId(id).includes(":") ? "重试全部同类模型" : "重试此模型";
+}
+
+function retrySubtaskActionTitle(id: string) {
+  return rawSubtaskId(id).includes(":")
+    ? "当前重试按模型类型执行，会重试同类模型而不是单个实例"
+    : "重试此模型";
+}
+
 function getSubtaskStage(
   taskKind: VisibleGenerationTask["kind"],
   subtaskId: string,
@@ -664,11 +721,22 @@ export function ProjectGenerationTasksDrawerContent({
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
   const designTraceEntries = currentRunDiagnostics.designTrace;
   const codeTraceEntries = currentRunDiagnostics.codeTrace;
+  const activeProjectRuns = useMemo(
+    () => projectRuns.filter(isActiveProjectRun),
+    [projectRuns],
+  );
+  const recentProjectRun = useMemo(() => latestProjectRun(projectRuns), [projectRuns]);
+  const selectedLocalTask = selectedGenerationTaskId
+    ? generationTasks.find((task) => task.clientTaskId === selectedGenerationTaskId) ?? null
+    : null;
+  const activeLocalTask =
+    generationTasks.find(isActiveGenerationTask) ?? null;
   const selectedTask =
-    generationTasks.find((task) => task.clientTaskId === selectedGenerationTaskId) ??
-    generationTasks.find((task) => task.status === "queued" || task.status === "running") ??
-    generationTasks[0] ??
-    null;
+    activeProjectRuns.length > 0
+      ? selectedLocalTask && isActiveGenerationTask(selectedLocalTask)
+        ? selectedLocalTask
+        : activeLocalTask
+      : selectedLocalTask ?? activeLocalTask ?? generationTasks[0] ?? null;
   const taskStages = useMemo(
     () =>
       getVisibleTaskStages(
@@ -678,11 +746,9 @@ export function ProjectGenerationTasksDrawerContent({
       ),
     [currentRunDiagnostics.activeStage, currentRunDiagnostics.runKind, selectedTask],
   );
-  const activeProjectRuns = useMemo(
-    () => projectRuns.filter(isActiveProjectRun),
-    [projectRuns],
-  );
-  const selectedProjectRun = selectedTask ? null : (activeProjectRuns[0] ?? null);
+  const selectedProjectRun = selectedTask
+    ? null
+    : (activeProjectRuns[0] ?? recentProjectRun);
   const visibleRunStatus = selectedProjectRun
     ? normalizeRunStatus(selectedProjectRun.status)
     : runStatus;
@@ -749,6 +815,55 @@ export function ProjectGenerationTasksDrawerContent({
 
   return (
     <div className="grid min-w-0 max-w-full gap-4 overflow-x-hidden text-sm">
+            {activeProjectRuns.length > 0 && (
+              <div className="mb-4 min-w-0 max-w-full overflow-hidden">
+                <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    服务端运行中
+                  </span>
+                </div>
+                <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
+                  {activeProjectRuns.map((run) => {
+                    const taskMessage = formatProjectRunMessage(run);
+                    const runTimeSummary = [
+                      `开始 ${formatTaskDateTime(run.startedAt ?? run.createdAt)}`,
+                      run.completedAt ? `结束 ${formatTaskDateTime(run.completedAt)}` : null,
+                      run.model ? `模型 ${run.model}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                    return (
+                      <div
+                        key={run.runId}
+                        className="flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-lg border border-primary bg-primary/5 px-3 py-2 text-left text-sm"
+                      >
+                        <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                        <span className="min-w-0 flex-1 overflow-hidden">
+                          <span className="block truncate font-medium" title={formatProjectRunTitle(run)}>
+                            {formatProjectRunTitle(run)}
+                          </span>
+                          <span
+                            className="mt-0.5 block truncate text-xs text-muted-foreground"
+                            title={taskMessage}
+                          >
+                            {taskMessage}
+                          </span>
+                          <span
+                            className="mt-0.5 block truncate text-[11px] text-muted-foreground"
+                            title={runTimeSummary}
+                          >
+                            {runTimeSummary}
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                          {getProjectRunProgress(run)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {generationTasks.length > 0 && (
               <div className="mb-4 min-w-0 max-w-full overflow-hidden">
                 <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
@@ -767,9 +882,8 @@ export function ProjectGenerationTasksDrawerContent({
                 </div>
                 <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
                   {generationTasks.map((task) => {
-                    const selected = task.clientTaskId === selectedGenerationTaskId;
-                    const active =
-                      task.status === "queued" || task.status === "running";
+                    const selected = selectedTask?.clientTaskId === task.clientTaskId;
+                    const active = isActiveGenerationTask(task);
                     const taskMessage = sanitizeTaskText(
                       task.message ?? task.errorMessage ?? "",
                     );
@@ -826,62 +940,13 @@ export function ProjectGenerationTasksDrawerContent({
                 </div>
               </div>
             )}
-            {generationTasks.length === 0 && activeProjectRuns.length > 0 && (
-              <div className="mb-4 min-w-0 max-w-full overflow-hidden">
-                <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
-                  <span className="text-xs font-semibold text-muted-foreground">
-                    任务列表
-                  </span>
-                </div>
-                <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
-                  {activeProjectRuns.map((run) => {
-                    const taskMessage = formatProjectRunMessage(run);
-                    const runTimeSummary = [
-                      `开始 ${formatTaskDateTime(run.startedAt ?? run.createdAt)}`,
-                      run.completedAt ? `结束 ${formatTaskDateTime(run.completedAt)}` : null,
-                      run.model ? `模型 ${run.model}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ");
-                    return (
-                      <div
-                        key={run.runId}
-                        className="flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-lg border border-primary bg-primary/5 px-3 py-2 text-left text-sm"
-                      >
-                        <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
-                        <span className="min-w-0 flex-1 overflow-hidden">
-                          <span className="block truncate font-medium" title={formatProjectRunTitle(run)}>
-                            {formatProjectRunTitle(run)}
-                          </span>
-                          <span
-                            className="mt-0.5 block truncate text-xs text-muted-foreground"
-                            title={taskMessage}
-                          >
-                            {taskMessage}
-                          </span>
-                          <span
-                            className="mt-0.5 block truncate text-[11px] text-muted-foreground"
-                            title={runTimeSummary}
-                          >
-                            {runTimeSummary}
-                          </span>
-                        </span>
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                          {getProjectRunProgress(run)}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
             <div
               data-testid="generation-task-status-card"
               className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-4 text-sm"
             >
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <span className="text-muted-foreground">状态</span>
-                <Badge variant={visibleRunStatus === "failed" ? "destructive" : "secondary"}>
+                <Badge variant={runStatusBadgeVariant(visibleRunStatus)}>
                   {RUN_STATUS_LABEL[visibleRunStatus]}
                 </Badge>
               </div>
@@ -906,6 +971,25 @@ export function ProjectGenerationTasksDrawerContent({
                   </span>
                 </div>
               )}
+              {selectedProjectRun && projectRunRelationMessage(selectedProjectRun) && (
+                <div className="grid min-w-0 gap-1">
+                  <span className="text-muted-foreground">运行关系</span>
+                  <span className="min-w-0 truncate text-xs" title={projectRunRelationMessage(selectedProjectRun)}>
+                    {projectRunRelationMessage(selectedProjectRun)}
+                  </span>
+                </div>
+              )}
+              {selectedProjectRun && projectRunCodeDiagnosticMessage(selectedProjectRun) && (
+                <div className="grid min-w-0 gap-1">
+                  <span className="text-muted-foreground">代码诊断</span>
+                  <span
+                    className="min-w-0 break-words text-xs"
+                    title={projectRunCodeDiagnosticMessage(selectedProjectRun) ?? undefined}
+                  >
+                    {projectRunCodeDiagnosticMessage(selectedProjectRun)}
+                  </span>
+                </div>
+              )}
               {selectedProjectRun && (
                 <>
                   <div className="grid min-w-0 gap-1">
@@ -922,14 +1006,23 @@ export function ProjectGenerationTasksDrawerContent({
                   </div>
                 </>
               )}
-              {(selectedTask?.diagnostics.providerModel ?? currentRunDiagnostics.providerModel) && (
+              {(selectedProjectRun?.model ??
+                selectedTask?.diagnostics.providerModel ??
+                currentRunDiagnostics.providerModel) && (
                 <div className="grid min-w-0 gap-1">
                   <span className="text-muted-foreground">模型</span>
                   <span
                     className="min-w-0 truncate font-mono text-xs"
-                    title={selectedTask?.diagnostics.providerModel ?? currentRunDiagnostics.providerModel ?? undefined}
+                    title={
+                      selectedProjectRun?.model ??
+                      selectedTask?.diagnostics.providerModel ??
+                      currentRunDiagnostics.providerModel ??
+                      undefined
+                    }
                   >
-                    {selectedTask?.diagnostics.providerModel ?? currentRunDiagnostics.providerModel}
+                    {selectedProjectRun?.model ??
+                      selectedTask?.diagnostics.providerModel ??
+                      currentRunDiagnostics.providerModel}
                   </span>
                 </div>
               )}
@@ -1189,6 +1282,10 @@ export function ProjectGenerationTasksDrawerContent({
                               {item.subtasks.map((subtask) => {
                                 const subtaskDetail =
                                   formatSubtaskDetail(subtask) || "等待执行";
+                                const retryActionLabel =
+                                  retrySubtaskActionLabel(subtask.id);
+                                const retryActionTitle =
+                                  retrySubtaskActionTitle(subtask.id);
                                 return (
                                   <div
                                     key={subtask.id}
@@ -1245,13 +1342,14 @@ export function ProjectGenerationTasksDrawerContent({
                                           type="button"
                                           size="sm"
                                           variant="outline"
-                                          aria-label="重试此模型"
+                                          aria-label={retryActionLabel}
+                                          title={retryActionTitle}
                                           className="shrink-0"
                                           disabled={taskIsActive}
                                           onClick={() => retrySubtask(subtask.id)}
                                         >
                                           <RotateCcw className="size-3.5" />
-                                          重试此模型
+                                          {retryActionLabel}
                                         </Button>
                                       )}
                                   </div>
@@ -1315,15 +1413,8 @@ export function ProjectWorkspaceActions({
 }: ProjectWorkspaceActionsProps) {
   const [lineageOpen, setLineageOpen] = useState(false);
   const {
-    requirementText,
-    rules,
-    models,
-    svgArtifacts,
-    diagramErrors,
-    selectedDiagrams,
     runStatus,
     runProgress,
-    errorMessage,
     generationTasks,
   } = useWorkspaceSession();
   const activeTaskCount = generationTasks.filter(
@@ -1345,54 +1436,14 @@ export function ProjectWorkspaceActions({
     ? getProjectRunProgress(selectedProjectRun)
     : runProgress;
 
-  const currentSnapshot = (): RunSnapshot => ({
-    runId: "workspace-current",
-    requirementText,
-    selectedDiagrams,
-    rules,
-    models: Object.values(models).filter((model) => !!model),
-    plantUml: [],
-    svgArtifacts: Object.values(svgArtifacts).filter((artifact) => !!artifact),
-    diagramErrors,
-    requirementTrace: [],
-    currentStage: null,
-    status: runStatus === "idle" ? "completed" as const : runStatus,
-    error: errorMessage
-      ? {
-          code: "RUN_INTERNAL_ERROR",
-          message: errorMessage,
-          category: "internal",
-          retryable: false,
-        }
-      : null,
-  });
-
-  const exportMarkdown = () => {
-    if (!rules.length && !requirementText.trim()) {
-      toast.message("暂无内容可导出");
-      return;
-    }
-    downloadTextFile(
-      "uml-run-report.md",
-      buildRunMarkdownReport(currentSnapshot()),
-      "text/markdown",
-    );
-    toast.success("已导出 uml-run-report.md");
-  };
-
-  const exportJson = () => {
-    downloadTextFile(
-      "uml-run-snapshot.json",
-      JSON.stringify(currentSnapshot(), null, 2),
-      "application/json",
-    );
-    toast.success("已导出 uml-run-snapshot.json");
-  };
-
   return (
     <div className="flex flex-wrap items-center gap-2">
       {lineageOpen && (
-        <LineageGraphDialog open={lineageOpen} onOpenChange={setLineageOpen} />
+        <LineageGraphDialog
+          open={lineageOpen}
+          onOpenChange={setLineageOpen}
+          projectRuns={projectRuns}
+        />
       )}
       <Button
         variant="ghost"
@@ -1418,6 +1469,8 @@ export function ProjectWorkspaceActions({
           <Loader2 className="size-5 animate-spin text-primary" />
         ) : visibleRunStatus === "failed" ? (
           <AlertCircle className="size-5 text-destructive" />
+        ) : visibleRunStatus === "interrupted" ? (
+          <AlertCircle className="size-5 text-warning" />
         ) : visibleRunStatus === "completed" ? (
           <CheckCircle2 className="size-5 text-success" />
         ) : (
@@ -1431,36 +1484,6 @@ export function ProjectWorkspaceActions({
               : RUN_STATUS_LABEL[visibleRunStatus]}
         </span>
       </Button>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={topBarActionButtonClass}
-            title="导出"
-            aria-label="导出"
-          >
-            <Download className="size-5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-48">
-          <DropdownMenuLabel>导出当前工作区</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={exportMarkdown}>
-            <FileText className="size-4" /> 运行报告
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-              .md
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={exportJson}>
-            <FileCode2 className="size-4" /> 当前快照
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-              .json
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
 
       <Button
         type="button"

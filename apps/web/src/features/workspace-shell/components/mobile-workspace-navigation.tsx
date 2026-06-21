@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "../../../shared/ui/dialog";
 import { cn } from "../../../shared/ui/utils";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import {
   stageForSelection,
   useWorkspaceShell,
@@ -63,7 +64,11 @@ const mobileStages: Array<{
   },
 ];
 
-export function MobileWorkspaceNavigation() {
+export function MobileWorkspaceNavigation({
+  projectRuns = [],
+}: {
+  projectRuns?: PlatformRunSummary[];
+} = {}) {
   const shell = useWorkspaceShell();
   const activeStage = stageForSelection(shell.selection);
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -90,7 +95,10 @@ export function MobileWorkspaceNavigation() {
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-hidden">
-            <SidebarMenu onNavigateItemSelect={() => setNavigationOpen(false)} />
+            <SidebarMenu
+              projectRuns={projectRuns}
+              onNavigateItemSelect={() => setNavigationOpen(false)}
+            />
           </div>
         </DialogContent>
       </Dialog>

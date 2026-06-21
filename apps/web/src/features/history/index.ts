@@ -3,7 +3,6 @@ export {
   RUN_HISTORY_LIMIT,
   RUN_HISTORY_STORAGE_KEY,
   RunHistoryStorageError,
-  buildRunMarkdownReport,
   clearRunHistoryItems,
   compactRunHistorySnapshot,
   createRunHistoryTitle,

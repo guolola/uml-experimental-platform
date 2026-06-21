@@ -414,36 +414,6 @@ export function registerProjectRoutes({
     };
   });
 
-  app.post("/api/projects/:projectId/export", async (request, reply) => {
-    const { projectId } = request.params as { projectId: string };
-    const context = await requireProjectPermission(
-      request,
-      reply,
-      authStore,
-      projectId,
-      "manage_project_settings",
-    );
-    if (isProjectPermissionError(context)) return context;
-
-    const members = (await authStore.listProjectMembers(projectId)).map(toProjectMemberDto);
-    const auditLog = await authStore.recordAuditLog({
-      actorUserId: context.user.id,
-      action: "project.export",
-      targetType: "project",
-      targetId: projectId,
-      outcome: "success",
-    });
-    return {
-      message: "Project export prepared",
-      auditLog,
-      export: {
-        generatedAt: new Date().toISOString(),
-        project: toProjectDto(context.project),
-        members,
-      },
-    };
-  });
-
   app.post("/api/projects/:projectId/transfer-owner", async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const context = await requireProjectPermission(

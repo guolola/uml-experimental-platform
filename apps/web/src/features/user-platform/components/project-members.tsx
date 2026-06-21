@@ -1,12 +1,11 @@
-// Owns project member invitation, role, removal, and export interactions.
+// Owns project member invitation, role, and removal interactions.
 import { useEffect, useRef, useState } from "react";
-import { Download, Mail, UserRound } from "lucide-react";
+import { Mail, UserRound } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Label } from "../../../shared/ui/label";
 import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
-import { downloadTextFile } from "../../../shared/lib/download";
 import {
   formatMemberDate,
   invitationToMember,
@@ -198,27 +197,6 @@ export function ProjectMembers({
     { value: "owner", label: "所有者" },
     ...roleOptions,
   ];
-  const exportMembers = () => {
-    const header = "displayName,email,role,status,joinedAt,invitedAt";
-    const rows = currentMembers.map((member) =>
-      [
-        member.displayName,
-        member.email,
-        member.role,
-        member.status,
-        member.joinedAt ?? "",
-        member.invitedAt ?? "",
-      ]
-        .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
-        .join(","),
-    );
-    downloadTextFile(
-      `${project.id}-members.csv`,
-      [header, ...rows].join("\n"),
-      "text/csv;charset=utf-8",
-    );
-    setMessage("成员列表已导出。");
-  };
   const containerClass =
     layout === "drawer"
       ? "min-w-0 max-w-full space-y-6 overflow-hidden"
@@ -412,10 +390,6 @@ export function ProjectMembers({
             {message || error}
           </div>
         )}
-        <Button type="button" className="w-full" variant="outline" onClick={exportMembers}>
-          <Download className="size-4" />
-          导出成员列表
-        </Button>
       </div>
     </section>
   );

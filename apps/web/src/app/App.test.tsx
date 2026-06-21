@@ -1062,6 +1062,19 @@ describe("App shell routes", () => {
                   updatedAt: "2026-05-22T00:05:00.000Z",
                   errorMessage: null,
                 },
+                {
+                  runId: "run-doc-failed",
+                  status: "failed",
+                  stage: "render_document_file",
+                  runKind: "document",
+                  documentKind: "requirementsSpec",
+                  model: "gpt-5.5",
+                  createdByUserId: "teacher-1",
+                  createdAt: "2026-05-21T23:00:00.000Z",
+                  updatedAt: "2026-05-21T23:05:00.000Z",
+                  errorMessage: "证据包组装失败",
+                  documentDownloadAvailable: true,
+                },
               ],
             }),
             {
@@ -2994,7 +3007,7 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-min-size", "8");
     expect(screen.getByTestId("workspace-sidebar-panel")).toHaveAttribute("data-max-size", "22");
     expect(screen.getByRole("button", { name: "生成任务" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "导出" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "导出" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "历史快照" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "运行历史" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "项目设置" })).toBeInTheDocument();
@@ -3123,7 +3136,7 @@ describe("App shell routes", () => {
     expect(screen.getByLabelText("项目信息")).toBeDisabled();
     expect(screen.getByLabelText("项目描述")).toBeDisabled();
     expect(screen.getByRole("button", { name: "保存项目设置" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "数据导出" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "数据导出" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "删除项目" })).toBeDisabled();
   });
 
@@ -3322,22 +3335,26 @@ describe("App shell routes", () => {
     expect(screen.queryByText("run-failed")).not.toBeInTheDocument();
     await chooseSelectOption(user, getSelectTrigger("筛选状态"), "失败");
     expect(screen.queryByText("渲染需求图表")).not.toBeInTheDocument();
-    expect(screen.getByText("渲染设计图表")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "查看错误" }));
+    const failedDesignCard = screen.getByText("渲染设计图表").closest(".grid.gap-3.p-3");
+    expect(failedDesignCard).toBeTruthy();
+    const failedDesignControls = within(failedDesignCard as HTMLElement);
+    await user.click(failedDesignControls.getByRole("button", { name: "查看错误" }));
     expect(screen.getByText("PlantUML render failed")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "重试" }));
+    await user.click(failedDesignControls.getByRole("button", { name: "重试" }));
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/projects/library-booking/runs/run-failed/retry"),
       expect.objectContaining({ method: "POST" }),
     );
     expect(await screen.findByText("已重新排队，稍后启动。")).toBeInTheDocument();
+    expect(await screen.findByText("已重试为 run-retry-failed")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "重新运行" }));
+    await user.click(failedDesignControls.getByRole("button", { name: "重新运行" }));
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/projects/library-booking/runs/run-failed/rerun"),
       expect.objectContaining({ method: "POST" }),
     );
     expect(await screen.findByText("已重新排队，稍后启动。")).toBeInTheDocument();
+    expect(await screen.findByText("已重新运行为 run-rerun-failed")).toBeInTheDocument();
   });
 
   it("shows run history actions only when each run supports them", async () => {
@@ -3375,6 +3392,31 @@ describe("App shell routes", () => {
           error: null,
         },
       },
+      {
+        id: "run-doc-failed",
+        createdAt: "2026-05-21T23:05:00.000Z",
+        title: "失败的需求规格说明书",
+        providerModel: "gpt-5-mini",
+        snapshot: {
+          runId: "run-doc-failed",
+          documentKind: "requirementsSpec",
+          requirementText: "生成图书馆预约系统 UML",
+          documentId: "doc-failed",
+          sections: [],
+          fileName: "failed-requirements.docx",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          byteLength: 1234,
+          missingArtifacts: [],
+          currentStage: "render_document_file",
+          status: "failed",
+          error: {
+            code: "RUN_INTERNAL_ERROR",
+            message: "证据包组装失败",
+            category: "internal",
+            retryable: true,
+          },
+        },
+      },
     ]);
     repository.downloadDocumentRun = vi.fn(async () => ({
       fileName: "requirements.docx",
@@ -3389,9 +3431,13 @@ describe("App shell routes", () => {
     const runningCard = (await screen.findByText("渲染需求图表")).closest(".grid.gap-3.p-3");
     const failedCard = screen.getByText("渲染设计图表").closest(".grid.gap-3.p-3");
     const documentCard = screen.getByText("生成需求规格说明书").closest(".grid.gap-3.p-3");
+    const failedDocumentCard = screen
+      .getByText("生成需求规格说明书文件")
+      .closest(".grid.gap-3.p-3");
     expect(runningCard).toBeTruthy();
     expect(failedCard).toBeTruthy();
     expect(documentCard).toBeTruthy();
+    expect(failedDocumentCard).toBeTruthy();
 
     const runningControls = within(runningCard as HTMLElement);
     expect(runningControls.getByRole("button", { name: "取消任务" })).toBeInTheDocument();
@@ -3418,13 +3464,15 @@ describe("App shell routes", () => {
     expect(documentControls.queryByRole("button", { name: "查看错误" })).not.toBeInTheDocument();
     expect(documentControls.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
     expect(documentControls.getByRole("button", { name: "重新运行" })).toBeInTheDocument();
-    expect(documentControls.getByRole("button", { name: "恢复快照" })).toBeInTheDocument();
-    expect(documentControls.getByRole("button", { name: "导出报告" })).toBeInTheDocument();
+    expect(documentControls.queryByRole("button", { name: "恢复快照" })).not.toBeInTheDocument();
+    expect(documentControls.queryByRole("button", { name: "导出报告" })).not.toBeInTheDocument();
     expect(documentControls.getByRole("button", { name: "重新下载" })).toBeInTheDocument();
     expect(documentControls.getByRole("button", { name: "删除记录" })).toBeInTheDocument();
 
-    await user.click(documentControls.getByRole("button", { name: "导出报告" }));
-    expect(URL.createObjectURL).toHaveBeenCalled();
+    const failedDocumentControls = within(failedDocumentCard as HTMLElement);
+    expect(failedDocumentControls.getByRole("button", { name: "查看错误" })).toBeInTheDocument();
+    expect(failedDocumentControls.queryByRole("button", { name: "重新下载" })).not.toBeInTheDocument();
+    expect(failedDocumentControls.getByRole("button", { name: "删除记录" })).toBeInTheDocument();
 
     await user.click(documentControls.getByRole("button", { name: "重新下载" }));
     expect(repository.downloadDocumentRun).toHaveBeenCalledWith(
@@ -3432,8 +3480,7 @@ describe("App shell routes", () => {
       "requirements.docx",
     );
 
-    await user.click(documentControls.getByRole("button", { name: "恢复快照" }));
-    expect(repository.restoreRunHistory).toHaveBeenCalledWith("run-doc");
+    expect(repository.restoreRunHistory).not.toHaveBeenCalledWith("run-doc");
 
     await user.click(failedControls.getByRole("button", { name: "删除记录" }));
     expect(fetchMock).toHaveBeenCalledWith(

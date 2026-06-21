@@ -204,12 +204,12 @@ const ARTICLE_MANIFEST = [
     id: "generation-tasks-history",
     title: "生成任务、运行历史与证据复盘",
     category: "workspace",
-    summary: "查看排队、运行、失败、重试、恢复快照和导出运行报告。",
+    summary: "查看排队、运行、失败、重试、恢复快照和证据状态。",
     estimatedMinutes: 10,
     recommendedPath: true,
     sourcePath: "../content/generation-tasks-history.md",
     tags: ["生成任务", "运行历史", "重试", "恢复快照", "证据"],
-    relatedArtifacts: ["RunSnapshot", "RunEvent", "EvidencePackage", "运行报告"],
+    relatedArtifacts: ["RunSnapshot", "RunEvent", "EvidencePackage"],
     screenshot: {
       src: "/help/images/docs-generation-task.png",
       alt: "生成任务和运行历史抽屉截图",
@@ -378,7 +378,7 @@ const ARTICLE_MANIFEST = [
   },
   {
     id: "troubleshooting",
-    title: "生成、渲染、修复与导出排障",
+    title: "生成、渲染与修复排障",
     category: "support",
     summary: "定位生成失败、渲染失败、AI 修复失败、模型不可用和说明书缺图。",
     estimatedMinutes: 10,

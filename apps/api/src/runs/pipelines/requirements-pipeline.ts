@@ -1344,6 +1344,13 @@ export async function runStagePipeline(
     const hasUseCaseContext = models.some((model) => model.diagramKind === "usecase");
     if (needsAnalysis && !hasUseCaseContext && !prerequisiteDiagrams.includes("usecase")) {
       prerequisiteDiagrams.unshift("usecase");
+      snapshot.requestedDiagrams ??= ["analysis"];
+      snapshot.dependencyDiagrams = [
+        ...new Set([...(snapshot.dependencyDiagrams ?? []), "usecase"]),
+      ] as DiagramKind[];
+      snapshot.selectedDiagrams = [
+        ...new Set(["usecase", ...snapshot.selectedDiagrams]),
+      ] as DiagramKind[];
     }
 
     const prerequisiteTasks = new Map(

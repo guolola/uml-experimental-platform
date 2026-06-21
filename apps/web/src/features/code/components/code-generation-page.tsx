@@ -1,11 +1,10 @@
-// Renders the code generation workspace, including model selection, file browser, preview, and export actions.
+// Renders the code generation workspace, including model selection, file browser, and preview actions.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SandpackProvider } from "@codesandbox/sandpack-react";
 import {
   AlertTriangle,
   CheckCircle2,
   Code2,
-  Download,
   FolderTree,
   Info,
   Loader2,
@@ -21,7 +20,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "../../../shared/ui/resizable";
-import { downloadTextFile } from "../../../shared/lib/download";
 import {
   getModelCapability,
 } from "../../../shared/lib/model-catalog";
@@ -31,6 +29,7 @@ import {
   USER_SETTINGS_CHANGED_EVENT,
 } from "../../../shared/lib/user-settings";
 import { cn } from "../../../shared/ui/utils";
+import { formatCodeDiagnosticSummary } from "../../../shared/lib/code-diagnostics";
 import { DEFAULT_FILES } from "../lib/default-prototype-files";
 import { fileLabel } from "../lib/file-paths";
 import { isMonacoManualCancelation } from "../lib/monaco-extra-libs";
@@ -79,11 +78,14 @@ export function CodeGenerationPage() {
     codeEditVersion,
     codeEntryFile,
     codeDependencies,
+    codeDiagnostics,
     generating,
     runProgress,
     runMessage,
     generateCodePrototype,
     updateCodeFile,
+    recordCodePreviewDiagnostic,
+    clearCodePreviewDiagnostics,
   } = useWorkspaceSession();
   const compactViewport = useCompactViewport();
   const [mobilePane, setMobilePane] = useState<"files" | "editor" | "preview">("editor");
@@ -147,9 +149,14 @@ export function CodeGenerationPage() {
 
   const modelCapability = getModelCapability(defaultModel);
   const designModelCount = Object.values(designModels).filter(Boolean).length;
-  const canGenerate = designModelCount > 0 && requirementText.trim().length > 0;
+  const requirementSourceMissing = requirementText.trim().length === 0;
+  const canGenerate = designModelCount > 0 && !requirementSourceMissing;
   const generatedFileCount = Object.keys(codeFiles).length;
   const previewReady = generatedFileCount > 0 && Boolean(codeEntryFile || codeFiles["/src/main.tsx"]);
+  const codeDiagnosticSummary = useMemo(
+    () => formatCodeDiagnosticSummary({ diagnostics: codeDiagnostics }),
+    [codeDiagnostics],
+  );
   const hasPreviewFiles = Object.keys(previewFiles).length > 0;
   const isRepairingGeneratedPrototype =
     generating &&
@@ -193,12 +200,27 @@ export function CodeGenerationPage() {
                   message: "请根据预览区域的错误修复代码，然后再次运行预览。",
                 }
               : previewReady
-                ? {
-                    tone: "success" as const,
-                    icon: CheckCircle2,
-                    title: "预览已更新",
-                    message: "当前预览已经使用最新生成结果完成构建，可以查看、继续生成、重新生成或导出。",
-                  }
+                ? requirementSourceMissing
+                  ? {
+                      tone: "warning" as const,
+                      icon: AlertTriangle,
+                      title: "需求源头已删除",
+                      message:
+                        "当前代码为旧产物，仍可查看预览；请重新输入需求并重跑后再继续生成或重新生成。",
+                    }
+                  : codeDiagnosticSummary
+                  ? {
+                      tone: "warning" as const,
+                      icon: AlertTriangle,
+                      title: "代码生成存在诊断",
+                      message: `${codeDiagnosticSummary}。当前预览仍可查看，建议复核后继续生成或重新生成。`,
+                    }
+                  : {
+                      tone: "success" as const,
+                      icon: CheckCircle2,
+                      title: "预览已更新",
+                      message: "当前预览已经使用最新生成结果完成构建，可以查看、继续生成或重新生成。",
+                    }
                 : canGenerate
                   ? {
                       tone: "muted" as const,
@@ -245,6 +267,7 @@ export function CodeGenerationPage() {
 
   const handleFileChange = (path: string, value: string) => {
     manualPreviewEditPendingRef.current = true;
+    clearCodePreviewDiagnostics();
     updateFile(path, value);
     if (previewReady) {
       setPreviewState("pending");
@@ -259,35 +282,21 @@ export function CodeGenerationPage() {
   };
 
   const handlePreviewBuildStart = useCallback(() => {
+    clearCodePreviewDiagnostics();
     setPreviewState((current) => (current === "pending" ? current : "building"));
-  }, []);
+  }, [clearCodePreviewDiagnostics]);
 
   const handlePreviewBuildReady = useCallback(() => {
     if (manualPreviewEditPendingRef.current) return;
+    clearCodePreviewDiagnostics();
     setPreviewState("success");
-  }, []);
+  }, [clearCodePreviewDiagnostics]);
 
-  const handlePreviewBuildError = useCallback(() => {
+  const handlePreviewBuildError = useCallback((message: string) => {
     if (manualPreviewEditPendingRef.current) return;
+    recordCodePreviewDiagnostic(message);
     setPreviewState("error");
-  }, []);
-
-  const exportBundle = () => {
-    downloadTextFile(
-      "frontend-prototype.sandpack.json",
-      JSON.stringify(
-        {
-          spec: codeSpec,
-          files,
-          entryFile: activeFile,
-          dependencies: visibleDependencies,
-        },
-        null,
-        2,
-      ),
-      "application/json",
-    );
-  };
+  }, [recordCodePreviewDiagnostic]);
 
   return (
     <div
@@ -377,17 +386,6 @@ export function CodeGenerationPage() {
               <span className="min-[430px]:hidden">重做</span>
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label="导出"
-            className="h-8 px-2 text-xs"
-            onClick={exportBundle}
-            disabled={sortedFiles.length === 0}
-          >
-            <Download className="size-3.5" />
-            <span className="hidden min-[430px]:inline">导出</span>
-          </Button>
           </div>
         </ScaledToolbar>
       </div>
@@ -411,6 +409,8 @@ export function CodeGenerationPage() {
               "border-destructive/40 bg-destructive/10 text-destructive",
             codeStatus.tone === "success" &&
               "border-success/30 bg-success/10 text-success",
+            codeStatus.tone === "warning" &&
+              "border-warning/40 bg-warning/10 text-warning",
             codeStatus.tone === "primary" &&
               "border-primary/30 bg-primary/10 text-primary",
             codeStatus.tone === "muted" &&

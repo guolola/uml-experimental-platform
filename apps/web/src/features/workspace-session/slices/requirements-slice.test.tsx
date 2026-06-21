@@ -23,6 +23,16 @@ function createRepository(): WorkspaceRepository {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("useRequirementsSlice", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -62,6 +72,37 @@ describe("useRequirementsSlice", () => {
     expect(repository.updateRequirementText).toHaveBeenCalledWith(
       "此日历仅供公众使用",
     );
+  });
+
+  it("flushes pending requirement text saves before the debounce timer fires", async () => {
+    vi.useFakeTimers();
+    const save = deferred<void>();
+    const repository = createRepository();
+    vi.mocked(repository.updateRequirementText).mockReturnValueOnce(
+      save.promise,
+    );
+    const { result } = renderHook(() => useRequirementsSlice(repository));
+
+    act(() => result.current.setRequirementText("立即生成前的新需求"));
+
+    let flushPromise!: Promise<void>;
+    act(() => {
+      flushPromise = result.current.flushRequirementTextSave();
+    });
+
+    expect(repository.updateRequirementText).toHaveBeenCalledTimes(1);
+    expect(repository.updateRequirementText).toHaveBeenCalledWith(
+      "立即生成前的新需求",
+    );
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(repository.updateRequirementText).toHaveBeenCalledTimes(1);
+
+    save.resolve();
+    await act(async () => {
+      await flushPromise;
+    });
   });
 
   it("creates and updates requirement rules with stable ids", () => {
@@ -113,6 +154,45 @@ describe("useRequirementsSlice", () => {
         rulesBasedOnTextVersion: 0,
         rulesVersion: 3,
       }),
+    );
+  });
+
+  it("normalizes duplicate rule ids before persisting and editing rules", () => {
+    const repository = createRepository();
+    const { result } = renderHook(() => useRequirementsSlice(repository));
+
+    act(() => {
+      result.current.commitRequirementRules([
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "读者可以检索图书。",
+          relatedDiagrams: ["usecase"],
+        },
+        {
+          id: "R1",
+          category: "数据需求",
+          text: "系统需要记录图书库存。",
+          relatedDiagrams: ["class"],
+        },
+      ]);
+    });
+
+    expect(result.current.rules.map((rule) => rule.id)).toEqual(["r1", "R1-2"]);
+    expect(repository.updateRequirementRules).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "r1" }),
+        expect.objectContaining({ id: "R1-2" }),
+      ]),
+      expect.objectContaining({ rulesVersion: 1 }),
+    );
+
+    act(() => result.current.deleteRequirementRule("R1-2"));
+
+    expect(result.current.rules.map((rule) => rule.id)).toEqual(["r1"]);
+    expect(repository.updateRequirementRules).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ id: "r1" })],
+      expect.objectContaining({ rulesVersion: 2 }),
     );
   });
 });

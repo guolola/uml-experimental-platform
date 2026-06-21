@@ -68,6 +68,14 @@ import {
   type RequirementModelRepairResult,
 } from "./requirement-traceability-dialogs";
 import { NewRequirementRuleDialog } from "./new-requirement-rule-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["function", "usecase", "activity"];
 const REQUIREMENT_DIAGRAM_ICON = {
@@ -130,6 +138,8 @@ export function TextRequirementView() {
     useState<RequirementModelRepairResult | null>(null);
   const [hintDetailRuleId, setHintDetailRuleId] = useState<string | null>(null);
   const [traceabilityDialogOpen, setTraceabilityDialogOpen] = useState(false);
+  const [ruleReplacementDialogOpen, setRuleReplacementDialogOpen] =
+    useState(false);
   const [currentRulePage, setCurrentRulePage] = useState(1);
   const [rulePageSize, setRulePageSize] = useState(REQUIREMENT_RULES_PER_PAGE);
   const [ruleCategoryFilter, setRuleCategoryFilter] =
@@ -158,6 +168,16 @@ export function TextRequirementView() {
     workspacePermissionReason ?? "当前项目角色不能启动生成。";
 
   const runGenerateRules = () => {
+    if (!canRunGeneration) return;
+    if (hasGeneratedRules) {
+      setRuleReplacementDialogOpen(true);
+      return;
+    }
+    void generateRules();
+  };
+
+  const confirmRuleReplacement = () => {
+    setRuleReplacementDialogOpen(false);
     if (!canRunGeneration) return;
     void generateRules();
   };
@@ -854,6 +874,36 @@ export function TextRequirementView() {
         setTraceabilityDialogOpen={setTraceabilityDialogOpen}
         traceabilityDialogOpen={traceabilityDialogOpen}
       />
+
+      <Dialog
+        open={ruleReplacementDialogOpen}
+        onOpenChange={setRuleReplacementDialogOpen}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认替换需求规则</DialogTitle>
+            <DialogDescription>
+              重新抽取会全量替换当前 {rules.length} 条需求规则；旧需求模型仍可查看，但不再匹配新规则的追踪映射会被清理，并需要重新生成下游模型。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRuleReplacementDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmRuleReplacement}
+              disabled={generating || !canRunGeneration}
+            >
+              确认替换
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <NewRequirementRuleDialog
         canEditRequirements={canEditRequirements}

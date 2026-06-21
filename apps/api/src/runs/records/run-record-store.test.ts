@@ -6,7 +6,7 @@ import {
   emitEvent,
   serializeRunRecordStore,
 } from "./run-record-store.js";
-import { createEmptySnapshot } from "./snapshots.js";
+import { createEmptyCodeSnapshot, createEmptySnapshot } from "./snapshots.js";
 import { summarizeRunRecord } from "./run-record-summaries.js";
 
 test("run record store serializes metadata, snapshots, and events without listeners", () => {
@@ -126,6 +126,89 @@ test("run record store ignores late progress after terminal events", () => {
   assert.equal(record.events[0]?.type, "completed");
 });
 
+test("run record store keeps the first terminal state when late terminal events arrive", () => {
+  const snapshot = createEmptySnapshot("run-cancel-race", "项目需求", ["usecase"]);
+  snapshot.status = "cancelled";
+  const seen: string[] = [];
+  let persistCount = 0;
+  const record = {
+    snapshot,
+    events: [],
+    listeners: new Set([(event: { type: string }) => seen.push(event.type)]),
+    terminal: false,
+    metadata: {
+      createdAt: "2026-06-21T00:00:00.000Z",
+    },
+    persist: () => {
+      persistCount += 1;
+    },
+  };
+
+  emitEvent(record, {
+    type: "cancelled",
+    stage: "generate_models",
+    message: "Run cancelled by user",
+  });
+  const terminalCompletedAt = record.metadata.completedAt;
+  // A worker can mutate the shared snapshot before trying to emit its late
+  // terminal event; the record store restores the first terminal status.
+  record.snapshot.status = "completed";
+  emitEvent(record, { type: "completed", snapshot: record.snapshot });
+  record.snapshot.status = "failed";
+  emitEvent(record, {
+    type: "failed",
+    error: {
+      code: "RUN_INTERNAL_ERROR",
+      message: "late failure",
+      category: "internal",
+      retryable: false,
+    },
+  });
+
+  assert.equal(record.terminal, true);
+  assert.equal(record.snapshot.status, "cancelled");
+  assert.deepEqual(seen, ["cancelled"]);
+  assert.deepEqual(record.events.map((event) => event.type), ["cancelled"]);
+  assert.equal(record.metadata.completedAt, terminalCompletedAt);
+  assert.equal(persistCount, 1);
+});
+
+test("run record store still records run actions after terminal events", () => {
+  const snapshot = createEmptySnapshot("run-action-after-terminal", "项目需求", ["usecase"]);
+  snapshot.status = "failed";
+  const seen: string[] = [];
+  const record = {
+    snapshot,
+    events: [],
+    listeners: new Set([(event: { type: string }) => seen.push(event.type)]),
+    terminal: false,
+  };
+
+  emitEvent(record, {
+    type: "failed",
+    error: {
+      code: "RUN_INTERNAL_ERROR",
+      message: "failed",
+      category: "internal",
+      retryable: true,
+    },
+  });
+  emitEvent(record, {
+    type: "run_action",
+    action: "retry",
+    sourceRunId: "run-action-after-terminal",
+    newRunId: "run-retry",
+    createdAt: "2026-06-21T00:01:00.000Z",
+  });
+
+  assert.deepEqual(seen, ["failed", "run_action"]);
+  assert.deepEqual(record.events.map((event) => event.type), [
+    "failed",
+    "run_action",
+  ]);
+  assert.equal(record.snapshot.status, "failed");
+});
+
 test("run summaries use terminal metadata timestamps for completedAt", () => {
   const snapshot = createEmptySnapshot("run-summary", "项目需求", ["usecase"]);
   snapshot.status = "failed";
@@ -145,4 +228,67 @@ test("run summaries use terminal metadata timestamps for completedAt", () => {
   assert.equal(summary.startedAt, "2026-06-18T13:49:59.000Z");
   assert.equal(summary.completedAt, "2026-06-18T14:48:23.000Z");
   assert.equal(summary.updatedAt, "2026-06-18T14:48:23.000Z");
+});
+
+test("run summaries expose code diagnostics for project history and task drawers", () => {
+  const snapshot = createEmptyCodeSnapshot("run-code-summary", {
+    requirementText: "生成代码原型",
+    rules: [],
+    designModels: [],
+  });
+  snapshot.status = "completed";
+  snapshot.currentStage = "verify_code_preview";
+  snapshot.files = {
+    "/src/App.tsx": "export default function App() { return null; }",
+  };
+  snapshot.diagnostics = [
+    {
+      stage: "verify_code_preview",
+      message: "检测到真实网络请求痕迹，已切换到本地 mock。",
+      at: "2026-06-21T00:00:00.000Z",
+    },
+  ];
+  snapshot.fileGenerationDiagnostics = [
+    {
+      stage: "operation_manifest",
+      status: "repaired",
+      path: "/src/App.tsx",
+      message: "入口文件缺失，已回退到 /src/App.tsx。",
+      at: "2026-06-21T00:00:01.000Z",
+    },
+  ];
+  snapshot.qualityDiagnostics = [
+    {
+      passed: false,
+      metrics: {
+        fileCount: 1,
+        pageFileCount: 1,
+        componentFileCount: 0,
+      },
+      issues: [
+        {
+          severity: "warning",
+          path: "/src/App.tsx",
+          message: "页面缺少空状态。",
+        },
+      ],
+    },
+  ];
+  const record = {
+    snapshot,
+    events: [],
+    listeners: new Set<() => void>(),
+    terminal: true,
+  };
+
+  const summary = summarizeRunRecord(record);
+
+  assert.equal(summary.runKind, "code");
+  assert.equal(summary.codeDiagnosticCount, 3);
+  assert.equal(summary.codeQualityIssueCount, 1);
+  assert.deepEqual(summary.codeDiagnosticSummary, [
+    "verify_code_preview：检测到真实网络请求痕迹，已切换到本地 mock。",
+    "operation_manifest：/src/App.tsx 入口文件缺失，已回退到 /src/App.tsx。",
+    "quality：/src/App.tsx 页面缺少空状态。",
+  ]);
 });

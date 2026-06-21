@@ -34,7 +34,7 @@ describe("ProductDocsPage", () => {
       screen.getByRole("button", { name: /模型详情页、元素列表与追踪矩阵/u }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /生成、渲染、修复与导出排障/u }),
+      screen.getByRole("button", { name: /生成、渲染与修复排障/u }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "模型配置" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "模型配置" })).not.toBeInTheDocument();

@@ -1,7 +1,9 @@
 // Derives sidebar diagram availability, task status, and scoped use-case nodes from workspace state.
 import { designDiagramKindFromRecordKey } from "@uml-platform/contracts";
 import {
+  DESIGN_DIAGRAM_META,
   DESIGN_DIAGRAM_ORDER,
+  DIAGRAM_META,
   DIAGRAM_ORDER,
   getDesignModelId,
   getRequirementModelId,
@@ -9,7 +11,14 @@ import {
   type DiagramType,
 } from "../../../entities/diagram/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import type { GenerationTask } from "../../workspace-session/model/session-state";
+import {
+  activeDesignProjectDiagramStatuses,
+  activeStatusForProjectRunKind,
+  activeRequirementProjectDiagramStatuses,
+  mergeProjectedStatus,
+} from "./project-run-projections";
 
 export type SidebarNodeStatus = "queued" | "running" | "completed" | "failed";
 
@@ -41,6 +50,7 @@ type SidebarDiagramStateInput = {
   designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
   designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
   generationTasks: GenerationTask[];
+  projectRuns?: PlatformRunSummary[];
 };
 
 const STAGE_SCOPED_SUBTASK_PREFIXES: StageScopedSubtaskPrefix[] = [
@@ -259,6 +269,32 @@ export function deriveSidebarDiagramState(input: SidebarDiagramStateInput) {
   const designSubtaskStatus = new Map<string, SidebarNodeStatus | undefined>();
   const designSubtaskLabels = new Map<string, string>();
   const designStageStatuses = new Map<string, StageStatusMap>();
+  const activeRequirementProjectStatuses = activeRequirementProjectDiagramStatuses(
+    input.projectRuns,
+  );
+  const activeDesignProjectStatuses = activeDesignProjectDiagramStatuses(
+    input.projectRuns,
+  );
+  for (const [diagram, status] of activeRequirementProjectStatuses) {
+    setSubtaskStatus(
+      requirementSubtaskStatus,
+      requirementSubtaskLabels,
+      requirementStageStatuses,
+      diagram,
+      DIAGRAM_META[diagram].label,
+      status,
+    );
+  }
+  for (const [diagram, status] of activeDesignProjectStatuses) {
+    setSubtaskStatus(
+      designSubtaskStatus,
+      designSubtaskLabels,
+      designStageStatuses,
+      diagram,
+      DESIGN_DIAGRAM_META[diagram].label,
+      status,
+    );
+  }
   for (const task of input.generationTasks.filter(
     (item) => item.status === "queued" || item.status === "running",
   )) {
@@ -453,5 +489,21 @@ export function deriveSidebarDiagramState(input: SidebarDiagramStateInput) {
     analysisSubtaskNodes,
     sequenceGenerationActive,
     sequenceSubtaskNodes,
+    requirementRootStatus: mergeProjectedStatus(
+      undefined,
+      activeStatusForProjectRunKind(input.projectRuns, "requirements"),
+    ),
+    designRootStatus: mergeProjectedStatus(
+      undefined,
+      activeStatusForProjectRunKind(input.projectRuns, "design"),
+    ),
+    codeRootStatus: mergeProjectedStatus(
+      undefined,
+      activeStatusForProjectRunKind(input.projectRuns, "code"),
+    ),
+    documentRootStatus: mergeProjectedStatus(
+      undefined,
+      activeStatusForProjectRunKind(input.projectRuns, "document"),
+    ),
   };
 }

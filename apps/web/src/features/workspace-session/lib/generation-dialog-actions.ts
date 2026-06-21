@@ -124,11 +124,15 @@ export function codeRunCompletionDialog(snapshot: {
 export function documentRunCompletionDialog(input: {
   documentTitle: string;
   runId: string;
+  missingArtifactCount?: number;
 }): GenerationResultDialogState {
+  const hasMissingArtifacts = (input.missingArtifactCount ?? 0) > 0;
   return {
-    title: "说明书已生成",
+    title: hasMissingArtifacts ? "说明书已生成但缺图" : "说明书已生成",
     tone: "success",
-    message: `${input.documentTitle}已生成。`,
+    message: hasMissingArtifacts
+      ? `${input.documentTitle}已生成，但有 ${input.missingArtifactCount} 项图源缺失，请复核后交付。`
+      : `${input.documentTitle}已生成。`,
     runId: input.runId,
     stageLabel: "说明书",
     targetLabel: input.documentTitle,

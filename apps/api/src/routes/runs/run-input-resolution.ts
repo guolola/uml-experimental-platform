@@ -1,5 +1,7 @@
 // Resolves project-scoped run start commands into full pipeline request inputs.
 import {
+  normalizeSnapshotFingerprint,
+  snapshotInputFingerprint,
   designRecordBelongsToDiagramKinds,
   designTraceabilityTouchesDiagramKinds,
   startCodeRunCommandSchema,
@@ -11,6 +13,7 @@ import {
   startRunCommandSchema,
   startRunRequestSchema,
   type DesignDiagramKind,
+  type DiagramKind,
   type StartCodeRunCommand,
   type StartCodeRunRequest,
   type StartDesignRunCommand,
@@ -67,6 +70,310 @@ function stringRecordValue(value: unknown) {
 
 function presentRecordValues(value: unknown) {
   return Object.values(recordValue(value)).filter(Boolean);
+}
+
+const DESIGN_DIAGRAM_ORDER: DesignDiagramKind[] = [
+  "architecture",
+  "sequence",
+  "class",
+  "activity",
+  "table",
+  "component",
+  "deployment",
+];
+
+const DESIGN_MODEL_DEPENDENCY_MAP: Record<
+  DesignDiagramKind,
+  DesignDiagramKind[]
+> = {
+  architecture: [],
+  sequence: [],
+  activity: ["sequence"],
+  class: ["sequence"],
+  component: ["class"],
+  deployment: ["component"],
+  table: ["class"],
+};
+
+const DESIGN_REQUIREMENT_SOURCE_MAP: Record<DesignDiagramKind, DiagramKind[]> = {
+  architecture: ["function"],
+  sequence: ["usecase", "analysis"],
+  activity: ["prototype"],
+  class: ["class"],
+  component: [],
+  deployment: ["deployment"],
+  table: [],
+};
+
+const REQUIREMENT_DIAGRAM_ORDER: DiagramKind[] = [
+  "function",
+  "activity",
+  "usecase",
+  "class",
+  "prototype",
+  "deployment",
+  "analysis",
+];
+
+function isDesignDiagramKind(value: unknown): value is DesignDiagramKind {
+  return DESIGN_DIAGRAM_ORDER.includes(value as DesignDiagramKind);
+}
+
+function isRequirementDiagramKind(value: unknown): value is DiagramKind {
+  return REQUIREMENT_DIAGRAM_ORDER.includes(value as DiagramKind);
+}
+
+function orderedDesignDiagrams(diagrams: DesignDiagramKind[]) {
+  const selected = new Set(diagrams);
+  return DESIGN_DIAGRAM_ORDER.filter((diagram) => selected.has(diagram));
+}
+
+function orderedRequirementDiagrams(diagrams: DiagramKind[]) {
+  const selected = new Set(diagrams);
+  return REQUIREMENT_DIAGRAM_ORDER.filter((diagram) => selected.has(diagram));
+}
+
+function designDiagramKindFromWorkspaceRecord(value: unknown) {
+  const diagramKind = recordValue(value).diagramKind;
+  return isDesignDiagramKind(diagramKind) ? diagramKind : null;
+}
+
+function requirementDiagramKindFromWorkspaceRecord(value: unknown) {
+  const diagramKind = recordValue(value).diagramKind;
+  return isRequirementDiagramKind(diagramKind) ? diagramKind : null;
+}
+
+function resolveRequirementCommandTargets(input: {
+  selectedDiagrams: DiagramKind[];
+  requestedDiagrams?: DiagramKind[];
+  dependencyDiagrams?: DiagramKind[];
+  existingRequirementModels: unknown[];
+}) {
+  const requestedDiagrams = orderedRequirementDiagrams(
+    input.requestedDiagrams ?? input.selectedDiagrams,
+  );
+  const dependencyDiagrams = new Set(input.dependencyDiagrams ?? []);
+  const existing = new Set(
+    input.existingRequirementModels.flatMap((model) => {
+      const diagramKind = requirementDiagramKindFromWorkspaceRecord(model);
+      return diagramKind ? [diagramKind] : [];
+    }),
+  );
+  const selected = new Set(input.selectedDiagrams);
+  if (
+    selected.has("analysis") &&
+    !selected.has("usecase") &&
+    !existing.has("usecase")
+  ) {
+    dependencyDiagrams.add("usecase");
+  }
+
+  return {
+    selectedDiagrams: orderedRequirementDiagrams([
+      ...input.selectedDiagrams,
+      ...dependencyDiagrams,
+    ]),
+    requestedDiagrams,
+    dependencyDiagrams: orderedRequirementDiagrams([...dependencyDiagrams]),
+  };
+}
+
+function resolveDesignCommandTargets(input: {
+  selectedDiagrams: DesignDiagramKind[];
+  requestedDiagrams?: DesignDiagramKind[];
+  existingDesignModels: unknown[];
+}) {
+  const requestedDiagrams = orderedDesignDiagrams(
+    input.requestedDiagrams ?? input.selectedDiagrams,
+  );
+  const requestedSet = new Set(input.selectedDiagrams);
+  const existing = new Set(
+    input.existingDesignModels.flatMap((model) => {
+      const diagramKind = designDiagramKindFromWorkspaceRecord(model);
+      return diagramKind ? [diagramKind] : [];
+    }),
+  );
+  const dependencyDiagrams = new Set<DesignDiagramKind>();
+
+  const includeDependenciesFor = (diagram: DesignDiagramKind) => {
+    for (const dependency of DESIGN_MODEL_DEPENDENCY_MAP[diagram]) {
+      if (existing.has(dependency) && !requestedSet.has(dependency)) {
+        continue;
+      }
+      if (!existing.has(dependency) && !requestedSet.has(dependency)) {
+        dependencyDiagrams.add(dependency);
+      }
+      includeDependenciesFor(dependency);
+    }
+  };
+
+  for (const diagram of input.selectedDiagrams) {
+    includeDependenciesFor(diagram);
+  }
+
+  return {
+    selectedDiagrams: orderedDesignDiagrams([
+      ...input.selectedDiagrams,
+      ...dependencyDiagrams,
+    ]),
+    requestedDiagrams,
+  };
+}
+
+function normalizedFingerprintMatches(
+  storedFingerprint: unknown,
+  activeFingerprint: string,
+) {
+  return (
+    normalizeSnapshotFingerprint(
+      typeof storedFingerprint === "string" ? storedFingerprint : null,
+    ) === activeFingerprint
+  );
+}
+
+function numberOrNull(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function requirementModelIsStale(input: {
+  diagram: DiagramKind;
+  activeRequirementFingerprint: string;
+  state: Record<string, unknown>;
+}) {
+  const diagramInputFingerprints = recordValue(input.state.diagramInputFingerprints);
+  const diagramFingerprint = diagramInputFingerprints[input.diagram];
+  if (typeof diagramFingerprint === "string" && diagramFingerprint.trim()) {
+    return !normalizedFingerprintMatches(
+      diagramFingerprint,
+      input.activeRequirementFingerprint,
+    );
+  }
+
+  const generatedDiagrams = new Set(
+    arrayValue(input.state.generatedDiagramTypes).filter(isRequirementDiagramKind),
+  );
+  if (!generatedDiagrams.has(input.diagram)) return false;
+
+  const diagramVersions = recordValue(input.state.diagramVersions);
+  const diagramVersion = numberOrNull(diagramVersions[input.diagram]);
+  const rulesVersion = numberOrNull(input.state.rulesVersion);
+  if (diagramVersion !== null && rulesVersion !== null) {
+    return diagramVersion !== rulesVersion;
+  }
+
+  const models = recordValue(input.state.models);
+  if (!requirementDiagramKindFromWorkspaceRecord(models[input.diagram])) {
+    return false;
+  }
+  const requirementInputFingerprint = input.state.requirementInputFingerprint;
+  return (
+    typeof requirementInputFingerprint === "string" &&
+    requirementInputFingerprint.trim().length > 0 &&
+    !normalizedFingerprintMatches(
+      requirementInputFingerprint,
+      input.activeRequirementFingerprint,
+    )
+  );
+}
+
+function requiredExistingRequirementSourcesForDesign(input: {
+  designDiagrams: DesignDiagramKind[];
+  requirementModels: unknown[];
+}) {
+  const existingRequirementDiagrams = new Set(
+    input.requirementModels.flatMap((model) => {
+      const diagramKind = requirementDiagramKindFromWorkspaceRecord(model);
+      return diagramKind ? [diagramKind] : [];
+    }),
+  );
+  return orderedRequirementDiagrams(
+    input.designDiagrams.flatMap((diagram) =>
+      DESIGN_REQUIREMENT_SOURCE_MAP[diagram].filter((source) =>
+        existingRequirementDiagrams.has(source),
+      ),
+    ),
+  );
+}
+
+function rejectStaleRequirementModelsForDesignCommand(input: {
+  designDiagrams: DesignDiagramKind[];
+  requirementModels: unknown[];
+  state: Record<string, unknown>;
+}): InputResolution<never> | null {
+  const activeRequirementFingerprint = snapshotInputFingerprint({
+    requirementText: stringValue(input.state.requirementText),
+    rules: arrayValue(input.state.rules),
+  });
+  const staleSources = requiredExistingRequirementSourcesForDesign({
+    designDiagrams: input.designDiagrams,
+    requirementModels: input.requirementModels,
+  }).filter((diagram) =>
+    requirementModelIsStale({
+      diagram,
+      activeRequirementFingerprint,
+      state: input.state,
+    }),
+  );
+  if (staleSources.length === 0) return null;
+  return runInputResolutionError(
+    409,
+    `Requirement models are stale for design generation: ${staleSources.join(", ")}. Update requirement models before starting design generation.`,
+  );
+}
+
+const REVIEWABLE_REQUIREMENT_FIELDS = [
+  "actor",
+  "subject",
+  "action",
+  "object",
+  "condition",
+  "outcome",
+  "acceptanceCriteria",
+];
+
+function requirementHasPendingReviewField(requirement: Record<string, unknown>) {
+  const fieldProvenance = recordValue(requirement.fieldProvenance);
+  return REVIEWABLE_REQUIREMENT_FIELDS.some(
+    (field) => recordValue(fieldProvenance[field]).status === "pending-review",
+  );
+}
+
+function blockingRequirementReviewRuleIds(state: Record<string, unknown>) {
+  const baseline = recordValue(state.requirementBaseline);
+  const requirements = arrayValue(baseline.requirements);
+  if (requirements.length === 0) return [];
+  const candidates = recordValue(state.requirementReviewCandidates);
+  const blockedRuleIds = new Set<string>();
+  for (const requirementValue of requirements) {
+    const requirement = recordValue(requirementValue);
+    const sourceRuleId = stringValue(requirement.sourceRuleId);
+    if (!sourceRuleId) continue;
+    const candidateValue = candidates[sourceRuleId];
+    const hasCandidate = isPlainRecord(candidateValue);
+    if (!hasCandidate) continue;
+    const candidate = recordValue(candidateValue);
+    const candidatePending =
+      candidate.status === "pending" || candidate.status === "failed";
+    if (
+      candidatePending ||
+      requirement.status !== "accepted" ||
+      requirementHasPendingReviewField(requirement)
+    ) {
+      blockedRuleIds.add(sourceRuleId);
+    }
+  }
+  return Array.from(blockedRuleIds);
+}
+
+function rejectBlockingRequirementReviewsForProjectCommand(
+  state: Record<string, unknown>,
+): InputResolution<never> | null {
+  const blockedRuleIds = blockingRequirementReviewRuleIds(state);
+  if (blockedRuleIds.length === 0) return null;
+  return runInputResolutionError(
+    409,
+    `请先确认需求规则修复结果后再启动生成：${blockedRuleIds.join(", ")}`,
+  );
 }
 
 function compactRunInputText(value: unknown) {
@@ -169,14 +476,26 @@ export async function resolveRequirementRunInput(
     loadProjectWorkspace,
   });
   if (!workspace.ok) return workspace;
+  const blockedRequirementReviews =
+    rejectBlockingRequirementReviewsForProjectCommand(workspace.input.state);
+  if (blockedRequirementReviews) return blockedRequirementReviews;
+  const contextModels = presentRecordValues(workspace.input.state.models);
+  const requirementTargets = resolveRequirementCommandTargets({
+    selectedDiagrams: command.selectedDiagrams,
+    requestedDiagrams: command.requestedDiagrams,
+    dependencyDiagrams: command.dependencyDiagrams,
+    existingRequirementModels: contextModels,
+  });
   return {
     ok: true,
     input: startRunRequestSchema.parse({
       projectId: workspace.input.projectId,
       requirementText: stringValue(workspace.input.state.requirementText),
-      selectedDiagrams: command.selectedDiagrams,
+      selectedDiagrams: requirementTargets.selectedDiagrams,
+      requestedDiagrams: requirementTargets.requestedDiagrams,
+      dependencyDiagrams: requirementTargets.dependencyDiagrams,
       rules: arrayValue(workspace.input.state.rules),
-      contextModels: presentRecordValues(workspace.input.state.models),
+      contextModels,
       contextRequirementModelTraceability: arrayValue(
         workspace.input.state.requirementModelTraceability,
       ),
@@ -203,18 +522,36 @@ export async function resolveDesignRunInput(
     loadProjectWorkspace,
   });
   if (!workspace.ok) return workspace;
+  const blockedRequirementReviews =
+    rejectBlockingRequirementReviewsForProjectCommand(workspace.input.state);
+  if (blockedRequirementReviews) return blockedRequirementReviews;
+  const existingDesignModels = presentRecordValues(
+    workspace.input.state.designModels,
+  );
+  const requirementModels = presentRecordValues(workspace.input.state.models);
+  const designTargets = resolveDesignCommandTargets({
+    selectedDiagrams: command.selectedDiagrams,
+    requestedDiagrams: command.requestedDiagrams,
+    existingDesignModels,
+  });
+  const staleRequirementModels = rejectStaleRequirementModelsForDesignCommand({
+    designDiagrams: designTargets.requestedDiagrams,
+    requirementModels,
+    state: workspace.input.state,
+  });
+  if (staleRequirementModels) return staleRequirementModels;
   return {
     ok: true,
     input: filterReplacingDesignContext(startDesignRunRequestSchema.parse({
       projectId: workspace.input.projectId,
       requirementBaseline: workspace.input.state.requirementBaseline,
-      requirementModels: presentRecordValues(workspace.input.state.models),
+      requirementModels,
       requirementModelTraceability: arrayValue(
         workspace.input.state.requirementModelTraceability,
       ),
-      selectedDiagrams: command.selectedDiagrams,
-      requestedDiagrams: command.requestedDiagrams,
-      existingDesignModels: presentRecordValues(workspace.input.state.designModels),
+      selectedDiagrams: designTargets.selectedDiagrams,
+      requestedDiagrams: designTargets.requestedDiagrams,
+      existingDesignModels,
       existingDesignModelTraceability: arrayValue(
         workspace.input.state.designModelTraceability,
       ),
@@ -288,6 +625,9 @@ export async function resolveCodeRunInput(
     loadProjectWorkspace,
   });
   if (!workspace.ok) return workspace;
+  const blockedRequirementReviews =
+    rejectBlockingRequirementReviewsForProjectCommand(workspace.input.state);
+  if (blockedRequirementReviews) return blockedRequirementReviews;
   return {
     ok: true,
     input: startCodeRunRequestSchema.parse({
@@ -323,6 +663,9 @@ export async function resolveDocumentRunInput(
     loadProjectWorkspace,
   });
   if (!workspace.ok) return workspace;
+  const blockedRequirementReviews =
+    rejectBlockingRequirementReviewsForProjectCommand(workspace.input.state);
+  if (blockedRequirementReviews) return blockedRequirementReviews;
   return {
     ok: true,
     input: startDocumentRunRequestSchema.parse({

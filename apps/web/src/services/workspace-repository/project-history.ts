@@ -1,9 +1,14 @@
 // Maps project run API summaries into the shared run history item contract.
 import {
   createRunHistoryTitle,
+  formatDocumentMissingArtifactSummary,
+  formatRunHistoryDiagramErrorSummary,
+  isDocumentRunSnapshot,
   type RunHistoryItem,
+  type RunHistoryDiagramErrorSummary,
   type RunHistorySnapshot,
 } from "../../entities/run-history";
+import { formatCodeDiagnosticSummary } from "../../shared/lib/code-diagnostics";
 
 export type ProjectRunDetailResponse = {
   projectId?: string;
@@ -14,9 +19,31 @@ export type ProjectRunDetailResponse = {
     stage?: string | null;
     runKind?: string | null;
     documentKind?: string | null;
+    errorMessage?: string | null;
+    diagramErrorCount?: number | null;
+    diagramErrorSummary?: RunHistoryDiagramErrorSummary[] | null;
+    partialFailure?: boolean | null;
+    missingArtifactCount?: number | null;
+    missingArtifactSummary?: string[] | null;
+    codeDiagnosticCount?: number | null;
+    codeDiagnosticSummary?: string[] | null;
+    codeQualityIssueCount?: number | null;
+    sourceRunId?: string | null;
+    sourceAction?: string | null;
+    sourceRunStatus?: string | null;
+    derivedRunIds?: string[] | null;
+    latestAction?: string | null;
+    latestActionRunId?: string | null;
+    latestActionAt?: string | null;
     snapshotAvailable?: boolean | null;
     canRestore?: boolean | null;
     documentDownloadAvailable?: boolean | null;
+    documentId?: string | null;
+    documentFileName?: string | null;
+    documentVersion?: number | null;
+    documentStatus?: string | null;
+    documentRestoreAvailable?: boolean | null;
+    documentByteLength?: number | null;
     startedAt?: string | null;
     createdAt?: string | null;
     completedAt?: string | null;
@@ -37,11 +64,56 @@ export type ProjectRunsResponse = {
     updatedAt?: string | null;
     completedAt?: string | null;
     model?: string | null;
+    errorMessage?: string | null;
+    diagramErrorCount?: number | null;
+    diagramErrorSummary?: RunHistoryDiagramErrorSummary[] | null;
+    partialFailure?: boolean | null;
+    missingArtifactCount?: number | null;
+    missingArtifactSummary?: string[] | null;
+    codeDiagnosticCount?: number | null;
+    codeDiagnosticSummary?: string[] | null;
+    codeQualityIssueCount?: number | null;
+    sourceRunId?: string | null;
+    sourceAction?: string | null;
+    sourceRunStatus?: string | null;
+    derivedRunIds?: string[] | null;
+    latestAction?: string | null;
+    latestActionRunId?: string | null;
+    latestActionAt?: string | null;
     snapshotAvailable?: boolean | null;
     canRestore?: boolean | null;
     documentDownloadAvailable?: boolean | null;
+    documentId?: string | null;
+    documentFileName?: string | null;
+    documentVersion?: number | null;
+    documentStatus?: string | null;
+    documentRestoreAvailable?: boolean | null;
+    documentByteLength?: number | null;
   }>;
 };
+
+type ProjectRunResponse =
+  | NonNullable<ProjectRunsResponse["runs"]>[number]
+  | ProjectRunDetailResponse["run"];
+
+export function isProjectDocumentRun(
+  run: ProjectRunResponse,
+  snapshot?: RunHistorySnapshot | null,
+) {
+  return (
+    run?.runKind === "document" ||
+    Boolean(run?.documentKind) ||
+    Boolean(snapshot && isDocumentRunSnapshot(snapshot))
+  );
+}
+
+export function canRestoreProjectRunWorkspace(
+  run: ProjectRunResponse,
+  snapshot?: RunHistorySnapshot | null,
+) {
+  if (isProjectDocumentRun(run, snapshot)) return false;
+  return run?.canRestore ?? Boolean(snapshot);
+}
 
 export function normalizeProjectHistoryResponse(payload: unknown): RunHistoryItem[] {
   if (!payload || typeof payload !== "object") return [];
@@ -68,13 +140,15 @@ export function normalizeProjectHistoryResponse(payload: unknown): RunHistoryIte
 }
 
 export function projectRunSummaryToHistoryItem(
-  run:
-    | NonNullable<ProjectRunsResponse["runs"]>[number]
-    | ProjectRunDetailResponse["run"],
+  run: ProjectRunResponse,
   snapshot?: RunHistorySnapshot | null,
 ): RunHistoryItem | null {
   const runId = run?.runId?.trim();
   if (!runId) return null;
+  const documentDownloadAvailable =
+    run.status === "completed" && Boolean(run.documentDownloadAvailable);
+  const interrupted = run.status === "interrupted";
+  const canRestore = interrupted ? false : canRestoreProjectRunWorkspace(run, snapshot);
   const createdAt =
     run.completedAt ??
     run.startedAt ??
@@ -84,18 +158,69 @@ export function projectRunSummaryToHistoryItem(
   const title = snapshot
     ? createRunHistoryTitle(snapshot.requirementText)
     : projectRunStageTitle(run);
+  const historySnapshot =
+    snapshot && isDocumentRunSnapshot(snapshot) && run?.documentFileName
+      ? {
+          ...snapshot,
+          fileName: run.documentFileName,
+          byteLength: run.documentByteLength ?? snapshot.byteLength,
+        }
+      : snapshot;
   return {
     id: runId,
     createdAt,
     title,
-    snapshot: snapshot ?? null,
+    snapshot: historySnapshot ?? null,
     providerModel: run.model ?? "默认模型",
     status: run.status ?? null,
+    runKind: run.runKind ?? null,
+    stage: run.stage ?? null,
     stageLabel: snapshot ? null : projectRunKindLabel(run),
     summary: snapshot ? null : projectRunSummary(run),
-    canRestore: run.canRestore ?? Boolean(snapshot),
+    sourceRunId: run.sourceRunId ?? null,
+    sourceAction: run.sourceAction ?? null,
+    sourceRunStatus: run.sourceRunStatus ?? null,
+    derivedRunIds: run.derivedRunIds ?? null,
+    latestAction: run.latestAction ?? null,
+    latestActionRunId: run.latestActionRunId ?? null,
+    latestActionAt: run.latestActionAt ?? null,
+    errorMessage: run.errorMessage ?? null,
+    documentKind:
+      run?.documentKind === "requirementsSpec" ||
+      run?.documentKind === "softwareDesignSpec"
+        ? run.documentKind
+        : historySnapshot && isDocumentRunSnapshot(historySnapshot)
+          ? historySnapshot.documentKind
+          : null,
+    documentId:
+      run?.documentId ??
+      (historySnapshot && isDocumentRunSnapshot(historySnapshot)
+        ? historySnapshot.documentId
+        : null),
+    documentFileName:
+      run?.documentFileName ??
+      (historySnapshot && isDocumentRunSnapshot(historySnapshot)
+        ? historySnapshot.fileName
+        : null),
+    documentVersion: run?.documentVersion ?? null,
+    documentStatus: run?.documentStatus ?? null,
+    documentRestoreAvailable: run?.documentRestoreAvailable ?? null,
+    documentByteLength:
+      run?.documentByteLength ??
+      (historySnapshot && isDocumentRunSnapshot(historySnapshot)
+        ? historySnapshot.byteLength
+        : null),
+    diagramErrorCount: run.diagramErrorCount ?? null,
+    diagramErrorSummary: run.diagramErrorSummary ?? null,
+    partialFailure: run.partialFailure ?? null,
+    missingArtifactCount: run.missingArtifactCount ?? null,
+    missingArtifactSummary: run.missingArtifactSummary ?? null,
+    codeDiagnosticCount: run.codeDiagnosticCount ?? null,
+    codeDiagnosticSummary: run.codeDiagnosticSummary ?? null,
+    codeQualityIssueCount: run.codeQualityIssueCount ?? null,
+    canRestore,
     snapshotAvailable: run.snapshotAvailable ?? Boolean(snapshot),
-    documentDownloadAvailable: run.documentDownloadAvailable ?? false,
+    documentDownloadAvailable,
   };
 }
 
@@ -128,11 +253,41 @@ function projectRunKindLabel(run: ProjectRunDetailResponse["run"]) {
   return "需求阶段";
 }
 
+function runActionLabel(action?: string | null) {
+  if (action === "retry") return "重试";
+  if (action === "rerun") return "重新运行";
+  return "派生运行";
+}
+
 function projectRunSummary(run: ProjectRunDetailResponse["run"]) {
+  const diagramErrors = formatRunHistoryDiagramErrorSummary(
+    run?.diagramErrorSummary,
+    { design: run?.runKind === "design" },
+  );
+  const codeDiagnostics = run?.runKind === "code"
+    ? formatCodeDiagnosticSummary({
+        codeDiagnosticCount: run.codeDiagnosticCount,
+        codeDiagnosticSummary: run.codeDiagnosticSummary,
+      })
+    : null;
   const parts = [
+    run?.sourceRunId ? `${runActionLabel(run.sourceAction)}自 ${run.sourceRunId}` : null,
+    run?.latestActionRunId
+      ? `已${runActionLabel(run.latestAction)}为 ${run.latestActionRunId}`
+      : null,
+    run?.status === "interrupted" ? "服务中断，可重试" : null,
     run?.stage ? `阶段 ${run.stage}` : null,
-    run?.snapshotAvailable ? "快照可恢复" : null,
-    run?.documentDownloadAvailable ? "文档可下载" : null,
+    run?.errorMessage ? `失败原因 ${run.errorMessage}` : null,
+    diagramErrors,
+    codeDiagnostics,
+    formatDocumentMissingArtifactSummary(
+      run?.missingArtifactSummary,
+      run?.missingArtifactCount,
+    ),
+    canRestoreProjectRunWorkspace(run) ? "快照可恢复" : null,
+    run?.status === "completed" && run?.documentDownloadAvailable
+      ? "文档可下载"
+      : null,
   ].filter(Boolean);
   return parts.join(" · ") || "运行摘要";
 }

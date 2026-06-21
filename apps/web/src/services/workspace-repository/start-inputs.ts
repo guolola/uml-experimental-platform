@@ -26,6 +26,8 @@ export interface ProviderSettingsInput {
 export interface StartRunInput {
   requirementText: string;
   selectedDiagrams: DiagramType[];
+  requestedDiagrams?: DiagramType[];
+  dependencyDiagrams?: DiagramType[];
   rules: RequirementRule[];
   contextModels: DiagramModelSpec[];
   contextRequirementModelTraceability: RequirementModelTraceabilityEntry[];
@@ -87,6 +89,8 @@ export function createStartRunInput(
   return {
     requirementText,
     selectedDiagrams,
+    requestedDiagrams: selectedDiagrams,
+    dependencyDiagrams: [],
     rules,
     contextModels,
     contextRequirementModelTraceability,
@@ -123,9 +127,11 @@ export function createStartDesignRunInput(
   existingDesignModelTraceability: DesignModelTraceabilityEntry[] = [],
   existingDesignPlantUml: DesignPlantUmlArtifact[] = [],
   existingDesignSvgArtifacts: DesignSvgArtifact[] = [],
+  evidencePackage: EvidencePackage | null = null,
 ): StartDesignRunInput {
   return {
     requirementBaseline,
+    evidencePackage,
     requirementModels,
     requirementModelTraceability,
     selectedDiagrams,
@@ -145,11 +151,13 @@ export function createStartCodeRunInput(
   designPlantUml: DesignPlantUmlArtifact[] = [],
   existingFiles: Record<string, string> = {},
   generationMode: "continue" | "regenerate" = "continue",
+  evidencePackage: EvidencePackage | null = null,
 ): StartCodeRunInput {
   const base = createStartRunInput(requirementText, []);
   return {
     requirementText,
     rules,
+    evidencePackage,
     designModels,
     designPlantUml,
     existingFiles: generationMode === "regenerate" ? {} : existingFiles,
@@ -170,11 +178,13 @@ export function createStartDocumentRunInput(
   designPlantUml: DesignPlantUmlArtifact[],
   designSvgArtifacts: DesignSvgArtifact[],
   documentStyle?: DocumentStyleSettings,
+  evidencePackage: EvidencePackage | null = null,
 ): StartDocumentRunInput {
   const base = createStartRunInput(requirementText, []);
   return {
     documentKind,
     requirementText,
+    evidencePackage,
     rules,
     requirementModels,
     requirementModelTraceability,

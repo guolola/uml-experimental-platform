@@ -50,8 +50,37 @@ export const requirementRuleSchema = z.object({
 });
 export type RequirementRule = z.infer<typeof requirementRuleSchema>;
 
+function addDuplicateRequirementRuleIdIssues(
+  rules: RequirementRule[],
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Map<string, number>();
+  rules.forEach((rule, index) => {
+    const key = rule.id.trim().toLowerCase();
+    const firstIndex = seen.get(key);
+    if (firstIndex === undefined) {
+      seen.set(key, index);
+      return;
+    }
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Requirement rule id "${rule.id}" duplicates rule at index ${firstIndex}.`,
+      path: [index, "id"],
+    });
+  });
+}
+
+export function requirementRulesArraySchema(minLength = 0) {
+  const schema = z.array(requirementRuleSchema);
+  return (minLength > 0 ? schema.min(minLength) : schema).superRefine(
+    addDuplicateRequirementRuleIdIssues,
+  );
+}
+
+export const requirementRulesSchema = requirementRulesArraySchema();
+
 export const requirementRulesResultSchema = z.object({
-  rules: z.array(requirementRuleSchema),
+  rules: requirementRulesSchema,
 });
 export type RequirementRulesResult = z.infer<typeof requirementRulesResultSchema>;
 

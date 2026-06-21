@@ -125,6 +125,32 @@ describe("SidebarMenu", () => {
     ).toEqual(["需求", "设计", "代码", "测试", "说明书"]);
   });
 
+  it("projects active server requirement runs into sidebar status after reload", async () => {
+    const user = userEvent.setup();
+    const repository = createSidebarRepository();
+
+    render(
+      withWorkspaceProviders(
+        <SidebarMenu
+          projectRuns={[
+            {
+              runId: "server-requirements-active",
+              status: "running",
+              stage: "generate_models",
+              runKind: "requirements",
+              selectedDiagrams: ["usecase"],
+            },
+          ]}
+        />,
+        repository,
+      ),
+    );
+
+    expect(await screen.findByLabelText("需求链路生成中")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "展开 需求" }));
+    expect(screen.getByLabelText("用例模型生成中")).toBeInTheDocument();
+  });
+
   it("nests database columns under their parent table in design navigation", async () => {
     const repository = createSidebarRepository(
       createWorkspaceRecord({

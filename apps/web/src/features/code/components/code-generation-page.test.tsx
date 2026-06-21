@@ -1,4 +1,4 @@
-// Verifies code generation page file browsing, preview rendering, export actions, and diagnostics.
+// Verifies code generation page file browsing, preview rendering, generation actions, and diagnostics.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -190,6 +190,7 @@ function createRepository(
       }),
     ),
     updateRequirementText: vi.fn(async () => {}),
+    updateCodeDiagnostics: vi.fn(async () => {}),
     startRun: vi.fn(),
     subscribeToRun: vi.fn(),
     getRunSnapshot: vi.fn(),
@@ -342,6 +343,64 @@ describe("CodeGenerationPage", () => {
     expect(await screen.findByText("预览已更新")).toBeInTheDocument();
   });
 
+  it("surfaces code diagnostics while keeping the generated preview viewable", async () => {
+    const repository = createRepository();
+    repository.loadWorkspace = vi.fn(async () =>
+      createWorkspaceRecord({
+        requirementText: "生成前端原型",
+        codeFiles: {
+          "/src/App.tsx": "export default function App() { return <main />; }",
+          "/src/main.tsx": "import App from './App';",
+        },
+        codeEntryFile: "/src/main.tsx",
+        codeDiagnostics: [
+          {
+            stage: "verify_code_preview",
+            message: "检测到真实网络请求痕迹，已保留本地 mock 数据。",
+            at: "2026-06-21T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    render(withWorkspaceProviders(<CodeGenerationPage />, repository));
+
+    await screen.findByTestId("sandpack-provider");
+
+    expect(screen.getByText("代码生成存在诊断")).toBeInTheDocument();
+    expect(
+      screen.getByText(/检测到真实网络请求痕迹，已保留本地 mock 数据/u),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "运行预览" })).toBeEnabled();
+  });
+
+  it("shows source-missing status for old code when the requirement text is cleared", async () => {
+    const repository = createRepository();
+    repository.loadWorkspace = vi.fn(async () =>
+      createWorkspaceRecord({
+        requirementText: "",
+        designModels: {
+          sequence: { diagramKind: "sequence", modelId: "sequence" } as never,
+        },
+        codeFiles: {
+          "/src/App.tsx": "export default function App() { return <main />; }",
+          "/src/main.tsx": "import App from './App';",
+        },
+        codeEntryFile: "/src/main.tsx",
+      }),
+    );
+
+    render(withWorkspaceProviders(<CodeGenerationPage />, repository));
+
+    await screen.findByTestId("sandpack-provider");
+
+    expect(screen.getByText("需求源头已删除")).toBeInTheDocument();
+    expect(screen.getByText(/当前代码为旧产物，仍可查看预览/u)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "运行预览" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /继续生成/u })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /重新生成/u })).toBeDisabled();
+  });
+
   it("keeps edited code out of the iframe until the user runs the preview", async () => {
     render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
 
@@ -374,7 +433,8 @@ describe("CodeGenerationPage", () => {
   });
 
   it("shows build errors from a manually run preview without marking it updated", async () => {
-    render(withWorkspaceProviders(<CodeGenerationPage />, createRepository()));
+    const repository = createRepository();
+    render(withWorkspaceProviders(<CodeGenerationPage />, repository));
 
     await waitFor(() => {
       expect(
@@ -391,6 +451,43 @@ describe("CodeGenerationPage", () => {
       );
     });
     expect(screen.getByText("预览构建失败")).toBeInTheDocument();
+    expect(repository.updateCodeDiagnostics).toHaveBeenCalledWith([
+      expect.objectContaining({
+        stage: "verify_code_preview",
+        message: expect.stringContaining(
+          "本地预览失败：/src/App.tsx 无法解析导入 ./Missing",
+        ),
+      }),
+    ]);
+  });
+
+  it("clears persisted local preview diagnostics when the user edits before rerunning", async () => {
+    const repository = createRepository();
+    render(withWorkspaceProviders(<CodeGenerationPage />, repository));
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('iframe[title="Prototype Preview"]'),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("mock-break-app-file"));
+    fireEvent.click(screen.getByRole("button", { name: "运行预览" }));
+
+    await waitFor(() => {
+      expect(repository.updateCodeDiagnostics).toHaveBeenCalledWith([
+        expect.objectContaining({
+          message: expect.stringContaining("本地预览失败："),
+        }),
+      ]);
+    });
+
+    fireEvent.click(screen.getByTestId("mock-edit-app-file"));
+
+    await waitFor(() => {
+      expect(repository.updateCodeDiagnostics).toHaveBeenLastCalledWith([]);
+    });
+    expect(screen.getByText("有未运行的修改")).toBeInTheDocument();
   });
 
   it("opens the full preview from the preview title", async () => {

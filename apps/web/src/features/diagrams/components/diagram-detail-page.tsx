@@ -509,7 +509,6 @@ function DiagramDetailView({
                   description={meta.description}
                   stage={stage}
                   type={type}
-                  model={model}
                   normalizedSvgMarkup={normalizedSvgMarkup}
                   svgMarkup={svgMarkup}
                   svgUrl={svgUrl}

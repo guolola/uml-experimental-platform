@@ -68,6 +68,8 @@ export async function startRequirementRunRequest(
     runPayloadWithoutUnmanagedProviderSettings({
       projectId: scopedProjectId,
       selectedDiagrams: input.selectedDiagrams,
+      requestedDiagrams: input.requestedDiagrams,
+      dependencyDiagrams: input.dependencyDiagrams,
       analysisTargetUseCaseIds: input.analysisTargetUseCaseIds ?? [],
       providerSettings: input.providerSettings,
     }),

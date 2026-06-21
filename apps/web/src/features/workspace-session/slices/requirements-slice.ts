@@ -1,13 +1,47 @@
 // Owns requirement text, rule editing, and rule version bookkeeping.
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import type { DiagramType } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
-import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import type {
+  RequirementRulesUpdateMetadata,
+  WorkspaceRepository,
+} from "../../../services/workspace-repository";
 import { requirementInputFingerprintFor } from "../lib/workspace-context";
+
+type RequirementRuleCommitMetadata = Pick<
+  RequirementRulesUpdateMetadata,
+  | "requirementBaseline"
+  | "requirementModelTraceability"
+  | "requirementQualityReport"
+  | "requirementReviewCandidates"
+>;
+
+export function ensureUniqueRequirementRuleIds(
+  rules: RequirementRule[],
+): RequirementRule[] {
+  const usedRuleIds = new Set<string>();
+  return rules.map((rule) => {
+    const baseId = rule.id.trim() || "r";
+    let candidate = baseId;
+    let suffix = 2;
+    while (usedRuleIds.has(candidate.toLowerCase())) {
+      candidate = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    usedRuleIds.add(candidate.toLowerCase());
+    return candidate === rule.id ? rule : { ...rule, id: candidate };
+  });
+}
 
 export function useRequirementsSlice(repository: WorkspaceRepository) {
   const [requirementText, setRequirementTextRaw] = useState("");
-  const [rules, setRules] = useState<RequirementRule[]>([]);
+  const [rules, setRulesRaw] = useState<RequirementRule[]>([]);
   const [textVersion, setTextVersion] = useState(0);
   const [rulesVersion, setRulesVersion] = useState(0);
   const [rulesBasedOnTextVersion, setRulesBasedOnTextVersion] = useState<
@@ -17,6 +51,18 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
     string | null
   >(null);
   const pendingTextSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTextSaveValueRef = useRef<string | null>(null);
+  const pendingTextSavePromiseRef = useRef<Promise<void> | null>(null);
+
+  const setRules = useCallback(
+    (value: SetStateAction<RequirementRule[]>) => {
+      setRulesRaw((current) => {
+        const nextRules = typeof value === "function" ? value(current) : value;
+        return ensureUniqueRequirementRuleIds(nextRules);
+      });
+    },
+    [],
+  );
 
   useEffect(
     () => () => {
@@ -25,6 +71,32 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
       }
     },
     [],
+  );
+
+  const persistRequirementText = useCallback(
+    (value: string) => {
+      const savePromise = Promise.resolve(
+        repository.updateRequirementText(value),
+      ).finally(() => {
+        if (pendingTextSavePromiseRef.current === savePromise) {
+          pendingTextSavePromiseRef.current = null;
+        }
+      });
+      pendingTextSavePromiseRef.current = savePromise;
+      return savePromise;
+    },
+    [repository],
+  );
+
+  const savePendingRequirementText = useCallback(
+    async (value: string) => {
+      const priorSave = pendingTextSavePromiseRef.current;
+      if (priorSave) {
+        await priorSave;
+      }
+      await persistRequirementText(value);
+    },
+    [persistRequirementText],
   );
 
   const setRequirementText = useCallback(
@@ -38,27 +110,53 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
       if (pendingTextSaveRef.current) {
         clearTimeout(pendingTextSaveRef.current);
       }
+      pendingTextSaveValueRef.current = value;
       pendingTextSaveRef.current = setTimeout(() => {
         pendingTextSaveRef.current = null;
-        void repository.updateRequirementText(value);
+        const pendingValue = pendingTextSaveValueRef.current;
+        pendingTextSaveValueRef.current = null;
+        if (pendingValue !== null) {
+          void savePendingRequirementText(pendingValue);
+        }
       }, 500);
     },
-    [repository],
+    [savePendingRequirementText],
   );
 
+  const flushRequirementTextSave = useCallback(async () => {
+    if (pendingTextSaveRef.current) {
+      clearTimeout(pendingTextSaveRef.current);
+      pendingTextSaveRef.current = null;
+      const pendingValue = pendingTextSaveValueRef.current;
+      pendingTextSaveValueRef.current = null;
+      if (pendingValue !== null) {
+        await savePendingRequirementText(pendingValue);
+        return;
+      }
+    }
+    if (pendingTextSavePromiseRef.current) {
+      await pendingTextSavePromiseRef.current;
+    }
+  }, [savePendingRequirementText]);
+
   const commitRequirementRules = useCallback(
-    (nextRules: RequirementRule[]) => {
+    (
+      nextRules: RequirementRule[],
+      metadata: Partial<RequirementRuleCommitMetadata> = {},
+    ) => {
+      const uniqueRules = ensureUniqueRequirementRuleIds(nextRules);
       const nextRulesVersion = rulesVersion + 1;
       const nextRequirementInputFingerprint = requirementInputFingerprintFor(
         requirementText,
-        nextRules,
+        uniqueRules,
       );
-      setRules(nextRules);
+      setRules(uniqueRules);
       setRulesVersion(nextRulesVersion);
       setRulesBasedOnTextVersion(textVersion);
       setRequirementInputFingerprint(nextRequirementInputFingerprint);
-      void repository.updateRequirementRules?.(nextRules, {
+      void repository.updateRequirementRules?.(uniqueRules, {
         requirementInputFingerprint: nextRequirementInputFingerprint,
+        ...metadata,
         rulesBasedOnTextVersion: textVersion,
         rulesVersion: nextRulesVersion,
       });
@@ -84,7 +182,8 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
       category: RequirementRule["category"];
       text: string;
       relatedDiagrams: DiagramType[];
-    }) => {
+    },
+    metadata?: Partial<RequirementRuleCommitMetadata>) => {
       const relatedDiagrams =
         input.relatedDiagrams.length > 0
           ? input.relatedDiagrams
@@ -97,21 +196,25 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
           text: input.text.trim() || "待填写需求项",
           relatedDiagrams,
         },
-      ]);
+      ], metadata);
     },
     [commitRequirementRules, getNextRequirementRuleId, rules],
   );
 
-  const addRequirementRule = useCallback(() => {
+  const addRequirementRule = useCallback((metadata?: Partial<RequirementRuleCommitMetadata>) => {
     createRequirementRule({
       category: "功能需求",
       text: "待填写需求项",
       relatedDiagrams: ["usecase", "activity"],
-    });
+    }, metadata);
   }, [createRequirementRule]);
 
   const updateRequirementRule = useCallback(
-    (id: string, patch: Partial<RequirementRule>) => {
+    (
+      id: string,
+      patch: Partial<RequirementRule>,
+      metadata?: Partial<RequirementRuleCommitMetadata>,
+    ) => {
       commitRequirementRules(
         rules.map((rule) =>
           rule.id === id
@@ -125,20 +228,24 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
               }
             : rule,
         ),
+        metadata,
       );
     },
     [commitRequirementRules, rules],
   );
 
   const deleteRequirementRule = useCallback(
-    (id: string) => {
-      commitRequirementRules(rules.filter((rule) => rule.id !== id));
+    (id: string, metadata?: Partial<RequirementRuleCommitMetadata>) => {
+      commitRequirementRules(
+        rules.filter((rule) => rule.id !== id),
+        metadata,
+      );
     },
     [commitRequirementRules, rules],
   );
 
-  const clearRequirementRules = useCallback(() => {
-    commitRequirementRules([]);
+  const clearRequirementRules = useCallback((metadata?: Partial<RequirementRuleCommitMetadata>) => {
+    commitRequirementRules([], metadata);
   }, [commitRequirementRules]);
 
   const rulesForDiagram = useCallback(
@@ -161,6 +268,7 @@ export function useRequirementsSlice(repository: WorkspaceRepository) {
     setRulesBasedOnTextVersion,
     requirementInputFingerprint,
     setRequirementInputFingerprint,
+    flushRequirementTextSave,
     commitRequirementRules,
     addRequirementRule,
     createRequirementRule,

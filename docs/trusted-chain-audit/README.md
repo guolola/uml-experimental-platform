@@ -30,6 +30,7 @@ Then continue from the latest open item in `04-findings-register.md`, `05-risk-a
 | `07-implementation-roadmap.md` | Breaks the work into staged, verifiable implementation increments. |
 | `08-test-and-evidence-plan.md` | Defines regression domains, negative tests, evidence package checks, and quality gates. |
 | `09-final-conclusion.md` | Holds the final audit verdict and the evidence behind it. |
+| `10-generation-chain-automated-diagnostics.md` | Defines local-only automated diagnostics for generation-chain recovery, snapshot sync, run history, and sidebar consistency. |
 
 ## Current Working Verdict
 

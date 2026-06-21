@@ -157,27 +157,6 @@ export function ProjectSettings({
     }
   };
 
-  const exportProject = async () => {
-    setMessage("");
-    setError("");
-    if (!window.confirm("确定要导出此项目数据吗？此操作会写入审计日志。")) return;
-    try {
-      const response = await platformApi.exportProject(project.id);
-      const blob = new Blob([JSON.stringify(response.export, null, 2)], {
-        type: "application/json;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${project.name || project.id}-export.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setMessage(response.message ?? "项目导出已生成。");
-    } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : "项目导出失败。");
-    }
-  };
-
   const transferOwner = async () => {
     setMessage("");
     setError("");
@@ -375,18 +354,9 @@ export function ProjectSettings({
       <section className={`rounded-md border border-border bg-card p-5 ${sectionClass}`}>
         <h2 className="text-base">高危操作</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          当前项目状态：{currentProject.status}。删除、归档、导出会要求二次确认并记录审计。
+          当前项目状态：{currentProject.status}。删除和归档会要求二次确认并记录审计。
         </p>
         <div className="mt-4 grid gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void exportProject()}
-            disabled={!canManageProjectSettings}
-            title={!canManageProjectSettings ? settingsBlockedReason : undefined}
-          >
-            数据导出
-          </Button>
           <Button
             type="button"
             variant="outline"

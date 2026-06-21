@@ -1,5 +1,5 @@
-// Verifies top bar navigation, run controls, export actions, theme toggles, and account/project menus.
-import { render, screen, waitFor, within } from "@testing-library/react";
+// Verifies top bar navigation, run controls, theme toggles, and account/project menus.
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -7,12 +7,14 @@ import type {
   DesignRunSnapshot,
 } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import {
   createRunSnapshot,
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
 import { buildLineageStepPath } from "../../lineage/components/lineage-graph-dialog";
+import { snapshotInputFingerprint } from "../../../shared/lib/fingerprint";
 import { HistoryDrawer } from "../../history/components/history-drawer";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../state";
@@ -88,6 +90,27 @@ function TopBarTaskHarness() {
   );
 }
 
+function TopBarTaskWithProjectRunsHarness({
+  projectRuns,
+}: {
+  projectRuns: PlatformRunSummary[];
+}) {
+  const { generateRules } = useWorkspaceSession();
+  return (
+    <>
+      <ProjectWorkspaceActions
+        projectId="library-booking"
+        projectRuns={projectRuns}
+        onOpenDrawer={() => {}}
+      />
+      <ProjectGenerationTasksDrawerContent projectRuns={projectRuns} />
+      <button type="button" onClick={() => void generateRules()}>
+        开始测试任务
+      </button>
+    </>
+  );
+}
+
 function TopBarDiagramTaskHarness() {
   const { generateDiagrams } = useWorkspaceSession();
   return (
@@ -102,6 +125,36 @@ function TopBarDiagramTaskHarness() {
       </button>
     </>
   );
+}
+
+function TopBarAnalysisTaskHarness() {
+  const { generateDiagrams } = useWorkspaceSession();
+  return (
+    <>
+      <ProjectWorkspaceActions projectId="library-booking" onOpenDrawer={() => {}} />
+      <ProjectGenerationTasksDrawerContent />
+      <button type="button" onClick={() => void generateDiagrams(["analysis"])}>
+        开始分析模型任务
+      </button>
+    </>
+  );
+}
+
+function LineageRerunArtifactHarness() {
+  const { generateDiagrams } = useWorkspaceSession();
+  return (
+    <>
+      <ProjectWorkspaceActions projectId="library-booking" onOpenDrawer={() => {}} />
+      <WorkspaceTabsBar />
+      <button type="button" onClick={() => void generateDiagrams(["usecase"])}>
+        重新生成用例模型
+      </button>
+    </>
+  );
+}
+
+function LineageGraphOnlyHarness() {
+  return <ProjectWorkspaceActions projectId="library-booking" onOpenDrawer={() => {}} />;
 }
 
 function TopBarRestoreHarness() {
@@ -338,6 +391,162 @@ describe("TopBar", () => {
     await user.click(within(dialog).getByRole("button", { name: "影响路径" }));
     expect(usecaseNode).not.toHaveClass("opacity-25");
     expect(classNode).not.toHaveClass("opacity-25");
+  });
+
+  it("opens a previous requirement artifact from the lineage graph while rerunning it", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成图书馆预约系统 UML",
+          rules: [
+            {
+              id: "REQ-001",
+              category: "功能需求",
+              text: "用户可以预约座位。",
+              relatedDiagrams: ["usecase"],
+            },
+          ],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "旧用例模型",
+              summary: "旧模型仍可查看",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+          generatedDiagramTypes: ["usecase"],
+          svgArtifacts: {
+            usecase: {
+              diagramKind: "usecase",
+              svg: "<svg>old usecase</svg>",
+            } as never,
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-rerun-usecase" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({ type: "stage_started", stage: "generate_models" });
+        onEvent({
+          type: "stage_progress",
+          stage: "generate_models",
+          progress: 40,
+          diagramKind: "usecase",
+          subtaskId: "usecase",
+          subtaskLabel: "用例模型",
+          subtaskStatus: "running",
+          message: "正在重新生成：用例模型",
+        });
+        await new Promise(() => {});
+      }),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<LineageRerunArtifactHarness />, repository));
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    await user.click(await screen.findByRole("button", { name: "重新生成用例模型" }));
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "链路图" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "链路图" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "全局链路图" });
+    const usecaseNode = within(dialog).getByTestId(
+      "lineage-node-requirement-model:usecase",
+    );
+    expect(usecaseNode).toHaveAttribute("data-lineage-status", "running");
+    expect(usecaseNode).toHaveAttribute("data-lineage-viewable", "true");
+
+    await user.click(usecaseNode);
+    expect(
+      within(dialog).getAllByText("用例模型重新生成中，旧产物仍可查看；完成后会刷新下游可用状态。").length,
+    ).toBeGreaterThan(0);
+    const viewPreviousButton = within(dialog).getByRole("button", { name: "查看旧版" });
+    expect(viewPreviousButton).toBeEnabled();
+    await user.click(viewPreviousButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "全局链路图" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "用例模型" })).toBeInTheDocument();
+  });
+
+  it("does not mark structured-only requirement models as current in the lineage graph", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成图书馆预约系统 UML",
+          rules: [
+            {
+              id: "REQ-001",
+              category: "功能需求",
+              text: "用户可以预约座位。",
+              relatedDiagrams: ["usecase"],
+            },
+          ],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例模型",
+              summary: "结构化模型已生成",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+          generatedDiagramTypes: ["usecase"],
+          svgArtifacts: {},
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<LineageGraphOnlyHarness />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "链路图" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "全局链路图" });
+    const usecaseNode = within(dialog).getByTestId(
+      "lineage-node-requirement-model:usecase",
+    );
+    expect(usecaseNode).toHaveAttribute("data-lineage-status", "stale");
+    expect(usecaseNode).toHaveAttribute("data-lineage-viewable", "false");
+
+    await user.click(usecaseNode);
+    expect(
+      within(dialog).getAllByText("用例模型结构化模型已生成，但 SVG 尚未生成；需先完成图像渲染后才能作为可查看图像。").length,
+    ).toBeGreaterThan(0);
+    expect(within(dialog).getByRole("button", { name: "查看产物" })).toBeDisabled();
   });
 
   it("uses product navigation labels without opening workspace tabs", async () => {
@@ -993,7 +1202,7 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("新密码")).toHaveValue("");
   });
 
-  it("does not expose PlantUML source export from the top bar", async () => {
+  it("does not expose workspace export actions from the top bar", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -1025,7 +1234,6 @@ describe("TopBar", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
-    const user = userEvent.setup();
     render(
       withWorkspaceProviders(
         <ProjectWorkspaceActions projectId="library-booking" onOpenDrawer={() => {}} />,
@@ -1033,14 +1241,13 @@ describe("TopBar", () => {
       ),
     );
 
-    await user.click(screen.getByRole("button", { name: /导出/i }));
-
-    expect(screen.getByRole("menuitem", { name: /运行报告/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /当前快照/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /导出/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /运行报告/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /当前快照/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/PlantUML|puml/i)).not.toBeInTheDocument();
   });
 
-  it("keeps document generation controls out of the top bar export menu", async () => {
+  it("keeps document generation controls out of the top bar actions", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
       updateRequirementText: vi.fn(async () => {}),
@@ -1056,7 +1263,6 @@ describe("TopBar", () => {
       clearRunHistory: vi.fn(async () => {}),
     };
 
-    const user = userEvent.setup();
     render(
       withWorkspaceProviders(
         <ProjectWorkspaceActions projectId="library-booking" onOpenDrawer={() => {}} />,
@@ -1067,10 +1273,10 @@ describe("TopBar", () => {
     await waitFor(() => {
       expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
     });
-    await user.click(screen.getByRole("button", { name: /导出/i }));
 
-    expect(screen.getByRole("menuitem", { name: /运行报告/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /当前快照/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /导出/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /运行报告/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /当前快照/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /说明书样式/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /需求规格说明书/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /软件设计说明书/i })).not.toBeInTheDocument();
@@ -1120,6 +1326,76 @@ describe("TopBar", () => {
     expect(screen.getByText("server-run-active")).toBeInTheDocument();
   });
 
+  it("keeps active server runs visible when local terminal tasks remain in the drawer", async () => {
+    const snapshot = createRunSnapshot({
+      runId: "local-completed-run",
+      requirementText: "生成 UML",
+      rules: [
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "系统生成 UML。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "local-completed-run" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({ type: "completed", snapshot });
+      }),
+      getRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const activeRun: PlatformRunSummary = {
+      runId: "server-run-active-with-local-terminal",
+      status: "running",
+      stage: "generate_models",
+      runKind: "requirements",
+      model: "gpt-5.5",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      startedAt: "2026-06-21T00:00:01.000Z",
+    };
+
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <TopBarTaskWithProjectRunsHarness projectRuns={[activeRun]} />,
+        repository,
+      ),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "开始测试任务" }));
+    await waitFor(() => {
+      expect(repository.subscribeToRun).toHaveBeenCalledWith(
+        "local-completed-run",
+        expect.any(Function),
+      );
+    });
+
+    expect(screen.getByText("服务端运行中")).toBeInTheDocument();
+    expect(screen.getByText("任务列表")).toBeInTheDocument();
+    expect(screen.getByText("server-run-active-with-local-terminal")).toBeInTheDocument();
+    expect(screen.getAllByText("生成需求模型进行中").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("生成完成").length).toBeGreaterThan(0);
+    await user.click(await screen.findByRole("button", { name: "确认" }));
+    expect(screen.getByRole("button", { name: "清理已完成" })).toBeInTheDocument();
+  });
+
   it("shows the latest terminal server run when there is no active task", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
@@ -1163,6 +1439,127 @@ describe("TopBar", () => {
     );
 
     expect(screen.getByText("失败")).toBeInTheDocument();
+  });
+
+  it("shows code diagnostics from terminal server runs in the task drawer", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const completedCodeRun: PlatformRunSummary = {
+      runId: "server-code-diagnostics",
+      status: "completed",
+      stage: "verify_code_preview",
+      runKind: "code",
+      model: "gpt-5.5",
+      updatedAt: "2026-06-18T10:45:00.000Z",
+      codeDiagnosticCount: 1,
+      codeDiagnosticSummary: [
+        "verify_code_preview：检测到真实网络请求痕迹，已切换到本地 mock。",
+      ],
+      codeQualityIssueCount: 0,
+    };
+
+    render(
+      withWorkspaceProviders(
+        <TopBarTaskWithProjectRunsHarness projectRuns={[completedCodeRun]} />,
+        repository,
+      ),
+    );
+
+    expect(screen.getAllByText(/代码诊断 1 项/u).length).toBeGreaterThan(0);
+    expect(screen.getByText("代码诊断")).toBeInTheDocument();
+    expect(screen.getAllByText(/检测到真实网络请求痕迹/u).length).toBeGreaterThan(0);
+  });
+
+  it("shows interrupted server runs instead of falling back to idle", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const interruptedRun: PlatformRunSummary = {
+      runId: "server-run-interrupted",
+      status: "interrupted",
+      stage: "generate_models",
+      runKind: "requirements",
+      model: "gpt-5.5",
+      updatedAt: "2026-06-18T10:30:00.000Z",
+    };
+
+    render(
+      withWorkspaceProviders(
+        <TopBarTaskWithProjectRunsHarness projectRuns={[interruptedRun]} />,
+        repository,
+      ),
+    );
+
+    expect(screen.getAllByText("服务中断，可重试").length).toBeGreaterThan(0);
+    expect(screen.queryByText("暂无任务")).not.toBeInTheDocument();
+    expect(screen.getByText("服务中断，可从运行历史重试或重新运行")).toBeInTheDocument();
+    expect(screen.getByText("server-run-interrupted")).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+
+  it("shows retry source relationships for server runs in the task drawer", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const retryRun: PlatformRunSummary = {
+      runId: "server-run-retry",
+      status: "queued",
+      stage: "generate_models",
+      runKind: "requirements",
+      sourceRunId: "server-run-failed",
+      sourceAction: "retry",
+      sourceRunStatus: "failed",
+      model: "gpt-5.5",
+      updatedAt: "2026-06-18T10:40:00.000Z",
+    };
+
+    render(
+      withWorkspaceProviders(
+        <TopBarTaskWithProjectRunsHarness projectRuns={[retryRun]} />,
+        repository,
+      ),
+    );
+
+    expect(screen.getAllByText("排队中 0%").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("重试自 server-run-failed · 任务正在排队").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("运行关系")).toBeInTheDocument();
+    expect(screen.getByText("重试自 server-run-failed")).toBeInTheDocument();
   });
 
   it("shows Chinese task stages and streamed details in the task drawer", async () => {
@@ -1405,6 +1802,136 @@ describe("TopBar", () => {
     expect(
       within(updatedStageSection as HTMLElement).getByText("界面关系 traceability 缺失"),
     ).toBeInTheDocument();
+  });
+
+  it("labels instance-level model retry as same-kind rerun and uses diagram-kind scope", async () => {
+    let completeRun!: () => void;
+    const rules = [
+      {
+        id: "r1",
+        category: "功能需求" as const,
+        text: "用户可以查看图书。",
+        relatedDiagrams: ["usecase" as const, "analysis" as const],
+      },
+    ];
+    const requirementText = "用户可以查看图书。";
+    const fingerprint = snapshotInputFingerprint({ requirementText, rules });
+    const snapshot = createRunSnapshot({
+      runId: "run-analysis-instance",
+      requirementText,
+      selectedDiagrams: ["analysis"],
+      analysisTargetUseCaseIds: ["uc_view_books"],
+      rules,
+      models: [
+        {
+          diagramKind: "usecase",
+          actors: [{ id: "reader", name: "读者" }],
+          useCases: [{ id: "uc_view_books", name: "查看图书" }],
+        },
+      ],
+      currentStage: "generate_plantuml",
+      status: "completed",
+    });
+    (
+      snapshot.diagramErrors as Record<
+        string,
+        (typeof snapshot.diagramErrors)["analysis"]
+      >
+    )["analysis:uc_view_books"] = {
+      stage: "generate_plantuml",
+      error: {
+        code: "RUN_RENDER_FAILED",
+        message: "PlantUML 修复失败",
+        category: "render",
+        retryable: true,
+      },
+    };
+    const startRun = vi
+      .fn()
+      .mockResolvedValueOnce({ runId: "run-analysis-instance" })
+      .mockResolvedValueOnce({ runId: "run-analysis-retry" });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText,
+          rules,
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+          requirementInputFingerprint: fingerprint,
+          generatedDiagramTypes: ["usecase"],
+          diagramInputFingerprints: { usecase: fingerprint },
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              actors: [{ id: "reader", name: "读者" }],
+              useCases: [{ id: "uc_view_books", name: "查看图书" }],
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun,
+      subscribeToRun: vi.fn(async (runId, onEvent) => {
+        if (runId !== "run-analysis-instance") return;
+        onEvent({ type: "queued" });
+        onEvent({ type: "stage_started", stage: "generate_plantuml" });
+        onEvent({
+          type: "stage_progress",
+          stage: "generate_plantuml",
+          progress: 64,
+          diagramKind: "analysis",
+          modelId: "analysis:uc_view_books",
+          subtaskLabel: "查看图书分析模型",
+          subtaskStatus: "failed",
+          message: "PlantUML 修复失败",
+        });
+        await new Promise<void>((resolve) => {
+          completeRun = () => {
+            onEvent({ type: "completed", snapshot });
+            resolve();
+          };
+        });
+      }),
+      getRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TopBarAnalysisTaskHarness />, repository));
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    await user.click(await screen.findByRole("button", { name: "开始分析模型任务" }));
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    completeRun();
+
+    const retryButton = await screen.findByRole("button", {
+      name: "重试全部同类模型",
+    });
+    expect(retryButton).toHaveAttribute(
+      "title",
+      "当前重试按模型类型执行，会重试同类模型而不是单个实例",
+    );
+    await waitFor(() => {
+      expect(retryButton).toBeEnabled();
+    });
+
+    fireEvent.click(retryButton);
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+
+    expect(startRun).toHaveBeenCalledTimes(2);
+    expect(startRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedDiagrams: ["analysis"],
+      }),
+    );
   });
 
   it("constrains long generation task content inside the drawer width", async () => {

@@ -21,6 +21,8 @@ import {
   requirementFieldProvenanceEntrySchema,
   requirementQualityReportSchema,
   requirementRuleSchema,
+  requirementRulesArraySchema,
+  requirementRulesSchema,
   traceabilityMatrixSchema,
   umlDiagramKindSchema,
 } from "./requirements.js";
@@ -66,7 +68,9 @@ export const startRunRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
   selectedDiagrams: z.array(diagramKindSchema),
-  rules: z.array(requirementRuleSchema).default([]),
+  requestedDiagrams: z.array(diagramKindSchema).optional(),
+  dependencyDiagrams: z.array(diagramKindSchema).optional(),
+  rules: requirementRulesSchema.default([]),
   contextModels: z.array(diagramModelSpecSchema).default([]),
   contextRequirementModelTraceability: z
     .array(requirementModelTraceabilityEntrySchema)
@@ -80,6 +84,8 @@ export const startRunCommandSchema = z
   .object({
     projectId: z.string().min(1).optional(),
     selectedDiagrams: z.array(diagramKindSchema),
+    requestedDiagrams: z.array(diagramKindSchema).optional(),
+    dependencyDiagrams: z.array(diagramKindSchema).optional(),
     analysisTargetUseCaseIds: z.array(z.string().min(1)).default([]),
     providerSettings: providerSettingsSchema.optional(),
   })
@@ -143,7 +149,7 @@ export type RepairRequirementRuleResponse = z.infer<
 export const repairRequirementRulesRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
-  rules: z.array(requirementRuleSchema).min(1),
+  rules: requirementRulesArraySchema(1),
   targetRuleIds: z.array(z.string().min(1)).min(1),
   baseline: requirementBaselineSchema,
   providerSettings: providerSettingsSchema.optional(),
@@ -200,7 +206,7 @@ export type StartDesignRunCommand = z.infer<typeof startDesignRunCommandSchema>;
 export const startCodeRunRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   requirementText: z.string().min(1),
-  rules: z.array(requirementRuleSchema),
+  rules: requirementRulesSchema,
   requirementBaseline: requirementBaselineSchema.nullable().optional(),
   evidencePackage: evidencePackageSchema.nullable().optional(),
   designModels: z.array(designDiagramModelSpecSchema).min(1),
@@ -228,7 +234,7 @@ export const startDocumentRunRequestSchema = z.object({
   requirementText: z.string().min(1),
   requirementBaseline: requirementBaselineSchema.nullable().optional(),
   evidencePackage: evidencePackageSchema.nullable().optional(),
-  rules: z.array(requirementRuleSchema).default([]),
+  rules: requirementRulesSchema.default([]),
   requirementModels: z.array(diagramModelSpecSchema).default([]),
   requirementModelTraceability: z
     .array(requirementModelTraceabilityEntrySchema)
@@ -427,8 +433,10 @@ export const runSnapshotSchema = z.object({
   runId: z.string().min(1),
   requirementText: z.string(),
   selectedDiagrams: z.array(diagramKindSchema),
+  requestedDiagrams: z.array(diagramKindSchema).optional(),
+  dependencyDiagrams: z.array(diagramKindSchema).optional(),
   analysisTargetUseCaseIds: z.array(z.string().min(1)).default([]),
-  rules: z.array(requirementRuleSchema),
+  rules: requirementRulesSchema,
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
@@ -450,7 +458,7 @@ export const designRunSnapshotSchema = z.object({
   requirementText: z.string(),
   selectedDiagrams: z.array(designDiagramKindSchema),
   requestedDiagrams: z.array(designDiagramKindSchema).optional(),
-  rules: z.array(requirementRuleSchema),
+  rules: requirementRulesSchema,
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
@@ -472,7 +480,7 @@ export type DesignRunSnapshot = z.infer<typeof designRunSnapshotSchema>;
 export const codeRunSnapshotSchema = z.object({
   runId: z.string().min(1),
   requirementText: z.string(),
-  rules: z.array(requirementRuleSchema),
+  rules: requirementRulesSchema,
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
@@ -674,7 +682,17 @@ export const codeFileChangedRunEventSchema = z.object({
   reason: z.string().min(1),
 });
 
-export const completedRunEventSchema = z.object({
+export const completedRunEventSchema: z.ZodObject<{
+  type: z.ZodLiteral<"completed">;
+  snapshot: z.ZodUnion<
+    [
+      typeof runSnapshotSchema,
+      typeof designRunSnapshotSchema,
+      typeof codeRunSnapshotSchema,
+      typeof documentRunSnapshotSchema,
+    ]
+  >;
+}> = z.object({
   type: z.literal("completed"),
   snapshot: z.union([
     runSnapshotSchema,

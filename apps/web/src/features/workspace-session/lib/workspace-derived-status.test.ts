@@ -131,4 +131,59 @@ describe("deriveWorkspaceStatus", () => {
     expect(status.designStaleReasons["design-table"]).toBeUndefined();
     expect(status.designStaleReasons["design-class"]).toBeUndefined();
   });
+
+  it("marks old requirement and design artifacts stale when the requirement text is cleared", () => {
+    const requirementFingerprint = requirementInputFingerprintFor("订单需求", [rule]);
+    const designFingerprint = designInputFingerprintFor(
+      [requirementClassModel],
+      requirementTrace,
+    );
+
+    const status = deriveWorkspaceStatus({
+      currentRunDiagnostics: createEmptyDiagnostics(),
+      designInputFingerprints: {
+        "design-class": designFingerprint,
+      },
+      designModelTraceability: [
+        {
+          source: {
+            diagramKind: "class",
+            elementId: "order-service",
+            elementKind: "class",
+            label: "OrderService",
+            modelId: "design-class",
+          },
+          targets: [requirementTrace[0]!.target],
+          rationale: "设计类承接订单领域概念。",
+          confidence: "high",
+        },
+      ],
+      designModels: {
+        "design-class": designClassModel,
+      },
+      diagramInputFingerprints: {},
+      diagramVersions: {},
+      generatedDesignDiagrams: ["class"],
+      generatedDiagrams: [],
+      manualModelEditStatus: {},
+      models: { class: requirementClassModel },
+      requirementBaseline: null,
+      requirementInputFingerprint: requirementFingerprint,
+      requirementModelTraceability: requirementTrace,
+      requirementReviewCandidates: {},
+      requirementText: "",
+      rules: [rule],
+      rulesBasedOnTextVersion: 1,
+      rulesVersion: 1,
+      runUiState: createEmptyRunUiState(),
+      textVersion: 2,
+      visibleGenerationTask: null,
+    });
+
+    expect(status.isRulesStale).toBe(true);
+    expect(status.staleDiagrams).toEqual(["class"]);
+    expect(status.staleDesignDiagrams).toEqual(["class"]);
+    expect(status.designStaleReasons["design-class"]).toContain("需求源头已删除");
+    expect(status.designGenerationBlockedReason).toBe("请先输入需求文本");
+  });
 });

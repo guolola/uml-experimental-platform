@@ -190,7 +190,7 @@ describe("DiagramView", () => {
     expect(screen.queryByRole("button", { name: /PUML/i })).not.toBeInTheDocument();
     expect(screen.queryByText("溯源·需求规则")).not.toBeInTheDocument();
     expect(screen.queryByText("用户可以查看公开活动。")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /JSON/i })).not.toBeInTheDocument();
   });
 
   it("shows structured model details before PlantUML and SVG are available", async () => {
@@ -692,6 +692,7 @@ describe("DiagramView", () => {
           summary: "更新后的结构说明",
         }),
         expect.objectContaining({ status: "dirty" }),
+        expect.objectContaining({ designModelTraceability: [] }),
       );
     }, { timeout: 2500 });
     expect(repository.renderStructuredModel).toHaveBeenCalledWith(
@@ -1334,6 +1335,96 @@ describe("DiagramView", () => {
     expect(toastMessage).toHaveBeenCalledWith("修改已保存，当前图已更新");
   });
 
+  it("removes dangling relationships when confirming element deletion", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        models: {
+          class: {
+            diagramKind: "class",
+            title: "领域概念模型",
+            summary: "公开日历领域对象",
+            notes: [],
+            classes: [
+              {
+                id: "cls_event",
+                name: "Event",
+                classKind: "entity",
+                attributes: [],
+                operations: [],
+              },
+              {
+                id: "cls_reminder",
+                name: "Reminder",
+                classKind: "entity",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [
+              {
+                id: "rel_event_reminder",
+                type: "association",
+                sourceId: "cls_event",
+                targetId: "cls_reminder",
+                label: "提醒",
+              },
+            ],
+          },
+        },
+        svgArtifacts: {
+          class: {
+            diagramKind: "class",
+            svg: "<svg><text>Event</text><text>Reminder</text></svg>",
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="class" />, repository));
+    const saveRequirementModelEdit = vi.mocked(
+      repository.saveRequirementModelEdit!,
+    );
+    const renderStructuredModel = vi.mocked(repository.renderStructuredModel!);
+
+    await screen.findByRole("button", { name: "删除类：Event" });
+    await userEvent.click(screen.getByRole("button", { name: "删除类：Event" }));
+    const deleteDialog = await screen.findByRole("dialog", { name: /删除类/u });
+    await userEvent.click(within(deleteDialog).getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => expect(saveRequirementModelEdit).toHaveBeenCalled());
+    await waitFor(() => expect(renderStructuredModel).toHaveBeenCalled());
+    expect(saveRequirementModelEdit).toHaveBeenCalledWith(
+      "class",
+      expect.objectContaining({
+        classes: [expect.objectContaining({ id: "cls_reminder" })],
+        relationships: [],
+      }),
+      expect.objectContaining({ status: "dirty" }),
+      expect.objectContaining({
+        requirementModelTraceability: [],
+        designModelTraceability: [],
+      }),
+    );
+    expect(renderStructuredModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        classes: [expect.objectContaining({ id: "cls_reminder" })],
+        relationships: [],
+      }),
+    );
+    expect(saveRequirementModelEdit.mock.invocationCallOrder[0]).toBeLessThan(
+      renderStructuredModel.mock.invocationCallOrder[0],
+    );
+  });
+
   it("opens add dialogs before creating elements or relations", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
@@ -1585,6 +1676,10 @@ describe("DiagramView", () => {
         relationships: [expect.objectContaining({ label: "发起登录" })],
       }),
       expect.objectContaining({ status: "dirty" }),
+      expect.objectContaining({
+        requirementModelTraceability: [],
+        designModelTraceability: [],
+      }),
     );
     expect(repository.renderStructuredModel).toHaveBeenCalledWith(
       expect.objectContaining({

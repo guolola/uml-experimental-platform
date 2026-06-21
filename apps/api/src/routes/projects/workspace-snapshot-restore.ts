@@ -63,6 +63,12 @@ function reviewCandidateStillNeeded(
   });
 }
 
+function shouldPreserveCodeWorkspaceOnSnapshot(snapshot: CodeRunSnapshot) {
+  if (snapshot.generationMode !== "regenerate") return false;
+  if (snapshot.status === "cancelled") return true;
+  return snapshot.status === "failed" && Object.keys(snapshot.files).length === 0;
+}
+
 function pruneRequirementReviewCandidatesForBaseline(
   candidates: unknown,
   baseline: RequirementBaseline,
@@ -161,17 +167,28 @@ function applySnapshotToWorkspaceState(
     next.designModels = Object.fromEntries(
       snapshot.designModels.map((model) => [getDesignModelId(model), model]),
     );
+    next.designModelTraceability = [];
     next.designPlantUml = Object.fromEntries(
       snapshot.designPlantUml.map((artifact) => [
         getDesignArtifactId(artifact),
         artifact.source,
       ]),
     );
+    next.designSvgArtifacts = {};
+    next.designDiagramErrors = {};
+    next.generatedDesignDiagramTypes = Array.from(
+      new Set(snapshot.designModels.map((model) => model.diagramKind)),
+    );
+    next.designInputFingerprints = {};
+    next.selectedDiagramTypes = [];
+    next.selectedDesignDiagramTypes = [];
     next.codeSpec = snapshot.spec;
     next.codeBusinessLogic = snapshot.businessLogic;
-    next.codeFiles = { ...snapshot.files };
-    next.codeEntryFile = snapshot.entryFile;
-    next.codeDependencies = { ...snapshot.dependencies };
+    if (!shouldPreserveCodeWorkspaceOnSnapshot(snapshot)) {
+      next.codeFiles = { ...snapshot.files };
+      next.codeEntryFile = snapshot.entryFile;
+      next.codeDependencies = { ...snapshot.dependencies };
+    }
     next.codeUiMockup = snapshot.uiMockup;
     next.codeAgentPlan = [...snapshot.agentPlan];
     next.codeSkills = [...snapshot.selectedCodeSkills];
@@ -211,8 +228,6 @@ function applySnapshotToWorkspaceState(
       designRecords.modelMap,
       successfulAffectedDesignDiagrams,
     );
-    const requestedDesignDiagrams =
-      snapshot.requestedDiagrams ?? snapshot.selectedDiagrams;
     const requirementDiagrams = snapshot.requirementModels.map(
       (model) => model.diagramKind,
     );
@@ -227,10 +242,7 @@ function applySnapshotToWorkspaceState(
       snapshot.requirementModelTraceability,
     );
 
-    next.selectedDesignDiagramTypes = uniqueStrings([
-      ...stringArrayValue(next.selectedDesignDiagramTypes),
-      ...requestedDesignDiagrams,
-    ]);
+    next.selectedDesignDiagramTypes = [];
     if (successfulAffectedDesignDiagrams.length > 0) {
       next.designModels = {
         ...clearDesignScopedRecords(
@@ -307,10 +319,7 @@ function applySnapshotToWorkspaceState(
       snapshot.requirementModelTraceability,
       requirementDiagrams,
     );
-    next.selectedDiagramTypes = uniqueStrings([
-      ...stringArrayValue(next.selectedDiagramTypes),
-      ...requirementDiagrams,
-    ]);
+    next.selectedDiagramTypes = [];
     next.generatedDiagramTypes = uniqueStrings([
       ...stringArrayValue(next.generatedDiagramTypes),
       ...requirementDiagrams,
@@ -323,7 +332,7 @@ function applySnapshotToWorkspaceState(
       ...Object.fromEntries(
         requirementDiagrams.map((diagram) => [
           diagram,
-          workspaceRequirementFingerprint,
+          snapshotRequirementFingerprint,
         ]),
       ),
     };
@@ -397,10 +406,7 @@ function applySnapshotToWorkspaceState(
     ? numberValue(next.rulesVersion) + 1
     : numberValue(next.rulesVersion) || 1;
 
-  next.selectedDiagramTypes = uniqueStrings([
-    ...stringArrayValue(next.selectedDiagramTypes),
-    ...affected,
-  ]);
+  next.selectedDiagramTypes = [];
   next.rulesVersion = nextRulesVersion;
   next.rulesBasedOnTextVersion = 0;
   next.requirementInputFingerprint = workspaceRequirementFingerprint;
@@ -451,7 +457,7 @@ function applySnapshotToWorkspaceState(
     ...Object.fromEntries(
       successfulAffected.map((diagram) => [
         diagram,
-        workspaceRequirementFingerprint,
+        snapshotRequirementFingerprint,
       ]),
     ),
   };

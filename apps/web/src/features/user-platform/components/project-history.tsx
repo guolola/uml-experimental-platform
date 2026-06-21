@@ -1,16 +1,13 @@
-// Owns project run history filtering, actions, snapshot restore, and export flows.
+// Owns project run history filtering, actions, snapshot restore, and document download flows.
 import { useEffect, useMemo, useState } from "react";
 import { Download, RotateCw, Trash2 } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
 import { SelectControl } from "../../../shared/ui/select";
-import { downloadBlobFile, downloadTextFile } from "../../../shared/lib/download";
+import { downloadBlobFile } from "../../../shared/lib/download";
 import { useWorkspaceRepository } from "../../../services/workspace-repository";
-import {
-  buildRunMarkdownReport,
-  isDocumentRunSnapshot,
-} from "../../../entities/run-history";
+import { isDocumentRunSnapshot } from "../../../entities/run-history";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import {
   formatDateTime,
@@ -28,6 +25,22 @@ import {
   type PlatformProjectMember,
   type PlatformRunSummary,
 } from "../services/platform-api";
+
+function runActionLabel(action?: string | null) {
+  if (action === "retry") return "重试";
+  if (action === "rerun") return "重新运行";
+  return "派生运行";
+}
+
+function runRelationText(run: PlatformRunSummary) {
+  const parts = [
+    run.sourceRunId ? `${runActionLabel(run.sourceAction)}自 ${run.sourceRunId}` : null,
+    run.latestActionRunId
+      ? `已${runActionLabel(run.latestAction)}为 ${run.latestActionRunId}`
+      : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
 
 export function ProjectHistory({
   projectId,
@@ -96,14 +109,39 @@ export function ProjectHistory({
         action === "retry"
           ? await platformApi.retryProjectRun(projectId, runId)
           : await platformApi.rerunProjectRun(projectId, runId);
-      const nextRun =
-        response.run ??
-        ({
-          runId: response.runId ?? runId,
-          status: response.status ?? "queued",
-        } satisfies PlatformRunSummary);
+      const sourceRun = runs.find((run) => run.runId === runId);
+      const responseAction = response.action ?? action;
+      const nextRun = {
+        ...(
+          response.run ??
+          ({
+            runId: response.runId ?? runId,
+            status: response.status ?? "queued",
+          } satisfies PlatformRunSummary)
+        ),
+        sourceRunId: response.run?.sourceRunId ?? response.sourceRunId ?? runId,
+        sourceAction: response.run?.sourceAction ?? responseAction,
+        sourceRunStatus:
+          response.run?.sourceRunStatus ?? sourceRun?.status ?? null,
+      } satisfies PlatformRunSummary;
       if (nextRun.runId !== runId) {
-        setRuns((current) => [nextRun, ...current]);
+        setRuns((current) => [
+          nextRun,
+          ...current.map((run) =>
+            run.runId === runId
+              ? {
+                  ...run,
+                  derivedRunIds: [
+                    ...(run.derivedRunIds ?? []).filter((id) => id !== nextRun.runId),
+                    nextRun.runId,
+                  ],
+                  latestAction: responseAction,
+                  latestActionRunId: nextRun.runId,
+                  latestActionAt: nextRun.updatedAt ?? nextRun.startedAt ?? nextRun.createdAt ?? null,
+                }
+              : run,
+          ),
+        ]);
       } else {
         setRuns((current) =>
           current.map((run) =>
@@ -138,37 +176,9 @@ export function ProjectHistory({
     }
   };
 
-  const exportRunReport = async (run: PlatformRunSummary) => {
-    const runId = run.runId;
-    const historyItem = historyItems.find((item) => item.id === runId);
-    let snapshot = historyItem?.snapshot;
-    if (!snapshot) {
-      try {
-        const detail = await platformApi.getProjectRun(projectId, runId);
-        snapshot = detail.snapshot;
-      } catch (reportError) {
-        setError(
-          reportError instanceof Error
-            ? reportError.message
-            : "读取运行快照失败。",
-        );
-        return;
-      }
-    }
-    if (!snapshot) {
-      setError("该运行暂未保存可导出的快照。");
-      return;
-    }
-    downloadTextFile(
-      `运行报告-${getProjectRunStageLabel(run)}.md`,
-      buildRunMarkdownReport(snapshot),
-      "text/markdown",
-    );
-    setMessage("已导出 Markdown 报告。");
-  };
-
   const downloadDocumentRun = async (runId: string) => {
     const historyItem = historyItems.find((item) => item.id === runId);
+    const run = runs.find((item) => item.runId === runId);
     if (!repository.downloadDocumentRun) {
       setError("当前仓储不支持重新下载说明书。");
       return;
@@ -176,9 +186,11 @@ export function ProjectHistory({
     try {
       const downloaded = await repository.downloadDocumentRun(
         runId,
-        historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot)
+        run?.documentFileName ??
+          historyItem?.documentFileName ??
+          (historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot)
           ? historyItem.snapshot.fileName ?? undefined
-          : undefined,
+          : undefined),
       );
       downloadBlobFile(downloaded.fileName, downloaded.blob);
       setMessage(`已重新下载 ${downloaded.fileName}。`);
@@ -276,9 +288,12 @@ export function ProjectHistory({
       run.status === "failed" ||
       run.status === "cancelled" ||
       run.status === "interrupted";
-    const canUseSnapshot = (hasSnapshot || run.canRestore) && !running;
+    const documentRun = getProjectRunKind(run) === "document" || Boolean(hasDocumentSnapshot);
+    const canUseSnapshot = !documentRun && (hasSnapshot || run.canRestore) && !running;
     const canDownloadDocument =
-      (Boolean(hasDocumentSnapshot) || Boolean(run.documentDownloadAvailable)) && !running;
+      run.status === "completed" &&
+      run.documentDownloadAvailable !== false &&
+      (Boolean(hasDocumentSnapshot) || Boolean(run.documentDownloadAvailable));
     const canRerun = !running;
     const canDelete = !running;
     const buttonSizeProps = size ? { size } : {};
@@ -334,17 +349,6 @@ export function ProjectHistory({
           >
             {withIcons && <RotateCw className="size-3.5" />}
             恢复快照
-          </Button>
-        )}
-        {canUseSnapshot && (
-          <Button
-            type="button"
-            variant="outline"
-            {...buttonSizeProps}
-            onClick={() => void exportRunReport(run)}
-          >
-            {withIcons && <Download className="size-3.5" />}
-            导出报告
           </Button>
         )}
         {canDownloadDocument && (
@@ -498,6 +502,11 @@ export function ProjectHistory({
                       <span>模型 {getProjectRunModelLabel(run)}</span>
                       <span>操作者 {operatorLabel}</span>
                     </div>
+                    {runRelationText(run) && (
+                      <div className="truncate text-xs text-muted-foreground" title={runRelationText(run)}>
+                        {runRelationText(run)}
+                      </div>
+                    )}
                     {running && (
                       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                         <div className="h-full w-2/3 rounded-full bg-primary" />
@@ -537,10 +546,6 @@ export function ProjectHistory({
           <Button type="button" variant="outline" size="sm" onClick={() => void refreshRuns()}>
             <RotateCw className="size-4" />
             刷新历史
-          </Button>
-          <Button type="button" size="sm" onClick={() => setMessage("批量导出会逐条导出可用报告。")}>
-            <Download className="size-4" />
-            批量导出
           </Button>
         </div>
         {(message || error) && (
@@ -620,7 +625,14 @@ export function ProjectHistory({
           return (
             <div key={run.runId} className="grid gap-2 border-b border-border p-4 last:border-b-0 md:grid-cols-[minmax(0,1.2fr)_1fr_1fr_1fr_auto]">
               <div className="contents">
-                <span className="text-sm font-medium">{stageLabel}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{stageLabel}</span>
+                  {runRelationText(run) && (
+                    <span className="block truncate text-xs text-muted-foreground" title={runRelationText(run)}>
+                      {runRelationText(run)}
+                    </span>
+                  )}
+                </span>
                 <span className="text-sm text-muted-foreground">{getProjectRunOperatorLabel(run, members)}</span>
                 <Badge variant="outline" className={statusClasses.badge}>{statusLabel}</Badge>
                 <span className="text-sm text-muted-foreground">

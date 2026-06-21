@@ -872,3 +872,13 @@ export function assignTaskRunId(
 export function isTaskActive(task: GenerationTask) {
   return task.status === "queued" || task.status === "running";
 }
+
+export function isTaskClearableCompleted(task: GenerationTask) {
+  if (task.status !== "completed" || task.errorMessage) return false;
+  return !task.subtasks.some(
+    (subtask) =>
+      subtask.status === "failed" ||
+      subtask.status === "pending_review" ||
+      Boolean(subtask.errorMessage),
+  );
+}

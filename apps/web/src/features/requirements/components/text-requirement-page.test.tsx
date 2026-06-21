@@ -236,6 +236,73 @@ describe("TextRequirementView", () => {
     expect(screen.getByText("生成完成。")).toBeInTheDocument();
   });
 
+  it("asks before replacing existing requirement rules", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-replace-rules" }));
+    const subscribeToRun = vi.fn(
+      async (
+        _runId: string,
+        onEvent: Parameters<WorkspaceRepository["subscribeToRun"]>[1],
+      ) => {
+        const snapshot = createRunSnapshot({
+          runId: "run-replace-rules",
+          requirementText: "创建一个订单系统",
+          rules: [createRule({ id: "r2", text: "系统应校验库存。" })],
+        });
+        onEvent({ type: "queued" });
+        onEvent({ type: "completed", snapshot });
+      },
+    );
+    const getRunSnapshot = vi.fn(async () =>
+      createRunSnapshot({
+        runId: "run-replace-rules",
+        requirementText: "创建一个订单系统",
+        rules: [createRule({ id: "r2", text: "系统应校验库存。" })],
+      }),
+    );
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
+          rules: [createRule({ id: "r1", text: "系统应允许提交订单。" })],
+        }),
+      ),
+      startRun,
+      subscribeToRun,
+      getRunSnapshot,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    await screen.findByTitle("生成需求规则");
+    await user.click(screen.getByTitle("生成需求规则"));
+    const dialog = await screen.findByRole("dialog", {
+      name: "确认替换需求规则",
+    });
+    expect(within(dialog).getByText(/全量替换当前 1 条需求规则/u)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "确认替换需求规则" })).not.toBeInTheDocument();
+    });
+    expect(startRun).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTitle("生成需求规则"));
+    await user.click(
+      within(await screen.findByRole("dialog", { name: "确认替换需求规则" }))
+        .getByRole("button", { name: "确认替换" }),
+    );
+
+    await waitFor(() => {
+      expect(startRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requirementText: "创建一个订单系统",
+          selectedDiagrams: [],
+        }),
+      );
+    });
+  });
+
   it("shows entitlement generation blockers without purchase links", async () => {
     const startRun = vi.fn(async () => {
       throw new ApiClientError("需要开通生成权益", 402, {
@@ -357,6 +424,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [createRule()],
           rulesVersion: 1,
           selectedDiagramTypes: ["usecase"],
@@ -407,6 +475,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [
             createRule({
               id: "r1",
@@ -491,6 +560,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [
             createRule({
               id: "r1",
@@ -525,6 +595,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [],
           rulesVersion: 0,
           selectedDiagramTypes: [],
@@ -572,6 +643,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [
             createRule({ id: "r1", relatedDiagrams: ["usecase"] }),
             createRule({ id: "r2", relatedDiagrams: ["class"] }),
@@ -598,6 +670,73 @@ describe("TextRequirementView", () => {
     expect(
       screen.queryByRole("button", { name: /移除/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps stale generated requirement models selectable after requirement text changes", async () => {
+    const oldRequirementText = "用户可以提交订单。";
+    const rule = createRule({
+      id: "r1",
+      text: "用户可以提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const oldFingerprint = snapshotInputFingerprint({
+      requirementText: oldRequirementText,
+      rules: [rule],
+    });
+    const startRun = vi.fn(async () => ({ runId: "run-should-not-start" }));
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: oldRequirementText,
+          rules: [rule],
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+          requirementInputFingerprint: oldFingerprint,
+          generatedDiagramTypes: ["usecase"],
+          diagramInputFingerprints: { usecase: oldFingerprint },
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "订单用例模型",
+              summary: "用户提交订单。",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+        }),
+      ),
+      startRun,
+    });
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const sourceText = await screen.findByPlaceholderText(
+      "用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则",
+    );
+    await user.type(sourceText, "并支持退款。");
+
+    expect(
+      screen.getByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+    ).toBeInTheDocument();
+    const useCaseCheckbox = screen.getByRole("checkbox", { name: /用例模型/ });
+    expect(useCaseCheckbox).toBeEnabled();
+
+    await user.click(useCaseCheckbox);
+
+    expect(useCaseCheckbox).toBeChecked();
+    const generateButton = screen.getByRole("button", {
+      name: /应用变更（更新1）/,
+    });
+    expect(generateButton).toBeDisabled();
+    expect(generateButton).toHaveAttribute(
+      "title",
+      "需求规则已过期，请先更新需求规则",
+    );
+    expect(startRun).not.toHaveBeenCalled();
   });
 
   it("surfaces pending auto rule-mapping reviews on requirement model cards", async () => {
@@ -946,6 +1085,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [
             createRule({
               id: "r1",
@@ -1287,6 +1427,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [
             createRule({
               id: "r1",
@@ -1434,6 +1575,7 @@ describe("TextRequirementView", () => {
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
           rules: [usecaseRule, classRule],
           rulesVersion: 1,
           selectedDiagramTypes: ["class"],
@@ -1539,11 +1681,31 @@ describe("TextRequirementView", () => {
       text: "用户必须登录后才能访问主要功能。",
       relatedDiagrams: ["usecase", "activity"],
     });
+    const baselineRequirement = createAtomicRequirement({
+      id: "REQ-001",
+      sourceRuleId: originalRule.id,
+      sourceFragment: originalRule.text,
+    });
+    const baseline = createRequirementBaseline([baselineRequirement]);
     const repository = createBaseRepository({
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
           rules: [originalRule],
           rulesVersion: 1,
+          requirementBaseline: baseline,
+          requirementQualityReport: baseline.qualityReport,
+          requirementReviewCandidates: {
+            r1: {
+              ruleId: "r1",
+              beforeRequirement: baselineRequirement,
+              afterRequirement: null,
+              repairRationale: null,
+              blockingReasons: ["缺少参与者"],
+              status: "failed",
+              errorMessage: "无法自动补齐。",
+              createdAt: "2026-06-21T00:00:00.000Z",
+            },
+          },
           selectedDiagramTypes: ["usecase"],
         }),
       ),
@@ -1580,6 +1742,7 @@ describe("TextRequirementView", () => {
     ).toBeInTheDocument();
     expect(within(table).getByText("r1")).toBeInTheDocument();
     expect(within(table).getByText("业务规则")).toBeInTheDocument();
+    expect(within(table).getByText("修复失败待重试")).toBeInTheDocument();
     expect(
       within(table).getByRole("combobox", { name: "需求类型 r1" }),
     ).toBeInTheDocument();
@@ -1603,11 +1766,16 @@ describe("TextRequirementView", () => {
         ],
         expect.objectContaining({
           requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
+          requirementBaseline: null,
+          requirementQualityReport: null,
+          requirementReviewCandidates: {},
           rulesBasedOnTextVersion: 0,
           rulesVersion: expect.any(Number),
         }),
       );
     });
+    expect(within(table).queryByText("修复失败待重试")).not.toBeInTheDocument();
+    expect(within(table).queryByText("有待确认提示")).not.toBeInTheDocument();
   });
 
   it("shows repair candidates as before-after confirmation and accepts the repaired rule", async () => {

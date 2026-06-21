@@ -675,6 +675,24 @@ test("contracts validate representative stage payloads", () => {
   });
   assert.equal(rules.rules.length, 1);
   assert.equal(rules.rules[0]?.sourceFragment, "(1)访问主要功能");
+  assert.throws(() =>
+    requirementRulesResultSchema.parse({
+      rules: [
+        {
+          id: "r1",
+          category: "业务规则",
+          text: "用户必须登录后才能访问主要功能。",
+          relatedDiagrams: ["usecase"],
+        },
+        {
+          id: "R1",
+          category: "数据需求",
+          text: "系统需要记录访问日志。",
+          relatedDiagrams: ["class"],
+        },
+      ],
+    }),
+  );
 
   const models = diagramModelsResultSchema.parse({
     models: [
@@ -1102,7 +1120,9 @@ test("contracts validate representative stage payloads", () => {
   const requirementSnapshot = runSnapshotSchema.parse({
     runId: "run",
     requirementText: "生成需求模型",
-    selectedDiagrams: ["usecase"],
+    selectedDiagrams: ["usecase", "analysis"],
+    requestedDiagrams: ["analysis"],
+    dependencyDiagrams: ["usecase"],
     rules: [],
     models: [],
     requirementModelTraceability: [],
@@ -1125,6 +1145,8 @@ test("contracts validate representative stage payloads", () => {
     error: null,
   });
   assert.equal(requirementSnapshot.requirementTrace.length, 2);
+  assert.deepEqual(requirementSnapshot.requestedDiagrams, ["analysis"]);
+  assert.deepEqual(requirementSnapshot.dependencyDiagrams, ["usecase"]);
 
   const render = renderSvgResponseSchema.parse({
     svg: "<svg></svg>",
@@ -1412,10 +1434,19 @@ test("start run contracts accept optional project context", () => {
   assert.deepEqual(
     startRunCommandSchema.parse({
       projectId: "project-a",
-      selectedDiagrams: ["usecase"],
+      selectedDiagrams: ["usecase", "analysis"],
+      requestedDiagrams: ["analysis"],
+      dependencyDiagrams: ["usecase"],
       providerSettings: baseProviderSettings,
-    }).analysisTargetUseCaseIds,
-    [],
+    }),
+    {
+      projectId: "project-a",
+      selectedDiagrams: ["usecase", "analysis"],
+      requestedDiagrams: ["analysis"],
+      dependencyDiagrams: ["usecase"],
+      analysisTargetUseCaseIds: [],
+      providerSettings: baseProviderSettings,
+    },
   );
   assert.deepEqual(
     startDesignRunCommandSchema.parse({

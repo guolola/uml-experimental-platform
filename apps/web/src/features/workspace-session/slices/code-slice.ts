@@ -7,6 +7,12 @@ import type {
 } from "@uml-platform/contracts";
 import type { WorkspaceCodeRunSnapshot } from "../../../entities/workspace/model";
 
+export function shouldPreserveCodeWorkspaceOnSnapshot(
+  snapshot: WorkspaceCodeRunSnapshot,
+) {
+  return snapshot.status !== "completed" && snapshot.generationMode === "regenerate";
+}
+
 export function useCodeSlice() {
   const [codeSpec, setCodeSpec] = useState<CodeGenerationSpec | null>(null);
   const [codeBusinessLogic, setCodeBusinessLogic] =
@@ -34,11 +40,14 @@ export function useCodeSlice() {
   const [codeEditVersion, setCodeEditVersion] = useState(0);
 
   const applyCodeRunSnapshot = useCallback((snapshot: WorkspaceCodeRunSnapshot) => {
+    const preserveCurrentCode = shouldPreserveCodeWorkspaceOnSnapshot(snapshot);
     setCodeSpec(snapshot.spec);
     setCodeBusinessLogic(snapshot.businessLogic);
-    setCodeFiles({ ...snapshot.files });
-    setCodeEntryFile(snapshot.entryFile);
-    setCodeDependencies({ ...snapshot.dependencies });
+    if (!preserveCurrentCode) {
+      setCodeFiles({ ...snapshot.files });
+      setCodeEntryFile(snapshot.entryFile);
+      setCodeDependencies({ ...snapshot.dependencies });
+    }
     setCodeUiMockup(snapshot.uiMockup);
     setCodeAgentPlan([...snapshot.agentPlan]);
     setCodeSkills([...snapshot.selectedCodeSkills]);

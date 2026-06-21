@@ -55,6 +55,8 @@ export function createEmptySnapshot(
     models?: DiagramModelSpec[];
     requirementModelTraceability?: RunSnapshot["requirementModelTraceability"];
     analysisTargetUseCaseIds?: string[];
+    requestedDiagrams?: DiagramKind[];
+    dependencyDiagrams?: DiagramKind[];
   } = {},
 ): RunSnapshot {
   const requirementBaseline = rules.length > 0
@@ -64,6 +66,8 @@ export function createEmptySnapshot(
     runId,
     requirementText,
     selectedDiagrams,
+    requestedDiagrams: context.requestedDiagrams,
+    dependencyDiagrams: context.dependencyDiagrams,
     analysisTargetUseCaseIds: context.analysisTargetUseCaseIds ?? [],
     rules,
     requirementBaseline,

@@ -1,6 +1,6 @@
 // Registers run endpoints and delegates lifecycle work to pipelines and record stores.
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   codeRunSnapshotSchema,
   documentRunSnapshotSchema,
@@ -20,6 +20,7 @@ import {
   startRunRequestSchema,
   startRunResponseSchema,
   type CodeRunSnapshot,
+  type DocumentLibraryItem,
   type ProviderSettings,
   type RunStage,
   type StartCodeRunRequest,
@@ -57,6 +58,7 @@ import {
   rejectBlockedEvidencePackage,
   storeEvidenceReviewDecision,
 } from "../../runs/evidence/run-evidence-gates.js";
+import { assertRequirementBaselineAllowsDownstream } from "../../runs/baselines/requirement-baseline.js";
 import { stageProgressValue } from "../../runs/pipelines/shared/pipeline-events.js";
 import {
   handleRunPipelineError,
@@ -127,6 +129,51 @@ import {
 } from "./project-workspace-sync.js";
 
 export type { RunAccessContext, RunAccessGuard } from "./run-access.js";
+
+function isActiveRunRecord(record: RunRecord) {
+  return (
+    !record.terminal &&
+    (record.snapshot.status === "running" || record.snapshot.status === "queued")
+  );
+}
+
+function documentWorkspaceIdForRun(record: RunRecord) {
+  const projectId = record.metadata?.projectId;
+  return projectId ? projectDocumentWorkspaceId(projectId) : null;
+}
+
+async function currentDocumentForRun(
+  record: RunRecord,
+  documentLibrary: DocumentLibrary,
+): Promise<DocumentLibraryItem | null> {
+  if (!("documentKind" in record.snapshot)) return null;
+  const workspaceId = documentWorkspaceIdForRun(record);
+  if (!workspaceId || !record.snapshot.documentId) return null;
+  if (typeof documentLibrary.getDocument !== "function") return null;
+  return documentLibrary.getDocument(workspaceId, record.snapshot.documentId, {
+    includeDeleted: true,
+  });
+}
+
+async function summarizeRunRecordWithCurrentDocument(
+  record: RunRecord,
+  documentLibrary: DocumentLibrary,
+) {
+  const summary = summarizeRunRecord(record);
+  const document = await currentDocumentForRun(record, documentLibrary);
+  if (!document) return summary;
+  return {
+    ...summary,
+    documentDownloadAvailable:
+      summary.documentDownloadAvailable && document.status === "active",
+    documentId: document.id,
+    documentFileName: document.fileName,
+    documentVersion: document.version,
+    documentStatus: document.status,
+    documentRestoreAvailable: document.status === "deleted",
+    documentByteLength: document.byteLength,
+  };
+}
 
 type RequirementPipeline = (
   record: RunRecord,
@@ -253,6 +300,25 @@ export function registerRunRoutes({
 
   const handleOfflineDemoError = (record: RunRecord, error: unknown) => {
     handleRunPipelineError(record, error, addCodeDiagnostic);
+  };
+
+  const rejectBlockedRequirementBaseline = (
+    reply: FastifyReply,
+    baseline: StartDesignRunRequest["requirementBaseline"] | StartCodeRunRequest["requirementBaseline"] | StartDocumentRunRequest["requirementBaseline"],
+  ) => {
+    if (!baseline) return null;
+    try {
+      assertRequirementBaselineAllowsDownstream(baseline);
+      return null;
+    } catch (error) {
+      reply.code(409);
+      return {
+        message:
+          error instanceof Error
+            ? error.message
+            : "RequirementBaseline blocked downstream generation",
+      };
+    }
   };
 
   app.post("/api/runs/requirement-rule-repair", async (request, reply) => {
@@ -428,6 +494,8 @@ export function registerRunRoutes({
             models: input.contextModels,
             requirementModelTraceability: input.contextRequirementModelTraceability,
             analysisTargetUseCaseIds: input.analysisTargetUseCaseIds,
+            requestedDiagrams: input.requestedDiagrams,
+            dependencyDiagrams: input.dependencyDiagrams,
           },
         ),
         events: [],
@@ -512,6 +580,8 @@ export function registerRunRoutes({
           models: input.contextModels,
           requirementModelTraceability: input.contextRequirementModelTraceability,
           analysisTargetUseCaseIds: input.analysisTargetUseCaseIds,
+          requestedDiagrams: input.requestedDiagrams,
+          dependencyDiagrams: input.dependencyDiagrams,
         },
       ),
       events: [],
@@ -557,6 +627,11 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    const blockedBaseline = rejectBlockedRequirementBaseline(
+      reply,
+      input.requirementBaseline,
+    );
+    if (blockedBaseline) return blockedBaseline;
     if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
       const runId = randomUUID();
       const record: RunRecord = {
@@ -682,6 +757,11 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    const blockedBaseline = rejectBlockedRequirementBaseline(
+      reply,
+      input.requirementBaseline,
+    );
+    if (blockedBaseline) return blockedBaseline;
     if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
       const runId = randomUUID();
       const record: RunRecord = {
@@ -811,6 +891,11 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    const blockedBaseline = rejectBlockedRequirementBaseline(
+      reply,
+      input.requirementBaseline,
+    );
+    if (blockedBaseline) return blockedBaseline;
     if (await isOfflineDemoRun(input.projectId ?? metadata.projectId)) {
       const demoInput = createOfflineDemoDocumentInput(input);
       const runId = randomUUID();
@@ -944,15 +1029,19 @@ export function registerRunRoutes({
       return runAccessDeniedMessage(reply);
     }
 
-    const projectRuns = Array.from(runs.values())
+    const projectRunRecords = Array.from(runs.values())
       .filter((record) => record.metadata?.projectId === projectId)
       .filter((record) => projectRecordMatchesFilters(record, request.query))
       .sort((left, right) =>
         (right.metadata?.createdAt ?? "").localeCompare(
           left.metadata?.createdAt ?? "",
         ),
-      )
-      .map(summarizeRunRecord);
+      );
+    const projectRuns = await Promise.all(
+      projectRunRecords.map((record) =>
+        summarizeRunRecordWithCurrentDocument(record, documentLibrary),
+      ),
+    );
 
     return {
       generatedAt: new Date().toISOString(),
@@ -979,9 +1068,45 @@ export function registerRunRoutes({
     const includeEvents = queryValue(request.query, "includeEvents") === "true";
     return {
       projectId,
-      run: summarizeRunRecord(record),
+      run: await summarizeRunRecordWithCurrentDocument(record, documentLibrary),
       snapshot: record.snapshot,
       ...(includeEvents ? { events: record.events } : {}),
+    };
+  });
+
+  app.delete("/api/projects/:projectId/runs", async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const access = await resolveProjectRunPermission(
+      request,
+      reply,
+      projectId,
+      "start_runs",
+      runAccessGuard,
+    );
+    if (!access) return runAccessDeniedMessage(reply);
+
+    const projectRecords = Array.from(runs.entries()).filter(
+      ([, record]) => record.metadata?.projectId === projectId,
+    );
+    const activeRunIds = projectRecords
+      .filter(([, record]) => isActiveRunRecord(record))
+      .map(([runId]) => runId);
+    if (activeRunIds.length > 0) {
+      reply.code(409);
+      return {
+        message: "Active runs cannot be deleted",
+        activeRunIds,
+      };
+    }
+
+    const deletedRunIds = projectRecords.map(([runId]) => runId);
+    for (const runId of deletedRunIds) {
+      runs.delete(runId);
+    }
+
+    return {
+      projectId,
+      deletedRunIds,
     };
   });
 
@@ -1075,7 +1200,7 @@ export function registerRunRoutes({
       reply.code(404);
       return { message: "Run not found" };
     }
-    if (!record.terminal && (record.snapshot.status === "running" || record.snapshot.status === "queued")) {
+    if (isActiveRunRecord(record)) {
       reply.code(409);
       return { message: "Active runs cannot be deleted" };
     }
@@ -1243,6 +1368,15 @@ export function registerRunRoutes({
       return reply;
     }
     const snapshot = documentRunSnapshotSchema.parse(record.snapshot);
+    if (snapshot.status !== "completed") {
+      reply.code(409);
+      return { message: "Document run has not completed successfully" };
+    }
+    const currentDocument = await currentDocumentForRun(record, documentLibrary);
+    if (currentDocument?.status === "deleted") {
+      reply.code(409);
+      return { message: "Document has been deleted. Restore it before downloading." };
+    }
     let documentBuffer = record.documentBuffer;
     if (!documentBuffer && record.metadata?.projectId && snapshot.documentId) {
       documentBuffer = await documentLibrary.getDocumentBuffer(
@@ -1261,7 +1395,7 @@ export function registerRunRoutes({
     );
     reply.header(
       "Content-Disposition",
-      `attachment; filename*=UTF-8''${encodeURIComponent(snapshot.fileName ?? "说明书.docx")}`,
+      `attachment; filename*=UTF-8''${encodeURIComponent(currentDocument?.fileName ?? snapshot.fileName ?? "说明书.docx")}`,
     );
     return documentBuffer;
   });

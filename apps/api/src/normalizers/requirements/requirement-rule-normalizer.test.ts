@@ -59,6 +59,36 @@ test("preserves source fragments separately from readable rule text", () => {
   });
 });
 
+test("renames duplicate requirement rule ids deterministically", () => {
+  const result = normalizeRequirementRulesResult({
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "读者可以检索图书。",
+        relatedDiagrams: ["用例图"],
+      },
+      {
+        id: "R1",
+        category: "数据需求",
+        text: "系统需要记录图书库存。",
+        relatedDiagrams: ["类图"],
+      },
+      {
+        id: "r1",
+        category: "异常处理",
+        text: "检索失败时系统提示原因。",
+        relatedDiagrams: ["活动图"],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.rules.map((rule) => rule.id),
+    ["r1", "R1-2", "r1-3"],
+  );
+});
+
 test("infers related diagrams when model returns only invalid diagram labels", () => {
   const result = normalizeRequirementRulesResult({
     rules: [

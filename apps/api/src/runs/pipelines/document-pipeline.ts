@@ -35,6 +35,7 @@ import { renderDocumentBuffer } from "../../documents/render/document-renderer.j
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { throwIfRunCancelled } from "../records/run-cancellation.js";
 import { attachEvidencePackage } from "../evidence/evidence-package.js";
+import { assertRequirementBaselineAllowsDownstream } from "../baselines/requirement-baseline.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
 import {
@@ -179,6 +180,7 @@ export async function runDocumentStagePipeline(
   pngRenderClient: PngRenderClient,
 ) {
   const snapshot = record.snapshot as DocumentRunSnapshot;
+  assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
   const updateStage = (stage: RunStage, message?: string) => {
     throwIfRunCancelled(record);
     snapshot.currentStage = stage;

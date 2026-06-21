@@ -59,6 +59,12 @@ const STATUS_STYLES: Record<
     label: "生成中",
     icon: Loader2,
   },
+  interrupted: {
+    card: "border-warning/40 bg-card text-card-foreground ring-1 ring-warning/15",
+    badge: "bg-amber-50 text-amber-700",
+    label: "服务中断",
+    icon: AlertCircle,
+  },
 };
 
 export const LINEAGE_KIND_STYLES: Record<
@@ -164,6 +170,7 @@ export function LineageNodeCard({
       data-testid={`lineage-node-${node.id}`}
       data-lineage-kind={node.kind}
       data-lineage-status={node.status}
+      data-lineage-viewable={node.hasViewableArtifact ? "true" : "false"}
       aria-label={`${node.stageLabel} ${node.label}`}
       onClick={() => onSelect(node)}
       onKeyDown={handleKeyDown}

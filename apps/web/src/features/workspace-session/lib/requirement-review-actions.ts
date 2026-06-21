@@ -11,6 +11,7 @@ import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
 import {
   createStartRunInput,
+  type RequirementRulesUpdateMetadata,
   type WorkspaceRepository,
 } from "../../../services/workspace-repository";
 import type { GenerationResultDialogState } from "../components/generation-dialogs";
@@ -30,10 +31,25 @@ interface RequirementRuleCreateInput {
   text: string;
 }
 
+type RequirementRuleInvalidationMetadata = Pick<
+  RequirementRulesUpdateMetadata,
+  | "requirementBaseline"
+  | "requirementQualityReport"
+  | "requirementReviewCandidates"
+>;
+
 interface RequirementReviewActionsInput {
-  clearRequirementRulesBase: () => void;
-  createRequirementRuleBase: (input: RequirementRuleCreateInput) => void;
-  deleteRequirementRuleBase: (id: string) => void;
+  clearRequirementRulesBase: (
+    metadata?: RequirementRuleInvalidationMetadata,
+  ) => void;
+  createRequirementRuleBase: (
+    input: RequirementRuleCreateInput,
+    metadata?: RequirementRuleInvalidationMetadata,
+  ) => void;
+  deleteRequirementRuleBase: (
+    id: string,
+    metadata?: RequirementRuleInvalidationMetadata,
+  ) => void;
   openGenerationResultDialog: (state: GenerationResultDialogState) => void;
   repository: WorkspaceRepository;
   requirementBaseline: RequirementBaseline | null;
@@ -51,6 +67,7 @@ interface RequirementReviewActionsInput {
   updateRequirementRuleBase: (
     id: string,
     patch: Partial<RequirementRule>,
+    metadata?: RequirementRuleInvalidationMetadata,
   ) => void;
 }
 
@@ -116,10 +133,21 @@ export function useRequirementReviewActions({
     ],
   );
 
-  const clearRequirementReviewCandidates = useCallback(() => {
+  const invalidateRequirementReviewArtifacts = useCallback(() => {
+    const metadata: RequirementRuleInvalidationMetadata = {
+      requirementBaseline: null,
+      requirementQualityReport: null,
+      requirementReviewCandidates: {},
+    };
+    setRequirementBaseline(null);
+    setRequirementQualityReport(null);
     setRequirementReviewCandidates({});
-    void repository.updateRequirementReviewCandidates?.({});
-  }, [repository, setRequirementReviewCandidates]);
+    return metadata;
+  }, [
+    setRequirementBaseline,
+    setRequirementQualityReport,
+    setRequirementReviewCandidates,
+  ]);
 
   const syncReadableRuleText = useCallback(
     (requirement: AtomicRequirement) => {
@@ -141,32 +169,32 @@ export function useRequirementReviewActions({
 
   const createRequirementRule = useCallback(
     (input: RequirementRuleCreateInput) => {
-      clearRequirementReviewCandidates();
-      createRequirementRuleBase(input);
+      createRequirementRuleBase(input, invalidateRequirementReviewArtifacts());
     },
-    [clearRequirementReviewCandidates, createRequirementRuleBase],
+    [createRequirementRuleBase, invalidateRequirementReviewArtifacts],
   );
 
   const updateRequirementRule = useCallback(
     (id: string, patch: Partial<RequirementRule>) => {
-      clearRequirementReviewCandidates();
-      updateRequirementRuleBase(id, patch);
+      updateRequirementRuleBase(
+        id,
+        patch,
+        invalidateRequirementReviewArtifacts(),
+      );
     },
-    [clearRequirementReviewCandidates, updateRequirementRuleBase],
+    [invalidateRequirementReviewArtifacts, updateRequirementRuleBase],
   );
 
   const deleteRequirementRule = useCallback(
     (id: string) => {
-      clearRequirementReviewCandidates();
-      deleteRequirementRuleBase(id);
+      deleteRequirementRuleBase(id, invalidateRequirementReviewArtifacts());
     },
-    [clearRequirementReviewCandidates, deleteRequirementRuleBase],
+    [deleteRequirementRuleBase, invalidateRequirementReviewArtifacts],
   );
 
   const clearRequirementRules = useCallback(() => {
-    clearRequirementReviewCandidates();
-    clearRequirementRulesBase();
-  }, [clearRequirementReviewCandidates, clearRequirementRulesBase]);
+    clearRequirementRulesBase(invalidateRequirementReviewArtifacts());
+  }, [clearRequirementRulesBase, invalidateRequirementReviewArtifacts]);
 
   const showRequirementReviewSaveFailure = useCallback(
     (error: unknown, ruleId: string) => {

@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AtomicRequirement,
+  CodeRunSnapshot,
   DesignDiagramModelSpec,
   DesignRunSnapshot,
   DiagramModelSpec,
@@ -22,6 +23,7 @@ import type {
   StartRunInput,
   WorkspaceRepository,
 } from "../../services/workspace-repository";
+import type { RunHistoryItem } from "../../entities/run-history";
 import {
   createRule,
   createRunSnapshot,
@@ -97,6 +99,72 @@ function createRequirementBaseline(
     },
     ...overrides,
   };
+}
+
+function createCodeRunSnapshot(
+  overrides: Partial<CodeRunSnapshot> = {},
+): CodeRunSnapshot {
+  return {
+    runId: "code-run-test",
+    requirementText: "生成图书馆预约系统",
+    rules: [],
+    requirementBaseline: null,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
+    designModels: [],
+    designPlantUml: [],
+    spec: null,
+    businessLogic: null,
+    loadedCodeSkill: null,
+    visualDirection: null,
+    skillResourceDiscoveryPlan: null,
+    skillResourcePreviews: null,
+    skillResourcePlan: null,
+    codeSkillContext: null,
+    appBlueprint: null,
+    uiBlueprint: null,
+    uiMockup: null,
+    uiReferenceSpec: null,
+    uiFidelityReport: null,
+    designTokens: null,
+    componentRegistry: null,
+    uiIr: null,
+    visualDiffReport: null,
+    businessAssertionResults: null,
+    repairLoopSummary: null,
+    selectedCodeSkills: [],
+    skillDiagnostics: [],
+    filePlan: null,
+    codeImplementationBrief: null,
+    codeFileOperationManifest: null,
+    fileGenerationDiagnostics: [],
+    codeTrace: [],
+    codeGenerationMode: "json_schema_operations",
+    qualityDiagnostics: [],
+    files: { "/src/App.tsx": "export default function App() { return null; }" },
+    entryFile: "/src/App.tsx",
+    dependencies: {},
+    agentPlan: [],
+    generationMode: "continue",
+    changedFileCount: 1,
+    diagnostics: [],
+    codeContextHash: null,
+    currentStage: "verify_code_preview",
+    status: "completed",
+    error: null,
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("WorkspaceSessionProvider", () => {
@@ -288,6 +356,96 @@ describe("WorkspaceSessionProvider", () => {
     expect(screen.queryByText(/runId/u)).not.toBeInTheDocument();
   });
 
+  it("records failed rules-only snapshots in history without clearing existing rules", async () => {
+    const oldRule = createRule({
+      id: "old-rule",
+      text: "旧规则仍可查看。",
+      relatedDiagrams: ["usecase"],
+    });
+    const failedSnapshot = createRunSnapshot({
+      runId: "run-rules-failed",
+      requirementText: "订单系统需求",
+      selectedDiagrams: [],
+      rules: [],
+      currentStage: "extract_rules",
+      status: "failed",
+      error: {
+        code: "RUN_STRUCTURED_OUTPUT_INVALID",
+        message: "需求规则抽取失败",
+        category: "generation",
+        retryable: true,
+      },
+      requirementTrace: [],
+    });
+    const savedHistory: RunHistoryItem[] = [];
+    const saveRunHistory = vi.fn(
+      async (
+        snapshot: Parameters<WorkspaceRepository["saveRunHistory"]>[0],
+        meta: Parameters<WorkspaceRepository["saveRunHistory"]>[1],
+      ) => {
+        const item: RunHistoryItem = {
+          id: snapshot.runId,
+          createdAt: "2026-06-21T00:00:00.000Z",
+          title: "订单系统需求",
+          snapshot,
+          providerModel: meta.providerModel,
+          durationMs: meta.durationMs,
+        };
+        savedHistory.splice(0, savedHistory.length, item);
+        return item;
+      },
+    );
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          rules: [oldRule],
+          rulesVersion: 1,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-rules-failed" })),
+      subscribeToRun: vi.fn(async () => {
+        throw new Error("需求规则抽取失败");
+      }),
+      getRunSnapshot: vi.fn(async () => failedSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory,
+      listRunHistory: vi.fn(async () => savedHistory),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateRules();
+    });
+
+    expect(result.current.rules).toEqual([oldRule]);
+    expect(saveRunHistory).toHaveBeenCalledWith(
+      failedSnapshot,
+      expect.objectContaining({ providerModel: expect.any(String) }),
+    );
+    expect(result.current.historyItems.map((item) => item.id)).toEqual([
+      "run-rules-failed",
+    ]);
+    expect(result.current.generationTasks[0]?.status).toBe("failed");
+    expect(
+      result.current.generationTasks[0]?.subtasks.find(
+        (subtask) => subtask.id === "extract_rules",
+      )?.status,
+    ).toBe("failed");
+  });
+
   it("blocks requirement model generation when rules need autofill but no requirement source exists", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-should-not-start" }));
     const repository: WorkspaceRepository = {
@@ -417,6 +575,77 @@ describe("WorkspaceSessionProvider", () => {
     await waitFor(() => {
       expect(result.current.generating).toBe(true);
     });
+  });
+
+  it("flushes pending requirement text before starting a rules run", async () => {
+    const saveRequirementText = deferred<void>();
+    const startRun = vi.fn(async () => ({ runId: "run-flushed-rules" }));
+    const snapshot = createRunSnapshot({
+      runId: "run-flushed-rules",
+      requirementText: "刚输入就生成的需求",
+      rules: [createRule()],
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({ requirementText: "旧需求" }),
+      ),
+      updateRequirementText: vi.fn(() => saveRequirementText.promise),
+      startRun,
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({ type: "completed", snapshot });
+      }),
+      getRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async (savedSnapshot) => ({
+        id: savedSnapshot.runId,
+        createdAt: new Date().toISOString(),
+        title: "test",
+        snapshot: savedSnapshot,
+        providerModel: "gpt-5.5",
+      })),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      result.current.setRequirementText("刚输入就生成的需求");
+    });
+    let generationPromise!: Promise<void>;
+    act(() => {
+      generationPromise = result.current.generateRules();
+    });
+
+    await waitFor(() => {
+      expect(repository.updateRequirementText).toHaveBeenCalledWith(
+        "刚输入就生成的需求",
+      );
+    });
+    expect(startRun).not.toHaveBeenCalled();
+
+    saveRequirementText.resolve();
+    await act(async () => {
+      await generationPromise;
+    });
+
+    expect(startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requirementText: "刚输入就生成的需求",
+        selectedDiagrams: [],
+      }),
+    );
+    expect(result.current.rules).toHaveLength(1);
   });
 
   it("drives runs through the repository and tracks stale diagrams after rules refresh", async () => {
@@ -692,6 +921,323 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.staleDiagrams).toEqual(["activity", "usecase"]);
   });
 
+  it("keeps completed requirement models stale when input changes while the run is in flight", async () => {
+    const rule = createRule({
+      id: "r1",
+      text: "用户可以查看座位。",
+      relatedDiagrams: ["usecase"],
+    });
+    const startFingerprint = snapshotInputFingerprint({
+      requirementText: "座位预约系统 v1",
+      rules: [rule],
+    });
+    const updatedFingerprint = snapshotInputFingerprint({
+      requirementText: "座位预约系统 v2",
+      rules: [rule],
+    });
+    const completedSnapshot = createRunSnapshot({
+      runId: "run-inflight-usecase",
+      requirementText: "座位预约系统 v1",
+      selectedDiagrams: ["usecase"],
+      rules: [rule],
+      models: [
+        {
+          diagramKind: "usecase",
+          title: "座位预约用例",
+          summary: "基于 v1 需求生成。",
+          notes: [],
+          actors: [],
+          useCases: [],
+          systemBoundaries: [],
+          relationships: [],
+        },
+      ],
+      plantUml: [{ diagramKind: "usecase", source: "@startuml\n@enduml" }],
+      svgArtifacts: [
+        {
+          diagramKind: "usecase",
+          svg: "<svg><text>v1</text></svg>",
+          renderMeta: {
+            engine: "plantuml",
+            generatedAt: "2026-06-21T00:00:00.000Z",
+            sourceLength: 18,
+            durationMs: 1,
+          },
+        },
+      ],
+    });
+    const subscription = deferred<void>();
+    let emitRunEvent:
+      | Parameters<WorkspaceRepository["subscribeToRun"]>[1]
+      | null = null;
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "座位预约系统 v1",
+          rules: [rule],
+          requirementInputFingerprint: startFingerprint,
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-inflight-usecase" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        emitRunEvent = onEvent;
+        await subscription.promise;
+      }),
+      getRunSnapshot: vi.fn(async () => completedSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let generation: Promise<unknown> | null = null;
+    act(() => {
+      generation = result.current.generateDiagrams(["usecase"]);
+    });
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await waitFor(() => {
+      expect(repository.startRun).toHaveBeenCalledTimes(1);
+      expect(emitRunEvent).toBeTruthy();
+    });
+
+    act(() => {
+      result.current.setRequirementText("座位预约系统 v2");
+    });
+    await waitFor(() => {
+      expect(repository.updateRequirementText).toHaveBeenCalledWith(
+        "座位预约系统 v2",
+      );
+    });
+
+    act(() => {
+      emitRunEvent?.({ type: "completed", snapshot: completedSnapshot });
+      subscription.resolve();
+    });
+    await act(async () => {
+      await generation;
+    });
+
+    expect(result.current.requirementInputFingerprint).toBe(updatedFingerprint);
+    expect(result.current.diagramInputFingerprints.usecase).toBe(
+      startFingerprint,
+    );
+    expect(result.current.staleDiagrams).toEqual(["usecase"]);
+    expect(result.current.svgArtifacts.usecase?.svg).toContain("v1");
+  });
+
+  it("prunes requirement model traceability when rules-only generation replaces rule ids", async () => {
+    const oldRule = createRule({ id: "r1", text: "用户可以提交订单。" });
+    const newRule = createRule({ id: "r2", text: "系统必须先校验库存。" });
+    const snapshot = createRunSnapshot({
+      runId: "run-replace-rules",
+      requirementText: "订单系统需求",
+      rules: [newRule],
+    });
+    const updateRequirementRules = vi.fn(async () => {});
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          rules: [oldRule],
+          requirementModelTraceability: [
+            {
+              ruleId: "r1",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_submit_order",
+                elementKind: "usecase",
+                label: "提交订单",
+              },
+            },
+            {
+              ruleId: "r2",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_check_stock",
+                elementKind: "usecase",
+                label: "校验库存",
+              },
+            },
+          ],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      updateRequirementRules,
+      startRun: vi.fn(async () => ({ runId: "run-replace-rules" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({ type: "completed", snapshot });
+      }),
+      getRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async (savedSnapshot) => ({
+        id: savedSnapshot.runId,
+        createdAt: new Date().toISOString(),
+        title: "test",
+        snapshot: savedSnapshot,
+        providerModel: "gpt-5.5",
+      })),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateRules();
+    });
+
+    expect(result.current.rules).toEqual([newRule]);
+    expect(result.current.requirementModelTraceability).toEqual([
+      expect.objectContaining({
+        ruleId: "r2",
+        target: expect.objectContaining({ elementId: "uc_check_stock" }),
+      }),
+    ]);
+    expect(updateRequirementRules).toHaveBeenCalledWith(
+      [newRule],
+      expect.objectContaining({
+        requirementModelTraceability: [
+          expect.objectContaining({
+            ruleId: "r2",
+            target: expect.objectContaining({ elementId: "uc_check_stock" }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("clears stale requirement baseline artifacts when a user edits requirement rules", async () => {
+    const rule = createRule({
+      id: "r1",
+      text: "用户可以提交订单。",
+      relatedDiagrams: ["usecase"],
+    });
+    const requirement = createAtomicRequirement({
+      id: "REQ-001",
+      sourceRuleId: "r1",
+      status: "pending-review",
+    });
+    const baseline = createRequirementBaseline([requirement], {
+      qualityReport: {
+        runId: "run-rules",
+        status: "pending-review",
+        summary: "旧规则存在待确认字段。",
+        issues: [
+          {
+            id: "issue-old-rule",
+            requirementId: "REQ-001",
+            severity: "warning",
+            code: "missing-actor",
+            message: "缺少参与者。",
+            blocksDownstream: true,
+          },
+        ],
+        blockingIssueIds: ["issue-old-rule"],
+        reviewRequiredRequirementIds: ["REQ-001"],
+      },
+    });
+    const updateRequirementRules = vi.fn(async () => {});
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          rules: [rule],
+          rulesVersion: 1,
+          rulesBasedOnTextVersion: 0,
+          requirementBaseline: baseline,
+          requirementQualityReport: baseline.qualityReport,
+          requirementReviewCandidates: {
+            r1: {
+              ruleId: "r1",
+              beforeRequirement: requirement,
+              afterRequirement: null,
+              repairRationale: null,
+              blockingReasons: ["缺少参与者"],
+              status: "failed",
+              errorMessage: "无法自动补齐。",
+              createdAt: "2026-06-21T00:00:00.000Z",
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      updateRequirementRules,
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.requirementBaseline).toEqual(baseline);
+    expect(result.current.requirementQualityReport).toEqual(
+      baseline.qualityReport,
+    );
+    expect(result.current.requirementReviewCandidates.r1).toBeDefined();
+
+    act(() => {
+      result.current.updateRequirementRule("r1", {
+        text: "用户可以提交订单并接收库存校验结果。",
+      });
+    });
+
+    expect(result.current.requirementBaseline).toBeNull();
+    expect(result.current.requirementQualityReport).toBeNull();
+    expect(result.current.requirementReviewCandidates).toEqual({});
+    expect(updateRequirementRules).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          id: "r1",
+          text: "用户可以提交订单并接收库存校验结果。",
+        }),
+      ],
+      expect.objectContaining({
+        requirementBaseline: null,
+        requirementQualityReport: null,
+        requirementReviewCandidates: {},
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 2,
+      }),
+    );
+  });
+
   it("keeps restored requirement models fresh when legacy fingerprints use different key order", async () => {
     const rule = createRule({
       id: "r1",
@@ -805,6 +1351,45 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.isRulesStale).toBe(false);
     expect(result.current.staleDiagrams).toEqual([]);
     expect(result.current.designGenerationBlockedReason).toBeNull();
+  });
+
+  it("treats persisted selected diagram fields as stale draft state on workspace load", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          rules: [createRule({ relatedDiagrams: ["usecase", "class"] })],
+          generatedDiagramTypes: ["usecase"],
+          selectedDiagramTypes: ["class"],
+          generatedDesignDiagramTypes: ["sequence"],
+          selectedDesignDiagramTypes: ["table"],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    expect(result.current.generatedDiagrams).toEqual(["usecase"]);
+    expect(result.current.selectedDiagrams).toEqual([]);
+    expect(result.current.generatedDesignDiagrams).toEqual(["sequence"]);
+    expect(result.current.selectedDesignDiagrams).toEqual([]);
   });
 
   it("treats manual rule edits as current rules while marking existing models stale", async () => {
@@ -1961,6 +2546,234 @@ describe("WorkspaceSessionProvider", () => {
     expect(result.current.requirementReviewCandidates).toEqual({});
   });
 
+  it("blocks downstream requirement generation when auto-completed rule mappings cannot be saved", async () => {
+    const existingRule = createRule({
+      id: "fr1",
+      category: "业务规则",
+      text: "FR1. 此日历仅供公众使用，而非个人日历。",
+      relatedDiagrams: ["usecase"],
+    });
+    const mappedRule: typeof existingRule = {
+      ...existingRule,
+      relatedDiagrams: ["usecase", "class"],
+    };
+    const ruleSnapshot = createRunSnapshot({
+      runId: "run-rules",
+      requirementText: "公开日历需求",
+      rules: [mappedRule],
+      requirementBaseline: createRequirementBaseline([
+        createAtomicRequirement({ id: "REQ-FR1", sourceRuleId: "fr1" }),
+      ]),
+    });
+    const startRun = vi.fn(async () => ({ runId: "run-rules" }));
+    const updateRequirementRules = vi.fn(async () => {
+      throw new Error("保存项目工作台失败");
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "公开日历需求",
+          rules: [existingRule],
+          rulesVersion: 1,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      updateRequirementRules,
+      startRun,
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "completed", snapshot: ruleSnapshot });
+      }),
+      getRunSnapshot: vi.fn(async () => ruleSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let generation: Promise<void> | null = null;
+    act(() => {
+      generation = result.current.generateDiagrams(["class"]);
+    });
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await act(async () => {
+      await generation;
+    });
+
+    expect(startRun).toHaveBeenCalledTimes(1);
+    expect(updateRequirementRules).toHaveBeenCalledWith(
+      [mappedRule],
+      expect.objectContaining({
+        requirementInputFingerprint: snapshotInputFingerprint({
+          requirementText: "公开日历需求",
+          rules: [mappedRule],
+        }),
+        rulesBasedOnTextVersion: 0,
+        rulesVersion: 2,
+      }),
+    );
+    expect(result.current.rules).toEqual([existingRule]);
+    expect(result.current.runStatus).toBe("failed");
+    expect(result.current.errorMessage).toContain("需求规则映射保存失败");
+    expect(result.current.visibleGenerationTask).toEqual(
+      expect.objectContaining({
+        runId: null,
+        status: "failed",
+        errorMessage: expect.stringContaining("需求规则映射保存失败"),
+      }),
+    );
+    expect(result.current.visibleGenerationTask?.subtasks).toContainEqual(
+      expect.objectContaining({
+        id: "persist_rule_mappings",
+        status: "failed",
+        errorMessage: expect.stringContaining("保存项目工作台失败"),
+      }),
+    );
+    const failedDialog = await screen.findByRole("dialog", {
+      name: "生成失败",
+    });
+    expect(failedDialog).toHaveTextContent("需求规则映射保存失败");
+  });
+
+  it("blocks downstream design generation when auto-completed rule mappings cannot be saved", async () => {
+    const existingRule = createRule({
+      id: "fr1",
+      category: "功能需求",
+      text: "用户可以查看公开活动日历。",
+      relatedDiagrams: ["usecase"],
+    });
+    const mappedRule: typeof existingRule = {
+      ...existingRule,
+      relatedDiagrams: ["usecase", "class"],
+    };
+    const usecaseModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "用例模型",
+      summary: "公开活动浏览。",
+      notes: [],
+      actors: [
+        {
+          id: "actor_user",
+          name: "用户",
+          actorType: "human",
+          responsibilities: ["查看活动"],
+        },
+      ],
+      useCases: [
+        {
+          id: "uc_view",
+          name: "查看活动",
+          goal: "查看公开活动日历",
+          preconditions: [],
+          postconditions: [],
+          primaryActorId: "actor_user",
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [{ id: "system", name: "活动系统" }],
+      relationships: [],
+    };
+    const ruleSnapshot = createRunSnapshot({
+      runId: "run-rules",
+      requirementText: "公开日历需求",
+      rules: [mappedRule],
+      requirementBaseline: createRequirementBaseline([
+        createAtomicRequirement({ id: "REQ-FR1", sourceRuleId: "fr1" }),
+      ]),
+    });
+    const startRun = vi.fn(async () => ({ runId: "run-rules" }));
+    const startDesignRun = vi.fn(async () => ({ runId: "design-run" }));
+    const updateRequirementRules = vi.fn(async () => {
+      throw new Error("保存项目工作台失败");
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "公开日历需求",
+          requirementBaseline: createRequirementBaseline([
+            createAtomicRequirement({ id: "REQ-FR1", sourceRuleId: "fr1" }),
+          ]),
+          rules: [existingRule],
+          rulesVersion: 1,
+          diagramVersions: { usecase: 1 },
+          generatedDiagramTypes: ["usecase"],
+          models: { usecase: usecaseModel },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      updateRequirementRules,
+      startRun,
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "completed", snapshot: ruleSnapshot });
+      }),
+      getRunSnapshot: vi.fn(async () => ruleSnapshot),
+      startDesignRun,
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let generation: Promise<void> | null = null;
+    act(() => {
+      generation = result.current.generateDesignDiagrams(["class"]);
+    });
+    const confirmation = await screen.findByRole("dialog", {
+      name: "确认生成设计模型",
+    });
+    await user.click(
+      within(confirmation).getByRole("button", { name: "确认生成" }),
+    );
+    await act(async () => {
+      await generation;
+    });
+
+    expect(startRun).toHaveBeenCalledTimes(1);
+    expect(startDesignRun).not.toHaveBeenCalled();
+    expect(updateRequirementRules).toHaveBeenCalledWith(
+      [mappedRule],
+      expect.objectContaining({
+        requirementInputFingerprint: snapshotInputFingerprint({
+          requirementText: "公开日历需求",
+          rules: [mappedRule],
+        }),
+        rulesVersion: 2,
+      }),
+    );
+    expect(result.current.runStatus).toBe("failed");
+    expect(result.current.errorMessage).toContain("需求规则映射保存失败");
+    expect(result.current.visibleGenerationTask).toEqual(
+      expect.objectContaining({
+        kind: "design",
+        runId: null,
+        status: "failed",
+      }),
+    );
+  });
+
   it("falls back to local rule mapping when the auto-complete run returns no target mapping", async () => {
     const existingRule = createRule({
       id: "fr1",
@@ -2179,6 +2992,175 @@ describe("WorkspaceSessionProvider", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps previous code files visible when regenerate code fails with an empty snapshot", async () => {
+    const oldFiles = {
+      "/src/App.tsx": "export default function App() { return <main>old</main>; }",
+    };
+    const failedCodeSnapshot = createCodeRunSnapshot({
+      runId: "code-run-failed-regenerate",
+      files: {},
+      entryFile: null,
+      dependencies: {},
+      generationMode: "regenerate",
+      changedFileCount: 0,
+      currentStage: "write_code_files",
+      status: "failed",
+      error: {
+        code: "RUN_INTERNAL_ERROR",
+        message: "代码重新生成失败",
+        category: "generation",
+        retryable: true,
+      },
+    });
+    const saveRunHistory = vi.fn();
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成图书馆预约系统",
+          rules: [createRule({ id: "r1", text: "用户可以预约座位。" })],
+          models: {
+            usecase: {
+              diagramKind: "usecase",
+              title: "用例模型",
+              summary: "座位预约用例。",
+              notes: [],
+              actors: [],
+              useCases: [],
+              systemBoundaries: [],
+              relationships: [],
+            },
+          },
+          designModels: {
+            class: {
+              diagramKind: "class",
+              modelId: "class",
+              title: "设计类图",
+              summary: "座位预约设计。",
+              notes: [],
+              classes: [],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            },
+          },
+          codeFiles: oldFiles,
+          codeEntryFile: "/src/App.tsx",
+          codeDependencies: { react: "latest" },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "unused-requirement-run" })),
+      subscribeToRun: vi.fn(async () => {}),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot()),
+      startCodeRun: vi.fn(async () => ({ runId: "code-run-failed-regenerate" })),
+      subscribeToCodeRun: vi.fn(async () => {
+        throw new Error("代码重新生成失败");
+      }),
+      getCodeRunSnapshot: vi.fn(async () => failedCodeSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory,
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateCodePrototype("regenerate");
+    });
+
+    expect(result.current.codeFiles).toEqual(oldFiles);
+    expect(result.current.codeEntryFile).toBe("/src/App.tsx");
+    expect(saveRunHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "code-run-failed-regenerate",
+        status: "failed",
+        generationMode: "regenerate",
+        files: {},
+      }),
+      expect.any(Object),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "生成失败" }),
+      ).toBeInTheDocument();
+  });
+
+  it("blocks code generation when design artifacts still have errors", async () => {
+    const classDesignModel: DesignDiagramModelSpec = {
+      diagramKind: "class",
+      modelId: "class",
+      title: "设计类图",
+      summary: "订单设计类。",
+      notes: [],
+      classes: [],
+      interfaces: [],
+      enums: [],
+      relationships: [],
+    };
+    const startCodeRun = vi.fn(async () => ({ runId: "code-should-not-start" }));
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          rules: [createRule()],
+          designModels: { class: classDesignModel },
+          designDiagramErrors: {
+            component: {
+              stage: "render_svg",
+              error: {
+                code: "RUN_RENDER_FAILED",
+                message: "组件图渲染失败",
+                category: "render",
+                retryable: true,
+              },
+            },
+          },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startCodeRun,
+      subscribeToCodeRun: vi.fn(),
+      getCodeRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateCodePrototype();
+    });
+
+    expect(startCodeRun).not.toHaveBeenCalled();
+    expect(result.current.runStatus).toBe("failed");
+    expect(result.current.errorMessage).toContain("设计模型存在失败项");
+    expect(
+      await screen.findByRole("dialog", { name: "生成失败" }),
+    ).toBeInTheDocument();
+  });
+
   it("labels completed requirement snapshots with diagram errors as partially generated", async () => {
     const activityRule = createRule({
       id: "r-activity",
@@ -2278,6 +3260,135 @@ describe("WorkspaceSessionProvider", () => {
     expect(dialog).toHaveTextContent("有 1 个模型生成失败");
     expect(
       screen.queryByRole("dialog", { name: "需求模型已生成" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("applies partial requirement artifacts and records history for cancelled snapshots", async () => {
+    const activityRule = createRule({
+      id: "r-activity",
+      text: "系统在活动开始前发送提醒。",
+      relatedDiagrams: ["activity"],
+    });
+    const deploymentRule = createRule({
+      id: "r-deployment",
+      text: "系统记录关键操作审计日志。",
+      relatedDiagrams: ["deployment"],
+    });
+    const cancelledSnapshot = createRunSnapshot({
+      runId: "run-cancelled-requirements",
+      requirementText: "活动日历需求",
+      selectedDiagrams: ["activity", "deployment"],
+      rules: [activityRule, deploymentRule],
+      models: [
+        {
+          diagramKind: "deployment",
+          title: "部署需求模型",
+          summary: "审计日志部署约束。",
+          notes: [],
+          nodes: [],
+          databases: [],
+          components: [],
+          externalSystems: [],
+          artifacts: [],
+          relationships: [],
+        },
+      ] as never,
+      plantUml: [{ diagramKind: "deployment", source: "@startuml\n@enduml" }],
+      svgArtifacts: [
+        {
+          diagramKind: "deployment",
+          svg: "<svg><text>deployment</text></svg>",
+          renderMeta: { generatedAt: "2026-06-08T00:00:00.000Z" },
+        },
+      ],
+      diagramErrors: {
+        activity: {
+          stage: "generate_models",
+          error: {
+            code: "PLATFORM_PROVIDER_TIMEOUT",
+            message: "当前模型服务响应超时，请稍后重试。",
+            category: "platform_provider",
+            retryable: true,
+          },
+        },
+      },
+      currentStage: "generate_models",
+      status: "cancelled",
+      error: null,
+    });
+    let historyItems: RunHistoryItem[] = [];
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "活动日历需求",
+          rules: [activityRule, deploymentRule],
+          rulesVersion: 1,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-cancelled-requirements" })),
+      subscribeToRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({
+          type: "cancelled",
+          stage: "generate_models",
+          message: "任务已取消",
+        });
+      }),
+      getRunSnapshot: vi.fn(async () => cancelledSnapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async (snapshot) => {
+        const item: RunHistoryItem = {
+          id: snapshot.runId,
+          createdAt: "2026-06-20T00:00:00.000Z",
+          title: "已取消的需求模型生成",
+          snapshot,
+          providerModel: "local-test",
+          status: snapshot.status,
+        };
+        historyItems = [item];
+        return item;
+      }),
+      listRunHistory: vi.fn(async () => historyItems),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let generation: Promise<void> | null = null;
+    act(() => {
+      generation = result.current.generateDiagrams(["activity", "deployment"]);
+    });
+    await user.click(await screen.findByRole("button", { name: "确认生成" }));
+    await act(async () => {
+      await generation;
+    });
+
+    expect(result.current.runStatus).toBe("cancelled");
+    expect(result.current.generatedDiagrams).toEqual(["deployment"]);
+    expect(result.current.models.deployment?.diagramKind).toBe("deployment");
+    expect(result.current.diagramErrors.activity?.error.message).toBe(
+      "当前模型服务响应超时，请稍后重试。",
+    );
+    expect(repository.saveRunHistory).toHaveBeenCalledWith(
+      cancelledSnapshot,
+      expect.any(Object),
+    );
+    expect(result.current.historyItems).toHaveLength(1);
+    expect(result.current.historyItems[0]?.status).toBe("cancelled");
+    expect(
+      await screen.findByRole("dialog", { name: "任务已取消" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "生成失败" }),
     ).not.toBeInTheDocument();
   });
 
@@ -3058,6 +4169,20 @@ describe("WorkspaceSessionProvider", () => {
       "usecase",
       editedUseCaseModel,
       expect.objectContaining({ status: "dirty" }),
+      {
+        requirementModelTraceability: [
+          expect.objectContaining({
+            target: expect.objectContaining({ elementId: "actor_teacher" }),
+          }),
+          expect.objectContaining({
+            target: expect.objectContaining({ elementId: "uc_login" }),
+          }),
+          expect.objectContaining({
+            target: expect.objectContaining({ elementId: "rel_login" }),
+          }),
+        ],
+        designModelTraceability: [],
+      },
     );
     expect(result.current.manualModelEditStatus.usecase?.status).toBe("dirty");
     expect(result.current.manualModelEditStatus.usecase?.warning).toMatch(
@@ -3078,6 +4203,164 @@ describe("WorkspaceSessionProvider", () => {
     );
     expect(result.current.manualModelEditStatus.usecase?.warning).toBeNull();
     expect(result.current.designGenerationBlockedReason).toBeNull();
+  });
+
+  it("prunes traceability when saving a requirement model with deleted elements", async () => {
+    const originalClassModel = {
+      diagramKind: "class",
+      classes: [
+        { id: "order", name: "Order", attributes: [], operations: [] },
+        { id: "customer", name: "Customer", attributes: [], operations: [] },
+      ],
+      interfaces: [],
+      enums: [],
+      relationships: [
+        {
+          id: "rel_order_customer",
+          type: "association",
+          sourceId: "order",
+          targetId: "customer",
+          label: "owns",
+        },
+      ],
+    } as unknown as DiagramModelSpec;
+    const editedClassModel = {
+      ...originalClassModel,
+      classes: [{ id: "order", name: "Order", attributes: [], operations: [] }],
+      relationships: [],
+    } as unknown as DiagramModelSpec;
+    const saveRequirementModelEdit = vi.fn(async () => {});
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          models: { class: originalClassModel },
+          requirementModelTraceability: [
+            {
+              ruleId: "REQ-1",
+              target: {
+                diagramKind: "class",
+                elementId: "order",
+                elementKind: "class",
+                label: "Order",
+              },
+            },
+            {
+              ruleId: "REQ-2",
+              target: {
+                diagramKind: "class",
+                elementId: "customer",
+                elementKind: "class",
+                label: "Customer",
+              },
+            },
+            {
+              ruleId: "REQ-2",
+              target: {
+                diagramKind: "class",
+                elementId: "rel_order_customer",
+                elementKind: "relationship",
+                label: "owns",
+              },
+            },
+          ],
+          designModels: {
+            "design-class": {
+              diagramKind: "class",
+              modelId: "design-class",
+              classes: [
+                {
+                  id: "order-service",
+                  name: "OrderService",
+                  attributes: [],
+                  operations: [],
+                },
+              ],
+              interfaces: [],
+              enums: [],
+              relationships: [],
+            } as unknown as DesignDiagramModelSpec,
+          },
+          designModelTraceability: [
+            {
+              source: {
+                diagramKind: "class",
+                modelId: "design-class",
+                elementId: "order-service",
+                elementKind: "class",
+                label: "OrderService",
+              },
+              targets: [
+                {
+                  diagramKind: "class",
+                  elementId: "order",
+                  elementKind: "class",
+                  label: "Order",
+                },
+                {
+                  diagramKind: "class",
+                  elementId: "customer",
+                  elementKind: "class",
+                  label: "Customer",
+                },
+              ],
+            },
+          ],
+          generatedDiagramTypes: ["class"],
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      saveRequirementModelEdit,
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.saveRequirementModelEdit("class", editedClassModel);
+    });
+
+    expect(result.current.requirementModelTraceability).toEqual([
+      expect.objectContaining({
+        target: expect.objectContaining({ elementId: "order" }),
+      }),
+    ]);
+    expect(result.current.designModelTraceability).toEqual([
+      expect.objectContaining({
+        targets: [expect.objectContaining({ elementId: "order" })],
+      }),
+    ]);
+    expect(saveRequirementModelEdit).toHaveBeenCalledWith(
+      "class",
+      editedClassModel,
+      expect.objectContaining({ status: "dirty" }),
+      {
+        requirementModelTraceability: [
+          expect.objectContaining({
+            target: expect.objectContaining({ elementId: "order" }),
+          }),
+        ],
+        designModelTraceability: [
+          expect.objectContaining({
+            targets: [expect.objectContaining({ elementId: "order" })],
+          }),
+        ],
+      },
+    );
   });
 
   it("keeps only the tail of long streamed LLM diagnostics in memory", async () => {
@@ -3284,7 +4567,7 @@ describe("WorkspaceSessionProvider", () => {
     ).toBe(true);
     expect(result.current.generating).toBe(false);
 
-    for (const runId of ["doc-req", "doc-design"]) {
+    for (const runId of ["doc-design", "doc-req"]) {
       const subscriber = subscribers.get(runId)!;
       act(() => {
         subscriber.onEvent({ type: "queued" });
@@ -3310,6 +4593,296 @@ describe("WorkspaceSessionProvider", () => {
         ),
       ).toBe(true);
     });
+    expect(repository.saveRunHistory).toHaveBeenCalledTimes(2);
+    expect(result.current.currentRunDiagnostics.runId).toBe("doc-design");
+    expect(result.current.runMessage).toBe("说明书生成完成");
+    const successDialog = await screen.findByRole("dialog", {
+      name: "说明书已生成",
+    });
+    expect(
+      within(successDialog).getByText("软件设计说明书已生成。"),
+    ).toBeInTheDocument();
+    expect(
+      within(successDialog).queryByText("需求规格说明书已生成。"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("surfaces document completion warnings when generated DOCX has missing diagrams", async () => {
+    const requirementModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "用例图",
+      summary: "核心用例",
+      notes: [],
+      actors: [],
+      useCases: [],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const snapshot: DocumentRunSnapshot = {
+      runId: "doc-warning",
+      documentKind: "requirementsSpec",
+      requirementText: "订单系统需求",
+      documentId: "doc-requirementsSpec",
+      sections: [{ level: 1, title: "1 需求规定", body: ["正文"] }],
+      fileName: "需求规格说明书.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      byteLength: 8,
+      missingArtifacts: ["用例图：缺少可嵌入图片源"],
+      currentStage: "render_document_file",
+      status: "completed",
+      error: null,
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          models: { usecase: requirementModel },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDocumentRun: vi.fn(async () => ({ runId: "doc-warning" })),
+      subscribeToDocumentRun: vi.fn(async (_runId, onEvent) => {
+        onEvent({ type: "queued" });
+        onEvent({ type: "completed", snapshot });
+      }),
+      getDocumentRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async (savedSnapshot) => ({
+        id: savedSnapshot.runId,
+        createdAt: new Date().toISOString(),
+        title: "document",
+        snapshot: savedSnapshot,
+        providerModel: "gpt-5.5",
+      })),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateRequirementsSpec();
+    });
+
+    expect(result.current.runMessage).toBe(
+      "说明书生成完成，但有 1 项图源缺失，请复核",
+    );
+    expect(result.current.generationTasks[0]?.message).toBe(
+      "说明书生成完成，但有 1 项图源缺失，请复核",
+    );
+    expect(repository.saveRunHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        missingArtifacts: ["用例图：缺少可嵌入图片源"],
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("warns when document generation completes after upstream inputs change", async () => {
+    toastMessage.mockClear();
+    const requirementModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "用例图",
+      summary: "核心用例",
+      notes: [],
+      actors: [],
+      useCases: [],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const snapshot: DocumentRunSnapshot = {
+      runId: "doc-stale",
+      documentKind: "requirementsSpec",
+      requirementText: "订单系统需求",
+      documentId: "doc-requirementsSpec",
+      sections: [{ level: 1, title: "1 需求规定", body: ["正文"] }],
+      fileName: "需求规格说明书.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      byteLength: 8,
+      missingArtifacts: [],
+      currentStage: "render_document_file",
+      status: "completed",
+      error: null,
+    };
+    const subscription = deferred<void>();
+    let onDocumentEvent:
+      | Parameters<NonNullable<WorkspaceRepository["subscribeToDocumentRun"]>>[1]
+      | null = null;
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          models: { usecase: requirementModel },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDocumentRun: vi.fn(async () => ({ runId: "doc-stale" })),
+      subscribeToDocumentRun: vi.fn(async (_runId, onEvent) => {
+        onDocumentEvent = onEvent;
+        return subscription.promise;
+      }),
+      getDocumentRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(async (savedSnapshot) => ({
+        id: savedSnapshot.runId,
+        createdAt: new Date().toISOString(),
+        title: "document",
+        snapshot: savedSnapshot,
+        providerModel: "gpt-5.5",
+      })),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    let documentPromise!: Promise<DocumentRunSnapshot | null>;
+    act(() => {
+      documentPromise = result.current.generateRequirementsSpec();
+    });
+    await waitFor(() => {
+      expect(onDocumentEvent).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.setRequirementText("订单系统需求 v2");
+    });
+    await waitFor(() => {
+      expect(result.current.requirementText).toBe("订单系统需求 v2");
+    });
+    expect(toastMessage).not.toHaveBeenCalled();
+
+    act(() => {
+      onDocumentEvent?.({ type: "completed", snapshot });
+      subscription.resolve();
+    });
+    await act(async () => {
+      await documentPromise;
+    });
+
+    expect(toastMessage).toHaveBeenCalledWith(
+      "结果基于生成开始时的内容，期间修改不会自动合并到本次结果",
+    );
+    expect(repository.saveRunHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "doc-stale" }),
+      expect.any(Object),
+    );
+  });
+
+  it("blocks software design specification generation when sequence designs do not cover all use cases", async () => {
+    const usecaseModel: DiagramModelSpec = {
+      diagramKind: "usecase",
+      title: "用例图",
+      summary: "订单核心用例。",
+      notes: [],
+      actors: [],
+      useCases: [
+        {
+          id: "uc_view",
+          name: "查看订单",
+          goal: "查看订单",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+        {
+          id: "uc_submit",
+          name: "提交订单",
+          goal: "提交订单",
+          preconditions: [],
+          postconditions: [],
+          supportingActorIds: [],
+        },
+      ],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const sequenceModel: DesignDiagramModelSpec = {
+      diagramKind: "sequence",
+      modelId: "sequence:uc_view",
+      title: "查看订单顺序图",
+      summary: "查看订单流程。",
+      notes: [],
+      sourceUseCaseId: "uc_view",
+      sourceUseCaseName: "查看订单",
+      participants: [],
+      messages: [],
+      fragments: [],
+    };
+    const startDocumentRun = vi.fn(async () => ({
+      runId: "doc-should-not-start",
+    }));
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "订单系统需求",
+          rules: [createRule()],
+          models: { usecase: usecaseModel },
+          designModels: { "sequence:uc_view": sequenceModel },
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDocumentRun,
+      subscribeToDocumentRun: vi.fn(),
+      getDocumentRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.generateSoftwareDesignSpec();
+    });
+
+    expect(startDocumentRun).not.toHaveBeenCalled();
+    expect(result.current.runStatus).toBe("failed");
+    expect(result.current.errorMessage).toBe(
+      "用例实现设计覆盖不足，请先回到设计页补齐用例实现设计",
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "生成失败" }),
+    ).toBeInTheDocument();
   });
 
   it("passes existing design artifacts when incrementally generating only a table diagram", async () => {
@@ -3878,5 +5451,85 @@ describe("WorkspaceSessionProvider", () => {
         ),
       ).toBe(false);
     });
+  });
+
+  it("does not restore document history snapshots into the editable workspace", async () => {
+    const currentRule = createRule({
+      id: "current-rule",
+      text: "当前需求规则保持不变。",
+    });
+    const documentSnapshot: DocumentRunSnapshot = {
+      runId: "history-document",
+      documentKind: "requirementsSpec",
+      requirementText: "说明书历史里的旧需求文本",
+      documentId: "doc-history",
+      sections: [],
+      fileName: "requirements.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      byteLength: 2048,
+      missingArtifacts: [],
+      currentStage: "render_document_file",
+      status: "completed",
+      error: null,
+    };
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "当前工作台需求文本",
+          rules: [currentRule],
+          rulesVersion: 3,
+          rulesBasedOnTextVersion: 1,
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(),
+      subscribeToRun: vi.fn(),
+      getRunSnapshot: vi.fn(),
+      startDesignRun: vi.fn(),
+      subscribeToDesignRun: vi.fn(),
+      getDesignRunSnapshot: vi.fn(),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => ({
+        id: "history-document",
+        createdAt: "2026-06-21T00:00:00.000Z",
+        title: "需求规格说明书",
+        providerModel: "gpt-5.5",
+        snapshot: documentSnapshot,
+      })),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() => useWorkspaceSession(), {
+      wrapper: ({ children }) => withWorkspaceProviders(children, repository),
+    });
+
+    await waitFor(() => {
+      expect(result.current.requirementText).toBe("当前工作台需求文本");
+      expect(result.current.rules).toEqual([currentRule]);
+    });
+
+    let restoreError: unknown = null;
+    await act(async () => {
+      try {
+        await result.current.restoreRunHistory("history-document");
+      } catch (error) {
+        restoreError = error;
+      }
+    });
+
+    expect(restoreError).toBeInstanceOf(Error);
+    expect((restoreError as Error).message).toBe(
+      "说明书快照不能恢复为项目工作台。",
+    );
+    expect(result.current.requirementText).toBe("当前工作台需求文本");
+    expect(result.current.rules).toEqual([currentRule]);
+    expect(repository.updateRequirementText).not.toHaveBeenCalledWith(
+      "说明书历史里的旧需求文本",
+    );
   });
 });

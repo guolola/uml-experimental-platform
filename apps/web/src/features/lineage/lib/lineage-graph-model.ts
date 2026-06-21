@@ -4,6 +4,7 @@ import {
   type DesignDiagramKind,
   type DiagramKind,
   type DocumentKind,
+  type RunSnapshot,
 } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_META,
@@ -16,10 +17,22 @@ import {
 } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
+import {
+  formatCodeDiagnosticSummary,
+  hasCodeDiagnostics,
+} from "../../../shared/lib/code-diagnostics";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
+import {
+  activeDesignProjectDiagramStatuses,
+  activeDocumentProjectRunStatus,
+  activeStatusForProjectRunKind,
+  activeRequirementProjectDiagramStatuses,
+} from "../../workspace-shell/lib/project-run-projections";
 import type {
   GenerationTask,
   WorkspaceSessionState,
 } from "../../workspace-session/model/session-state";
+import { findBlockingEvidencePackage } from "../../workspace-session/lib/evidence-gate";
 import { DESIGN_REQUIREMENT_SOURCE_MAP } from "../../workspace-session/lib/generation-planning";
 
 export type LineageStage =
@@ -40,9 +53,10 @@ export type LineageNodeStatus =
   | "current"
   | "stale"
   | "error"
-  | "running";
+  | "running"
+  | "interrupted";
 
-export type LineageEdgeStatus = "default" | "stale" | "error";
+export type LineageEdgeStatus = "default" | "stale" | "error" | "interrupted";
 
 export type LineageRecentEvent = {
   label: string;
@@ -60,6 +74,7 @@ export type LineageNode = {
   status: LineageNodeStatus;
   reason: string;
   actionLabel: string;
+  hasViewableArtifact: boolean;
   upstreamIds: string[];
   downstreamIds: string[];
   recentEvents: LineageRecentEvent[];
@@ -82,6 +97,7 @@ export type LineageGraphSummary = {
   total: number;
   stale: number;
   error: number;
+  interrupted: number;
   running: number;
   notGenerated: number;
   current: number;
@@ -102,16 +118,19 @@ export type LineageColumn = {
 
 export type LineageGraphInput = Pick<
   WorkspaceSessionState,
+  | "requirementText"
   | "rules"
   | "isRulesStale"
   | "requirementReviewCandidates"
   | "models"
   | "generatedDiagrams"
+  | "svgArtifacts"
   | "staleDiagrams"
   | "diagramErrors"
   | "selectedDiagrams"
   | "designModels"
   | "generatedDesignDiagrams"
+  | "designSvgArtifacts"
   | "designDiagramErrors"
   | "selectedDesignDiagrams"
   | "staleDesignDiagrams"
@@ -125,7 +144,9 @@ export type LineageGraphInput = Pick<
   | "codeDiagnostics"
   | "generationTasks"
   | "historyItems"
->;
+> & {
+  projectRuns?: PlatformRunSummary[];
+};
 
 export const LINEAGE_STAGE_ORDER: LineageStage[] = [
   "requirement-rules",
@@ -143,6 +164,17 @@ const STAGE_LABELS: Record<LineageStage, string> = {
 
 const REQUIRED_REQUIREMENT_DIAGRAMS = ["usecase", "class"] as const satisfies DiagramType[];
 const REQUIRED_DESIGN_DIAGRAMS = ["sequence", "class"] as const satisfies DesignDiagramType[];
+
+function requirementSourceMissing(input: LineageGraphInput) {
+  return input.requirementText.trim().length === 0;
+}
+
+function evidenceGateReason(
+  input: LineageGraphInput,
+  scopes: Parameters<typeof findBlockingEvidencePackage>[1],
+) {
+  return findBlockingEvidencePackage(input.historyItems, scopes)?.reason ?? null;
+}
 
 const RUNNING_STATUSES = new Set(["queued", "running"]);
 const ACTIVE_SUBTASK_STATUSES = new Set([
@@ -188,6 +220,8 @@ function statusActionLabel(status: LineageNodeStatus) {
       return "重试";
     case "running":
       return "查看进度";
+    case "interrupted":
+      return "重试";
   }
 }
 
@@ -196,6 +230,9 @@ function edgeStatus(
   targetStatus: LineageNodeStatus | undefined,
 ): LineageEdgeStatus {
   if (sourceStatus === "error" || targetStatus === "error") return "error";
+  if (sourceStatus === "interrupted" || targetStatus === "interrupted") {
+    return "interrupted";
+  }
   if (targetStatus === "stale") return "stale";
   return "default";
 }
@@ -205,16 +242,166 @@ function taskIsActive(task: GenerationTask) {
 }
 
 function taskKindActive(input: LineageGraphInput, kind: GenerationTask["kind"]) {
-  return input.generationTasks.some((task) => task.kind === kind && taskIsActive(task));
+  return (
+    input.generationTasks.some((task) => task.kind === kind && taskIsActive(task)) ||
+    Boolean(activeStatusForProjectRunKind(input.projectRuns, kind))
+  );
 }
 
 function documentTaskActive(input: LineageGraphInput, documentKind: DocumentKind) {
-  return input.generationTasks.some(
-    (task) =>
-      task.kind === "document" &&
-      task.documentKind === documentKind &&
-      taskIsActive(task),
+  return (
+    input.generationTasks.some(
+      (task) =>
+        task.kind === "document" &&
+        task.documentKind === documentKind &&
+        taskIsActive(task),
+    ) ||
+    Boolean(activeDocumentProjectRunStatus(input.projectRuns, documentKind))
   );
+}
+
+function historyDocumentKind(
+  item: LineageGraphInput["historyItems"][number],
+): DocumentKind | null {
+  if (
+    item.snapshot &&
+    "documentKind" in item.snapshot
+  ) {
+    return item.snapshot.documentKind;
+  }
+  return item.documentKind === "requirementsSpec" ||
+    item.documentKind === "softwareDesignSpec"
+    ? item.documentKind
+    : null;
+}
+
+function historyDocumentStatus(item: LineageGraphInput["historyItems"][number]) {
+  return item.snapshot?.status ?? item.status ?? null;
+}
+
+function historyRunKind(item: LineageGraphInput["historyItems"][number]) {
+  if (item.runKind === "requirements" || item.runKind === "design" || item.runKind === "code" || item.runKind === "document") {
+    return item.runKind;
+  }
+  if (item.snapshot) {
+    if ("documentKind" in item.snapshot) return "document";
+    if ("files" in item.snapshot) return "code";
+    if ("requirementModels" in item.snapshot) return "design";
+    return "requirements";
+  }
+  return null;
+}
+
+function historyStage(item: LineageGraphInput["historyItems"][number]) {
+  if (item.stage) return item.stage;
+  if (item.snapshot && "currentStage" in item.snapshot) {
+    return item.snapshot.currentStage;
+  }
+  return null;
+}
+
+function isRequirementHistorySnapshot(
+  snapshot: LineageGraphInput["historyItems"][number]["snapshot"],
+): snapshot is RunSnapshot {
+  return Boolean(
+    snapshot &&
+      !("files" in snapshot) &&
+      !("requirementModels" in snapshot) &&
+      !("documentKind" in snapshot) &&
+      "selectedDiagrams" in snapshot,
+  );
+}
+
+function interruptedHistoryForKind(
+  input: LineageGraphInput,
+  kind: "requirements" | "design" | "code" | "document",
+  matches: (item: LineageGraphInput["historyItems"][number]) => boolean = () => true,
+) {
+  return input.historyItems.find(
+    (item) =>
+      historyDocumentStatus(item) === "interrupted" &&
+      historyRunKind(item) === kind &&
+      matches(item),
+  );
+}
+
+function interruptedRunSummary(
+  item: LineageGraphInput["historyItems"][number] | undefined,
+) {
+  const detail = item?.errorMessage ?? item?.summary ?? null;
+  return detail
+    ? `服务中断，可重试。${detail}`
+    : "服务中断，可从运行历史重试或重新运行。";
+}
+
+function historyCodeSnapshot(item: LineageGraphInput["historyItems"][number]) {
+  return item.snapshot && "files" in item.snapshot ? item.snapshot : null;
+}
+
+function failedRegenerateCodeHistory(input: LineageGraphInput) {
+  return input.historyItems.find((item) => {
+    const snapshot = historyCodeSnapshot(item);
+    return (
+      snapshot?.status === "failed" &&
+      snapshot.generationMode === "regenerate"
+    );
+  });
+}
+
+function failedRulesHistory(input: LineageGraphInput) {
+  return input.historyItems.find((item) => {
+    if (
+      historyDocumentStatus(item) !== "failed" ||
+      historyRunKind(item) !== "requirements"
+    ) {
+      return false;
+    }
+    const stage = historyStage(item) ?? "";
+    if (stage.includes("rules") || stage.includes("extract")) return true;
+    return Boolean(
+      isRequirementHistorySnapshot(item.snapshot) &&
+        item.snapshot.selectedDiagrams.length === 0,
+    );
+  });
+}
+
+function failedRulesSummary(item: LineageGraphInput["historyItems"][number] | undefined) {
+  const detail =
+    item?.snapshot && "error" in item.snapshot
+      ? item.snapshot.error?.message
+      : item?.errorMessage ?? item?.summary ?? null;
+  return detail
+    ? `需求规则抽取失败，旧规则仍可查看。${detail}`
+    : "需求规则抽取失败，旧规则仍可查看，可从运行历史重试。";
+}
+
+function hasCodeArtifact(input: LineageGraphInput) {
+  return Object.keys(input.codeFiles).length > 0 || Boolean(input.codeSpec);
+}
+
+function historyDocumentMissingArtifacts(
+  item: LineageGraphInput["historyItems"][number],
+) {
+  if (item.snapshot && "documentKind" in item.snapshot) {
+    return item.snapshot.missingArtifacts.filter((artifact) => artifact.trim());
+  }
+  return (item.missingArtifactSummary ?? [])
+    .map((artifact) => artifact.trim())
+    .filter(Boolean);
+}
+
+function documentHistoryFor(input: LineageGraphInput, documentKind: DocumentKind) {
+  return input.historyItems.find(
+    (item) =>
+      historyDocumentKind(item) === documentKind &&
+      historyDocumentStatus(item) === "completed",
+  );
+}
+
+function documentHistoryIsDeleted(
+  item: LineageGraphInput["historyItems"][number] | undefined,
+) {
+  return item?.documentStatus === "deleted" || item?.documentDownloadAvailable === false;
 }
 
 function failedTaskForKind(input: LineageGraphInput, kind: GenerationTask["kind"]) {
@@ -228,18 +415,33 @@ function subtaskActiveFor(
   kind: GenerationTask["kind"],
   diagram: string,
 ) {
-  return input.generationTasks.some(
-    (task) =>
-      task.kind === kind &&
-      taskIsActive(task) &&
-      task.subtasks.some(
-        (subtask) =>
-          ACTIVE_SUBTASK_STATUSES.has(subtask.status) &&
-          (subtask.id === diagram ||
-            subtask.id.endsWith(`:${diagram}`) ||
-            subtask.id.includes(`:${diagram}:`)),
-      ),
-  );
+  if (
+    input.generationTasks.some(
+      (task) =>
+        task.kind === kind &&
+        taskIsActive(task) &&
+        task.subtasks.some(
+          (subtask) =>
+            ACTIVE_SUBTASK_STATUSES.has(subtask.status) &&
+            (subtask.id === diagram ||
+              subtask.id.endsWith(`:${diagram}`) ||
+              subtask.id.includes(`:${diagram}:`)),
+        ),
+    )
+  ) {
+    return true;
+  }
+  if (kind === "requirements") {
+    return activeRequirementProjectDiagramStatuses(input.projectRuns).has(
+      diagram as DiagramType,
+    );
+  }
+  if (kind === "design") {
+    return activeDesignProjectDiagramStatuses(input.projectRuns).has(
+      diagram as DesignDiagramType,
+    );
+  }
+  return false;
 }
 
 function subtaskFailureFor(
@@ -264,9 +466,37 @@ function hasRequirementModel(input: LineageGraphInput, diagram: DiagramType) {
   );
 }
 
+function hasRequirementArtifact(input: LineageGraphInput, diagram: DiagramType) {
+  if (input.svgArtifacts[diagram]) return true;
+  return Object.entries(input.models).some(([modelId, model]) =>
+    Boolean(model?.diagramKind === diagram && input.svgArtifacts[modelId]),
+  );
+}
+
+function requirementRenderMissing(input: LineageGraphInput, diagram: DiagramType) {
+  return (
+    (hasRequirementModel(input, diagram) || input.generatedDiagrams.includes(diagram)) &&
+    !hasRequirementArtifact(input, diagram)
+  );
+}
+
 function hasDesignModel(input: LineageGraphInput, diagram: DesignDiagramType) {
   return Object.values(input.designModels).some(
     (model) => model?.diagramKind === diagram,
+  );
+}
+
+function hasDesignArtifact(input: LineageGraphInput, diagram: DesignDiagramType) {
+  if (input.designSvgArtifacts[diagram]) return true;
+  return Object.values(input.designModels).some((model) =>
+    Boolean(model.diagramKind === diagram && input.designSvgArtifacts[getDesignModelId(model)]),
+  );
+}
+
+function designRenderMissing(input: LineageGraphInput, diagram: DesignDiagramType) {
+  return (
+    (hasDesignModel(input, diagram) || input.generatedDesignDiagrams.includes(diagram)) &&
+    !hasDesignArtifact(input, diagram)
   );
 }
 
@@ -278,6 +508,7 @@ function requirementDiagramsFor(input: LineageGraphInput) {
     ...input.staleDiagrams,
     ...(Object.keys(input.diagramErrors) as DiagramType[]),
     ...input.rules.flatMap((rule) => rule.relatedDiagrams),
+    ...activeRequirementProjectDiagramStatuses(input.projectRuns).keys(),
   ]);
   Object.values(input.models).forEach((model) => {
     if (model?.diagramKind) diagrams.add(model.diagramKind);
@@ -295,6 +526,7 @@ function designDiagramsFor(input: LineageGraphInput) {
     ...input.generatedDesignDiagrams,
     ...input.staleDesignDiagrams,
     ...errorDiagrams,
+    ...activeDesignProjectDiagramStatuses(input.projectRuns).keys(),
   ]);
   Object.values(input.designModels).forEach((model) => {
     diagrams.add(model.diagramKind);
@@ -359,6 +591,47 @@ function lastFinishedTaskEvent(
   ];
 }
 
+function runActionLabel(action?: string | null) {
+  if (action === "retry") return "重试";
+  if (action === "rerun") return "重新运行";
+  return "派生运行";
+}
+
+function historyRelationEvent(
+  input: LineageGraphInput,
+  kind: GenerationTask["kind"],
+  matches: (item: LineageGraphInput["historyItems"][number]) => boolean = () => true,
+) {
+  const item = input.historyItems.find(
+    (historyItem) =>
+      historyRunKind(historyItem) === kind &&
+      matches(historyItem) &&
+      (historyItem.sourceRunId || historyItem.latestActionRunId),
+  );
+  if (!item) return [];
+  const label = item.sourceRunId
+    ? `${runActionLabel(item.sourceAction)}自 ${item.sourceRunId}`
+    : `已${runActionLabel(item.latestAction)}为 ${item.latestActionRunId}`;
+  return [
+    {
+      label,
+      description: formatRelativeDate(item.latestActionAt ?? item.createdAt),
+    },
+  ];
+}
+
+function recentEventsForKind(
+  input: LineageGraphInput,
+  kind: GenerationTask["kind"],
+  fallback: string,
+  matches?: (item: LineageGraphInput["historyItems"][number]) => boolean,
+) {
+  return [
+    ...lastFinishedTaskEvent(input, kind, fallback),
+    ...historyRelationEvent(input, kind, matches),
+  ];
+}
+
 function formatRelativeDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -372,7 +645,17 @@ function formatRelativeDate(value: string) {
 
 function rulesStatus(input: LineageGraphInput): LineageNodeStatus {
   if (taskKindActive(input, "requirements")) return "running";
+  if (failedRulesHistory(input)) return "error";
+  if (
+    interruptedHistoryForKind(input, "requirements", (item) =>
+      (historyStage(item) ?? "").includes("rules") ||
+      (historyStage(item) ?? "").includes("extract"),
+    )
+  ) {
+    return "interrupted";
+  }
   if (input.rules.length === 0) return "not-generated";
+  if (requirementSourceMissing(input)) return "stale";
   if (input.isRulesStale) return "stale";
   const failedRuleReviews = Object.values(input.requirementReviewCandidates).some(
     (candidate) => candidate.status === "failed",
@@ -381,12 +664,22 @@ function rulesStatus(input: LineageGraphInput): LineageNodeStatus {
 }
 
 function ruleReason(input: LineageGraphInput, rule: RequirementRule) {
+  const failedRules = failedRulesHistory(input);
+  if (failedRules) return failedRulesSummary(failedRules);
   if (input.rules.length === 0) return "尚未抽取需求规则。";
+  if (requirementSourceMissing(input)) {
+    return "需求源头已删除，旧规则仍可查看，但需重新输入需求并重新抽取。";
+  }
   if (input.isRulesStale) return "需求文本已修改，需求规则需更新。";
   const failedReview = input.requirementReviewCandidates[rule.id];
   if (failedReview?.status === "failed") {
     return failedReview.errorMessage ?? "规则修复失败，上一版规则仍可查看。";
   }
+  const interrupted = interruptedHistoryForKind(input, "requirements", (item) =>
+    (historyStage(item) ?? "").includes("rules") ||
+    (historyStage(item) ?? "").includes("extract"),
+  );
+  if (interrupted) return interruptedRunSummary(interrupted);
   if (taskKindActive(input, "requirements")) return "需求生成任务正在处理上游规则。";
   return "需求规则为最新，可继续生成下游模型。";
 }
@@ -398,7 +691,21 @@ function requirementStatus(
   if (input.diagramErrors[diagram]) return "error";
   if (subtaskFailureFor(input, "requirements", diagram)) return "error";
   if (subtaskActiveFor(input, "requirements", diagram)) return "running";
+  if (
+    interruptedHistoryForKind(input, "requirements", (item) =>
+      !(item.stage ?? "").includes("rules") && !(item.stage ?? "").includes("extract"),
+    )
+  ) {
+    return "interrupted";
+  }
   if (input.staleDiagrams.includes(diagram)) return "stale";
+  if (requirementRenderMissing(input, diagram)) return "stale";
+  if (
+    requirementSourceMissing(input) &&
+    (hasRequirementModel(input, diagram) || input.generatedDiagrams.includes(diagram))
+  ) {
+    return "stale";
+  }
   if (hasRequirementModel(input, diagram) || input.generatedDiagrams.includes(diagram)) {
     return "current";
   }
@@ -417,11 +724,29 @@ function requirementReason(
       "",
     )}`;
   }
-  if (status === "running") return `${label}正在生成，完成后会刷新下游可用状态。`;
+  if (status === "running") {
+    return hasRequirementArtifact(input, diagram)
+      ? `${label}重新生成中，旧产物仍可查看；完成后会刷新下游可用状态。`
+      : `${label}正在生成，完成后会刷新下游可用状态。`;
+  }
+  if (status === "interrupted") {
+    const interrupted = interruptedHistoryForKind(input, "requirements", (item) =>
+      !(item.stage ?? "").includes("rules") && !(item.stage ?? "").includes("extract"),
+    );
+    return `${label}${hasRequirementModel(input, diagram) ? "上一版仍可查看，" : ""}${interruptedRunSummary(interrupted)}`;
+  }
   if (status === "stale") {
-    return input.isRulesStale
-      ? "需求规则已修改，此需求模型需更新。"
-      : "上游需求输入已变化，此需求模型需更新。";
+    if (requirementSourceMissing(input)) {
+      return `需求源头已删除，${label}为旧产物，仍可查看但需重新输入需求并重跑。`;
+    }
+    if (input.isRulesStale) return "需求规则已修改，此需求模型需更新。";
+    if (input.staleDiagrams.includes(diagram)) {
+      return "上游需求输入已变化，此需求模型需更新。";
+    }
+    if (requirementRenderMissing(input, diagram)) {
+      return `${label}结构化模型已生成，但 SVG 尚未生成；需先完成图像渲染后才能作为可查看图像。`;
+    }
+    return "上游需求输入已变化，此需求模型需更新。";
   }
   if (status === "current") return `${label}为最新生成，可继续往下。`;
   return "尚未生成，生成后才能稳定驱动设计模型。";
@@ -434,6 +759,15 @@ function designStatus(
   if (designErrorFor(input, diagram)) return "error";
   if (subtaskFailureFor(input, "design", diagram)) return "error";
   if (subtaskActiveFor(input, "design", diagram)) return "running";
+  if (interruptedHistoryForKind(input, "design")) return "interrupted";
+  if (evidenceGateReason(input, ["requirements"])) return "stale";
+  if (designRenderMissing(input, diagram)) return "stale";
+  if (
+    requirementSourceMissing(input) &&
+    (hasDesignModel(input, diagram) || input.generatedDesignDiagrams.includes(diagram))
+  ) {
+    return "stale";
+  }
   if (hasDesignModel(input, diagram) || input.generatedDesignDiagrams.includes(diagram)) {
     return designDiagramIsStale(input, diagram) ? "stale" : "current";
   }
@@ -452,12 +786,29 @@ function designReason(
       "",
     )}`;
   }
-  if (status === "running") return `${label}正在生成，完成后会刷新代码和文档影响。`;
+  if (status === "running") {
+    return hasDesignArtifact(input, diagram)
+      ? `${label}重新生成中，旧产物仍可查看；完成后会刷新代码和文档影响。`
+      : `${label}正在生成，完成后会刷新代码和文档影响。`;
+  }
+  if (status === "interrupted") {
+    const interrupted = interruptedHistoryForKind(input, "design");
+    return `${label}${hasDesignModel(input, diagram) ? "上一版仍可查看，" : ""}${interruptedRunSummary(interrupted)}`;
+  }
   if (status === "stale") {
-    return (
-      designStaleReasonForDiagram(input, diagram) ??
-      "上游需求模型或追踪指纹已变化，此设计模型需更新。"
-    );
+    const evidenceReason = evidenceGateReason(input, ["requirements"]);
+    if (evidenceReason) {
+      return `${label}的上游${evidenceReason}`;
+    }
+    if (requirementSourceMissing(input)) {
+      return `需求源头已删除，${label}为旧产物，仍可查看但需重新输入需求并重跑。`;
+    }
+    const staleReason = designStaleReasonForDiagram(input, diagram);
+    if (staleReason) return staleReason;
+    if (designRenderMissing(input, diagram)) {
+      return `${label}结构化模型已生成，但 SVG 尚未生成；需先完成图像渲染后才能作为可查看图像。`;
+    }
+    return "上游需求模型或追踪指纹已变化，此设计模型需更新。";
   }
   if (status === "current") return `${label}为最新生成，可继续生成产物。`;
   return "尚未生成，生成后才能驱动代码或设计说明书。";
@@ -466,13 +817,48 @@ function designReason(
 function codeStatus(input: LineageGraphInput): LineageNodeStatus {
   if (taskKindActive(input, "code")) return "running";
   if (failedTaskForKind(input, "code")) return "error";
-  return Object.keys(input.codeFiles).length > 0 || input.codeSpec ? "current" : "not-generated";
+  if (failedRegenerateCodeHistory(input)) return "error";
+  if (interruptedHistoryForKind(input, "code")) return "interrupted";
+  if (evidenceGateReason(input, ["requirements", "design"])) return "stale";
+  if (requirementSourceMissing(input) && hasCodeArtifact(input)) return "stale";
+  if (hasCodeArtifact(input) && hasCodeDiagnostics({ diagnostics: input.codeDiagnostics })) {
+    return "stale";
+  }
+  return hasCodeArtifact(input) ? "current" : "not-generated";
 }
 
 function codeReason(input: LineageGraphInput, status: LineageNodeStatus) {
   if (status === "running") return "代码原型正在生成，可在生成任务中查看实时进度。";
   if (status === "error") {
-    return failedTaskForKind(input, "code")?.errorMessage ?? "代码生成失败，上一版仍可查看。";
+    const failedTask = failedTaskForKind(input, "code");
+    if (failedTask) {
+      return failedTask.errorMessage ?? "代码生成失败，上一版仍可查看。";
+    }
+    const failedHistory = failedRegenerateCodeHistory(input);
+    const failedSnapshot = failedHistory ? historyCodeSnapshot(failedHistory) : null;
+    const detail =
+      failedSnapshot?.error?.message ??
+      failedHistory?.errorMessage ??
+      failedHistory?.summary ??
+      "代码重新生成失败。";
+    return `代码重新生成失败，${hasCodeArtifact(input) ? "上一版仍可查看" : "当前没有可查看代码"}。${detail}`;
+  }
+  if (status === "interrupted") {
+    const interrupted = interruptedHistoryForKind(input, "code");
+    return `代码生成服务中断，${hasCodeArtifact(input) ? "上一版仍可查看，" : ""}${interruptedRunSummary(interrupted)}`;
+  }
+  if (status === "stale") {
+    if (requirementSourceMissing(input)) {
+      return "需求源头已删除，当前代码为旧产物，仍可查看但需重新输入需求并重跑。";
+    }
+    const evidenceReason = evidenceGateReason(input, ["requirements", "design"]);
+    if (evidenceReason) {
+      return `代码生成的上游${evidenceReason}`;
+    }
+    const summary = formatCodeDiagnosticSummary({
+      diagnostics: input.codeDiagnostics,
+    });
+    return `${summary ?? "代码生成存在诊断"}。当前代码仍可查看，建议复核诊断后继续生成或重新生成。`;
   }
   if (status === "current") {
     return input.codeEntryFile
@@ -491,13 +877,26 @@ function documentStatus(input: LineageGraphInput, documentKind: DocumentKind): L
       task.status === "failed",
   );
   if (failed) return "error";
-  const completedHistory = input.historyItems.some(
-    (item) =>
-      item.snapshot &&
-      "documentKind" in item.snapshot &&
-      item.snapshot.documentKind === documentKind,
-  );
-  return completedHistory ? "current" : "not-generated";
+  if (
+    interruptedHistoryForKind(
+      input,
+      "document",
+      (item) => historyDocumentKind(item) === documentKind,
+    )
+  ) {
+    return "interrupted";
+  }
+  if (evidenceGateReason(input, ["requirements", "design", "code"])) {
+    return "stale";
+  }
+  const completedHistory = documentHistoryFor(input, documentKind);
+  if (!completedHistory) return "not-generated";
+  if (documentHistoryIsDeleted(completedHistory)) return "stale";
+  if (requirementSourceMissing(input)) return "stale";
+  const missingArtifactCount =
+    completedHistory.missingArtifactCount ??
+    historyDocumentMissingArtifacts(completedHistory).length;
+  return missingArtifactCount > 0 ? "stale" : "current";
 }
 
 function documentReason(
@@ -515,6 +914,36 @@ function documentReason(
         task.status === "failed",
     );
     return failed?.errorMessage ?? `${label}生成失败，上一版仍可查看。`;
+  }
+  if (status === "interrupted") {
+    const interrupted = interruptedHistoryForKind(
+      input,
+      "document",
+      (item) => historyDocumentKind(item) === documentKind,
+    );
+    return `${label}生成服务中断，${interruptedRunSummary(interrupted)}`;
+  }
+  if (status === "stale") {
+    if (requirementSourceMissing(input)) {
+      return `${label}基于已删除的需求源头生成，仍可查看/下载但需重新输入需求后重跑。`;
+    }
+    const evidenceReason = evidenceGateReason(input, [
+      "requirements",
+      "design",
+      "code",
+    ]);
+    if (evidenceReason) {
+      return `${label}的上游${evidenceReason}`;
+    }
+    const history = documentHistoryFor(input, documentKind);
+    if (documentHistoryIsDeleted(history)) {
+      return `${label}已在文档中心删除，恢复文档后可重新下载或查看。`;
+    }
+    const missingArtifacts = history ? historyDocumentMissingArtifacts(history) : [];
+    const firstMissing = missingArtifacts[0];
+    return firstMissing
+      ? `${label}已生成但缺图，需复核：${firstMissing}`
+      : `${label}已生成但存在缺失图，需复核后再交付。`;
   }
   if (status === "current") return `${label}已生成，可在文档中心查看。`;
   return `${label}尚未生成。`;
@@ -575,11 +1004,20 @@ function buildRuleNodes(input: LineageGraphInput): LineageNode[] {
         eyebrow: "未生成",
         description: "从需求文本抽取可追踪的规则。",
         status,
-        reason: "尚未抽取需求规则，只有这里可以开始。",
+        reason:
+          status === "error"
+            ? failedRulesSummary(failedRulesHistory(input))
+            : requirementSourceMissing(input)
+              ? "需求源头已删除，请重新输入需求后再抽取规则。"
+            : "尚未抽取需求规则，只有这里可以开始。",
         actionLabel: statusActionLabel(status),
+        hasViewableArtifact: false,
         upstreamIds: [],
         downstreamIds: [],
-        recentEvents: [],
+        recentEvents: recentEventsForKind(input, "requirements", "规则生成", (item) =>
+          (historyStage(item) ?? "").includes("rules") ||
+          (historyStage(item) ?? "").includes("extract"),
+        ),
       },
     ];
   }
@@ -596,9 +1034,13 @@ function buildRuleNodes(input: LineageGraphInput): LineageNode[] {
       status,
       reason: ruleReason(input, rule),
       actionLabel: statusActionLabel(status),
+      hasViewableArtifact: true,
       upstreamIds: [],
       downstreamIds: [],
-      recentEvents: lastFinishedTaskEvent(input, "requirements", "规则生成"),
+      recentEvents: recentEventsForKind(input, "requirements", "规则生成", (item) =>
+        (historyStage(item) ?? "").includes("rules") ||
+        (historyStage(item) ?? "").includes("extract"),
+      ),
     };
   });
 }
@@ -607,6 +1049,7 @@ function buildRequirementNodes(input: LineageGraphInput): LineageNode[] {
   return requirementDiagramsFor(input).map((diagram) => {
     const meta = DIAGRAM_META[diagram];
     const status = requirementStatus(input, diagram);
+    const hasViewableArtifact = hasRequirementArtifact(input, diagram);
     return {
       id: requirementNodeId(diagram),
       kind: "requirement-model" as const,
@@ -618,9 +1061,12 @@ function buildRequirementNodes(input: LineageGraphInput): LineageNode[] {
       status,
       reason: requirementReason(input, diagram, status),
       actionLabel: statusActionLabel(status),
+      hasViewableArtifact,
       upstreamIds: [],
       downstreamIds: [],
-      recentEvents: lastFinishedTaskEvent(input, "requirements", "模型生成"),
+      recentEvents: recentEventsForKind(input, "requirements", "模型生成", (item) =>
+        !(item.stage ?? "").includes("rules") && !(item.stage ?? "").includes("extract"),
+      ),
       payload: { diagramKind: diagram },
     };
   });
@@ -630,6 +1076,7 @@ function buildDesignNodes(input: LineageGraphInput): LineageNode[] {
   return designDiagramsFor(input).map((diagram) => {
     const meta = DESIGN_DIAGRAM_META[diagram];
     const status = designStatus(input, diagram);
+    const hasViewableArtifact = hasDesignArtifact(input, diagram);
     return {
       id: designNodeId(diagram),
       kind: "design-model" as const,
@@ -641,9 +1088,10 @@ function buildDesignNodes(input: LineageGraphInput): LineageNode[] {
       status,
       reason: designReason(input, diagram, status),
       actionLabel: statusActionLabel(status),
+      hasViewableArtifact,
       upstreamIds: [],
       downstreamIds: [],
-      recentEvents: lastFinishedTaskEvent(input, "design", "设计生成"),
+      recentEvents: recentEventsForKind(input, "design", "设计生成"),
       payload: { designDiagramKind: diagram },
     };
   });
@@ -653,6 +1101,10 @@ function buildProductNodes(input: LineageGraphInput): LineageNode[] {
   const code = codeStatus(input);
   const requirementsDoc = documentStatus(input, "requirementsSpec");
   const designDoc = documentStatus(input, "softwareDesignSpec");
+  const requirementsDocHistory = documentHistoryFor(input, "requirementsSpec");
+  const designDocHistory = documentHistoryFor(input, "softwareDesignSpec");
+  const requirementsDocDeleted = documentHistoryIsDeleted(requirementsDocHistory);
+  const designDocDeleted = documentHistoryIsDeleted(designDocHistory);
   return [
     {
       id: documentNodeId("requirementsSpec"),
@@ -665,9 +1117,14 @@ function buildProductNodes(input: LineageGraphInput): LineageNode[] {
       status: requirementsDoc,
       reason: documentReason(input, "requirementsSpec", requirementsDoc),
       actionLabel: statusActionLabel(requirementsDoc),
+      hasViewableArtifact:
+        !requirementsDocDeleted &&
+        (requirementsDoc === "current" || requirementsDoc === "stale"),
       upstreamIds: [],
       downstreamIds: [],
-      recentEvents: lastFinishedTaskEvent(input, "document", "文档生成"),
+      recentEvents: recentEventsForKind(input, "document", "文档生成", (item) =>
+        historyDocumentKind(item) === "requirementsSpec",
+      ),
       payload: { documentKind: "requirementsSpec" as const },
     },
     {
@@ -681,9 +1138,14 @@ function buildProductNodes(input: LineageGraphInput): LineageNode[] {
       status: designDoc,
       reason: documentReason(input, "softwareDesignSpec", designDoc),
       actionLabel: statusActionLabel(designDoc),
+      hasViewableArtifact:
+        !designDocDeleted &&
+        (designDoc === "current" || designDoc === "stale"),
       upstreamIds: [],
       downstreamIds: [],
-      recentEvents: lastFinishedTaskEvent(input, "document", "文档生成"),
+      recentEvents: recentEventsForKind(input, "document", "文档生成", (item) =>
+        historyDocumentKind(item) === "softwareDesignSpec",
+      ),
       payload: { documentKind: "softwareDesignSpec" as const },
     },
     {
@@ -697,9 +1159,10 @@ function buildProductNodes(input: LineageGraphInput): LineageNode[] {
       status: code,
       reason: codeReason(input, code),
       actionLabel: statusActionLabel(code),
+      hasViewableArtifact: Object.keys(input.codeFiles).length > 0 || Boolean(input.codeSpec),
       upstreamIds: [],
       downstreamIds: [],
-      recentEvents: lastFinishedTaskEvent(input, "code", "代码生成"),
+      recentEvents: recentEventsForKind(input, "code", "代码生成"),
     },
   ];
 }
@@ -772,6 +1235,7 @@ function summarize(nodes: LineageNode[]): LineageGraphSummary {
     total: nodes.length,
     stale: nodes.filter((node) => node.status === "stale").length,
     error: nodes.filter((node) => node.status === "error").length,
+    interrupted: nodes.filter((node) => node.status === "interrupted").length,
     running: nodes.filter((node) => node.status === "running").length,
     notGenerated: nodes.filter((node) => node.status === "not-generated").length,
     current: nodes.filter((node) => node.status === "current").length,
@@ -781,6 +1245,7 @@ function summarize(nodes: LineageNode[]): LineageGraphSummary {
 function defaultSelection(nodes: LineageNode[]) {
   return (
     nodes.find((node) => node.status === "error") ??
+    nodes.find((node) => node.status === "interrupted") ??
     nodes.find((node) => node.status === "stale") ??
     nodes.find((node) => node.status === "running") ??
     nodes.find((node) => node.status === "not-generated") ??

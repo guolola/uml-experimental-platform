@@ -35,7 +35,6 @@ type DiagramPreviewPanelProps = {
   description: string;
   stage: "requirements" | "design";
   type: DiagramType | DesignDiagramType;
-  model: unknown;
   normalizedSvgMarkup: string;
   svgMarkup: string;
   svgUrl: string;
@@ -70,7 +69,6 @@ export function DiagramPreviewPanel({
   description,
   stage,
   type,
-  model,
   normalizedSvgMarkup,
   svgMarkup,
   svgUrl,
@@ -171,23 +169,6 @@ export function DiagramPreviewPanel({
                 }}
               >
                 <Download className="size-3.5" /> SVG
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8"
-                onClick={() => {
-                  if (!model) return;
-                  downloadTextFile(
-                    `${stage}-${type}.model.json`,
-                    JSON.stringify(model, null, 2),
-                    "application/json",
-                  );
-                  toast.success(`已导出 ${type}.model.json`);
-                }}
-                disabled={!model}
-              >
-                <Download className="size-3.5" /> JSON
               </Button>
             </>
           ) : null}

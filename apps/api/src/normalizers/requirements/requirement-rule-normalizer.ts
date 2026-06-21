@@ -214,14 +214,29 @@ function normalizeRule(rawRule: unknown, index: number): RequirementRule | null 
   };
 }
 
+function uniqueRequirementRuleId(id: string, usedIds: Set<string>) {
+  const baseId = id || "r";
+  let candidate = baseId;
+  let suffix = 2;
+  while (usedIds.has(candidate.toLowerCase())) {
+    candidate = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(candidate.toLowerCase());
+  return candidate;
+}
+
 export function normalizeRequirementRulesResult(raw: unknown): RequirementRulesResult {
   if (!isPlainRecord(raw) || !Array.isArray(raw.rules)) {
     return requirementRulesResultSchema.parse(raw);
   }
   const sourceRules = raw.rules;
+  const usedRuleIds = new Set<string>();
   const rules = sourceRules.flatMap((rule, index) => {
     const normalized = normalizeRule(rule, index);
-    return normalized ? [normalized] : [];
+    return normalized
+      ? [{ ...normalized, id: uniqueRequirementRuleId(normalized.id, usedRuleIds) }]
+      : [];
   });
   return requirementRulesResultSchema.parse({ rules });
 }

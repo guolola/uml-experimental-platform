@@ -50,6 +50,7 @@ function createQueuedSnapshotFromSource(
   if ("designModelTraceability" in source) {
     return createEmptyDesignSnapshot(newRunId, {
       selectedDiagrams: source.selectedDiagrams,
+      requestedDiagrams: source.requestedDiagrams,
       requirementBaseline:
         source.requirementBaseline ?? buildEmptyRequirementBaseline({ runId: newRunId }),
       requirementModels: source.requirementModels,
@@ -62,6 +63,11 @@ function createQueuedSnapshotFromSource(
     source.requirementText,
     source.selectedDiagrams,
     source.rules,
+    {
+      analysisTargetUseCaseIds: source.analysisTargetUseCaseIds,
+      requestedDiagrams: source.requestedDiagrams,
+      dependencyDiagrams: source.dependencyDiagrams,
+    },
   );
 }
 
@@ -72,6 +78,16 @@ export function isRetryableRun(record: RunRecord) {
     (record.terminal &&
       (record.snapshot.status === "running" || record.snapshot.status === "queued"))
   );
+}
+
+function displaySourceRunStatus(record: RunRecord) {
+  if (
+    record.terminal &&
+    (record.snapshot.status === "running" || record.snapshot.status === "queued")
+  ) {
+    return "interrupted";
+  }
+  return record.snapshot.status;
 }
 
 export function cancelRunRecord(record: RunRecord, runId: string): RunActionResult {
@@ -117,7 +133,12 @@ export function createQueuedRunFromSource({
     events: [],
     listeners: new Set(),
     terminal: false,
-    metadata,
+    metadata: {
+      ...(metadata ?? { createdAt: new Date().toISOString() }),
+      sourceRunId,
+      sourceAction: action,
+      sourceRunStatus: displaySourceRunStatus(source),
+    },
   };
   runs.set(runId, record);
   emitEvent(record, queuedRunEventSchema.parse({ type: "queued" }));

@@ -80,6 +80,7 @@ import {
   analyzeRequirementGeneration,
   collectExistingRequirementDiagramKinds,
   designGenerationSubtasks,
+  designLabels,
   orderedDesignDiagrams,
   orderedRequirementDiagrams,
   requirementGenerationSubtasks,
@@ -127,6 +128,14 @@ import { useAutoCompletedRuleMappingActions } from "./lib/auto-completed-rule-ma
 import { usePlantUmlRenderActions } from "./lib/plantuml-render-actions";
 import { deriveWorkspaceStatus } from "./lib/workspace-derived-status";
 import {
+  removeCodePreviewDiagnostics,
+  replaceCodePreviewDiagnostic,
+} from "../../shared/lib/code-preview-diagnostics";
+import {
+  evidencePackageBlockReason,
+  latestEvidencePackageForScopes,
+} from "./lib/evidence-gate";
+import {
   analyzeDesignGenerationPreflight,
   analyzeRequirementGenerationPreflight,
 } from "./lib/generation-preflight";
@@ -154,6 +163,7 @@ import {
   mergeDesignTraceability,
   requirementInputFingerprintFor,
   requirementSnapshotScope,
+  sequenceModelsCoverUseCases,
   successfulDesignDiagramsFromSnapshot,
   successfulRequirementDiagramsFromSnapshot,
   traceabilityEntryMatchesScope,
@@ -161,14 +171,89 @@ import {
   type DesignRequirementContext,
 } from "./lib/workspace-context";
 
+function downstreamDesignBlockReason(input: {
+  designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
+  designModels: WorkspaceRecord["designModels"];
+  models: WorkspaceRecord["models"];
+}) {
+  const erroredDiagrams = orderedDesignDiagrams([
+    ...designErrorDiagrams(input.designDiagramErrors),
+  ]);
+  if (erroredDiagrams.length > 0) {
+    return `设计模型存在失败项，请先回到设计页修复或重新生成：${designLabels(erroredDiagrams).join("、")}`;
+  }
+
+  const hasSequenceModels = Object.values(input.designModels).some(
+    (model) => model.diagramKind === "sequence",
+  );
+  const useCaseModel = input.models.usecase;
+  const hasUseCaseTargets =
+    Boolean(useCaseModel) &&
+    "useCases" in useCaseModel &&
+    useCaseModel.useCases.length > 0;
+  if (
+    hasSequenceModels &&
+    hasUseCaseTargets &&
+    !sequenceModelsCoverUseCases(input.designModels, useCaseModel)
+  ) {
+    return "用例实现设计覆盖不足，请先回到设计页补齐用例实现设计";
+  }
+
+  return null;
+}
+
+function documentGenerationInputFingerprint(input: {
+  designModelTraceability: WorkspaceRecord["designModelTraceability"];
+  designModels: WorkspaceRecord["designModels"];
+  documentKind: DocumentKind;
+  documentStyle?: DocumentStyleSettings;
+  models: WorkspaceRecord["models"];
+  requirementModelTraceability: WorkspaceRecord["requirementModelTraceability"];
+  requirementText: string;
+  rules: RequirementRule[];
+}) {
+  const baseInput = {
+    documentKind: input.documentKind,
+    documentStyle: input.documentStyle ?? null,
+    models: input.models,
+    requirementModelTraceability: input.requirementModelTraceability,
+    requirementText: input.requirementText,
+    rules: input.rules,
+  };
+
+  if (input.documentKind === "requirementsSpec") {
+    return snapshotInputFingerprint(baseInput);
+  }
+
+  return snapshotInputFingerprint({
+    ...baseInput,
+    designModelTraceability: input.designModelTraceability,
+    designModels: input.designModels,
+  });
+}
+
 const WorkspaceSessionContext = createContext<WorkspaceSessionState | null>(
   null,
 );
 
 type RunGenerationOptions = {
+  deferRulesOnlySnapshotApplication?: boolean;
   suppressSuccessDialog?: boolean;
   skipRuleRepairCandidates?: boolean;
 };
+
+function pruneRequirementTraceabilityForRules(
+  traceability: WorkspaceRecord["requirementModelTraceability"],
+  rules: RequirementRule[],
+) {
+  const ruleIds = new Set(
+    rules.map((rule) => rule.id.trim().toLowerCase()).filter(Boolean),
+  );
+  if (ruleIds.size === 0) return [];
+  return traceability.filter((entry) =>
+    ruleIds.has(entry.ruleId.trim().toLowerCase()),
+  );
+}
 export function WorkspaceSessionProvider({
   children,
 }: {
@@ -189,7 +274,7 @@ export function WorkspaceSessionProvider({
     setRulesBasedOnTextVersion,
     requirementInputFingerprint,
     setRequirementInputFingerprint,
-    addRequirementRule,
+    flushRequirementTextSave,
     createRequirementRule: createRequirementRuleBase,
     updateRequirementRule: updateRequirementRuleBase,
     deleteRequirementRule: deleteRequirementRuleBase,
@@ -266,6 +351,31 @@ export function WorkspaceSessionProvider({
     applyCodeRunSnapshot,
     updateCodeFile,
   } = useCodeSlice();
+  const codeDiagnosticsRef = useRef(codeDiagnostics);
+  codeDiagnosticsRef.current = codeDiagnostics;
+  const persistCodeDiagnostics = useCallback(
+    (diagnostics: WorkspaceRecord["codeDiagnostics"]) => {
+      const nextDiagnostics = [...diagnostics];
+      codeDiagnosticsRef.current = nextDiagnostics;
+      setCodeDiagnostics(nextDiagnostics);
+      void repository.updateCodeDiagnostics?.(nextDiagnostics);
+    },
+    [repository, setCodeDiagnostics],
+  );
+  const recordCodePreviewDiagnostic = useCallback(
+    (message: string) => {
+      persistCodeDiagnostics(
+        replaceCodePreviewDiagnostic(codeDiagnosticsRef.current, message),
+      );
+    },
+    [persistCodeDiagnostics],
+  );
+  const clearCodePreviewDiagnostics = useCallback(() => {
+    const currentDiagnostics = codeDiagnosticsRef.current;
+    const nextDiagnostics = removeCodePreviewDiagnostics(currentDiagnostics);
+    if (nextDiagnostics.length === currentDiagnostics.length) return;
+    persistCodeDiagnostics(nextDiagnostics);
+  }, [persistCodeDiagnostics]);
   const { currentRunDiagnostics, setCurrentRunDiagnostics } =
     useRunDiagnosticsSlice();
   const [runUiState, setRunUiState] = useState(createEmptyRunUiState);
@@ -325,6 +435,14 @@ export function WorkspaceSessionProvider({
     setRequirementReviewCandidates,
     updateRequirementRuleBase,
   });
+
+  const addRequirementRule = useCallback(() => {
+    createRequirementRule({
+      category: "功能需求",
+      text: "待填写需求项",
+      relatedDiagrams: ["usecase", "activity"],
+    });
+  }, [createRequirementRule]);
 
   const runController = useRunController();
   const latestInputRef = useLatestGenerationInputRef({
@@ -469,7 +587,19 @@ export function WorkspaceSessionProvider({
       );
 
       if (mode.kind === "rules-only") {
+        const nextRequirementModelTraceability =
+          pruneRequirementTraceabilityForRules(
+            latestInputRef.current.requirementModelTraceability,
+            snapshot.rules,
+          );
         setRules(snapshot.rules);
+        setRequirementModelTraceability(nextRequirementModelTraceability);
+        void repository.updateRequirementRules?.(snapshot.rules, {
+          requirementInputFingerprint: activeRequirementFingerprint,
+          rulesBasedOnTextVersion: baseTextVersion,
+          rulesVersion: nextRulesVersion,
+          requirementModelTraceability: nextRequirementModelTraceability,
+        });
         if (!options?.preserveRuleReviewState) {
           setRequirementBaseline(snapshot.requirementBaseline ?? null);
           setRequirementQualityReport(
@@ -578,7 +708,7 @@ export function WorkspaceSessionProvider({
       setDiagramInputFingerprints((current) => {
         const next = { ...current };
         for (const diagram of successfulAffectedDiagrams) {
-          next[diagram] = activeRequirementFingerprint;
+          next[diagram] = snapshotFingerprint;
         }
         return next;
       });
@@ -848,6 +978,7 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
+        await flushRequirementTextSave();
         const currentPendingRequirementReviews =
           requirementRuleIdsBlockingGeneration(
             requirementBaseline,
@@ -1009,6 +1140,17 @@ export function WorkspaceSessionProvider({
         if (snapshot.status === "cancelled") {
           const stageLabel =
             mode.kind === "rules-only" ? "需求规则" : "需求模型";
+          if (!options?.deferRulesOnlySnapshotApplication) {
+            applyRunSnapshot(snapshot, baseTextVersion, mode, {
+              preserveRuleReviewState: Boolean(
+                options?.skipRuleRepairCandidates,
+              ),
+            });
+          }
+          await saveHistorySnapshot(snapshot, {
+            providerModel,
+            durationMs: Date.now() - startedAtMs,
+          });
           setRunUiState(cancelledRunUiState(snapshot));
           openGenerationResultDialog(
             cancelledRunResultDialog(snapshot, stageLabel),
@@ -1016,9 +1158,11 @@ export function WorkspaceSessionProvider({
           return null;
         }
 
-        applyRunSnapshot(snapshot, baseTextVersion, mode, {
-          preserveRuleReviewState: Boolean(options?.skipRuleRepairCandidates),
-        });
+        if (!options?.deferRulesOnlySnapshotApplication) {
+          applyRunSnapshot(snapshot, baseTextVersion, mode, {
+            preserveRuleReviewState: Boolean(options?.skipRuleRepairCandidates),
+          });
+        }
         let repairPendingCount = 0;
         let repairFailedCount = 0;
         // Internal auto-upstream runs should hand their snapshot to the requested model run,
@@ -1191,6 +1335,24 @@ export function WorkspaceSessionProvider({
             errorMessage: detail,
             finishedAt: new Date().toISOString(),
             diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+            subtasks:
+              mode.kind === "rules-only"
+                ? task.subtasks.map((subtask) =>
+                    subtask.id === "extract_rules"
+                      ? {
+                          ...subtask,
+                          status: "failed",
+                          message: "需求规则抽取失败",
+                          errorMessage: detail,
+                        }
+                      : subtask.id === "repair_rules"
+                        ? {
+                            ...subtask,
+                            message: "规则抽取失败，未执行修复",
+                          }
+                        : subtask,
+                  )
+                : task.subtasks,
           }));
         }
         if (!runController.isCurrentRun(runRequestId, "requirements")) {
@@ -1205,6 +1367,12 @@ export function WorkspaceSessionProvider({
                 requirementTrace:
                   failedSnapshot.requirementTrace ?? current.requirementTrace,
               }));
+              if (mode.kind === "rules-only" && failedSnapshot.status === "failed") {
+                await saveHistorySnapshot(failedSnapshot, {
+                  providerModel,
+                  durationMs: Date.now() - startedAtMs,
+                });
+              }
             }
           } catch {
             // The visible error state below is more useful than a secondary history failure.
@@ -1242,6 +1410,7 @@ export function WorkspaceSessionProvider({
       persistRequirementReviewCandidates,
       repository,
       repairRequirementRuleCandidates,
+      flushRequirementTextSave,
       requirementBaseline,
       requirementModelTraceability,
       requirementReviewCandidates,
@@ -1273,6 +1442,16 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
+        await flushRequirementTextSave();
+        const upstreamEvidencePackage = latestEvidencePackageForScopes(
+          historyItems,
+          ["requirements"],
+        );
+        const evidenceBlockReason =
+          evidencePackageBlockReason(upstreamEvidencePackage);
+        if (evidenceBlockReason) {
+          throw new Error(evidenceBlockReason);
+        }
         const activeRequirementBaseline =
           requirementContext?.requirementBaseline ?? requirementBaseline;
         const activeRequirementModels =
@@ -1391,6 +1570,7 @@ export function WorkspaceSessionProvider({
             };
           }),
           Object.values(designSvgArtifacts),
+          upstreamEvidencePackage,
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -1493,6 +1673,15 @@ export function WorkspaceSessionProvider({
           return null;
         }
         if (snapshot.status === "cancelled") {
+          applyDesignRunSnapshot(snapshot, requestedDiagrams);
+          setCurrentRunDiagnostics((current) => ({
+            ...current,
+            designTrace: snapshot.designTrace ?? [],
+          }));
+          await saveHistorySnapshot(snapshot, {
+            providerModel,
+            durationMs: Date.now() - startedAtMs,
+          });
           setRunUiState(cancelledRunUiState(snapshot));
           openGenerationResultDialog(
             cancelledRunResultDialog(snapshot, "设计模型"),
@@ -1601,11 +1790,13 @@ export function WorkspaceSessionProvider({
       diagramInputFingerprints,
       diagramVersions,
       generatedDiagrams,
+      historyItems,
       manualModelEditStatus,
       models,
       openBillingEntitlementDialog,
       openGenerationResultDialog,
       repository,
+      flushRequirementTextSave,
       requirementBaseline,
       requirementInputFingerprint,
       requirementModelTraceability,
@@ -1637,6 +1828,7 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
+        await flushRequirementTextSave();
         if (
           !repository.startCodeRun ||
           !repository.subscribeToCodeRun ||
@@ -1649,6 +1841,14 @@ export function WorkspaceSessionProvider({
         );
         if (availableDesignModels.length === 0) {
           throw new Error("请先生成设计模型，再生成前端原型代码");
+        }
+        const designBlockReason = downstreamDesignBlockReason({
+          designDiagramErrors,
+          designModels,
+          models,
+        });
+        if (designBlockReason) {
+          throw new Error(designBlockReason);
         }
         const currentPendingRequirementReviews =
           requirementRuleIdsBlockingGeneration(
@@ -1762,6 +1962,18 @@ export function WorkspaceSessionProvider({
           availableDesignPlantUml,
           codeFiles,
           generationMode,
+          (() => {
+            const upstreamEvidencePackage = latestEvidencePackageForScopes(
+              historyItems,
+              ["requirements", "design"],
+            );
+            const evidenceBlockReason =
+              evidencePackageBlockReason(upstreamEvidencePackage);
+            if (evidenceBlockReason) {
+              throw new Error(evidenceBlockReason);
+            }
+            return upstreamEvidencePackage;
+          })(),
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -1870,6 +2082,15 @@ export function WorkspaceSessionProvider({
           return;
         }
         if (snapshot.status === "cancelled") {
+          applyCodeRunSnapshot(snapshot);
+          setCurrentRunDiagnostics((current) => ({
+            ...current,
+            codeTrace: snapshot.codeTrace ?? [],
+          }));
+          await saveHistorySnapshot(snapshot, {
+            providerModel,
+            durationMs: Date.now() - startedAtMs,
+          });
           setRunUiState(cancelledRunUiState(snapshot));
           openGenerationResultDialog(
             cancelledRunResultDialog(snapshot, "代码原型"),
@@ -1962,6 +2183,7 @@ export function WorkspaceSessionProvider({
       applyCodeRunSnapshot,
       codeFiles,
       codeEditVersion,
+      designDiagramErrors,
       designInputFingerprints,
       designModelTraceability,
       designModels,
@@ -1970,11 +2192,14 @@ export function WorkspaceSessionProvider({
       diagramVersions,
       generatedDesignDiagrams,
       generatedDiagrams,
+      historyItems,
+      latestInputRef,
       manualModelEditStatus,
       models,
       openBillingEntitlementDialog,
       openGenerationResultDialog,
       repository,
+      flushRequirementTextSave,
       requirementBaseline,
       requirementInputFingerprint,
       requirementModelTraceability,
@@ -1994,6 +2219,7 @@ export function WorkspaceSessionProvider({
       documentKind: DocumentKind,
       documentStyle?: DocumentStyleSettings,
     ) => {
+      const runRequestId = runController.beginRun("document");
       const startedAtMs = Date.now();
       let providerModel = "";
       let runId: string | null = null;
@@ -2001,6 +2227,7 @@ export function WorkspaceSessionProvider({
       let clientTaskId: string | null = null;
 
       try {
+        await flushRequirementTextSave();
         if (
           !repository.startDocumentRun ||
           !repository.subscribeToDocumentRun ||
@@ -2061,6 +2288,17 @@ export function WorkspaceSessionProvider({
           availableDesignModels.length === 0
         ) {
           throw new Error("请先在设计页生成设计模型，再导出软件设计说明书");
+        }
+        const designBlockReason =
+          documentKind === "softwareDesignSpec"
+            ? downstreamDesignBlockReason({
+                designDiagramErrors,
+                designModels,
+                models,
+              })
+            : null;
+        if (designBlockReason) {
+          throw new Error(designBlockReason);
         }
         const activeRequirementFingerprint = requirementInputFingerprintFor(
           requirementText,
@@ -2160,6 +2398,18 @@ export function WorkspaceSessionProvider({
           );
         }
 
+        const baseDocumentInputFingerprint = documentGenerationInputFingerprint(
+          {
+            designModelTraceability,
+            designModels,
+            documentKind,
+            documentStyle,
+            models,
+            requirementModelTraceability,
+            requirementText,
+            rules,
+          },
+        );
         const startInput = createStartDocumentRunInput(
           documentKind,
           requirementText,
@@ -2172,6 +2422,18 @@ export function WorkspaceSessionProvider({
           designPlantUmlList,
           designSvgArtifactList,
           documentStyle,
+          (() => {
+            const upstreamEvidencePackage = latestEvidencePackageForScopes(
+              historyItems,
+              ["requirements", "design", "code"],
+            );
+            const evidenceBlockReason =
+              evidencePackageBlockReason(upstreamEvidencePackage);
+            if (evidenceBlockReason) {
+              throw new Error(evidenceBlockReason);
+            }
+            return upstreamEvidencePackage;
+          })(),
         );
         providerModel = startInput.providerSettings.model;
         const documentTitle =
@@ -2186,30 +2448,34 @@ export function WorkspaceSessionProvider({
           message: `${documentTitle}生成任务已进入队列`,
           startedAtMs,
         });
-        setRunUiState({
-          runStatus: "queued",
-          runProgress: 5,
-          runMessage: "说明书生成任务已进入队列",
-          errorMessage: null,
-        });
-        notifyGenerationStarted("document", documentKind);
-        setCurrentRunDiagnostics({
-          ...createEmptyDiagnostics(),
-          runKind: "document",
-          providerModel,
-          startedAt: new Date(startedAtMs).toISOString(),
-        });
+        if (runController.isCurrentRun(runRequestId, "document")) {
+          setRunUiState({
+            runStatus: "queued",
+            runProgress: 5,
+            runMessage: "说明书生成任务已进入队列",
+            errorMessage: null,
+          });
+          notifyGenerationStarted("document", documentKind);
+          setCurrentRunDiagnostics({
+            ...createEmptyDiagnostics(),
+            runKind: "document",
+            providerModel,
+            startedAt: new Date(startedAtMs).toISOString(),
+          });
+        }
 
         const started = await repository.startDocumentRun(startInput);
         runId = started.runId;
         updateGenerationTask(clientTaskId, (task) =>
           assignTaskRunId(task, runId!, providerModel),
         );
-        setCurrentRunDiagnostics((current) => ({
-          ...current,
-          runId,
-          providerModel,
-        }));
+        if (runController.isCurrentRun(runRequestId, "document")) {
+          setCurrentRunDiagnostics((current) => ({
+            ...current,
+            runId,
+            providerModel,
+          }));
+        }
 
         await repository.subscribeToDocumentRun(runId, (event) => {
           const progress = getProgressFromEvent(event);
@@ -2223,6 +2489,9 @@ export function WorkspaceSessionProvider({
                 completed: `${documentTitle}生成完成`,
               }),
             );
+          }
+          if (!runController.isCurrentRun(runRequestId, "document")) {
+            return;
           }
           const diagnosticEvent = summarizeEvent(event);
           setCurrentRunDiagnostics((current) =>
@@ -2244,6 +2513,13 @@ export function WorkspaceSessionProvider({
           return null;
         }
         if (snapshot.status === "cancelled") {
+          await saveHistorySnapshot(snapshot, {
+            providerModel,
+            durationMs: Date.now() - startedAtMs,
+          });
+          if (!runController.isCurrentRun(runRequestId, "document")) {
+            return null;
+          }
           setRunUiState(cancelledRunUiState(snapshot));
           openGenerationResultDialog(
             cancelledRunResultDialog(snapshot, "说明书"),
@@ -2255,13 +2531,47 @@ export function WorkspaceSessionProvider({
           providerModel,
           durationMs: Date.now() - startedAtMs,
         });
-        setRunUiState(completedRunUiState("说明书生成完成"));
+        const missingArtifactCount = snapshot.missingArtifacts.filter(
+          (artifact) => artifact.trim(),
+        ).length;
+        const completionMessage =
+          missingArtifactCount > 0
+            ? `说明书生成完成，但有 ${missingArtifactCount} 项图源缺失，请复核`
+            : "说明书生成完成";
+        if (clientTaskId) {
+          updateGenerationTask(clientTaskId, (task) => ({
+            ...task,
+            message: completionMessage,
+          }));
+        }
+        if (!runController.isCurrentRun(runRequestId, "document")) {
+          return snapshot;
+        }
+        setRunUiState(completedRunUiState(completionMessage));
         openGenerationResultDialog(
           documentRunCompletionDialog({
             documentTitle,
             runId: snapshot.runId,
+            missingArtifactCount,
           }),
         );
+        if (
+          baseDocumentInputFingerprint !==
+          documentGenerationInputFingerprint({
+            designModelTraceability:
+              latestInputRef.current.designModelTraceability,
+            designModels: latestInputRef.current.designModels,
+            documentKind,
+            documentStyle,
+            models: latestInputRef.current.models,
+            requirementModelTraceability:
+              latestInputRef.current.requirementModelTraceability,
+            requirementText: latestInputRef.current.requirementText,
+            rules: latestInputRef.current.rules,
+          })
+        ) {
+          notifyGenerationResultStale();
+        }
         return snapshot;
       } catch (error) {
         const billingBlock = parseBillingEntitlementError(error);
@@ -2291,6 +2601,9 @@ export function WorkspaceSessionProvider({
             // The visible error state below is more useful than a secondary snapshot failure.
           }
         }
+        if (!runController.isCurrentRun(runRequestId, "document")) {
+          return null;
+        }
         setRunUiState(failedRunUiState(detail));
         if (billingBlock) {
           openBillingEntitlementDialog(billingBlock, {
@@ -2318,6 +2631,7 @@ export function WorkspaceSessionProvider({
       }
     },
     [
+      designDiagramErrors,
       designInputFingerprints,
       designModelTraceability,
       designModels,
@@ -2333,6 +2647,7 @@ export function WorkspaceSessionProvider({
       openGenerationResultDialog,
       plantUml,
       repository,
+      flushRequirementTextSave,
       requirementBaseline,
       requirementInputFingerprint,
       requirementModelTraceability,
@@ -2376,11 +2691,14 @@ export function WorkspaceSessionProvider({
     saveDesignModelEdit,
     saveRequirementModelEdit,
   } = useManualModelEditActions({
+    designModelTraceability,
     designModels,
     models,
     repository,
+    requirementModelTraceability,
     setDesignDiagramErrors,
     setDesignModels,
+    setDesignModelTraceability,
     setDesignPlantUml,
     setDesignSvgArtifacts,
     setDiagramErrors,
@@ -2389,6 +2707,7 @@ export function WorkspaceSessionProvider({
     setManualModelEditStatus,
     setModels,
     setPlantUml,
+    setRequirementModelTraceability,
     setSvgArtifacts,
   });
 
@@ -2405,6 +2724,55 @@ export function WorkspaceSessionProvider({
       openGenerationResultDialog(block);
     },
     [openGenerationResultDialog],
+  );
+
+  const handleAutoCompletedRuleMappingPersistenceFailure = useCallback(
+    (error: unknown, stageLabel: "需求模型" | "设计模型") => {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "需求规则映射保存失败，已阻止下游生成。";
+      const startedAtMs = Date.now();
+      const clientTaskId = enqueueGenerationTask({
+        kind: stageLabel === "设计模型" ? "design" : "requirements",
+        title: `${stageLabel}生成`,
+        providerModel: null,
+        message: "需求规则映射保存失败，下游生成未启动",
+        startedAtMs,
+        subtasks: [
+          {
+            id: "persist_rule_mappings",
+            label: "保存需求规则映射",
+            status: "failed",
+            message: "下游生成未启动",
+            errorMessage: detail,
+          },
+        ],
+      });
+      updateGenerationTask(clientTaskId, (task) => ({
+        ...task,
+        status: "failed",
+        progress: 100,
+        message: null,
+        errorMessage: detail,
+        phaseSummary: "自动补齐后的需求规则映射未保存，已阻止下游生成。",
+        finishedAt: new Date().toISOString(),
+        diagnostics: addLocalFailureToDiagnostics(task.diagnostics, detail),
+      }));
+      setRunUiState(failedRunUiState(detail));
+      openGenerationResultDialog(
+        failedRunResultDialog({
+          details: [
+            "自动补齐后的需求规则映射未保存，已阻止下游生成。请重试生成，系统会先重新保存映射。",
+          ],
+          message: detail,
+          runId: null,
+          stageLabel,
+        }),
+      );
+      notifyGenerationFailed(`${stageLabel}生成未启动：${detail}`);
+    },
+    [enqueueGenerationTask, openGenerationResultDialog, updateGenerationTask],
   );
 
   const generateDiagrams = useCallback(
@@ -2446,17 +2814,25 @@ export function WorkspaceSessionProvider({
 
       const rulesSnapshot = plan.needsRulesRun
         ? await runGeneration([], { kind: "rules-only" }, undefined, {
+            deferRulesOnlySnapshotApplication: plan.rulesRunMode === "merge",
             suppressSuccessDialog: true,
             skipRuleRepairCandidates: true,
           })
         : null;
       if (plan.needsRulesRun && !rulesSnapshot) return;
-      const { reviewedRuleIds, rulesForRun } =
-        resolveAutoCompletedRulesForRun({
+      let reviewedRuleIds: string[];
+      let rulesForRun: RequirementRule[];
+      try {
+        ({ reviewedRuleIds, rulesForRun } =
+          await resolveAutoCompletedRulesForRun({
           ruleMappingDiagrams: plan.ruleMappingDiagrams,
           rulesRunMode: plan.rulesRunMode,
           rulesSnapshot,
-        });
+          }));
+      } catch (error) {
+        handleAutoCompletedRuleMappingPersistenceFailure(error, "需求模型");
+        return;
+      }
       const analysisTargetUseCaseIds = analysisTargetUseCaseIdsForRun(
         plan.effectiveDiagrams,
         models,
@@ -2493,6 +2869,7 @@ export function WorkspaceSessionProvider({
       requirementModelTraceability,
       requirementReviewCandidates,
       requirementText,
+      handleAutoCompletedRuleMappingPersistenceFailure,
       resolveAutoCompletedRulesForRun,
       runGeneration,
       rules,
@@ -2555,19 +2932,28 @@ export function WorkspaceSessionProvider({
 
       const rulesSnapshot = requirementPlan.needsRulesRun
         ? await runGeneration([], { kind: "rules-only" }, undefined, {
+            deferRulesOnlySnapshotApplication:
+              requirementPlan.rulesRunMode === "merge",
             suppressSuccessDialog: true,
             skipRuleRepairCandidates: true,
           })
         : null;
       if (requirementPlan.needsRulesRun && !rulesSnapshot) return;
-      const {
-        reviewedRuleIds,
-        rulesForRun: rulesForRequirementRun,
-      } = resolveAutoCompletedRulesForRun({
-        ruleMappingDiagrams: requirementPlan.ruleMappingDiagrams,
-        rulesRunMode: requirementPlan.rulesRunMode,
-        rulesSnapshot,
-      });
+      let reviewedRuleIds: string[];
+      let rulesForRequirementRun: RequirementRule[];
+      try {
+        ({
+          reviewedRuleIds,
+          rulesForRun: rulesForRequirementRun,
+        } = await resolveAutoCompletedRulesForRun({
+          ruleMappingDiagrams: requirementPlan.ruleMappingDiagrams,
+          rulesRunMode: requirementPlan.rulesRunMode,
+          rulesSnapshot,
+        }));
+      } catch (error) {
+        handleAutoCompletedRuleMappingPersistenceFailure(error, "设计模型");
+        return;
+      }
       const analysisTargetUseCaseIds = analysisTargetUseCaseIdsForRun(
         requirementPlan.effectiveDiagrams,
         models,
@@ -2659,6 +3045,7 @@ export function WorkspaceSessionProvider({
       requirementModelTraceability,
       requirementReviewCandidates,
       requirementText,
+      handleAutoCompletedRuleMappingPersistenceFailure,
       resolveAutoCompletedRulesForRun,
       runGeneration,
       runDesignGeneration,
@@ -2766,6 +3153,8 @@ export function WorkspaceSessionProvider({
       codeDiagnostics,
       codeEditVersion,
       updateCodeFile,
+      recordCodePreviewDiagnostic,
+      clearCodePreviewDiagnostics,
       canUpdateWorkspace: workspacePermissions.canUpdateWorkspace,
       canStartRuns: workspacePermissions.canStartRuns,
       workspacePermissionReason: workspacePermissions.reason,
@@ -2864,6 +3253,8 @@ export function WorkspaceSessionProvider({
       codeDiagnostics,
       codeEditVersion,
       updateCodeFile,
+      recordCodePreviewDiagnostic,
+      clearCodePreviewDiagnostics,
       workspacePermissions,
       generatedDesignDiagrams,
       generatedDiagrams,

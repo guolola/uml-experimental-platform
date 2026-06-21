@@ -1,0 +1,197 @@
+// Verifies local generation task list actions preserve terminal evidence users still need to review.
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { useGenerationTaskActions } from "./generation-task-actions";
+
+describe("workspace-session generation task actions", () => {
+  it("clears only ordinary completed tasks and keeps failure, cancellation, and review evidence", () => {
+    const { result } = renderHook(() => useGenerationTaskActions());
+
+    let completedId = "";
+    let failedId = "";
+    let cancelledId = "";
+    let reviewId = "";
+    let activeId = "";
+
+    act(() => {
+      completedId = result.current.enqueueGenerationTask({
+        kind: "requirements",
+        title: "普通成功任务",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 1,
+      });
+      failedId = result.current.enqueueGenerationTask({
+        kind: "requirements",
+        title: "失败任务",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 2,
+      });
+      cancelledId = result.current.enqueueGenerationTask({
+        kind: "design",
+        title: "已取消任务",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 3,
+      });
+      reviewId = result.current.enqueueGenerationTask({
+        kind: "design",
+        title: "待确认任务",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 4,
+        subtasks: [
+          {
+            id: "class",
+            label: "设计类图",
+            status: "pending_review",
+            message: "有 1 条低置信追踪关系需复核",
+            errorMessage: null,
+            pendingReviewCount: 1,
+          },
+        ],
+      });
+      activeId = result.current.enqueueGenerationTask({
+        kind: "code",
+        title: "运行中任务",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 5,
+      });
+    });
+
+    act(() => {
+      result.current.updateGenerationTask(completedId, (task) => ({
+        ...task,
+        status: "completed",
+        message: "完成",
+        finishedAt: "2026-06-21T00:00:00.000Z",
+      }));
+      result.current.updateGenerationTask(failedId, (task) => ({
+        ...task,
+        status: "failed",
+        errorMessage: "模型输出为空",
+        finishedAt: "2026-06-21T00:01:00.000Z",
+      }));
+      result.current.updateGenerationTask(cancelledId, (task) => ({
+        ...task,
+        status: "cancelled",
+        message: "用户已取消",
+        finishedAt: "2026-06-21T00:02:00.000Z",
+      }));
+      result.current.updateGenerationTask(reviewId, (task) => ({
+        ...task,
+        status: "completed",
+        message: "完成但需复核",
+        finishedAt: "2026-06-21T00:03:00.000Z",
+      }));
+      result.current.updateGenerationTask(activeId, (task) => ({
+        ...task,
+        status: "running",
+        message: "正在生成代码",
+      }));
+      result.current.selectGenerationTask(completedId);
+    });
+
+    act(() => {
+      result.current.clearCompletedGenerationTasks();
+    });
+
+    expect(result.current.generationTasks.map((task) => task.clientTaskId)).toEqual([
+      activeId,
+      reviewId,
+      cancelledId,
+      failedId,
+    ]);
+    expect(
+      result.current.generationTasks.some(
+        (task) => task.clientTaskId === completedId,
+      ),
+    ).toBe(false);
+    expect(result.current.selectedGenerationTaskId).toBe(activeId);
+  });
+
+  it("keeps active tasks when new tasks exceed the visible task capacity", () => {
+    const { result } = renderHook(() => useGenerationTaskActions());
+    const taskIds: string[] = [];
+
+    act(() => {
+      for (let index = 0; index < 30; index += 1) {
+        const taskId = result.current.enqueueGenerationTask({
+          kind: "requirements",
+          title: `历史任务 ${index + 1}`,
+          providerModel: "fake-model",
+          message: "排队中",
+          startedAtMs: index + 1,
+        });
+        taskIds.push(taskId);
+      }
+    });
+
+    const oldestActiveTaskId = taskIds[0];
+    const newestTerminalTaskId = taskIds[29];
+    act(() => {
+      for (const taskId of taskIds.slice(1)) {
+        result.current.updateGenerationTask(taskId, (task) => ({
+          ...task,
+          status: "completed",
+          message: "完成",
+          finishedAt: "2026-06-21T00:00:00.000Z",
+        }));
+      }
+      result.current.updateGenerationTask(oldestActiveTaskId, (task) => ({
+        ...task,
+        status: "running",
+        message: "仍在生成旧任务",
+      }));
+    });
+
+    let newTaskId = "";
+    act(() => {
+      newTaskId = result.current.enqueueGenerationTask({
+        kind: "design",
+        title: "新任务",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 31,
+      });
+    });
+
+    expect(result.current.generationTasks).toHaveLength(30);
+    expect(result.current.generationTasks.map((task) => task.clientTaskId)).toContain(
+      newTaskId,
+    );
+    expect(result.current.generationTasks.map((task) => task.clientTaskId)).toContain(
+      oldestActiveTaskId,
+    );
+    expect(result.current.generationTasks.map((task) => task.clientTaskId)).not.toContain(
+      taskIds[1],
+    );
+
+    act(() => {
+      result.current.updateGenerationTask(oldestActiveTaskId, (task) => ({
+        ...task,
+        status: "completed",
+        message: "旧任务生成完成",
+        finishedAt: "2026-06-21T00:02:00.000Z",
+      }));
+    });
+
+    expect(
+      result.current.generationTasks.find(
+        (task) => task.clientTaskId === oldestActiveTaskId,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        message: "旧任务生成完成",
+      }),
+    );
+    expect(
+      result.current.generationTasks.find(
+        (task) => task.clientTaskId === newestTerminalTaskId,
+      ),
+    ).toEqual(expect.objectContaining({ title: "历史任务 30" }));
+  });
+});

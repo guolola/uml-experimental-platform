@@ -12,6 +12,7 @@ import {
   createRunRecordStore,
   type RunRecordStore,
 } from "../../runs/records/run-record-store.js";
+import { createEmptyDocumentSnapshot } from "../../runs/records/snapshots.js";
 
 async function createTestApp(mailAdapter?: MailAdapter, runs?: RunRecordStore) {
   const app = Fastify();
@@ -79,7 +80,7 @@ async function createProject(input: {
   return response.json().project as { id: string; name: string };
 }
 
-test("project governance actions archive restore export retention and transfer ownership with audit", async () => {
+test("project governance actions archive restore retention and transfer ownership with audit", async () => {
   const { app, authStore } = await createTestApp();
   const owner = await registerUser({
     authStore,
@@ -127,16 +128,6 @@ test("project governance actions archive restore export retention and transfer o
   assert.equal(retention.statusCode, 200);
   assert.equal(retention.json().project.retentionPolicy, "semester_180_days");
 
-  const exported = await app.inject({
-    method: "POST",
-    url: `/api/projects/${project.id}/export`,
-    headers: { cookie: owner.cookie },
-  });
-  assert.equal(exported.statusCode, 200);
-  assert.equal(exported.json().export.project.id, project.id);
-  assert.equal(exported.json().export.members.length, 2);
-  assert.equal(typeof exported.json().export.generatedAt, "string");
-
   const transferred = await app.inject({
     method: "POST",
     url: `/api/projects/${project.id}/transfer-owner`,
@@ -152,12 +143,11 @@ test("project governance actions archive restore export retention and transfer o
     logs
       .map((entry) => entry.action)
       .filter((action) => action.startsWith("project."))
-      .slice(-5),
+      .slice(-4),
     [
       "project.archive",
       "project.restore",
       "project.retention_policy.update",
-      "project.export",
       "project.transfer_owner",
     ],
   );
@@ -470,15 +460,7 @@ test("project workspace restore applies a completed design run snapshot server-s
     designSvgArtifacts: Record<string, unknown>;
   };
   assert.equal(state.requirementText, "用户可以筛选日期并预约座位。");
-  assert.deepEqual(state.selectedDesignDiagramTypes, [
-    "architecture",
-    "sequence",
-    "class",
-    "activity",
-    "table",
-    "component",
-    "deployment",
-  ]);
+  assert.deepEqual(state.selectedDesignDiagramTypes, []);
   assert.deepEqual(state.generatedDesignDiagramTypes, [
     "architecture",
     "sequence",
@@ -500,6 +482,57 @@ test("project workspace restore applies a completed design run snapshot server-s
 
   const logs = await authStore.listAuditLogs();
   assert.ok(logs.some((entry) => entry.action === "project.workspace.restore"));
+  await app.close();
+});
+
+test("project workspace restore rejects completed document run snapshots without changing workspace", async () => {
+  const runs = createRunRecordStore();
+  const { app, authStore } = await createTestApp(undefined, runs);
+  const owner = await registerUser({
+    authStore,
+    email: "document-restore-owner@example.com",
+    displayName: "Document Restore Owner",
+  });
+  const project = await createProject({
+    app,
+    cookie: owner.cookie,
+    name: "Document Restore Project",
+  });
+  const before = await authStore.getProjectWorkspace(project.id);
+  const snapshot = createEmptyDocumentSnapshot("run-document-restore", {
+    documentKind: "requirementsSpec",
+    requirementText: "说明书快照不恢复工作台",
+  });
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_document_file";
+  snapshot.documentId = "doc-restore";
+  snapshot.fileName = "requirements.docx";
+  snapshot.byteLength = 128;
+  runs.set(snapshot.runId, {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: true,
+    metadata: {
+      projectId: project.id,
+      userId: owner.user.id,
+      createdAt: "2026-06-21T00:00:00.000Z",
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/projects/${project.id}/runs/${snapshot.runId}/restore-workspace`,
+    headers: { cookie: owner.cookie },
+    payload: { mode: "restore" },
+  });
+  const after = await authStore.getProjectWorkspace(project.id);
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /说明书快照不能恢复为项目工作台/);
+  assert.equal(after.version, before.version);
+  assert.deepEqual(after.state, before.state);
+
   await app.close();
 });
 
@@ -529,13 +562,6 @@ test("project governance actions require owner-level project settings permission
     headers: { cookie: editor.cookie },
   });
   assert.equal(archived.statusCode, 403);
-
-  const exported = await app.inject({
-    method: "POST",
-    url: `/api/projects/${project.id}/export`,
-    headers: { cookie: editor.cookie },
-  });
-  assert.equal(exported.statusCode, 403);
 
   await app.close();
 });

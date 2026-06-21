@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { DiagramError } from "@uml-platform/contracts";
+import type {
+  DiagramError,
+  EvidencePackage,
+  RunSnapshot,
+} from "@uml-platform/contracts";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
 import type { DesignDiagramType } from "../../../entities/diagram/model";
@@ -37,6 +41,37 @@ function diagramError(message: string): DiagramError {
       category: "generation",
       retryable: true,
     },
+  };
+}
+
+function evidencePackage(
+  overrides: Partial<EvidencePackage> = {},
+): EvidencePackage {
+  return {
+    runId: "requirements-run-evidence",
+    generatedAt: "2026-06-21T00:00:00.000Z",
+    status: "blocked",
+    requirementBaseline: null,
+    qualityReport: null,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    modelArtifacts: [],
+    codeArtifacts: [],
+    businessAssertionResults: null,
+    browserEvidence: [],
+    reviewItems: [
+      {
+        id: "review-coverage",
+        source: "coverage",
+        status: "pending",
+        severity: "warning",
+        reason: "覆盖项需要人工确认。",
+      },
+    ],
+    reviewDecisions: [],
+    failureRecords: [],
+    repairRecords: [],
+    ...overrides,
   };
 }
 
@@ -86,16 +121,19 @@ function task(overrides: Partial<GenerationTask>): GenerationTask {
 
 function input(overrides: Partial<LineageGraphInput> = {}): LineageGraphInput {
   return {
+    requirementText: "订单系统需求",
     rules: [],
     isRulesStale: false,
     requirementReviewCandidates: {},
     models: {},
     generatedDiagrams: [],
+    svgArtifacts: {},
     staleDiagrams: [],
     diagramErrors: {},
     selectedDiagrams: [],
     designModels: {},
     generatedDesignDiagrams: [],
+    designSvgArtifacts: {},
     designDiagramErrors: {},
     selectedDesignDiagrams: [],
     staleDesignDiagrams: [],
@@ -180,11 +218,19 @@ describe("buildLineageGraph", () => {
           class: model("class"),
         },
         generatedDiagrams: ["usecase", "class"],
+        svgArtifacts: {
+          usecase: { diagramKind: "usecase", svg: "<svg>usecase</svg>" } as never,
+          class: { diagramKind: "class", svg: "<svg>class</svg>" } as never,
+        },
         designModels: {
           sequence: designModel("sequence"),
           class: designModel("class"),
         },
         generatedDesignDiagrams: ["sequence", "class"],
+        designSvgArtifacts: {
+          sequence: { diagramKind: "sequence", svg: "<svg>sequence</svg>" } as never,
+          class: { diagramKind: "class", svg: "<svg>class</svg>" } as never,
+        },
         codeFiles: { "src/App.tsx": "export default function App() { return null; }" },
         codeEntryFile: "src/App.tsx",
       }),
@@ -204,6 +250,280 @@ describe("buildLineageGraph", () => {
     );
   });
 
+  it("marks generated code with diagnostics as reviewable but still viewable", () => {
+    const graph = buildLineageGraph(
+      input({
+        codeFiles: { "src/App.tsx": "export default function App() { return null; }" },
+        codeEntryFile: "src/App.tsx",
+        codeDiagnostics: [
+          {
+            stage: "verify_code_preview",
+            message: "检测到真实网络请求痕迹，已保留本地 mock 数据。",
+            at: "2026-06-21T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
+    expect(codeNode?.status).toBe("stale");
+    expect(codeNode?.hasViewableArtifact).toBe(true);
+    expect(codeNode?.reason).toContain("代码诊断 1 项");
+    expect(codeNode?.reason).toContain("当前代码仍可查看");
+    expect(graph.defaultSelectedNodeId).toBe("code:prototype");
+  });
+
+  it("projects local preview build failures as reviewable code diagnostics", () => {
+    const graph = buildLineageGraph(
+      input({
+        codeFiles: { "src/App.tsx": "import './Missing';" },
+        codeEntryFile: "src/App.tsx",
+        codeDiagnostics: [
+          {
+            stage: "verify_code_preview",
+            message: "本地预览失败：/src/App.tsx 无法解析导入 ./Missing",
+            at: "2026-06-21T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
+    expect(codeNode?.status).toBe("stale");
+    expect(codeNode?.hasViewableArtifact).toBe(true);
+    expect(codeNode?.reason).toContain("本地预览失败");
+    expect(codeNode?.reason).toContain("当前代码仍可查看");
+  });
+
+  it("marks old artifacts stale when the requirement source text is cleared", () => {
+    const graph = buildLineageGraph(
+      input({
+        requirementText: "",
+        rules: [baseRule],
+        isRulesStale: true,
+        models: {
+          usecase: model("usecase"),
+        },
+        generatedDiagrams: ["usecase"],
+        svgArtifacts: {
+          usecase: { diagramKind: "usecase", svg: "<svg>usecase</svg>" } as never,
+        },
+        staleDiagrams: ["usecase"],
+        designModels: {
+          sequence: designModel("sequence"),
+        },
+        generatedDesignDiagrams: ["sequence"],
+        designSvgArtifacts: {
+          sequence: { diagramKind: "sequence", svg: "<svg>sequence</svg>" } as never,
+        },
+        staleDesignDiagrams: ["sequence"],
+        staleDesignModelIds: ["sequence"],
+        designStaleReasons: {
+          sequence: "需求源头已删除，此设计模型为旧产物，需重新输入需求并重跑。",
+        },
+        codeFiles: {
+          "src/App.tsx": "export default function App() { return null; }",
+        },
+        codeEntryFile: "src/App.tsx",
+        historyItems: [
+          {
+            id: "run-doc",
+            createdAt: "2026-06-21T00:00:00.000Z",
+            title: "生成需求规格说明书",
+            snapshot: null,
+            providerModel: "gpt-5.5",
+            status: "completed",
+            documentKind: "requirementsSpec",
+            documentDownloadAvailable: true,
+          },
+        ],
+      }),
+    );
+
+    const ruleNode = graph.nodes.find((node) => node.id === "rule:REQ-001");
+    const useCaseNode = graph.nodes.find((node) => node.id === "requirement-model:usecase");
+    const designNode = graph.nodes.find((node) => node.id === "design-model:sequence");
+    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
+    const documentNode = graph.nodes.find(
+      (node) => node.id === "document:requirementsSpec",
+    );
+
+    expect(ruleNode?.status).toBe("stale");
+    expect(useCaseNode?.status).toBe("stale");
+    expect(useCaseNode?.reason).toContain("需求源头已删除");
+    expect(useCaseNode?.hasViewableArtifact).toBe(true);
+    expect(designNode?.status).toBe("stale");
+    expect(designNode?.reason).toContain("需求源头已删除");
+    expect(codeNode?.status).toBe("stale");
+    expect(codeNode?.reason).toContain("需求源头已删除");
+    expect(codeNode?.hasViewableArtifact).toBe(true);
+    expect(documentNode?.status).toBe("stale");
+    expect(documentNode?.reason).toContain("需求源头");
+  });
+
+  it("marks completed document history with missing diagrams as stale for review", () => {
+    const graph = buildLineageGraph(
+      input({
+        historyItems: [
+          {
+            id: "run-doc-warning",
+            createdAt: "2026-06-21T00:00:00.000Z",
+            title: "生成需求规格说明书",
+            snapshot: null,
+            providerModel: "gpt-5.5",
+            status: "completed",
+            documentKind: "requirementsSpec",
+            documentDownloadAvailable: true,
+            missingArtifactCount: 1,
+            missingArtifactSummary: ["用例图：缺少可嵌入图片源"],
+          },
+        ],
+      }),
+    );
+
+    const documentNode = graph.nodes.find(
+      (node) => node.id === "document:requirementsSpec",
+    );
+    expect(documentNode?.status).toBe("stale");
+    expect(documentNode?.reason).toContain("需求说明书已生成但缺图，需复核");
+    expect(documentNode?.reason).toContain("用例图：缺少可嵌入图片源");
+    expect(documentNode?.actionLabel).toBe("更新");
+  });
+
+  it("marks deleted document history as stale and not viewable", () => {
+    const graph = buildLineageGraph(
+      input({
+        historyItems: [
+          {
+            id: "run-doc-deleted",
+            createdAt: "2026-06-21T00:00:00.000Z",
+            title: "生成需求规格说明书",
+            snapshot: null,
+            providerModel: "gpt-5.5",
+            status: "completed",
+            runKind: "document",
+            documentKind: "requirementsSpec",
+            documentDownloadAvailable: false,
+            documentStatus: "deleted",
+            documentFileName: "requirements-deleted.docx",
+          },
+        ],
+      }),
+    );
+
+    const documentNode = graph.nodes.find(
+      (node) => node.id === "document:requirementsSpec",
+    );
+    expect(documentNode?.status).toBe("stale");
+    expect(documentNode?.hasViewableArtifact).toBe(false);
+    expect(documentNode?.reason).toContain("已在文档中心删除");
+  });
+
+  it("projects interrupted run history onto lineage nodes as retryable service interruptions", () => {
+    const graph = buildLineageGraph(
+      input({
+        codeFiles: { "src/App.tsx": "export default function App() { return null; }" },
+        historyItems: [
+          {
+            id: "run-code-interrupted",
+            createdAt: "2026-06-21T00:00:00.000Z",
+            title: "代码生成",
+            snapshot: null,
+            providerModel: "gpt-5.5",
+            status: "interrupted",
+            runKind: "code",
+            stage: "write_code_files",
+            summary: "服务中断，可重试 · 阶段 write_code_files",
+            canRestore: false,
+            snapshotAvailable: true,
+          },
+        ],
+      }),
+    );
+
+    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
+    expect(codeNode?.status).toBe("interrupted");
+    expect(codeNode?.reason).toContain("上一版仍可查看");
+    expect(codeNode?.reason).toContain("服务中断，可重试");
+    expect(codeNode?.actionLabel).toBe("重试");
+    expect(graph.summary.interrupted).toBe(1);
+    expect(graph.defaultSelectedNodeId).toBe("code:prototype");
+  });
+
+  it("projects failed code regenerations as old-code-viewable lineage errors", () => {
+    const graph = buildLineageGraph(
+      input({
+        codeFiles: {
+          "src/App.tsx": "export default function App() { return <main>old</main>; }",
+        },
+        codeEntryFile: "src/App.tsx",
+        historyItems: [
+          {
+            id: "code-run-failed-regenerate",
+            createdAt: "2026-06-21T00:10:00.000Z",
+            title: "代码重新生成",
+            providerModel: "gpt-5.5",
+            snapshot: {
+              runId: "code-run-failed-regenerate",
+              files: {},
+              entryFile: null,
+              generationMode: "regenerate",
+              status: "failed",
+              error: {
+                code: "RUN_INTERNAL_ERROR",
+                message: "代码重新生成失败",
+                category: "generation",
+                retryable: true,
+              },
+            } as never,
+          },
+        ],
+      }),
+    );
+
+    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
+    expect(codeNode?.status).toBe("error");
+    expect(codeNode?.hasViewableArtifact).toBe(true);
+    expect(codeNode?.reason).toContain("代码重新生成失败，上一版仍可查看");
+    expect(codeNode?.reason).toContain("代码重新生成失败");
+  });
+
+  it("keeps retry and rerun lineage visible in node recent events", () => {
+    const graph = buildLineageGraph(
+      input({
+        rules: [baseRule],
+        models: {
+          usecase: model("usecase"),
+          class: model("class"),
+        },
+        generatedDiagrams: ["usecase", "class"],
+        historyItems: [
+          {
+            id: "run-retry",
+            createdAt: "2026-06-21T01:10:00.000",
+            title: "需求模型重试",
+            snapshot: null,
+            providerModel: "gpt-5.5",
+            status: "queued",
+            runKind: "requirements",
+            stage: "generate_models",
+            sourceRunId: "run-failed",
+            sourceAction: "retry",
+            sourceRunStatus: "failed",
+          },
+        ],
+      }),
+    );
+
+    const useCaseNode = graph.nodes.find(
+      (node) => node.id === "requirement-model:usecase",
+    );
+    expect(useCaseNode?.recentEvents).toContainEqual({
+      label: "重试自 run-failed",
+      description: "06/21 01:10",
+    });
+  });
+
   it("keeps fresh design nodes current when only sibling design models are stale", () => {
     const graph = buildLineageGraph(
       input({
@@ -218,6 +538,9 @@ describe("buildLineageGraph", () => {
           sequence: designModel("sequence"),
         },
         generatedDesignDiagrams: ["sequence", "class"],
+        designSvgArtifacts: {
+          class: { diagramKind: "class", svg: "<svg>class</svg>" } as never,
+        },
         designTraceabilityStale: true,
         staleDesignDiagrams: ["sequence"],
         staleDesignModelIds: ["sequence"],
@@ -260,6 +583,116 @@ describe("buildLineageGraph", () => {
           edge.target === "requirement-model:class",
       )?.status,
     ).toBe("stale");
+  });
+
+  it("projects blocked evidence packages as downstream review gates", () => {
+    const blockedEvidence = evidencePackage();
+    const requirementsSnapshot: RunSnapshot = {
+      runId: "requirements-run-evidence",
+      requirementText: "订单系统需求",
+      selectedDiagrams: ["class"],
+      analysisTargetUseCaseIds: [],
+      rules: [baseRule],
+      requirementBaseline: null,
+      coverageMatrix: null,
+      traceabilityMatrix: null,
+      evidencePackage: blockedEvidence,
+      models: [],
+      requirementModelTraceability: [],
+      plantUml: [],
+      svgArtifacts: [],
+      diagramErrors: {},
+      requirementTrace: [],
+      currentStage: "render_svg",
+      status: "completed",
+      error: null,
+    };
+    const graph = buildLineageGraph(
+      input({
+        rules: [baseRule],
+        models: { class: model("class") },
+        generatedDiagrams: ["class"],
+        svgArtifacts: {
+          class: { diagramKind: "class", svg: "<svg>class</svg>" } as never,
+        },
+        designModels: { sequence: designModel("sequence") },
+        generatedDesignDiagrams: ["sequence"],
+        codeFiles: { "src/App.tsx": "export default function App() { return null; }" },
+        codeEntryFile: "src/App.tsx",
+        historyItems: [
+          {
+            id: "requirements-run-evidence",
+            createdAt: "2026-06-21T00:00:00.000Z",
+            title: "需求模型生成",
+            snapshot: requirementsSnapshot,
+            providerModel: "mock",
+            status: "completed",
+            runKind: "requirements",
+          },
+        ],
+      }),
+    );
+
+    const designNode = graph.nodes.find((node) => node.id === "design-model:sequence");
+    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
+    const documentNode = graph.nodes.find(
+      (node) => node.id === "document:requirementsSpec",
+    );
+
+    expect(designNode?.status).toBe("stale");
+    expect(designNode?.reason).toContain("证据包1 项待复核");
+    expect(codeNode?.status).toBe("stale");
+    expect(codeNode?.reason).toContain("证据包1 项待复核");
+    expect(documentNode?.status).toBe("stale");
+    expect(documentNode?.reason).toContain("证据包1 项待复核");
+    expect(graph.defaultSelectedNodeId).toBe("design-model:sequence");
+  });
+
+  it("projects failed rules-only history as a retryable rule extraction error", () => {
+    const failedRulesSnapshot: RunSnapshot = {
+      runId: "run-rules-failed",
+      requirementText: "订单系统需求",
+      selectedDiagrams: [],
+      analysisTargetUseCaseIds: [],
+      rules: [],
+      requirementBaseline: null,
+      coverageMatrix: null,
+      traceabilityMatrix: null,
+      evidencePackage: null,
+      models: [],
+      requirementModelTraceability: [],
+      plantUml: [],
+      svgArtifacts: [],
+      diagramErrors: {},
+      requirementTrace: [],
+      currentStage: "extract_rules",
+      status: "failed",
+      error: {
+        code: "RUN_STRUCTURED_OUTPUT_INVALID",
+        message: "rules 必须是数组",
+        category: "generation",
+        retryable: true,
+      },
+    };
+    const graph = buildLineageGraph(
+      input({
+        historyItems: [
+          {
+            id: "run-rules-failed",
+            createdAt: "2026-06-21T00:00:00.000Z",
+            title: "订单系统需求",
+            snapshot: failedRulesSnapshot,
+            providerModel: "mock",
+          },
+        ],
+      }),
+    );
+
+    const ruleNode = graph.nodes.find((node) => node.id === "rule:empty");
+    expect(ruleNode?.status).toBe("error");
+    expect(ruleNode?.reason).toContain("需求规则抽取失败");
+    expect(ruleNode?.reason).toContain("rules 必须是数组");
+    expect(ruleNode?.actionLabel).toBe("重试");
   });
 
   it("keeps failures local and marks blocked edges as errors", () => {
@@ -310,6 +743,135 @@ describe("buildLineageGraph", () => {
     expect(
       graph.nodes.find((node) => node.id === "requirement-model:usecase")?.status,
     ).toBe("running");
+  });
+
+  it("keeps old requirement artifacts viewable while the same model reruns", () => {
+    const graph = buildLineageGraph(
+      input({
+        rules: [baseRule],
+        models: { usecase: model("usecase") },
+        generatedDiagrams: ["usecase"],
+        svgArtifacts: {
+          usecase: { diagramKind: "usecase", svg: "<svg>old usecase</svg>" } as never,
+        },
+        generationTasks: [
+          task({
+            subtasks: [
+              {
+                id: "generate_models:usecase",
+                label: "用例模型",
+                status: "running",
+                message: null,
+                errorMessage: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const useCaseNode = graph.nodes.find(
+      (node) => node.id === "requirement-model:usecase",
+    );
+    expect(useCaseNode?.status).toBe("running");
+    expect(useCaseNode?.hasViewableArtifact).toBe(true);
+    expect(useCaseNode?.reason).toContain("重新生成中，旧产物仍可查看");
+  });
+
+  it("keeps old design artifacts viewable while the same design model reruns", () => {
+    const graph = buildLineageGraph(
+      input({
+        designModels: {
+          class: designModel("class"),
+        },
+        generatedDesignDiagrams: ["class"],
+        designSvgArtifacts: {
+          class: { diagramKind: "class", svg: "<svg>old class</svg>" } as never,
+        },
+        generationTasks: [
+          task({
+            kind: "design",
+            subtasks: [
+              {
+                id: "generate_design_models:class",
+                label: "设计类图",
+                status: "queued",
+                message: null,
+                errorMessage: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const classNode = graph.nodes.find((node) => node.id === "design-model:class");
+    expect(classNode?.status).toBe("running");
+    expect(classNode?.hasViewableArtifact).toBe(true);
+    expect(classNode?.reason).toContain("重新生成中，旧产物仍可查看");
+  });
+
+  it("marks generated requirement models without SVG as structured-only stale nodes", () => {
+    const graph = buildLineageGraph(
+      input({
+        rules: [baseRule],
+        models: { usecase: model("usecase") },
+        generatedDiagrams: ["usecase"],
+      }),
+    );
+
+    const useCaseNode = graph.nodes.find(
+      (node) => node.id === "requirement-model:usecase",
+    );
+    expect(useCaseNode?.status).toBe("stale");
+    expect(useCaseNode?.hasViewableArtifact).toBe(false);
+    expect(useCaseNode?.reason).toContain("结构化模型已生成，但 SVG 尚未生成");
+  });
+
+  it("marks generated design models without SVG as structured-only stale nodes", () => {
+    const graph = buildLineageGraph(
+      input({
+        designModels: {
+          class: designModel("class"),
+        },
+        generatedDesignDiagrams: ["class"],
+      }),
+    );
+
+    const classNode = graph.nodes.find((node) => node.id === "design-model:class");
+    expect(classNode?.status).toBe("stale");
+    expect(classNode?.hasViewableArtifact).toBe(false);
+    expect(classNode?.reason).toContain("结构化模型已生成，但 SVG 尚未生成");
+  });
+
+  it("projects active server runs into running lineage nodes after reload", () => {
+    const graph = buildLineageGraph(
+      input({
+        projectRuns: [
+          {
+            runId: "server-design-active",
+            status: "running",
+            stage: "generate_design_models",
+            runKind: "design",
+            requestedDiagrams: ["deployment"],
+          },
+          {
+            runId: "server-document-active",
+            status: "queued",
+            runKind: "document",
+            documentKind: "softwareDesignSpec",
+          },
+        ],
+      }),
+    );
+
+    expect(graph.nodes.find((node) => node.id === "design-model:deployment")?.status).toBe(
+      "running",
+    );
+    expect(
+      graph.nodes.find((node) => node.id === "document:softwareDesignSpec")?.status,
+    ).toBe("running");
+    expect(graph.summary.running).toBeGreaterThanOrEqual(2);
   });
 
   it("collects only directed upstream and downstream impact paths", () => {

@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { cn } from "../../../shared/ui/utils";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../../workspace-shell/state";
 import {
@@ -45,6 +46,7 @@ import {
 type LineageGraphDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  projectRuns?: PlatformRunSummary[];
 };
 
 type LineageFilter = "all" | "stale" | "error" | "impact";
@@ -64,6 +66,7 @@ const STATUS_LABELS: Record<LineageNodeStatus, string> = {
   stale: "需更新",
   error: "错误",
   running: "生成中",
+  interrupted: "服务中断",
 };
 
 const STATUS_BADGE_CLASS: Record<LineageNodeStatus, string> = {
@@ -72,6 +75,7 @@ const STATUS_BADGE_CLASS: Record<LineageNodeStatus, string> = {
   stale: "border-amber-200 bg-amber-50 text-amber-700",
   error: "border-red-200 bg-red-50 text-red-700",
   running: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  interrupted: "border-amber-200 bg-amber-50 text-amber-700",
 };
 
 const FILTERS: Array<{ value: LineageFilter; label: string }> = [
@@ -84,12 +88,13 @@ const FILTERS: Array<{ value: LineageFilter; label: string }> = [
 function edgeColor(status: string) {
   if (status === "stale") return "var(--warning)";
   if (status === "error") return "var(--destructive)";
+  if (status === "interrupted") return "var(--warning)";
   return "var(--border)";
 }
 
 function selectedEdgeColor(status: string) {
   if (status === "error") return "var(--destructive)";
-  if (status === "stale") return "var(--warning)";
+  if (status === "stale" || status === "interrupted") return "var(--warning)";
   return "var(--primary)";
 }
 
@@ -223,10 +228,10 @@ function LineageDetailPanel({
           <Button
             type="button"
             variant="outline"
-            disabled={selectedNode.status !== "current"}
+            disabled={!selectedNode.hasViewableArtifact}
             onClick={() => onViewArtifact(selectedNode)}
           >
-            查看产物
+            {selectedNode.status === "running" ? "查看旧版" : "查看产物"}
           </Button>
         </div>
       </div>
@@ -246,11 +251,15 @@ function LineageDetailPanel({
               ? "优先更新此节点，再检查下游节点是否恢复可生成。"
               : selectedNode.status === "error"
                 ? "查看生成任务中的执行详情，确认失败原因后重试此阶段。"
-                : selectedNode.status === "not-generated"
-                  ? "从上游满足条件的节点开始生成，逐步推进链路。"
-                  : selectedNode.status === "running"
-                    ? "保持在当前链路视图或打开生成任务查看实时日志。"
-                    : "当前节点可作为下游生成输入。"}
+                : selectedNode.status === "interrupted"
+                  ? "服务中断后保留旧产物证据，优先从运行历史重试或重新运行。"
+                  : selectedNode.status === "not-generated"
+                    ? "从上游满足条件的节点开始生成，逐步推进链路。"
+                    : selectedNode.status === "running"
+                      ? selectedNode.hasViewableArtifact
+                        ? "新结果生成期间旧产物仍可查看；需要确认当前证据时先查看旧版。"
+                        : "保持在当前链路视图或打开生成任务查看实时日志。"
+                      : "当前节点可作为下游生成输入。"}
           </p>
         </section>
         <section>
@@ -434,6 +443,7 @@ function LineageCanvas({
             <span>最新 {graph.summary.current}</span>
             <span>需更新 {graph.summary.stale}</span>
             <span>错误 {graph.summary.error}</span>
+            <span>服务中断 {graph.summary.interrupted}</span>
           </div>
         </div>
         <svg
@@ -492,7 +502,7 @@ function LineageCanvas({
                 ? "url(#lineage-arrow-selected)"
                 : edge.status === "error"
                   ? "url(#lineage-arrow-error)"
-                  : edge.status === "stale"
+                  : edge.status === "stale" || edge.status === "interrupted"
                     ? "url(#lineage-arrow-stale)"
                     : "url(#lineage-arrow-default)";
             return (
@@ -505,7 +515,11 @@ function LineageCanvas({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth="7"
-                    strokeDasharray={edge.status === "error" ? "6 5" : undefined}
+                    strokeDasharray={
+                      edge.status === "error" || edge.status === "interrupted"
+                        ? "6 5"
+                        : undefined
+                    }
                     opacity="0.88"
                   />
                 ) : null}
@@ -517,7 +531,11 @@ function LineageCanvas({
                   strokeWidth={style.inImpactPath ? 3 : 2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeDasharray={edge.status === "error" ? "6 5" : undefined}
+                  strokeDasharray={
+                    edge.status === "error" || edge.status === "interrupted"
+                      ? "6 5"
+                      : undefined
+                  }
                   markerEnd={marker}
                   opacity={style.muted ? 0.16 : 0.92}
                 />
@@ -560,11 +578,15 @@ function LineageCanvas({
 export function LineageGraphDialog({
   open,
   onOpenChange,
+  projectRuns = [],
 }: LineageGraphDialogProps) {
   const session = useWorkspaceSession();
   const workspaceShell = useWorkspaceShell();
   const [filter, setFilter] = useState<LineageFilter>("all");
-  const graph = useMemo(() => buildLineageGraph(session), [session]);
+  const graph = useMemo(
+    () => buildLineageGraph({ ...session, projectRuns }),
+    [projectRuns, session],
+  );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
@@ -670,6 +692,7 @@ export function LineageGraphDialog({
               </Badge>
               <Badge variant="warning">需更新 {graph.summary.stale}</Badge>
               <Badge variant="destructive">错误 {graph.summary.error}</Badge>
+              <Badge variant="warning">服务中断 {graph.summary.interrupted}</Badge>
               <Button type="button" variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="关闭链路图">
                 <X className="size-4" />
               </Button>

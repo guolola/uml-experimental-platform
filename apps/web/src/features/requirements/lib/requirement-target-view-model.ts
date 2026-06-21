@@ -98,6 +98,7 @@ export function requirementTargetCardState(input: RequirementTargetCardStateInpu
   const checked = selectedDiagrams.includes(diagram);
   const linkedRules = rules.filter((rule) => rule.relatedDiagrams.includes(diagram));
   const isAnalysisDiagram = diagram === "analysis";
+  const isExistingRequirementModel = generatedDiagrams.includes(diagram);
   const canGenerateSelectedUseCase =
     selectedDiagrams.includes("usecase") &&
     (rules.length > 0 || hasRequirementSourceText);
@@ -129,7 +130,10 @@ export function requirementTargetCardState(input: RequirementTargetCardStateInpu
   return {
     autoFillLabels,
     blockReason,
-    canSelectDiagram: canEditRequirements && !blockReason,
+    canSelectDiagram:
+      canEditRequirements &&
+      (!blockReason ||
+        (isRulesStale && rules.length > 0 && isExistingRequirementModel)),
     checked,
     hasPendingAutoReview: pendingAutoReviews.length > 0,
     hasUseCaseSourceForAnalysis,

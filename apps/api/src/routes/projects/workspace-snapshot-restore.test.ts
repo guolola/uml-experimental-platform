@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   AtomicRequirement,
+  CodeRunSnapshot,
   DesignDiagramModelSpec,
   DesignRunSnapshot,
   DesignSvgArtifact,
@@ -10,6 +11,7 @@ import type {
   RequirementBaseline,
   RunSnapshot,
 } from "@uml-platform/contracts";
+import { snapshotInputFingerprint } from "@uml-platform/contracts";
 import { createEmptySnapshot } from "../../runs/records/snapshots.js";
 import { restoreRunSnapshotToWorkspaceState } from "./workspace-snapshot-restore.js";
 
@@ -133,6 +135,62 @@ function tableDesignModel(): DesignDiagramModelSpec {
   };
 }
 
+function codeSnapshot(
+  overrides: Partial<CodeRunSnapshot> = {},
+): CodeRunSnapshot {
+  return {
+    runId: "code-run-snapshot",
+    requirementText: "图书馆管理系统",
+    rules: [],
+    requirementBaseline: null,
+    coverageMatrix: null,
+    traceabilityMatrix: null,
+    evidencePackage: null,
+    designModels: [],
+    designPlantUml: [],
+    spec: null,
+    businessLogic: null,
+    loadedCodeSkill: null,
+    visualDirection: null,
+    skillResourceDiscoveryPlan: null,
+    skillResourcePreviews: null,
+    skillResourcePlan: null,
+    codeSkillContext: null,
+    appBlueprint: null,
+    uiBlueprint: null,
+    uiMockup: null,
+    uiReferenceSpec: null,
+    uiFidelityReport: null,
+    designTokens: null,
+    componentRegistry: null,
+    uiIr: null,
+    visualDiffReport: null,
+    businessAssertionResults: null,
+    repairLoopSummary: null,
+    selectedCodeSkills: [],
+    skillDiagnostics: [],
+    filePlan: null,
+    codeImplementationBrief: null,
+    codeFileOperationManifest: null,
+    fileGenerationDiagnostics: [],
+    codeTrace: [],
+    codeGenerationMode: "json_schema_operations",
+    qualityDiagnostics: [],
+    files: { "/src/App.tsx": "export default function App() { return null; }" },
+    entryFile: "/src/App.tsx",
+    dependencies: {},
+    agentPlan: [],
+    generationMode: "continue",
+    changedFileCount: 1,
+    diagnostics: [],
+    codeContextHash: null,
+    currentStage: "verify_code_preview",
+    status: "completed",
+    error: null,
+    ...overrides,
+  };
+}
+
 function requirementRule(
   id: string,
   text = `${id} 需求规则。`,
@@ -236,6 +294,113 @@ function designSnapshot(
     ...overrides,
   };
 }
+
+test("restore preserves existing code files when a regenerate code snapshot fails", () => {
+  const currentState = {
+    codeFiles: {
+      "/src/App.tsx": "export default function App() { return <main>old</main>; }",
+    },
+    codeEntryFile: "/src/App.tsx",
+    codeDependencies: { react: "latest" },
+  };
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState,
+    snapshot: codeSnapshot({
+      files: {},
+      entryFile: null,
+      dependencies: {},
+      generationMode: "regenerate",
+      changedFileCount: 0,
+      status: "failed",
+      currentStage: "write_code_files",
+      error: {
+        code: "RUN_INTERNAL_ERROR",
+        message: "代码重新生成失败",
+        category: "generation",
+        retryable: true,
+      },
+    }),
+  });
+
+  assert.deepEqual(restored.codeFiles, currentState.codeFiles);
+  assert.equal(restored.codeEntryFile, "/src/App.tsx");
+  assert.deepEqual(restored.codeDependencies, { react: "latest" });
+});
+
+test("restore preserves existing code files when a regenerate code snapshot is cancelled before files are written", () => {
+  const currentState = {
+    codeFiles: {
+      "/src/main.tsx": "import App from './App';",
+      "/src/App.tsx": "export default function App() { return <main>old</main>; }",
+    },
+    codeEntryFile: "/src/main.tsx",
+    codeDependencies: { react: "latest", vite: "latest" },
+  };
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState,
+    snapshot: codeSnapshot({
+      files: {},
+      entryFile: null,
+      dependencies: {},
+      generationMode: "regenerate",
+      changedFileCount: 0,
+      status: "cancelled",
+      currentStage: "write_code_files",
+      error: null,
+    }),
+  });
+
+  assert.deepEqual(restored.codeFiles, currentState.codeFiles);
+  assert.equal(restored.codeEntryFile, "/src/main.tsx");
+  assert.deepEqual(restored.codeDependencies, { react: "latest", vite: "latest" });
+});
+
+test("restore stores snapshot input fingerprints for requirement diagrams after current input changed", () => {
+  const rulesV1 = [requirementRule("r1", "用户可以查看座位。")];
+  const rulesV2 = [requirementRule("r1", "用户可以查看并筛选座位。")];
+  const snapshotFingerprint = snapshotInputFingerprint({
+    requirementText: "座位预约系统 v1",
+    rules: rulesV1,
+  });
+  const workspaceFingerprint = snapshotInputFingerprint({
+    requirementText: "座位预约系统 v2",
+    rules: rulesV2,
+  });
+  const snapshot = createEmptySnapshot(
+    "run-v1-usecase",
+    "座位预约系统 v1",
+    ["usecase"],
+    rulesV1,
+    {
+      models: [requirementUseCaseModel()],
+      plantUml: [{ diagramKind: "usecase", source: "@startuml\n@enduml" }],
+    },
+  ) as RunSnapshot;
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_svg";
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText: "座位预约系统 v2",
+      rules: rulesV2,
+      requirementInputFingerprint: workspaceFingerprint,
+      rulesVersion: 2,
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  assert.equal(restored.requirementText, "座位预约系统 v2");
+  assert.deepEqual(restored.rules, rulesV2);
+  assert.equal(restored.requirementInputFingerprint, workspaceFingerprint);
+  assert.equal(
+    (restored.diagramInputFingerprints as Record<string, string>).usecase,
+    snapshotFingerprint,
+  );
+  assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
+});
 
 test("restore applies requirement baseline from model snapshots when input matches", () => {
   const requirementText = "用户通过邮箱注册账号，联系方式在认领通过前隐藏。";
@@ -582,6 +747,73 @@ test("restore applies successful design artifacts from failed partial snapshots"
   assert.ok((restored.designDiagramErrors as Record<string, unknown>).component);
 });
 
+test("restore clears stale rendered design artifacts when applying code snapshots", () => {
+  const tableModel = tableDesignModel();
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      designModels: {
+        "class:old": {
+          diagramKind: "class",
+          modelId: "class:old",
+          title: "旧设计类图",
+          summary: "旧上下文。",
+          notes: [],
+          classes: [],
+          interfaces: [],
+          enums: [],
+          relationships: [],
+        },
+      },
+      designModelTraceability: [
+        {
+          requirementModelId: "old-requirement",
+          designModelId: "class:old",
+          rationale: "旧追踪。",
+        },
+      ],
+      designSvgArtifacts: {
+        "class:old": designSvgArtifact("class", "class:old"),
+      },
+      generatedDesignDiagramTypes: ["class"],
+      designInputFingerprints: { "class:old": "old-design-fingerprint" },
+      designDiagramErrors: {
+        "class:old": {
+          stage: "render_svg",
+          error: {
+            code: "RUN_RENDER_FAILED",
+            message: "旧设计图渲染失败",
+            category: "render",
+            retryable: true,
+          },
+        },
+      },
+    },
+    snapshot: codeSnapshot({
+      designModels: [tableModel],
+      designPlantUml: [
+        {
+          diagramKind: "table",
+          modelId: "table",
+          source: "@startuml\nclass users\n@enduml",
+        },
+      ],
+    }),
+    mode: "merge",
+  });
+
+  assert.deepEqual(Object.keys(restored.designModels as Record<string, unknown>), [
+    "table",
+  ]);
+  assert.deepEqual(restored.designPlantUml, {
+    table: "@startuml\nclass users\n@enduml",
+  });
+  assert.deepEqual(restored.designModelTraceability, []);
+  assert.deepEqual(restored.designSvgArtifacts, {});
+  assert.deepEqual(restored.designDiagramErrors, {});
+  assert.deepEqual(restored.generatedDesignDiagramTypes, ["table"]);
+  assert.deepEqual(restored.designInputFingerprints, {});
+});
+
 test("restore fills missing requirement text without replacing existing rules", () => {
   const existingRule = {
     id: "existing",
@@ -882,6 +1114,92 @@ test("restore preserves existing artifacts when selected diagram only has an err
   assert.deepEqual(
     Object.keys(restored.svgArtifacts as Record<string, unknown>).sort(),
     ["class", "deployment", "usecase"],
+  );
+  assert.equal(
+    (restored.models as Record<string, unknown>).activity,
+    undefined,
+  );
+  assert.equal(
+    (restored.diagramErrors as Record<string, { error: { code: string } }>)
+      .activity.error.code,
+    "PLATFORM_PROVIDER_TIMEOUT",
+  );
+});
+
+test("restore applies successful requirement artifacts from cancelled partial snapshots", () => {
+  const snapshot = createEmptySnapshot(
+    "run-cancelled-requirements",
+    "用户可以浏览活动并报名。",
+    ["activity", "deployment"],
+    [],
+  ) as RunSnapshot;
+  snapshot.status = "cancelled";
+  snapshot.currentStage = "generate_models";
+  snapshot.models = [
+    {
+      diagramKind: "deployment",
+      modelId: "deployment",
+      title: "部署需求模型",
+      summary: "部署相关约束已生成。",
+      notes: [],
+      nodes: [],
+      databases: [],
+      components: [],
+      externalSystems: [],
+      artifacts: [],
+      relationships: [],
+    } as DiagramModelSpec,
+  ];
+  snapshot.plantUml = [
+    {
+      diagramKind: "deployment",
+      source: "@startuml\nnode App\n@enduml",
+    },
+  ];
+  snapshot.svgArtifacts = [
+    {
+      diagramKind: "deployment",
+      svg: "<svg><text>deployment</text></svg>",
+      renderMeta: {
+        engine: "plantuml",
+        generatedAt: "2026-06-20T00:00:00.000Z",
+        sourceLength: 24,
+        durationMs: 1,
+      },
+    },
+  ];
+  snapshot.diagramErrors = {
+    activity: {
+      stage: "generate_models",
+      error: {
+        code: "PLATFORM_PROVIDER_TIMEOUT",
+        message: "当前模型服务响应超时，请稍后重试。",
+        category: "platform_provider",
+        retryable: true,
+      },
+    },
+  };
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      generatedDiagramTypes: ["usecase"],
+      models: {
+        usecase: requirementUseCaseModel(),
+      },
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  assert.deepEqual(
+    (restored.generatedDiagramTypes as string[]).sort(),
+    ["deployment", "usecase"],
+  );
+  assert.deepEqual(restored.selectedDiagramTypes, []);
+  assert.equal(
+    (restored.models as Record<string, DiagramModelSpec>).deployment
+      .diagramKind,
+    "deployment",
   );
   assert.equal(
     (restored.models as Record<string, unknown>).activity,

@@ -51,19 +51,21 @@ interface WorkspaceDerivedStatusInput {
 }
 
 export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
+  const requirementSourceMissing = input.requirementText.trim().length === 0;
   const currentRequirementInputFingerprint = requirementInputFingerprintFor(
     input.requirementText,
     input.rules,
   );
   const isRulesStale =
     input.rules.length > 0 &&
-    (input.requirementInputFingerprint
+    (requirementSourceMissing ||
+      (input.requirementInputFingerprint
       ? !fingerprintMatches(
           input.requirementInputFingerprint,
           currentRequirementInputFingerprint,
         )
       : input.rulesBasedOnTextVersion !== null &&
-        input.rulesBasedOnTextVersion !== input.textVersion);
+        input.rulesBasedOnTextVersion !== input.textVersion));
 
   const presentRequirementDiagrams = orderedRequirementDiagrams(
     Object.keys(input.models).filter((diagram) =>
@@ -75,20 +77,22 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
     ...presentRequirementDiagrams,
   ]);
   const staleDiagrams = orderedRequirementDiagrams(
-    [...generatedRequirementDiagramSet].filter((diagram) =>
-      isRequirementDiagramStale({
-        diagram,
-        activeRequirementFingerprint: currentRequirementInputFingerprint,
-        generatedDiagrams: input.generatedDiagrams,
-        requirementInputFingerprint: input.requirementInputFingerprint,
-        diagramInputFingerprints: input.diagramInputFingerprints,
-        diagramVersions: input.diagramVersions,
-        rulesVersion: input.rulesVersion,
-        models: input.models,
-        requirementModelTraceability: input.requirementModelTraceability,
-        manualModelEditStatus: input.manualModelEditStatus,
-      }),
-    ),
+    requirementSourceMissing
+      ? [...generatedRequirementDiagramSet]
+      : [...generatedRequirementDiagramSet].filter((diagram) =>
+          isRequirementDiagramStale({
+            diagram,
+            activeRequirementFingerprint: currentRequirementInputFingerprint,
+            generatedDiagrams: input.generatedDiagrams,
+            requirementInputFingerprint: input.requirementInputFingerprint,
+            diagramInputFingerprints: input.diagramInputFingerprints,
+            diagramVersions: input.diagramVersions,
+            rulesVersion: input.rulesVersion,
+            models: input.models,
+            requirementModelTraceability: input.requirementModelTraceability,
+            manualModelEditStatus: input.manualModelEditStatus,
+          }),
+        ),
   );
   const requirementTraceabilityComplete = hasCompleteRequirementTraceability(
     Object.values(input.models),
@@ -146,7 +150,9 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
     );
     const reason =
       requirementInputStale
-        ? "需求文本或规则指纹已变化，此设计模型需更新。"
+        ? requirementSourceMissing
+          ? "需求源头已删除，此设计模型为旧产物，需重新输入需求并重跑。"
+          : "需求文本或规则指纹已变化，此设计模型需更新。"
         : storedDesignFingerprint && !fingerprintFresh
           ? "上游需求模型或追踪指纹已变化，此设计模型需更新。"
           : null;

@@ -82,6 +82,7 @@ const deploymentModel: DesignDiagramModelSpec = {
 
 async function createWorkspaceSyncFixture() {
   const authStore = createInMemoryAuthStore();
+  const runs = new Map<string, RunRecord>();
   const user = await authStore.createUser({
     email: "workspace-sync@example.com",
     displayName: "Workspace Sync",
@@ -98,8 +99,9 @@ async function createWorkspaceSyncFixture() {
   return {
     authStore,
     project,
+    runs,
     user,
-    syncProjectWorkspace: createProjectWorkspaceSync(authStore),
+    syncProjectWorkspace: createProjectWorkspaceSync(authStore, { runs }),
   };
 }
 
@@ -120,6 +122,14 @@ async function waitForWorkspace(
   const state = await read();
   assert.equal(predicate(state), true);
   return state;
+}
+
+async function waitForCondition(predicate: () => Promise<boolean>) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(await predicate(), true);
 }
 
 test("terminal requirement snapshots auto-sync into project workspace", async () => {
@@ -148,6 +158,84 @@ test("terminal requirement snapshots auto-sync into project workspace", async ()
     (candidate) => Boolean((candidate.models as Record<string, unknown> | undefined)?.usecase),
   );
   assert.equal((state.models as Record<string, { diagramKind: string }>).usecase.diagramKind, "usecase");
+  assert.deepEqual(state.selectedDiagramTypes, []);
+});
+
+test("older same-kind terminal snapshots do not overwrite newer project workspace source", async () => {
+  const { authStore, project, runs, user, syncProjectWorkspace } =
+    await createWorkspaceSyncFixture();
+  const newerSnapshot = createEmptySnapshot(
+    "run-requirement-newer",
+    rule.text,
+    ["usecase"],
+    [rule],
+    {
+      models: [{ ...useCaseModel, title: "较新用例模型" }],
+    },
+  );
+  newerSnapshot.status = "completed";
+  const olderSnapshot = createEmptySnapshot(
+    "run-requirement-older",
+    rule.text,
+    ["usecase"],
+    [rule],
+    {
+      models: [{ ...useCaseModel, title: "较旧用例模型" }],
+    },
+  );
+  olderSnapshot.status = "completed";
+  const newerRecord: RunRecord = {
+    snapshot: newerSnapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      projectId: project.id,
+      userId: user.id,
+      createdAt: "2026-06-20T00:01:00.000Z",
+    },
+  };
+  const olderRecord: RunRecord = {
+    snapshot: olderSnapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      projectId: project.id,
+      userId: user.id,
+      createdAt: "2026-06-20T00:00:00.000Z",
+    },
+  };
+  runs.set(newerSnapshot.runId, newerRecord);
+  runs.set(olderSnapshot.runId, olderRecord);
+
+  attachAndComplete(newerRecord, syncProjectWorkspace);
+  await waitForCondition(async () => {
+    const workspace = await authStore.getProjectWorkspace(project.id);
+    return workspace.sourceRunId === newerSnapshot.runId;
+  });
+  const afterNewer = await authStore.getProjectWorkspace(project.id);
+
+  attachAndComplete(olderRecord, syncProjectWorkspace);
+  await waitForCondition(async () => {
+    const logs = await authStore.listAuditLogs();
+    return logs.some(
+      (log) =>
+        log.action === "project.workspace.auto-sync" &&
+        log.message?.includes("sourceRunId=run-requirement-older") &&
+        log.message.includes("skipped older terminal snapshot"),
+    );
+  });
+  const afterOlder = await authStore.getProjectWorkspace(project.id);
+
+  assert.equal(afterOlder.version, afterNewer.version);
+  assert.equal(afterOlder.sourceRunId, newerSnapshot.runId);
+  assert.equal(
+    (
+      afterOlder.state.models as Record<string, { title: string }> | undefined
+    )?.usecase?.title,
+    "较新用例模型",
+  );
 });
 
 test("terminal design snapshots auto-sync successful design models into project workspace", async () => {
@@ -200,6 +288,8 @@ test("terminal design snapshots auto-sync successful design models into project 
   assert.ok(designModels["activity:design-interface-relations"]);
   assert.ok(designModels["component:design"]);
   assert.ok(designModels["deployment:design"]);
+  assert.deepEqual(state.selectedDiagramTypes, []);
+  assert.deepEqual(state.selectedDesignDiagramTypes, []);
 });
 
 test("terminal code snapshots auto-sync generated files while document snapshots are skipped", async () => {
@@ -259,4 +349,66 @@ test("terminal code snapshots auto-sync generated files while document snapshots
   await new Promise((resolve) => setTimeout(resolve, 20));
   const afterDocument = await authStore.getProjectWorkspace(project.id);
   assert.equal(afterDocument.version, beforeDocument.version);
+});
+
+test("cancelled regenerate code snapshots do not clear existing project code files", async () => {
+  const { authStore, project, user, syncProjectWorkspace } =
+    await createWorkspaceSyncFixture();
+  const oldCodeFiles = {
+    "/src/main.tsx": "import App from './App';",
+    "/src/App.tsx": "export default function App() { return <main>old</main>; }",
+  };
+  const seeded = await authStore.saveProjectWorkspace({
+    projectId: project.id,
+    baseVersion: 0,
+    state: {
+      codeFiles: oldCodeFiles,
+      codeEntryFile: "/src/main.tsx",
+      codeDependencies: { react: "latest", vite: "latest" },
+    },
+    updatedByUserId: user.id,
+  });
+  assert.equal(seeded.ok, true);
+
+  const snapshot = createEmptyCodeSnapshot("run-code-cancelled-sync", {
+    requirementText: rule.text,
+    rules: [rule],
+    designModels: [designClassModel],
+    existingFiles: oldCodeFiles,
+    generationMode: "regenerate",
+  });
+  snapshot.status = "cancelled";
+  snapshot.currentStage = "write_code_files";
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      projectId: project.id,
+      userId: user.id,
+      createdAt: "2026-06-20T00:00:00.000Z",
+    },
+  };
+
+  attachProjectWorkspaceSync(record, syncProjectWorkspace);
+  emitEvent(record, {
+    type: "cancelled",
+    stage: "write_code_files",
+    message: "用户取消代码重新生成。",
+  });
+
+  const state = await waitForWorkspace(
+    async () => (await authStore.getProjectWorkspace(project.id)).state,
+    (candidate) =>
+      Boolean(
+        (candidate.designModels as Record<string, unknown> | undefined)?.[
+          "class:design"
+        ],
+      ),
+  );
+
+  assert.deepEqual(state.codeFiles, oldCodeFiles);
+  assert.equal(state.codeEntryFile, "/src/main.tsx");
+  assert.deepEqual(state.codeDependencies, { react: "latest", vite: "latest" });
 });

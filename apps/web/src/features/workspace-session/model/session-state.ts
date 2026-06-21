@@ -165,6 +165,8 @@ export interface WorkspaceSessionState {
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
   codeEditVersion: number;
   updateCodeFile: (path: string, value: string) => void;
+  recordCodePreviewDiagnostic: (message: string) => void;
+  clearCodePreviewDiagnostics: () => void;
   canUpdateWorkspace: boolean;
   canStartRuns: boolean;
   workspacePermissionReason: string | null;

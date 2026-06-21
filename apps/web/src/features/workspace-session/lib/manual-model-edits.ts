@@ -15,15 +15,24 @@ import type {
   WorkspaceRecord,
 } from "../../../entities/workspace/model";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import {
+  pruneTraceabilityForDesignModels,
+  pruneTraceabilityForRequirementModels,
+} from "./traceability-pruning";
 
 interface ManualModelEditActionsInput {
+  designModelTraceability: WorkspaceRecord["designModelTraceability"];
   designModels: WorkspaceRecord["designModels"];
   models: WorkspaceRecord["models"];
   repository: WorkspaceRepository;
+  requirementModelTraceability: WorkspaceRecord["requirementModelTraceability"];
   setDesignDiagramErrors: Dispatch<
     SetStateAction<WorkspaceRecord["designDiagramErrors"]>
   >;
   setDesignModels: Dispatch<SetStateAction<WorkspaceRecord["designModels"]>>;
+  setDesignModelTraceability: Dispatch<
+    SetStateAction<WorkspaceRecord["designModelTraceability"]>
+  >;
   setDesignPlantUml: Dispatch<SetStateAction<WorkspaceRecord["designPlantUml"]>>;
   setDesignSvgArtifacts: Dispatch<
     SetStateAction<WorkspaceRecord["designSvgArtifacts"]>
@@ -36,15 +45,21 @@ interface ManualModelEditActionsInput {
   >;
   setModels: Dispatch<SetStateAction<WorkspaceRecord["models"]>>;
   setPlantUml: Dispatch<SetStateAction<WorkspaceRecord["plantUml"]>>;
+  setRequirementModelTraceability: Dispatch<
+    SetStateAction<WorkspaceRecord["requirementModelTraceability"]>
+  >;
   setSvgArtifacts: Dispatch<SetStateAction<WorkspaceRecord["svgArtifacts"]>>;
 }
 
 export function useManualModelEditActions({
+  designModelTraceability,
   designModels,
   models,
   repository,
+  requirementModelTraceability,
   setDesignDiagramErrors,
   setDesignModels,
+  setDesignModelTraceability,
   setDesignPlantUml,
   setDesignSvgArtifacts,
   setDiagramErrors,
@@ -53,6 +68,7 @@ export function useManualModelEditActions({
   setManualModelEditStatus,
   setModels,
   setPlantUml,
+  setRequirementModelTraceability,
   setSvgArtifacts,
 }: ManualModelEditActionsInput) {
   const createManualEditStatus = useCallback(
@@ -75,35 +91,68 @@ export function useManualModelEditActions({
     async (diagramKind: DiagramType, model: DiagramModelSpec) => {
       const status = createManualEditStatus("dirty");
       const modelKey = getRequirementModelId(model);
-      setModels((current) => ({ ...current, [modelKey]: model }));
+      const nextModels = { ...models, [modelKey]: model };
+      const prunedTraceability = pruneTraceabilityForRequirementModels({
+        models: nextModels,
+        requirementModelTraceability,
+        designModelTraceability,
+      });
+      setModels(nextModels);
+      setRequirementModelTraceability(
+        prunedTraceability.requirementModelTraceability,
+      );
+      setDesignModelTraceability(prunedTraceability.designModelTraceability);
       setManualModelEditStatus((current) => ({
         ...current,
         [modelKey]: status,
       }));
-      await repository.saveRequirementModelEdit?.(diagramKind, model, status);
+      await repository.saveRequirementModelEdit?.(
+        diagramKind,
+        model,
+        status,
+        prunedTraceability,
+      );
     },
     [
       createManualEditStatus,
+      designModelTraceability,
+      models,
       repository,
+      requirementModelTraceability,
+      setDesignModelTraceability,
       setManualModelEditStatus,
       setModels,
+      setRequirementModelTraceability,
     ],
   );
 
   const saveDesignModelEdit = useCallback(
     async (modelId: string, model: DesignDiagramModelSpec) => {
       const status = createManualEditStatus("dirty");
-      setDesignModels((current) => ({ ...current, [modelId]: model }));
+      const nextDesignModels = { ...designModels, [modelId]: model };
+      const prunedDesignTraceability = pruneTraceabilityForDesignModels({
+        designModels: nextDesignModels,
+        models,
+        designModelTraceability,
+      });
+      setDesignModels(nextDesignModels);
+      setDesignModelTraceability(prunedDesignTraceability);
       setManualModelEditStatus((current) => ({
         ...current,
         [modelId]: status,
       }));
-      await repository.saveDesignModelEdit?.(modelId, model, status);
+      await repository.saveDesignModelEdit?.(modelId, model, status, {
+        designModelTraceability: prunedDesignTraceability,
+      });
     },
     [
       createManualEditStatus,
+      designModelTraceability,
+      designModels,
+      models,
       repository,
       setDesignModels,
+      setDesignModelTraceability,
       setManualModelEditStatus,
     ],
   );

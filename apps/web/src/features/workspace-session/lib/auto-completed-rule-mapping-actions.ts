@@ -49,7 +49,7 @@ export function useAutoCompletedRuleMappingActions({
   textVersion,
 }: AutoCompletedRuleMappingActionsInput) {
   const resolveAutoCompletedRulesForRun = useCallback(
-    ({
+    async ({
       ruleMappingDiagrams,
       rulesRunMode,
       rulesSnapshot,
@@ -66,6 +66,19 @@ export function useAutoCompletedRuleMappingActions({
         const nextRulesVersion = rulesVersion + 1;
         const nextRequirementInputFingerprint =
           requirementInputFingerprintFor(requirementText, rulesForRun);
+        try {
+          await repository.updateRequirementRules?.(rulesForRun, {
+            requirementInputFingerprint: nextRequirementInputFingerprint,
+            rulesBasedOnTextVersion: textVersion,
+            rulesVersion: nextRulesVersion,
+          });
+        } catch (error) {
+          const detail =
+            error instanceof Error ? error.message : "保存项目工作台失败";
+          throw new Error(
+            `需求规则映射保存失败，已阻止下游生成。${detail}`,
+          );
+        }
         setRules(rulesForRun);
         setRulesVersion(nextRulesVersion);
         setRulesBasedOnTextVersion(textVersion);
@@ -74,11 +87,6 @@ export function useAutoCompletedRuleMappingActions({
           ...latestInputRef.current,
           rules: rulesForRun,
         };
-        void repository.updateRequirementRules?.(rulesForRun, {
-          requirementInputFingerprint: nextRequirementInputFingerprint,
-          rulesBasedOnTextVersion: textVersion,
-          rulesVersion: nextRulesVersion,
-        });
       }
 
       return {

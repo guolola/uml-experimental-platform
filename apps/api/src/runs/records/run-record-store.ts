@@ -25,6 +25,9 @@ export interface RunRecordMetadata {
   model?: string;
   createdAt: string;
   completedAt?: string;
+  sourceRunId?: string;
+  sourceAction?: "retry" | "rerun";
+  sourceRunStatus?: string;
 }
 
 export interface SerializedRunRecord {
@@ -49,8 +52,27 @@ function isTerminalRunEvent(event: RunEvent) {
   return event.type === "completed" || event.type === "failed" || event.type === "cancelled";
 }
 
-function canEmitAfterTerminal(event: RunEvent) {
-  return isTerminalRunEvent(event) || event.type === "run_action";
+function terminalStatusFromEvent(event: RunEvent) {
+  return isTerminalRunEvent(event) ? event.type : null;
+}
+
+function recordedTerminalStatus(record: RunRecord) {
+  for (const event of record.events) {
+    const status = terminalStatusFromEvent(event);
+    if (status) return status;
+  }
+  return record.snapshot.status === "completed" ||
+    record.snapshot.status === "failed" ||
+    record.snapshot.status === "cancelled"
+    ? record.snapshot.status
+    : null;
+}
+
+function restoreRecordedTerminalStatus(record: RunRecord) {
+  const status = recordedTerminalStatus(record);
+  if (status) {
+    record.snapshot.status = status;
+  }
 }
 
 export function createRunRecordStore(
@@ -90,8 +112,16 @@ export function serializeRunRecordStore(
 export function emitEvent(record: RunRecord, event: RunEvent) {
   // Terminal lifecycle events close SSE streams; late worker progress after that
   // would make the task drawer appear completed while details still mutate.
-  if (record.terminal && !canEmitAfterTerminal(event)) {
-    return;
+  if (record.terminal) {
+    if (event.type === "run_action") {
+      // Retry/rerun lineage is allowed after terminal, but lifecycle terminal
+      // state itself is immutable once the first terminal event closes the run.
+    } else {
+      if (isTerminalRunEvent(event)) {
+        restoreRecordedTerminalStatus(record);
+      }
+      return;
+    }
   }
   const storeEvent = shouldStoreEvent(event);
   if (storeEvent) {

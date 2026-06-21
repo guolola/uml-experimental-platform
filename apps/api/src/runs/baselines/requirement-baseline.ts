@@ -93,7 +93,9 @@ export function buildRequirementBaseline({
   rules: RequirementRule[];
   createdAt?: string;
 }): RequirementBaseline {
-  const requirements = rules.map((rule, index) =>
+  const sourceRules = rules.map((rule) => ({ ...rule }));
+  ensureUniqueRequirementRuleIds(sourceRules);
+  const requirements = sourceRules.map((rule, index) =>
     buildAtomicRequirement(rule, index, requirementText),
   );
   const conflicts = detectConflicts(requirements);
@@ -163,6 +165,25 @@ export function assertRequirementBaselineAllowsDownstream(
 ): asserts baseline is RequirementBaseline {
   if (!baseline) {
     throw new Error("RequirementBaseline blocked downstream generation: baseline is missing");
+  }
+  const blockingIssueIds = new Set(baseline.qualityReport.blockingIssueIds);
+  const blockingIssues = baseline.qualityReport.issues.filter(
+    (issue) => issue.blocksDownstream || blockingIssueIds.has(issue.id),
+  );
+  if (
+    baseline.qualityReport.status === "blocked" ||
+    blockingIssueIds.size > 0 ||
+    blockingIssues.length > 0
+  ) {
+    const details =
+      blockingIssues
+        .map((issue) => issue.message.trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .join("；") || baseline.qualityReport.summary;
+    throw new Error(
+      `RequirementBaseline blocked downstream generation: ${details}`,
+    );
   }
 }
 
@@ -386,6 +407,21 @@ function inferActor(text: string) {
   if (match?.[1]) return match[1];
   const known = ACTOR_CANDIDATES.find((actor) => text.includes(actor));
   return known ?? null;
+}
+
+function ensureUniqueRequirementRuleIds(rules: RequirementRule[]) {
+  const usedRuleIds = new Set<string>();
+  for (const rule of rules) {
+    const baseId = rule.id.trim() || "r";
+    let candidate = baseId;
+    let suffix = 2;
+    while (usedRuleIds.has(candidate.toLowerCase())) {
+      candidate = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    usedRuleIds.add(candidate.toLowerCase());
+    rule.id = candidate;
+  }
 }
 
 function inferSubject(text: string) {

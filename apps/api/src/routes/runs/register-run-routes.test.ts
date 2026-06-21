@@ -18,6 +18,7 @@ import type {
   RunSnapshot,
   SvgArtifact,
 } from "@uml-platform/contracts";
+import { snapshotInputFingerprint } from "@uml-platform/contracts";
 import type { LlmTransport } from "../../llm.js";
 import {
   createInMemoryLlmScheduler,
@@ -101,6 +102,45 @@ const workspaceRequirementBaseline = buildRequirementBaseline({
   requirementText: "用户可以查看公开活动日历。",
   rules: workspaceRequirementRules,
 });
+
+function createBlockedRequirementBaseline() {
+  const baseline = buildRequirementBaseline({
+    runId: "workspace-blocked-baseline",
+    requirementText: "用户可以查看公开活动日历。用户不得查看公开活动日历。",
+    rules: [
+      {
+        id: "REQ-001",
+        category: "功能需求",
+        text: "用户可以查看公开活动日历。",
+        relatedDiagrams: ["usecase"],
+      },
+      {
+        id: "REQ-002",
+        category: "业务规则",
+        text: "用户不得查看公开活动日历。",
+        relatedDiagrams: ["usecase"],
+      },
+    ],
+  });
+  baseline.qualityReport = {
+    ...baseline.qualityReport,
+    status: "blocked",
+    summary: "需求基线存在阻断型质量问题。",
+    issues: [
+      {
+        id: "ISS-001",
+        requirementId: "REQ-001",
+        severity: "critical",
+        code: "conflict",
+        message: "公开活动日历查看规则互相冲突。",
+        blocksDownstream: true,
+      },
+    ],
+    blockingIssueIds: ["ISS-001"],
+    reviewRequiredRequirementIds: ["REQ-001"],
+  };
+  return baseline;
+}
 
 const workspaceRequirementTraceability: RequirementModelTraceabilityEntry[] = [
   {
@@ -1545,6 +1585,7 @@ test("project run history exposes snapshot and document capabilities without emb
         fileName: "requirements.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         byteLength: 12,
+        missingArtifacts: ["用例图：缺少可嵌入图片源"],
       });
       emitEvent(record, { type: "completed", snapshot: record.snapshot } as RunEvent);
     },
@@ -1584,8 +1625,10 @@ test("project run history exposes snapshot and document capabilities without emb
   assert.equal(history.statusCode, 200);
   const run = history.json().runs[0];
   assert.equal(run.snapshotAvailable, true);
-  assert.equal(run.canRestore, true);
+  assert.equal(run.canRestore, false);
   assert.equal(run.documentDownloadAvailable, true);
+  assert.equal(run.missingArtifactCount, 1);
+  assert.deepEqual(run.missingArtifactSummary, ["用例图：缺少可嵌入图片源"]);
   assert.equal("snapshot" in run, false);
 
   const viewerDownload = await app.inject({
@@ -1596,6 +1639,218 @@ test("project run history exposes snapshot and document capabilities without emb
     },
   });
   assert.equal(viewerDownload.statusCode, 200);
+
+  await app.close();
+});
+
+test("project document run history detail and download use current library file name", async () => {
+  const currentDocument = {
+    id: "doc-renamed",
+    workspaceId: "project-project-a",
+    projectId: "project-a",
+    createdByUserId: "user-a",
+    documentKind: "requirementsSpec",
+    title: "需求规格说明书",
+    fileName: "requirements-renamed.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    byteLength: 21,
+    version: 1,
+    status: "active",
+    sourceRunId: "run-document",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:05:00.000Z",
+  };
+  const { app } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+        view_runs: ["project-a"],
+        manage_documents: ["project-a"],
+        view_documents: ["project-a"],
+      },
+    }),
+    documentLibrary: {
+      async getDocument(workspaceId, documentId) {
+        return workspaceId === "project-project-a" && documentId === "doc-renamed"
+          ? currentDocument
+          : null;
+      },
+    } as DocumentLibrary,
+    runDocumentStagePipeline: async (record) => {
+      record.documentBuffer = Buffer.from("requirements document");
+      Object.assign(record.snapshot, {
+        status: "completed",
+        currentStage: "render_document_file",
+        documentId: "doc-renamed",
+        fileName: "requirements-original.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        byteLength: 21,
+      });
+      emitEvent(record, { type: "completed", snapshot: record.snapshot } as RunEvent);
+    },
+  });
+
+  const started = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+      "x-test-project-id": "project-a",
+    },
+    payload: {
+      projectId: "project-a",
+      documentKind: "requirementsSpec",
+      requirementText: "生成说明书",
+      rules: [],
+      requirementModels: [minimalUseCaseModel],
+      requirementPlantUml: [],
+      requirementSvgArtifacts: [],
+      designModels: [],
+      designPlantUml: [],
+      designSvgArtifacts: [],
+      useAiText: false,
+    },
+  });
+  assert.equal(started.statusCode, 202);
+  const runId = started.json().runId as string;
+
+  const history = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/runs",
+    headers: { "x-test-user-id": "user-a" },
+  });
+  const detail = await app.inject({
+    method: "GET",
+    url: `/api/projects/project-a/runs/${runId}`,
+    headers: { "x-test-user-id": "user-a" },
+  });
+  const download = await app.inject({
+    method: "GET",
+    url: `/api/document-runs/${runId}/download`,
+    headers: { "x-test-user-id": "user-a" },
+  });
+
+  assert.equal(history.statusCode, 200);
+  assert.equal(history.json().runs[0].documentId, "doc-renamed");
+  assert.equal(history.json().runs[0].documentFileName, "requirements-renamed.docx");
+  assert.equal(history.json().runs[0].documentVersion, 1);
+  assert.equal(history.json().runs[0].documentStatus, "active");
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().run.documentFileName, "requirements-renamed.docx");
+  assert.equal(detail.json().snapshot.fileName, "requirements-original.docx");
+  assert.equal(download.statusCode, 200);
+  assert.match(
+    download.headers["content-disposition"] as string,
+    /requirements-renamed\.docx/u,
+  );
+
+  await app.close();
+});
+
+test("deleted project document disables source run history download even when run buffer remains", async () => {
+  const deletedDocument = {
+    id: "doc-deleted",
+    workspaceId: "project-project-a",
+    projectId: "project-a",
+    createdByUserId: "user-a",
+    documentKind: "requirementsSpec",
+    title: "需求规格说明书",
+    fileName: "requirements-deleted.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    byteLength: 21,
+    version: 1,
+    status: "deleted",
+    sourceRunId: "run-document",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:05:00.000Z",
+  };
+  let bufferLookups = 0;
+  const { app } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+        view_runs: ["project-a"],
+        manage_documents: ["project-a"],
+        view_documents: ["project-a"],
+      },
+    }),
+    documentLibrary: {
+      async getDocument(workspaceId, documentId, options) {
+        return workspaceId === "project-project-a" &&
+          documentId === "doc-deleted" &&
+          options?.includeDeleted
+          ? deletedDocument
+          : null;
+      },
+      async getDocumentBuffer() {
+        bufferLookups += 1;
+        return Buffer.from("deleted document");
+      },
+    } as DocumentLibrary,
+    runDocumentStagePipeline: async (record) => {
+      record.documentBuffer = Buffer.from("in-memory deleted document");
+      Object.assign(record.snapshot, {
+        status: "completed",
+        currentStage: "render_document_file",
+        documentId: "doc-deleted",
+        fileName: "requirements-original.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        byteLength: 21,
+      });
+      emitEvent(record, { type: "completed", snapshot: record.snapshot } as RunEvent);
+    },
+  });
+
+  const started = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+      "x-test-project-id": "project-a",
+    },
+    payload: {
+      projectId: "project-a",
+      documentKind: "requirementsSpec",
+      requirementText: "生成说明书",
+      rules: [],
+      requirementModels: [minimalUseCaseModel],
+      requirementPlantUml: [],
+      requirementSvgArtifacts: [],
+      designModels: [],
+      designPlantUml: [],
+      designSvgArtifacts: [],
+      useAiText: false,
+    },
+  });
+  assert.equal(started.statusCode, 202);
+  const runId = started.json().runId as string;
+
+  const history = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/runs",
+    headers: { "x-test-user-id": "user-a" },
+  });
+  const detail = await app.inject({
+    method: "GET",
+    url: `/api/projects/project-a/runs/${runId}`,
+    headers: { "x-test-user-id": "user-a" },
+  });
+  const download = await app.inject({
+    method: "GET",
+    url: `/api/document-runs/${runId}/download`,
+    headers: { "x-test-user-id": "user-a" },
+  });
+
+  assert.equal(history.statusCode, 200);
+  assert.equal(history.json().runs[0].documentDownloadAvailable, false);
+  assert.equal(history.json().runs[0].documentStatus, "deleted");
+  assert.equal(history.json().runs[0].documentRestoreAvailable, true);
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().run.documentDownloadAvailable, false);
+  assert.equal(detail.json().run.documentStatus, "deleted");
+  assert.equal(download.statusCode, 409);
+  assert.match(download.json().message, /deleted/u);
+  assert.equal(bufferLookups, 0);
 
   await app.close();
 });
@@ -1616,6 +1871,26 @@ test("document run download falls back to persisted project document after run b
       },
     }),
     documentLibrary: {
+      async getDocument(workspaceId, documentId) {
+        return workspaceId === "project-project-a" && documentId === "doc-persisted"
+          ? {
+              id: "doc-persisted",
+              workspaceId,
+              projectId: "project-a",
+              createdByUserId: "user-a",
+              documentKind: "requirementsSpec",
+              title: "需求规格说明书",
+              fileName: "persisted-requirements-renamed.docx",
+              mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              byteLength: persistedDocument.byteLength,
+              version: 2,
+              status: "active",
+              sourceRunId: "run-document",
+              createdAt: "2026-06-21T00:00:00.000Z",
+              updatedAt: "2026-06-21T00:05:00.000Z",
+            }
+          : null;
+      },
       async getDocumentBuffer(workspaceId, documentId) {
         documentLookups.push({ workspaceId, documentId });
         return documentId === "doc-persisted" ? persistedDocument : null;
@@ -1667,9 +1942,77 @@ test("document run download falls back to persisted project document after run b
 
   assert.equal(download.statusCode, 200);
   assert.equal(download.body, persistedDocument.toString());
+  assert.match(
+    download.headers["content-disposition"] as string,
+    /persisted-requirements-renamed\.docx/u,
+  );
   assert.deepEqual(documentLookups, [
     { workspaceId: "project-project-a", documentId: "doc-persisted" },
   ]);
+
+  await app.close();
+});
+
+test("failed document runs with saved artifacts are not exposed as completed downloads", async () => {
+  const { app, runs } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "viewer-a": {
+        view_runs: ["project-a"],
+        view_documents: ["project-a"],
+      },
+    }),
+  });
+  const snapshot = createEmptyDocumentSnapshot("run-doc-failed", {
+    documentKind: "requirementsSpec",
+    requirementText: "失败后仍残留 DOCX 的说明书",
+  });
+  Object.assign(snapshot, {
+    status: "failed",
+    currentStage: "render_document_file",
+    documentId: "doc-failed",
+    fileName: "failed-requirements.docx",
+    byteLength: 12,
+    error: {
+      code: "RUN_INTERNAL_ERROR",
+      message: "证据包组装失败",
+      category: "internal",
+      retryable: true,
+    },
+  } satisfies Partial<typeof snapshot>);
+  runs.set(snapshot.runId, {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: true,
+    documentBuffer: Buffer.from("failed document"),
+    metadata: {
+      projectId: "project-a",
+      userId: "user-a",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      completedAt: "2026-06-21T00:01:00.000Z",
+    },
+  });
+
+  const history = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "viewer-a",
+    },
+  });
+  const download = await app.inject({
+    method: "GET",
+    url: "/api/document-runs/run-doc-failed/download",
+    headers: {
+      "x-test-user-id": "viewer-a",
+    },
+  });
+
+  assert.equal(history.statusCode, 200);
+  assert.equal(history.json().runs[0].status, "failed");
+  assert.equal(history.json().runs[0].documentDownloadAvailable, false);
+  assert.equal(download.statusCode, 409);
+  assert.match(download.json().message, /not completed successfully/);
 
   await app.close();
 });
@@ -1776,6 +2119,171 @@ test("project run history deletes only authorized terminal project records", asy
   await app.close();
 });
 
+test("project run history clears authorized terminal project records", async () => {
+  const { app, runs } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+        view_runs: ["project-a"],
+      },
+      "user-b": {
+        start_runs: ["project-b"],
+        view_runs: ["project-b"],
+      },
+    }),
+  });
+
+  const startProjectRun = async (
+    projectId: string,
+    userId: string,
+    requirementText: string,
+  ) => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      headers: {
+        "x-test-user-id": userId,
+      },
+      payload: {
+        projectId,
+        requirementText,
+        selectedDiagrams: ["usecase"],
+      },
+    });
+    assert.equal(response.statusCode, 202);
+    const runId = response.json().runId as string;
+    await waitForRunStatus(runs, runId, "completed");
+    return runId;
+  };
+
+  const projectARunIds = [
+    await startProjectRun("project-a", "user-a", "项目 A 需求 1"),
+    await startProjectRun("project-a", "user-a", "项目 A 需求 2"),
+  ];
+  const projectBRunId = await startProjectRun(
+    "project-b",
+    "user-b",
+    "项目 B 需求",
+  );
+
+  const crossProjectClear = await app.inject({
+    method: "DELETE",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "user-b",
+    },
+  });
+  const clearResponse = await app.inject({
+    method: "DELETE",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+  });
+  const projectAHistory = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+  });
+  const projectBHistory = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-b/runs",
+    headers: {
+      "x-test-user-id": "user-b",
+    },
+  });
+
+  assert.equal(crossProjectClear.statusCode, 403);
+  assert.equal(clearResponse.statusCode, 200);
+  assert.deepEqual(
+    clearResponse.json().deletedRunIds.sort(),
+    projectARunIds.sort(),
+  );
+  assert.deepEqual(projectAHistory.json().runs, []);
+  assert.deepEqual(
+    projectBHistory.json().runs.map((run: { runId: string }) => run.runId),
+    [projectBRunId],
+  );
+
+  await app.close();
+});
+
+test("project run history clear rejects active project records without deleting terminal records", async () => {
+  const { app, runs } = await createRunRouteTestContext({
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+        view_runs: ["project-a"],
+      },
+    }),
+    completeRuns: false,
+  });
+
+  const terminalSnapshot = createEmptySnapshot(
+    "run-terminal",
+    "已完成的需求",
+    ["usecase"],
+  );
+  terminalSnapshot.status = "completed";
+  const terminalRecord: RunRecord = {
+    snapshot: terminalSnapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+    metadata: {
+      projectId: "project-a",
+      userId: "user-a",
+      createdAt: "2026-06-20T01:00:00.000Z",
+    },
+  };
+  runs.set(terminalSnapshot.runId, terminalRecord);
+  emitEvent(terminalRecord, {
+    type: "completed",
+    snapshot: terminalSnapshot,
+  } as RunEvent);
+
+  const activeResponse = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: "运行中的需求",
+      selectedDiagrams: ["usecase"],
+    },
+  });
+  assert.equal(activeResponse.statusCode, 202);
+  const activeRunId = activeResponse.json().runId as string;
+
+  const clearResponse = await app.inject({
+    method: "DELETE",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+  });
+  const history = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+  });
+
+  assert.equal(clearResponse.statusCode, 409);
+  assert.deepEqual(clearResponse.json().activeRunIds, [activeRunId]);
+  assert.deepEqual(
+    history.json().runs.map((run: { runId: string }) => run.runId).sort(),
+    [activeRunId, "run-terminal"].sort(),
+  );
+
+  await app.close();
+});
+
 test("project document runs do not require legacy workspace credentials", async () => {
   let capturedWorkspaceId = "";
   const app = await createRunRouteTestApp({
@@ -1866,6 +2374,187 @@ test("project design start command loads complete workspace input with large svg
   assert.equal(snapshot.designModelTraceability[0]?.mappingSource, "llm");
   assert.equal(snapshot.plantUml[0]?.source.includes("活动服务"), true);
   assert.equal(snapshot.svgArtifacts[0]?.svg, largeSvg);
+
+  await app.close();
+});
+
+test("project design start command expands missing design dependencies before queuing", async () => {
+  const state = {
+    ...createProjectWorkspaceState(),
+    designModels: {},
+    designModelTraceability: [],
+    designPlantUml: {},
+    designSvgArtifacts: {},
+  };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      selectedDiagrams: ["deployment"],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const snapshot = runs.get(response.json().runId)?.snapshot as DesignRunSnapshot;
+  assert.deepEqual(snapshot.selectedDiagrams, [
+    "sequence",
+    "class",
+    "component",
+    "deployment",
+  ]);
+  assert.deepEqual(snapshot.requestedDiagrams, ["deployment"]);
+  assert.deepEqual(snapshot.models, []);
+  assert.deepEqual(snapshot.plantUml, []);
+  assert.deepEqual(snapshot.svgArtifacts, []);
+
+  await app.close();
+});
+
+test("project design start command rejects stale requirement model sources before queuing", async () => {
+  const staleWorkspaceState = createProjectWorkspaceState();
+  const oldRequirementFingerprint = snapshotInputFingerprint({
+    requirementText: "用户可以查看公开活动日历。",
+    rules: workspaceRequirementRules,
+  });
+  staleWorkspaceState.requirementText = "用户可以查看公开活动日历，并按城市筛选。";
+  staleWorkspaceState.requirementInputFingerprint = oldRequirementFingerprint;
+  staleWorkspaceState.diagramInputFingerprints = {
+    usecase: oldRequirementFingerprint,
+  };
+  staleWorkspaceState.generatedDiagramTypes = ["usecase"];
+  staleWorkspaceState.rulesVersion = 2;
+  staleWorkspaceState.diagramVersions = { usecase: 1 };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: staleWorkspaceState }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      selectedDiagrams: ["sequence"],
+    },
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.match(response.json().message, /Requirement models are stale/u);
+  assert.match(response.json().message, /usecase/u);
+  assert.equal(runs.size, 0);
+
+  await app.close();
+});
+
+test("project start commands reject pending requirement review candidates before queuing", async () => {
+  const requirement = workspaceRequirementBaseline.requirements[0];
+  assert.ok(requirement);
+  const pendingReviewWorkspaceState = {
+    ...createProjectWorkspaceState(),
+    requirementReviewCandidates: {
+      "REQ-001": {
+        ruleId: "REQ-001",
+        beforeRequirement: requirement,
+        afterRequirement: {
+          ...requirement,
+          actor: "游客",
+          status: "pending-review",
+          fieldProvenance: {
+            ...requirement.fieldProvenance,
+            actor: {
+              source: "ai-suggested",
+              status: "pending-review",
+              value: "游客",
+              originalValue: requirement.actor,
+              rationale: "智能修复建议补充参与者。",
+            },
+          },
+        },
+        repairRationale: "补充缺失的参与者。",
+        blockingReasons: ["缺少参与者"],
+        status: "pending",
+        errorMessage: null,
+        createdAt: "2026-06-21T00:00:00.000Z",
+      },
+    },
+  };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "reviewer-a": {
+        start_runs: ["project-a"],
+        manage_documents: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: pendingReviewWorkspaceState }),
+  });
+
+  const requests = [
+    {
+      url: "/api/runs",
+      payload: {
+        projectId: "project-a",
+        selectedDiagrams: ["usecase"],
+      },
+    },
+    {
+      url: "/api/design-runs",
+      payload: {
+        projectId: "project-a",
+        selectedDiagrams: ["sequence"],
+      },
+    },
+    {
+      url: "/api/code-runs",
+      payload: {
+        projectId: "project-a",
+        generationMode: "continue",
+      },
+    },
+    {
+      url: "/api/document-runs",
+      payload: {
+        projectId: "project-a",
+        documentKind: "softwareDesignSpec",
+        useAiText: false,
+      },
+    },
+  ];
+
+  for (const request of requests) {
+    const response = await app.inject({
+      method: "POST",
+      url: request.url,
+      headers: { "x-test-user-id": "reviewer-a" },
+      payload: request.payload,
+    });
+    assert.equal(response.statusCode, 409, response.body);
+    assert.match(response.json().message, /请先确认需求规则修复结果/u);
+    assert.match(response.json().message, /REQ-001/u);
+  }
+  assert.equal(runs.size, 0);
 
   await app.close();
 });
@@ -2088,6 +2777,47 @@ test("project requirements start command builds legacy run input from workspace"
   assert.equal(snapshot.models[0]?.diagramKind, "usecase");
   assert.equal(snapshot.requirementModelTraceability[0]?.ruleId, "REQ-001");
   assert.deepEqual(snapshot.analysisTargetUseCaseIds, ["usecase-view"]);
+
+  await app.close();
+});
+
+test("project requirements analysis command records implicit usecase dependency targets", async () => {
+  const workspaceState = {
+    ...createProjectWorkspaceState(),
+    models: {},
+    requirementModelTraceability: [],
+    plantUml: {},
+    svgArtifacts: {},
+  };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: workspaceState }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      selectedDiagrams: ["analysis"],
+    },
+  });
+
+  assert.equal(response.statusCode, 202, response.body);
+  const record = runs.get(response.json().runId);
+  assert.ok(record);
+  const snapshot = record.snapshot as RunSnapshot;
+  assert.deepEqual(snapshot.requestedDiagrams, ["analysis"]);
+  assert.deepEqual(snapshot.selectedDiagrams, ["usecase", "analysis"]);
+  assert.deepEqual(snapshot.dependencyDiagrams, ["usecase"]);
 
   await app.close();
 });
@@ -2464,6 +3194,7 @@ test("project start commands return 400 when required workspace context is missi
 
 test("project run history supports detail and status filters for authorized members", async () => {
   const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
     runAccessGuard: createTestRunAccessGuard({
       "user-a": {
         start_runs: ["project-a"],
@@ -2496,6 +3227,14 @@ test("project run history supports detail and status filters for authorized memb
       selectedDiagrams: ["class"],
     },
   });
+  const completedRunId = completedRun.json().runId as string;
+  const completedRecord = runs.get(completedRunId);
+  assert.ok(completedRecord);
+  completedRecord.snapshot.status = "completed";
+  emitEvent(completedRecord, {
+    type: "completed",
+    snapshot: completedRecord.snapshot,
+  } as RunEvent);
   const failedRunId = failedRun.json().runId as string;
   const failedRecord = runs.get(failedRunId);
   assert.ok(failedRecord);
@@ -2505,6 +3244,15 @@ test("project run history supports detail and status filters for authorized memb
     message: "LLM repair exhausted",
     category: "internal",
     retryable: false,
+  };
+  failedRecord.snapshot.diagramErrors.class = {
+    stage: "render_svg",
+    error: {
+      code: "RUN_RENDER_FAILED",
+      message: "PlantUML repair failed for class",
+      category: "external",
+      retryable: true,
+    },
   };
   emitEvent(failedRecord, {
     type: "failed",
@@ -2541,6 +3289,16 @@ test("project run history supports detail and status filters for authorized memb
     [failedRunId],
   );
   assert.equal(history.json().runs[0].errorMessage, "LLM repair exhausted");
+  assert.deepEqual(history.json().runs[0].selectedDiagrams, ["class"]);
+  assert.equal(history.json().runs[0].diagramErrorCount, 1);
+  assert.deepEqual(history.json().runs[0].diagramErrorSummary, [
+    {
+      diagramId: "class",
+      stage: "render_svg",
+      message: "PlantUML repair failed for class",
+    },
+  ]);
+  assert.equal(history.json().runs[0].partialFailure, true);
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json().snapshot.runId, failedRunId);
   assert.equal(detail.json().snapshot.status, "failed");
@@ -2702,15 +3460,53 @@ test("project run retry and rerun create queued records and start their pipeline
       "x-test-user-id": "runner-a",
     },
   });
+  const projectRuns = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/runs",
+    headers: {
+      "x-test-user-id": "runner-a",
+    },
+  });
 
   assert.equal(retry.statusCode, 202);
   assert.equal(rerun.statusCode, 202);
   assert.notEqual(retry.json().runId, sourceRunId);
   assert.notEqual(rerun.json().runId, sourceRunId);
+  assert.equal(retry.json().sourceRunId, sourceRunId);
+  assert.equal(rerun.json().sourceRunId, sourceRunId);
   assert.equal(retryDetail.json().snapshot.status, "queued");
   assert.equal(retryDetail.json().snapshot.requirementText, "需要重试的需求");
+  assert.equal(retryDetail.json().run.sourceRunId, sourceRunId);
+  assert.equal(retryDetail.json().run.sourceAction, "retry");
+  assert.equal(retryDetail.json().run.sourceRunStatus, "cancelled");
   assert.equal(sourceDetail.json().snapshot.status, "cancelled");
+  assert.deepEqual(sourceDetail.json().run.derivedRunIds, [
+    retry.json().runId,
+    rerun.json().runId,
+  ]);
+  assert.equal(sourceDetail.json().run.latestAction, "rerun");
+  assert.equal(sourceDetail.json().run.latestActionRunId, rerun.json().runId);
   assert.equal(sourceDetail.json().events.at(-1).type, "run_action");
+  const runs = projectRuns.json().runs as Array<{
+    runId: string;
+    sourceRunId: string | null;
+    sourceAction: string | null;
+    sourceRunStatus: string | null;
+    derivedRunIds: string[];
+    latestAction: string | null;
+    latestActionRunId: string | null;
+  }>;
+  const sourceSummary = runs.find((run) => run.runId === sourceRunId);
+  const retrySummary = runs.find((run) => run.runId === retry.json().runId);
+  assert.deepEqual(sourceSummary?.derivedRunIds, [
+    retry.json().runId,
+    rerun.json().runId,
+  ]);
+  assert.equal(sourceSummary?.latestAction, "rerun");
+  assert.equal(sourceSummary?.latestActionRunId, rerun.json().runId);
+  assert.equal(retrySummary?.sourceRunId, sourceRunId);
+  assert.equal(retrySummary?.sourceAction, "retry");
+  assert.equal(retrySummary?.sourceRunStatus, "cancelled");
   assert.deepEqual(pipelineRunIds, [
     sourceRunId,
     retry.json().runId,
@@ -2880,6 +3676,79 @@ test("blocked evidence package prevents downstream design run start", async () =
 
   assert.equal(response.statusCode, 409);
   assert.match(response.json().message, /EvidencePackage review is unresolved/);
+
+  await app.close();
+});
+
+test("blocked requirement baseline prevents downstream start routes before queuing runs", async () => {
+  const blockedBaseline = createBlockedRequirementBaseline();
+  const blockedWorkspaceState = {
+    ...createProjectWorkspaceState(),
+    requirementBaseline: blockedBaseline,
+  };
+  const { app, runs } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "reviewer-a": {
+        start_runs: ["project-a"],
+        manage_documents: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: blockedWorkspaceState }),
+  });
+
+  const designResponse = await app.inject({
+    method: "POST",
+    url: "/api/design-runs",
+    headers: { "x-test-user-id": "reviewer-a" },
+    payload: {
+      projectId: "project-a",
+      requirementBaseline: blockedBaseline,
+      requirementModels: [minimalUseCaseModel],
+      requirementModelTraceability: workspaceRequirementTraceability,
+      selectedDiagrams: ["sequence"],
+    },
+  });
+
+  assert.equal(designResponse.statusCode, 409);
+  assert.match(
+    designResponse.json().message,
+    /RequirementBaseline blocked downstream generation: 公开活动日历查看规则互相冲突/u,
+  );
+
+  const codeResponse = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    headers: { "x-test-user-id": "reviewer-a" },
+    payload: {
+      projectId: "project-a",
+      generationMode: "continue",
+    },
+  });
+
+  assert.equal(codeResponse.statusCode, 409);
+  assert.match(
+    codeResponse.json().message,
+    /RequirementBaseline blocked downstream generation/u,
+  );
+
+  const documentResponse = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    headers: { "x-test-user-id": "reviewer-a" },
+    payload: {
+      projectId: "project-a",
+      documentKind: "softwareDesignSpec",
+      useAiText: false,
+    },
+  });
+
+  assert.equal(documentResponse.statusCode, 409);
+  assert.match(
+    documentResponse.json().message,
+    /RequirementBaseline blocked downstream generation/u,
+  );
+  assert.equal(runs.size, 0);
 
   await app.close();
 });

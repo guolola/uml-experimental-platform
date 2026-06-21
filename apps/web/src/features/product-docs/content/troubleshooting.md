@@ -1,5 +1,5 @@
-<!-- Documents common generation, rendering, repair, and export failures. -->
-# 生成、渲染、修复与导出排障
+<!-- Documents common generation, rendering, and repair failures. -->
+# 生成、渲染与修复排障
 
 ## 适用场景
 

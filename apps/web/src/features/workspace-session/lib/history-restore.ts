@@ -8,6 +8,7 @@ import {
   type RunHistorySnapshot,
 } from "../../../entities/run-history";
 import {
+  getDesignArtifactId,
   getDesignModelId,
   getRequirementModelId,
   type DesignDiagramType,
@@ -84,18 +85,6 @@ function restoredRunUiState(
     runProgress: terminalProgress(snapshot),
     runMessage,
     errorMessage: runErrorMessage(snapshot),
-  };
-}
-
-function restoredDocumentDiagnostics(snapshot: RunHistorySnapshot) {
-  return {
-    ...createEmptyDiagnostics(),
-    runKind: "document" as const,
-    runId: snapshot.runId,
-    activeStage: snapshot.currentStage,
-    finishedAt:
-      terminalProgress(snapshot) === 100 ? new Date().toISOString() : null,
-    streamText: runErrorMessage(snapshot) ?? "",
   };
 }
 
@@ -191,11 +180,18 @@ function restoredCodeArtifacts(
   const restoredDesignDiagrams = snapshot.designModels.map(
     (model) => model.diagramKind,
   );
+  const restoredDesignPlantUml = Object.fromEntries(
+    snapshot.designPlantUml.map((artifact) => [
+      getDesignArtifactId(artifact),
+      artifact.source,
+    ]),
+  ) as WorkspaceRecord["designPlantUml"];
   return {
     kind: "code",
     ...emptyRequirementArtifacts(),
     ...emptyDesignArtifacts(),
     designModels: restoredDesignModels,
+    designPlantUml: restoredDesignPlantUml,
     generatedDesignDiagrams: restoredDesignDiagrams,
     codeSnapshot: snapshot,
     clearCodeState: false,
@@ -332,13 +328,15 @@ export function createRestoredSnapshotPlan(input: {
   rulesVersion: number;
   textVersion: number;
 }): RestoredSnapshotPlan {
+  if (isDocumentRunSnapshot(input.snapshot)) {
+    throw new Error("说明书快照不能恢复为项目工作台。");
+  }
   const restoredRulesVersion = input.rulesVersion + 1;
   const rules = "rules" in input.snapshot ? input.snapshot.rules : [];
   const restoredRequirementFingerprint = requirementInputFingerprintFor(
     input.snapshot.requirementText,
     rules,
   );
-  const isDocument = isDocumentRunSnapshot(input.snapshot);
 
   return {
     requirementText: input.snapshot.requirementText,
@@ -354,16 +352,8 @@ export function createRestoredSnapshotPlan(input: {
     }),
     runUiState: restoredRunUiState(
       input.snapshot,
-      isDocument
-        ? input.snapshot.status === "completed"
-          ? "已恢复说明书记录"
-          : null
-        : input.snapshot.status === "completed"
-          ? "已恢复历史快照"
-          : null,
+      input.snapshot.status === "completed" ? "已恢复历史快照" : null,
     ),
-    diagnostics: isDocument
-      ? restoredDocumentDiagnostics(input.snapshot)
-      : restoredRunDiagnostics(input.snapshot),
+    diagnostics: restoredRunDiagnostics(input.snapshot),
   };
 }

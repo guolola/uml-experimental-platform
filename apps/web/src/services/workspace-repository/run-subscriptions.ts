@@ -385,8 +385,8 @@ export async function subscribeToRequirementRunEvents({
   projectId,
   onEvent,
 }: RunSubscriptionInput) {
-  const scopedProjectId = requireProjectScope(projectId);
   if (projectId) {
+    const scopedProjectId = requireProjectScope(projectId);
     try {
       await streamProjectRunEvents(
         `/api/runs/${runId}/events`,
@@ -420,8 +420,8 @@ export async function subscribeToDesignRunEvents({
   projectId,
   onEvent,
 }: RunSubscriptionInput) {
-  const scopedProjectId = requireProjectScope(projectId);
   if (projectId) {
+    const scopedProjectId = requireProjectScope(projectId);
     try {
       await streamProjectRunEvents(
         `/api/design-runs/${runId}/events`,
@@ -455,8 +455,8 @@ export async function subscribeToCodeRunEvents({
   projectId,
   onEvent,
 }: RunSubscriptionInput) {
-  const scopedProjectId = requireProjectScope(projectId);
   if (projectId) {
+    const scopedProjectId = requireProjectScope(projectId);
     try {
       await streamProjectRunEvents(
         `/api/code-runs/${runId}/events`,
@@ -490,8 +490,8 @@ export async function subscribeToDocumentRunEvents({
   projectId,
   onEvent,
 }: RunSubscriptionInput) {
-  const scopedProjectId = requireProjectScope(projectId);
   if (projectId) {
+    const scopedProjectId = requireProjectScope(projectId);
     try {
       await streamProjectRunEvents(
         `/api/document-runs/${runId}/events`,

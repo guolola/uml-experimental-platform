@@ -847,6 +847,144 @@ test("requirement pipeline reuses contextual use case event flows for analysis-o
   );
 });
 
+test("requirement pipeline records implicit usecase dependency for analysis-only snapshots", async () => {
+  const useCaseRule: RequirementRule = {
+    id: "r-usecase",
+    category: "功能需求",
+    text: "需求分析必须基于用例事件流生成。",
+    relatedDiagrams: ["usecase"],
+  };
+  const calls: DiagramKind[] = [];
+  const transport: LlmTransport = {
+    async *streamChatCompletion(input: StreamChatCompletionInput) {
+      const prompt = String(input.messages.at(-1)?.content ?? "");
+      const selectedKind = selectedKindFromPrompt(prompt);
+      const kind =
+        !/只生成以下图类型：/.test(prompt) &&
+        /diagramKind="analysis"|需求分析顺序图|单用例需求阶段用例模型/.test(prompt)
+          ? "analysis"
+          : selectedKind;
+      calls.push(kind);
+      if (kind === "usecase") {
+        const useCaseModel = modelForKind("usecase");
+        assert.equal(useCaseModel.diagramKind, "usecase");
+        yield JSON.stringify({
+          models: [
+            {
+              ...useCaseModel,
+              useCases: useCaseModel.useCases.map((useCase) => ({
+                ...useCase,
+                eventFlows: [
+                  {
+                    id: "flow_borrow_main",
+                    name: "借书主成功场景",
+                    flowType: "main",
+                    trigger: "图书管理员发起借书",
+                    steps: [
+                      {
+                        order: 1,
+                        actor: "actor",
+                        action: "提交读者与图书信息",
+                        systemResponse: "校验图书可借状态",
+                      },
+                    ],
+                  },
+                ],
+              })),
+            },
+          ],
+          requirementModelTraceability: [
+            {
+              ruleId: "r-usecase",
+              target: {
+                diagramKind: "usecase",
+                elementId: "uc_borrow",
+                elementKind: "usecase",
+                label: "借书",
+              },
+            },
+          ],
+        });
+        return;
+      }
+
+      yield JSON.stringify({
+        models: [
+          {
+            diagramKind: "analysis",
+            modelId: "analysis:uc_borrow",
+            sourceUseCaseId: "uc_borrow",
+            sourceUseCaseName: "借书",
+            title: "借书需求分析模型",
+            summary: "基于自动补齐的借书用例生成需求分析顺序图。",
+            notes: [],
+            participants: [
+              {
+                id: "actor_librarian",
+                name: "图书管理员",
+                participantType: "actor",
+              },
+              {
+                id: "boundary_borrow",
+                name: "借书界面",
+                participantType: "boundary",
+              },
+            ],
+            messages: [
+              {
+                id: "msg_submit",
+                type: "sync",
+                sourceId: "actor_librarian",
+                targetId: "boundary_borrow",
+                name: "提交借书信息",
+                parameters: ["读者", "图书"],
+              },
+            ],
+            fragments: [],
+          },
+        ],
+        requirementModelTraceability: [],
+      });
+    },
+  };
+  const renderClient: RenderClient = async (artifact) => ({
+    svg: `<svg data-kind="${artifact.diagramKind}" data-model-id="${artifact.modelId ?? ""}"></svg>`,
+    renderMeta: {
+      engine: "test",
+      generatedAt: new Date().toISOString(),
+      sourceLength: artifact.source.length,
+      durationMs: 1,
+    },
+  });
+  const snapshot = createEmptySnapshot(
+    "run-analysis-implicit-usecase",
+    LIBRARY_REQUIREMENT_TEXT,
+    ["analysis"],
+    [useCaseRule],
+  );
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+
+  await runStagePipeline(record, providerSettings, transport, renderClient);
+
+  const completed = record.snapshot as RunSnapshot;
+  assert.equal(completed.status, "completed");
+  assert.deepEqual(calls, ["usecase", "analysis"]);
+  assert.deepEqual(completed.requestedDiagrams, ["analysis"]);
+  assert.deepEqual(completed.selectedDiagrams, ["usecase", "analysis"]);
+  assert.deepEqual(completed.dependencyDiagrams, ["usecase"]);
+  assert.ok(completed.models.some((model) => model.diagramKind === "usecase"));
+  assert.ok(
+    completed.models.some(
+      (model) => model.diagramKind === "analysis" && model.modelId === "analysis:uc_borrow",
+    ),
+  );
+});
+
 test("requirement pipeline retries analysis with a compact prompt after provider timeout", async () => {
   const useCaseRule: RequirementRule = {
     id: "r-usecase",

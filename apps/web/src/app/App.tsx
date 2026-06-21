@@ -48,6 +48,7 @@ import {
   ProjectWorkspaceAccessBoundary,
   ProjectsIndexPage,
   ProjectWorkspaceBanner,
+  useCurrentProjectOverview,
 } from "../features/user-platform/components/user-platform-pages";
 
 function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
@@ -93,6 +94,8 @@ function ProjectWorkspaceShell({
 }) {
   const { selection } = useWorkspaceShell();
   const { generationTasks } = useWorkspaceSession();
+  const projectOverview = useCurrentProjectOverview();
+  const projectRuns = projectOverview?.projectId === projectId ? projectOverview.overview.runs : [];
   const compactViewport = useCompactViewport();
   const activeGenerationTaskCount = generationTasks.filter(
     (task) => task.status === "queued" || task.status === "running",
@@ -218,7 +221,7 @@ function ProjectWorkspaceShell({
             />
           </div>
         </main>
-        <MobileWorkspaceNavigation />
+        <MobileWorkspaceNavigation projectRuns={projectRuns} />
       </div>
     );
   }
@@ -235,7 +238,7 @@ function ProjectWorkspaceShell({
         maxSize={22}
       >
         <aside className="h-full w-full border-r border-sidebar-border bg-sidebar">
-          <SidebarMenu />
+          <SidebarMenu projectRuns={projectRuns} />
         </aside>
       </ResizablePanel>
       <ResizableHandle withHandle className="bg-border/70" />

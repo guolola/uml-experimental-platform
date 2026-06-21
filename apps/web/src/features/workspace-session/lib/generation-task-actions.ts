@@ -8,8 +8,26 @@ import type {
 import {
   createClientTaskId,
   createGenerationTask,
+  isTaskClearableCompleted,
   isTaskActive,
 } from "./generation-tasks";
+
+const MAX_VISIBLE_GENERATION_TASKS = 30;
+
+function retainGenerationTasksWithinCapacity(tasks: GenerationTask[]) {
+  const activeCount = tasks.filter(isTaskActive).length;
+  const terminalCapacity = Math.max(
+    MAX_VISIBLE_GENERATION_TASKS - activeCount,
+    0,
+  );
+  let terminalCount = 0;
+  return tasks.filter((task) => {
+    if (isTaskActive(task)) return true;
+    if (terminalCount >= terminalCapacity) return false;
+    terminalCount += 1;
+    return true;
+  });
+}
 
 export function useGenerationTaskActions() {
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
@@ -23,13 +41,15 @@ export function useGenerationTaskActions() {
 
   const clearCompletedGenerationTasks = useCallback(() => {
     setGenerationTasks((current) => {
-      const active = current.filter((task) => isTaskActive(task));
-      setSelectedGenerationTaskId((selectedId) =>
-        selectedId && active.some((task) => task.clientTaskId === selectedId)
-          ? selectedId
-          : (active[0]?.clientTaskId ?? null),
+      const retained = current.filter(
+        (task) => !isTaskClearableCompleted(task),
       );
-      return active;
+      setSelectedGenerationTaskId((selectedId) =>
+        selectedId && retained.some((task) => task.clientTaskId === selectedId)
+          ? selectedId
+          : (retained[0]?.clientTaskId ?? null),
+      );
+      return retained;
     });
   }, []);
 
@@ -55,7 +75,9 @@ export function useGenerationTaskActions() {
         subtasks: input.subtasks,
         startedAt,
       });
-      setGenerationTasks((current) => [task, ...current].slice(0, 30));
+      setGenerationTasks((current) =>
+        retainGenerationTasksWithinCapacity([task, ...current]),
+      );
       setSelectedGenerationTaskId(clientTaskId);
       return clientTaskId;
     },

@@ -3,6 +3,7 @@ import {
   designDiagramKindFromRecordKey,
   designRecordBelongsToDiagramKinds,
   designTraceabilityTouchesDiagramKinds,
+  type CodeRunSnapshot,
   type DesignRunSnapshot,
   type RequirementBaseline,
   type RunSnapshot,
@@ -41,6 +42,12 @@ function fingerprintMatches(
   currentFingerprint: string,
 ) {
   return normalizeSnapshotFingerprint(storedFingerprint) === currentFingerprint;
+}
+
+function shouldPreserveCodeWorkspaceOnSnapshot(snapshot: CodeRunSnapshot) {
+  if (snapshot.generationMode !== "regenerate") return false;
+  if (snapshot.status === "cancelled") return true;
+  return snapshot.status === "failed" && Object.keys(snapshot.files).length === 0;
 }
 
 function hasWholeDesignDiagramError(
@@ -486,17 +493,28 @@ export function applySnapshotToWorkspace(
     next.designModels = Object.fromEntries(
       snapshot.designModels.map((model) => [getDesignModelId(model), model]),
     ) as WorkspaceRecord["designModels"];
+    next.designModelTraceability = [];
     next.designPlantUml = Object.fromEntries(
       snapshot.designPlantUml.map((artifact) => [
         getDesignArtifactId(artifact),
         artifact.source,
       ]),
     ) as WorkspaceRecord["designPlantUml"];
+    next.designSvgArtifacts = {};
+    next.designDiagramErrors = {};
+    next.generatedDesignDiagramTypes = Array.from(
+      new Set(snapshot.designModels.map((model) => model.diagramKind)),
+    );
+    next.designInputFingerprints = {};
+    next.selectedDiagramTypes = [];
+    next.selectedDesignDiagramTypes = [];
     next.codeSpec = snapshot.spec;
     next.codeBusinessLogic = snapshot.businessLogic;
-    next.codeFiles = { ...snapshot.files };
-    next.codeEntryFile = snapshot.entryFile;
-    next.codeDependencies = { ...snapshot.dependencies };
+    if (!shouldPreserveCodeWorkspaceOnSnapshot(snapshot)) {
+      next.codeFiles = { ...snapshot.files };
+      next.codeEntryFile = snapshot.entryFile;
+      next.codeDependencies = { ...snapshot.dependencies };
+    }
     next.codeUiMockup = snapshot.uiMockup;
     next.codeAgentPlan = [...snapshot.agentPlan];
     next.codeSkills = [...snapshot.selectedCodeSkills];
@@ -631,15 +649,15 @@ export function applySnapshotToWorkspace(
     next.requirementInputFingerprint = workspaceRequirementFingerprint;
     next.rulesVersion = currentRequirementVersion;
     next.rulesBasedOnTextVersion = 0;
-    next.diagramInputFingerprints = {
-      ...next.diagramInputFingerprints,
-      ...Object.fromEntries(
-        requirementDiagrams.map((diagram) => [
-          diagram,
-          workspaceRequirementFingerprint,
-        ]),
-      ),
-    };
+      next.diagramInputFingerprints = {
+        ...next.diagramInputFingerprints,
+        ...Object.fromEntries(
+          requirementDiagrams.map((diagram) => [
+            diagram,
+            snapshotRequirementFingerprint,
+          ]),
+        ),
+      };
     next.diagramVersions = {
       ...next.diagramVersions,
       ...Object.fromEntries(
@@ -763,7 +781,7 @@ export function applySnapshotToWorkspace(
     ...Object.fromEntries(
       successfulAffected.map((diagram) => [
         diagram,
-        workspaceRequirementFingerprint,
+        snapshotRequirementFingerprint,
       ]),
     ),
   };

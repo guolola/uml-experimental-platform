@@ -1,6 +1,6 @@
 // Provides cookie-based user/project API calls for the first authenticated pages.
 import { buildApiUrl } from "../../../services/api-client";
-import type { DocumentKind } from "@uml-platform/contracts";
+import type { DesignDiagramKind, DiagramKind, DocumentKind } from "@uml-platform/contracts";
 import type { RunHistorySnapshot } from "../../../entities/run-history";
 
 export const AUTH_SESSION_CHANGED_EVENT = "uml-auth-session-changed";
@@ -87,17 +87,35 @@ export interface PlatformRunSummary {
   stage?: string | null;
   runKind?: "requirements" | "design" | "code" | "document" | string | null;
   documentKind?: DocumentKind | null;
+  selectedDiagrams?: DiagramKind[] | DesignDiagramKind[] | null;
+  requestedDiagrams?: DesignDiagramKind[] | null;
   model?: string | null;
   createdByUserId?: string | null;
+  sourceRunId?: string | null;
+  sourceAction?: "retry" | "rerun" | string | null;
+  sourceRunStatus?: string | null;
+  derivedRunIds?: string[] | null;
+  latestAction?: "retry" | "rerun" | string | null;
+  latestActionRunId?: string | null;
+  latestActionAt?: string | null;
   createdAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   updatedAt?: string | null;
   errorMessage?: string | null;
+  codeDiagnosticCount?: number | null;
+  codeDiagnosticSummary?: string[] | null;
+  codeQualityIssueCount?: number | null;
   terminal?: boolean | null;
   snapshotAvailable?: boolean | null;
   canRestore?: boolean | null;
   documentDownloadAvailable?: boolean | null;
+  documentId?: string | null;
+  documentFileName?: string | null;
+  documentVersion?: number | null;
+  documentStatus?: string | null;
+  documentRestoreAvailable?: boolean | null;
+  documentByteLength?: number | null;
 }
 
 export interface PlatformDocument {
@@ -560,13 +578,6 @@ export const platformApi = {
       },
     );
   },
-  exportProject(projectId: string) {
-    return requestJson<{
-      message?: string;
-      auditLog?: unknown;
-      export: { generatedAt: string; project: PlatformProject; members: PlatformProjectMember[] };
-    }>(`/api/projects/${projectId}/export`, { method: "POST" });
-  },
   updateProjectRetentionPolicy(projectId: string, retentionPolicy: string) {
     return requestJson<{ project: PlatformProject; message?: string; auditLog?: unknown }>(
       `/api/projects/${projectId}/retention-policy`,
@@ -650,6 +661,8 @@ export const platformApi = {
     return requestJson<{
       run?: PlatformRunSummary;
       runId?: string;
+      sourceRunId?: string;
+      action?: "retry" | "rerun" | string;
       status?: string;
       message?: string;
     }>(
@@ -661,6 +674,8 @@ export const platformApi = {
     return requestJson<{
       run?: PlatformRunSummary;
       runId?: string;
+      sourceRunId?: string;
+      action?: "retry" | "rerun" | string;
       status?: string;
       message?: string;
     }>(

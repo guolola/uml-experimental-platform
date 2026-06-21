@@ -1,16 +1,16 @@
-// Owns run history data contracts, local persistence compaction, and Markdown export helpers.
+// Owns run history data contracts, local persistence compaction, and snapshot summaries.
 import type {
   CodeRunSnapshot,
   DesignRunSnapshot,
+  DocumentKind,
   DocumentRunSnapshot,
   RunSnapshot,
 } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
-  type DesignDiagramType,
-  type DiagramType,
 } from "../diagram/model";
+import { formatCodeDiagnosticSummary } from "../../shared/lib/code-diagnostics";
 
 export const RUN_HISTORY_STORAGE_KEY = "uml-platform.run-history.v1";
 export const RUN_HISTORY_LIMIT = 12;
@@ -34,11 +34,42 @@ export interface RunHistoryItem {
   providerModel: string;
   durationMs?: number;
   status?: string | null;
+  runKind?: string | null;
+  stage?: string | null;
   stageLabel?: string | null;
   summary?: string | null;
+  sourceRunId?: string | null;
+  sourceAction?: string | null;
+  sourceRunStatus?: string | null;
+  derivedRunIds?: string[] | null;
+  latestAction?: string | null;
+  latestActionRunId?: string | null;
+  latestActionAt?: string | null;
+  errorMessage?: string | null;
+  documentKind?: DocumentKind | null;
+  documentId?: string | null;
+  documentFileName?: string | null;
+  documentVersion?: number | null;
+  documentStatus?: string | null;
+  documentRestoreAvailable?: boolean | null;
+  documentByteLength?: number | null;
+  diagramErrorCount?: number | null;
+  diagramErrorSummary?: RunHistoryDiagramErrorSummary[] | null;
+  partialFailure?: boolean | null;
+  missingArtifactCount?: number | null;
+  missingArtifactSummary?: string[] | null;
+  codeDiagnosticCount?: number | null;
+  codeDiagnosticSummary?: string[] | null;
+  codeQualityIssueCount?: number | null;
   canRestore?: boolean | null;
   snapshotAvailable?: boolean | null;
   documentDownloadAvailable?: boolean | null;
+}
+
+export interface RunHistoryDiagramErrorSummary {
+  diagramId: string;
+  stage?: string | null;
+  message: string;
 }
 
 export class RunHistoryStorageError extends Error {
@@ -307,229 +338,135 @@ export function getRunHistorySnapshotLabel(snapshot: RunHistorySnapshot) {
   return "需求阶段";
 }
 
+function baseDiagramId(diagramId: string) {
+  return diagramId.split(":")[0] ?? diagramId;
+}
+
+function getRequirementDiagramLabel(diagramId: string) {
+  const id = baseDiagramId(diagramId);
+  return id in DIAGRAM_META
+    ? DIAGRAM_META[id as keyof typeof DIAGRAM_META].label
+    : diagramId;
+}
+
+function getDesignDiagramLabel(diagramId: string) {
+  const id = baseDiagramId(diagramId);
+  return id in DESIGN_DIAGRAM_META
+    ? DESIGN_DIAGRAM_META[id as keyof typeof DESIGN_DIAGRAM_META].label
+    : diagramId;
+}
+
+function summarizeDiagramError(error: RunHistoryDiagramErrorSummary) {
+  const details = [error.stage, error.message].filter(Boolean).join("：");
+  return details || error.message;
+}
+
+export function formatRunHistoryDiagramErrorSummary(
+  errors: RunHistoryDiagramErrorSummary[] | null | undefined,
+  options: { design?: boolean } = {},
+) {
+  if (!errors || errors.length === 0) return null;
+  const labelFor = options.design ? getDesignDiagramLabel : getRequirementDiagramLabel;
+  const preview = errors
+    .slice(0, 2)
+    .map((error) => `${labelFor(error.diagramId)}（${summarizeDiagramError(error)}）`)
+    .join("、");
+  const suffix = errors.length > 2 ? `等 ${errors.length} 张图` : `${errors.length} 张图`;
+  return `图级失败 ${suffix}：${preview}`;
+}
+
+export function formatDocumentMissingArtifactSummary(
+  missingArtifacts: string[] | null | undefined,
+  totalCount?: number | null,
+) {
+  const normalized = (missingArtifacts ?? [])
+    .map((artifact) => artifact.trim())
+    .filter(Boolean);
+  const count = totalCount ?? normalized.length;
+  if (count <= 0 || normalized.length === 0) return null;
+  const preview = normalized.slice(0, 2).join("、");
+  const suffix =
+    count > 2
+      ? `等 ${count} 项`
+      : `${count} 项`;
+  return `缺失图 ${suffix}：${preview}`;
+}
+
+function readSnapshotDiagramErrorSummary(
+  snapshot: RunHistorySnapshot,
+): RunHistoryDiagramErrorSummary[] {
+  if (!("diagramErrors" in snapshot)) return [];
+  return Object.entries(snapshot.diagramErrors).flatMap(([diagramId, value]) => {
+    const message = value?.error?.message;
+    if (!message) return [];
+    return [
+      {
+        diagramId,
+        stage: value.stage,
+        message,
+      },
+    ];
+  });
+}
+
 export function getRunHistorySnapshotSummary(snapshot: RunHistorySnapshot) {
   if (isDocumentRunSnapshot(snapshot)) {
-    return `${snapshot.fileName ?? "说明书.docx"} · ${snapshot.byteLength} bytes`;
+    return [
+      `${snapshot.fileName ?? "说明书.docx"} · ${snapshot.byteLength} bytes`,
+      formatDocumentMissingArtifactSummary(snapshot.missingArtifacts),
+    ].filter(Boolean).join(" · ");
   }
 
   if (isCodeRunSnapshot(snapshot)) {
-    return `代码文件 ${Object.keys(snapshot.files).length} 个`;
+    if (snapshot.status === "failed" && snapshot.generationMode === "regenerate") {
+      return "代码重新生成失败，已保留上一版代码";
+    }
+    return [
+      `代码文件 ${Object.keys(snapshot.files).length} 个`,
+      formatCodeDiagnosticSummary({
+        diagnostics: snapshot.diagnostics,
+        fileGenerationDiagnostics: snapshot.fileGenerationDiagnostics,
+        qualityDiagnostics: snapshot.qualityDiagnostics,
+      }),
+    ].filter(Boolean).join(" · ");
   }
 
   if (isDesignRunSnapshot(snapshot)) {
     const labels = snapshot.selectedDiagrams
       .map((diagram) => DESIGN_DIAGRAM_META[diagram].label)
       .join("、");
-    return labels || "设计模型";
+    const diagramErrors = formatRunHistoryDiagramErrorSummary(
+      readSnapshotDiagramErrorSummary(snapshot),
+      { design: true },
+    );
+    return [labels || "设计模型", diagramErrors].filter(Boolean).join(" · ");
   }
 
+  if (
+    snapshot.status === "failed" &&
+    snapshot.selectedDiagrams.length === 0
+  ) {
+    return [
+      "需求规则抽取失败",
+      snapshot.error?.message,
+    ].filter(Boolean).join("：");
+  }
+
+  const requestedLabels = snapshot.requestedDiagrams
+    ?.map((diagram) => DIAGRAM_META[diagram].label)
+    .join("、");
   const labels = snapshot.selectedDiagrams
     .map((diagram) => DIAGRAM_META[diagram].label)
     .join("、");
-  return labels || "仅规则";
-}
-
-function appendRulesSection(
-  lines: string[],
-  snapshot: RunSnapshot | DesignRunSnapshot | CodeRunSnapshot,
-) {
-  lines.push("## 需求规则", "");
-  if (snapshot.rules.length === 0) {
-    lines.push("暂无规则。", "");
-    return;
-  }
-
-  for (const rule of snapshot.rules) {
-    lines.push(`- \`${rule.id}\` **[${rule.category}]** ${rule.text}`);
-  }
-  lines.push("");
-}
-
-function appendRequirementsDiagrams(lines: string[], snapshot: RunSnapshot) {
-  lines.push("## UML 图", "");
-  const diagramKinds = new Set<DiagramType>([
-    ...snapshot.selectedDiagrams,
-    ...snapshot.models.map((model) => model.diagramKind),
-    ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-    ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-    ...(Object.keys(snapshot.diagramErrors) as DiagramType[]),
-  ]);
-
-  if (diagramKinds.size === 0) {
-    lines.push("暂无图产物。", "");
-  }
-
-  for (const diagramKind of diagramKinds) {
-    const model = snapshot.models.find((item) => item.diagramKind === diagramKind);
-    const svg = snapshot.svgArtifacts.find((item) => item.diagramKind === diagramKind);
-    const error = snapshot.diagramErrors[diagramKind];
-    lines.push(`### ${DIAGRAM_META[diagramKind].label}`, "");
-    if (model) {
-      lines.push(`- 标题: ${model.title}`);
-      lines.push(`- 摘要: ${model.summary}`);
-    }
-    lines.push(`- SVG: ${svg ? "成功" : "未生成"}`);
-    if (error) {
-      lines.push(`- 失败阶段: \`${error.stage}\``);
-      lines.push(`- 失败原因: ${error.error.message}`);
-    }
-    lines.push("");
-  }
-}
-
-function appendDesignDiagrams(lines: string[], snapshot: DesignRunSnapshot) {
-  lines.push("## 设计图", "");
-  const diagramKinds = new Set<DesignDiagramType>([
-    ...snapshot.selectedDiagrams,
-    ...snapshot.models.map((model) => model.diagramKind),
-    ...snapshot.plantUml.map((artifact) => artifact.diagramKind),
-    ...snapshot.svgArtifacts.map((artifact) => artifact.diagramKind),
-    ...(Object.keys(snapshot.diagramErrors).map((key) =>
-      key.startsWith("sequence:") ? "sequence" : key,
-    ) as DesignDiagramType[]),
-  ]);
-
-  if (diagramKinds.size === 0) {
-    lines.push("暂无设计图产物。", "");
-  }
-
-  for (const diagramKind of diagramKinds) {
-    const model = snapshot.models.find((item) => item.diagramKind === diagramKind);
-    const svg = snapshot.svgArtifacts.find((item) => item.diagramKind === diagramKind);
-    const error = snapshot.diagramErrors[diagramKind];
-    lines.push(`### ${DESIGN_DIAGRAM_META[diagramKind].label}`, "");
-    if (model) {
-      lines.push(`- 标题: ${model.title}`);
-      lines.push(`- 摘要: ${model.summary}`);
-    }
-    lines.push(`- SVG: ${svg ? "成功" : "未生成"}`);
-    if (error) {
-      lines.push(`- 失败阶段: \`${error.stage}\``);
-      lines.push(`- 失败原因: ${error.error.message}`);
-    }
-    lines.push("");
-  }
-
-  const sequenceErrors = Object.entries(snapshot.diagramErrors).filter(([key]) =>
-    key.startsWith("sequence:"),
+  const dependencyLabels = snapshot.dependencyDiagrams
+    ?.map((diagram) => DIAGRAM_META[diagram].label)
+    .join("、");
+  const targetSummary =
+    requestedLabels && dependencyLabels
+      ? `请求${requestedLabels}，自动补齐${dependencyLabels}`
+      : labels;
+  const diagramErrors = formatRunHistoryDiagramErrorSummary(
+    readSnapshotDiagramErrorSummary(snapshot),
   );
-  for (const [modelId, error] of sequenceErrors) {
-    const model = snapshot.models.find((item) => item.modelId === modelId);
-    lines.push(`### ${model?.title ?? modelId}`, "");
-    lines.push("- SVG: 未生成");
-    lines.push(`- 失败阶段: \`${error.stage}\``);
-    lines.push(`- 失败原因: ${error.error.message}`);
-    lines.push("");
-  }
-}
-
-function appendCodePrototype(lines: string[], snapshot: CodeRunSnapshot) {
-  lines.push("## 代码原型", "");
-  if (snapshot.appBlueprint) {
-    lines.push(`- 应用蓝图: ${snapshot.appBlueprint.appName}`);
-    lines.push(`- 业务领域: ${snapshot.appBlueprint.domain}`);
-    lines.push(`- 页面数: ${snapshot.appBlueprint.pages.length}`);
-  }
-  lines.push(`- 入口文件: \`${snapshot.entryFile ?? "未设置"}\``);
-  lines.push(`- 文件数: ${Object.keys(snapshot.files).length}`);
-  const latestQuality = snapshot.qualityDiagnostics.at(-1);
-  if (latestQuality) {
-    lines.push(
-      `- 质量检查: ${latestQuality.passed ? "通过" : "需修复"}（页面 ${latestQuality.metrics.pageFileCount} 个，组件 ${latestQuality.metrics.componentFileCount} 个）`,
-    );
-  }
-  if (snapshot.uiMockup) {
-    lines.push(`- 界面设计图: ${snapshot.uiMockup.status === "completed" ? "已生成" : "生成失败"}`);
-    lines.push(`- 图片模型: \`${snapshot.uiMockup.model}\``);
-    if (snapshot.uiMockup.status === "failed" && snapshot.uiMockup.errorMessage) {
-      lines.push(`- 设计图失败原因: ${snapshot.uiMockup.errorMessage}`);
-    }
-  }
-  if (snapshot.uiReferenceSpec) {
-    lines.push(
-      `- 设计图解析: ${snapshot.uiReferenceSpec.fallbackReason ? `降级（${snapshot.uiReferenceSpec.fallbackReason}）` : "已完成"}`,
-    );
-  }
-  if (snapshot.uiFidelityReport) {
-    lines.push(
-      `- 设计图还原检查: ${snapshot.uiFidelityReport.passed ? "基本贴合" : "需要修复"} - ${snapshot.uiFidelityReport.summary}`,
-    );
-    if (snapshot.uiFidelityReport.missing.length > 0) {
-      lines.push(`- 未还原特征: ${snapshot.uiFidelityReport.missing.join("；")}`);
-    }
-  }
-  lines.push(
-    `- 依赖: ${
-      Object.keys(snapshot.dependencies).length > 0
-        ? Object.entries(snapshot.dependencies)
-            .map(([name, version]) => `\`${name}@${version}\``)
-            .join("、")
-        : "默认 React/Sandpack 依赖"
-    }`,
-  );
-  lines.push("");
-
-  for (const path of Object.keys(snapshot.files).sort()) {
-    lines.push(`### ${path}`, "", "```tsx", snapshot.files[path], "```", "");
-  }
-}
-
-function appendDocumentSpec(lines: string[], snapshot: DocumentRunSnapshot) {
-  lines.push("## 说明书", "");
-  lines.push(
-    `- 类型: ${
-      snapshot.documentKind === "requirementsSpec"
-        ? "需求规格说明书"
-        : "软件设计说明书"
-    }`,
-  );
-  lines.push(`- 文件: ${snapshot.fileName ?? "未生成"}`);
-  lines.push(`- 大小: ${snapshot.byteLength} bytes`);
-  if (snapshot.missingArtifacts.length > 0) {
-    lines.push(`- 缺失图: ${snapshot.missingArtifacts.join("、")}`);
-  }
-  lines.push("");
-
-  for (const section of snapshot.sections) {
-    lines.push(`${"#".repeat(section.level + 1)} ${section.title}`, "");
-    for (const paragraph of section.body) {
-      lines.push(paragraph, "");
-    }
-    if (section.diagramKind) {
-      lines.push(`- 图示: ${section.diagramKind}`, "");
-    }
-  }
-}
-
-export function buildRunMarkdownReport(snapshot: RunHistorySnapshot) {
-  const lines: string[] = [];
-  lines.push("# 软件工程实训平台 · 运行报告", "");
-  lines.push(`- Run ID: \`${snapshot.runId}\``);
-  lines.push(`- 阶段: ${getRunHistorySnapshotLabel(snapshot)}`);
-  lines.push(`- 状态: \`${snapshot.status}\``);
-  lines.push(`- 当前阶段: \`${snapshot.currentStage ?? "none"}\``);
-  if (snapshot.error) {
-    lines.push(`- 全局错误: ${snapshot.error.message}`);
-  }
-  lines.push("");
-
-  if (snapshot.requirementText.trim()) {
-    lines.push("## 需求文本", "", snapshot.requirementText.trim(), "");
-  }
-
-  if (!isDocumentRunSnapshot(snapshot)) {
-    appendRulesSection(lines, snapshot);
-  }
-
-  if (isDocumentRunSnapshot(snapshot)) {
-    appendDocumentSpec(lines, snapshot);
-  } else if (isCodeRunSnapshot(snapshot)) {
-    appendCodePrototype(lines, snapshot);
-  } else if (isDesignRunSnapshot(snapshot)) {
-    appendDesignDiagrams(lines, snapshot);
-  } else {
-    appendRequirementsDiagrams(lines, snapshot);
-  }
-
-  return lines.join("\n");
+  return [targetSummary || "仅规则", diagramErrors].filter(Boolean).join(" · ");
 }

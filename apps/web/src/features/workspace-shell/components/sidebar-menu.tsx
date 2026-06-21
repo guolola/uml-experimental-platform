@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../../shared/ui/utils";
+import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import {
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
@@ -78,6 +79,7 @@ type Node = {
 
 type SidebarMenuProps = {
   onNavigateItemSelect?: () => void;
+  projectRuns?: PlatformRunSummary[];
 };
 
 const KIND_ICON: Record<SemanticElementKind, ReactNode> = {
@@ -184,6 +186,15 @@ function GenerationStatusIndicator({
       )}
     </span>
   );
+}
+
+function rootGenerationStatusTooltip(
+  label: string,
+  status: Node["status"],
+) {
+  if (status === "queued") return `${label}生成排队中`;
+  if (status === "running") return `${label}生成中`;
+  return undefined;
 }
 
 function TreeItem({
@@ -565,7 +576,10 @@ function buildPendingDesignDiagramNode(
   };
 }
 
-export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
+export function SidebarMenu({
+  onNavigateItemSelect,
+  projectRuns = [],
+}: SidebarMenuProps = {}) {
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
     generatedDiagrams,
@@ -611,6 +625,10 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
     analysisSubtaskNodes,
     sequenceGenerationActive,
     sequenceSubtaskNodes,
+    requirementRootStatus,
+    designRootStatus,
+    codeRootStatus,
+    documentRootStatus,
   } = deriveSidebarDiagramState({
     generatedDiagrams,
     models,
@@ -624,6 +642,7 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
     designSvgArtifacts,
     designDiagramErrors,
     generationTasks,
+    projectRuns,
   });
 
   useEffect(() => {
@@ -650,6 +669,8 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
       key: "requirements",
       label: "需求",
       icon: <FileText className="size-4 text-muted-foreground" />,
+      status: requirementRootStatus,
+      statusTooltip: rootGenerationStatusTooltip("需求链路", requirementRootStatus),
       onSelect: openRequirementsText,
       children: [
         ...requirementNodeDiagrams.map((diagram) => {
@@ -742,6 +763,8 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
       key: "design",
       label: "设计",
       icon: <Palette className="size-4 text-muted-foreground" />,
+      status: designRootStatus,
+      statusTooltip: rootGenerationStatusTooltip("设计链路", designRootStatus),
       onSelect: openDesignHome,
       children: [
         ...orderedDesignDiagrams.map((diagram) => {
@@ -878,6 +901,8 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
       key: "workspace:code",
       label: "代码",
       icon: <Code2 className="size-4 text-muted-foreground" />,
+      status: codeRootStatus,
+      statusTooltip: rootGenerationStatusTooltip("代码原型", codeRootStatus),
       onSelect: () => openWorkspacePlaceholder("code", "代码"),
     },
     {
@@ -890,6 +915,8 @@ export function SidebarMenu({ onNavigateItemSelect }: SidebarMenuProps = {}) {
       key: "documents",
       label: "说明书",
       icon: <FileText className="size-4 text-muted-foreground" />,
+      status: documentRootStatus,
+      statusTooltip: rootGenerationStatusTooltip("说明书", documentRootStatus),
       onSelect: openDocumentsHome,
     },
   ];
