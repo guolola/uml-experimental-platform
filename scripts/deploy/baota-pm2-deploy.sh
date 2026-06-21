@@ -234,25 +234,35 @@ echo "Reloading PM2 processes ..."
   check_pm2_cwd() {
     local process_name="$1"
     local expected_cwd="$2"
+    local pid_output
+    local pids=()
     local pid
     local actual_cwd
 
-    pid="$(pm2 pid "$process_name" | tr -d '[:space:]')"
-    if [[ -z "$pid" || "$pid" == "0" ]]; then
+    pid_output="$(pm2 pid "$process_name" || true)"
+    while IFS= read -r pid; do
+      if [[ -n "$pid" && "$pid" != "0" ]]; then
+        pids+=("$pid")
+      fi
+    done < <(printf '%s\n' "$pid_output")
+
+    if [[ "${#pids[@]}" -eq 0 ]]; then
       echo "$process_name is not running" >&2
       pm2 status || true
       exit 1
     fi
 
-    actual_cwd="$(readlink -f "/proc/$pid/cwd")"
-    if [[ "$actual_cwd" != "$expected_cwd" ]]; then
-      echo "$process_name is running from the wrong directory" >&2
-      echo "Expected cwd: $expected_cwd" >&2
-      echo "Actual cwd:   $actual_cwd" >&2
-      pm2 status || true
-      pm2 logs "$process_name" --nostream --lines 80 || true
-      exit 1
-    fi
+    for pid in "${pids[@]}"; do
+      actual_cwd="$(readlink -f "/proc/$pid/cwd" || true)"
+      if [[ "$actual_cwd" != "$expected_cwd" ]]; then
+        echo "$process_name pid $pid is running from the wrong directory" >&2
+        echo "Expected cwd: $expected_cwd" >&2
+        echo "Actual cwd:   ${actual_cwd:-<unreadable>}" >&2
+        pm2 status || true
+        pm2 logs "$process_name" --nostream --lines 80 || true
+        exit 1
+      fi
+    done
   }
 
   echo "Checking render-service health ..."
