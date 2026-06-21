@@ -858,7 +858,7 @@ test("code generation prompts use business background theme and modular files", 
   });
 
   assert.match(specPrompt, /theme 必须描述业务领域主题/);
-  assert.match(specPrompt, /不是软件工程实训平台主题/);
+  assert.match(specPrompt, /不是软件工程实践平台主题/);
   assert.match(businessLogicPrompt, /businessLogic/);
   assert.match(businessLogicPrompt, /PlantUML/);
   assert.match(businessLogicPrompt, /不是 skill/);
@@ -883,7 +883,7 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /businessLogic\.pageFlows/);
   assert.match(operationsPrompt, /\/src\/domain\/types\.ts/);
   assert.match(operationsPrompt, /\/src\/data\/mock-data\.ts/);
-  assert.match(operationsPrompt, /不能默认套软件工程实训平台风格/);
+  assert.match(operationsPrompt, /不能默认套软件工程实践平台风格/);
   assert.match(operationsPrompt, /当前启用的 Skill 摘要/);
   assert.match(operationsPrompt, /Skill 资源查询计划/);
   assert.match(operationsPrompt, /视觉方向（必须执行）/);

@@ -41,7 +41,7 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
               项目内使用文档
             </Badge>
             <h1 className="break-words font-display text-3xl font-semibold leading-tight tracking-normal md:text-5xl">
-              软件工程实训平台使用手册
+              软件工程实践平台使用手册
             </h1>
             <p className="mt-3 max-w-3xl break-words text-sm leading-6 text-muted-foreground md:text-base">
               面向普通用户，把项目创建、需求建模、UML、设计、代码原型、测试、说明书和排障收进项目内，不再依赖外部知识库入口。

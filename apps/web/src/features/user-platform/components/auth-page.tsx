@@ -377,9 +377,9 @@ export function AuthPage({
     "/reset-password": "重置密码",
   };
   const descriptions: Record<AuthRoutePath, string> = {
-    "/login": "输入账号信息，进入软件工程实训平台。",
+    "/login": "输入账号信息，进入软件工程实践平台。",
     "/register": "创建账号后，请先完成邮箱验证再进入项目空间。",
-    "/verify-email": "请确认您的电子邮箱以继续使用软件工程实训平台。",
+    "/verify-email": "请确认您的电子邮箱以继续使用软件工程实践平台。",
     "/forgot-password": "请输入您注册时使用的电子邮箱地址，我们将向您发送一封包含密码重置链接的邮件。",
     "/reset-password": "请输入您的新密码。为保证安全，建议使用包含字母、数字和符号的强密码。",
   };
@@ -431,7 +431,7 @@ export function AuthPage({
               onClick={() => onNavigate("/")}
               aria-label="返回官网"
             >
-              <div className="font-display text-[32px] font-semibold leading-10 text-primary">软件工程实训平台</div>
+              <div className="font-display text-[32px] font-semibold leading-10 text-primary">软件工程实践平台</div>
               <div className="mt-2 text-base leading-6 text-muted-foreground">
                 {path === "/login" ? "欢迎回来，请登录以继续。" : "面向课程实验与项目协作的智能研发空间"}
               </div>

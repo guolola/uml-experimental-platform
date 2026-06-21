@@ -60,9 +60,9 @@ function MarketingHeader({
           type="button"
           className="motion-brand max-w-[58vw] break-words font-display text-left text-[22px] font-black leading-[28px] tracking-normal text-primary sm:text-[28px] sm:leading-[36px] md:max-w-none md:text-[32px] md:leading-[40px]"
           onClick={() => onNavigate("/")}
-          aria-label="软件工程实训平台官网"
+          aria-label="软件工程实践平台官网"
         >
-          软件工程实训平台
+          软件工程实践平台
         </button>
         <nav className="hidden items-center gap-8 md:flex" aria-label="官网导航">
           {marketingNavItems.map((item) => (
@@ -117,8 +117,8 @@ function MarketingFooter() {
     <footer data-testid="marketing-footer" data-motion="marketing-footer" className="motion-footer border-t border-border bg-card">
       <div className={`${wideContent} flex items-center justify-between gap-6 ${pagePadding} py-[clamp(0.85rem,1.4vh,1.25rem)] text-sm text-muted-foreground`}>
         <div className="grid gap-2">
-          <div className="font-display text-[18px] font-semibold leading-[26px] text-foreground">软件工程实训平台</div>
-          <p>© 2026 软件工程实训平台。保留所有权利。</p>
+          <div className="font-display text-[18px] font-semibold leading-[26px] text-foreground">软件工程实践平台</div>
+          <p>© 2026 软件工程实践平台。保留所有权利。</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-6">
           {footerLinks.map((link) => (
@@ -343,12 +343,12 @@ function HomeTab({
         >
           <DialogTitle className="sr-only">查看产品宣传</DialogTitle>
           <DialogDescription className="sr-only">
-            通过短片了解软件工程实训平台如何串联需求、模型、原型和说明书证据。
+            通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。
           </DialogDescription>
           {promoDialogOpen && (
             <VideoPlayer
               src={MARKETING_PROMO_VIDEO_URL}
-              title="软件工程实训平台产品宣传视频"
+              title="软件工程实践平台产品宣传视频"
               description="从可信链路和证据视角展示平台核心流程。"
               caption="产品宣传视频"
               autoPlay
@@ -374,7 +374,7 @@ function FeaturesTab() {
           </span>
         </h1>
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-4xl text-[16px] font-normal leading-[24px] text-muted-foreground">
-          软件工程实训平台提供从需求分析到代码原型和说明书导出的阶段化工具链。平台通过大模型推理与结构化输出，把需求文本沉淀为可追踪、可渲染、可修复的实训产物。
+          软件工程实践平台提供从需求分析到代码原型和说明书导出的阶段化工具链。平台通过大模型推理与结构化输出，把需求文本沉淀为可追踪、可渲染、可修复的实训产物。
         </p>
         <div className={`${wideContent} mt-[clamp(2rem,4vh,4rem)] grid gap-[clamp(1.25rem,1.5vw,2rem)] md:grid-cols-2 xl:grid-cols-3`}>
           {features.map(({ title, shortTitle, description, icon: Icon }, index) => (
@@ -407,7 +407,7 @@ function WorkflowTab() {
             智能研发实验全链路
           </h1>
           <p className="motion-rise motion-delay-2 w-full break-all text-[16px] font-normal leading-[24px] text-muted-foreground md:break-words">
-            软件工程实训平台提供从需求输入到 UML模型、React 原型和 DOCX 说明书导出的标准化流程，通过大模型推理与结构化校验保留每一步实训产物。
+            软件工程实践平台提供从需求输入到 UML模型、React 原型和 DOCX 说明书导出的标准化流程，通过大模型推理与结构化校验保留每一步实训产物。
           </p>
         </div>
       </section>
@@ -483,7 +483,7 @@ function CasesTab() {
           探索工程验证案例
         </h1>
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-5xl text-[16px] font-normal leading-[24px] text-muted-foreground">
-          通过常见课程与原型验证场景，体验软件工程实训平台如何在需求分析、架构设计与代码原型环节沉淀结构化实训产物。
+          通过常见课程与原型验证场景，体验软件工程实践平台如何在需求分析、架构设计与代码原型环节沉淀结构化实训产物。
         </p>
         <div className="mx-auto mt-[clamp(2.5rem,5vh,5rem)] grid w-full max-w-[1500px] gap-[clamp(1.5rem,2vw,2.25rem)] md:grid-cols-2">
           {caseStudies.map((study, index) => (

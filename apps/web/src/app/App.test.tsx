@@ -1478,11 +1478,11 @@ describe("App shell routes", () => {
       "shadow-none",
     );
     expect(screen.getByRole("heading", { name: "查看产品宣传" })).toHaveClass("sr-only");
-    const promoVideo = screen.getByLabelText("软件工程实训平台产品宣传视频");
+    const promoVideo = screen.getByLabelText("软件工程实践平台产品宣传视频");
     expect(dialog).toContainElement(screen.getByTestId("video-player"));
     expect(dialog.querySelector('[data-slot="dialog-header"]')).not.toBeInTheDocument();
     expect(
-      screen.getByText("通过短片了解软件工程实训平台如何串联需求、模型、原型和说明书证据。"),
+      screen.getByText("通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。"),
     ).toHaveClass("sr-only");
     expect(promoVideo.querySelector("source")).toHaveAttribute(
       "src",
@@ -1817,7 +1817,7 @@ describe("App shell routes", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "软件工程实训平台使用手册",
+        name: "软件工程实践平台使用手册",
       }),
     ).toBeInTheDocument();
     expect(
@@ -1850,7 +1850,7 @@ describe("App shell routes", () => {
     window.dispatchEvent(new PopStateEvent("popstate"));
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "软件工程实训平台使用手册" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "软件工程实践平台使用手册" })).toBeInTheDocument();
     });
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
   });
@@ -1932,7 +1932,7 @@ describe("App shell routes", () => {
     expect(screen.getByTestId("auth-security-panel")).toBeInTheDocument();
     expect(screen.getByTestId("auth-security-panel")).toHaveAttribute("data-motion", "auth-security");
     expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
-    expect(screen.getByText("软件工程实训平台")).toBeInTheDocument();
+    expect(screen.getByText("软件工程实践平台")).toBeInTheDocument();
     expect(screen.getByText("项目开发生命周期")).toBeInTheDocument();
     expect(screen.getByText("UML模型预览")).toBeInTheDocument();
     expect(screen.getByText("API 延迟")).toBeInTheDocument();
@@ -2290,7 +2290,7 @@ describe("App shell routes", () => {
         "data-loading-phase",
         "loading",
       );
-      expect(screen.getByText("软件工程实训平台")).toBeInTheDocument();
+      expect(screen.getByText("软件工程实践平台")).toBeInTheDocument();
       expect(screen.getByText("项目工作台")).toBeInTheDocument();
       expect(screen.getByText("SYS_CORE")).toBeInTheDocument();
       expect(

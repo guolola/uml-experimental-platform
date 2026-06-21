@@ -452,7 +452,7 @@ function formatRequirementBaselineForPrompt(baseline: RequirementBaseline) {
 
 export function buildExtractRulesPrompt(requirementText: string) {
   return [
-    "请从下面的软件工程实训平台需求中抽取结构化需求规则。",
+    "请从下面的软件工程实践平台需求中抽取结构化需求规则。",
     "输出 JSON，必须符合接口 schema；不要输出 Markdown、解释或代码块。",
     "每条规则必须表达 id、分类、可读需求文本 text、原文片段 sourceFragment 和关联图类型。",
     "text 必须是完整可读的业务规则句，至少尽量包含角色/执行者、动作、对象或主体；不要只输出“(1)借书”这类编号短片段。",

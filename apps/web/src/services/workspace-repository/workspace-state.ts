@@ -157,7 +157,7 @@ function applyRequirementBaselineToWorkspace(
 export function createEmptyWorkspace(): WorkspaceRecord {
   return {
     id: "workspace-default",
-    name: "软件工程实训平台",
+    name: "软件工程实践平台",
     requirementText: "",
     selectedDiagramTypes: [],
     rules: [],

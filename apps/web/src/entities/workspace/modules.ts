@@ -73,7 +73,7 @@ export const SHELL_ROUTE_MODULES = [
   {
     label: "工作台",
     route: "/workspace" as const,
-    description: "进入软件工程实训平台工作区。",
+    description: "进入软件工程实践平台工作区。",
   },
   {
     label: "考试",

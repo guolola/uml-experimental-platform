@@ -1530,7 +1530,7 @@ export function TopBar({
           <Boxes className="size-4 text-primary-foreground" />
         </span>
         <span className="hidden whitespace-nowrap text-[18px] font-semibold leading-7 tracking-[-0.45px] sm:inline">
-          软件工程实训平台
+          软件工程实践平台
         </span>
         <span className="truncate text-sm font-semibold text-primary sm:hidden">
           {currentLabel}

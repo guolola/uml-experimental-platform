@@ -233,7 +233,7 @@ export function PlatformLoadingScreen({
             <span className="inline-flex size-7 shrink-0 items-center justify-center rounded bg-primary text-primary-foreground">
               <Grid3X3 className="size-[18px]" aria-hidden="true" />
             </span>
-            <span>软件工程实训平台</span>
+            <span>软件工程实践平台</span>
           </span>
           <span className="text-base text-muted-foreground" aria-hidden="true">
             ×

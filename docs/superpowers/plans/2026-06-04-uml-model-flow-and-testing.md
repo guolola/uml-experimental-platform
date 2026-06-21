@@ -6,7 +6,7 @@ This plan records the agreed improvements for the UML experimental platform befo
 
 ## User Goals
 
-- Rename user-facing platform copy from "软件工程实验平台" to "软件工程实训平台".
+- Rename user-facing platform copy from "软件工程实验平台" to "软件工程实践平台".
 - On the home page hero, change "UML" to "UML模型".
 - Make model detail element cards more compact so users can see more elements per page.
 - Normalize class, database table, and field display fields as: 中文名称、英文名称、类型、约束.
@@ -166,7 +166,7 @@ This plan records the agreed improvements for the UML experimental platform befo
 - Capture browser console output throughout the run; there must be no uncaught errors, React warnings that indicate broken rendering, failed hydration, invalid DOM nesting, or repeated runtime exceptions.
 - Inspect network activity; expected API/SSE/render requests should complete successfully, and there should be no unexpected 4xx/5xx responses, stalled requests, broken SVG loads, or failed document/model fetches.
 - Run these user flows in Chrome MCP:
-  - open the home page and verify "软件工程实训平台" plus "UML模型" copy;
+  - open the home page and verify "软件工程实践平台" plus "UML模型" copy;
   - enter a project workspace and verify sidebar labels/order for 需求、设计、测试、代码、说明书;
   - expand requirement models and verify 总体业务流程、部署需求模型、原型界面关系、需求分析模型 labels;
   - open each generated requirement model and its scoped 跟踪矩阵, confirming the matrix only shows that model's elements;

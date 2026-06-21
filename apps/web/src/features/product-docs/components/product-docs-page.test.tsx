@@ -13,7 +13,7 @@ describe("ProductDocsPage", () => {
     render(<ProductDocsPage />);
 
     expect(
-      screen.getByRole("heading", { name: "软件工程实训平台使用手册" }),
+      screen.getByRole("heading", { name: "软件工程实践平台使用手册" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "快速开始" })).toBeInTheDocument();
     expect(
