@@ -10,6 +10,7 @@ test("provider config model normalization includes new default platform models",
   assert.ok(allowed.includes("gpt-5.5-pro"));
   assert.ok(allowed.includes("claude-opus-4-7"));
   assert.ok(allowed.includes("deepseek-v4-pro"));
+  assert.ok(allowed.includes("deepseek-v4-flash"));
   assert.ok(allowed.includes("MiniMax-M2.7"));
   assert.ok(allowed.includes("qwen3.5-plus"));
   assert.ok(allowed.includes("glm-5.1"));

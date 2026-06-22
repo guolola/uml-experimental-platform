@@ -11,6 +11,7 @@ export const DEFAULT_ALLOWED_PROVIDER_MODELS = [
   "gemini-3.1-pro-preview-thinking-medium",
   "gemini-3.1-flash-lite-preview",
   "deepseek-v4-pro",
+  "deepseek-v4-flash",
   "MiniMax-M2.7",
   "qwen3.5-plus",
   "glm-5.1",
