@@ -43,6 +43,36 @@ const documentEnv = {
     : {}),
 };
 
+const providerEnv = {
+  ...(process.env.UML_PROVIDER_BASE_URL_ALLOWLIST
+    ? { UML_PROVIDER_BASE_URL_ALLOWLIST: process.env.UML_PROVIDER_BASE_URL_ALLOWLIST }
+    : {}),
+  ...(process.env.UML_PROVIDER_CONFIG_SECRET
+    ? { UML_PROVIDER_CONFIG_SECRET: process.env.UML_PROVIDER_CONFIG_SECRET }
+    : {}),
+  ...(process.env.UML_PROVIDER_SECRET_KEY
+    ? { UML_PROVIDER_SECRET_KEY: process.env.UML_PROVIDER_SECRET_KEY }
+    : {}),
+  ...(process.env.UML_PROVIDER_HOURLY_LIMIT
+    ? { UML_PROVIDER_HOURLY_LIMIT: process.env.UML_PROVIDER_HOURLY_LIMIT }
+    : {}),
+  ...(process.env.UML_ALLOW_LEGACY_PROVIDER_TEST
+    ? { UML_ALLOW_LEGACY_PROVIDER_TEST: process.env.UML_ALLOW_LEGACY_PROVIDER_TEST }
+    : {}),
+  ...(process.env.UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS
+    ? {
+        UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS:
+          process.env.UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS,
+      }
+    : {}),
+  ...(process.env.UML_TRACE_RAW_OUTPUT_MAX_CHARS
+    ? { UML_TRACE_RAW_OUTPUT_MAX_CHARS: process.env.UML_TRACE_RAW_OUTPUT_MAX_CHARS }
+    : {}),
+  ...(process.env.UML_PERSIST_PROGRESS_SNAPSHOT
+    ? { UML_PERSIST_PROGRESS_SNAPSHOT: process.env.UML_PERSIST_PROGRESS_SNAPSHOT }
+    : {}),
+};
+
 const queueEnv = {
   ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
   ...(process.env.UML_RUN_QUEUE_MODE
@@ -94,6 +124,7 @@ const apiEnv = {
   ...releaseEnv,
   ...corsEnv,
   ...documentEnv,
+  ...providerEnv,
   ...queueEnv,
 };
 
@@ -102,6 +133,7 @@ const workerEnv = {
   RENDER_SERVICE_BASE_URL: "http://127.0.0.1:4002",
   ...releaseEnv,
   ...documentEnv,
+  ...providerEnv,
   ...queueEnv,
 };
 
