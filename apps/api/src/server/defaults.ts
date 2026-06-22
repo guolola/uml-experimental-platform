@@ -15,7 +15,7 @@ export const RELEASE_STARTED_AT =
 export const DEFAULT_SSE_ALLOW_ORIGIN = "http://localhost:5173";
 export const DEFAULT_PROVIDER_BASE_URL_ALLOWLIST = (
   process.env.UML_PROVIDER_BASE_URL_ALLOWLIST ??
-  "https://ai.comfly.org,https://ai.comfly.chat,https://api.openai.com,https://api.siliconflow.cn"
+  "https://ai.comfly.org,https://ai.comfly.chat,https://api.openai.com,https://api.siliconflow.cn,https://api.nonelinear.com"
 )
   .split(",")
   .map((url) => url.trim())

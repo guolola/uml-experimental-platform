@@ -35,6 +35,7 @@ const createdRow = {
   risk_state: "medium",
   default_model: "gpt-4.1",
   allowed_models: ["gpt-4.1"],
+  model_capabilities: {},
   quota: "unlimited",
   status: "active",
   scope_type: "system",
@@ -45,7 +46,7 @@ const createdRow = {
   breaker_last_failure_at: null,
 };
 
-test("postgres provider repository creates allowlisted configs without storing plaintext keys", async () => {
+test("postgres provider repository creates managed configs without storing plaintext keys", async () => {
   const client = new ScriptedClient();
   client.queueRows([createdRow]);
   client.queueRows([]);
@@ -72,6 +73,34 @@ test("postgres provider repository creates allowlisted configs without storing p
   assert.match(client.calls[1]?.sql ?? "", /insert into provider_secrets/i);
   assert.match(client.calls[2]?.sql ?? "", /insert into audit_logs/i);
   assert.doesNotMatch(JSON.stringify(client.calls), /sk-live-secret-a91f/);
+});
+
+test("postgres provider repository infers provider labels for public custom HTTPS URLs", async () => {
+  const client = new ScriptedClient();
+  client.queueRows([{
+    ...createdRow,
+    provider: "openai-compatible",
+    base_url: "https://api.custom-provider.example",
+  }]);
+  client.queueRows([]);
+  client.queueRows([]);
+  const repository = createPostgresProviderConfigRepository({
+    db: client,
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+
+  const created = await repository.create({
+    name: "Custom production gateway",
+    baseUrl: "https://api.custom-provider.example/v1",
+    apiKey: "sk-live-secret-a91f",
+    defaultModel: "gpt-4.1",
+    createdBy: "admin-user",
+  });
+
+  assert.equal(created.baseUrl, "https://api.custom-provider.example");
+  assert.equal(created.provider, "openai-compatible");
+  assert.equal(client.calls[0]?.params[2], "openai-compatible");
 });
 
 test("postgres provider repository keeps SiliconFlow model catalogs provider-scoped", async () => {
@@ -150,13 +179,14 @@ test("postgres provider repository updates editable metadata without touching se
   assert.equal(updated?.defaultModel, "gpt-4.1-mini");
   assert.match(client.calls[1]?.sql ?? "", /update provider_configs/i);
   assert.doesNotMatch(client.calls[1]?.sql ?? "", /provider_secrets/i);
-  assert.deepEqual(client.calls[1]?.params.slice(1, 8), [
+  assert.deepEqual(client.calls[1]?.params.slice(1, 9), [
     "OpenAI production gateway v2",
     "gpt-4.1-mini",
     normalizeProviderAllowedModels("gpt-4.1-mini", ["gpt-4.1", "gpt-4.1-mini"], {
       baseUrl: "https://api.openai.com",
       provider: "openai",
     }),
+    {},
     "production generation",
     "contract label",
     "system",
@@ -165,7 +195,7 @@ test("postgres provider repository updates editable metadata without touching se
   assert.match(client.calls[2]?.sql ?? "", /insert into audit_logs/i);
 });
 
-test("postgres provider repository blocks configs outside the admin allowlist", async () => {
+test("postgres provider repository blocks non-public provider base URLs", async () => {
   const repository = createPostgresProviderConfigRepository({
     db: new ScriptedClient(),
     baseUrlAllowlist: ["https://api.openai.com"],
@@ -176,13 +206,12 @@ test("postgres provider repository blocks configs outside the admin allowlist", 
     () =>
       repository.create({
         name: "Untrusted",
-        provider: "proxy",
-        baseUrl: "https://evil.example.com",
+        baseUrl: "https://127.0.0.1:11434/v1",
         apiKey: "sk-live-secret-a91f",
         defaultModel: "gpt-4.1",
         createdBy: "admin-user",
       }),
-    /allowlist/i,
+    /public HTTPS host/i,
   );
 });
 
@@ -213,6 +242,7 @@ test("postgres provider repository maps views and never includes secret cipherte
       riskState: "medium",
       defaultModel: "gpt-4.1",
       allowedModels: normalizeProviderAllowedModels("gpt-4.1", ["gpt-4.1"]),
+      modelCapabilities: {},
       quota: "unlimited",
       status: "active",
       scopeType: "system",

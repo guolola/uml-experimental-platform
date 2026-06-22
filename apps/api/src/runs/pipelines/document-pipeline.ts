@@ -74,7 +74,7 @@ async function generateDocumentSectionsWithRepair(
   let prompt = buildGenerateDocumentContentPrompt(input.documentKind, context);
   let previousOutput = "";
   let lastErrorMessage = "";
-  const responseFormat = getDocumentContentResponseFormat(providerSettings.model);
+  const responseFormat = getDocumentContentResponseFormat(providerSettings);
 
   for (
     let attempt = 0;

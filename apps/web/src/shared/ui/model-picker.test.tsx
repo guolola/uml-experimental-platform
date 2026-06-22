@@ -1,5 +1,5 @@
 // Verifies model picker vendor grouping for catalog and provider-managed models.
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -14,6 +14,7 @@ function seedSettings(patch: Partial<UserSettings>) {
     JSON.stringify({
       providerConfigId: "",
       providerLabel: "",
+      providerModelCapabilities: {},
       providerModelOptions: [],
       defaultModel: "gpt-5.4",
       imageModel: "gpt-image-2",
@@ -61,6 +62,16 @@ describe("ModelPicker", () => {
         "Qwen/Qwen3.6-35B-A3B",
         "gpt-5.4",
       ],
+      providerModelCapabilities: {
+        "deepseek-ai/DeepSeek-V4-Pro": {
+          id: "deepseek-ai/DeepSeek-V4-Pro",
+          supportsJsonSchema: true,
+        },
+        "deepseek-ai/DeepSeek-V4-Flash": {
+          id: "deepseek-ai/DeepSeek-V4-Flash",
+          supportsJsonSchema: false,
+        },
+      },
       defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
     });
 
@@ -85,8 +96,18 @@ describe("ModelPicker", () => {
     expect(screen.queryByTitle("Qwen/Qwen3.6-35B-A3B")).not.toBeInTheDocument();
 
     await user.hover(screen.getByText("DeepSeek"));
-    expect(await screen.findByTitle("deepseek-ai/DeepSeek-V4-Pro")).toBeInTheDocument();
-    expect(await screen.findByTitle("deepseek-ai/DeepSeek-V4-Flash")).toBeInTheDocument();
+    const deepseekPro = await screen.findByTitle("deepseek-ai/DeepSeek-V4-Pro");
+    const deepseekFlash = await screen.findByTitle("deepseek-ai/DeepSeek-V4-Flash");
+    expect(deepseekPro.closest("[data-slot='dropdown-menu-sub-content']")).toHaveClass(
+      "max-h-72",
+      "overflow-y-auto",
+    );
+    expect(within(deepseekPro).getByText("DeepSeek-V4-Pro")).toBeInTheDocument();
+    expect(within(deepseekPro).getByText("严格结构化")).toBeInTheDocument();
+    expect(within(deepseekPro).queryByText("deepseek-ai/DeepSeek-V4-Pro")).not.toBeInTheDocument();
+    expect(within(deepseekFlash).getByText("DeepSeek-V4-Flash")).toBeInTheDocument();
+    expect(within(deepseekFlash).queryByText("严格结构化")).not.toBeInTheDocument();
+    expect(within(deepseekFlash).queryByText("deepseek-ai/DeepSeek-V4-Flash")).not.toBeInTheDocument();
 
     await user.hover(screen.getByText("Kimi"));
     expect(await screen.findByTitle("Pro/moonshotai/Kimi-K2.6")).toBeInTheDocument();
@@ -100,6 +121,36 @@ describe("ModelPicker", () => {
     await user.hover(screen.getByText("Qwen"));
     expect(await screen.findByTitle("Qwen/Qwen3.6-35B-A3B")).toBeInTheDocument();
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it("selects provider-managed models by their full model id", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+    seedSettings({
+      providerConfigId: "provider-system-siliconflow",
+      providerLabel: "SiliconFlow",
+      providerModelOptions: [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Flash",
+      ],
+      defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+    });
+
+    render(
+      <ModelPicker
+        value="deepseek-ai/DeepSeek-V4-Pro"
+        onValueChange={onValueChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "DeepSeek-V4-Pro" }));
+    await user.hover(screen.getByText("DeepSeek"));
+    const item = await screen.findByTitle("deepseek-ai/DeepSeek-V4-Flash");
+    fireEvent.pointerDown(item, { button: 0, ctrlKey: false });
+    fireEvent.pointerUp(item, { button: 0, ctrlKey: false });
+    fireEvent.click(item);
+
+    expect(onValueChange).toHaveBeenCalledWith("deepseek-ai/DeepSeek-V4-Flash");
   });
 
   it("falls back to the managed provider label for unknown model prefixes", async () => {

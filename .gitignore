@@ -83,6 +83,7 @@ screenshots/
 *.tar.gz
 *.zip
 release-*/
+.deploy/
 
 plantuml/**
 !plantuml/

@@ -20,6 +20,10 @@ import type {
   ProviderConfigStore,
   ProviderConfigView,
 } from "../../provider-configs/provider-config-store.js";
+import {
+  ProviderHttpError,
+  runOpenAiCompatibleChatCompletionHealthcheck,
+} from "../../llm.js";
 
 function toProviderConfigDto(view: ProviderConfigView) {
   return providerConfigDtoSchema.parse({
@@ -29,6 +33,7 @@ function toProviderConfigDto(view: ProviderConfigView) {
     baseUrl: view.baseUrl,
     defaultModel: view.defaultModel,
     allowedModels: view.allowedModels,
+    modelCapabilities: view.modelCapabilities,
     maskedKey: view.maskedKey,
     status: view.status,
     riskState: view.riskState,
@@ -197,36 +202,27 @@ async function testProviderConfig({
     });
   }
 
-  const capability = getModelCapability(testModel);
-  const response = await fetch(
-    new URL("/v1/chat/completions", providerConfig.baseUrl).toString(),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: testModel,
-        messages: [{ role: "user", content: "只回复 JSON：{\"ok\":true}" }],
-        stream: false,
-        temperature: 0,
-        response_format: getHealthcheckResponseFormat(testModel),
-        tools: [],
-        tool_choice: "none",
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    const detail = await readProviderErrorDetail(response);
+  const modelCapability = providerConfig.modelCapabilities[testModel];
+  const capability = getModelCapability(modelCapability ?? testModel);
+  try {
+    await runOpenAiCompatibleChatCompletionHealthcheck({
+      apiBaseUrl: providerConfig.baseUrl,
+      apiKey,
+      model: testModel,
+      responseFormat: getHealthcheckResponseFormat(modelCapability ?? testModel),
+    });
+  } catch (error) {
     const breaker = await providerConfigs.recordFailure?.(providerConfig.id);
-    reply.code(response.status >= 400 && response.status < 500 ? 400 : 502);
+    const providerStatus =
+      error instanceof ProviderHttpError ? error.status : null;
+    reply.code(
+      providerStatus !== null && providerStatus >= 400 && providerStatus < 500
+        ? 400
+        : 502,
+    );
     return providerConfigTestResponseSchema.parse({
       ok: false,
-      message: detail
-        ? `Provider test failed with HTTP ${response.status}: ${detail}`
-        : `Provider test failed with HTTP ${response.status}`,
+      message: error instanceof Error ? error.message : "Provider test failed",
       capability,
       breaker: breaker ? breakerDto(breaker) : undefined,
     });

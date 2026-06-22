@@ -164,6 +164,13 @@ export interface PlatformProviderConfig {
   baseUrl: string;
   defaultModel?: string;
   allowedModels?: string[];
+  modelCapabilities?: Record<
+    string,
+    {
+      id?: string;
+      supportsJsonSchema?: boolean;
+    }
+  >;
   maskedKey: string;
   keyPurpose: string;
   status: string;

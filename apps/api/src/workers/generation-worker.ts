@@ -69,12 +69,14 @@ async function resolveWorkerProviderSettings({
   if (!apiKey) {
     throw new Error("Queued run provider config has no usable secret");
   }
+  const modelCapability = config.modelCapabilities[input.model];
   return {
     providerConfigId: input.providerConfigId,
     providerSettings: {
       apiBaseUrl: config.baseUrl,
       apiKey,
       model: input.model,
+      ...(modelCapability ? { modelCapability } : {}),
     },
   };
 }

@@ -111,10 +111,12 @@ export async function resolveProviderSettingsForRun({
       reply.code(400);
       return null;
     }
+    const modelCapability = providerConfig.modelCapabilities[providerSettings.model];
     return {
       apiBaseUrl: providerConfig.baseUrl,
       apiKey,
       model: providerSettings.model,
+      ...(modelCapability ? { modelCapability } : {}),
     };
   }
 

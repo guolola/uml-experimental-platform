@@ -165,6 +165,9 @@ const renderServiceEnv = {
   NODE_ENV: "production",
   RENDER_SERVICE_HOST: "127.0.0.1",
   RENDER_SERVICE_PORT: "4002",
+  ...(process.env.UML_RENDER_CONCURRENCY
+    ? { UML_RENDER_CONCURRENCY: process.env.UML_RENDER_CONCURRENCY }
+    : {}),
   ...releaseEnv,
   ...corsEnv,
 };

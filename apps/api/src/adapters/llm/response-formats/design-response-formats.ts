@@ -1,6 +1,9 @@
 // Defines JSON schema response formats for design model generation.
 import { type ChatCompletionResponseFormat } from "../../../llm.js";
-import { getModelCapability } from "../../../model-capabilities.js";
+import {
+  getModelCapability,
+  type ModelCapabilitySource,
+} from "../../../model-capabilities.js";
 import { modelElementRefResponseSchema } from "./requirements-response-formats.js";
 import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
 
@@ -487,13 +490,15 @@ export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRespons
   },
 };
 
-export function getGenerateDesignModelsResponseFormat(model: string) {
+export function getGenerateDesignModelsResponseFormat(model: ModelCapabilitySource) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_DESIGN_MODELS_RESPONSE_FORMAT
     : undefined;
 }
 
-export function getGenerateDesignTraceabilityResponseFormat(model: string) {
+export function getGenerateDesignTraceabilityResponseFormat(
+  model: ModelCapabilitySource,
+) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT
     : undefined;

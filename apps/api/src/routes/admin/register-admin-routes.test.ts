@@ -39,6 +39,25 @@ const ADMIN_HEADERS = {
   "x-uml-admin-role": "super-admin",
 };
 
+function createChatProbeStream(content: string) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+        ),
+      );
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
 function mockPaymentProviders(): PaymentProviderRegistry {
   return {
     wechat_native: createMockPaymentAdapter({
@@ -2516,7 +2535,7 @@ test("admin can download visible documents through the admin document endpoint",
   }
 });
 
-test("provider config create rejects base URLs outside the allowlist", async () => {
+test("provider config create accepts public custom HTTPS base URLs outside the environment allowlist", async () => {
   const { app, cookie } = await createAdminSessionApp({
     adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
   });
@@ -2526,16 +2545,39 @@ test("provider config create rejects base URLs outside the allowlist", async () 
     url: "/api/admin/provider-configs",
     headers: { cookie },
     payload: {
-      name: "Untrusted model gateway",
-      provider: "untrusted",
-      baseUrl: "https://evil.example.com",
+      name: "Custom model gateway",
+      baseUrl: "https://api.custom-provider.example/v1",
+      apiKey: "sk-secret-should-not-pass",
+      defaultModel: "gpt-4.1",
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().baseUrl, "https://api.custom-provider.example");
+  assert.equal(response.json().provider, "openai-compatible");
+  assert.equal(response.json().allowlisted, true);
+  assert.doesNotMatch(response.body, /sk-secret-should-not-pass/);
+
+  await app.close();
+});
+
+test("provider config create rejects non-public or non-HTTPS base URLs", async () => {
+  const { app, cookie } = await createAdminSessionApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+    payload: {
+      name: "Local model gateway",
+      baseUrl: "http://localhost:11434/v1",
       apiKey: "sk-secret-should-not-pass",
       defaultModel: "gpt-4.1",
     },
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.body, /allowlist/i);
+  assert.match(response.body, /HTTPS|public/i);
 
   await app.close();
 });
@@ -2571,7 +2613,6 @@ test("provider configs accept SiliconFlow v1 endpoint with a fixed reviewed mode
       payload: {
         allowedModels,
         name: "SiliconFlow production gateway",
-        provider: "siliconflow",
         baseUrl: "https://api.siliconflow.cn/v1",
         apiKey: "sk-siliconflow-secret-a91f",
         defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
@@ -2593,6 +2634,7 @@ test("provider configs accept SiliconFlow v1 endpoint with a fixed reviewed mode
 
     assert.equal(created.statusCode, 201);
     assert.equal(created.json().baseUrl, "https://api.siliconflow.cn");
+    assert.equal(created.json().provider, "siliconflow");
     assert.deepEqual(created.json().allowedModels, allowedModels);
     assert.doesNotMatch(created.body, /sk-siliconflow-secret-a91f/);
     assert.equal(allowedTest.statusCode, 200);
@@ -2600,6 +2642,278 @@ test("provider configs accept SiliconFlow v1 endpoint with a fixed reviewed mode
     assert.equal(testedUrl, "https://api.siliconflow.cn/v1/chat/completions");
     assert.equal(rejectedTest.statusCode, 400);
     assert.match(rejectedTest.body, /model/i);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin provider model discovery returns normalized OpenAI-compatible models", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; method: string }> = [];
+  globalThis.fetch = (async (url, init) => {
+    const testedUrl = String(url);
+    calls.push({ url: testedUrl, method: init?.method ?? "GET" });
+    if (testedUrl.endsWith("/v1/chat/completions")) {
+      return createChatProbeStream('{"probe":"strict-json-ok","n":1}');
+    }
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [
+          {
+            id: " gpt-4o ",
+            object: "model",
+            created: 1715558400,
+            owned_by: "openai",
+          },
+          {
+            id: "gemini-2.5-flash-image",
+            object: "model",
+            created: 0,
+            owned_by: "nonelinear",
+          },
+          {
+            object: "model",
+            created: 0,
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp();
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      createdBy: "admin",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/admin/provider-configs/${provider.id}/models`,
+      headers: { cookie },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(calls[0]?.url, "https://api.openai.com/v1/models");
+    assert.equal(calls[0]?.method, "GET");
+    assert.equal(calls[1]?.url, "https://api.openai.com/v1/chat/completions");
+    assert.equal(response.json().sourceBaseUrl, "https://api.openai.com");
+    const body = response.json();
+    assert.equal(body.summary.rawCount, 2);
+    assert.equal(body.summary.excludedByNameCount, 1);
+    assert.equal(body.summary.strictCount, 1);
+    assert.deepEqual(body.models.map((model: { id: string }) => model.id), ["gpt-4o"]);
+    assert.equal(body.models[0].category, "text_chat");
+    assert.equal(body.models[0].supportsJsonSchema, true);
+    assert.equal(body.models[0].strictJson, true);
+    assert.equal(body.models[0].probeStatus, "strict");
+    assert.equal(typeof body.models[0].probedAt, "string");
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin temporary provider model discovery uses supplied base URL and API key without saving a config", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; authorization: string }> = [];
+  globalThis.fetch = (async (url, init) => {
+    const testedUrl = String(url);
+    const testedAuthorization =
+      init?.headers instanceof Headers
+        ? init.headers.get("Authorization") ?? ""
+        : String((init?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+    calls.push({ url: testedUrl, authorization: testedAuthorization });
+    if (testedUrl.endsWith("/v1/chat/completions")) {
+      return createChatProbeStream('{"probe":"strict-json-ok","n":1}');
+    }
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [
+          { id: "deepseek-v4-flash", object: "model", created: 0, owned_by: "nonelinear" },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie } = await createAdminRouteTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs/discover-models",
+      headers: { cookie },
+      payload: {
+        baseUrl: "https://api.nonelinear.com/v1",
+        apiKey: "sk-temporary-secret",
+      },
+    });
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/admin/provider-configs",
+      headers: { cookie },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(calls[0]?.url, "https://api.nonelinear.com/v1/models");
+    assert.equal(calls[0]?.authorization, "Bearer sk-temporary-secret");
+    assert.equal(calls[1]?.url, "https://api.nonelinear.com/v1/chat/completions");
+    assert.equal(calls[1]?.authorization, "Bearer sk-temporary-secret");
+    assert.equal(response.json().sourceBaseUrl, "https://api.nonelinear.com");
+    const body = response.json();
+    assert.equal(body.summary.strictCount, 1);
+    assert.deepEqual(body.models.map((model: { id: string }) => model.id), [
+      "deepseek-v4-flash",
+    ]);
+    assert.equal(body.models[0].supportsJsonSchema, true);
+    assert.equal(body.models[0].probeStatus, "strict");
+    assert.deepEqual(listed.json().providerConfigs, []);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin temporary provider model discovery stream emits progress events", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url) => {
+    const testedUrl = String(url);
+    if (testedUrl.endsWith("/v1/chat/completions")) {
+      return createChatProbeStream('{"probe":"strict-json-ok","n":1}');
+    }
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [
+          { id: "deepseek-v4-flash", object: "model", created: 0, owned_by: "nonelinear" },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie } = await createAdminRouteTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs/discover-models/stream",
+      headers: { cookie },
+      payload: {
+        baseUrl: "https://api.nonelinear.com/v1",
+        apiKey: "sk-temporary-secret",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"] as string, /text\/event-stream/);
+    const events = response.body
+      .split(/\r?\n\r?\n/u)
+      .flatMap((block) => {
+        const data = block
+          .split(/\r?\n/u)
+          .find((line) => line.startsWith("data:"))
+          ?.slice(5)
+          .trim();
+        return data ? [JSON.parse(data) as { type: string }] : [];
+      });
+    assert.deepEqual(events.map((event) => event.type), [
+      "started",
+      "models_listed",
+      "name_filtered",
+      "probe_started",
+      "probe_completed",
+      "completed",
+    ]);
+    assert.equal(events.at(-1)?.type, "completed");
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin temporary provider model discovery rejects private endpoints before provider calls", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("provider fetch should not be called");
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie } = await createAdminRouteTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs/discover-models",
+      headers: { cookie },
+      payload: {
+        baseUrl: "https://[::1]:11434/v1",
+        apiKey: "sk-temporary-secret",
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /public HTTPS host/i);
+    assert.equal(fetchCalls, 0);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin provider model discovery blocks disabled configs before provider calls", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("provider fetch should not be called");
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie, providerConfigs } = await createAdminRouteTestApp();
+    const provider = await providerConfigs.create({
+      name: "OpenAI production gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-live-secret-a91f",
+      defaultModel: "gpt-4.1",
+      createdBy: "admin",
+    });
+    providerConfigs.disable?.(provider.id, "admin");
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/admin/provider-configs/${provider.id}/models`,
+      headers: { cookie },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body, /disabled|inactive/i);
+    assert.equal(fetchCalls, 0);
 
     await app.close();
   } finally {
@@ -2790,7 +3104,12 @@ test("provider configs can rotate, revoke, and test allowlisted connections", as
   const originalFetch = globalThis.fetch;
   let testedAuthorization: string | undefined;
   globalThis.fetch = (async (_url, init) => {
-    testedAuthorization = (init?.headers as Record<string, string>)?.Authorization;
+    const headers = init?.headers;
+    testedAuthorization =
+      headers instanceof Headers
+        ? headers.get("authorization") ?? undefined
+        : (headers as Record<string, string> | undefined)?.Authorization ??
+          (headers as Record<string, string> | undefined)?.authorization;
     return new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
       status: 200,
       headers: { "Content-Type": "application/json" },

@@ -6,7 +6,19 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
+import {
+  providerModelCapabilitySchema,
+  type ProviderModelCapability,
+  type ProviderModelCapabilityMap,
+} from "@uml-platform/contracts";
 import { normalizeProviderAllowedModels } from "./default-provider-models.js";
+import {
+  inferOpenAiCompatibleProvider,
+  normalizeManagedProviderBaseUrl,
+  ProviderConfigPolicyError,
+} from "./provider-url-policy.js";
+
+export { ProviderConfigPolicyError } from "./provider-url-policy.js";
 
 export type ProviderConfigStatus = "active" | "disabled" | "revoked";
 export type ProviderRiskState = "low" | "medium" | "high" | "critical";
@@ -35,6 +47,7 @@ export interface ProviderConfigView {
   riskState: ProviderRiskState;
   defaultModel: string;
   allowedModels: string[];
+  modelCapabilities: ProviderModelCapabilityMap;
   quota: string;
   status: ProviderConfigStatus;
   scopeType: ProviderConfigScopeType;
@@ -64,11 +77,12 @@ interface StoredProviderConfig {
 export interface ProviderConfigStore {
   create(input: {
     name: string;
-    provider: string;
+    provider?: string;
     baseUrl: string;
     apiKey: string;
     defaultModel: string;
     allowedModels?: string[];
+    modelCapabilities?: ProviderModelCapabilityMap;
     keyPurpose?: string;
     createdBy: string;
     quota?: string;
@@ -80,6 +94,7 @@ export interface ProviderConfigStore {
   get(id: string): ProviderConfigView | null;
   updateMetadata?(id: string, input: {
     allowedModels?: string[];
+    modelCapabilities?: ProviderModelCapabilityMap;
     defaultModel?: string;
     keyPurpose?: string;
     name?: string;
@@ -98,15 +113,48 @@ export interface ProviderConfigStore {
   listAuditLogs(): ProviderAuditLog[];
 }
 
-export class ProviderConfigPolicyError extends Error {}
 export class ProviderConfigSecretError extends Error {}
 
-function normalizeUrlOrigin(url: string) {
-  try {
-    return new URL(url.trim()).origin;
-  } catch {
-    throw new ProviderConfigPolicyError("Provider Base URL must be a valid URL");
-  }
+export function createUnverifiedModelCapability(
+  modelId: string,
+  probedAt = new Date().toISOString(),
+): ProviderModelCapability {
+  return {
+    id: modelId,
+    category: "text_chat",
+    supportsJsonSchema: false,
+    strictJson: "unknown",
+    modeLabel: "兼容模式",
+    warning: "该模型能力未验证，将使用普通 JSON 输出和服务端校验修复。",
+    probeStatus: "unknown",
+    probeReason: "model was added manually or has no saved probe result",
+    probedAt,
+  };
+}
+
+export function normalizeProviderModelCapabilities(
+  allowedModels: string[],
+  capabilities?: ProviderModelCapabilityMap | null,
+  { fillMissing = false }: { fillMissing?: boolean } = {},
+): ProviderModelCapabilityMap {
+  const byId = new Map<string, ProviderModelCapability>();
+  Object.values(capabilities ?? {}).forEach((capability) => {
+    const parsed = providerModelCapabilitySchema.safeParse(capability);
+    if (parsed.success) byId.set(parsed.data.id, parsed.data);
+  });
+
+  const normalized: ProviderModelCapabilityMap = {};
+  allowedModels.forEach((model) => {
+    const capability = byId.get(model);
+    if (capability) {
+      normalized[model] = capability;
+      return;
+    }
+    if (fillMissing) {
+      normalized[model] = createUnverifiedModelCapability(model);
+    }
+  });
+  return normalized;
 }
 
 function createSecretKey(secret: string) {
@@ -156,7 +204,7 @@ export function maskApiKey(apiKey: string) {
 }
 
 export function createProviderConfigStore({
-  baseUrlAllowlist,
+  baseUrlAllowlist: _baseUrlAllowlist,
   secret,
   breakerFailureThreshold = 3,
 }: {
@@ -164,7 +212,6 @@ export function createProviderConfigStore({
   secret?: string;
   breakerFailureThreshold?: number;
 }): ProviderConfigStore {
-  const allowlist = new Set(baseUrlAllowlist.map(normalizeUrlOrigin));
   const secretKey = createSecretKey(
     secret ??
       process.env.UML_PROVIDER_CONFIG_SECRET ??
@@ -172,16 +219,6 @@ export function createProviderConfigStore({
   );
   const records = new Map<string, StoredProviderConfig>();
   const auditLogs: ProviderAuditLog[] = [];
-
-  function assertAllowlisted(baseUrl: string) {
-    const normalized = normalizeUrlOrigin(baseUrl);
-    if (!allowlist.has(normalized)) {
-      throw new ProviderConfigPolicyError(
-        "Provider Base URL is not in the admin allowlist",
-      );
-    }
-    return normalized;
-  }
 
   function audit(input: {
     actor: string;
@@ -201,7 +238,16 @@ export function createProviderConfigStore({
   }
 
   function cloneView(view: ProviderConfigView): ProviderConfigView {
-    return { ...view, allowedModels: [...view.allowedModels] };
+    return {
+      ...view,
+      allowedModels: [...view.allowedModels],
+      modelCapabilities: Object.fromEntries(
+        Object.entries(view.modelCapabilities).map(([model, capability]) => [
+          model,
+          { ...capability },
+        ]),
+      ),
+    };
   }
 
   function normalizeScope(input: {
@@ -228,14 +274,20 @@ export function createProviderConfigStore({
 
   return {
     create(input) {
-      const baseUrl = assertAllowlisted(input.baseUrl);
+      const baseUrl = normalizeManagedProviderBaseUrl(input.baseUrl);
+      const provider = inferOpenAiCompatibleProvider(baseUrl, input.provider);
       const scope = normalizeScope(input);
       const now = new Date().toISOString();
       const id = randomUUID();
+      const allowedModels = normalizeProviderAllowedModels(
+        input.defaultModel,
+        input.allowedModels,
+        { baseUrl, provider },
+      );
       const view: ProviderConfigView = {
         id,
         name: input.name.trim(),
-        provider: input.provider.trim(),
+        provider,
         baseUrl,
         allowlisted: true,
         maskedKey: maskApiKey(input.apiKey),
@@ -246,10 +298,11 @@ export function createProviderConfigStore({
         lastUsedAt: null,
         riskState: input.riskState ?? "medium",
         defaultModel: input.defaultModel.trim(),
-        allowedModels: normalizeProviderAllowedModels(
-          input.defaultModel,
-          input.allowedModels,
-          { baseUrl, provider: input.provider },
+        allowedModels,
+        modelCapabilities: normalizeProviderModelCapabilities(
+          allowedModels,
+          input.modelCapabilities,
+          { fillMissing: Boolean(input.modelCapabilities) },
         ),
         quota: input.quota ?? "unlimited",
         status: "active",
@@ -307,6 +360,11 @@ export function createProviderConfigStore({
       record.view.keyPurpose = input.keyPurpose?.trim() || record.view.keyPurpose;
       record.view.defaultModel = nextDefaultModel;
       record.view.allowedModels = nextAllowedModels;
+      record.view.modelCapabilities = normalizeProviderModelCapabilities(
+        nextAllowedModels,
+        input.modelCapabilities ?? record.view.modelCapabilities,
+        { fillMissing: Boolean(input.modelCapabilities) },
+      );
       record.view.quota = input.quota?.trim() || record.view.quota;
       record.view.scopeType = scope.scopeType;
       record.view.scopeId = scope.scopeId;

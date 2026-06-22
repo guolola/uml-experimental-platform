@@ -194,7 +194,7 @@ export async function runCodeStagePipeline(
           );
         },
         parseCodeBusinessLogicResult,
-        getGenerateCodeBusinessLogicResponseFormat(providerSettings.model),
+        getGenerateCodeBusinessLogicResponseFormat(providerSettings),
         attempt,
       );
       businessLogicError = null;
@@ -272,7 +272,7 @@ export async function runCodeStagePipeline(
         );
       },
       (text) => codeVisualDirectionResultSchema.parse(parseJson(text)),
-      getGenerateCodeVisualDirectionResponseFormat(providerSettings.model),
+      getGenerateCodeVisualDirectionResponseFormat(providerSettings),
     );
     throwIfRunCancelled(record);
     visualDirection = visualDirectionResult.visualDirection;
@@ -321,7 +321,7 @@ export async function runCodeStagePipeline(
         z
           .object({ skillResourceDiscoveryPlan: codeSkillResourceDiscoveryPlanSchema })
           .parse(parseJson(text)),
-      getGenerateCodeSkillResourceDiscoveryResponseFormat(providerSettings.model),
+      getGenerateCodeSkillResourceDiscoveryResponseFormat(providerSettings),
     );
     throwIfRunCancelled(record);
     skillResourceDiscoveryPlan = codeSkillResourceDiscoveryPlanSchema.parse(
@@ -384,7 +384,7 @@ export async function runCodeStagePipeline(
         );
       },
       parseCodeSkillResourcePlanResult,
-      getGenerateCodeSkillResourcePlanResponseFormat(providerSettings.model),
+      getGenerateCodeSkillResourcePlanResponseFormat(providerSettings),
     );
     throwIfRunCancelled(record);
     skillResourcePlan = codeSkillResourcePlanSchema.parse(

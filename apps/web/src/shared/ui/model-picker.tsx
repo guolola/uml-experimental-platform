@@ -70,13 +70,22 @@ function inferProviderModelGroup(modelId: string, fallbackLabel: string) {
   return { id: `provider-${normalizeGroupId(label)}`, label };
 }
 
-function getProviderModelGroups(modelIds: string[], fallbackLabel: string) {
+function getProviderModelGroups(
+  modelIds: string[],
+  fallbackLabel: string,
+  capabilities: ReturnType<typeof loadUserSettings>["providerModelCapabilities"],
+) {
   const groups = new Map<
     string,
     {
       id: string;
       label: string;
-      models: Array<{ id: string; shortLabel: string; fullLabel: string }>;
+      models: Array<{
+        id: string;
+        shortLabel: string;
+        fullLabel: string;
+        supportsJsonSchema: boolean;
+      }>;
     }
   >();
 
@@ -92,6 +101,7 @@ function getProviderModelGroups(modelIds: string[], fallbackLabel: string) {
       id: trimmed,
       shortLabel: catalogModel?.shortLabel ?? getProviderModelLabel(trimmed),
       fullLabel: catalogModel?.fullLabel ?? trimmed,
+      supportsJsonSchema: capabilities[trimmed]?.supportsJsonSchema === true,
     });
   });
 
@@ -117,6 +127,7 @@ export function ModelPicker({
     const settings = loadUserSettings();
     return {
       providerLabel: settings.providerLabel,
+      providerModelCapabilities: settings.providerModelCapabilities,
       providerModelOptions: settings.providerModelOptions,
     };
   });
@@ -125,6 +136,7 @@ export function ModelPicker({
       const settings = loadUserSettings();
       setProviderSettings({
         providerLabel: settings.providerLabel,
+        providerModelCapabilities: settings.providerModelCapabilities,
         providerModelOptions: settings.providerModelOptions,
       });
     };
@@ -137,8 +149,16 @@ export function ModelPicker({
     [providerSettings.providerModelOptions],
   );
   const providerModelGroups = useMemo(
-    () => getProviderModelGroups(providerModels, providerSettings.providerLabel),
-    [providerModels, providerSettings.providerLabel],
+    () => getProviderModelGroups(
+      providerModels,
+      providerSettings.providerLabel,
+      providerSettings.providerModelCapabilities,
+    ),
+    [
+      providerModels,
+      providerSettings.providerLabel,
+      providerSettings.providerModelCapabilities,
+    ],
   );
   const display = providerModels.length > 0
     ? {
@@ -179,7 +199,7 @@ export function ModelPicker({
                   </span>
                 )}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-52">
+              <DropdownMenuSubContent className="max-h-72 min-w-52 overflow-y-auto">
                 {vendor.models.map((model) => (
                   <DropdownMenuItem
                     key={model.id}
@@ -187,11 +207,13 @@ export function ModelPicker({
                     className="flex items-center justify-between gap-3 text-xs"
                     title={model.fullLabel}
                   >
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{model.shortLabel}</span>
-                      <span className="truncate font-mono text-[10px] text-muted-foreground">
-                        {model.fullLabel}
-                      </span>
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate">{model.shortLabel}</span>
+                      {model.supportsJsonSchema && (
+                        <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                          严格结构化
+                        </span>
+                      )}
                     </span>
                     {model.id === value && (
                       <Check className="size-3.5 shrink-0 text-primary" />
@@ -211,7 +233,7 @@ export function ModelPicker({
                 </span>
               )}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-52">
+            <DropdownMenuSubContent className="max-h-72 min-w-52 overflow-y-auto">
               {vendor.models.map((model) => (
                 <DropdownMenuItem
                   key={model.id}

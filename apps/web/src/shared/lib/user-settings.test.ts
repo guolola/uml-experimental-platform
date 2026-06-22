@@ -33,6 +33,16 @@ describe("user settings defaults", () => {
           "deepseek-ai/DeepSeek-V4-Pro",
           "Qwen/Qwen3.5-72B-Instruct",
         ],
+        providerModelCapabilities: {
+          "deepseek-ai/DeepSeek-V4-Pro": {
+            id: "deepseek-ai/DeepSeek-V4-Pro",
+            supportsJsonSchema: true,
+          },
+          "retired-model": {
+            id: "retired-model",
+            supportsJsonSchema: true,
+          },
+        },
         defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
       }),
     );
@@ -44,6 +54,12 @@ describe("user settings defaults", () => {
         "deepseek-ai/DeepSeek-V4-Pro",
         "Qwen/Qwen3.5-72B-Instruct",
       ],
+      providerModelCapabilities: {
+        "deepseek-ai/DeepSeek-V4-Pro": {
+          id: "deepseek-ai/DeepSeek-V4-Pro",
+          supportsJsonSchema: true,
+        },
+      },
       defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
     });
   });

@@ -1491,7 +1491,7 @@ describe("App shell routes", () => {
     expect(promoVideo).toHaveAttribute("autoplay");
   });
 
-  it("keeps signed-out marketing visitors on the registration path when starting generation", async () => {
+  it("sends signed-out marketing visitors to login when starting generation", async () => {
     const user = userEvent.setup();
     authSessionMode = "unauthenticated";
     render(withWorkspaceProviders(<Shell />, createRepository()));
@@ -1499,9 +1499,9 @@ describe("App shell routes", () => {
     await user.click(await screen.findByRole("button", { name: "开始生成" }));
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/register");
+      expect(window.location.pathname).toBe("/login");
     });
-    expect(await screen.findByRole("heading", { name: "创建账号" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "登录" })).toBeInTheDocument();
   });
 
   it("shows only the account action on the marketing home page for signed-in users", async () => {

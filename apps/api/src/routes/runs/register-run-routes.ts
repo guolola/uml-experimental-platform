@@ -391,7 +391,7 @@ export function registerRunRoutes({
         providerSettings,
         buildRequirementRuleRepairMessages(input),
         () => undefined,
-        getRepairRequirementRuleResponseFormat(providerSettings.model),
+        getRepairRequirementRuleResponseFormat(providerSettings),
       );
       const result = applyRequirementRepairSuggestion(input, rawOutput);
       await recordProviderUsage({
@@ -463,7 +463,7 @@ export function registerRunRoutes({
         providerSettings,
         buildRequirementRulesRepairMessages(input),
         () => undefined,
-        getRepairRequirementRulesResponseFormat(providerSettings.model),
+        getRepairRequirementRulesResponseFormat(providerSettings),
       );
       const result = applyBatchRequirementRepairSuggestions(input, rawOutput);
       await recordProviderUsage({

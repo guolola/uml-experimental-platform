@@ -1,6 +1,10 @@
 // Runs admin provider config health checks outside the admin HTTP route registration layer.
 import { getModelCapability } from "../model-capabilities.js";
 import { getHealthcheckResponseFormat } from "../adapters/llm/response-formats/index.js";
+import {
+  ProviderHttpError,
+  runOpenAiCompatibleChatCompletionHealthcheck,
+} from "../llm.js";
 import type { AdminActor } from "../security/admin-guard.js";
 import type { ProviderConfigStore } from "./provider-config-store.js";
 import {
@@ -108,34 +112,28 @@ export async function testAdminProviderConfigConnection({
     }
   }
 
-  const capability = getModelCapability(testModel);
-  const response = await fetch(
-    new URL("/v1/chat/completions", providerConfig.baseUrl).toString(),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: testModel,
-        messages: [{ role: "user", content: "只回复 JSON：{\"ok\":true}" }],
-        stream: false,
-        temperature: 0,
-        response_format: getHealthcheckResponseFormat(testModel),
-        tools: [],
-        tool_choice: "none",
-      }),
-    },
-  );
-
-  if (!response.ok) {
+  const modelCapability = providerConfig.modelCapabilities[testModel];
+  const capability = getModelCapability(modelCapability ?? testModel);
+  try {
+    await runOpenAiCompatibleChatCompletionHealthcheck({
+      apiBaseUrl: providerConfig.baseUrl,
+      apiKey,
+      model: testModel,
+      responseFormat: getHealthcheckResponseFormat(modelCapability ?? testModel),
+    });
+  } catch (error) {
     const breaker = await providerConfigs.recordFailure?.(providerConfigId);
+    const providerStatus =
+      error instanceof ProviderHttpError ? error.status : null;
     return {
-      statusCode: response.status >= 400 && response.status < 500 ? 400 : 502,
+      statusCode:
+        providerStatus !== null && providerStatus >= 400 && providerStatus < 500
+          ? 400
+          : 502,
       body: {
         ok: false,
-        message: `Provider test failed with HTTP ${response.status}`,
+        message:
+          error instanceof Error ? error.message : "Provider test failed",
         capability,
         breaker: breaker
           ? {

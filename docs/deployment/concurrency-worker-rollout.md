@@ -5,7 +5,7 @@ This document records the implementation path for supporting 20-50 concurrent cl
 ## Target
 
 - 20-50 users can log in, browse projects, edit requirements, view run history, and download documents concurrently.
-- About 3-8 users can start AI generation at the same time.
+- Up to 20 users can start AI generation at the same time when they are distributed across projects/users and the provider quota supports the resulting LLM fan-out.
 - Generation requests return a `runId` quickly while the heavy work runs in workers.
 - Normal API requests must stay responsive while LLM, PlantUML, and DOCX work is queued or running.
 
@@ -23,7 +23,7 @@ This document records the implementation path for supporting 20-50 concurrent cl
 
 ## Production Environment
 
-Start with:
+High-concurrency profile for 20 simultaneous generation runs, with up to 20 requirement/design model requests per run and no intended LLM scheduler queueing inside a run:
 
 ```text
 UML_RUN_QUEUE_MODE=bullmq
@@ -31,28 +31,28 @@ UML_ENABLE_GENERATION_WORKER=true
 REDIS_URL=redis://127.0.0.1:6379/0
 
 UML_API_INSTANCES=4
-UML_GENERATION_WORKER_INSTANCES=2
-UML_GENERATION_WORKER_CONCURRENCY=1
+UML_GENERATION_WORKER_INSTANCES=4
+UML_GENERATION_WORKER_CONCURRENCY=5
 
-DATABASE_POOL_MAX=5
-UML_API_MAX_MEMORY_RESTART=1536M
-UML_GENERATION_WORKER_MAX_MEMORY_RESTART=1536M
+DATABASE_POOL_MAX=4
+UML_API_MAX_MEMORY_RESTART=2048M
+UML_GENERATION_WORKER_MAX_MEMORY_RESTART=2048M
 
-UML_LLM_GLOBAL_CONCURRENCY=10
-UML_LLM_PROVIDER_CONCURRENCY=10
-UML_LLM_PROJECT_CONCURRENCY=10
-UML_LLM_USER_CONCURRENCY=10
-UML_LLM_RUN_CONCURRENCY=10
+UML_LLM_GLOBAL_CONCURRENCY=400
+UML_LLM_PROVIDER_CONCURRENCY=400
+UML_LLM_PROJECT_CONCURRENCY=20
+UML_LLM_USER_CONCURRENCY=20
+UML_LLM_RUN_CONCURRENCY=20
 
-UML_RENDER_CONCURRENCY=1
+UML_RENDER_CONCURRENCY=400
 
 # Optional worker safety guards for long model streams.
 UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS=300000
 UML_REQUIREMENT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS=30000
-UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS=1200000
+UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS=600000
 UML_DESIGN_MODEL_TASK_TIMEOUT_MS=300000
 UML_DESIGN_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS=30000
-UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS=1200000
+UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS=600000
 UML_CODE_MODEL_TASK_TIMEOUT_MS=300000
 UML_CODE_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS=30000
 UML_CODE_MODEL_TASK_MAX_RUNTIME_MS=1200000
@@ -60,12 +60,16 @@ UML_CODE_MODEL_TASK_MAX_RUNTIME_MS=1200000
 
 With the above:
 
-- API DB connection upper bound: `4 * 5 = 20`
-- Worker DB connection upper bound: `2 * 5 = 10`
-- Application-side DB connection upper bound: about `30`
+- Effective BullMQ active generation capacity: `4 * 5 = 20`
+- Per-run LLM request capacity: `20`
+- Total LLM capacity for 20 active runs: `20 * 20 = 400`, bounded by `UML_LLM_GLOBAL_CONCURRENCY=400` and `UML_LLM_PROVIDER_CONCURRENCY=400`
+- API DB connection upper bound: `4 * 4 = 16`
+- Worker DB connection upper bound: `4 * 4 = 16`
+- Application-side DB connection upper bound: about `32`
 - Suggested PgBouncer `default_pool_size`: `40`
-- Suggested API PM2 memory restart threshold: `UML_API_MAX_MEMORY_RESTART=1536M`, then adjust from measured RSS and retained run history size.
-- Suggested worker PM2 memory restart threshold: `UML_GENERATION_WORKER_MAX_MEMORY_RESTART=1536M`, because code-generation runs can retain large streamed outputs and generated file maps before the process releases memory.
+- Suggested API PM2 memory restart threshold: `UML_API_MAX_MEMORY_RESTART=2048M`, then adjust from measured RSS and retained run history size.
+- Suggested worker PM2 memory restart threshold: `UML_GENERATION_WORKER_MAX_MEMORY_RESTART=2048M`, because code-generation runs can retain large streamed outputs and generated file maps before the process releases memory.
+- This profile assumes the 20 concurrent runs are distributed across projects and users. If they share one project or one user, `UML_LLM_PROJECT_CONCURRENCY` or `UML_LLM_USER_CONCURRENCY` becomes the effective cap and must be raised for the same no-queue behavior.
 - Requirement, design, and code LLM operations inherit the global model task timeout defaults unless the stage-specific `UML_REQUIREMENT_MODEL_TASK_*`, `UML_DESIGN_MODEL_TASK_*`, or `UML_CODE_MODEL_TASK_*` overrides are set; keep the defaults unless production traces show slow but healthy streams need a larger max runtime. For classroom validation, temporarily lowering requirement/design max runtime is useful to prevent one malformed or silent provider response from occupying a worker for an hour of retries.
 
 ## PM2
@@ -88,11 +92,17 @@ UML_RUN_QUEUE_MODE=bullmq \
 UML_ENABLE_GENERATION_WORKER=true \
 REDIS_URL=redis://127.0.0.1:6379/0 \
 UML_API_INSTANCES=4 \
-UML_GENERATION_WORKER_INSTANCES=2 \
-UML_GENERATION_WORKER_CONCURRENCY=1 \
-DATABASE_POOL_MAX=5 \
-UML_API_MAX_MEMORY_RESTART=1536M \
-UML_GENERATION_WORKER_MAX_MEMORY_RESTART=1536M \
+UML_GENERATION_WORKER_INSTANCES=4 \
+UML_GENERATION_WORKER_CONCURRENCY=5 \
+DATABASE_POOL_MAX=4 \
+UML_API_MAX_MEMORY_RESTART=2048M \
+UML_GENERATION_WORKER_MAX_MEMORY_RESTART=2048M \
+UML_LLM_GLOBAL_CONCURRENCY=400 \
+UML_LLM_PROVIDER_CONCURRENCY=400 \
+UML_LLM_PROJECT_CONCURRENCY=20 \
+UML_LLM_USER_CONCURRENCY=20 \
+UML_LLM_RUN_CONCURRENCY=20 \
+UML_RENDER_CONCURRENCY=400 \
 pm2 reload ecosystem.config.cjs --env production
 ```
 
@@ -123,9 +133,9 @@ Point `DATABASE_URL` at PgBouncer after validating application compatibility wit
 Stage C is the target acceptance gate:
 
 ```text
-20 users online, 3 concurrent generation runs
-30 users online, 5 concurrent generation runs
-50 users online, 8 concurrent generation runs
+20 users online, 20 concurrent generation runs
+30 users online, 20 concurrent generation runs
+50 users online, 20 concurrent generation runs
 ```
 
 Pass criteria:

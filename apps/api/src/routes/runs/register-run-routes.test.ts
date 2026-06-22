@@ -53,6 +53,25 @@ const plaintextProviderSettings: ProviderSettings = {
   model: "gpt-5.5",
 };
 
+function isZodLikeError(error: unknown): error is {
+  issues: Array<{ message: string; path: Array<string | number> }>;
+} {
+  if (error instanceof ZodError) return true;
+  const issues = (error as { issues?: unknown } | null)?.issues;
+  return (
+    Array.isArray(issues) &&
+    issues.every((issue) => {
+      const candidate = issue as
+        | { message?: unknown; path?: unknown }
+        | null;
+      return (
+        typeof candidate?.message === "string" &&
+        Array.isArray(candidate.path)
+      );
+    })
+  );
+}
+
 const minimalUseCaseModel = {
   diagramKind: "usecase",
   title: "用例模型",
@@ -338,7 +357,7 @@ async function createRunRouteTestContext(options?: {
 }) {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof ZodError) {
+    if (isZodLikeError(error)) {
       reply.code(400).send({
         message: error.issues
           .map((issue) => {

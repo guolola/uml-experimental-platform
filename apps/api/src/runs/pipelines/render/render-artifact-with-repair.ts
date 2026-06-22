@@ -71,7 +71,7 @@ export async function renderArtifactWithRepair(
 > {
   let currentArtifact = artifact;
   let lastErrorMessage = "";
-  const responseFormat = getRepairPlantUmlResponseFormat(providerSettings.model);
+  const responseFormat = getRepairPlantUmlResponseFormat(providerSettings);
 
   for (let attempt = 0; attempt <= MAX_PLANTUML_REPAIR_ATTEMPTS; attempt += 1) {
     try {

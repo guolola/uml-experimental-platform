@@ -8,6 +8,35 @@ import {
   DEFAULT_LOCAL_CORS_ORIGINS,
 } from "./cors.js";
 
+type ZodLikeIssue = {
+  message: string;
+  path: Array<string | number>;
+};
+
+function isZodLikeError(error: unknown): error is { issues: ZodLikeIssue[] } {
+  if (error instanceof ZodError) return true;
+  const issues = (error as { issues?: unknown } | null)?.issues;
+  return (
+    Array.isArray(issues) &&
+    issues.every((issue) => {
+      const candidate = issue as Partial<ZodLikeIssue> | null;
+      return (
+        typeof candidate?.message === "string" &&
+        Array.isArray(candidate.path)
+      );
+    })
+  );
+}
+
+function formatZodIssues(issues: ZodLikeIssue[]) {
+  return issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "request";
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
+}
+
 export async function createConfiguredFastifyApp() {
   const app = Fastify({ logger: true, trustProxy: true });
   await app.register(cors, {
@@ -18,14 +47,9 @@ export async function createConfiguredFastifyApp() {
   await app.register(multipart);
   app.setErrorHandler((error, request, reply) => {
     request.log.error(error);
-    if (error instanceof ZodError) {
+    if (isZodLikeError(error)) {
       reply.code(400).send({
-        message: error.issues
-          .map((issue) => {
-            const path = issue.path.length > 0 ? issue.path.join(".") : "request";
-            return `${path}: ${issue.message}`;
-          })
-          .join("; "),
+        message: formatZodIssues(error.issues),
       });
       return;
     }

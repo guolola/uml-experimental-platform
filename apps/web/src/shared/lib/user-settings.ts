@@ -4,6 +4,13 @@ import { DEFAULT_MODEL_ID, normalizeModelId } from "./model-catalog";
 
 export type UserSettings = {
   providerConfigId: string;
+  providerModelCapabilities: Record<
+    string,
+    {
+      id?: string;
+      supportsJsonSchema?: boolean;
+    }
+  >;
   providerModelOptions: string[];
   providerLabel: string;
   defaultModel: string;
@@ -15,6 +22,7 @@ export type UserSettings = {
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   providerConfigId: "",
+  providerModelCapabilities: {},
   providerModelOptions: [],
   providerLabel: "",
   defaultModel: DEFAULT_MODEL_ID,
@@ -32,18 +40,42 @@ export function loadUserSettings(): UserSettings {
       ...DEFAULT_USER_SETTINGS,
       ...JSON.parse(raw),
     };
-    const sanitizedProviderModelOptions = Array.isArray(next.providerModelOptions)
+    const sanitizedProviderModelOptions: string[] = Array.isArray(next.providerModelOptions)
       ? Array.from(
           new Set(
             next.providerModelOptions
               .map((model: unknown) => (typeof model === "string" ? model.trim() : ""))
-              .filter(Boolean),
+              .filter((model: string): model is string => Boolean(model)),
           ),
         )
       : [];
     next.providerModelOptions = sanitizedProviderModelOptions;
     next.providerLabel =
       typeof next.providerLabel === "string" ? next.providerLabel.trim() : "";
+    const sanitizedProviderModelCapabilities =
+      next.providerModelCapabilities &&
+      typeof next.providerModelCapabilities === "object" &&
+      !Array.isArray(next.providerModelCapabilities)
+        ? sanitizedProviderModelOptions.reduce<UserSettings["providerModelCapabilities"]>(
+            (map, model) => {
+              const rawCapability = (next.providerModelCapabilities as Record<string, unknown>)[model];
+              if (!rawCapability || typeof rawCapability !== "object") return map;
+              const capability = rawCapability as {
+                id?: unknown;
+                supportsJsonSchema?: unknown;
+              };
+              map[model] = {
+                id: typeof capability.id === "string" ? capability.id : model,
+                supportsJsonSchema:
+                  typeof capability.supportsJsonSchema === "boolean"
+                    ? capability.supportsJsonSchema
+                    : false,
+              };
+              return map;
+            },
+            {},
+          )
+        : {};
     const trimmedDefaultModel =
       typeof next.defaultModel === "string" ? next.defaultModel.trim() : "";
     if (next.providerConfigId) {
@@ -56,9 +88,14 @@ export function loadUserSettings(): UserSettings {
       next.defaultModel = normalizeModelId(trimmedDefaultModel);
       next.providerModelOptions = [];
       next.providerLabel = "";
+      next.providerModelCapabilities = {};
+    }
+    if (next.providerConfigId) {
+      next.providerModelCapabilities = sanitizedProviderModelCapabilities;
     }
     const {
       providerConfigId,
+      providerModelCapabilities,
       providerModelOptions,
       providerLabel,
       defaultModel,
@@ -69,6 +106,7 @@ export function loadUserSettings(): UserSettings {
     } = next;
     return {
       providerConfigId,
+      providerModelCapabilities,
       providerModelOptions,
       providerLabel,
       defaultModel,

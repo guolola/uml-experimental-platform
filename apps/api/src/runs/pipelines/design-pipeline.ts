@@ -695,8 +695,8 @@ async function generateDesignTraceabilityBatchWithRepair(
 ) {
   if (requiredSources.length === 0) return [];
   const responseFormat = getGenerateDesignTraceabilityResponseFormat(
-    providerSettings.model,
-  );
+      providerSettings,
+    );
   let prompt = buildGenerateDesignTraceabilityPrompt(
     requirementBaseline,
     requirementModels,
@@ -924,7 +924,7 @@ export async function generateDesignModelsWithRepair(
 ) {
   const modelRepairAttempts =
     options.modelRepairAttempts ?? MAX_MODEL_REPAIR_ATTEMPTS;
-  const responseFormat = getGenerateDesignModelsResponseFormat(providerSettings.model);
+  const responseFormat = getGenerateDesignModelsResponseFormat(providerSettings);
   let prompt = initialPrompt;
   let previousOutput = "";
   let lastErrorMessage = "";

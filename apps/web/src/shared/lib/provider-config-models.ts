@@ -2,6 +2,13 @@
 export type ProviderModelPolicy = {
   defaultModel?: string | null;
   allowedModels?: string[] | null;
+  modelCapabilities?: Record<
+    string,
+    {
+      id?: string;
+      supportsJsonSchema?: boolean;
+    }
+  > | null;
   provider?: string | null;
   name?: string | null;
 };
@@ -27,6 +34,28 @@ export function getProviderAllowedModels(config: ProviderModelPolicy | null | un
       .filter(Boolean),
   );
   return Array.from(normalized);
+}
+
+export function getProviderModelCapabilities(
+  config: ProviderModelPolicy | null | undefined,
+) {
+  const allowedModels = new Set(getProviderAllowedModels(config));
+  return Object.fromEntries(
+    Object.entries(config?.modelCapabilities ?? {}).flatMap(([model, capability]) => {
+      const normalizedModel = model.trim();
+      if (!normalizedModel || !allowedModels.has(normalizedModel)) return [];
+      return [
+        [
+          normalizedModel,
+          {
+            ...capability,
+            id: capability.id ?? normalizedModel,
+            supportsJsonSchema: capability.supportsJsonSchema === true,
+          },
+        ],
+      ];
+    }),
+  );
 }
 
 export function resolveProviderModel(

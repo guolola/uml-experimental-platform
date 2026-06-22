@@ -298,7 +298,7 @@ function HomeTab({
                   <Button
                     type="button"
                     className="motion-action h-12 min-w-0 justify-center rounded-full px-3 font-display text-[15px] font-semibold leading-5 shadow-xl md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
-                    onClick={() => onNavigate(signedIn ? "/projects" : "/register")}
+                    onClick={() => onNavigate(signedIn ? "/projects" : "/login")}
                   >
                     开始生成
                     <ArrowRight className="size-4" />

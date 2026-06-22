@@ -101,8 +101,8 @@ export async function generateCodeFileOperationsWithRepair(
   const snapshot = record.snapshot as CodeRunSnapshot;
   const timeoutConfig = readCodeModelTaskTimeoutConfig();
   const responseFormat = getGenerateCodeFileOperationsResponseFormat(
-    providerSettings.model,
-  );
+      providerSettings,
+    );
   let prompt = buildGenerateCodeFileOperationsPrompt(
     codeContext,
     existingFiles,

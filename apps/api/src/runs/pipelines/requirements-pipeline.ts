@@ -322,9 +322,9 @@ async function generateAnalysisModelWithRepair(
 ) {
   const selectedDiagrams: DiagramKind[] = ["analysis"];
   const responseFormat = getGenerateModelsResponseFormat(
-    providerSettings.model,
-    selectedDiagrams,
-  );
+      providerSettings,
+      selectedDiagrams,
+    );
   const sourceUseCase =
     scopedUseCaseModel.diagramKind === "usecase"
       ? scopedUseCaseModel.useCases[0]
@@ -620,8 +620,8 @@ async function generateRequirementTraceabilityWithRepair(
   abortSignal?: AbortSignal,
 ) {
   const responseFormat = getGenerateRequirementTraceabilityResponseFormat(
-    providerSettings.model,
-  );
+      providerSettings,
+    );
   let prompt = buildGenerateRequirementTraceabilityPrompt(
     rules,
     requirementBaseline,
@@ -796,9 +796,9 @@ export async function generateModelsWithRepair(
   abortSignal?: AbortSignal,
 ) {
   const responseFormat = getGenerateModelsResponseFormat(
-    providerSettings.model,
-    selectedDiagrams,
-  );
+      providerSettings,
+      selectedDiagrams,
+    );
   let prompt =
     promptOverride ??
     buildGenerateModelsPrompt(
@@ -1190,7 +1190,7 @@ export async function runStagePipeline(
             },
           },
           (text) => normalizeRequirementRulesResult(parseJson(text)),
-          getExtractRequirementRulesResponseFormat(providerSettings.model),
+          getExtractRequirementRulesResponseFormat(providerSettings),
           undefined,
           abortSignal,
         );

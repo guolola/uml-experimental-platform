@@ -1,6 +1,9 @@
 // Defines strict JSON schema response formats for cross-cutting LLM calls.
 import { type JsonSchemaResponseFormat } from "../../../llm.js";
-import { getModelCapability } from "../../../model-capabilities.js";
+import {
+  getModelCapability,
+  type ModelCapabilitySource,
+} from "../../../model-capabilities.js";
 import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
 
 const requirementRuleSchema = {
@@ -126,7 +129,10 @@ function strictResponseFormat(
   };
 }
 
-function responseFormatIfSupported(model: string, format: JsonSchemaResponseFormat) {
+function responseFormatIfSupported(
+  model: ModelCapabilitySource,
+  format: JsonSchemaResponseFormat,
+) {
   return getModelCapability(model).supportsJsonSchema ? format : undefined;
 }
 
@@ -225,26 +231,26 @@ export const HEALTHCHECK_RESPONSE_FORMAT = strictResponseFormat(
   },
 );
 
-export function getExtractRequirementRulesResponseFormat(model: string) {
+export function getExtractRequirementRulesResponseFormat(model: ModelCapabilitySource) {
   return responseFormatIfSupported(model, EXTRACT_REQUIREMENT_RULES_RESPONSE_FORMAT);
 }
 
-export function getRepairRequirementRuleResponseFormat(model: string) {
+export function getRepairRequirementRuleResponseFormat(model: ModelCapabilitySource) {
   return responseFormatIfSupported(model, REPAIR_REQUIREMENT_RULE_RESPONSE_FORMAT);
 }
 
-export function getRepairRequirementRulesResponseFormat(model: string) {
+export function getRepairRequirementRulesResponseFormat(model: ModelCapabilitySource) {
   return responseFormatIfSupported(model, REPAIR_REQUIREMENT_RULES_RESPONSE_FORMAT);
 }
 
-export function getDocumentContentResponseFormat(model: string) {
+export function getDocumentContentResponseFormat(model: ModelCapabilitySource) {
   return responseFormatIfSupported(model, DOCUMENT_CONTENT_RESPONSE_FORMAT);
 }
 
-export function getRepairPlantUmlResponseFormat(model: string) {
+export function getRepairPlantUmlResponseFormat(model: ModelCapabilitySource) {
   return responseFormatIfSupported(model, REPAIR_PLANTUML_RESPONSE_FORMAT);
 }
 
-export function getHealthcheckResponseFormat(model: string) {
+export function getHealthcheckResponseFormat(model: ModelCapabilitySource) {
   return responseFormatIfSupported(model, HEALTHCHECK_RESPONSE_FORMAT);
 }

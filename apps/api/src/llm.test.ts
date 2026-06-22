@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createRealLlmTransport,
+  listOpenAiCompatibleModels,
   parseChatCompletionSse,
+  ProviderHttpError,
   resolveChatCompletionsUrl,
+  resolveOpenAiBaseUrl,
 } from "./llm.js";
+import type { OpenAiCompatibleClientFactory } from "./llm.js";
 
 function createResponseFromSse(blocks: string[]) {
   const encoder = new TextEncoder();
@@ -106,6 +110,113 @@ test("resolveChatCompletionsUrl targets model provider v1 chat completions", () 
   assert.equal(
     resolveChatCompletionsUrl("https://ai.comfly.org/v1"),
     "https://ai.comfly.org/v1/chat/completions",
+  );
+});
+
+test("resolveOpenAiBaseUrl normalizes provider origins and historical /v1 values", () => {
+  assert.equal(
+    resolveOpenAiBaseUrl("https://api.nonelinear.com"),
+    "https://api.nonelinear.com/v1",
+  );
+  assert.equal(
+    resolveOpenAiBaseUrl("https://api.nonelinear.com/v1"),
+    "https://api.nonelinear.com/v1",
+  );
+  assert.equal(
+    resolveOpenAiBaseUrl("https://api.nonelinear.com/v1/"),
+    "https://api.nonelinear.com/v1",
+  );
+});
+
+test("listOpenAiCompatibleModels normalizes model ids and display metadata", async () => {
+  const calls: Array<{ apiKey: string; baseURL: string; timeoutMs: number }> = [];
+  const clientFactory: OpenAiCompatibleClientFactory = (input) => {
+    calls.push(input);
+    return {
+      chat: {
+        completions: {
+          create: async () => ({
+            choices: [{ message: { content: "{\"ok\":true}" } }],
+          }) as never,
+        },
+      },
+      models: {
+        list: async () => ({
+          data: [
+            {
+              id: " deepseek-v4-flash ",
+              object: "model",
+              created: 0,
+              owned_by: "nonelinear",
+            },
+            {
+              id: "gemini-2.5-flash-image",
+              object: "model",
+              created: 1715558400,
+              owned_by: "nonelinear",
+            },
+            {
+              id: "",
+              object: "model",
+            },
+          ],
+        }),
+      },
+    };
+  };
+
+  const models = await listOpenAiCompatibleModels({
+    apiBaseUrl: "https://api.nonelinear.com/v1/",
+    apiKey: "sk-test",
+    options: { clientFactory },
+  });
+
+  assert.equal(calls[0]?.baseURL, "https://api.nonelinear.com/v1");
+  assert.deepEqual(models, [
+    {
+      id: "deepseek-v4-flash",
+      object: "model",
+      created: 0,
+      ownedBy: "nonelinear",
+    },
+    {
+      id: "gemini-2.5-flash-image",
+      object: "model",
+      created: 1715558400,
+      ownedBy: "nonelinear",
+    },
+  ]);
+});
+
+test("listOpenAiCompatibleModels preserves provider HTTP status for admin diagnostics", async () => {
+  const clientFactory: OpenAiCompatibleClientFactory = () => ({
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [{ message: { content: "{\"ok\":true}" } }],
+        }) as never,
+      },
+    },
+    models: {
+      list: async () => {
+        throw { status: 429, error: { message: "request too frequent" } };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      listOpenAiCompatibleModels({
+        apiBaseUrl: "https://api.nonelinear.com",
+        apiKey: "sk-test",
+        options: { clientFactory },
+      }),
+    (error) =>
+      error instanceof ProviderHttpError &&
+      error.status === 429 &&
+      /Provider model discovery failed with HTTP 429: request too frequent/.test(
+        error.message,
+      ),
   );
 });
 

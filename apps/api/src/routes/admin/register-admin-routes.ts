@@ -19,6 +19,11 @@ import {
   adminRateLimitPolicyCreateRequestSchema,
   adminRateLimitPolicyListResponseSchema,
   adminRateLimitPolicyUpdateRequestSchema,
+  providerModelDiscoveryRequestSchema,
+  providerModelDiscoveryResponseSchema,
+  providerModelDiscoveryProgressEventSchema,
+  providerModelCapabilityMapSchema,
+  type ProviderModelDiscoveryProgressEvent,
 } from "@uml-platform/contracts";
 import type { DocumentLibrary } from "../../documents/library/document-library.js";
 import type { BillingService } from "../../billing/billing-service.js";
@@ -141,6 +146,16 @@ import {
 import { createRateLimitPolicyStoreWithFallback } from "../../provider-configs/fallback-rate-limit-policy-store.js";
 import { testAdminProviderConfigConnection } from "../../provider-configs/admin-provider-config-test.js";
 import type { LlmScheduler } from "../../adapters/llm/llm-scheduler.js";
+import { ProviderHttpError } from "../../llm.js";
+import { discoverOpenAiCompatibleModelCapabilities } from "../../provider-configs/provider-model-discovery.js";
+import {
+  normalizeManagedProviderBaseUrl,
+  ProviderConfigPolicyError,
+} from "../../provider-configs/provider-url-policy.js";
+import {
+  DEFAULT_LOCAL_CORS_ORIGINS,
+  readCorsOrigins,
+} from "../../server/cors.js";
 
 export type { AdminRiskEvent };
 
@@ -158,11 +173,12 @@ function createAcademicAdminRepository(app: FastifyInstance): AcademicAdminRepos
 
 const createProviderConfigRequestSchema = z.object({
   name: z.string().trim().min(1),
-  provider: z.string().trim().min(1),
+  provider: z.string().trim().min(1).optional(),
   baseUrl: z.string().trim().min(1),
   apiKey: z.string().trim().min(1),
   defaultModel: z.string().trim().min(1),
   allowedModels: z.array(z.string().trim().min(1)).optional(),
+  modelCapabilities: providerModelCapabilityMapSchema.optional(),
   keyPurpose: z.string().trim().min(1).optional(),
   quota: z.string().trim().min(1).optional(),
   scopeType: z.enum(["system", "user", "project"]).default("system"),
@@ -173,6 +189,7 @@ const updateProviderConfigRequestSchema = z.object({
   name: z.string().trim().min(1).optional(),
   defaultModel: z.string().trim().min(1).optional(),
   allowedModels: z.array(z.string().trim().min(1)).optional(),
+  modelCapabilities: providerModelCapabilityMapSchema.optional(),
   keyPurpose: z.string().trim().min(1).optional(),
   quota: z.string().trim().min(1).optional(),
   scopeType: z.enum(["system", "user", "project"]).optional(),
@@ -994,6 +1011,116 @@ export function registerAdminRoutes({
     return result.body;
   });
 
+  function createProviderModelDiscoveryStream(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    const allowedOrigins = new Set(
+      readCorsOrigins("API_CORS_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS),
+    );
+    const origin = request.headers.origin;
+    const abortController = new AbortController();
+    let closed = false;
+    let completed = false;
+
+    reply.hijack();
+    const response = reply.raw;
+    response.statusCode = 200;
+    response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    response.setHeader("Cache-Control", "no-cache, no-transform");
+    response.setHeader("Connection", "keep-alive");
+    response.setHeader("X-Accel-Buffering", "no");
+    if (origin && allowedOrigins.has(origin)) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
+      response.setHeader("Vary", "Origin");
+      response.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+    response.flushHeaders?.();
+
+    const heartbeat = setInterval(() => {
+      if (closed || response.writableEnded || response.destroyed) return;
+      response.write(": heartbeat\n\n");
+    }, 15_000);
+
+    request.raw.on("close", () => {
+      closed = true;
+      clearInterval(heartbeat);
+      if (!completed) abortController.abort();
+    });
+
+    return {
+      abortSignal: abortController.signal,
+      close() {
+        completed = true;
+        closed = true;
+        clearInterval(heartbeat);
+        if (!response.writableEnded && !response.destroyed) {
+          response.end();
+        }
+      },
+      send(event: ProviderModelDiscoveryProgressEvent) {
+        if (closed || response.writableEnded || response.destroyed) return;
+        const parsed = providerModelDiscoveryProgressEventSchema.parse(event);
+        response.write(`event: ${parsed.type}\n`);
+        response.write(`data: ${JSON.stringify(parsed)}\n\n`);
+      },
+    };
+  }
+
+  function isAbortError(error: unknown) {
+    return error instanceof Error && error.name === "AbortError";
+  }
+
+  async function runProviderModelDiscoveryStream({
+    apiBaseUrl,
+    apiKey,
+    onFailure,
+    onSuccess,
+    reply,
+    request,
+  }: {
+    apiBaseUrl: string;
+    apiKey: string;
+    onFailure?: () => Promise<void>;
+    onSuccess?: () => Promise<void>;
+    reply: FastifyReply;
+    request: FastifyRequest;
+  }) {
+    const stream = createProviderModelDiscoveryStream(request, reply);
+    stream.send({ type: "started", sourceBaseUrl: apiBaseUrl });
+    try {
+      const discovery = await discoverOpenAiCompatibleModelCapabilities({
+        apiBaseUrl,
+        apiKey,
+        abortSignal: stream.abortSignal,
+        onProgress: stream.send,
+      });
+      const result = providerModelDiscoveryResponseSchema.parse({
+        ...discovery,
+        fetchedAt: new Date().toISOString(),
+        sourceBaseUrl: apiBaseUrl,
+      });
+      await onSuccess?.();
+      stream.send({ type: "completed", result });
+    } catch (error) {
+      if (!isAbortError(error)) {
+        await onFailure?.();
+        const providerStatus =
+          error instanceof ProviderHttpError ? error.status : undefined;
+        stream.send({
+          type: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Provider model discovery failed",
+          status: providerStatus ?? 502,
+        });
+      }
+    } finally {
+      stream.close();
+    }
+  }
+
   sendAdminOnly(app, "/api/admin/provider-configs", async (request, reply) => {
     const actor = await requireAdminPermission(
       request,
@@ -1003,6 +1130,79 @@ export function registerAdminRoutes({
     );
     if ("message" in actor) return actor;
     return buildAdminProviderConfigListView({ providerConfigs });
+  });
+
+  app.post("/api/admin/provider-configs/discover-models", async (request, reply) => {
+    const actor = await requireAdminPermission(
+      request,
+      reply,
+      authStore,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+
+    const input = providerModelDiscoveryRequestSchema.parse(request.body);
+    let sourceBaseUrl: string;
+    try {
+      sourceBaseUrl = normalizeManagedProviderBaseUrl(input.baseUrl);
+    } catch (error) {
+      if (error instanceof ProviderConfigPolicyError) {
+        reply.code(400);
+        return { message: error.message };
+      }
+      throw error;
+    }
+
+    try {
+      const discovery = await discoverOpenAiCompatibleModelCapabilities({
+        apiBaseUrl: sourceBaseUrl,
+        apiKey: input.apiKey,
+      });
+      return providerModelDiscoveryResponseSchema.parse({
+        ...discovery,
+        fetchedAt: new Date().toISOString(),
+        sourceBaseUrl,
+      });
+    } catch (error) {
+      const providerStatus =
+        error instanceof ProviderHttpError ? error.status : null;
+      reply.code(providerStatus ?? 502);
+      return {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Provider model discovery failed",
+      };
+    }
+  });
+
+  app.post("/api/admin/provider-configs/discover-models/stream", async (request, reply) => {
+    const actor = await requireAdminPermission(
+      request,
+      reply,
+      authStore,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+
+    const input = providerModelDiscoveryRequestSchema.parse(request.body);
+    let sourceBaseUrl: string;
+    try {
+      sourceBaseUrl = normalizeManagedProviderBaseUrl(input.baseUrl);
+    } catch (error) {
+      if (error instanceof ProviderConfigPolicyError) {
+        reply.code(400);
+        return { message: error.message };
+      }
+      throw error;
+    }
+
+    return runProviderModelDiscoveryStream({
+      apiBaseUrl: sourceBaseUrl,
+      apiKey: input.apiKey,
+      reply,
+      request,
+    });
   });
 
   app.post("/api/admin/provider-configs", async (request, reply) => {
@@ -1156,6 +1356,123 @@ export function registerAdminRoutes({
     });
     reply.code(result.statusCode);
     return result.body;
+  });
+
+  app.get("/api/admin/provider-configs/:id/models", async (request, reply) => {
+    const actor = await requireAdminPermission(
+      request,
+      reply,
+      authStore,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+
+    const { id } = request.params as { id: string };
+    const providerConfig = await providerConfigs.get(id);
+    if (!providerConfig) {
+      reply.code(404);
+      return { message: "Provider config not found" };
+    }
+    if (!providerConfig.allowlisted) {
+      reply.code(400);
+      return { message: "Provider Base URL is not allowlisted" };
+    }
+    if (providerConfig.status !== "active") {
+      reply.code(400);
+      return { message: "Provider config is revoked, disabled, or inactive" };
+    }
+    if (providerConfig.breakerState === "open") {
+      reply.code(503);
+      return { message: "Provider circuit breaker is open" };
+    }
+
+    const apiKey = await providerConfigs.getSecret(id);
+    if (!apiKey) {
+      reply.code(400);
+      return { message: "Provider config secret is revoked" };
+    }
+
+    try {
+      const discovery = await discoverOpenAiCompatibleModelCapabilities({
+        apiBaseUrl: providerConfig.baseUrl,
+        apiKey,
+      });
+      await providerConfigs.markUsed(id);
+      await providerConfigs.resetBreaker?.(id);
+      return providerModelDiscoveryResponseSchema.parse({
+        ...discovery,
+        fetchedAt: new Date().toISOString(),
+        sourceBaseUrl: providerConfig.baseUrl,
+      });
+    } catch (error) {
+      const breaker = await providerConfigs.recordFailure?.(id);
+      const providerStatus =
+        error instanceof ProviderHttpError ? error.status : null;
+      reply.code(providerStatus ?? 502);
+      return {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Provider model discovery failed",
+        breaker: breaker
+          ? {
+              state: breaker.breakerState,
+              failureCount: breaker.breakerFailureCount,
+              openedAt: breaker.breakerOpenedAt,
+              lastFailureAt: breaker.breakerLastFailureAt,
+            }
+          : undefined,
+      };
+    }
+  });
+
+  app.get("/api/admin/provider-configs/:id/models/stream", async (request, reply) => {
+    const actor = await requireAdminPermission(
+      request,
+      reply,
+      authStore,
+      "admin.provider_configs.write",
+    );
+    if ("message" in actor) return actor;
+
+    const { id } = request.params as { id: string };
+    const providerConfig = await providerConfigs.get(id);
+    if (!providerConfig) {
+      reply.code(404);
+      return { message: "Provider config not found" };
+    }
+    if (!providerConfig.allowlisted) {
+      reply.code(400);
+      return { message: "Provider Base URL is not allowlisted" };
+    }
+    if (providerConfig.status !== "active") {
+      reply.code(400);
+      return { message: "Provider config is revoked, disabled, or inactive" };
+    }
+    if (providerConfig.breakerState === "open") {
+      reply.code(503);
+      return { message: "Provider circuit breaker is open" };
+    }
+
+    const apiKey = await providerConfigs.getSecret(id);
+    if (!apiKey) {
+      reply.code(400);
+      return { message: "Provider config secret is revoked" };
+    }
+
+    return runProviderModelDiscoveryStream({
+      apiBaseUrl: providerConfig.baseUrl,
+      apiKey,
+      onFailure: async () => {
+        await providerConfigs.recordFailure?.(id);
+      },
+      onSuccess: async () => {
+        await providerConfigs.markUsed(id);
+        await providerConfigs.resetBreaker?.(id);
+      },
+      reply,
+      request,
+    });
   });
 
   app.post("/api/admin/provider-configs/:id/test", async (request, reply) => {

@@ -1,5 +1,6 @@
 // Handles admin provider config mutations after route-level permission and schema checks.
 import type { AuthStore } from "../auth/in-memory-auth-store.js";
+import type { ProviderModelCapabilityMap } from "@uml-platform/contracts";
 import type { AdminActor } from "../security/admin-guard.js";
 import {
   ProviderConfigPolicyError,
@@ -11,11 +12,12 @@ import { recordAdminAction } from "./admin-route-security.js";
 
 type CreateProviderConfigInput = {
   name: string;
-  provider: string;
+  provider?: string;
   baseUrl: string;
   apiKey: string;
   defaultModel: string;
   allowedModels?: string[];
+  modelCapabilities?: ProviderModelCapabilityMap;
   keyPurpose?: string;
   quota?: string;
   scopeType: ProviderConfigScopeType;
@@ -26,6 +28,7 @@ type UpdateProviderConfigInput = {
   name?: string;
   defaultModel?: string;
   allowedModels?: string[];
+  modelCapabilities?: ProviderModelCapabilityMap;
   keyPurpose?: string;
   quota?: string;
   scopeType?: ProviderConfigScopeType;

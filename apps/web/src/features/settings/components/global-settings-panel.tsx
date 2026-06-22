@@ -18,6 +18,7 @@ import {
 import {
   getProviderLabel,
   getProviderAllowedModels,
+  getProviderModelCapabilities,
   resolveProviderModel,
 } from "../../../shared/lib/provider-config-models";
 import {
@@ -96,6 +97,7 @@ export function GlobalSettingsPanel({
                 return {
                   ...current,
                   providerConfigId: selected.id,
+                  providerModelCapabilities: getProviderModelCapabilities(selected),
                   providerModelOptions: getProviderAllowedModels(selected),
                   providerLabel: getProviderLabel(selected),
                   defaultModel: resolveProviderModel(selected, current.defaultModel),
@@ -149,6 +151,7 @@ export function GlobalSettingsPanel({
       }
       saveUserSettings({
         ...settings,
+        providerModelCapabilities: getProviderModelCapabilities(selectedProvider),
         providerModelOptions: getProviderAllowedModels(selectedProvider),
         providerLabel: getProviderLabel(selectedProvider),
         defaultModel: resolveProviderModel(selectedProvider, settings.defaultModel),
@@ -222,6 +225,9 @@ export function GlobalSettingsPanel({
                 setSettings((current) => ({
                   ...current,
                   providerConfigId,
+                  providerModelCapabilities: providerConfigId
+                    ? getProviderModelCapabilities(config)
+                    : {},
                   providerModelOptions: providerConfigId ? getProviderAllowedModels(config) : [],
                   providerLabel: providerConfigId ? getProviderLabel(config) : "",
                   defaultModel: providerConfigId

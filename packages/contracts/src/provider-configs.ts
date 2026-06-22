@@ -1,10 +1,57 @@
 // Defines provider setting references, provider config DTOs, risk states, and config test response schemas.
 import { z } from "zod";
 
+export const providerModelCategorySchema = z.enum(["text_chat", "vision_chat"]);
+export type ProviderModelCategory = z.infer<typeof providerModelCategorySchema>;
+
+export const providerModelStrictJsonSchema = z.union([
+  z.boolean(),
+  z.literal("unknown"),
+]);
+export type ProviderModelStrictJson = z.infer<
+  typeof providerModelStrictJsonSchema
+>;
+
+export const providerModelProbeStatusSchema = z.enum([
+  "strict",
+  "compatible",
+  "failed",
+  "unknown",
+]);
+export type ProviderModelProbeStatus = z.infer<
+  typeof providerModelProbeStatusSchema
+>;
+
+export const providerModelCapabilitySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    category: providerModelCategorySchema,
+    supportsJsonSchema: z.boolean(),
+    strictJson: providerModelStrictJsonSchema,
+    modeLabel: z.string().trim().min(1),
+    warning: z.string().trim().min(1).optional(),
+    probeStatus: providerModelProbeStatusSchema,
+    probeReason: z.string().trim().min(1).nullable().optional(),
+    probedAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+export type ProviderModelCapability = z.infer<
+  typeof providerModelCapabilitySchema
+>;
+
+export const providerModelCapabilityMapSchema = z.record(
+  z.string().trim().min(1),
+  providerModelCapabilitySchema,
+);
+export type ProviderModelCapabilityMap = z.infer<
+  typeof providerModelCapabilityMapSchema
+>;
+
 export const resolvedProviderSettingsSchema = z.object({
   apiBaseUrl: z.string().url(),
   apiKey: z.string().min(1),
   model: z.string().min(1),
+  modelCapability: providerModelCapabilitySchema.optional(),
 });
 export type ProviderSettings = z.infer<typeof resolvedProviderSettingsSchema>;
 
@@ -68,6 +115,7 @@ export const providerConfigDtoSchema = z
     baseUrl: z.string().url(),
     defaultModel: z.string().trim().min(1),
     allowedModels: z.array(z.string().trim().min(1)),
+    modelCapabilities: providerModelCapabilityMapSchema.default({}),
     maskedKey: z.string().trim().min(1),
     status: providerConfigStatusSchema,
     riskState: providerRiskStateSchema,
@@ -87,6 +135,130 @@ export const providerConfigListResponseSchema = z
   .strict();
 export type ProviderConfigListResponse = z.infer<
   typeof providerConfigListResponseSchema
+>;
+
+export const providerDiscoveredModelSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    object: z.string().trim().min(1).optional(),
+    created: z.number().int().min(0).nullable().optional(),
+    ownedBy: z.string().trim().min(1).nullable().optional(),
+    category: providerModelCategorySchema.optional(),
+    supportsJsonSchema: z.boolean().optional(),
+    strictJson: providerModelStrictJsonSchema.optional(),
+    modeLabel: z.string().trim().min(1).optional(),
+    warning: z.string().trim().min(1).optional(),
+    probeStatus: providerModelProbeStatusSchema.optional(),
+    probeReason: z.string().trim().min(1).nullable().optional(),
+    probedAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+export type ProviderDiscoveredModel = z.infer<
+  typeof providerDiscoveredModelSchema
+>;
+
+export const providerModelDiscoveryResponseSchema = z
+  .object({
+    models: z.array(providerDiscoveredModelSchema),
+    fetchedAt: isoTimestampSchema,
+    sourceBaseUrl: z.string().url(),
+    summary: z
+      .object({
+        rawCount: z.number().int().min(0),
+        excludedByNameCount: z.number().int().min(0),
+        chatProbeFailedCount: z.number().int().min(0),
+        chatProbeUnknownCount: z.number().int().min(0),
+        strictCount: z.number().int().min(0),
+        compatibleCount: z.number().int().min(0),
+        unknownStrictCount: z.number().int().min(0),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ProviderModelDiscoveryResponse = z.infer<
+  typeof providerModelDiscoveryResponseSchema
+>;
+
+export const providerModelDiscoveryProbeStageSchema = z.enum([
+  "strict_json",
+  "chat",
+]);
+export type ProviderModelDiscoveryProbeStage = z.infer<
+  typeof providerModelDiscoveryProbeStageSchema
+>;
+
+export const providerModelDiscoveryProgressEventSchema = z.discriminatedUnion(
+  "type",
+  [
+    z
+      .object({
+        type: z.literal("started"),
+        sourceBaseUrl: z.string().url(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("models_listed"),
+        rawCount: z.number().int().min(0),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("name_filtered"),
+        rawCount: z.number().int().min(0),
+        candidateCount: z.number().int().min(0),
+        excludedByNameCount: z.number().int().min(0),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("probe_started"),
+        modelId: z.string().trim().min(1),
+        index: z.number().int().min(1),
+        total: z.number().int().min(0),
+        stage: providerModelDiscoveryProbeStageSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("probe_completed"),
+        modelId: z.string().trim().min(1),
+        index: z.number().int().min(1),
+        total: z.number().int().min(0),
+        probeStatus: providerModelProbeStatusSchema,
+        strictJson: providerModelStrictJsonSchema.optional(),
+        supportsJsonSchema: z.boolean().optional(),
+        reason: z.string().trim().min(1).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("completed"),
+        result: providerModelDiscoveryResponseSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("error"),
+        message: z.string().trim().min(1),
+        status: z.number().int().min(100).max(599).optional(),
+      })
+      .strict(),
+  ],
+);
+export type ProviderModelDiscoveryProgressEvent = z.infer<
+  typeof providerModelDiscoveryProgressEventSchema
+>;
+
+export const providerModelDiscoveryRequestSchema = z
+  .object({
+    baseUrl: z.string().trim().min(1),
+    apiKey: z.string().trim().min(1),
+  })
+  .strict();
+export type ProviderModelDiscoveryRequest = z.infer<
+  typeof providerModelDiscoveryRequestSchema
 >;
 
 export const providerConfigTestRequestSchema = z

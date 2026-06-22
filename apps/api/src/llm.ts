@@ -1,5 +1,13 @@
 // Provides LLM transport helpers, provider request shaping, and response parsing boundaries for API pipelines.
 import type { ImageProviderSettings, ProviderSettings } from "@uml-platform/contracts";
+import OpenAI, { APIError } from "openai";
+import type {
+  ChatCompletion,
+  ChatCompletionChunk,
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionCreateParamsStreaming,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -54,9 +62,47 @@ export interface ImageGenerationClient {
   generateImage(input: GenerateImageInput): Promise<GeneratedImageResult>;
 }
 
+export interface ProviderDiscoveredModel {
+  id: string;
+  object?: string;
+  created?: number | null;
+  ownedBy?: string | null;
+}
+
+interface OpenAiRequestOptions {
+  signal?: AbortSignal;
+}
+
+type OpenAiChatCompletionResult =
+  | ChatCompletion
+  | AsyncIterable<ChatCompletionChunk>;
+
+interface OpenAiCompatibleClient {
+  chat: {
+    completions: {
+      create: (
+        body:
+          | ChatCompletionCreateParamsStreaming
+          | ChatCompletionCreateParamsNonStreaming,
+        options?: OpenAiRequestOptions,
+      ) => Promise<OpenAiChatCompletionResult>;
+    };
+  };
+  models: {
+    list: (options?: OpenAiRequestOptions) => Promise<{ data?: unknown[] }>;
+  };
+}
+
+export type OpenAiCompatibleClientFactory = (input: {
+  apiKey: string;
+  baseURL: string;
+  timeoutMs: number;
+}) => OpenAiCompatibleClient;
+
 export interface RealProviderClientOptions {
   baseUrlAllowlist?: string[];
   responseTimeoutMs?: number;
+  clientFactory?: OpenAiCompatibleClientFactory;
 }
 
 const IMAGE_PROMPT_CHAR_LIMIT = 24000;
@@ -64,6 +110,104 @@ const DEFAULT_LLM_RESPONSE_TIMEOUT_MS = 300_000;
 
 function resolveChatCompletionsUrl(baseUrl: string) {
   return new URL("/v1/chat/completions", baseUrl).toString();
+}
+
+export function resolveOpenAiBaseUrl(baseUrl: string) {
+  const url = new URL(baseUrl);
+  const normalizedPath = url.pathname.replace(/\/+$/, "");
+  if (!normalizedPath || normalizedPath === "/") {
+    url.pathname = "/v1";
+  } else if (normalizedPath.toLowerCase().endsWith("/v1")) {
+    url.pathname = normalizedPath;
+  } else {
+    url.pathname = `${normalizedPath}/v1`;
+  }
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
+export class ProviderHttpError extends Error {
+  readonly status: number;
+  readonly detail: string | null;
+
+  constructor({
+    status,
+    detail,
+    message,
+  }: {
+    status: number;
+    detail: string | null;
+    message: string;
+  }) {
+    super(message);
+    this.name = "ProviderHttpError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function normalizeOpenAiCompatibleErrorResponse(response: Response) {
+  if (response.ok) return response;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return response;
+
+  try {
+    const payload = JSON.parse(await response.clone().text()) as {
+      error?: unknown;
+      message?: unknown;
+    };
+    if (payload.error !== undefined) return response;
+    if (typeof payload.message !== "string" || !payload.message.trim()) {
+      return response;
+    }
+    const headers = new Headers(response.headers);
+    headers.set("content-type", "application/json");
+    return new Response(
+      JSON.stringify({ error: { message: payload.message.trim() } }),
+      {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      },
+    );
+  } catch {
+    return response;
+  }
+}
+
+function createOpenAiCompatibleClient({
+  apiKey,
+  baseURL,
+  timeoutMs,
+}: {
+  apiKey: string;
+  baseURL: string;
+  timeoutMs: number;
+}): OpenAiCompatibleClient {
+  const client = new OpenAI({
+    apiKey,
+    baseURL,
+    timeout: timeoutMs,
+    maxRetries: 0,
+    fetch: async (input, init) =>
+      normalizeOpenAiCompatibleErrorResponse(await fetch(input, init)),
+  });
+  return {
+    chat: {
+      completions: {
+        create: (body, options) =>
+          client.chat.completions.create(
+            body as ChatCompletionCreateParamsStreaming,
+            options,
+          ) as unknown as Promise<OpenAiChatCompletionResult>,
+      },
+    },
+    models: {
+      list: (options) =>
+        client.models.list(options) as unknown as Promise<{ data?: unknown[] }>,
+    },
+  };
 }
 
 function normalizeOrigin(url: string) {
@@ -124,6 +268,35 @@ async function readErrorDetail(response: Response) {
   return textSummary;
 }
 
+function readOpenAiErrorDetail(error: unknown) {
+  const payload = (error ?? {}) as {
+    error?: unknown;
+    message?: unknown;
+  };
+  const nestedError = payload.error;
+  if (typeof nestedError === "string") {
+    return summarizeErrorText(nestedError);
+  }
+  if (typeof nestedError === "object" && nestedError !== null) {
+    const nestedMessage = (nestedError as { message?: unknown }).message;
+    if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+      return summarizeErrorText(nestedMessage);
+    }
+  }
+  if (typeof payload.message === "string" && payload.message.trim()) {
+    return summarizeErrorText(payload.message);
+  }
+  return null;
+}
+
+function readOpenAiErrorStatus(error: unknown) {
+  if (error instanceof APIError && typeof error.status === "number") {
+    return error.status;
+  }
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : null;
+}
+
 function timeoutError(timeoutMs: number) {
   return new Error(`LLM request timed out after ${timeoutMs}ms`);
 }
@@ -168,6 +341,33 @@ function formatHttpLlmError(status: number, detail: string | null) {
   return detail
     ? `LLM request failed with HTTP ${status}: ${detail}`
     : `LLM request failed with HTTP ${status}`;
+}
+
+function formatHttpProviderError(
+  prefix: string,
+  status: number,
+  detail: string | null,
+) {
+  return detail
+    ? `${prefix} with HTTP ${status}: ${detail}`
+    : `${prefix} with HTTP ${status}`;
+}
+
+function toProviderHttpError(error: unknown, prefix: string) {
+  const status = readOpenAiErrorStatus(error);
+  if (status === null) return null;
+  const detail = readOpenAiErrorDetail(error);
+  return new ProviderHttpError({
+    status,
+    detail,
+    message: formatHttpProviderError(prefix, status, detail),
+  });
+}
+
+function normalizeProviderError(error: unknown, prefix: string) {
+  return toProviderHttpError(error, prefix) ?? (
+    error instanceof Error ? error : new Error(String(error))
+  );
 }
 
 function warnJsonSchemaFallback(model: string, status: number, detail: string | null) {
@@ -281,6 +481,267 @@ export async function* parseChatCompletionSse(response: Response) {
   }
 }
 
+function asChatMessages(messages: ChatMessage[]) {
+  return messages as ChatCompletionMessageParam[];
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Symbol.asyncIterator in value
+  );
+}
+
+async function* extractChatCompletionText(
+  stream: AsyncIterable<ChatCompletionChunk>,
+) {
+  for await (const chunk of stream) {
+    const choice = chunk.choices?.[0] as
+      | {
+          delta?: { content?: unknown };
+          message?: { content?: unknown };
+        }
+      | undefined;
+    const text = choice?.delta?.content ?? choice?.message?.content ?? "";
+    if (typeof text === "string" && text) {
+      yield text;
+    }
+  }
+}
+
+function createStreamingChatCompletionBody({
+  providerSettings,
+  messages,
+  responseFormat,
+}: {
+  providerSettings: ProviderSettings;
+  messages: ChatMessage[];
+  responseFormat: ChatCompletionResponseFormat | null;
+}): ChatCompletionCreateParamsStreaming {
+  return {
+    model: providerSettings.model,
+    messages: asChatMessages(messages),
+    stream: true,
+    temperature: 0.2,
+    ...(responseFormat === null ? {} : { response_format: responseFormat }),
+    tools: [],
+    tool_choice: "none",
+  } as ChatCompletionCreateParamsStreaming;
+}
+
+function createNonStreamingChatCompletionBody({
+  model,
+  messages,
+  responseFormat,
+  temperature = 0,
+}: {
+  model: string;
+  messages: ChatMessage[];
+  responseFormat?: ChatCompletionResponseFormat | null;
+  temperature?: number;
+}): ChatCompletionCreateParamsNonStreaming {
+  return {
+    model,
+    messages: asChatMessages(messages),
+    stream: false,
+    temperature,
+    ...(responseFormat === null || responseFormat === undefined
+      ? {}
+      : { response_format: responseFormat }),
+    tools: [],
+    tool_choice: "none",
+  } as ChatCompletionCreateParamsNonStreaming;
+}
+
+function normalizeProviderModel(value: unknown): ProviderDiscoveredModel | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as {
+    id?: unknown;
+    object?: unknown;
+    created?: unknown;
+    owned_by?: unknown;
+    ownedBy?: unknown;
+  };
+  if (typeof record.id !== "string" || !record.id.trim()) return null;
+  return {
+    id: record.id.trim(),
+    object:
+      typeof record.object === "string" && record.object.trim()
+        ? record.object.trim()
+        : undefined,
+    created:
+      typeof record.created === "number" && Number.isFinite(record.created)
+        ? record.created
+        : undefined,
+    ownedBy:
+      typeof record.owned_by === "string" && record.owned_by.trim()
+        ? record.owned_by.trim()
+        : typeof record.ownedBy === "string" && record.ownedBy.trim()
+          ? record.ownedBy.trim()
+          : undefined,
+  };
+}
+
+export async function runOpenAiCompatibleChatCompletionHealthcheck({
+  apiBaseUrl,
+  apiKey,
+  model,
+  responseFormat,
+  responseTimeoutMs = DEFAULT_LLM_RESPONSE_TIMEOUT_MS,
+  clientFactory = createOpenAiCompatibleClient,
+}: {
+  apiBaseUrl: string;
+  apiKey: string;
+  model: string;
+  responseFormat?: ChatCompletionResponseFormat | null;
+  responseTimeoutMs?: number;
+  clientFactory?: OpenAiCompatibleClientFactory;
+}) {
+  const abortController = new AbortController();
+  const client = clientFactory({
+    apiKey,
+    baseURL: resolveOpenAiBaseUrl(apiBaseUrl),
+    timeoutMs: responseTimeoutMs,
+  });
+  try {
+    await withTimeout(
+      client.chat.completions.create(
+        createNonStreamingChatCompletionBody({
+          model,
+          messages: [{ role: "user", content: "只回复 JSON：{\"ok\":true}" }],
+          responseFormat,
+          temperature: 0,
+        }),
+        { signal: abortController.signal },
+      ),
+      responseTimeoutMs,
+      () => abortController.abort(),
+    );
+  } catch (error) {
+    throw normalizeProviderError(error, "Provider test failed");
+  }
+}
+
+export async function probeOpenAiCompatibleStreamingChat({
+  apiBaseUrl,
+  apiKey,
+  model,
+  messages,
+  responseFormat,
+  abortSignal,
+  responseTimeoutMs = 30_000,
+  clientFactory = createOpenAiCompatibleClient,
+}: {
+  apiBaseUrl: string;
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  responseFormat?: ChatCompletionResponseFormat | null;
+  abortSignal?: AbortSignal;
+  responseTimeoutMs?: number;
+  clientFactory?: OpenAiCompatibleClientFactory;
+}) {
+  const abortController = new AbortController();
+  const abortHandler = () => abortController.abort();
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      abortController.abort();
+    } else {
+      abortSignal.addEventListener("abort", abortHandler, { once: true });
+    }
+  }
+  const client = clientFactory({
+    apiKey,
+    baseURL: resolveOpenAiBaseUrl(apiBaseUrl),
+    timeoutMs: responseTimeoutMs,
+  });
+  try {
+    const response = await withTimeout(
+      client.chat.completions.create(
+        createStreamingChatCompletionBody({
+          providerSettings: { apiBaseUrl, apiKey, model },
+          messages,
+          responseFormat: responseFormat ?? null,
+        }),
+        { signal: abortController.signal },
+      ),
+      responseTimeoutMs,
+      () => abortController.abort(),
+    );
+    if (!isAsyncIterable<ChatCompletionChunk>(response)) {
+      throw new Error("Provider probe response stream is not iterable");
+    }
+
+    let content = "";
+    for await (const text of withIdleTimeout(
+      extractChatCompletionText(response),
+      responseTimeoutMs,
+      () => abortController.abort(),
+    )) {
+      content += text;
+      if (content.length > 4096) break;
+    }
+    return content;
+  } catch (error) {
+    throw normalizeProviderError(error, "Provider model probe failed");
+  } finally {
+    if (abortSignal) {
+      abortSignal.removeEventListener("abort", abortHandler);
+    }
+  }
+}
+
+export async function listOpenAiCompatibleModels({
+  apiBaseUrl,
+  apiKey,
+  abortSignal,
+  options = {},
+}: {
+  apiBaseUrl: string;
+  apiKey: string;
+  abortSignal?: AbortSignal;
+  options?: RealProviderClientOptions;
+}): Promise<ProviderDiscoveredModel[]> {
+  assertProviderBaseUrlAllowed(apiBaseUrl, options.baseUrlAllowlist);
+  const responseTimeoutMs =
+    options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
+  const clientFactory = options.clientFactory ?? createOpenAiCompatibleClient;
+  const abortController = new AbortController();
+  const abortHandler = () => abortController.abort();
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      abortController.abort();
+    } else {
+      abortSignal.addEventListener("abort", abortHandler, { once: true });
+    }
+  }
+
+  try {
+    const client = clientFactory({
+      apiKey,
+      baseURL: resolveOpenAiBaseUrl(apiBaseUrl),
+      timeoutMs: responseTimeoutMs,
+    });
+    const response = await withTimeout(
+      client.models.list({ signal: abortController.signal }),
+      responseTimeoutMs,
+      () => abortController.abort(),
+    );
+    const rawModels = Array.isArray(response.data) ? response.data : [];
+    return rawModels.flatMap((model) => {
+      const normalized = normalizeProviderModel(model);
+      return normalized ? [normalized] : [];
+    });
+  } catch (error) {
+    throw normalizeProviderError(error, "Provider model discovery failed");
+  } finally {
+    if (abortSignal) {
+      abortSignal.removeEventListener("abort", abortHandler);
+    }
+  }
+}
+
 export function createRealLlmTransport(
   options: RealProviderClientOptions = {},
 ): LlmTransport {
@@ -297,6 +758,12 @@ export function createRealLlmTransport(
       );
       const responseTimeoutMs =
         options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
+      const clientFactory = options.clientFactory ?? createOpenAiCompatibleClient;
+      const client = clientFactory({
+        apiKey: providerSettings.apiKey,
+        baseURL: resolveOpenAiBaseUrl(providerSettings.apiBaseUrl),
+        timeoutMs: responseTimeoutMs,
+      });
       const requestResponseFormat = effectiveResponseFormat(responseFormat);
       let activeAbortController = new AbortController();
       let cleanupExternalAbort: (() => void) | undefined;
@@ -315,51 +782,55 @@ export function createRealLlmTransport(
           abortSignal.removeEventListener("abort", abortHandler);
       };
       replaceActiveAbortController();
-      const fetchCompletion = (
+      const requestCompletionStream = async (
         nextResponseFormat: ChatCompletionResponseFormat | null,
-      ) => withTimeout(
-        fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
-          method: "POST",
-          signal: activeAbortController.signal,
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-            Authorization: `Bearer ${providerSettings.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: providerSettings.model,
-            messages,
-            stream: true,
-            temperature: 0.2,
-            ...(nextResponseFormat === null
-              ? {}
-              : { response_format: nextResponseFormat }),
-            tools: [],
-            tool_choice: "none",
-          }),
-        }),
-        responseTimeoutMs,
-        () => activeAbortController.abort(),
-      );
+      ) => {
+        const response = await withTimeout(
+          client.chat.completions.create(
+            createStreamingChatCompletionBody({
+              providerSettings,
+              messages,
+              responseFormat: nextResponseFormat,
+            }),
+            { signal: activeAbortController.signal },
+          ),
+          responseTimeoutMs,
+          () => activeAbortController.abort(),
+        );
+        if (!isAsyncIterable<ChatCompletionChunk>(response)) {
+          throw new Error("LLM response stream is not iterable");
+        }
+        return response;
+      };
       try {
-        let response = await fetchCompletion(requestResponseFormat);
-
-        if (!response.ok) {
-          const detail = await readErrorDetail(response);
+        let stream: AsyncIterable<ChatCompletionChunk>;
+        try {
+          stream = await requestCompletionStream(requestResponseFormat);
+        } catch (error) {
+          const httpError = toProviderHttpError(error, "LLM request failed");
           if (
             isJsonSchemaResponseFormat(requestResponseFormat) &&
-            shouldRetryJsonSchemaAsJsonObject(response.status, detail)
+            httpError &&
+            shouldRetryJsonSchemaAsJsonObject(httpError.status, httpError.detail)
           ) {
-            warnJsonSchemaFallback(providerSettings.model, response.status, detail);
+            warnJsonSchemaFallback(
+              providerSettings.model,
+              httpError.status,
+              httpError.detail,
+            );
             replaceActiveAbortController();
-            response = await fetchCompletion({ type: "json_object" });
+            try {
+              stream = await requestCompletionStream({ type: "json_object" });
+            } catch (retryError) {
+              throw normalizeProviderError(retryError, "LLM request failed");
+            }
           } else {
-            throw new Error(formatHttpLlmError(response.status, detail));
+            throw httpError ?? normalizeProviderError(error, "LLM request failed");
           }
         }
 
         for await (const text of withIdleTimeout(
-          parseChatCompletionSse(response),
+          extractChatCompletionText(stream),
           responseTimeoutMs,
           () => activeAbortController.abort(),
         )) {
@@ -382,32 +853,38 @@ export function createRealImageGenerationClient(
         options.baseUrlAllowlist,
       );
       const safePrompt = clampImagePrompt(prompt);
-      const response = await fetch(resolveChatCompletionsUrl(providerSettings.apiBaseUrl), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${providerSettings.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: providerSettings.model,
-          messages: [{ role: "user", content: safePrompt }],
-          stream: false,
-        }),
+      const responseTimeoutMs =
+        options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
+      const abortController = new AbortController();
+      const clientFactory = options.clientFactory ?? createOpenAiCompatibleClient;
+      const client = clientFactory({
+        apiKey: providerSettings.apiKey,
+        baseURL: resolveOpenAiBaseUrl(providerSettings.apiBaseUrl),
+        timeoutMs: responseTimeoutMs,
       });
-
-      if (!response.ok) {
-        const detail = await readErrorDetail(response);
-        throw new Error(
-          detail
-            ? `Image request failed with HTTP ${response.status}: ${detail}`
-            : `Image request failed with HTTP ${response.status}`,
+      let payload: ChatCompletion;
+      try {
+        const response = await withTimeout(
+          client.chat.completions.create(
+            createNonStreamingChatCompletionBody({
+              model: providerSettings.model,
+              messages: [{ role: "user", content: safePrompt }],
+              responseFormat: null,
+            }),
+            { signal: abortController.signal },
+          ),
+          responseTimeoutMs,
+          () => abortController.abort(),
         );
+        if (isAsyncIterable<ChatCompletionChunk>(response)) {
+          throw new Error("Image response unexpectedly returned a stream");
+        }
+        payload = response;
+      } catch (error) {
+        const httpError = toProviderHttpError(error, "Image request failed");
+        throw httpError ?? (error instanceof Error ? error : new Error(String(error)));
       }
 
-      const payload = await response.json() as {
-        choices?: Array<{ message?: { content?: unknown } }>;
-      };
       const content = payload.choices?.[0]?.message?.content;
       if (typeof content === "string" && content.trim()) {
         return { content };

@@ -6,10 +6,11 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
+import type { ProviderModelCapabilityMap } from "@uml-platform/contracts";
 import type { Queryable } from "../db/transactions.js";
 import {
   maskApiKey,
-  ProviderConfigPolicyError,
+  normalizeProviderModelCapabilities,
   ProviderConfigSecretError,
   type ProviderAuditLog,
   type ProviderConfigStatus,
@@ -17,6 +18,11 @@ import {
   type ProviderRiskState,
 } from "./provider-config-store.js";
 import { normalizeProviderAllowedModels } from "./default-provider-models.js";
+import {
+  inferOpenAiCompatibleProvider,
+  normalizeManagedProviderBaseUrl,
+  ProviderConfigPolicyError,
+} from "./provider-url-policy.js";
 
 type ProviderConfigRow = {
   id: string;
@@ -33,6 +39,7 @@ type ProviderConfigRow = {
   risk_state: ProviderRiskState;
   default_model: string;
   allowed_models: string[] | string | null;
+  model_capabilities: ProviderModelCapabilityMap | string | null;
   quota: string;
   status: ProviderConfigStatus;
   scope_type?: "system" | "user" | "project";
@@ -60,14 +67,6 @@ type AuditLogRow = {
 export type PostgresProviderConfigRepository = ReturnType<
   typeof createPostgresProviderConfigRepository
 >;
-
-function normalizeUrlOrigin(url: string) {
-  try {
-    return new URL(url.trim()).origin;
-  } catch {
-    throw new ProviderConfigPolicyError("Provider Base URL must be a valid URL");
-  }
-}
 
 function createSecretKey(secret: string) {
   return createHash("sha256").update(secret).digest();
@@ -118,6 +117,15 @@ function mapProviderRow(row: ProviderConfigRow): ProviderConfigView {
     : row.allowed_models
       ? JSON.parse(row.allowed_models)
       : null;
+  const persistedModelCapabilities =
+    typeof row.model_capabilities === "string"
+      ? JSON.parse(row.model_capabilities)
+      : row.model_capabilities;
+  const allowedModels = normalizeProviderAllowedModels(
+    row.default_model,
+    persistedAllowedModels,
+    { baseUrl: row.base_url, provider: row.provider },
+  );
   return {
     id: row.id,
     name: row.name,
@@ -132,10 +140,10 @@ function mapProviderRow(row: ProviderConfigRow): ProviderConfigView {
     lastUsedAt: row.last_used_at ? toIsoString(row.last_used_at) : null,
     riskState: row.risk_state,
     defaultModel: row.default_model,
-    allowedModels: normalizeProviderAllowedModels(
-      row.default_model,
-      persistedAllowedModels,
-      { baseUrl: row.base_url, provider: row.provider },
+    allowedModels,
+    modelCapabilities: normalizeProviderModelCapabilities(
+      allowedModels,
+      persistedModelCapabilities,
     ),
     quota: row.quota,
     status: row.status,
@@ -177,6 +185,7 @@ const providerViewColumns = `
   risk_state,
   default_model,
   allowed_models,
+  model_capabilities,
   quota,
   status,
   scope_type,
@@ -189,29 +198,18 @@ const providerViewColumns = `
 
 export function createPostgresProviderConfigRepository({
   db,
-  baseUrlAllowlist,
+  baseUrlAllowlist: _baseUrlAllowlist,
   secret,
 }: {
   db: Queryable;
   baseUrlAllowlist: string[];
   secret?: string;
 }) {
-  const allowlist = new Set(baseUrlAllowlist.map(normalizeUrlOrigin));
   const secretKey = createSecretKey(
     secret ??
       process.env.UML_PROVIDER_CONFIG_SECRET ??
       "local-provider-config-secret-for-development-only",
   );
-
-  function assertAllowlisted(baseUrl: string) {
-    const normalized = normalizeUrlOrigin(baseUrl);
-    if (!allowlist.has(normalized)) {
-      throw new ProviderConfigPolicyError(
-        "Provider Base URL is not in the admin allowlist",
-      );
-    }
-    return normalized;
-  }
 
   async function audit(input: {
     actor: string;
@@ -249,11 +247,12 @@ export function createPostgresProviderConfigRepository({
   return {
     async create(input: {
       name: string;
-      provider: string;
+      provider?: string;
       baseUrl: string;
       apiKey: string;
       defaultModel: string;
       allowedModels?: string[];
+      modelCapabilities?: ProviderModelCapabilityMap;
       keyPurpose?: string;
       createdBy: string;
       quota?: string;
@@ -261,15 +260,21 @@ export function createPostgresProviderConfigRepository({
       scopeType?: "system" | "user" | "project";
       scopeId?: string | null;
     }) {
-      const baseUrl = assertAllowlisted(input.baseUrl);
+      const baseUrl = normalizeManagedProviderBaseUrl(input.baseUrl);
+      const provider = inferOpenAiCompatibleProvider(baseUrl, input.provider);
       const apiKey = input.apiKey.trim();
       const id = randomUUID();
       const maskedKey = maskApiKey(apiKey);
       const defaultModel = input.defaultModel.trim();
       const allowedModels = normalizeProviderAllowedModels(defaultModel, input.allowedModels, {
         baseUrl,
-        provider: input.provider,
+        provider,
       });
+      const modelCapabilities = normalizeProviderModelCapabilities(
+        allowedModels,
+        input.modelCapabilities,
+        { fillMissing: Boolean(input.modelCapabilities) },
+      );
       const keyPurpose =
         input.keyPurpose?.trim() || "admin-configured provider key";
       const scopeType = input.scopeType ?? "system";
@@ -288,6 +293,7 @@ export function createPostgresProviderConfigRepository({
             base_url,
             default_model,
             allowed_models,
+            model_capabilities,
             status,
             allowlisted,
             masked_key,
@@ -298,16 +304,17 @@ export function createPostgresProviderConfigRepository({
             scope_type,
             scope_id
           )
-          values ($1, $2, $3, $4, $5, $6, 'active', true, $7, $8, $9, $10, $11, $12, $13)
+          values ($1, $2, $3, $4, $5, $6, $7, 'active', true, $8, $9, $10, $11, $12, $13, $14)
           returning ${providerViewColumns}
         `,
         [
           id,
           input.name.trim(),
-          input.provider.trim(),
+          provider,
           baseUrl,
           defaultModel,
           allowedModels,
+          modelCapabilities,
           maskedKey,
           keyPurpose,
           input.createdBy,
@@ -377,6 +384,7 @@ export function createPostgresProviderConfigRepository({
 
     async updateMetadata(id: string, input: {
       allowedModels?: string[];
+      modelCapabilities?: ProviderModelCapabilityMap;
       defaultModel?: string;
       keyPurpose?: string;
       name?: string;
@@ -400,6 +408,11 @@ export function createPostgresProviderConfigRepository({
         input.allowedModels ?? existing.allowedModels,
         { baseUrl: existing.baseUrl, provider: existing.provider },
       );
+      const modelCapabilities = normalizeProviderModelCapabilities(
+        allowedModels,
+        input.modelCapabilities ?? existing.modelCapabilities,
+        { fillMissing: Boolean(input.modelCapabilities) },
+      );
       if (!allowedModels.includes(defaultModel)) {
         throw new ProviderConfigPolicyError(
           "Provider default model must be included in allowed models",
@@ -419,20 +432,22 @@ export function createPostgresProviderConfigRepository({
             name = $2,
             default_model = $3,
             allowed_models = $4,
-            key_purpose = $5,
-            quota = $6,
-            scope_type = $7,
-            scope_id = $8,
+            model_capabilities = $5,
+            key_purpose = $6,
+            quota = $7,
+            scope_type = $8,
+            scope_id = $9,
             updated_at = now()
           where id = $1
           returning ${providerViewColumns}
         `,
         [
           id,
-          input.name?.trim() || existing.name,
-          defaultModel,
-          allowedModels,
-          input.keyPurpose?.trim() || existing.keyPurpose,
+            input.name?.trim() || existing.name,
+            defaultModel,
+            allowedModels,
+            modelCapabilities,
+            input.keyPurpose?.trim() || existing.keyPurpose,
           input.quota?.trim() || existing.quota,
           scopeType,
           scopeId,

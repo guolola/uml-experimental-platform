@@ -203,6 +203,7 @@ create table if not exists provider_configs (
   base_url text not null,
   default_model text not null,
   allowed_models text[] not null default '{}',
+  model_capabilities jsonb not null default '{}'::jsonb,
   status text not null default 'active',
   allowlisted boolean not null default true,
   masked_key text not null default '',
@@ -420,6 +421,7 @@ alter table provider_configs add column if not exists risk_state text not null d
 alter table provider_configs add column if not exists quota text not null default 'unlimited';
 alter table provider_configs add column if not exists last_used_at timestamptz;
 alter table provider_configs add column if not exists allowed_models text[] not null default '{}';
+alter table provider_configs add column if not exists model_capabilities jsonb not null default '{}'::jsonb;
 alter table provider_configs add column if not exists breaker_state text not null default 'closed';
 alter table provider_configs add column if not exists breaker_failure_count integer not null default 0;
 alter table provider_configs add column if not exists breaker_opened_at timestamptz;

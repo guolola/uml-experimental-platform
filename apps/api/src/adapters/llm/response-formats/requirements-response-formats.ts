@@ -2,7 +2,10 @@
 import type { DiagramKind } from "@uml-platform/contracts";
 
 import { type JsonSchemaResponseFormat } from "../../../llm.js";
-import { getModelCapability } from "../../../model-capabilities.js";
+import {
+  getModelCapability,
+  type ModelCapabilitySource,
+} from "../../../model-capabilities.js";
 import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
 
 import {
@@ -56,7 +59,7 @@ function variantDiagramKind(variant: unknown) {
 }
 
 export function getGenerateModelsResponseFormat(
-  model: string,
+  model: ModelCapabilitySource,
   selectedDiagrams: readonly DiagramKind[] = [],
 ) {
   if (!getModelCapability(model).supportsJsonSchema) return undefined;
@@ -85,7 +88,9 @@ export function getGenerateModelsResponseFormat(
   return next;
 }
 
-export function getGenerateRequirementTraceabilityResponseFormat(model: string) {
+export function getGenerateRequirementTraceabilityResponseFormat(
+  model: ModelCapabilitySource,
+) {
   return getModelCapability(model).supportsJsonSchema
     ? GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT
     : undefined;

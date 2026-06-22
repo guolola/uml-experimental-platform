@@ -368,7 +368,7 @@ export async function analyzeCodeUiMockup(
         );
       },
       (text) => codeUiReferenceSpecResultSchema.parse(parseJson(text)),
-      getGenerateCodeUiReferenceResponseFormat(providerSettings.model),
+      getGenerateCodeUiReferenceResponseFormat(providerSettings),
     );
     snapshot.uiReferenceSpec = result.uiReferenceSpec;
     addCodeDiagnostic(snapshot, "analyze_code_ui_mockup", "已解析界面设计图视觉特征");
@@ -560,7 +560,7 @@ export async function generateCodeUiIr(
         );
       },
       (text) => codeUiIrResultSchema.parse(parseJson(text)),
-      getGenerateCodeUiIrResponseFormat(providerSettings.model),
+      getGenerateCodeUiIrResponseFormat(providerSettings),
     );
     snapshot.designTokens = result.uiIr.designTokens;
     snapshot.componentRegistry = result.uiIr.componentRegistry;
@@ -834,7 +834,7 @@ export async function verifyCodeUiFidelity(
         );
       },
       (text) => codeUiFidelityReportResultSchema.parse(parseJson(text)),
-      getGenerateCodeUiFidelityResponseFormat(providerSettings.model),
+      getGenerateCodeUiFidelityResponseFormat(providerSettings),
     );
     const deterministicCheck = fidelityCheckContext.deterministicCheck;
     const report =

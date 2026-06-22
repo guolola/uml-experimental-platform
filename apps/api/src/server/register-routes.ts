@@ -170,6 +170,7 @@ export function registerApiRoutes({
     if (!apiKey) {
       return { input, resolved: null, providerConfigId: input.providerConfigId };
     }
+    const modelCapability = config.modelCapabilities[input.model];
     return {
       input,
       providerConfigId: input.providerConfigId,
@@ -177,6 +178,7 @@ export function registerApiRoutes({
         apiBaseUrl: config.baseUrl,
         apiKey,
         model: input.model,
+        ...(modelCapability ? { modelCapability } : {}),
       },
     };
   };
