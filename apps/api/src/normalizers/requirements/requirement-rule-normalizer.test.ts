@@ -3,6 +3,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeRequirementRulesResult } from "./requirement-rule-normalizer.js";
 
+test("wraps top-level rule arrays returned by non-strict JSON models", () => {
+  const result = normalizeRequirementRulesResult([
+    {
+      id: "r1",
+      category: "功能",
+      text: "学生可以查询空闲座位并提交预约。",
+      relatedDiagrams: ["用例图"],
+    },
+  ]);
+
+  assert.deepEqual(result.rules, [
+    {
+      id: "r1",
+      category: "功能需求",
+      text: "学生可以查询空闲座位并提交预约。",
+      relatedDiagrams: ["usecase"],
+    },
+  ]);
+});
+
 test("normalizes requirement rule category aliases and diagram aliases", () => {
   const result = normalizeRequirementRulesResult({
     rules: [

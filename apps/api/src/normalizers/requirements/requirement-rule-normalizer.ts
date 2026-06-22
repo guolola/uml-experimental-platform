@@ -227,10 +227,14 @@ function uniqueRequirementRuleId(id: string, usedIds: Set<string>) {
 }
 
 export function normalizeRequirementRulesResult(raw: unknown): RequirementRulesResult {
-  if (!isPlainRecord(raw) || !Array.isArray(raw.rules)) {
+  const sourceRules = Array.isArray(raw)
+    ? raw
+    : isPlainRecord(raw) && Array.isArray(raw.rules)
+      ? raw.rules
+      : null;
+  if (!sourceRules) {
     return requirementRulesResultSchema.parse(raw);
   }
-  const sourceRules = raw.rules;
   const usedRuleIds = new Set<string>();
   const rules = sourceRules.flatMap((rule, index) => {
     const normalized = normalizeRule(rule, index);
