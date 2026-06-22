@@ -107,6 +107,60 @@ const queueEnv = {
     : {}),
 };
 
+const modelTaskTimeoutEnv = {
+  ...(process.env.UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS
+    ? {
+        UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS:
+          process.env.UML_REQUIREMENT_MODEL_TASK_TIMEOUT_MS,
+      }
+    : {}),
+  ...(process.env.UML_REQUIREMENT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS
+    ? {
+        UML_REQUIREMENT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS:
+          process.env.UML_REQUIREMENT_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+      }
+    : {}),
+  ...(process.env.UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS
+    ? {
+        UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS:
+          process.env.UML_REQUIREMENT_MODEL_TASK_MAX_RUNTIME_MS,
+      }
+    : {}),
+  ...(process.env.UML_DESIGN_MODEL_TASK_TIMEOUT_MS
+    ? {
+        UML_DESIGN_MODEL_TASK_TIMEOUT_MS:
+          process.env.UML_DESIGN_MODEL_TASK_TIMEOUT_MS,
+      }
+    : {}),
+  ...(process.env.UML_DESIGN_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS
+    ? {
+        UML_DESIGN_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS:
+          process.env.UML_DESIGN_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+      }
+    : {}),
+  ...(process.env.UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS
+    ? {
+        UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS:
+          process.env.UML_DESIGN_MODEL_TASK_MAX_RUNTIME_MS,
+      }
+    : {}),
+  ...(process.env.UML_CODE_MODEL_TASK_TIMEOUT_MS
+    ? { UML_CODE_MODEL_TASK_TIMEOUT_MS: process.env.UML_CODE_MODEL_TASK_TIMEOUT_MS }
+    : {}),
+  ...(process.env.UML_CODE_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS
+    ? {
+        UML_CODE_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS:
+          process.env.UML_CODE_MODEL_TASK_BLANK_OUTPUT_TIMEOUT_MS,
+      }
+    : {}),
+  ...(process.env.UML_CODE_MODEL_TASK_MAX_RUNTIME_MS
+    ? {
+        UML_CODE_MODEL_TASK_MAX_RUNTIME_MS:
+          process.env.UML_CODE_MODEL_TASK_MAX_RUNTIME_MS,
+      }
+    : {}),
+};
+
 const renderServiceEnv = {
   NODE_ENV: "production",
   RENDER_SERVICE_HOST: "127.0.0.1",
@@ -126,6 +180,7 @@ const apiEnv = {
   ...documentEnv,
   ...providerEnv,
   ...queueEnv,
+  ...modelTaskTimeoutEnv,
 };
 
 const workerEnv = {
@@ -135,6 +190,7 @@ const workerEnv = {
   ...documentEnv,
   ...providerEnv,
   ...queueEnv,
+  ...modelTaskTimeoutEnv,
 };
 
 const apiInstances = Number.parseInt(process.env.UML_API_INSTANCES ?? "1", 10);
