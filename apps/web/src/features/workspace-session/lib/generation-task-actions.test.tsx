@@ -254,10 +254,10 @@ describe("workspace-session generation task actions", () => {
   });
 
   it.each([
-    ["failed", "模型输出为空"],
-    ["cancelled", "任务已取消"],
-    ["interrupted", "服务中断，可重试"],
-  ])("settles an active local task when the matching server run is %s", (status, message) => {
+    ["failed", "模型输出为空", "failed"],
+    ["cancelled", "任务已取消", "cancelled"],
+    ["interrupted", "服务中断，可重试", "failed"],
+  ])("settles an active local task when the matching server run is %s", (status, message, taskStatus) => {
     const { result } = renderHook(() => useGenerationTaskActions());
     let taskId = "";
 
@@ -299,7 +299,7 @@ describe("workspace-session generation task actions", () => {
     expect(result.current.generating).toBe(false);
     expect(result.current.generationTasks[0]).toEqual(
       expect.objectContaining({
-        status,
+        status: taskStatus,
         progress: 100,
         message,
         finishedAt: "2026-06-23T10:01:00.000Z",
