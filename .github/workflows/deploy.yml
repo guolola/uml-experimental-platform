@@ -220,10 +220,10 @@ jobs:
           bundle_path="${RUNNER_TEMP}/uml-platform-${GITHUB_SHA}.bundle"
           if [ -n "$deployed_sha" ] && git merge-base --is-ancestor "$deployed_sha" "$GITHUB_SHA"; then
             echo "Creating incremental deploy bundle from $deployed_sha to $GITHUB_SHA"
-            git bundle create "$bundle_path" "${deployed_sha}..${GITHUB_SHA}"
+            git bundle create "$bundle_path" "${deployed_sha}..HEAD"
           else
             echo "::warning::Could not use deployed SHA '${deployed_sha:-<empty>}' as bundle base; creating full HEAD bundle."
-            git bundle create "$bundle_path" "$GITHUB_SHA"
+            git bundle create "$bundle_path" HEAD
           fi
           git bundle verify "$bundle_path"
           ls -lh "$bundle_path"
