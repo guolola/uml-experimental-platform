@@ -102,6 +102,7 @@ export function TextRequirementView() {
     generateRules,
     generateDiagrams,
     isRulesStale,
+    rulesStaleReason,
     staleDiagrams,
     generatedDiagrams,
     requirementModelTraceability,
@@ -383,6 +384,18 @@ export function TextRequirementView() {
       rules,
     });
   }, [generatedDiagrams, requirementModelTraceability, rules]);
+  const rulesStaleMessage =
+    rulesStaleReason === "rules"
+      ? "需求规则或复核结果已变化，下游模型可能需要更新。"
+      : rulesStaleReason === "source-missing"
+        ? "需求描述为空，当前需求规则可能已失去来源。"
+        : "需求文本已修改，下方规则基于旧文本，可能已过时。";
+  const staleDiagramReason =
+    isRulesStale && rulesStaleReason === "text"
+      ? "需求文本已修改"
+      : rulesStaleReason === "source-missing"
+        ? "需求描述为空"
+      : "需求规则/复核结果已变化";
 
   const renderRequirementInput = (mode: "empty" | "generated") => (
     <div
@@ -513,7 +526,7 @@ export function TextRequirementView() {
       {showStaleBanner && isRulesStale && (
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 text-warning" />
-          <span>需求文本已修改，下方规则基于旧文本，可能已过时。</span>
+          <span>{rulesStaleMessage}</span>
           <Button
             size="sm"
             variant="outline"
@@ -531,7 +544,7 @@ export function TextRequirementView() {
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 text-warning" />
           <span>
-            {staleDiagrams.length} 个模型基于旧规则：
+            {staleDiagrams.length} 个模型需要更新（{staleDiagramReason}）：
             {staleDiagrams.map((diagram) => DIAGRAM_META[diagram].label).join("、")}
           </span>
           <Button

@@ -237,6 +237,7 @@ export interface WorkspaceSessionState {
   diagramInputFingerprints: Partial<Record<DiagramType, string>>;
   designInputFingerprints: Record<string, string>;
   isRulesStale: boolean;
+  rulesStaleReason: "source-missing" | "text" | "rules" | null;
   staleDiagrams: DiagramType[];
   requirementReviewBlockedReason: string | null;
   requirementTraceabilityStale: boolean;

@@ -2992,7 +2992,7 @@ describe("createHttpWorkspaceRepository", () => {
     ).toEqual(["analysis"]);
   });
 
-  it("applies requirement model snapshot baselines over old workspace review state", async () => {
+  it("keeps accepted workspace review state over older requirement model snapshot baselines", async () => {
     const rule = {
       id: "r1",
       category: "功能需求" as const,
@@ -3089,11 +3089,19 @@ describe("createHttpWorkspaceRepository", () => {
     expect(
       (savedState?.requirementBaseline as RequirementBaseline).requirements[0]
         ?.status,
-    ).toBe("pending-review");
+    ).toBe("accepted");
     expect(
       (savedState?.requirementBaseline as RequirementBaseline).requirements[0]
         ?.actor,
-    ).toBeNull();
+    ).toBe("用户");
+    expect(
+      (savedState?.requirementBaseline as RequirementBaseline).qualityReport
+        .status,
+    ).toBe("passed");
+    expect(
+      (savedState?.requirementBaseline as RequirementBaseline).qualityReport
+        .issues,
+    ).toEqual([]);
     expect(
       (
         savedState?.requirementReviewCandidates as Record<

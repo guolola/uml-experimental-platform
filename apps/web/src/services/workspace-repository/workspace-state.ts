@@ -1,11 +1,13 @@
 // Normalizes workspace records and merges saved run snapshots into repository state.
 import {
+  type AtomicRequirement,
   designDiagramKindFromRecordKey,
   designRecordBelongsToDiagramKinds,
   designTraceabilityTouchesDiagramKinds,
   type CodeRunSnapshot,
   type DesignRunSnapshot,
   type RequirementBaseline,
+  type RequirementQualityIssue,
   type RunSnapshot,
 } from "@uml-platform/contracts";
 import {
@@ -99,6 +101,120 @@ function successfulDesignDiagramsFromSnapshot(
 
 type RequirementReviewCandidate =
   WorkspaceRecord["requirementReviewCandidates"][string];
+type BaselineRequirement = RequirementBaseline["requirements"][number];
+
+const REVIEWABLE_REQUIREMENT_FIELDS = [
+  "actor",
+  "subject",
+  "action",
+  "object",
+  "condition",
+  "outcome",
+  "acceptanceCriteria",
+] as const;
+
+function requirementStillNeedsReview(requirement: BaselineRequirement) {
+  if (requirement.status !== "accepted") return true;
+  return REVIEWABLE_REQUIREMENT_FIELDS.some((field) => {
+    const provenance = requirement.fieldProvenance[field];
+    return (
+      provenance?.status === "pending-review" ||
+      provenance?.status === "rejected"
+    );
+  });
+}
+
+function acceptedRequirementFromCandidate(
+  candidate: RequirementReviewCandidate,
+  currentRequirement: BaselineRequirement,
+): AtomicRequirement | null {
+  if (candidate.status !== "accepted") return null;
+  const reviewed = candidate.afterRequirement ?? candidate.beforeRequirement;
+  if (!reviewed) return null;
+  const fieldProvenance = { ...reviewed.fieldProvenance };
+  for (const field of REVIEWABLE_REQUIREMENT_FIELDS) {
+    const provenance = fieldProvenance[field];
+    if (!provenance) continue;
+    fieldProvenance[field] = {
+      ...provenance,
+      status: "accepted",
+      issueIds: [],
+    };
+  }
+  return {
+    ...reviewed,
+    id: currentRequirement.id,
+    sourceRuleId: currentRequirement.sourceRuleId ?? reviewed.sourceRuleId,
+    status: "accepted",
+    confidence: Math.max(reviewed.confidence, currentRequirement.confidence),
+    fieldProvenance,
+  };
+}
+
+function rebuildRequirementQualityReport(
+  baseline: RequirementBaseline,
+  requirements: BaselineRequirement[],
+  issues: RequirementQualityIssue[],
+): RequirementBaseline["qualityReport"] {
+  const blockingIssueIds = issues
+    .filter((issue) => issue.blocksDownstream)
+    .map((issue) => issue.id);
+  const reviewRequiredRequirementIds = requirements
+    .filter(requirementStillNeedsReview)
+    .map((requirement) => requirement.id);
+  const status: RequirementBaseline["qualityReport"]["status"] =
+    blockingIssueIds.length > 0
+      ? "blocked"
+      : reviewRequiredRequirementIds.length > 0 || issues.length > 0
+        ? "pending-review"
+        : "passed";
+  return {
+    ...baseline.qualityReport,
+    status,
+    summary:
+      status === "passed"
+        ? `已建立 ${requirements.length} 条原子需求基线。`
+        : `发现 ${issues.length} 个需求质量提示，可继续生成并在当前页面查看。`,
+    issues,
+    blockingIssueIds,
+    reviewRequiredRequirementIds,
+  };
+}
+
+function reconcileAcceptedReviewCandidates(
+  baseline: RequirementBaseline,
+  candidates: WorkspaceRecord["requirementReviewCandidates"],
+): RequirementBaseline {
+  const acceptedRuleIds = new Set(
+    Object.entries(candidates)
+      .filter(([, candidate]) => candidate.status === "accepted")
+      .map(([ruleId]) => ruleId),
+  );
+  if (acceptedRuleIds.size === 0) return baseline;
+
+  const acceptedRequirementIds = new Set<string>();
+  const requirements = baseline.requirements.map((requirement) => {
+    const ruleId = requirement.sourceRuleId;
+    const candidate = ruleId ? candidates[ruleId] : undefined;
+    if (!candidate || candidate.status !== "accepted") return requirement;
+    const reviewed = acceptedRequirementFromCandidate(candidate, requirement);
+    if (!reviewed) return requirement;
+    acceptedRequirementIds.add(requirement.id);
+    acceptedRequirementIds.add(reviewed.id);
+    return reviewed;
+  });
+  if (acceptedRequirementIds.size === 0) return baseline;
+
+  const issues = baseline.qualityReport.issues.filter(
+    (issue) =>
+      !issue.requirementId || !acceptedRequirementIds.has(issue.requirementId),
+  );
+  return {
+    ...baseline,
+    requirements,
+    qualityReport: rebuildRequirementQualityReport(baseline, requirements, issues),
+  };
+}
 
 function reviewCandidateStillNeeded(
   baseline: RequirementBaseline,
@@ -145,12 +261,16 @@ function applyRequirementBaselineToWorkspace(
   workspace: WorkspaceRecord,
   baseline: RequirementBaseline,
 ) {
-  workspace.requirementBaseline = baseline;
-  workspace.requirementQualityReport = baseline.qualityReport;
+  const reconciledBaseline = reconcileAcceptedReviewCandidates(
+    baseline,
+    workspace.requirementReviewCandidates,
+  );
+  workspace.requirementBaseline = reconciledBaseline;
+  workspace.requirementQualityReport = reconciledBaseline.qualityReport;
   workspace.requirementReviewCandidates =
     pruneRequirementReviewCandidatesForBaseline(
       workspace.requirementReviewCandidates,
-      baseline,
+      reconciledBaseline,
     );
 }
 
@@ -441,12 +561,6 @@ export function applySnapshotToWorkspace(
   const currentHasRequirementText = next.requirementText.trim().length > 0;
   const currentHasRequirements =
     next.requirementText.trim().length > 0 || next.rules.length > 0;
-  if (
-    !currentHasRequirementText &&
-    snapshot.requirementText.trim().length > 0
-  ) {
-    next.requirementText = snapshot.requirementText;
-  }
   next.runStatus = "idle";
   next.runProgress = 0;
   next.currentStage = null;
@@ -457,12 +571,19 @@ export function applySnapshotToWorkspace(
     return next;
   }
 
+  const isRequirementSnapshot =
+    !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
+  if (
+    isRequirementSnapshot &&
+    !currentHasRequirementText &&
+    snapshot.requirementText.trim().length > 0
+  ) {
+    next.requirementText = snapshot.requirementText;
+  }
   const snapshotRequirementFingerprint = requirementInputFingerprint(
     snapshot.requirementText,
     snapshot.rules,
   );
-  const isRequirementSnapshot =
-    !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
   const isRulesOnlyRequirementSnapshot =
     isRequirementSnapshot &&
     snapshot.selectedDiagrams.length === 0 &&
@@ -470,7 +591,10 @@ export function applySnapshotToWorkspace(
     snapshot.plantUml.length === 0 &&
     snapshot.svgArtifacts.length === 0 &&
     Object.keys(snapshot.diagramErrors).length === 0;
-  if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
+  if (
+    isRequirementSnapshot &&
+    (isRulesOnlyRequirementSnapshot || !currentHasRequirements)
+  ) {
     next.requirementText = snapshot.requirementText;
     next.rules = [...snapshot.rules];
   }
@@ -479,6 +603,7 @@ export function applySnapshotToWorkspace(
     next.rules,
   );
   if (
+    isRequirementSnapshot &&
     snapshot.requirementBaseline &&
     (!currentHasRequirements ||
       fingerprintMatches(
@@ -557,6 +682,15 @@ export function applySnapshotToWorkspace(
     const requirementDiagrams = snapshot.requirementModels.map(
       (model) => model.diagramKind,
     );
+    const canMergeRequirementContextFromSnapshot =
+      requirementDiagrams.length > 0 &&
+      snapshot.requirementText.trim().length > 0 &&
+      snapshot.rules.length > 0 &&
+      (!currentHasRequirements ||
+        fingerprintMatches(
+          snapshotRequirementFingerprint,
+          workspaceRequirementFingerprint,
+        ));
     const currentRequirementVersion = fingerprintMatches(
       next.requirementInputFingerprint,
       workspaceRequirementFingerprint,
@@ -628,27 +762,28 @@ export function applySnapshotToWorkspace(
       snapshot.diagramErrors,
       affectedForErrors,
     );
-    next.models = {
-      ...clearRequirementScopedRecord(next.models, requirementDiagrams),
-      ...(Object.fromEntries(
-        snapshot.requirementModels.map((model) => [
-          getRequirementModelId(model),
-          model,
-        ]),
-      ) as WorkspaceRecord["models"]),
-    };
-    next.requirementModelTraceability = mergeRequirementTraceability(
-      next.requirementModelTraceability,
-      snapshot.requirementModelTraceability,
-      requirementDiagrams,
-    );
     next.selectedDiagramTypes = [];
-    next.generatedDiagramTypes = Array.from(
-      new Set([...next.generatedDiagramTypes, ...requirementDiagrams]),
-    );
-    next.requirementInputFingerprint = workspaceRequirementFingerprint;
-    next.rulesVersion = currentRequirementVersion;
-    next.rulesBasedOnTextVersion = 0;
+    if (canMergeRequirementContextFromSnapshot) {
+      next.models = {
+        ...clearRequirementScopedRecord(next.models, requirementDiagrams),
+        ...(Object.fromEntries(
+          snapshot.requirementModels.map((model) => [
+            getRequirementModelId(model),
+            model,
+          ]),
+        ) as WorkspaceRecord["models"]),
+      };
+      next.requirementModelTraceability = mergeRequirementTraceability(
+        next.requirementModelTraceability,
+        snapshot.requirementModelTraceability,
+        requirementDiagrams,
+      );
+      next.generatedDiagramTypes = Array.from(
+        new Set([...next.generatedDiagramTypes, ...requirementDiagrams]),
+      );
+      next.requirementInputFingerprint = workspaceRequirementFingerprint;
+      next.rulesVersion = currentRequirementVersion;
+      next.rulesBasedOnTextVersion = 0;
       next.diagramInputFingerprints = {
         ...next.diagramInputFingerprints,
         ...Object.fromEntries(
@@ -658,15 +793,16 @@ export function applySnapshotToWorkspace(
           ]),
         ),
       };
-    next.diagramVersions = {
-      ...next.diagramVersions,
-      ...Object.fromEntries(
-        requirementDiagrams.map((diagram) => [
-          diagram,
-          currentRequirementVersion,
-        ]),
-      ),
-    };
+      next.diagramVersions = {
+        ...next.diagramVersions,
+        ...Object.fromEntries(
+          requirementDiagrams.map((diagram) => [
+            diagram,
+            currentRequirementVersion,
+          ]),
+        ),
+      };
+    }
     return next;
   }
 

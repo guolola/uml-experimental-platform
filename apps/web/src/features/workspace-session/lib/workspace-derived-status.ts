@@ -66,6 +66,15 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
         )
       : input.rulesBasedOnTextVersion !== null &&
         input.rulesBasedOnTextVersion !== input.textVersion));
+  const rulesStaleReason: "source-missing" | "text" | "rules" | null =
+    !isRulesStale
+      ? null
+      : requirementSourceMissing
+        ? "source-missing"
+        : input.rulesBasedOnTextVersion !== null &&
+            input.rulesBasedOnTextVersion !== input.textVersion
+          ? "text"
+          : "rules";
 
   const presentRequirementDiagrams = orderedRequirementDiagrams(
     Object.keys(input.models).filter((diagram) =>
@@ -178,6 +187,7 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
     errorMessage:
       input.visibleGenerationTask?.errorMessage ?? input.runUiState.errorMessage,
     isRulesStale,
+    rulesStaleReason,
     requirementReviewBlockedReason,
     requirementTraceabilityStale,
     runMessage:

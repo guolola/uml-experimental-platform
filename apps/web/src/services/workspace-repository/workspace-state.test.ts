@@ -323,6 +323,53 @@ describe("applySnapshotToWorkspace", () => {
     expect(merged.generatedDesignDiagramTypes).toEqual(["table"]);
   });
 
+  it("does not rewrite requirement model fingerprints from design snapshots without requirement input", () => {
+    const requirementText = "用户可以查看座位。";
+    const rules = [createRule("r1", "用户可以查看座位。")];
+    const currentFingerprint = snapshotInputFingerprint({
+      requirementText,
+      rules,
+    });
+    const existingUseCaseModel = useCaseModel();
+    const merged = applySnapshotToWorkspace(
+      {
+        ...createEmptyWorkspace(),
+        requirementText,
+        rules,
+        requirementInputFingerprint: currentFingerprint,
+        rulesVersion: 3,
+        rulesBasedOnTextVersion: 1,
+        models: { usecase: existingUseCaseModel },
+        generatedDiagramTypes: ["usecase"],
+        diagramInputFingerprints: { usecase: currentFingerprint },
+        diagramVersions: { usecase: 3 },
+      },
+      createDesignSnapshot({
+        requirementText: "",
+        rules: [],
+        requirementModels: [
+          {
+            ...useCaseModel(),
+            title: "空输入设计快照中的旧用例模型",
+          },
+        ],
+        models: [tableDesignModel()],
+        plantUml: [
+          { diagramKind: "table", modelId: "table", source: "@startuml\n@enduml" },
+        ],
+      }),
+    );
+
+    expect(merged.requirementInputFingerprint).toBe(currentFingerprint);
+    expect(merged.rulesVersion).toBe(3);
+    expect(merged.rulesBasedOnTextVersion).toBe(1);
+    expect(merged.diagramInputFingerprints.usecase).toBe(currentFingerprint);
+    expect(merged.diagramVersions.usecase).toBe(3);
+    expect(merged.models.usecase).toEqual(existingUseCaseModel);
+    expect(merged.generatedDiagramTypes).toEqual(["usecase"]);
+    expect(merged.generatedDesignDiagramTypes).toEqual(["table"]);
+  });
+
   it("preserves existing code files when a regenerate code snapshot fails", () => {
     const workspace = {
       ...createEmptyWorkspace(),
@@ -532,6 +579,78 @@ describe("applySnapshotToWorkspace", () => {
       merged.requirementBaseline?.qualityReport.reviewRequiredRequirementIds,
     ).toEqual(["REQ-006"]);
     expect(merged.requirementReviewCandidates.r6?.status).toBe("pending");
+  });
+
+  it("keeps accepted review candidates over older pending snapshot baselines", () => {
+    const requirementText = "用户通过邮箱注册账号，联系方式在认领通过前隐藏。";
+    const rules = [
+      createRule("r1", "用户通过邮箱注册账号。"),
+      createRule("r6", "联系方式在认领通过前隐藏。"),
+    ];
+    const pendingRequirement = createAtomicRequirement({
+      id: "REQ-006",
+      sourceRuleId: "r6",
+      sourceFragment: "联系方式在认领通过前隐藏。",
+      actor: null,
+      status: "pending-review",
+    });
+    const acceptedRequirement = createAtomicRequirement({
+      id: "REQ-006",
+      sourceRuleId: "r6",
+      sourceFragment: "联系方式在认领通过前隐藏。",
+      actor: "认领用户",
+      status: "accepted",
+    });
+    const pendingBaseline = createBaseline([pendingRequirement], {
+      runId: "run-pending-baseline",
+      qualityReport: {
+        runId: "run-pending-baseline",
+        status: "pending-review",
+        summary: "发现 1 个需求质量提示。",
+        issues: [
+          {
+            id: "ISS-006",
+            code: "missing-actor",
+            message: "REQ-006 缺少明确角色/执行者。",
+            severity: "warning",
+            requirementId: "REQ-006",
+            blocksDownstream: false,
+          },
+        ],
+        blockingIssueIds: [],
+        reviewRequiredRequirementIds: ["REQ-006"],
+      },
+    });
+
+    const merged = applySnapshotToWorkspace(
+      {
+        ...createEmptyWorkspace(),
+        requirementText,
+        rules,
+        requirementReviewCandidates: {
+          r6: {
+            ...createPendingCandidate(pendingRequirement),
+            afterRequirement: acceptedRequirement,
+            status: "accepted",
+          },
+        },
+      },
+      createSnapshot({
+        runId: "run-pending-baseline",
+        requirementText,
+        rules,
+        requirementBaseline: pendingBaseline,
+      }),
+    );
+
+    expect(merged.requirementBaseline?.requirements[0]?.status).toBe("accepted");
+    expect(merged.requirementBaseline?.requirements[0]?.actor).toBe("认领用户");
+    expect(merged.requirementBaseline?.qualityReport.status).toBe("passed");
+    expect(merged.requirementBaseline?.qualityReport.issues).toEqual([]);
+    expect(
+      merged.requirementBaseline?.qualityReport.reviewRequiredRequirementIds,
+    ).toEqual([]);
+    expect(merged.requirementReviewCandidates.r6?.status).toBe("accepted");
   });
 
   it("drops stale pending candidates when the new baseline has passed", () => {

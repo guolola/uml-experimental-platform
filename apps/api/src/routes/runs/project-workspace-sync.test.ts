@@ -5,6 +5,7 @@ import type {
   DesignDiagramModelSpec,
   DiagramModelSpec,
 } from "@uml-platform/contracts";
+import { snapshotInputFingerprint } from "@uml-platform/contracts";
 import { createInMemoryAuthStore } from "../../auth/in-memory-auth-store.js";
 import { createEmptyCodeSnapshot, createEmptyDesignSnapshot, createEmptyDocumentSnapshot, createEmptySnapshot } from "../../runs/records/snapshots.js";
 import { emitEvent, type RunRecord } from "../../runs/records/run-record-store.js";
@@ -290,6 +291,83 @@ test("terminal design snapshots auto-sync successful design models into project 
   assert.ok(designModels["deployment:design"]);
   assert.deepEqual(state.selectedDiagramTypes, []);
   assert.deepEqual(state.selectedDesignDiagramTypes, []);
+});
+
+test("terminal design snapshots do not pollute requirement fingerprints during auto-sync", async () => {
+  const { authStore, project, user, syncProjectWorkspace } =
+    await createWorkspaceSyncFixture();
+  const currentFingerprint = snapshotInputFingerprint({
+    requirementText: rule.text,
+    rules: [rule],
+  });
+  await authStore.saveProjectWorkspace({
+    projectId: project.id,
+    baseVersion: 0,
+    state: {
+      requirementText: rule.text,
+      rules: [rule],
+      requirementInputFingerprint: currentFingerprint,
+      rulesVersion: 2,
+      rulesBasedOnTextVersion: 1,
+      models: { usecase: useCaseModel },
+      generatedDiagramTypes: ["usecase"],
+      diagramInputFingerprints: { usecase: currentFingerprint },
+      diagramVersions: { usecase: 2 },
+    },
+    updatedByUserId: user.id,
+    sourceRunId: null,
+  });
+  const baseline = buildRequirementBaseline({
+    runId: "design-baseline",
+    requirementText: rule.text,
+    rules: [rule],
+  });
+  const snapshot = createEmptyDesignSnapshot("run-design-empty-requirements", {
+    selectedDiagrams: ["class"],
+    requestedDiagrams: ["class"],
+    requirementBaseline: baseline,
+    requirementModels: [{ ...useCaseModel, title: "设计快照旧用例模型" }],
+    requirementModelTraceability: [],
+    existingDesignModels: [designClassModel],
+  });
+  snapshot.status = "completed";
+
+  attachAndComplete(
+    {
+      snapshot,
+      events: [],
+      listeners: new Set(),
+      terminal: false,
+      metadata: {
+        projectId: project.id,
+        userId: user.id,
+        createdAt: "2026-06-20T00:00:00.000Z",
+      },
+    },
+    syncProjectWorkspace,
+  );
+
+  const state = await waitForWorkspace(
+    async () => (await authStore.getProjectWorkspace(project.id)).state,
+    (candidate) =>
+      Boolean(
+        (candidate.designModels as Record<string, unknown> | undefined)?.[
+          "class:design"
+        ],
+      ),
+  );
+  assert.equal(state.requirementInputFingerprint, currentFingerprint);
+  assert.equal(state.rulesVersion, 2);
+  assert.equal(state.rulesBasedOnTextVersion, 1);
+  assert.equal(
+    (state.diagramInputFingerprints as Record<string, string>).usecase,
+    currentFingerprint,
+  );
+  assert.equal((state.diagramVersions as Record<string, number>).usecase, 2);
+  assert.equal(
+    (state.models as Record<string, { title: string }>).usecase.title,
+    "用例模型",
+  );
 });
 
 test("terminal code snapshots auto-sync generated files while document snapshots are skipped", async () => {

@@ -670,7 +670,7 @@ function ruleReason(input: LineageGraphInput, rule: RequirementRule) {
   if (requirementSourceMissing(input)) {
     return "需求源头已删除，旧规则仍可查看，但需重新输入需求并重新抽取。";
   }
-  if (input.isRulesStale) return "需求文本已修改，需求规则需更新。";
+  if (input.isRulesStale) return "需求文本、规则或复核结果已变化，需求规则需更新。";
   const failedReview = input.requirementReviewCandidates[rule.id];
   if (failedReview?.status === "failed") {
     return failedReview.errorMessage ?? "规则修复失败，上一版规则仍可查看。";
@@ -739,7 +739,7 @@ function requirementReason(
     if (requirementSourceMissing(input)) {
       return `需求源头已删除，${label}为旧产物，仍可查看但需重新输入需求并重跑。`;
     }
-    if (input.isRulesStale) return "需求规则已修改，此需求模型需更新。";
+    if (input.isRulesStale) return "需求规则或复核结果已变化，此需求模型需更新。";
     if (input.staleDiagrams.includes(diagram)) {
       return "上游需求输入已变化，此需求模型需更新。";
     }

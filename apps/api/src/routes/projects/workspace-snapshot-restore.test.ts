@@ -402,6 +402,61 @@ test("restore stores snapshot input fingerprints for requirement diagrams after 
   assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
 });
 
+test("restore does not rewrite requirement fingerprints from design snapshots without requirement input", () => {
+  const requirementText = "用户可以查看座位。";
+  const rules = [requirementRule("r1", "用户可以查看座位。")];
+  const currentFingerprint = snapshotInputFingerprint({
+    requirementText,
+    rules,
+  });
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText,
+      rules,
+      requirementInputFingerprint: currentFingerprint,
+      rulesVersion: 3,
+      rulesBasedOnTextVersion: 1,
+      models: { usecase: requirementUseCaseModel() },
+      generatedDiagramTypes: ["usecase"],
+      diagramInputFingerprints: { usecase: currentFingerprint },
+      diagramVersions: { usecase: 3 },
+    },
+    snapshot: designSnapshot({
+      selectedDiagrams: ["table"],
+      requestedDiagrams: ["table"],
+      requirementText: "",
+      rules: [],
+      requirementModels: [
+        {
+          ...requirementUseCaseModel(),
+          title: "空输入设计快照中的旧用例模型",
+        },
+      ],
+      models: [tableDesignModel()],
+      plantUml: [
+        {
+          diagramKind: "table",
+          modelId: "table",
+          source: "@startuml\n@enduml",
+        },
+      ],
+    }),
+    mode: "merge",
+  });
+
+  assert.equal(restored.requirementInputFingerprint, currentFingerprint);
+  assert.equal(restored.rulesVersion, 3);
+  assert.equal(restored.rulesBasedOnTextVersion, 1);
+  assert.equal(
+    (restored.diagramInputFingerprints as Record<string, string>).usecase,
+    currentFingerprint,
+  );
+  assert.equal((restored.diagramVersions as Record<string, number>).usecase, 3);
+  assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
+  assert.deepEqual(restored.generatedDesignDiagramTypes, ["table"]);
+});
+
 test("restore writes requirement rules from model snapshots when text still matches", () => {
   const requirementText = "学生检索图书并提交借阅申请。";
   const rules = [
@@ -561,6 +616,87 @@ test("restore applies requirement baseline from model snapshots when input match
         .r6
     ).status,
     "pending",
+  );
+});
+
+test("restore keeps accepted candidates over older pending snapshot baselines", () => {
+  const requirementText = "用户通过邮箱注册账号，联系方式在认领通过前隐藏。";
+  const rules = [
+    requirementRule("r1", "用户通过邮箱注册账号。"),
+    requirementRule("r6", "联系方式在认领通过前隐藏。"),
+  ];
+  const pendingRequirement = atomicRequirement({
+    id: "REQ-006",
+    sourceRuleId: "r6",
+    sourceFragment: "联系方式在认领通过前隐藏。",
+    actor: null,
+    status: "pending-review",
+  });
+  const acceptedRequirement = atomicRequirement({
+    id: "REQ-006",
+    sourceRuleId: "r6",
+    sourceFragment: "联系方式在认领通过前隐藏。",
+    actor: "认领用户",
+    status: "accepted",
+  });
+  const snapshot = createEmptySnapshot(
+    "run-pending-baseline",
+    requirementText,
+    ["usecase"],
+    rules,
+    { models: [requirementUseCaseModel()] },
+  ) as RunSnapshot;
+  snapshot.status = "completed";
+  snapshot.currentStage = "render_svg";
+  snapshot.requirementBaseline = requirementBaseline([pendingRequirement], {
+    runId: "run-pending-baseline",
+    qualityReport: {
+      runId: "run-pending-baseline",
+      status: "pending-review",
+      summary: "发现 1 个需求质量提示。",
+      issues: [
+        {
+          id: "ISS-006",
+          code: "missing-actor",
+          message: "REQ-006 缺少明确角色/执行者。",
+          severity: "warning",
+          requirementId: "REQ-006",
+          blocksDownstream: false,
+        },
+      ],
+      blockingIssueIds: [],
+      reviewRequiredRequirementIds: ["REQ-006"],
+    },
+  });
+
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      requirementText,
+      rules,
+      requirementReviewCandidates: {
+        r6: {
+          ...pendingReviewCandidate(pendingRequirement),
+          afterRequirement: acceptedRequirement,
+          status: "accepted",
+        },
+      },
+    },
+    snapshot,
+    mode: "merge",
+  });
+
+  const restoredBaseline = restored.requirementBaseline as RequirementBaseline;
+  assert.equal(restoredBaseline.requirements[0]?.status, "accepted");
+  assert.equal(restoredBaseline.requirements[0]?.actor, "认领用户");
+  assert.equal(restoredBaseline.qualityReport.status, "passed");
+  assert.deepEqual(restoredBaseline.qualityReport.issues, []);
+  assert.deepEqual(restoredBaseline.qualityReport.reviewRequiredRequirementIds, []);
+  assert.equal(
+    (
+      (restored.requirementReviewCandidates as Record<string, { status: string }>)
+        .r6
+    ).status,
+    "accepted",
   );
 });
 

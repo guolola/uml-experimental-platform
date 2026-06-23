@@ -2335,7 +2335,7 @@ describe("TextRequirementView", () => {
 
     const table = await screen.findByRole("table");
     expect(
-      screen.getByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+      screen.getByText("需求规则或复核结果已变化，下游模型可能需要更新。"),
     ).toBeInTheDocument();
 
     const ruleEditor = within(table).getByDisplayValue(staleRule.text);
@@ -2357,7 +2357,7 @@ describe("TextRequirementView", () => {
       );
     });
     expect(
-      screen.queryByText("需求文本已修改，下方规则基于旧文本，可能已过时。"),
+      screen.queryByText("需求规则或复核结果已变化，下游模型可能需要更新。"),
     ).not.toBeInTheDocument();
     const useCaseCheckbox = screen.getByRole("checkbox", { name: /用例模型/ });
     expect(useCaseCheckbox).toBeEnabled();

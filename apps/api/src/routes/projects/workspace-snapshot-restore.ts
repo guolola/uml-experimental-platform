@@ -8,6 +8,7 @@ import {
   snapshotInputFingerprint,
 } from "@uml-platform/contracts";
 import type {
+  AtomicRequirement,
   CodeRunSnapshot,
   DesignDiagramKind,
   DesignDiagramModelSpec,
@@ -19,6 +20,7 @@ import type {
   DocumentRunSnapshot,
   PlantUmlArtifact,
   RequirementBaseline,
+  RequirementQualityIssue,
   RequirementModelTraceabilityEntry,
   RunSnapshot,
   SvgArtifact,
@@ -31,6 +33,17 @@ export type RestorableRunSnapshot =
 
 type AnyRunSnapshot = RestorableRunSnapshot | DocumentRunSnapshot;
 type WorkspaceState = Record<string, unknown>;
+type BaselineRequirement = RequirementBaseline["requirements"][number];
+
+const REVIEWABLE_REQUIREMENT_FIELDS = [
+  "actor",
+  "subject",
+  "action",
+  "object",
+  "condition",
+  "outcome",
+  "acceptanceCriteria",
+] as const;
 
 export function isRestorableRunSnapshot(
   snapshot: AnyRunSnapshot,
@@ -63,6 +76,116 @@ function reviewCandidateStillNeeded(
   });
 }
 
+function requirementStillNeedsReview(requirement: BaselineRequirement) {
+  if (requirement.status !== "accepted") return true;
+  return REVIEWABLE_REQUIREMENT_FIELDS.some((field) => {
+    const provenance = requirement.fieldProvenance[field];
+    return (
+      provenance?.status === "pending-review" ||
+      provenance?.status === "rejected"
+    );
+  });
+}
+
+function acceptedRequirementFromCandidate(
+  candidate: Record<string, unknown>,
+  currentRequirement: BaselineRequirement,
+): AtomicRequirement | null {
+  if (stringValue(candidate.status) !== "accepted") return null;
+  const reviewedValue =
+    isRecord(candidate.afterRequirement) ?
+      candidate.afterRequirement :
+      isRecord(candidate.beforeRequirement) ?
+        candidate.beforeRequirement :
+        null;
+  if (!reviewedValue) return null;
+  const reviewed = reviewedValue as unknown as AtomicRequirement;
+  const fieldProvenance = { ...reviewed.fieldProvenance };
+  for (const field of REVIEWABLE_REQUIREMENT_FIELDS) {
+    const provenance = fieldProvenance[field];
+    if (!provenance) continue;
+    fieldProvenance[field] = {
+      ...provenance,
+      status: "accepted",
+      issueIds: [],
+    };
+  }
+  return {
+    ...reviewed,
+    id: currentRequirement.id,
+    sourceRuleId: currentRequirement.sourceRuleId ?? reviewed.sourceRuleId,
+    status: "accepted",
+    confidence: Math.max(reviewed.confidence, currentRequirement.confidence),
+    fieldProvenance,
+  };
+}
+
+function rebuildRequirementQualityReport(
+  baseline: RequirementBaseline,
+  requirements: BaselineRequirement[],
+  issues: RequirementQualityIssue[],
+): RequirementBaseline["qualityReport"] {
+  const blockingIssueIds = issues
+    .filter((issue) => issue.blocksDownstream)
+    .map((issue) => issue.id);
+  const reviewRequiredRequirementIds = requirements
+    .filter(requirementStillNeedsReview)
+    .map((requirement) => requirement.id);
+  const status: RequirementBaseline["qualityReport"]["status"] =
+    blockingIssueIds.length > 0
+      ? "blocked"
+      : reviewRequiredRequirementIds.length > 0 || issues.length > 0
+        ? "pending-review"
+        : "passed";
+  return {
+    ...baseline.qualityReport,
+    status,
+    summary:
+      status === "passed"
+        ? `已建立 ${requirements.length} 条原子需求基线。`
+        : `发现 ${issues.length} 个需求质量提示，可继续生成并在当前页面查看。`,
+    issues,
+    blockingIssueIds,
+    reviewRequiredRequirementIds,
+  };
+}
+
+function reconcileAcceptedReviewCandidates(
+  baseline: RequirementBaseline,
+  candidatesValue: unknown,
+): RequirementBaseline {
+  const candidates = recordValue(candidatesValue);
+  const hasAcceptedCandidate = Object.values(candidates).some(
+    (candidate) => isRecord(candidate) && stringValue(candidate.status) === "accepted",
+  );
+  if (!hasAcceptedCandidate) return baseline;
+
+  const acceptedRequirementIds = new Set<string>();
+  const requirements = baseline.requirements.map((requirement) => {
+    const ruleId = requirement.sourceRuleId;
+    const candidate = ruleId ? candidates[ruleId] : undefined;
+    if (!isRecord(candidate) || stringValue(candidate.status) !== "accepted") {
+      return requirement;
+    }
+    const reviewed = acceptedRequirementFromCandidate(candidate, requirement);
+    if (!reviewed) return requirement;
+    acceptedRequirementIds.add(requirement.id);
+    acceptedRequirementIds.add(reviewed.id);
+    return reviewed;
+  });
+  if (acceptedRequirementIds.size === 0) return baseline;
+
+  const issues = baseline.qualityReport.issues.filter(
+    (issue) =>
+      !issue.requirementId || !acceptedRequirementIds.has(issue.requirementId),
+  );
+  return {
+    ...baseline,
+    requirements,
+    qualityReport: rebuildRequirementQualityReport(baseline, requirements, issues),
+  };
+}
+
 function shouldPreserveCodeWorkspaceOnSnapshot(snapshot: CodeRunSnapshot) {
   if (snapshot.generationMode !== "regenerate") return false;
   if (snapshot.status === "cancelled") return true;
@@ -90,12 +213,16 @@ function applyRequirementBaselineToWorkspaceState(
   state: WorkspaceState,
   baseline: RequirementBaseline,
 ) {
-  state.requirementBaseline = baseline;
-  state.requirementQualityReport = baseline.qualityReport;
+  const reconciledBaseline = reconcileAcceptedReviewCandidates(
+    baseline,
+    state.requirementReviewCandidates,
+  );
+  state.requirementBaseline = reconciledBaseline;
+  state.requirementQualityReport = reconciledBaseline.qualityReport;
   state.requirementReviewCandidates =
     pruneRequirementReviewCandidatesForBaseline(
       state.requirementReviewCandidates,
-      baseline,
+      reconciledBaseline,
     );
 }
 
@@ -127,19 +254,19 @@ function applySnapshotToWorkspaceState(
   const currentHasRequirements =
     currentRequirementText.trim().length > 0 || currentRules.length > 0;
 
-  if (
-    currentRequirementText.trim().length === 0 &&
-    snapshot.requirementText.trim().length > 0
-  ) {
-    next.requirementText = snapshot.requirementText;
-  }
-
   const snapshotRequirementFingerprint = snapshotInputFingerprint({
     requirementText: snapshot.requirementText,
     rules: snapshot.rules,
   });
   const isRequirementSnapshot =
     !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
+  if (
+    isRequirementSnapshot &&
+    currentRequirementText.trim().length === 0 &&
+    snapshot.requirementText.trim().length > 0
+  ) {
+    next.requirementText = snapshot.requirementText;
+  }
   const isRulesOnlyRequirementSnapshot =
     isRequirementSnapshot &&
     snapshot.selectedDiagrams.length === 0 &&
@@ -155,7 +282,10 @@ function applySnapshotToWorkspaceState(
   ) {
     next.requirementText = snapshot.requirementText;
     next.rules = [...snapshot.rules];
-  } else if (isRulesOnlyRequirementSnapshot || !currentHasRequirements) {
+  } else if (
+    isRequirementSnapshot &&
+    (isRulesOnlyRequirementSnapshot || !currentHasRequirements)
+  ) {
     next.requirementText = snapshot.requirementText;
     next.rules = [...snapshot.rules];
   }
@@ -173,6 +303,7 @@ function applySnapshotToWorkspaceState(
     rules: arrayValue(next.rules),
   });
   if (
+    isRequirementSnapshot &&
     snapshot.requirementBaseline &&
     (!currentHasRequirements ||
       fingerprintMatches(
@@ -251,6 +382,15 @@ function applySnapshotToWorkspaceState(
     const requirementDiagrams = snapshot.requirementModels.map(
       (model) => model.diagramKind,
     );
+    const canMergeRequirementContextFromSnapshot =
+      requirementDiagrams.length > 0 &&
+      snapshot.requirementText.trim().length > 0 &&
+      snapshot.rules.length > 0 &&
+      (!currentHasRequirements ||
+        fingerprintMatches(
+          snapshotRequirementFingerprint,
+          workspaceRequirementFingerprint,
+        ));
     const currentRequirementVersion = fingerprintMatches(
       stringOrNull(next.requirementInputFingerprint),
       workspaceRequirementFingerprint,
@@ -323,48 +463,50 @@ function applySnapshotToWorkspaceState(
       snapshot.diagramErrors,
       affectedForErrors,
     );
-    next.models = {
-      ...clearScopedRecords(recordValue(next.models), requirementDiagrams),
-      ...Object.fromEntries(
-        snapshot.requirementModels.map((model) => [
-          getRequirementModelId(model),
-          model,
-        ]),
-      ),
-    };
-    next.requirementModelTraceability = mergeRequirementTraceability(
-      arrayValue(
-        next.requirementModelTraceability,
-      ) as RequirementModelTraceabilityEntry[],
-      snapshot.requirementModelTraceability,
-      requirementDiagrams,
-    );
     next.selectedDiagramTypes = [];
-    next.generatedDiagramTypes = uniqueStrings([
-      ...stringArrayValue(next.generatedDiagramTypes),
-      ...requirementDiagrams,
-    ]);
-    next.requirementInputFingerprint = workspaceRequirementFingerprint;
-    next.rulesVersion = currentRequirementVersion;
-    next.rulesBasedOnTextVersion = 0;
-    next.diagramInputFingerprints = {
-      ...recordValue(next.diagramInputFingerprints),
-      ...Object.fromEntries(
-        requirementDiagrams.map((diagram) => [
-          diagram,
-          snapshotRequirementFingerprint,
-        ]),
-      ),
-    };
-    next.diagramVersions = {
-      ...recordValue(next.diagramVersions),
-      ...Object.fromEntries(
-        requirementDiagrams.map((diagram) => [
-          diagram,
-          currentRequirementVersion,
-        ]),
-      ),
-    };
+    if (canMergeRequirementContextFromSnapshot) {
+      next.models = {
+        ...clearScopedRecords(recordValue(next.models), requirementDiagrams),
+        ...Object.fromEntries(
+          snapshot.requirementModels.map((model) => [
+            getRequirementModelId(model),
+            model,
+          ]),
+        ),
+      };
+      next.requirementModelTraceability = mergeRequirementTraceability(
+        arrayValue(
+          next.requirementModelTraceability,
+        ) as RequirementModelTraceabilityEntry[],
+        snapshot.requirementModelTraceability,
+        requirementDiagrams,
+      );
+      next.generatedDiagramTypes = uniqueStrings([
+        ...stringArrayValue(next.generatedDiagramTypes),
+        ...requirementDiagrams,
+      ]);
+      next.requirementInputFingerprint = workspaceRequirementFingerprint;
+      next.rulesVersion = currentRequirementVersion;
+      next.rulesBasedOnTextVersion = 0;
+      next.diagramInputFingerprints = {
+        ...recordValue(next.diagramInputFingerprints),
+        ...Object.fromEntries(
+          requirementDiagrams.map((diagram) => [
+            diagram,
+            snapshotRequirementFingerprint,
+          ]),
+        ),
+      };
+      next.diagramVersions = {
+        ...recordValue(next.diagramVersions),
+        ...Object.fromEntries(
+          requirementDiagrams.map((diagram) => [
+            diagram,
+            currentRequirementVersion,
+          ]),
+        ),
+      };
+    }
     return next;
   }
 
