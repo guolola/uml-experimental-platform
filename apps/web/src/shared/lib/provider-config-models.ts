@@ -7,6 +7,9 @@ export type ProviderModelPolicy = {
     {
       id?: string;
       supportsJsonSchema?: boolean;
+      supportsJsonObject?: boolean;
+      structuredOutputMode?: "strict_json" | "json_object" | "compatible";
+      modeLabel?: string;
     }
   > | null;
   provider?: string | null;
@@ -44,13 +47,34 @@ export function getProviderModelCapabilities(
     Object.entries(config?.modelCapabilities ?? {}).flatMap(([model, capability]) => {
       const normalizedModel = model.trim();
       if (!normalizedModel || !allowedModels.has(normalizedModel)) return [];
+      const structuredOutputMode =
+        capability.structuredOutputMode === "strict_json" ||
+        capability.structuredOutputMode === "json_object" ||
+        capability.structuredOutputMode === "compatible"
+          ? capability.structuredOutputMode
+          : capability.supportsJsonSchema === true
+            ? "strict_json"
+            : capability.supportsJsonObject === true
+              ? "json_object"
+              : "compatible";
       return [
         [
           normalizedModel,
           {
             ...capability,
             id: capability.id ?? normalizedModel,
-            supportsJsonSchema: capability.supportsJsonSchema === true,
+            structuredOutputMode,
+            supportsJsonSchema: structuredOutputMode === "strict_json",
+            supportsJsonObject:
+              structuredOutputMode === "strict_json" ||
+              structuredOutputMode === "json_object",
+            modeLabel:
+              capability.modeLabel ??
+              (structuredOutputMode === "strict_json"
+                ? "严格 JSON"
+                : structuredOutputMode === "json_object"
+                  ? "JSON 模式"
+                  : "兼容模式"),
           },
         ],
       ];

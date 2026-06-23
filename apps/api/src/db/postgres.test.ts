@@ -12,6 +12,7 @@ import {
   migrationTableName,
   migrations,
   providerModelCapabilitiesEnforcementSql,
+  providerStructuredOutputCapabilitiesEnforcementSql,
   providerConfigStoreSql,
   runMigrations,
   usernamesSql,
@@ -169,6 +170,33 @@ test("provider model capabilities enforcement deletes incompatible legacy provid
   );
 });
 
+test("provider structured output capability enforcement deletes old capability rows", () => {
+  assert.match(
+    providerStructuredOutputCapabilitiesEnforcementSql,
+    /jsonb_each\(model_capabilities\)/i,
+  );
+  assert.match(
+    providerStructuredOutputCapabilitiesEnforcementSql,
+    /structuredOutputMode/i,
+  );
+  assert.match(
+    providerStructuredOutputCapabilitiesEnforcementSql,
+    /cardinality\(allowed_models\)/i,
+  );
+  assert.match(
+    providerStructuredOutputCapabilitiesEnforcementSql,
+    /unnest\(allowed_models\)/i,
+  );
+  assert.match(
+    providerStructuredOutputCapabilitiesEnforcementSql,
+    /delete from provider_configs/i,
+  );
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /019_enforce_provider_structured_output_capabilities/,
+  );
+});
+
 test("billing migration creates payment, entitlement, and reservation records", () => {
   for (const table of [
     "billing_skus",
@@ -263,6 +291,28 @@ test("migration runner applies provider capability enforcement after previous mi
   assert.match(
     client.queries.join("\n"),
     /insert into schema_migrations \(id\) values \(\$1\).*018_enforce_provider_model_capabilities/is,
+  );
+});
+
+test("migration runner applies structured output capability enforcement after previous migrations", async () => {
+  const appliedMigrationIds = migrations
+    .filter(
+      (migration) =>
+        migration.id !== "019_enforce_provider_structured_output_capabilities",
+    )
+    .map((migration) => migration.id);
+  const client = new FakeClient(new Set(appliedMigrationIds));
+
+  const applied = await runMigrations(client);
+
+  assert.deepEqual(applied, [
+    "019_enforce_provider_structured_output_capabilities",
+  ]);
+  assert.match(client.queries.join("\n"), /structuredOutputMode/i);
+  assert.match(client.queries.join("\n"), /delete from provider_configs/i);
+  assert.match(
+    client.queries.join("\n"),
+    /insert into schema_migrations \(id\) values \(\$1\).*019_enforce_provider_structured_output_capabilities/is,
   );
 });
 

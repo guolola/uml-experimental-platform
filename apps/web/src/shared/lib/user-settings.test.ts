@@ -36,7 +36,10 @@ describe("user settings defaults", () => {
         providerModelCapabilities: {
           "deepseek-ai/DeepSeek-V4-Pro": {
             id: "deepseek-ai/DeepSeek-V4-Pro",
+            structuredOutputMode: "strict_json",
             supportsJsonSchema: true,
+            supportsJsonObject: true,
+            modeLabel: "严格 JSON",
           },
           "retired-model": {
             id: "retired-model",
@@ -57,7 +60,10 @@ describe("user settings defaults", () => {
       providerModelCapabilities: {
         "deepseek-ai/DeepSeek-V4-Pro": {
           id: "deepseek-ai/DeepSeek-V4-Pro",
+          structuredOutputMode: "strict_json",
           supportsJsonSchema: true,
+          supportsJsonObject: true,
+          modeLabel: "严格 JSON",
         },
       },
       defaultModel: "deepseek-ai/DeepSeek-V4-Pro",

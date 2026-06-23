@@ -1,7 +1,7 @@
 // Defines JSON schema response formats for design model generation.
-import { type ChatCompletionResponseFormat } from "../../../llm.js";
+import { type JsonSchemaResponseFormat } from "../../../llm.js";
 import {
-  getModelCapability,
+  getStructuredResponseFormat,
   type ModelCapabilitySource,
 } from "../../../model-capabilities.js";
 import { modelElementRefResponseSchema } from "./requirements-response-formats.js";
@@ -404,7 +404,7 @@ const designModelResponseSchema = {
   required: ["diagramKind", "title", "summary", "notes"],
 };
 
-export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "design_diagram_models_result",
@@ -449,7 +449,7 @@ export const GENERATE_DESIGN_MODELS_RESPONSE_FORMAT: ChatCompletionResponseForma
   },
 };
 
-export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "design_model_traceability_result",
@@ -491,15 +491,11 @@ export const GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT: ChatCompletionRespons
 };
 
 export function getGenerateDesignModelsResponseFormat(model: ModelCapabilitySource) {
-  return getModelCapability(model).supportsJsonSchema
-    ? GENERATE_DESIGN_MODELS_RESPONSE_FORMAT
-    : undefined;
+  return getStructuredResponseFormat(model, GENERATE_DESIGN_MODELS_RESPONSE_FORMAT);
 }
 
 export function getGenerateDesignTraceabilityResponseFormat(
   model: ModelCapabilitySource,
 ) {
-  return getModelCapability(model).supportsJsonSchema
-    ? GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT
-    : undefined;
+  return getStructuredResponseFormat(model, GENERATE_DESIGN_TRACEABILITY_RESPONSE_FORMAT);
 }

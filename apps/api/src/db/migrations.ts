@@ -925,6 +925,40 @@ alter table provider_configs
   add column if not exists model_capabilities jsonb not null default '{}'::jsonb;
 `;
 
+export const providerStructuredOutputCapabilitiesEnforcementSql = `
+do $$
+begin
+  if to_regclass('public.provider_configs') is not null
+    and exists (
+      select 1
+      from provider_configs
+      where (
+        coalesce(cardinality(allowed_models), 0) > 0
+        and (
+          model_capabilities = '{}'::jsonb
+          or exists (
+            select 1
+            from unnest(allowed_models) as allowed_model(model_id)
+            where not (model_capabilities ? allowed_model.model_id)
+              or not ((model_capabilities -> allowed_model.model_id) ? 'structuredOutputMode')
+          )
+        )
+      )
+      or (
+        model_capabilities <> '{}'::jsonb
+        and exists (
+          select 1
+          from jsonb_each(model_capabilities) as capability(model_id, value)
+          where not (capability.value ? 'structuredOutputMode')
+        )
+      )
+    )
+  then
+    delete from provider_configs;
+  end if;
+end $$;
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -997,6 +1031,10 @@ export const migrations = [
   {
     id: "018_enforce_provider_model_capabilities",
     sql: providerModelCapabilitiesEnforcementSql,
+  },
+  {
+    id: "019_enforce_provider_structured_output_capabilities",
+    sql: providerStructuredOutputCapabilitiesEnforcementSql,
   },
 ] as const;
 

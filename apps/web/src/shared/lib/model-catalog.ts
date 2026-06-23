@@ -10,6 +10,8 @@ export interface ModelOption {
 
 export interface ModelCapability {
   supportsJsonSchema: boolean;
+  supportsJsonObject: boolean;
+  structuredOutputMode: "strict_json" | "json_object" | "compatible";
   modeLabel: string;
   warning?: string;
 }
@@ -176,14 +178,18 @@ export function getModelCapability(modelId: string): ModelCapability {
   if (!option?.supportsJsonSchema) {
     return {
       supportsJsonSchema: false,
+      supportsJsonObject: false,
+      structuredOutputMode: "compatible",
       modeLabel: "兼容模式",
-      warning: "此模型将使用普通 JSON 输出，并通过校验与修复重试保证结构。",
+      warning: "此模型将使用普通输出，并通过校验与修复重试保证结构。",
     };
   }
 
   return {
     supportsJsonSchema: true,
-    modeLabel: "严格结构化",
+    supportsJsonObject: true,
+    structuredOutputMode: "strict_json",
+    modeLabel: "严格 JSON",
   };
 }
 

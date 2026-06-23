@@ -169,6 +169,9 @@ export interface PlatformProviderConfig {
     {
       id?: string;
       supportsJsonSchema?: boolean;
+      supportsJsonObject?: boolean;
+      structuredOutputMode?: "strict_json" | "json_object" | "compatible";
+      modeLabel?: string;
     }
   >;
   maskedKey: string;

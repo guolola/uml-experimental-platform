@@ -838,8 +838,10 @@ export function createMockWorkspaceRepository(
         ok: true,
         message: "Provider connection ok",
         capability: {
+          structuredOutputMode: "strict_json",
           supportsJsonSchema: true,
-          modeLabel: "严格结构化",
+          supportsJsonObject: true,
+          modeLabel: "严格 JSON",
         },
       };
     },

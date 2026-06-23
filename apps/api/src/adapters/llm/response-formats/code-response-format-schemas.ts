@@ -1,7 +1,7 @@
 // Defines the JSON schema response formats used by code generation stages.
-import { type ChatCompletionResponseFormat } from "../../../llm.js";
+import { type JsonSchemaResponseFormat } from "../../../llm.js";
 
-export const GENERATE_CODE_SPEC_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_SPEC_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_generation_spec_result",
@@ -131,7 +131,7 @@ export const GENERATE_CODE_SPEC_RESPONSE_FORMAT: ChatCompletionResponseFormat = 
   },
 };
 
-export const GENERATE_CODE_FILES_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_FILES_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_file_bundle_result",
@@ -310,7 +310,7 @@ export const CODE_BUSINESS_LOGIC_RESPONSE_SCHEMA = {
   ],
 };
 
-export const GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_business_logic_result",
@@ -326,7 +326,7 @@ export const GENERATE_CODE_BUSINESS_LOGIC_RESPONSE_FORMAT: ChatCompletionRespons
   },
 };
 
-export const GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_skill_resource_plan_result",
@@ -384,7 +384,7 @@ export const GENERATE_CODE_SKILL_RESOURCE_PLAN_RESPONSE_FORMAT: ChatCompletionRe
   },
 };
 
-export const GENERATE_CODE_VISUAL_DIRECTION_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_VISUAL_DIRECTION_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_visual_direction_result",
@@ -429,7 +429,7 @@ export const GENERATE_CODE_VISUAL_DIRECTION_RESPONSE_FORMAT: ChatCompletionRespo
   },
 };
 
-export const GENERATE_CODE_SKILL_RESOURCE_DISCOVERY_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_SKILL_RESOURCE_DISCOVERY_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_skill_resource_discovery_result",
@@ -467,7 +467,7 @@ export const GENERATE_CODE_SKILL_RESOURCE_DISCOVERY_RESPONSE_FORMAT: ChatComplet
   },
 };
 
-export const GENERATE_CODE_APP_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_APP_BLUEPRINT_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_app_blueprint_result",
@@ -502,7 +502,7 @@ export const GENERATE_CODE_APP_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponse
   },
 };
 
-export const GENERATE_CODE_UI_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_UI_BLUEPRINT_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_ui_blueprint_result",
@@ -537,7 +537,7 @@ export const GENERATE_CODE_UI_BLUEPRINT_RESPONSE_FORMAT: ChatCompletionResponseF
   },
 };
 
-export const GENERATE_CODE_UI_REFERENCE_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_UI_REFERENCE_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_ui_reference_spec_result",
@@ -578,7 +578,7 @@ export const GENERATE_CODE_UI_REFERENCE_RESPONSE_FORMAT: ChatCompletionResponseF
   },
 };
 
-export const GENERATE_CODE_UI_FIDELITY_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_UI_FIDELITY_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_ui_fidelity_report_result",
@@ -689,7 +689,7 @@ export const CODE_COMPONENT_REGISTRY_RESPONSE_SCHEMA = {
   required: ["components"],
 };
 
-export const GENERATE_CODE_UI_IR_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_UI_IR_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_ui_ir_result",
@@ -746,7 +746,7 @@ export const GENERATE_CODE_UI_IR_RESPONSE_FORMAT: ChatCompletionResponseFormat =
   },
 };
 
-export const GENERATE_CODE_FILE_PLAN_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_FILE_PLAN_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_file_plan_result",
@@ -785,7 +785,7 @@ export const GENERATE_CODE_FILE_PLAN_RESPONSE_FORMAT: ChatCompletionResponseForm
   },
 };
 
-export const GENERATE_CODE_AGENT_PLAN_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+export const GENERATE_CODE_AGENT_PLAN_RESPONSE_FORMAT: JsonSchemaResponseFormat = {
   type: "json_schema",
   json_schema: {
     name: "code_agent_plan_result",
@@ -804,7 +804,7 @@ export const GENERATE_CODE_AGENT_PLAN_RESPONSE_FORMAT: ChatCompletionResponseFor
   },
 };
 
-export const GENERATE_CODE_FILE_OPERATIONS_RESPONSE_FORMAT: ChatCompletionResponseFormat =
+export const GENERATE_CODE_FILE_OPERATIONS_RESPONSE_FORMAT: JsonSchemaResponseFormat =
   {
     type: "json_schema",
     json_schema: {

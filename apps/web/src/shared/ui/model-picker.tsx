@@ -82,6 +82,7 @@ function getProviderModelGroups(
         shortLabel: string;
         fullLabel: string;
         supportsJsonSchema: boolean;
+        structuredOutputMode: "strict_json" | "json_object" | "compatible";
       }>;
     }
   >();
@@ -94,11 +95,19 @@ function getProviderModelGroups(
     if (!groups.has(group.id)) {
       groups.set(group.id, { ...group, models: [] });
     }
+    const structuredOutputMode =
+      capabilities[trimmed]?.structuredOutputMode ??
+      (capabilities[trimmed]?.supportsJsonSchema === true
+        ? "strict_json"
+        : capabilities[trimmed]?.supportsJsonObject === true
+          ? "json_object"
+          : "compatible");
     groups.get(group.id)?.models.push({
       id: trimmed,
       shortLabel: catalogModel?.shortLabel ?? getProviderModelLabel(trimmed),
       fullLabel: catalogModel?.fullLabel ?? trimmed,
-      supportsJsonSchema: capabilities[trimmed]?.supportsJsonSchema === true,
+      supportsJsonSchema: structuredOutputMode === "strict_json",
+      structuredOutputMode,
     });
   });
 
@@ -210,11 +219,22 @@ export function ModelPicker({
                   >
                     <span className="inline-flex min-w-0 items-center gap-2">
                       <span className="min-w-0 truncate">{model.shortLabel}</span>
-                      {model.supportsJsonSchema && (
-                        <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-                          严格结构化
-                        </span>
-                      )}
+                      <span
+                        className={cn(
+                          "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                          model.structuredOutputMode === "strict_json"
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                            : model.structuredOutputMode === "json_object"
+                              ? "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
+                              : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {model.structuredOutputMode === "strict_json"
+                          ? "严格 JSON"
+                          : model.structuredOutputMode === "json_object"
+                            ? "JSON 模式"
+                            : "兼容"}
+                      </span>
                     </span>
                     {model.id === value && (
                       <Check className="size-3.5 shrink-0 text-primary" />

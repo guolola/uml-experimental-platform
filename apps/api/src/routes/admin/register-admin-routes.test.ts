@@ -2715,7 +2715,9 @@ test("admin provider model discovery returns normalized OpenAI-compatible models
     assert.equal(body.summary.strictCount, 1);
     assert.deepEqual(body.models.map((model: { id: string }) => model.id), ["gpt-4o"]);
     assert.equal(body.models[0].category, "text_chat");
+    assert.equal(body.models[0].structuredOutputMode, "strict_json");
     assert.equal(body.models[0].supportsJsonSchema, true);
+    assert.equal(body.models[0].supportsJsonObject, true);
     assert.equal(body.models[0].strictJson, true);
     assert.equal(body.models[0].probeStatus, "strict");
     assert.equal(typeof body.models[0].probedAt, "string");
@@ -2779,12 +2781,79 @@ test("admin temporary provider model discovery uses supplied base URL and API ke
     assert.equal(response.json().sourceBaseUrl, "https://api.nonelinear.com");
     const body = response.json();
     assert.equal(body.summary.strictCount, 1);
+    assert.equal(body.summary.jsonObjectCount, 0);
     assert.deepEqual(body.models.map((model: { id: string }) => model.id), [
       "deepseek-v4-flash",
     ]);
+    assert.equal(body.models[0].structuredOutputMode, "strict_json");
     assert.equal(body.models[0].supportsJsonSchema, true);
+    assert.equal(body.models[0].supportsJsonObject, true);
     assert.equal(body.models[0].probeStatus, "strict");
     assert.deepEqual(listed.json().providerConfigs, []);
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("admin temporary provider model discovery classifies json_object capable models", async () => {
+  const originalFetch = globalThis.fetch;
+  const responseFormats: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    const testedUrl = String(url);
+    if (testedUrl.endsWith("/v1/chat/completions")) {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as {
+        response_format?: { type?: string };
+      };
+      responseFormats.push(payload.response_format?.type ?? "none");
+      if (payload.response_format?.type === "json_schema") {
+        return createChatProbeStream('{"status":"ok"}');
+      }
+      if (payload.response_format?.type === "json_object") {
+        return createChatProbeStream('{"ok":true,"n":1}');
+      }
+      return createChatProbeStream("ok");
+    }
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [
+          { id: "qwen3.7-plus", object: "model", created: 0, owned_by: "aliyun" },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const { app, cookie } = await createAdminRouteTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/admin/provider-configs/discover-models",
+      headers: { cookie },
+      payload: {
+        baseUrl: "https://api.nonelinear.com",
+        apiKey: "sk-temporary-secret",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(responseFormats, ["json_schema", "json_object"]);
+    const body = response.json();
+    assert.equal(body.summary.strictCount, 0);
+    assert.equal(body.summary.jsonObjectCount, 1);
+    assert.equal(body.summary.compatibleCount, 0);
+    assert.equal(body.models[0].id, "qwen3.7-plus");
+    assert.equal(body.models[0].structuredOutputMode, "json_object");
+    assert.equal(body.models[0].supportsJsonSchema, false);
+    assert.equal(body.models[0].supportsJsonObject, true);
+    assert.equal(body.models[0].probeStatus, "json_object");
+    assert.equal(body.models[0].modeLabel, "JSON 模式");
 
     await app.close();
   } finally {

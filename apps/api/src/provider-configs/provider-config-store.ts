@@ -122,10 +122,12 @@ export function createUnverifiedModelCapability(
   return {
     id: modelId,
     category: "text_chat",
+    structuredOutputMode: "compatible",
     supportsJsonSchema: false,
+    supportsJsonObject: false,
     strictJson: "unknown",
     modeLabel: "兼容模式",
-    warning: "该模型能力未验证，将使用普通 JSON 输出和服务端校验修复。",
+    warning: "该模型能力未验证，将使用普通输出和服务端校验修复。",
     probeStatus: "unknown",
     probeReason: "model was added manually or has no saved probe result",
     probedAt,

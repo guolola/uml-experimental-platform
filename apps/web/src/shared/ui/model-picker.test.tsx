@@ -64,11 +64,15 @@ describe("ModelPicker", () => {
       providerModelCapabilities: {
         "deepseek-ai/DeepSeek-V4-Pro": {
           id: "deepseek-ai/DeepSeek-V4-Pro",
+          structuredOutputMode: "strict_json",
           supportsJsonSchema: true,
+          supportsJsonObject: true,
         },
         "deepseek-ai/DeepSeek-V4-Flash": {
           id: "deepseek-ai/DeepSeek-V4-Flash",
+          structuredOutputMode: "json_object",
           supportsJsonSchema: false,
+          supportsJsonObject: true,
         },
       },
       defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
@@ -102,10 +106,11 @@ describe("ModelPicker", () => {
       "overflow-y-auto",
     );
     expect(within(deepseekPro).getByText("DeepSeek-V4-Pro")).toBeInTheDocument();
-    expect(within(deepseekPro).getByText("严格结构化")).toBeInTheDocument();
+    expect(within(deepseekPro).getByText("严格 JSON")).toBeInTheDocument();
     expect(within(deepseekPro).queryByText("deepseek-ai/DeepSeek-V4-Pro")).not.toBeInTheDocument();
     expect(within(deepseekFlash).getByText("DeepSeek-V4-Flash")).toBeInTheDocument();
-    expect(within(deepseekFlash).queryByText("严格结构化")).not.toBeInTheDocument();
+    expect(within(deepseekFlash).getByText("JSON 模式")).toBeInTheDocument();
+    expect(within(deepseekFlash).queryByText("严格 JSON")).not.toBeInTheDocument();
     expect(within(deepseekFlash).queryByText("deepseek-ai/DeepSeek-V4-Flash")).not.toBeInTheDocument();
 
     await user.hover(screen.getByText("Kimi"));
@@ -132,6 +137,20 @@ describe("ModelPicker", () => {
         "deepseek-ai/DeepSeek-V4-Pro",
         "deepseek-ai/DeepSeek-V4-Flash",
       ],
+      providerModelCapabilities: {
+        "deepseek-ai/DeepSeek-V4-Pro": {
+          id: "deepseek-ai/DeepSeek-V4-Pro",
+          structuredOutputMode: "strict_json",
+          supportsJsonSchema: true,
+          supportsJsonObject: true,
+        },
+        "deepseek-ai/DeepSeek-V4-Flash": {
+          id: "deepseek-ai/DeepSeek-V4-Flash",
+          structuredOutputMode: "compatible",
+          supportsJsonSchema: false,
+          supportsJsonObject: false,
+        },
+      },
       defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
     });
 
@@ -145,6 +164,7 @@ describe("ModelPicker", () => {
     await user.click(screen.getByRole("button", { name: "DeepSeek-V4-Pro" }));
     await user.hover(screen.getByText("DeepSeek"));
     const item = await screen.findByTitle("deepseek-ai/DeepSeek-V4-Flash");
+    expect(within(item).getByText("兼容")).toBeInTheDocument();
     fireEvent.pointerDown(item, { button: 0, ctrlKey: false });
     fireEvent.pointerUp(item, { button: 0, ctrlKey: false });
     fireEvent.click(item);

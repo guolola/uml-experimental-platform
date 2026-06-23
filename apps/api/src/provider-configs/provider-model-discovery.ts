@@ -5,6 +5,7 @@ import type {
   ProviderModelCategory,
   ProviderModelDiscoveryResponse,
   ProviderModelDiscoveryProgressEvent,
+  ProviderStructuredOutputMode,
   ProviderModelStrictJson,
 } from "@uml-platform/contracts";
 import {
@@ -39,6 +40,7 @@ export interface ProviderModelDiscoverySummary {
   chatProbeFailedCount: number;
   chatProbeUnknownCount: number;
   strictCount: number;
+  jsonObjectCount: number;
   compatibleCount: number;
   unknownStrictCount: number;
 }
@@ -60,6 +62,10 @@ const STRICT_JSON_PROBE_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
     strict: true,
     schema: STRICT_JSON_PROBE_SCHEMA as unknown as Record<string, unknown>,
   },
+};
+
+const JSON_OBJECT_PROBE_RESPONSE_FORMAT: ChatCompletionResponseFormat = {
+  type: "json_object",
 };
 
 function compactReason(value: string | null | undefined) {
@@ -154,6 +160,15 @@ function validateStrictProbeContent(content: string) {
   }
 }
 
+function validateJsonObjectProbeContent(content: string) {
+  try {
+    const value = JSON.parse(content) as Record<string, unknown>;
+    return value && typeof value === "object" && !Array.isArray(value);
+  } catch {
+    return false;
+  }
+}
+
 async function probeStrictJson(input: {
   apiBaseUrl: string;
   apiKey: string;
@@ -196,6 +211,47 @@ async function probeStrictJson(input: {
   }
 }
 
+async function probeJsonObject(input: {
+  apiBaseUrl: string;
+  apiKey: string;
+  model: string;
+  abortSignal?: AbortSignal;
+  clientFactory?: OpenAiCompatibleClientFactory;
+  responseTimeoutMs?: number;
+}): Promise<{ jsonObject: ProbeBoolean; reason?: string }> {
+  try {
+    const content = await probeOpenAiCompatibleStreamingChat({
+      ...input,
+      messages: [
+        {
+          role: "user",
+          content: "Return exactly this JSON object and no prose: {\"ok\":true,\"n\":1}",
+        },
+      ],
+      responseFormat: JSON_OBJECT_PROBE_RESPONSE_FORMAT,
+    });
+    return validateJsonObjectProbeContent(content)
+      ? { jsonObject: true }
+      : {
+          jsonObject: false,
+          reason: `json_object response content was not valid JSON: ${content.slice(0, 160)}`,
+        };
+  } catch (error) {
+    if (error instanceof ProviderHttpError) {
+      if (isUnsupportedStrictJsonError(error.status, error.detail)) {
+        return { jsonObject: false, reason: compactReason(error.detail) };
+      }
+      if (isInconclusiveStatus(error.status)) {
+        return { jsonObject: "unknown", reason: compactReason(error.detail ?? error.message) };
+      }
+    }
+    return {
+      jsonObject: "unknown",
+      reason: error instanceof Error ? compactReason(error.message) : "JSON mode probe failed",
+    };
+  }
+}
+
 async function probePlainChat(input: {
   apiBaseUrl: string;
   apiKey: string;
@@ -231,25 +287,39 @@ function toCapability(input: {
   model: RawProviderModel;
   category: ProviderModelCategory;
   strictJson: ProviderModelStrictJson;
+  structuredOutputMode: ProviderStructuredOutputMode;
   probeReason?: string;
   probedAt: string;
 }): ProviderDiscoveredModel {
-  const supportsJsonSchema = input.strictJson === true;
+  const supportsJsonSchema = input.structuredOutputMode === "strict_json";
+  const supportsJsonObject =
+    input.structuredOutputMode === "strict_json" ||
+    input.structuredOutputMode === "json_object";
+  const modeLabel =
+    input.structuredOutputMode === "strict_json"
+      ? "严格 JSON"
+      : input.structuredOutputMode === "json_object"
+        ? "JSON 模式"
+        : "兼容模式";
   const capability: ProviderModelCapability = {
     id: input.model.id,
     category: input.category,
+    structuredOutputMode: input.structuredOutputMode,
     supportsJsonSchema,
+    supportsJsonObject,
     strictJson: input.strictJson,
-    modeLabel: supportsJsonSchema ? "严格结构化" : "兼容模式",
+    modeLabel,
     warning: supportsJsonSchema
       ? undefined
-      : input.strictJson === "unknown"
-        ? "Strict JSON 能力未验证，将使用普通 JSON 输出和服务端校验修复。"
-        : "该模型不支持 Strict JSON Schema，将使用普通 JSON 输出和服务端校验修复。",
+      : input.structuredOutputMode === "json_object"
+        ? "该模型支持 JSON 模式，但不支持 Strict JSON Schema；将使用服务端校验修复。"
+        : input.strictJson === "unknown"
+          ? "Strict JSON 能力未验证，将使用普通输出和服务端校验修复。"
+          : "该模型不支持结构化 response_format，将使用普通输出和服务端校验修复。",
     probeStatus: supportsJsonSchema
       ? "strict"
-      : input.strictJson === "unknown"
-        ? "unknown"
+      : input.structuredOutputMode === "json_object"
+        ? "json_object"
         : "compatible",
     probeReason: input.probeReason,
     probedAt: input.probedAt,
@@ -312,6 +382,7 @@ export async function discoverOpenAiCompatibleModelCapabilities({
     chatProbeFailedCount: 0,
     chatProbeUnknownCount: 0,
     strictCount: 0,
+    jsonObjectCount: 0,
     compatibleCount: 0,
     unknownStrictCount: 0,
   };
@@ -355,15 +426,62 @@ export async function discoverOpenAiCompatibleModelCapabilities({
       responseTimeoutMs: probeTimeoutMs,
     });
     if (strict.strictJson === true) {
-      const discovered = toCapability({ model, category, strictJson: true, probedAt });
+      const discovered = toCapability({
+        model,
+        category,
+        strictJson: true,
+        structuredOutputMode: "strict_json",
+        probedAt,
+      });
       emitProgress(onProgress, {
         type: "probe_completed",
         modelId: model.id,
         index,
         total,
         probeStatus: "strict",
+        structuredOutputMode: "strict_json",
         strictJson: true,
         supportsJsonSchema: true,
+        supportsJsonObject: true,
+      });
+      return discovered;
+    }
+
+    emitProgress(onProgress, {
+      type: "probe_started",
+      modelId: model.id,
+      index,
+      total,
+      stage: "json_object",
+    });
+    const jsonObject = await probeJsonObject({
+      apiBaseUrl,
+      apiKey,
+      model: model.id,
+      abortSignal,
+      clientFactory,
+      responseTimeoutMs: probeTimeoutMs,
+    });
+    if (jsonObject.jsonObject === true) {
+      const discovered = toCapability({
+        model,
+        category,
+        strictJson: strict.strictJson,
+        structuredOutputMode: "json_object",
+        probeReason: strict.reason,
+        probedAt,
+      });
+      emitProgress(onProgress, {
+        type: "probe_completed",
+        modelId: model.id,
+        index,
+        total,
+        probeStatus: "json_object",
+        structuredOutputMode: "json_object",
+        strictJson: discovered.strictJson,
+        supportsJsonSchema: false,
+        supportsJsonObject: true,
+        reason: strict.reason,
       });
       return discovered;
     }
@@ -392,9 +510,11 @@ export async function discoverOpenAiCompatibleModelCapabilities({
         index,
         total,
         probeStatus: chat.chat === "unknown" ? "unknown" : "failed",
+        structuredOutputMode: "compatible",
         strictJson: strict.strictJson,
         supportsJsonSchema: false,
-        reason: chat.reason ?? strict.reason,
+        supportsJsonObject: false,
+        reason: chat.reason ?? jsonObject.reason ?? strict.reason,
       });
       return null;
     }
@@ -403,7 +523,8 @@ export async function discoverOpenAiCompatibleModelCapabilities({
       model,
       category,
       strictJson: strict.strictJson,
-      probeReason: strict.reason,
+      structuredOutputMode: "compatible",
+      probeReason: jsonObject.reason ?? strict.reason,
       probedAt,
     });
     emitProgress(onProgress, {
@@ -412,18 +533,21 @@ export async function discoverOpenAiCompatibleModelCapabilities({
       index,
       total,
       probeStatus: discovered.probeStatus ?? "compatible",
+      structuredOutputMode: discovered.structuredOutputMode,
       strictJson: discovered.strictJson,
       supportsJsonSchema: discovered.supportsJsonSchema,
-      reason: strict.reason,
+      supportsJsonObject: discovered.supportsJsonObject,
+      reason: jsonObject.reason ?? strict.reason,
     });
     return discovered;
   }, abortSignal);
 
   const models = probed.flatMap((model) => (model ? [model] : []));
   models.forEach((model) => {
-    if (model.strictJson === true) summary.strictCount += 1;
-    else if (model.strictJson === "unknown") summary.unknownStrictCount += 1;
+    if (model.structuredOutputMode === "strict_json") summary.strictCount += 1;
+    else if (model.structuredOutputMode === "json_object") summary.jsonObjectCount += 1;
     else summary.compatibleCount += 1;
+    if (model.strictJson === "unknown") summary.unknownStrictCount += 1;
   });
 
   return { models, summary };

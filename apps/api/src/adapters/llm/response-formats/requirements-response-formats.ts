@@ -4,6 +4,7 @@ import type { DiagramKind } from "@uml-platform/contracts";
 import { type JsonSchemaResponseFormat } from "../../../llm.js";
 import {
   getModelCapability,
+  getStructuredResponseFormat,
   type ModelCapabilitySource,
 } from "../../../model-capabilities.js";
 import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
@@ -62,7 +63,9 @@ export function getGenerateModelsResponseFormat(
   model: ModelCapabilitySource,
   selectedDiagrams: readonly DiagramKind[] = [],
 ) {
-  if (!getModelCapability(model).supportsJsonSchema) return undefined;
+  if (!getModelCapability(model).supportsJsonSchema) {
+    return getStructuredResponseFormat(model, GENERATE_MODELS_RESPONSE_FORMAT);
+  }
   const selected = new Set(selectedDiagrams);
   if (selected.size === 0) return GENERATE_MODELS_RESPONSE_FORMAT;
 
@@ -91,7 +94,8 @@ export function getGenerateModelsResponseFormat(
 export function getGenerateRequirementTraceabilityResponseFormat(
   model: ModelCapabilitySource,
 ) {
-  return getModelCapability(model).supportsJsonSchema
-    ? GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT
-    : undefined;
+  return getStructuredResponseFormat(
+    model,
+    GENERATE_REQUIREMENT_TRACEABILITY_RESPONSE_FORMAT,
+  );
 }

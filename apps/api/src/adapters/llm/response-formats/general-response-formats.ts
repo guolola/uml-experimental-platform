@@ -1,7 +1,7 @@
 // Defines strict JSON schema response formats for cross-cutting LLM calls.
 import { type JsonSchemaResponseFormat } from "../../../llm.js";
 import {
-  getModelCapability,
+  getStructuredResponseFormat,
   type ModelCapabilitySource,
 } from "../../../model-capabilities.js";
 import { toOpenAiStrictJsonSchema } from "./openai-strict-schema.js";
@@ -133,7 +133,7 @@ function responseFormatIfSupported(
   model: ModelCapabilitySource,
   format: JsonSchemaResponseFormat,
 ) {
-  return getModelCapability(model).supportsJsonSchema ? format : undefined;
+  return getStructuredResponseFormat(model, format);
 }
 
 export const EXTRACT_REQUIREMENT_RULES_RESPONSE_FORMAT = strictResponseFormat(

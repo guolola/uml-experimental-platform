@@ -12,8 +12,18 @@ export type ProviderModelStrictJson = z.infer<
   typeof providerModelStrictJsonSchema
 >;
 
+export const providerStructuredOutputModeSchema = z.enum([
+  "strict_json",
+  "json_object",
+  "compatible",
+]);
+export type ProviderStructuredOutputMode = z.infer<
+  typeof providerStructuredOutputModeSchema
+>;
+
 export const providerModelProbeStatusSchema = z.enum([
   "strict",
+  "json_object",
   "compatible",
   "failed",
   "unknown",
@@ -26,7 +36,9 @@ export const providerModelCapabilitySchema = z
   .object({
     id: z.string().trim().min(1),
     category: providerModelCategorySchema,
+    structuredOutputMode: providerStructuredOutputModeSchema,
     supportsJsonSchema: z.boolean(),
+    supportsJsonObject: z.boolean(),
     strictJson: providerModelStrictJsonSchema,
     modeLabel: z.string().trim().min(1),
     warning: z.string().trim().min(1).optional(),
@@ -144,7 +156,9 @@ export const providerDiscoveredModelSchema = z
     created: z.number().int().min(0).nullable().optional(),
     ownedBy: z.string().trim().min(1).nullable().optional(),
     category: providerModelCategorySchema.optional(),
+    structuredOutputMode: providerStructuredOutputModeSchema.optional(),
     supportsJsonSchema: z.boolean().optional(),
+    supportsJsonObject: z.boolean().optional(),
     strictJson: providerModelStrictJsonSchema.optional(),
     modeLabel: z.string().trim().min(1).optional(),
     warning: z.string().trim().min(1).optional(),
@@ -169,6 +183,7 @@ export const providerModelDiscoveryResponseSchema = z
         chatProbeFailedCount: z.number().int().min(0),
         chatProbeUnknownCount: z.number().int().min(0),
         strictCount: z.number().int().min(0),
+        jsonObjectCount: z.number().int().min(0),
         compatibleCount: z.number().int().min(0),
         unknownStrictCount: z.number().int().min(0),
       })
@@ -182,6 +197,7 @@ export type ProviderModelDiscoveryResponse = z.infer<
 
 export const providerModelDiscoveryProbeStageSchema = z.enum([
   "strict_json",
+  "json_object",
   "chat",
 ]);
 export type ProviderModelDiscoveryProbeStage = z.infer<
@@ -227,8 +243,10 @@ export const providerModelDiscoveryProgressEventSchema = z.discriminatedUnion(
         index: z.number().int().min(1),
         total: z.number().int().min(0),
         probeStatus: providerModelProbeStatusSchema,
+        structuredOutputMode: providerStructuredOutputModeSchema.optional(),
         strictJson: providerModelStrictJsonSchema.optional(),
         supportsJsonSchema: z.boolean().optional(),
+        supportsJsonObject: z.boolean().optional(),
         reason: z.string().trim().min(1).optional(),
       })
       .strict(),

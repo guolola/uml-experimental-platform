@@ -1,7 +1,10 @@
 import type { ProviderModelCapability, ProviderSettings } from "@uml-platform/contracts";
+import type { ChatCompletionResponseFormat, JsonSchemaResponseFormat } from "./llm.js";
 
 export interface ModelCapability {
   supportsJsonSchema: boolean;
+  supportsJsonObject: boolean;
+  structuredOutputMode: "strict_json" | "json_object" | "compatible";
   modeLabel: string;
   warning?: string;
 }
@@ -20,12 +23,19 @@ function normalizeModelId(modelId: string) {
 function isProviderModelCapability(
   value: ModelCapabilitySource,
 ): value is ProviderModelCapability {
-  return typeof value === "object" && "supportsJsonSchema" in value && "modeLabel" in value;
+  return (
+    typeof value === "object" &&
+    "structuredOutputMode" in value &&
+    "supportsJsonSchema" in value &&
+    "modeLabel" in value
+  );
 }
 
 function capabilityFromPersisted(capability: ProviderModelCapability): ModelCapability {
   return {
     supportsJsonSchema: capability.supportsJsonSchema,
+    supportsJsonObject: capability.supportsJsonObject,
+    structuredOutputMode: capability.structuredOutputMode,
     modeLabel: capability.modeLabel,
     warning: capability.warning,
   };
@@ -45,6 +55,8 @@ export function getModelCapability(input: ModelCapabilitySource): ModelCapabilit
   if (MODELS_WITHOUT_JSON_SCHEMA.has(normalizedModelId)) {
     return {
       supportsJsonSchema: false,
+      supportsJsonObject: true,
+      structuredOutputMode: "json_object",
       modeLabel: "JSON 模式",
       warning: "该模型当前不支持 OpenAI json_schema response_format。",
     };
@@ -52,6 +64,20 @@ export function getModelCapability(input: ModelCapabilitySource): ModelCapabilit
 
   return {
     supportsJsonSchema: true,
-    modeLabel: "严格结构化",
+    supportsJsonObject: true,
+    structuredOutputMode: "strict_json",
+    modeLabel: "严格 JSON",
   };
+}
+
+export function getStructuredResponseFormat(
+  model: ModelCapabilitySource,
+  strictFormat: JsonSchemaResponseFormat,
+): ChatCompletionResponseFormat | null {
+  const capability = getModelCapability(model);
+  if (capability.structuredOutputMode === "strict_json") return strictFormat;
+  if (capability.structuredOutputMode === "json_object") {
+    return { type: "json_object" };
+  }
+  return null;
 }

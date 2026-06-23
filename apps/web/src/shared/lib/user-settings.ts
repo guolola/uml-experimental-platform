@@ -9,6 +9,9 @@ export type UserSettings = {
     {
       id?: string;
       supportsJsonSchema?: boolean;
+      supportsJsonObject?: boolean;
+      structuredOutputMode?: "strict_json" | "json_object" | "compatible";
+      modeLabel?: string;
     }
   >;
   providerModelOptions: string[];
@@ -63,13 +66,35 @@ export function loadUserSettings(): UserSettings {
               const capability = rawCapability as {
                 id?: unknown;
                 supportsJsonSchema?: unknown;
+                supportsJsonObject?: unknown;
+                structuredOutputMode?: unknown;
+                modeLabel?: unknown;
               };
+              const structuredOutputMode =
+                capability.structuredOutputMode === "strict_json" ||
+                capability.structuredOutputMode === "json_object" ||
+                capability.structuredOutputMode === "compatible"
+                  ? capability.structuredOutputMode
+                  : capability.supportsJsonSchema === true
+                    ? "strict_json"
+                    : capability.supportsJsonObject === true
+                      ? "json_object"
+                      : "compatible";
               map[model] = {
                 id: typeof capability.id === "string" ? capability.id : model,
-                supportsJsonSchema:
-                  typeof capability.supportsJsonSchema === "boolean"
-                    ? capability.supportsJsonSchema
-                    : false,
+                structuredOutputMode,
+                supportsJsonSchema: structuredOutputMode === "strict_json",
+                supportsJsonObject:
+                  structuredOutputMode === "strict_json" ||
+                  structuredOutputMode === "json_object",
+                modeLabel:
+                  typeof capability.modeLabel === "string" && capability.modeLabel.trim()
+                    ? capability.modeLabel.trim()
+                    : structuredOutputMode === "strict_json"
+                      ? "严格 JSON"
+                      : structuredOutputMode === "json_object"
+                        ? "JSON 模式"
+                        : "兼容模式",
               };
               return map;
             },

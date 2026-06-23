@@ -24,9 +24,11 @@ function createRepository(): WorkspaceRepository {
       ok: true,
       message: "ok",
       capability: {
+        structuredOutputMode: "strict_json",
         supportsJsonSchema: true,
-        modeLabel: "严格结构化",
-      },
+        supportsJsonObject: true,
+        modeLabel: "严格 JSON",
+      } as const,
     })),
     saveRunHistory: vi.fn(),
     listRunHistory: vi.fn(async () => []),
