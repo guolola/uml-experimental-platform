@@ -3600,7 +3600,9 @@ describe("App shell routes", () => {
     );
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
+    await waitFor(() => {
+      expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
+    });
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
     expect(screen.getByRole("button", { name: "测试托管配置" })).toBeEnabled();
   });
