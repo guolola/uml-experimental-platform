@@ -11,6 +11,10 @@ import type { LlmChunkHandlers } from "./structured-output.js";
 
 const BLANK_CHUNK_NOTICE_COUNT = 40;
 const BLANK_CHUNK_NOTICE_INTERVAL_MS = 10_000;
+const NO_VISIBLE_CHUNK_HEARTBEAT_INITIAL_DELAY_MS = 10_000;
+const NO_VISIBLE_CHUNK_HEARTBEAT_INTERVAL_MS = 10_000;
+const NO_VISIBLE_CHUNK_HEARTBEAT_MESSAGE =
+  "模型正在生成，当前供应商暂未返回可见流式内容";
 
 export interface RunLlmChunkHandlerOptions {
   record: RunRecord;
@@ -25,6 +29,9 @@ export interface RunLlmChunkHandlerOptions {
   maxVisibleChunks?: number;
   maxVisibleChars?: number;
   truncationMessage?: string;
+  noVisibleChunkHeartbeatInitialDelayMs?: number;
+  noVisibleChunkHeartbeatIntervalMs?: number;
+  noVisibleChunkHeartbeatMessage?: string;
 }
 
 export function createRunLlmChunkHandlers({
@@ -40,6 +47,9 @@ export function createRunLlmChunkHandlers({
   maxVisibleChunks = Number.POSITIVE_INFINITY,
   maxVisibleChars = Number.POSITIVE_INFINITY,
   truncationMessage = "模型流式输出较长，技术日志已折叠，后台继续解析完整结果",
+  noVisibleChunkHeartbeatInitialDelayMs = NO_VISIBLE_CHUNK_HEARTBEAT_INITIAL_DELAY_MS,
+  noVisibleChunkHeartbeatIntervalMs = NO_VISIBLE_CHUNK_HEARTBEAT_INTERVAL_MS,
+  noVisibleChunkHeartbeatMessage = NO_VISIBLE_CHUNK_HEARTBEAT_MESSAGE,
 }: RunLlmChunkHandlerOptions): LlmChunkHandlers {
   let emittedChunks = 0;
   let emittedChars = 0;
@@ -64,7 +74,7 @@ export function createRunLlmChunkHandlers({
     );
   };
 
-  return {
+  const handlers: LlmChunkHandlers = {
     onChunk(chunk) {
       blankChunksSinceContent = 0;
       onActivity?.();
@@ -99,5 +109,30 @@ export function createRunLlmChunkHandlers({
       lastBlankNoticeAt = now;
       emitProgress("模型持续返回空白片段，等待有效内容");
     },
+    startNoVisibleChunkHeartbeat() {
+      let stopped = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const clearHeartbeat = () => {
+        if (timeout) clearTimeout(timeout);
+        timeout = undefined;
+      };
+      const schedule = (delayMs: number) => {
+        clearHeartbeat();
+        timeout = setTimeout(() => {
+          if (stopped || emittedChunks > 0) return;
+          emitProgress(noVisibleChunkHeartbeatMessage);
+          schedule(noVisibleChunkHeartbeatIntervalMs);
+        }, delayMs);
+      };
+
+      schedule(noVisibleChunkHeartbeatInitialDelayMs);
+
+      return () => {
+        stopped = true;
+        clearHeartbeat();
+      };
+    },
   };
+
+  return handlers;
 }

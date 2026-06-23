@@ -1657,7 +1657,7 @@ describe("TopBar", () => {
     expect(screen.getByText("执行详情")).toBeInTheDocument();
     expect(screen.queryByText("用户摘要")).not.toBeInTheDocument();
     expect(screen.getByText("正在分析需求文本")).toBeInTheDocument();
-    expect(screen.getByText("收到模型输出")).toBeInTheDocument();
+    expect(screen.queryByText("收到模型输出")).not.toBeInTheDocument();
     expect(screen.queryByText("extract_rules")).not.toBeInTheDocument();
     expect(screen.queryByText("llm_chunk")).not.toBeInTheDocument();
     expect(screen.queryByText("stage_started")).not.toBeInTheDocument();
@@ -1677,6 +1677,68 @@ describe("TopBar", () => {
     expect(
       within(completedStageSection as HTMLElement).queryByText("渲染图像"),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows no-visible-stream heartbeat text in execution details before model chunks arrive", async () => {
+    let completeRun!: () => void;
+    const snapshot = createRunSnapshot({
+      runId: "run-heartbeat-details",
+      requirementText: "生成 UML",
+    });
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "生成 UML",
+        }),
+      ),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-heartbeat-details" })),
+      subscribeToRun: vi.fn(
+        async (_runId, onEvent) => {
+          onEvent({ type: "queued" });
+          onEvent({ type: "stage_started", stage: "extract_rules" });
+          onEvent({
+            type: "stage_progress",
+            stage: "extract_rules",
+            progress: 20,
+            message: "模型正在生成，当前供应商暂未返回可见流式内容",
+          });
+          await new Promise<void>((resolve) => {
+            completeRun = () => {
+              onEvent({ type: "completed", snapshot });
+              resolve();
+            };
+          });
+        },
+      ),
+      getRunSnapshot: vi.fn(async () => snapshot),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+
+    const user = userEvent.setup();
+    render(withWorkspaceProviders(<TopBarTaskHarness />, repository));
+
+    await waitFor(() => {
+      expect(repository.loadWorkspace).toHaveBeenCalledTimes(1);
+    });
+    await user.click(await screen.findByRole("button", { name: "开始测试任务" }));
+
+    const executionBox = await screen.findByTestId("generation-task-execution-box");
+    expect(
+      within(executionBox).getByText("模型正在生成，当前供应商暂未返回可见流式内容"),
+    ).toBeInTheDocument();
+    expect(within(executionBox).queryByText("等待模型输出...")).not.toBeInTheDocument();
+
+    completeRun();
+    await waitFor(() => {
+      expect(screen.getAllByText("生成完成").length).toBeGreaterThan(0);
+    });
   });
 
   it("renders model subtasks inside the pipeline stage todo list", async () => {

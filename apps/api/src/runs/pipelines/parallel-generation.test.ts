@@ -397,6 +397,50 @@ test("blank LLM chunk handler emits a waiting-for-valid-output progress event in
   );
 });
 
+test("silent LLM stream emits no-visible-output heartbeat before the first visible chunk", async () => {
+  const snapshot = createEmptySnapshot("run-silent-heartbeat", "需求", ["analysis"], []);
+  const seen: RunEvent[] = [];
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set([(event) => seen.push(event)]),
+    terminal: false,
+  };
+  const transport: LlmTransport = {
+    async *streamChatCompletion() {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      yield "{\"rules\":[]}";
+    },
+  };
+
+  const output = await collectTextResult(
+    transport,
+    providerSettings,
+    [{ role: "user", content: "test" }],
+    createRunLlmChunkHandlers({
+      record,
+      stage: "extract_rules",
+      noVisibleChunkHeartbeatInitialDelayMs: 1,
+      noVisibleChunkHeartbeatIntervalMs: 5,
+    }),
+  );
+
+  assert.equal(output, "{\"rules\":[]}");
+  assert.ok(
+    record.events.some(
+      (event) =>
+        event.type === "stage_progress" &&
+        event.stage === "extract_rules" &&
+        event.message === "模型正在生成，当前供应商暂未返回可见流式内容",
+    ),
+  );
+  assert.ok(
+    seen.some(
+      (event) => event.type === "llm_chunk" && event.chunk === "{\"rules\":[]}",
+    ),
+  );
+});
+
 test("model task timeout treats blank chunks as non-effective output", async () => {
   let interval: ReturnType<typeof setInterval> | undefined;
   let signalAborted = false;

@@ -25,7 +25,7 @@ describe("workspace-session generation task helpers", () => {
     expect(next.activeStage).toBe("generate_models");
   });
 
-  it("counts only effective llm chunks in user-visible diagnostics", () => {
+  it("counts effective llm chunks without adding recent event badges", () => {
     const diagnostics = createEmptyDiagnostics();
     const next = updateDiagnosticsFromEvent(diagnostics, {
       type: "llm_chunk",
@@ -35,7 +35,7 @@ describe("workspace-session generation task helpers", () => {
 
     expect(next.streamText).toBe("\"models\"");
     expect(next.chunkCount).toBe(1);
-    expect(next.events.at(-1)?.label).toBe("收到模型输出");
+    expect(next.events).toEqual([]);
   });
 
   it("marks only the failed submodel from a completed snapshot with diagram errors", () => {

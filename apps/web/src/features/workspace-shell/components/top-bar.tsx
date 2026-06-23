@@ -716,6 +716,13 @@ export function ProjectGenerationTasksDrawerContent({
     () => currentRunDiagnostics.events.slice(-6).reverse(),
     [currentRunDiagnostics.events],
   );
+  const activeStageMessage = currentRunDiagnostics.activeStage
+    ? currentRunDiagnostics.stageMessages[currentRunDiagnostics.activeStage]
+    : null;
+  const executionDetailPlaceholder =
+    currentRunDiagnostics.streamText || !activeStageMessage
+      ? "等待模型输出..."
+      : activeStageMessage;
   const uiMockup = currentRunDiagnostics.uiMockup;
   const uiMockupImage = uiMockup?.imageUrl ?? uiMockup?.imageDataUrl ?? null;
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
@@ -1386,7 +1393,9 @@ export function ProjectGenerationTasksDrawerContent({
                     <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-primary align-[-2px]" />
                   </pre>
                 ) : (
-                  <div className="text-zinc-400">等待模型输出...</div>
+                  <div className="text-zinc-400">
+                    {sanitizeTaskText(executionDetailPlaceholder)}
+                  </div>
                 )}
               </div>
               {recentEvents.length > 0 && (

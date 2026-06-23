@@ -8,6 +8,7 @@ const RAW_OUTPUT_LOG_LIMIT = 8000;
 export interface LlmChunkHandlers {
   onChunk: (chunk: string) => void;
   onBlankChunk?: (chunk: string) => void;
+  startNoVisibleChunkHeartbeat?: () => () => void;
 }
 
 type LlmChunkSink = ((chunk: string) => void) | LlmChunkHandlers;
@@ -142,14 +143,22 @@ export async function collectStructuredResult<T>(
   abortSignal?: AbortSignal,
 ) {
   let content = "";
-  for await (const chunk of llmTransport.streamChatCompletion({
-    providerSettings,
-    messages,
-    responseFormat,
-    abortSignal,
-  })) {
-    content += chunk;
-    emitCollectedChunk(onChunk, chunk);
+  const stopNoVisibleChunkHeartbeat =
+    typeof onChunk === "function"
+      ? undefined
+      : onChunk.startNoVisibleChunkHeartbeat?.();
+  try {
+    for await (const chunk of llmTransport.streamChatCompletion({
+      providerSettings,
+      messages,
+      responseFormat,
+      abortSignal,
+    })) {
+      content += chunk;
+      emitCollectedChunk(onChunk, chunk);
+    }
+  } finally {
+    stopNoVisibleChunkHeartbeat?.();
   }
   try {
     return parse(content);
@@ -174,14 +183,22 @@ export async function collectTextResult(
   abortSignal?: AbortSignal,
 ) {
   let content = "";
-  for await (const chunk of llmTransport.streamChatCompletion({
-    providerSettings,
-    messages,
-    responseFormat,
-    abortSignal,
-  })) {
-    content += chunk;
-    emitCollectedChunk(onChunk, chunk);
+  const stopNoVisibleChunkHeartbeat =
+    typeof onChunk === "function"
+      ? undefined
+      : onChunk.startNoVisibleChunkHeartbeat?.();
+  try {
+    for await (const chunk of llmTransport.streamChatCompletion({
+      providerSettings,
+      messages,
+      responseFormat,
+      abortSignal,
+    })) {
+      content += chunk;
+      emitCollectedChunk(onChunk, chunk);
+    }
+  } finally {
+    stopNoVisibleChunkHeartbeat?.();
   }
   return content;
 }

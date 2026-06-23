@@ -17,10 +17,13 @@ import {
 const MAX_VISIBLE_GENERATION_TASKS = 30;
 type TerminalRunStatus = Extract<
   GenerationTask["status"],
-  "completed" | "failed" | "cancelled" | "interrupted"
+  "completed" | "failed" | "cancelled"
 >;
+type ServerTerminalRunStatus = TerminalRunStatus | "interrupted";
 
-function terminalStatusFromRun(status: string | null | undefined): TerminalRunStatus | null {
+function terminalStatusFromRun(
+  status: string | null | undefined,
+): ServerTerminalRunStatus | null {
   if (
     status === "completed" ||
     status === "failed" ||
@@ -33,7 +36,7 @@ function terminalStatusFromRun(status: string | null | undefined): TerminalRunSt
 }
 
 function taskMessageFromTerminalRun(
-  status: TerminalRunStatus,
+  status: ServerTerminalRunStatus,
   run: GenerationTaskRunSummary,
 ) {
   if (status === "completed") return "生成完成";
@@ -44,7 +47,7 @@ function taskMessageFromTerminalRun(
 
 function settleSubtaskFromTerminalRun(
   subtask: GenerationSubtask,
-  status: TerminalRunStatus,
+  status: ServerTerminalRunStatus,
   message: string,
 ): GenerationSubtask {
   if (
@@ -73,9 +76,10 @@ function settleSubtaskFromTerminalRun(
 function settleTaskFromTerminalRun(
   task: GenerationTask,
   run: GenerationTaskRunSummary,
-  status: TerminalRunStatus,
+  status: ServerTerminalRunStatus,
 ): GenerationTask {
   const finishedAt = run.completedAt ?? run.updatedAt ?? new Date().toISOString();
+  const taskStatus: TerminalRunStatus = status === "interrupted" ? "failed" : status;
   const message = taskMessageFromTerminalRun(status, run);
   const errorMessage =
     status === "failed" || status === "interrupted"
@@ -86,7 +90,7 @@ function settleTaskFromTerminalRun(
 
   return {
     ...task,
-    status,
+    status: taskStatus,
     progress: 100,
     message,
     errorMessage,
@@ -206,9 +210,9 @@ export function useGenerationTaskActions() {
   const reconcileGenerationTasksWithProjectRuns = useCallback(
     (runs: GenerationTaskRunSummary[]) => {
       const terminalRunsById = new Map<string, {
-        run: GenerationTaskRunSummary;
-        status: TerminalRunStatus;
-      }>();
+      run: GenerationTaskRunSummary;
+      status: ServerTerminalRunStatus;
+    }>();
       for (const run of runs) {
         if (!run.runId) continue;
         const status = terminalStatusFromRun(run.status);

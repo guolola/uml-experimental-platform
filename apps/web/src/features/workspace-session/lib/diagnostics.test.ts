@@ -4,6 +4,7 @@ import type { RunEvent } from "@uml-platform/contracts";
 import {
   appendDiagnosticStream,
   createEmptyDiagnostics,
+  deriveRunDiagnosticsFromEvent,
   getProgressFromEvent,
   isMeaningfulLlmChunkEvent,
   summarizeEvent,
@@ -68,6 +69,37 @@ describe("workspace-session diagnostics helpers", () => {
 
     expect(summary.label).toBe("收到空白片段");
     expect(summary.detail).toContain("等待有效模型输出");
+  });
+
+  it("keeps model stream chunks out of recent diagnostic events", () => {
+    const diagnostics = createEmptyDiagnostics();
+    const chunkEvent = {
+      type: "llm_chunk",
+      stage: "extract_rules",
+      chunk: "正在分析需求文本",
+    } satisfies RunEvent;
+    const progressEvent = {
+      type: "stage_progress",
+      stage: "extract_rules",
+      progress: 20,
+      message: "正在抽取需求规则",
+    } satisfies RunEvent;
+
+    const afterChunk = deriveRunDiagnosticsFromEvent(
+      diagnostics,
+      chunkEvent,
+      summarizeEvent(chunkEvent),
+    );
+    const afterProgress = deriveRunDiagnosticsFromEvent(
+      afterChunk,
+      progressEvent,
+      summarizeEvent(progressEvent),
+    );
+
+    expect(afterChunk.streamText).toBe("正在分析需求文本");
+    expect(afterChunk.chunkCount).toBe(1);
+    expect(afterChunk.events).toEqual([]);
+    expect(afterProgress.events.at(-1)?.label).toBe("阶段进度");
   });
 
   it("maps run event progress without changing SSE event shape", () => {

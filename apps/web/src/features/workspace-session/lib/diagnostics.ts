@@ -133,7 +133,7 @@ export function isMeaningfulLlmChunkEvent(
 }
 
 export function shouldDisplayDiagnosticEvent(event: RunEvent) {
-  return event.type !== "llm_chunk" || isMeaningfulLlmChunkEvent(event);
+  return event.type !== "llm_chunk";
 }
 
 export function summarizeEvent(event: RunEvent): DiagnosticEvent {
