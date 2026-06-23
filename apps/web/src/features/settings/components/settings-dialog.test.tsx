@@ -11,16 +11,17 @@ import {
 import { GlobalSettingsPanel } from "./global-settings-panel";
 import { SettingsDialog } from "./settings-dialog";
 
-const { toastSuccess, toastMessage } = vi.hoisted(() => ({
+const { toastSuccess, toastMessage, toastError } = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastMessage: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
   toast: {
     success: toastSuccess,
     message: toastMessage,
-    error: vi.fn(),
+    error: toastError,
   },
 }));
 
@@ -46,6 +47,7 @@ describe("SettingsDialog", () => {
     localStorage.clear();
     toastSuccess.mockClear();
     toastMessage.mockClear();
+    toastError.mockClear();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -182,6 +184,52 @@ describe("SettingsDialog", () => {
       );
     });
     expect(toastSuccess).toHaveBeenCalledWith("Provider config ok");
+  });
+
+  it("requires a managed provider before choosing or saving the default model", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/auth/me")) {
+          return Response.json({
+            user: {
+              id: "user-1",
+              email: "user@example.edu",
+              name: "UML User",
+              role: "student",
+              emailVerified: true,
+            },
+          });
+        }
+        if (url.includes("/api/provider-configs")) {
+          return Response.json({ providerConfigs: [] });
+        }
+        return Response.json({});
+      }),
+    );
+
+    render(
+      withWorkspaceProviders(
+        <GlobalSettingsPanel active />,
+        createRepository(),
+      ),
+    );
+
+    expect(await screen.findByText("暂无可用托管 Provider 配置。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "默认模型" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "默认模型" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(toastError).toHaveBeenCalledWith("登录态必须选择托管 Provider 配置");
+    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain(
+      '"providerConfigId":""',
+    );
+    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain(
+      '"providerModelOptions":[]',
+    );
   });
 
   it("shows the embedded login prompt when global settings cannot verify auth", async () => {

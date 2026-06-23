@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { KeyRound, Loader2, PlugZap, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../../shared/ui/button";
-import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Switch } from "../../../shared/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../shared/ui/select";
@@ -142,6 +141,9 @@ export function GlobalSettingsPanel({
     () => getProviderAllowedModels(selectedProvider),
     [selectedProvider],
   );
+  const resolvedDefaultModel = selectedProvider
+    ? resolveProviderModel(selectedProvider, settings.defaultModel)
+    : "";
 
   const save = () => {
     try {
@@ -149,12 +151,20 @@ export function GlobalSettingsPanel({
         toast.error("登录态必须选择托管 Provider 配置");
         return;
       }
+      if (!selectedProvider || selectedProviderModels.length === 0) {
+        toast.error("当前托管 Provider 没有可用模型");
+        return;
+      }
+      if (!selectedProviderModels.includes(resolvedDefaultModel)) {
+        toast.error("默认模型必须来自当前托管 Provider 的模型目录");
+        return;
+      }
       saveUserSettings({
         ...settings,
         providerModelCapabilities: getProviderModelCapabilities(selectedProvider),
         providerModelOptions: getProviderAllowedModels(selectedProvider),
         providerLabel: getProviderLabel(selectedProvider),
-        defaultModel: resolveProviderModel(selectedProvider, settings.defaultModel),
+        defaultModel: resolvedDefaultModel,
       });
       toast.success("设置已保存");
       onSaved?.();
@@ -175,9 +185,17 @@ export function GlobalSettingsPanel({
         toast.error("登录态必须测试托管 Provider 配置");
         return;
       }
+      if (!selectedProvider || selectedProviderModels.length === 0) {
+        toast.error("当前托管 Provider 没有可用模型");
+        return;
+      }
+      if (!selectedProviderModels.includes(resolvedDefaultModel)) {
+        toast.error("默认模型必须来自当前托管 Provider 的模型目录");
+        return;
+      }
       const result = await platformApi.testProviderConfig(
         settings.providerConfigId,
-        resolveProviderModel(selectedProvider, settings.defaultModel),
+        resolvedDefaultModel,
       );
       toast.success(result.message ?? "托管配置连接成功");
     } catch (error) {
@@ -187,7 +205,12 @@ export function GlobalSettingsPanel({
     }
   };
 
-  const canTest = Boolean(settings.providerConfigId);
+  const canTest = Boolean(
+    settings.providerConfigId &&
+      selectedProvider &&
+      selectedProviderModels.length > 0 &&
+      selectedProviderModels.includes(resolvedDefaultModel),
+  );
 
   if (authRequired) {
     return (
@@ -265,10 +288,15 @@ export function GlobalSettingsPanel({
             <Label htmlFor="managed-default-model">默认模型</Label>
             {selectedProvider ? (
               <Select
-                value={resolveProviderModel(selectedProvider, settings.defaultModel)}
+                value={resolvedDefaultModel}
                 onValueChange={(value) => update("defaultModel", value)}
+                disabled={selectedProviderModels.length === 0}
               >
-                <SelectTrigger id="managed-default-model" className="h-9">
+                <SelectTrigger
+                  id="managed-default-model"
+                  aria-label="默认模型"
+                  className="h-9"
+                >
                   <SelectValue placeholder="选择允许的模型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -280,16 +308,32 @@ export function GlobalSettingsPanel({
                 </SelectContent>
               </Select>
             ) : (
-              <Input
-                id="managed-default-model"
-                value={settings.defaultModel}
-                onChange={(event) => update("defaultModel", event.target.value)}
-                className="h-9 font-mono text-xs"
-              />
+              <Select value="__none__" disabled>
+                <SelectTrigger
+                  id="managed-default-model"
+                  aria-label="默认模型"
+                  className="h-9"
+                >
+                  <SelectValue placeholder="请先选择托管 Provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">请先选择托管 Provider</SelectItem>
+                </SelectContent>
+              </Select>
             )}
-            {selectedProvider && (
+            {selectedProvider && selectedProviderModels.length > 0 && (
               <span className="text-[11px] text-muted-foreground">
                 这里只能选择管理员在该托管配置中允许的模型。
+              </span>
+            )}
+            {selectedProvider && selectedProviderModels.length === 0 && (
+              <span className="text-[11px] text-warning">
+                当前托管 Provider 没有可用模型，请联系管理员刷新模型目录。
+              </span>
+            )}
+            {!selectedProvider && (
+              <span className="text-[11px] text-muted-foreground">
+                选择托管 Provider 后才能选择默认模型。
               </span>
             )}
           </div>

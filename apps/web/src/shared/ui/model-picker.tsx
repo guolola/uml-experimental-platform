@@ -11,9 +11,6 @@ import {
 } from "./dropdown-menu";
 import { cn } from "./utils";
 import {
-  MODEL_VENDORS,
-  getModelCapability,
-  getModelDisplayName,
   getModelOption,
   getModelVendor,
 } from "../lib/model-catalog";
@@ -126,6 +123,7 @@ export function ModelPicker({
   const [providerSettings, setProviderSettings] = useState(() => {
     const settings = loadUserSettings();
     return {
+      providerConfigId: settings.providerConfigId,
       providerLabel: settings.providerLabel,
       providerModelCapabilities: settings.providerModelCapabilities,
       providerModelOptions: settings.providerModelOptions,
@@ -135,6 +133,7 @@ export function ModelPicker({
     const syncSettings = () => {
       const settings = loadUserSettings();
       setProviderSettings({
+        providerConfigId: settings.providerConfigId,
         providerLabel: settings.providerLabel,
         providerModelCapabilities: settings.providerModelCapabilities,
         providerModelOptions: settings.providerModelOptions,
@@ -160,12 +159,14 @@ export function ModelPicker({
       providerSettings.providerModelCapabilities,
     ],
   );
-  const display = providerModels.length > 0
-    ? {
-        triggerLabel: getProviderModelLabel(value),
-      }
-    : getModelDisplayName(value);
-  const selectedVendor = getModelVendor(value);
+  const display = {
+    triggerLabel: providerModels.includes(value.trim())
+      ? getProviderModelLabel(value)
+      : "未选择模型",
+  };
+  const emptyStateLabel = providerSettings.providerConfigId
+    ? "当前 Provider 没有可用模型"
+    : "请先选择托管 Provider";
 
   return (
     <DropdownMenu>
@@ -223,43 +224,14 @@ export function ModelPicker({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           ))
-        ) : MODEL_VENDORS.map((vendor) => (
-          <DropdownMenuSub key={vendor.id}>
-            <DropdownMenuSubTrigger className="gap-2 text-xs">
-              <span className="font-medium">{vendor.label}</span>
-              {selectedVendor.id === vendor.id && (
-                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                  {getModelOption(value)?.shortLabel}
-                </span>
-              )}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-72 min-w-52 overflow-y-auto">
-              {vendor.models.map((model) => (
-                <DropdownMenuItem
-                  key={model.id}
-                  onSelect={() => onValueChange(model.id)}
-                  className="flex items-center justify-between gap-3 text-xs"
-                  title={model.fullLabel}
-                >
-                  <span className="flex flex-col">
-                    <span className="flex items-center gap-2">
-                      <span>{model.shortLabel}</span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                        {getModelCapability(model.id).modeLabel}
-                      </span>
-                    </span>
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {model.fullLabel}
-                    </span>
-                  </span>
-                  {model.id === value && (
-                    <Check className="size-3.5 shrink-0 text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        ))}
+        ) : (
+          <DropdownMenuItem
+            disabled
+            className="max-w-64 whitespace-normal text-xs text-muted-foreground"
+          >
+            {emptyStateLabel}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

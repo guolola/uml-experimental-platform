@@ -31,20 +31,19 @@ describe("ModelPicker", () => {
     localStorage.clear();
   });
 
-  it("keeps the static catalog grouped by first-level vendor", async () => {
+  it("shows an empty managed-provider state instead of the static catalog", async () => {
     const user = userEvent.setup();
 
     render(<ModelPicker value="gpt-5.4" onValueChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: /OpenAI · GPT 5\.4/u }));
+    await user.click(screen.getByRole("button", { name: "未选择模型" }));
 
-    expect(screen.getByText("OpenAI")).toBeInTheDocument();
-    expect(screen.getByText("Claude")).toBeInTheDocument();
+    expect(screen.getByText("请先选择托管 Provider")).toBeInTheDocument();
+    expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
+    expect(screen.queryByText("Claude")).not.toBeInTheDocument();
+    expect(screen.queryByText("Google")).not.toBeInTheDocument();
+    expect(screen.queryByText("DeepSeek")).not.toBeInTheDocument();
     expect(screen.queryByTitle("claude-opus-4-7")).not.toBeInTheDocument();
-
-    await user.hover(screen.getByText("OpenAI"));
-
-    expect(await screen.findByTitle("gpt-5.4")).toBeInTheDocument();
   });
 
   it("groups provider-managed catalog and prefixed models by vendor", async () => {
