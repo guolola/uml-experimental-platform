@@ -161,6 +161,18 @@ jobs:
             exit 1
           fi
 
+      - name: Push deploy mirror
+        env:
+          DEPLOY_MIRROR_PUSH_URL: ${{ secrets.DEPLOY_MIRROR_PUSH_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_MIRROR_PUSH_URL:-}" ]; then
+            echo "DEPLOY_MIRROR_PUSH_URL is not configured; skipping mirror push."
+            exit 0
+          fi
+          git push --force "$DEPLOY_MIRROR_PUSH_URL" \
+            "${GITHUB_SHA}:refs/heads/deploy-main"
+
       - name: Configure SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -194,12 +206,23 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
-          REPO_URL: https://github.com/${{ github.repository }}.git
+          DEPLOY_REPO_URL: ${{ secrets.DEPLOY_REPO_URL }}
+          DEPLOY_MIRROR_PUSH_URL: ${{ secrets.DEPLOY_MIRROR_PUSH_URL }}
+          FALLBACK_REPO_URL: https://github.com/${{ github.repository }}.git
         run: |
           set -euo pipefail
           if [ -z "$DEPLOY_USER" ]; then
             echo "Missing GitHub secret: DEPLOY_USER" >&2
             exit 1
+          fi
+          REPO_URL="${DEPLOY_REPO_URL:-$FALLBACK_REPO_URL}"
+          SOURCE_REF="${GITHUB_REF_NAME}"
+          if [ -n "${DEPLOY_MIRROR_PUSH_URL:-}" ]; then
+            if [ -z "${DEPLOY_REPO_URL:-}" ]; then
+              echo "DEPLOY_REPO_URL is required when DEPLOY_MIRROR_PUSH_URL is configured." >&2
+              exit 1
+            fi
+            SOURCE_REF="deploy-main"
           fi
           SSH_OPTIONS=(
             -o ServerAliveInterval=30
@@ -210,11 +233,32 @@ jobs:
           )
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' SOURCE_REF='${GITHUB_REF_NAME}' REPO_URL='$REPO_URL' bash -s" <<'REMOTE_DEPLOY'
+            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' SOURCE_REF='$SOURCE_REF' REPO_URL='$REPO_URL' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
 
           NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
           SOURCE_DIR="$DEPLOY_PATH/shared/source"
+
+          log_deploy() {
+            printf '[deploy][%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+          }
+
+          run_timed() {
+            local label="$1"
+            shift
+            local started_at
+            local finished_at
+            local status
+            started_at="$(date +%s)"
+            log_deploy "START $label"
+            set +e
+            "$@"
+            status="$?"
+            set -e
+            finished_at="$(date +%s)"
+            log_deploy "END $label status=$status duration=$((finished_at - started_at))s"
+            return "$status"
+          }
 
           command -v git >/dev/null || {
             echo "git is required on the server" >&2
@@ -250,18 +294,23 @@ jobs:
 
           if [ ! -d "$SOURCE_DIR/.git" ]; then
             echo "Cloning source repository into $SOURCE_DIR ..."
-            git_network clone --filter=blob:none --no-checkout "$REPO_URL" "$SOURCE_DIR"
+            run_timed "git clone source checkout" \
+              git_network clone --filter=blob:none --no-checkout "$REPO_URL" "$SOURCE_DIR"
           fi
 
-          echo "Fetching $SOURCE_REF for release $RELEASE_SHA ..."
+          log_deploy "Fetching $SOURCE_REF for release $RELEASE_SHA from $REPO_URL"
           git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
-          git_network -C "$SOURCE_DIR" fetch --prune --depth=50 origin \
+          run_timed "git fetch $SOURCE_REF" \
+            git_network -C "$SOURCE_DIR" fetch --prune --depth=1 origin \
             "+refs/heads/$SOURCE_REF:refs/remotes/origin/$SOURCE_REF"
           if ! git -C "$SOURCE_DIR" cat-file -e "$RELEASE_SHA^{commit}" 2>/dev/null; then
-            git_network -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_SHA"
+            run_timed "git fetch release sha fallback" \
+              git_network -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_SHA"
           fi
-          git -C "$SOURCE_DIR" checkout --force "$RELEASE_SHA"
-          git -C "$SOURCE_DIR" clean -fdx
+          run_timed "git checkout release sha" \
+            git -C "$SOURCE_DIR" checkout --force "$RELEASE_SHA"
+          run_timed "git clean source checkout" \
+            git -C "$SOURCE_DIR" clean -fdx
 
           DEPLOY_PATH="$DEPLOY_PATH" \
             RELEASE_SHA="$RELEASE_SHA" \

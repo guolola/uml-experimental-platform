@@ -13,6 +13,27 @@ PLANTUML_JAR="${PLANTUML_JAR:-plantuml-1.2026.3beta8.jar}"
 WEB_ASSET_RETENTION_DAYS="${WEB_ASSET_RETENTION_DAYS:-365}"
 SHARED_WEB_ASSETS_DIR="$DEPLOY_PATH/shared/web/assets"
 
+log_deploy() {
+  printf '[deploy][%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+}
+
+run_timed() {
+  local label="$1"
+  shift
+  local started_at
+  local finished_at
+  local status
+  started_at="$(date +%s)"
+  log_deploy "START $label"
+  set +e
+  "$@"
+  status="$?"
+  set -e
+  finished_at="$(date +%s)"
+  log_deploy "END $label status=$status duration=$((finished_at - started_at))s"
+  return "$status"
+}
+
 if [[ -z "$RELEASE_SHA" ]]; then
   echo "RELEASE_SHA is required" >&2
   exit 1
@@ -290,20 +311,24 @@ reload_pm2_for_release() {
     pm2 delete uml-generation-worker >/dev/null 2>&1 || true
     pm2 delete uml-api >/dev/null 2>&1 || true
     pm2 delete uml-render-service >/dev/null 2>&1 || true
-    pm2 start ecosystem.config.cjs --env production
+    run_timed "pm2 start production processes" pm2 start ecosystem.config.cjs --env production
     sleep 2
 
     echo "Checking render-service health ..."
-    wait_for_http_health "render-service" http://127.0.0.1:4002/health uml-render-service
+    run_timed "render-service health check" \
+      wait_for_http_health "render-service" http://127.0.0.1:4002/health uml-render-service
 
     echo "Checking API health ..."
-    wait_for_http_health "API" http://127.0.0.1:4001/api/health uml-api
+    run_timed "API health check" \
+      wait_for_http_health "API" http://127.0.0.1:4001/api/health uml-api
 
     echo "Checking PM2 process directories ..."
     local expected_release_dir
     expected_release_dir="$(readlink -f "$release_dir")"
-    check_pm2_cwd uml-render-service "$expected_release_dir"
-    check_pm2_cwd uml-api "$expected_release_dir"
+    run_timed "PM2 process cwd check render-service" \
+      check_pm2_cwd uml-render-service "$expected_release_dir"
+    run_timed "PM2 process cwd check API" \
+      check_pm2_cwd uml-api "$expected_release_dir"
 
     echo "Checking API version ..."
     local version_json
@@ -376,18 +401,19 @@ echo "Building production bundles from $SOURCE_DIR ..."
   cd "$SOURCE_DIR"
   git rev-parse --verify "$RELEASE_SHA^{commit}" >/dev/null
   rm -rf apps/api/dist apps/render-service/dist apps/web/dist packages/contracts/dist packages/prompts/dist
-  npm ci --no-audit --no-fund --cache "$NPM_CACHE_DIR" --registry="$NPM_REGISTRY"
-  npm run build:contracts
-  npm run build:prompts
-  npm run build:api
-  npm run build:render
-  npm run build:web:production
+  run_timed "npm ci build dependencies" \
+    npm ci --no-audit --no-fund --cache "$NPM_CACHE_DIR" --registry="$NPM_REGISTRY"
+  run_timed "build contracts" npm run build:contracts
+  run_timed "build prompts" npm run build:prompts
+  run_timed "build api" npm run build:api
+  run_timed "build render service" npm run build:render
+  run_timed "build production web" npm run build:web:production
 )
 verify_web_api_base "$SOURCE_DIR/apps/web/dist"
 
 copy_release_payload
 ensure_plantuml_jar
-install_production_dependencies
+run_timed "install production dependencies" install_production_dependencies
 
 if [[ ! -f "$TMP_DIR/apps/web/dist/index.html" ]]; then
   echo "Current release candidate is missing apps/web/dist/index.html" >&2
@@ -399,7 +425,8 @@ mv "$TMP_DIR" "$RELEASE_DIR"
 publish_shared_web_assets "$RELEASE_DIR"
 ln -sfnT "$RELEASE_DIR" "$DEPLOY_PATH/current"
 
-if ! reload_pm2_for_release "$RELEASE_DIR" "$RELEASE_SHA" "$RELEASE_STARTED_AT"; then
+if ! run_timed "PM2 reload and release verification" \
+  reload_pm2_for_release "$RELEASE_DIR" "$RELEASE_SHA" "$RELEASE_STARTED_AT"; then
   echo "New release failed health checks; restoring previous release" >&2
   rollback_to_previous_release
   exit 1
