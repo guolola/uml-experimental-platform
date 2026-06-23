@@ -3301,6 +3301,114 @@ test("provider configs can rotate, revoke, and test allowlisted connections", as
   }
 });
 
+test("admin cannot rotate, test, or discover models for user-owned provider configs", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("admin must not call a user-owned provider key");
+  }) as typeof fetch;
+
+  try {
+    const { app, authStore, providerConfigs, cookie } = await createAdminRouteTestApp({
+      adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
+    });
+    const owner = authStore.createUser({
+      email: "owner-private@example.com",
+      displayName: "Owner Private",
+      passwordHash: hashPassword("password-123"),
+    });
+    assert.ok(owner);
+    const provider = await providerConfigs.create({
+      name: "Owner private gateway",
+      provider: "openai",
+      baseUrl: "https://api.openai.com",
+      apiKey: "sk-owner-private-a91f",
+      defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
+      createdBy: owner.id,
+      scopeType: "user",
+      scopeId: owner.id,
+    });
+
+    const rotate = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/rotate`,
+      headers: { cookie },
+      payload: { apiKey: "sk-admin-should-not-rotate" },
+    });
+    const update = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/provider-configs/${provider.id}`,
+      headers: { cookie },
+      payload: { name: "Admin must not edit owner private gateway" },
+    });
+    const testConnection = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/test`,
+      headers: { cookie },
+    });
+    const models = await app.inject({
+      method: "GET",
+      url: `/api/admin/provider-configs/${provider.id}/models`,
+      headers: { cookie },
+    });
+    const streamModels = await app.inject({
+      method: "GET",
+      url: `/api/admin/provider-configs/${provider.id}/models/stream`,
+      headers: { cookie },
+    });
+    const resetBreaker = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/reset-breaker`,
+      headers: { cookie },
+    });
+    const disabled = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/disable`,
+      headers: { cookie },
+    });
+    const enabled = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/enable`,
+      headers: { cookie },
+    });
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/admin/provider-configs/${provider.id}/revoke`,
+      headers: { cookie },
+    });
+
+    assert.equal(rotate.statusCode, 403);
+    assert.match(rotate.body, /owning user/i);
+    assert.equal(update.statusCode, 403);
+    assert.match(update.body, /owning user/i);
+    assert.equal(testConnection.statusCode, 403);
+    assert.match(testConnection.body, /cannot be tested by admins/i);
+    assert.equal(models.statusCode, 403);
+    assert.match(models.body, /cannot be tested by admins/i);
+    assert.equal(streamModels.statusCode, 403);
+    assert.match(streamModels.body, /cannot be tested by admins/i);
+    assert.equal(resetBreaker.statusCode, 403);
+    assert.match(resetBreaker.body, /disabled or revoked by admins/i);
+    assert.equal(disabled.statusCode, 200);
+    assert.equal(disabled.json().status, "disabled");
+    assert.equal(enabled.statusCode, 403);
+    assert.match(enabled.body, /disabled or revoked by admins/i);
+    assert.equal(revoked.statusCode, 200);
+    assert.equal(revoked.json().status, "revoked");
+    assert.equal(fetchCalls, 0);
+    assert.doesNotMatch(
+      `${rotate.body}\n${update.body}\n${testConnection.body}\n${models.body}\n${streamModels.body}\n${resetBreaker.body}\n${enabled.body}`,
+      /sk-owner-private-a91f|sk-admin-should-not-rotate/,
+    );
+
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider configs can be disabled and re-enabled with audit records", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;

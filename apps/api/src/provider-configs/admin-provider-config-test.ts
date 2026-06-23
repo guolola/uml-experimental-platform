@@ -37,6 +37,15 @@ export async function testAdminProviderConfigConnection({
   if (!providerConfig) {
     return { statusCode: 404, body: { message: "Provider config not found" } };
   }
+  if (providerConfig.scopeType === "user") {
+    return {
+      statusCode: 403,
+      body: {
+        ok: false,
+        message: "User-owned provider configs cannot be tested by admins",
+      },
+    };
+  }
   if (!providerConfig.allowlisted) {
     return {
       statusCode: 400,

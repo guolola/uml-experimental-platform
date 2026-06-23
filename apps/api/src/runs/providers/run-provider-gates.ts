@@ -2,7 +2,10 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ProviderSettings, ProviderSettingsInput } from "@uml-platform/contracts";
 import type { GenerationUsageService } from "../../generation/generation-usage.js";
-import type { ProviderConfigStore } from "../../provider-configs/provider-config-store.js";
+import type {
+  ProviderConfigStore,
+  ProviderConfigView,
+} from "../../provider-configs/provider-config-store.js";
 import type {
   ProviderRateLimitPolicy,
   ProviderTaskType,
@@ -38,6 +41,22 @@ function isManagedProviderSettings(
   return Boolean(providerSettings && "providerConfigId" in providerSettings);
 }
 
+function canRunWithProviderConfig(
+  providerConfig: ProviderConfigView,
+  metadata: RunRecordMetadata | undefined,
+) {
+  if (providerConfig.scopeType === "system") return true;
+  if (providerConfig.scopeType === "user") {
+    return Boolean(metadata?.userId && providerConfig.scopeId === metadata.userId);
+  }
+  if (providerConfig.scopeType === "project") {
+    return Boolean(
+      metadata?.projectId && providerConfig.scopeId === metadata.projectId,
+    );
+  }
+  return false;
+}
+
 export async function resolveProviderSettingsForRun({
   providerSettings,
   metadata,
@@ -68,7 +87,7 @@ export async function resolveProviderSettingsForRun({
       return null;
     }
     const providerConfig = await providerConfigs.get(providerSettings.providerConfigId);
-    if (!providerConfig) {
+    if (!providerConfig || !canRunWithProviderConfig(providerConfig, metadata)) {
       reply.code(400);
       return null;
     }

@@ -1375,6 +1375,10 @@ export function registerAdminRoutes({
       reply.code(404);
       return { message: "Provider config not found" };
     }
+    if (providerConfig.scopeType === "user") {
+      reply.code(403);
+      return { message: "User-owned provider configs cannot be tested by admins" };
+    }
     if (!providerConfig.allowlisted) {
       reply.code(400);
       return { message: "Provider Base URL is not allowlisted" };
@@ -1442,6 +1446,10 @@ export function registerAdminRoutes({
     if (!providerConfig) {
       reply.code(404);
       return { message: "Provider config not found" };
+    }
+    if (providerConfig.scopeType === "user") {
+      reply.code(403);
+      return { message: "User-owned provider configs cannot be tested by admins" };
     }
     if (!providerConfig.allowlisted) {
       reply.code(400);

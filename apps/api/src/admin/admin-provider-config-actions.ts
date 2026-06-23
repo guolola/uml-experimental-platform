@@ -157,6 +157,15 @@ export async function updateAdminProviderConfig({
   if (!current) {
     return { statusCode: 404, body: { message: "Provider config not found" } };
   }
+  if (current.scopeType === "user") {
+    return {
+      statusCode: 403,
+      body: {
+        message:
+          "User-owned provider configs can only be changed by the owning user",
+      },
+    };
+  }
 
   const scopeType = input.scopeType ?? current.scopeType;
   const scope = await resolveProviderConfigScope({
@@ -208,6 +217,19 @@ export async function rotateAdminProviderConfigKey({
   providerConfigId: string;
   apiKey: string;
 }): ProviderConfigActionResult {
+  const current = await providerConfigs.get(providerConfigId);
+  if (!current) {
+    return { statusCode: 404, body: { message: "Provider config not found" } };
+  }
+  if (current.scopeType === "user") {
+    return {
+      statusCode: 403,
+      body: {
+        message:
+          "User-owned provider configs can only be rotated by the owning user",
+      },
+    };
+  }
   const rotated = await providerConfigs.rotate(providerConfigId, apiKey, actor.name);
   if (!rotated) {
     return { statusCode: 404, body: { message: "Provider config not found" } };
@@ -273,6 +295,23 @@ export async function updateAdminProviderConfigStatus({
     };
   }
 
+  const current = await providerConfigs.get(providerConfigId);
+  if (!current) {
+    return {
+      statusCode: 404,
+      body: { message: "Provider config not found or revoked" },
+    };
+  }
+  if (current.scopeType === "user" && action === "enable") {
+    return {
+      statusCode: 403,
+      body: {
+        message:
+          "User-owned provider configs can only be disabled or revoked by admins",
+      },
+    };
+  }
+
   const updated = await updateStatus.call(providerConfigs, providerConfigId, actor.name);
   if (!updated) {
     return {
@@ -308,6 +347,20 @@ export async function resetAdminProviderConfigBreaker({
     return {
       statusCode: 501,
       body: { message: "Provider circuit breaker reset is not supported by this store" },
+    };
+  }
+
+  const current = await providerConfigs.get(providerConfigId);
+  if (!current) {
+    return { statusCode: 404, body: { message: "Provider config not found" } };
+  }
+  if (current.scopeType === "user") {
+    return {
+      statusCode: 403,
+      body: {
+        message:
+          "User-owned provider configs can only be disabled or revoked by admins",
+      },
     };
   }
 

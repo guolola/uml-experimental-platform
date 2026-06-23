@@ -73,11 +73,13 @@
 - ✅ **生成追踪、修复与证据包**
   记录模型原始返回、解析错误、修复返回、PlantUML 源码、渲染错误、业务断言、浏览器证据和人工复核项，形成 `EvidencePackage` 便于审阅。
 - ✅ **托管模型配置与系统通知**
-  支持后台托管 Provider 配置、Base URL 白名单、密钥加密存储、项目/用户侧默认模型选择，以及系统公告时间轴和已阅状态。
+  支持后台托管和用户私有 Provider 配置、Base URL 安全校验、密钥 AES-GCM 加密存储、项目/用户侧默认模型选择，以及系统公告时间轴和已阅状态；生成任务只引用 `providerConfigId + model`。
 - ✅ **代码页 Agent 生成**
   当前链路为 `businessLogic + 通用 Skill Runtime + React 原型`：平台先抽取业务逻辑，再由前端设计执行器读取设计知识和 React 栈建议，生成可预览前端原型。
 - ✅ **支付与生成权益**
   PC Web 支持 `/pricing` 和 `/account/billing` 购买入口，后端统一管理 SKU、订单、权益账本和生成任务权益预占/确认/释放。
+- ✅ **任务中心与流式诊断**
+  生成任务持久化 provider、model、事件和产物状态；跨进程 SSE 会转发 worker 事件，模型无可见增量时显示持续心跳提示，避免页面看起来假排队。
 - ✅ **说明书导出**
   支持导出《需求规格说明书》和《软件设计说明书》，保留章节层级、图注、缺图提示和通用封面格式。
 
@@ -98,7 +100,7 @@
 - **Skill Runtime**
   扫描本地 skill，读取 `SKILL.md`、资源清单和声明式 action，向代码生成 prompt 注入 design-system、react-stack、ux-guidelines 等上下文。
 - **质量与预览检查**
-  对生成文件、入口、依赖、业务覆盖、渲染结构和预览可用性进行检查，并把诊断回传给修复阶段；模型持续空白输出会按任务超时配置终止，避免生成任务长时间挂起。
+  对生成文件、入口、依赖、业务覆盖、渲染结构和预览可用性进行检查，并把诊断回传给修复阶段；模型持续空白输出会先发送“供应商暂未返回可见流式内容”心跳，超过任务超时配置后终止，避免生成任务长时间挂起。
 - **支付与权益**
   支持微信 Native 扫码支付、支付宝电脑网站支付、邮箱验证后新用户赠送次数、无权益购买提示和订单历史；价格、次数和有效期以后端 SKU 为准，支付金额使用整数分并在回调中验签、校验订单与金额、保证幂等发放。
 - **文档生成**
@@ -220,7 +222,15 @@ npm run dev:web
 
 ## 5. 配置模型服务
 
-模型服务推荐使用后端托管 Provider 配置：管理员或有权限用户在模型设置中新增 Provider，API Key 会加密保存，Base URL 需匹配生产白名单；项目生成时只引用 `providerConfigId` 和默认模型，不在浏览器长期保存明文密钥。
+模型服务推荐使用后端托管 Provider 配置：管理员配置系统/项目 Provider，普通用户可在个人设置中新增用户私有 Provider。创建时会先执行 HTTPS、公网地址、无凭据 URL、默认安全端口和模型发现/healthcheck 校验；通过后 API Key 才会以 AES-GCM 密文、hash 和 key tail 形式保存，接口只返回 masked key。
+
+Provider 使用范围由后端强制校验：
+
+- `system` Provider 可供有项目生成权限的登录用户使用。
+- `project` Provider 只能在对应项目的 run 中使用。
+- `user` Provider 只能由 `scopeId` 对应的本人使用，其他用户即使猜到 `providerConfigId` 也会被当作不可用处理。
+
+项目生成时浏览器只提交 `providerConfigId` 和 `model`，后台解析 Base URL 与密钥，并把本次 run 的 `providerConfigId`、供应商名称、scope 和 model 写入运行记录与 admin 任务中心。Admin 可以看到用户私有 Provider 的归属用户、状态、模型目录、风险状态和 masked key，但不会看到明文 Key，也不能测试连接、获取模型列表、轮换密钥或重新启用用户私有 Provider；只允许做禁用/吊销等治理动作。
 
 本地开发仍可打开 Web 设置面板使用 legacy 明文配置，至少填写：
 
@@ -228,7 +238,7 @@ npm run dev:web
 - `API Key`：模型服务密钥
 - 默认文本模型：用于需求、设计、代码和文档生成
 
-平台会自动拼接 OpenAI 兼容接口路径，通常不需要填写完整 `/v1/chat/completions`。生产部署必须关闭 legacy 明文配置入口，并在 `UML_PROVIDER_BASE_URL_ALLOWLIST` 中配置允许的供应商域名。
+平台会自动拼接 OpenAI 兼容接口路径，通常不需要填写完整 `/v1/chat/completions`。生产部署必须关闭 legacy 明文配置入口，并在 `UML_PROVIDER_BASE_URL_ALLOWLIST` 中配置允许的系统/项目供应商域名；用户自建 Provider 仍会经过后端公网与重定向安全校验。
 
 ---
 
@@ -277,7 +287,15 @@ Provider 与公告核心实现位于：
 
 - `apps/api/src/routes/provider-configs/`：用户侧托管 Provider 配置 API。
 - `apps/api/src/provider-configs/`：Provider 配置加密、白名单、默认模型和持久化。
+- `apps/api/src/runs/providers/`：生成任务 Provider scope 校验、限流、用量记录和 run 快照追踪。
+- `apps/api/src/routes/admin/`：Admin Provider 元数据展示、用户私有 Provider 治理限制、任务中心 provider 字段输出。
 - `apps/web/src/features/system-notices/`：系统公告时间轴、未读状态和已阅交互。
+
+生成任务与线上维护辅助：
+
+- `apps/api/src/runs/queue/`：BullMQ run 队列、跨进程 worker 事件发布和 SSE 桥接。
+- `apps/api/src/sse/`：运行事件 SSE、历史事件回放、Redis 订阅失败后的前端轮询兜底。
+- `scripts/maintenance/delete-test-accounts.mjs`：线上测试账号清理工具，默认 dry-run 并回滚；真正硬删除必须先备份数据库，再使用 dry-run JSON 作为 `--confirm-targets-file` 并显式传入 `--execute --backup-confirmed`。
 
 ---
 
@@ -318,6 +336,10 @@ npm run test:harness-e2e
 # Web 类型检查
 npm run typecheck:web
 
+# 线上测试账号清理 dry-run（只读事务并回滚）
+$env:DATABASE_URL = "postgres://..."
+node scripts/maintenance/delete-test-accounts.mjs --output cleanup-dry-run.json
+
 # 可信链路关键回归
 npx tsx --test apps/api/src/runs/baselines/requirement-baseline.test.ts
 npx tsx --test apps/api/src/runs/traceability/trusted-chain-traceability.test.ts
@@ -339,6 +361,8 @@ npx tsx --test apps/api/src/runs/trusted-chain-regression.test.ts
   主 Web/API base、后台前端/API base、session cookie SameSite/Secure、管理员
   bootstrap，以及 legacy fallback 开关。
 - PC Web 支付上线前必须显式配置 `UML_BILLING_SKUS_JSON`、微信支付商户参数和支付宝应用参数；生产环境缺少正式支付配置时，创建订单会返回配置错误，不会降级为本地 mock 支付。
+- 用户私有 Provider 属于用户敏感数据。生产排查时只能看 masked key、hash/tail、归属范围、风险和审计事件；禁止在日志、toast、审计 metadata 或 admin 页面输出明文 API Key。
+- 清理线上测试账号必须先执行 `scripts/maintenance/delete-test-accounts.mjs --output cleanup-dry-run.json` 保存候选清单，完成数据库备份并人工确认后，才允许使用 `--execute --backup-confirmed --confirm-targets-file cleanup-dry-run.json`。脚本匹配 `email`、`username` 或 `display_name` 以 `Load Use` / `codex` 开头的账号，并删除其拥有项目、user-scope Provider、密钥、会话、run、文档、用量、账单和审计/风险关联数据。
 - 后台不提供生产固定默认账号密码。首次上线用
   `npm run bootstrap:admin --workspace @uml-platform/api` 创建一次性真实
   `super_admin`，创建后关闭 `UML_ENABLE_ADMIN_BOOTSTRAP`，再完成邮箱验证和

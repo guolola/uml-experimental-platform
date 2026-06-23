@@ -1083,6 +1083,131 @@ test("project run starts can resolve managed provider config secrets", async () 
   await app.close();
 });
 
+test("project run rejects another user's private provider config", async () => {
+  let resolvedProviderSettings: ProviderSettings | null = null;
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://ai.comfly.org"],
+    secret: "test-secret",
+  });
+  const provider = await providerConfigs.create({
+    name: "用户 A 私有模型",
+    provider: "openai-compatible",
+    baseUrl: "https://ai.comfly.org",
+    apiKey: "sk-user-a-private",
+    defaultModel: "gpt-5.5",
+    allowedModels: ["gpt-5.5"],
+    createdBy: "user-a",
+    scopeType: "user",
+    scopeId: "user-a",
+  });
+  const app = await createRunRouteTestApp({
+    providerConfigs,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-b": { start_runs: ["project-b"], view_runs: ["project-b"] },
+    }),
+    runStagePipeline: async (_record, resolved) => {
+      resolvedProviderSettings = resolved;
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-b",
+    },
+    payload: {
+      projectId: "project-b",
+      requirementText: "项目 B 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        providerConfigId: provider.id,
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(resolvedProviderSettings, null);
+  assert.doesNotMatch(response.body, /user-a-private|sk-user-a-private/);
+
+  await app.close();
+});
+
+test("project run rejects project-scoped provider config outside its project", async () => {
+  let resolvedProviderSettings: ProviderSettings | null = null;
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://ai.comfly.org"],
+    secret: "test-secret",
+  });
+  const provider = await providerConfigs.create({
+    name: "项目 A 私有模型",
+    provider: "openai-compatible",
+    baseUrl: "https://ai.comfly.org",
+    apiKey: "sk-project-a-private",
+    defaultModel: "gpt-5.5",
+    allowedModels: ["gpt-5.5"],
+    createdBy: "admin",
+    scopeType: "project",
+    scopeId: "project-a",
+  });
+  const app = await createRunRouteTestApp({
+    providerConfigs,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a", "project-b"],
+        view_runs: ["project-a", "project-b"],
+      },
+    }),
+    runStagePipeline: async (_record, resolved) => {
+      resolvedProviderSettings = resolved;
+    },
+  });
+
+  const rejected = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-b",
+      requirementText: "项目 B 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        providerConfigId: provider.id,
+        model: "gpt-5.5",
+      },
+    },
+  });
+  const accepted = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: "项目 A 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        providerConfigId: provider.id,
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(rejected.statusCode, 400);
+  assert.equal(accepted.statusCode, 202);
+  assert.deepEqual(resolvedProviderSettings, {
+    apiBaseUrl: "https://ai.comfly.org",
+    apiKey: "sk-project-a-private",
+    model: "gpt-5.5",
+  });
+
+  await app.close();
+});
+
 test("project run rejects missing personal provider settings instead of using project defaults", async () => {
   let resolvedProviderSettings: ProviderSettings | null = null;
   const providerConfigs = createProviderConfigStore({
