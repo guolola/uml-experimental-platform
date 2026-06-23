@@ -144,6 +144,11 @@ export function GlobalSettingsPanel({
   const resolvedDefaultModel = selectedProvider
     ? resolveProviderModel(selectedProvider, settings.defaultModel)
     : "";
+  const providerEmptyLabel = providerLoading
+    ? "正在加载托管 Provider"
+    : providerConfigs.length === 0
+      ? "暂无可用托管 Provider 配置"
+      : "请选择托管 Provider 配置";
 
   const save = () => {
     try {
@@ -265,10 +270,12 @@ export function GlobalSettingsPanel({
                 aria-label="托管 Provider 配置"
                 className="h-9"
               >
-                <SelectValue placeholder={providerLoading ? "正在加载托管配置" : "选择托管配置"} />
+                <SelectValue placeholder={providerEmptyLabel} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">请选择托管配置</SelectItem>
+                <SelectItem value="__none__" disabled>
+                  {providerEmptyLabel}
+                </SelectItem>
                 {providerConfigs.map((config) => (
                   <SelectItem key={config.id} value={config.id}>
                     {config.name}（{providerScopeLabel(config)}）

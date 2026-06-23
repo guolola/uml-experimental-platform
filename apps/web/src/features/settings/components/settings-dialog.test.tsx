@@ -218,6 +218,9 @@ describe("SettingsDialog", () => {
     );
 
     expect(await screen.findByText("暂无可用托管 Provider 配置。")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "托管 Provider 配置" })).toHaveTextContent(
+      "暂无可用托管 Provider 配置",
+    );
     expect(screen.queryByRole("textbox", { name: "默认模型" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "默认模型" })).toBeDisabled();
 
