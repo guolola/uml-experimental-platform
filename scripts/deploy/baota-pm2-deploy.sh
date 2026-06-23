@@ -285,6 +285,12 @@ echo "Reloading PM2 processes ..."
     pm2 logs uml-api --nostream --lines 80 || true
     exit 1
   fi
+  if [[ "$VERSION_JSON" != *"\"releaseSha\":\"$RELEASE_SHA\""* ]]; then
+    echo "API version check failed: expected release SHA $RELEASE_SHA" >&2
+    pm2 status || true
+    pm2 logs uml-api --nostream --lines 80 || true
+    exit 1
+  fi
 
   pm2 save
 )
