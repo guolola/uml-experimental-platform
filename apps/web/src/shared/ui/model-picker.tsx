@@ -11,61 +11,13 @@ import {
 } from "./dropdown-menu";
 import { cn } from "./utils";
 import {
-  getModelOption,
-  getModelVendor,
-} from "../lib/model-catalog";
+  getProviderModelLabel,
+  inferProviderModelGroup,
+} from "../lib/provider-model-display";
 import {
   USER_SETTINGS_CHANGED_EVENT,
   loadUserSettings,
 } from "../lib/user-settings";
-
-function getProviderModelLabel(modelId: string) {
-  const trimmed = modelId.trim();
-  if (!trimmed) return "未设置";
-  const parts = trimmed.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? trimmed;
-}
-
-function normalizeGroupId(label: string) {
-  return label.toLowerCase().replace(/\s+/gu, "-");
-}
-
-function inferProviderModelGroup(modelId: string, fallbackLabel: string) {
-  const catalogModel = getModelOption(modelId);
-  if (catalogModel) {
-    const vendor = getModelVendor(catalogModel.id);
-    return { id: vendor.id, label: vendor.label };
-  }
-
-  const normalized = modelId.toLowerCase();
-  if (/(^|[/_.-])(deepseek|deepseek-ai)([/_.-]|$)/u.test(normalized)) {
-    return { id: "deepseek", label: "DeepSeek" };
-  }
-  if (/(^|[/_.-])(kimi|moonshot|moonshotai)([/_.-]|$)/u.test(normalized)) {
-    return { id: "kimi", label: "Kimi" };
-  }
-  if (/(^|[/_.-])(qwen|qwen\d|aliyun|dashscope)([/_.-]|$)/u.test(normalized)) {
-    return { id: "qwen", label: "Qwen" };
-  }
-  if (/(^|[/_.-])(glm|zai-org|zhipu|thudm)([/_.-]|$)/u.test(normalized)) {
-    return { id: "zhipu", label: "智谱" };
-  }
-  if (/(^|[/_.-])(minimax|minimaxai)([/_.-]|$)/u.test(normalized)) {
-    return { id: "minimax", label: "Minimax" };
-  }
-  if (/(^|[/_.-])(claude|anthropic)([/_.-]|$)/u.test(normalized)) {
-    return { id: "claude", label: "Claude" };
-  }
-  if (/(^|[/_.-])(gemini|google)([/_.-]|$)/u.test(normalized)) {
-    return { id: "google", label: "Google" };
-  }
-  if (/(^|[/_.-])(gpt|openai)([/_.-]|$)/u.test(normalized)) {
-    return { id: "openai", label: "OpenAI" };
-  }
-
-  const label = fallbackLabel.trim() || "托管 Provider";
-  return { id: `provider-${normalizeGroupId(label)}`, label };
-}
 
 function getProviderModelGroups(
   modelIds: string[],
@@ -91,7 +43,6 @@ function getProviderModelGroups(
     const trimmed = modelId.trim();
     if (!trimmed) return;
     const group = inferProviderModelGroup(trimmed, fallbackLabel);
-    const catalogModel = getModelOption(trimmed);
     if (!groups.has(group.id)) {
       groups.set(group.id, { ...group, models: [] });
     }
@@ -104,8 +55,8 @@ function getProviderModelGroups(
           : "compatible");
     groups.get(group.id)?.models.push({
       id: trimmed,
-      shortLabel: catalogModel?.shortLabel ?? getProviderModelLabel(trimmed),
-      fullLabel: catalogModel?.fullLabel ?? trimmed,
+      shortLabel: getProviderModelLabel(trimmed),
+      fullLabel: trimmed,
       supportsJsonSchema: structuredOutputMode === "strict_json",
       structuredOutputMode,
     });

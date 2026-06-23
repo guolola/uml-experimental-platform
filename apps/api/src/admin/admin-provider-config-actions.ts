@@ -16,7 +16,7 @@ type CreateProviderConfigInput = {
   baseUrl: string;
   apiKey: string;
   defaultModel: string;
-  allowedModels?: string[];
+  allowedModels: string[];
   modelCapabilities?: ProviderModelCapabilityMap;
   keyPurpose?: string;
   quota?: string;

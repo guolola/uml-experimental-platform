@@ -32,7 +32,7 @@ import type {
   RunHistoryItem,
   RunHistorySnapshot,
 } from "../../entities/run-history";
-import type { ModelCapability } from "../../shared/lib/model-catalog";
+import type { ModelCapability } from "../../shared/lib/provider-model-display";
 import type {
   ProviderSettingsInput,
   StartCodeRunInput,

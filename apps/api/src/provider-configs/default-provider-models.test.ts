@@ -1,22 +1,23 @@
-// Verifies managed provider configs receive the platform-default model allowlist.
+// Verifies managed provider configs preserve dynamic model catalogs.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeProviderAllowedModels } from "./default-provider-models.js";
 
-test("provider config model normalization includes new default platform models", () => {
-  const allowed = normalizeProviderAllowedModels("gpt-5.4", ["custom-model"]);
+test("provider config model normalization does not add platform defaults", () => {
+  const allowed = normalizeProviderAllowedModels("gpt-5.4", [
+    "custom-model",
+    "custom-model",
+    "  qwen3.7-max  ",
+  ]);
 
-  assert.deepEqual(allowed.slice(0, 2), ["gpt-5.4", "custom-model"]);
-  assert.ok(allowed.includes("gpt-5.5-pro"));
-  assert.ok(allowed.includes("claude-opus-4-7"));
-  assert.ok(allowed.includes("deepseek-v4-pro"));
-  assert.ok(allowed.includes("deepseek-v4-flash"));
-  assert.ok(allowed.includes("MiniMax-M2.7"));
-  assert.ok(allowed.includes("qwen3.5-plus"));
-  assert.ok(allowed.includes("glm-5.1"));
+  assert.deepEqual(allowed, ["custom-model", "qwen3.7-max"]);
+  assert.equal(allowed.includes("gpt-5.4"), false);
+  assert.equal(allowed.includes("gpt-5.5-pro"), false);
+  assert.equal(allowed.includes("claude-opus-4-7"), false);
+  assert.equal(allowed.includes("gemini-3.1-pro-preview-thinking-medium"), false);
 });
 
-test("siliconflow provider configs keep only the reviewed model catalog", () => {
+test("provider-specific model catalogs are returned unchanged", () => {
   const allowed = normalizeProviderAllowedModels(
     "deepseek-ai/DeepSeek-V4-Pro",
     [

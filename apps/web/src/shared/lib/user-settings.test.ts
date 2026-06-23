@@ -7,12 +7,12 @@ describe("user settings defaults", () => {
     localStorage.clear();
   });
 
-  it("uses gpt-5.4 as the global default model", () => {
-    expect(DEFAULT_USER_SETTINGS.defaultModel).toBe("gpt-5.4");
-    expect(loadUserSettings().defaultModel).toBe("gpt-5.4");
+  it("does not seed a static default model without a provider", () => {
+    expect(DEFAULT_USER_SETTINGS.defaultModel).toBe("");
+    expect(loadUserSettings().defaultModel).toBe("");
   });
 
-  it("falls back to gpt-5.4 when persisted model is not in the catalog", () => {
+  it("clears persisted models when no provider is selected", () => {
     localStorage.setItem(
       USER_SETTINGS_STORAGE_KEY,
       JSON.stringify({
@@ -20,7 +20,7 @@ describe("user settings defaults", () => {
       }),
     );
 
-    expect(loadUserSettings().defaultModel).toBe("gpt-5.4");
+    expect(loadUserSettings().defaultModel).toBe("");
   });
 
   it("keeps server-managed provider models outside the static catalog", () => {

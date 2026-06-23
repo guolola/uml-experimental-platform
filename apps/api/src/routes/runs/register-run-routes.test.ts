@@ -996,6 +996,7 @@ test("project run starts can resolve managed provider config secrets", async () 
     baseUrl: "https://ai.comfly.org",
     apiKey: "sk-managed",
     defaultModel: "gpt-5.5",
+    allowedModels: ["gpt-5.5"],
     createdBy: "admin",
   });
   const app = Fastify({ logger: false });
@@ -1408,6 +1409,7 @@ test("project run starts return 429 and do not call the pipeline when provider q
     baseUrl: "https://ai.comfly.org",
     apiKey: "sk-managed",
     defaultModel: "gpt-5.5",
+    allowedModels: ["gpt-5.5"],
     createdBy: "admin",
   });
   const app = Fastify({ logger: false });

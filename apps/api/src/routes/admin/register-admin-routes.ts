@@ -177,7 +177,7 @@ const createProviderConfigRequestSchema = z.object({
   baseUrl: z.string().trim().min(1),
   apiKey: z.string().trim().min(1),
   defaultModel: z.string().trim().min(1),
-  allowedModels: z.array(z.string().trim().min(1)).optional(),
+  allowedModels: z.array(z.string().trim().min(1)).min(1),
   modelCapabilities: providerModelCapabilityMapSchema.optional(),
   keyPurpose: z.string().trim().min(1).optional(),
   quota: z.string().trim().min(1).optional(),
@@ -188,7 +188,7 @@ const createProviderConfigRequestSchema = z.object({
 const updateProviderConfigRequestSchema = z.object({
   name: z.string().trim().min(1).optional(),
   defaultModel: z.string().trim().min(1).optional(),
-  allowedModels: z.array(z.string().trim().min(1)).optional(),
+  allowedModels: z.array(z.string().trim().min(1)).min(1).optional(),
   modelCapabilities: providerModelCapabilityMapSchema.optional(),
   keyPurpose: z.string().trim().min(1).optional(),
   quota: z.string().trim().min(1).optional(),

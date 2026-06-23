@@ -117,6 +117,7 @@ export function GlobalSettingsPanel({
             providerModelOptions: [],
             providerLabel: "",
             providerDefaultModelSeededFor: "",
+            defaultModel: "",
           };
         }
         const shouldSeedProviderDefault =
@@ -441,7 +442,7 @@ export function GlobalSettingsPanel({
                           ? current.defaultModel
                           : config?.defaultModel ?? "",
                       )
-                    : current.defaultModel,
+                    : "",
                 }));
               }}
               disabled={providerLoading || providerConfigs.length === 0}

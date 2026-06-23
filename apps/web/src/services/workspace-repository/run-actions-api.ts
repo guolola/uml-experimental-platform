@@ -10,7 +10,7 @@ import type {
   RenderSvgResponse,
 } from "@uml-platform/contracts";
 import type { DiagramType } from "../../entities/diagram/model";
-import type { ModelCapability } from "../../shared/lib/model-catalog";
+import type { ModelCapability } from "../../shared/lib/provider-model-display";
 import { postJson } from "../api-client";
 import { projectHeaders, requireProjectScope, withProjectHeaders } from "./project-scope";
 import { runPayloadWithoutUnmanagedProviderSettings } from "./run-payload";

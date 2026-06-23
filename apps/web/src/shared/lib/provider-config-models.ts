@@ -37,7 +37,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export function getProviderAllowedModels(config: ProviderModelPolicy | null | undefined) {
   const normalized = new Set(
-    [config?.defaultModel ?? "", ...(config?.allowedModels ?? [])]
+    (config?.allowedModels ?? [])
       .map((model) => model.trim())
       .filter(Boolean),
   );
@@ -96,7 +96,7 @@ export function resolveProviderModel(
   if (trimmedCurrent && allowedModels.includes(trimmedCurrent)) {
     return trimmedCurrent;
   }
-  return allowedModels[0] ?? trimmedCurrent;
+  return allowedModels[0] ?? "";
 }
 
 export function getProviderLabel(config: ProviderModelPolicy | null | undefined) {

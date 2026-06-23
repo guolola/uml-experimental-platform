@@ -81,7 +81,7 @@ export interface ProviderConfigStore {
     baseUrl: string;
     apiKey: string;
     defaultModel: string;
-    allowedModels?: string[];
+    allowedModels: string[];
     modelCapabilities?: ProviderModelCapabilityMap;
     keyPurpose?: string;
     createdBy: string;
@@ -280,6 +280,25 @@ export function createProviderConfigStore({
     view.breakerLastFailureAt = null;
   }
 
+  function requireAllowedModels(
+    defaultModel: string,
+    allowedModels: string[] | undefined,
+    context: { baseUrl: string; provider: string },
+  ) {
+    const normalized = normalizeProviderAllowedModels(defaultModel, allowedModels, context);
+    if (normalized.length === 0) {
+      throw new ProviderConfigPolicyError(
+        "Provider config requires at least one allowed model",
+      );
+    }
+    if (!normalized.includes(defaultModel)) {
+      throw new ProviderConfigPolicyError(
+        "Provider default model must be included in allowed models",
+      );
+    }
+    return normalized;
+  }
+
   return {
     create(input) {
       const baseUrl = normalizeManagedProviderBaseUrl(input.baseUrl);
@@ -287,8 +306,9 @@ export function createProviderConfigStore({
       const scope = normalizeScope(input);
       const now = new Date().toISOString();
       const id = randomUUID();
-      const allowedModels = normalizeProviderAllowedModels(
-        input.defaultModel,
+      const defaultModel = input.defaultModel.trim();
+      const allowedModels = requireAllowedModels(
+        defaultModel,
         input.allowedModels,
         { baseUrl, provider },
       );
@@ -305,7 +325,7 @@ export function createProviderConfigStore({
         updatedAt: now,
         lastUsedAt: null,
         riskState: input.riskState ?? "medium",
-        defaultModel: input.defaultModel.trim(),
+        defaultModel,
         allowedModels,
         modelCapabilities: normalizeProviderModelCapabilities(
           allowedModels,
@@ -345,20 +365,11 @@ export function createProviderConfigStore({
       const record = records.get(id);
       if (!record || record.view.status === "revoked") return null;
       const nextDefaultModel = input.defaultModel?.trim() || record.view.defaultModel;
-      if (
-        input.allowedModels &&
-        !input.allowedModels.map((model) => model.trim()).includes(nextDefaultModel)
-      ) {
-        throw new ProviderConfigPolicyError("Provider default model must be included in allowed models");
-      }
-      const nextAllowedModels = normalizeProviderAllowedModels(
+      const nextAllowedModels = requireAllowedModels(
         nextDefaultModel,
         input.allowedModels ?? record.view.allowedModels,
         { baseUrl: record.view.baseUrl, provider: record.view.provider },
       );
-      if (!nextAllowedModels.includes(nextDefaultModel)) {
-        throw new ProviderConfigPolicyError("Provider default model must be included in allowed models");
-      }
       const nextScopeType = input.scopeType ?? record.view.scopeType;
       const scope = normalizeScope({
         scopeType: nextScopeType,

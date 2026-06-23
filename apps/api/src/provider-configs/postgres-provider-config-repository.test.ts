@@ -63,6 +63,7 @@ test("postgres provider repository creates managed configs without storing plain
     baseUrl: "https://api.openai.com/v1",
     apiKey: "sk-live-secret-a91f",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
     createdBy: "admin-user",
   });
 
@@ -95,6 +96,7 @@ test("postgres provider repository infers provider labels for public custom HTTP
     baseUrl: "https://api.custom-provider.example/v1",
     apiKey: "sk-live-secret-a91f",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
     createdBy: "admin-user",
   });
 
@@ -209,6 +211,7 @@ test("postgres provider repository blocks non-public provider base URLs", async 
         baseUrl: "https://127.0.0.1:11434/v1",
         apiKey: "sk-live-secret-a91f",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
         createdBy: "admin-user",
       }),
     /public HTTPS host/i,

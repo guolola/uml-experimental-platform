@@ -170,6 +170,25 @@ function mapAuditRow(row: AuditLogRow): ProviderAuditLog {
   };
 }
 
+function requireAllowedModels(
+  defaultModel: string,
+  allowedModels: string[] | undefined,
+  context: { baseUrl: string; provider: string },
+) {
+  const normalized = normalizeProviderAllowedModels(defaultModel, allowedModels, context);
+  if (normalized.length === 0) {
+    throw new ProviderConfigPolicyError(
+      "Provider config requires at least one allowed model",
+    );
+  }
+  if (!normalized.includes(defaultModel)) {
+    throw new ProviderConfigPolicyError(
+      "Provider default model must be included in allowed models",
+    );
+  }
+  return normalized;
+}
+
 const providerViewColumns = `
   id,
   name,
@@ -251,7 +270,7 @@ export function createPostgresProviderConfigRepository({
       baseUrl: string;
       apiKey: string;
       defaultModel: string;
-      allowedModels?: string[];
+      allowedModels: string[];
       modelCapabilities?: ProviderModelCapabilityMap;
       keyPurpose?: string;
       createdBy: string;
@@ -266,7 +285,7 @@ export function createPostgresProviderConfigRepository({
       const id = randomUUID();
       const maskedKey = maskApiKey(apiKey);
       const defaultModel = input.defaultModel.trim();
-      const allowedModels = normalizeProviderAllowedModels(defaultModel, input.allowedModels, {
+      const allowedModels = requireAllowedModels(defaultModel, input.allowedModels, {
         baseUrl,
         provider,
       });
@@ -395,15 +414,7 @@ export function createPostgresProviderConfigRepository({
       const existing = await this.get(id);
       if (!existing || existing.status === "revoked") return null;
       const defaultModel = input.defaultModel?.trim() || existing.defaultModel;
-      if (
-        input.allowedModels &&
-        !input.allowedModels.map((model) => model.trim()).includes(defaultModel)
-      ) {
-        throw new ProviderConfigPolicyError(
-          "Provider default model must be included in allowed models",
-        );
-      }
-      const allowedModels = normalizeProviderAllowedModels(
+      const allowedModels = requireAllowedModels(
         defaultModel,
         input.allowedModels ?? existing.allowedModels,
         { baseUrl: existing.baseUrl, provider: existing.provider },
@@ -413,11 +424,6 @@ export function createPostgresProviderConfigRepository({
         input.modelCapabilities ?? existing.modelCapabilities,
         { fillMissing: Boolean(input.modelCapabilities) },
       );
-      if (!allowedModels.includes(defaultModel)) {
-        throw new ProviderConfigPolicyError(
-          "Provider default model must be included in allowed models",
-        );
-      }
       const scopeType = input.scopeType ?? existing.scopeType;
       const scopeId = scopeType === "system" ? null : input.scopeId ?? existing.scopeId;
       if (scopeType !== "system" && !scopeId) {
@@ -443,11 +449,11 @@ export function createPostgresProviderConfigRepository({
         `,
         [
           id,
-            input.name?.trim() || existing.name,
-            defaultModel,
-            allowedModels,
-            modelCapabilities,
-            input.keyPurpose?.trim() || existing.keyPurpose,
+          input.name?.trim() || existing.name,
+          defaultModel,
+          allowedModels,
+          modelCapabilities,
+          input.keyPurpose?.trim() || existing.keyPurpose,
           input.quota?.trim() || existing.quota,
           scopeType,
           scopeId,

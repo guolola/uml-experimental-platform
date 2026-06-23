@@ -101,7 +101,7 @@ const providerConfigSelfServiceCreateRequestSchema = z
     baseUrl: z.string().trim().min(1),
     apiKey: z.string().trim().min(1),
     defaultModel: z.string().trim().min(1),
-    allowedModels: z.array(z.string().trim().min(1)).optional(),
+    allowedModels: z.array(z.string().trim().min(1)).min(1),
     keyPurpose: z.string().trim().min(1).optional(),
   })
   .strict();
@@ -110,7 +110,7 @@ const providerConfigSelfServiceUpdateRequestSchema = z
   .object({
     name: z.string().trim().min(1).optional(),
     defaultModel: z.string().trim().min(1).optional(),
-    allowedModels: z.array(z.string().trim().min(1)).optional(),
+    allowedModels: z.array(z.string().trim().min(1)).min(1).optional(),
     keyPurpose: z.string().trim().min(1).optional(),
   })
   .strict();

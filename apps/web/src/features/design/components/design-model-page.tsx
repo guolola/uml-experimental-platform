@@ -38,7 +38,7 @@ import {
   type DesignDiagramType,
   type DiagramType,
 } from "../../../entities/diagram/model";
-import { getModelDisplayName } from "../../../shared/lib/model-catalog";
+import { getProviderModelDisplayName } from "../../../shared/lib/provider-model-display";
 import {
   designInputFingerprint,
   normalizeDesignInputFingerprint,
@@ -719,7 +719,7 @@ export function DesignModelPage() {
                       </Button>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      当前模型：{getModelDisplayName(defaultModel).triggerLabel}
+                      当前模型：{getProviderModelDisplayName(defaultModel).triggerLabel}
                     </span>
                   </div>
                 </div>

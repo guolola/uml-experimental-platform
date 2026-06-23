@@ -8,13 +8,25 @@ import {
 } from "./provider-config-models";
 
 describe("provider config model helpers", () => {
-  it("keeps the default model in the selectable allowed model list", () => {
+  it("uses only the provider allowed model list as selectable models", () => {
     expect(
       getProviderAllowedModels({
         defaultModel: "gpt-5.5",
-        allowedModels: ["gpt-5.5-pro", "gpt-5.5"],
+        allowedModels: ["gpt-5.5-pro", "gpt-5.5", "gpt-5.5-pro"],
       }),
-    ).toEqual(["gpt-5.5", "gpt-5.5-pro"]);
+    ).toEqual(["gpt-5.5-pro", "gpt-5.5"]);
+  });
+
+  it("returns an empty model when the provider has no allowed models", () => {
+    expect(
+      resolveProviderModel(
+        {
+          defaultModel: "gpt-5.5",
+          allowedModels: [],
+        },
+        "glm-5.1",
+      ),
+    ).toBe("");
   });
 
   it("falls back to the provider default when the current model is not allowed", () => {

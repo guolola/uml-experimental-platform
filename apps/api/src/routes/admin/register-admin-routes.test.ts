@@ -1766,6 +1766,7 @@ test("admin provider usage and quotas expose telemetry with billing disabled", a
     baseUrl: "https://api.openai.com",
     apiKey: "sk-live-secret-a91f",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
     createdBy: "admin",
   });
   providerConfigId = provider.id;
@@ -2568,6 +2569,7 @@ test("provider config create accepts public custom HTTPS base URLs outside the e
       baseUrl: "https://api.custom-provider.example/v1",
       apiKey: "sk-secret-should-not-pass",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
     },
   });
 
@@ -2592,6 +2594,7 @@ test("provider config create rejects non-public or non-HTTPS base URLs", async (
       baseUrl: "http://localhost:11434/v1",
       apiKey: "sk-secret-should-not-pass",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
     },
   });
 
@@ -2714,6 +2717,7 @@ test("admin provider model discovery returns normalized OpenAI-compatible models
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
       createdBy: "admin",
     });
 
@@ -2989,6 +2993,7 @@ test("admin provider model discovery blocks disabled configs before provider cal
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
       createdBy: "admin",
     });
     providerConfigs.disable?.(provider.id, "admin");
@@ -3024,6 +3029,7 @@ test("provider configs mask keys and never read back plaintext secrets", async (
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
     },
   });
   const listed = await app.inject({
@@ -3055,6 +3061,7 @@ test("admin provider configs include user-owned providers with owner display met
     baseUrl: "https://api.openai.com",
     apiKey: "sk-owner-private-a91f",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
     createdBy: owner.id,
     scopeType: "user",
     scopeId: owner.id,
@@ -3142,10 +3149,7 @@ test("provider configs can update editable metadata without changing secrets or 
   assert.equal(updated.json().baseUrl, "https://api.siliconflow.cn");
   assert.equal(updated.json().provider, "siliconflow");
   assert.equal(updated.json().defaultModel, "deepseek-ai/DeepSeek-V4-Flash");
-  assert.deepEqual(updated.json().allowedModels, [
-    "deepseek-ai/DeepSeek-V4-Flash",
-    "deepseek-ai/DeepSeek-V4-Pro",
-  ]);
+  assert.deepEqual(updated.json().allowedModels, allowedModels);
   assert.equal(updated.json().keyPurpose, "生产生成");
   assert.equal(updated.json().quota, "合同标签：生产");
   assert.equal(updated.json().scopeType, "project");
@@ -3179,6 +3183,7 @@ test("provider config create requires scope ids for user and project ownership",
     baseUrl: "https://api.openai.com",
     apiKey: "sk-live-secret-a91f",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
   };
 
   const missingUserScope = await app.inject({
@@ -3256,6 +3261,7 @@ test("provider configs can rotate, revoke, and test allowlisted connections", as
         baseUrl: "https://api.openai.com",
         apiKey: "sk-live-secret-a91f",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
       },
     });
     const id = created.json().id as string;
@@ -3435,6 +3441,7 @@ test("provider configs can be disabled and re-enabled with audit records", async
         baseUrl: "https://api.openai.com",
         apiKey: "sk-live-secret-a91f",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
       },
     });
     const id = created.json().id as string;
@@ -3536,6 +3543,7 @@ test("provider config test returns 429 and does not call provider when quota is 
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
       createdBy: "admin",
     });
 
@@ -3619,6 +3627,7 @@ test("provider config test opens the breaker after repeated provider failures", 
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
       createdBy: "admin",
     });
 
@@ -3679,6 +3688,7 @@ test("admin can reset an open provider circuit breaker", async () => {
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
       createdBy: "admin",
     });
 
@@ -3755,6 +3765,7 @@ test("provider config test uses the most specific enabled rate limit policy", as
       baseUrl: "https://api.openai.com",
       apiKey: "sk-live-secret-a91f",
       defaultModel: "gpt-4.1",
+      allowedModels: ["gpt-4.1"],
       createdBy: "admin",
     });
     await app.inject({

@@ -21,8 +21,8 @@ import {
   ResizablePanelGroup,
 } from "../../../shared/ui/resizable";
 import {
-  getModelCapability,
-} from "../../../shared/lib/model-catalog";
+  normalizeProviderModelCapability,
+} from "../../../shared/lib/provider-model-display";
 import {
   loadUserSettings,
   patchUserSettings,
@@ -92,6 +92,9 @@ export function CodeGenerationPage() {
   const [defaultModel, setDefaultModel] = useState(
     () => loadUserSettings().defaultModel,
   );
+  const [providerModelCapabilities, setProviderModelCapabilities] = useState(
+    () => loadUserSettings().providerModelCapabilities,
+  );
   const {
     files,
     activeFile,
@@ -130,7 +133,9 @@ export function CodeGenerationPage() {
 
   useEffect(() => {
     const syncSettings = () => {
-      setDefaultModel(loadUserSettings().defaultModel);
+      const settings = loadUserSettings();
+      setDefaultModel(settings.defaultModel);
+      setProviderModelCapabilities(settings.providerModelCapabilities);
     };
     window.addEventListener(USER_SETTINGS_CHANGED_EVENT, syncSettings);
     return () => window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, syncSettings);
@@ -147,7 +152,10 @@ export function CodeGenerationPage() {
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
   }, []);
 
-  const modelCapability = getModelCapability(defaultModel);
+  const modelCapability = normalizeProviderModelCapability(
+    defaultModel,
+    providerModelCapabilities[defaultModel],
+  );
   const designModelCount = Object.values(designModels).filter(Boolean).length;
   const requirementSourceMissing = requirementText.trim().length === 0;
   const canGenerate = designModelCount > 0 && !requirementSourceMissing;

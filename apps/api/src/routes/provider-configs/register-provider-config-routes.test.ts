@@ -71,6 +71,7 @@ async function createProviderRouteTestApp() {
     baseUrl: "https://api.openai.com",
     apiKey: "sk-system-secret-a91f",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
     createdBy: "admin",
     scopeType: "system",
   });
@@ -80,6 +81,7 @@ async function createProviderRouteTestApp() {
     baseUrl: "https://api.openai.com",
     apiKey: "sk-owner-secret-b52c",
     defaultModel: "gpt-4.1-mini",
+    allowedModels: ["gpt-4.1-mini"],
     createdBy: owner.id,
     scopeType: "user",
     scopeId: owner.id,
@@ -90,6 +92,7 @@ async function createProviderRouteTestApp() {
     baseUrl: "https://api.openai.com",
     apiKey: "sk-project-secret-c83d",
     defaultModel: "gpt-4.1",
+    allowedModels: ["gpt-4.1"],
     createdBy: owner.id,
     scopeType: "project",
     scopeId: project.id,
@@ -437,6 +440,7 @@ test("self-service provider creation rejects unsafe or failing endpoints without
         baseUrl: "http://169.254.169.254",
         apiKey: "sk-unsafe-1111",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
       },
     });
     const privateDns = await app.inject({
@@ -448,6 +452,7 @@ test("self-service provider creation rejects unsafe or failing endpoints without
         baseUrl: "https://private.example.test",
         apiKey: "sk-private-dns-3333",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
       },
     });
     const failing = await app.inject({
@@ -459,6 +464,7 @@ test("self-service provider creation rejects unsafe or failing endpoints without
         baseUrl: "https://api.example.invalid",
         apiKey: "sk-failing-2222",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
       },
     });
     const redirecting = await app.inject({
@@ -470,6 +476,7 @@ test("self-service provider creation rejects unsafe or failing endpoints without
         baseUrl: "https://redirect.example.test",
         apiKey: "sk-redirect-4444",
         defaultModel: "gpt-4.1",
+        allowedModels: ["gpt-4.1"],
       },
     });
 

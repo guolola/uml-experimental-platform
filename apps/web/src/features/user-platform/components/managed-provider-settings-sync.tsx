@@ -76,24 +76,35 @@ export function ManagedProviderSettingsSync({
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    platformApi
-      .listProviderConfigs()
-      .then((response) => {
-        if (cancelled) return;
-        const next = resolveManagedProviderSettingsSync(
-          response.providerConfigs,
-          loadUserSettings(),
-        );
-        if (next) {
-          saveUserSettings(next);
-        }
-      })
-      .catch(() => {
-        // Keep route rendering independent from catalog refresh failures.
-      });
+    const refreshProviderSettings = () => {
+      platformApi
+        .listProviderConfigs()
+        .then((response) => {
+          if (cancelled) return;
+          const next = resolveManagedProviderSettingsSync(
+            response.providerConfigs,
+            loadUserSettings(),
+          );
+          if (next) {
+            saveUserSettings(next);
+          }
+        })
+        .catch(() => {
+          // Keep route rendering independent from catalog refresh failures.
+        });
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshProviderSettings();
+    };
+
+    refreshProviderSettings();
+    window.addEventListener("focus", refreshProviderSettings);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refreshProviderSettings);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [userId]);
 

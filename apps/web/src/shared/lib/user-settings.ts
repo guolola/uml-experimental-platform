@@ -1,6 +1,5 @@
 export const USER_SETTINGS_STORAGE_KEY = "uml-lab-settings";
 export const USER_SETTINGS_CHANGED_EVENT = "uml-user-settings-changed";
-import { DEFAULT_MODEL_ID, normalizeModelId } from "./model-catalog";
 
 export type UserSettings = {
   providerConfigId: string;
@@ -30,7 +29,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   providerModelOptions: [],
   providerLabel: "",
   providerDefaultModelSeededFor: "",
-  defaultModel: DEFAULT_MODEL_ID,
+  defaultModel: "",
   imageModel: "gpt-image-2",
   fontSize: "md",
   autoGenerate: false,
@@ -114,9 +113,9 @@ export function loadUserSettings(): UserSettings {
         sanitizedProviderModelOptions.length > 0 &&
           !sanitizedProviderModelOptions.includes(trimmedDefaultModel)
           ? sanitizedProviderModelOptions[0]
-          : trimmedDefaultModel || sanitizedProviderModelOptions[0] || DEFAULT_MODEL_ID;
+          : trimmedDefaultModel || sanitizedProviderModelOptions[0] || "";
     } else {
-      next.defaultModel = normalizeModelId(trimmedDefaultModel);
+      next.defaultModel = "";
       next.providerModelOptions = [];
       next.providerLabel = "";
       next.providerModelCapabilities = {};
