@@ -11,6 +11,7 @@ import {
   billingAndPaymentsSql,
   migrationTableName,
   migrations,
+  providerModelCapabilitiesEnforcementSql,
   providerConfigStoreSql,
   runMigrations,
   usernamesSql,
@@ -152,6 +153,22 @@ test("provider config migration includes secure view fields and usage dimensions
   assert.match(providerConfigStoreSql, /user_id.*project_id.*provider_config_id.*task_type/is);
 });
 
+test("provider model capabilities enforcement deletes incompatible legacy provider rows", () => {
+  assert.match(
+    providerModelCapabilitiesEnforcementSql,
+    /not exists \([^]*column_name = 'model_capabilities'[^]*\)/i,
+  );
+  assert.match(providerModelCapabilitiesEnforcementSql, /delete from provider_configs/i);
+  assert.match(
+    providerModelCapabilitiesEnforcementSql,
+    /add column if not exists model_capabilities jsonb not null default '\{\}'::jsonb/i,
+  );
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /018_enforce_provider_model_capabilities/,
+  );
+});
+
 test("billing migration creates payment, entitlement, and reservation records", () => {
   for (const table of [
     "billing_skus",
@@ -224,6 +241,28 @@ test("migration runner applies billing compatibility when earlier migrations alr
   assert.match(
     client.queries.join("\n"),
     /insert into schema_migrations \(id\) values \(\$1\).*013_billing_compatibility_columns/is,
+  );
+});
+
+test("migration runner applies provider capability enforcement after previous migrations", async () => {
+  const appliedMigrationIds = migrations
+    .filter(
+      (migration) => migration.id !== "018_enforce_provider_model_capabilities",
+    )
+    .map((migration) => migration.id);
+  const client = new FakeClient(new Set(appliedMigrationIds));
+
+  const applied = await runMigrations(client);
+
+  assert.deepEqual(applied, ["018_enforce_provider_model_capabilities"]);
+  assert.match(client.queries.join("\n"), /delete from provider_configs/i);
+  assert.match(
+    client.queries.join("\n"),
+    /add column if not exists model_capabilities jsonb not null default '\{\}'::jsonb/i,
+  );
+  assert.match(
+    client.queries.join("\n"),
+    /insert into schema_migrations \(id\) values \(\$1\).*018_enforce_provider_model_capabilities/is,
   );
 });
 

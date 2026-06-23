@@ -905,6 +905,26 @@ alter table users alter column username set not null;
 create unique index if not exists users_username_unique_idx on users(username);
 `;
 
+export const providerModelCapabilitiesEnforcementSql = `
+do $$
+begin
+  if to_regclass('public.provider_configs') is not null
+    and not exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'provider_configs'
+        and column_name = 'model_capabilities'
+    )
+  then
+    delete from provider_configs;
+  end if;
+end $$;
+
+alter table provider_configs
+  add column if not exists model_capabilities jsonb not null default '{}'::jsonb;
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -973,6 +993,10 @@ export const migrations = [
   {
     id: "017_run_action_metadata",
     sql: runActionMetadataSql,
+  },
+  {
+    id: "018_enforce_provider_model_capabilities",
+    sql: providerModelCapabilitiesEnforcementSql,
   },
 ] as const;
 
