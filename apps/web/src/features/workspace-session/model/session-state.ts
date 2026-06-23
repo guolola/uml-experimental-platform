@@ -105,6 +105,14 @@ export interface GenerationTask {
   finishedAt: string | null;
 }
 
+export interface GenerationTaskRunSummary {
+  runId?: string | null;
+  status?: string | null;
+  completedAt?: string | null;
+  updatedAt?: string | null;
+  errorMessage?: string | null;
+}
+
 export interface WorkspaceSessionState {
   requirementText: string;
   setRequirementText: (value: string) => void;
@@ -184,6 +192,9 @@ export interface WorkspaceSessionState {
   selectedGenerationTaskId: string | null;
   selectGenerationTask: (id: string) => void;
   clearCompletedGenerationTasks: () => void;
+  reconcileGenerationTasksWithProjectRuns: (
+    runs: GenerationTaskRunSummary[],
+  ) => void;
   generateRules: () => Promise<void>;
   repairRequirementRule: (ruleId: string) => Promise<void>;
   decideRequirementReviewCandidate: (

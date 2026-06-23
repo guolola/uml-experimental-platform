@@ -181,3 +181,109 @@ test("run event SSE closes after a live cancelled event", async () => {
 
   await app.close();
 });
+
+test("run event SSE forwards subscribed Redis events and closes after terminal events", async () => {
+  const app = Fastify({ logger: false });
+  const runs = new Map<string, RunRecord>();
+  const record: RunRecord = {
+    snapshot: {
+      runId: "run-redis",
+      status: "running",
+    } as RunSnapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+  runs.set("run-redis", record);
+  let redisListener: ((event: RunEvent) => void) | null = null;
+  let subscriptionClosed = false;
+
+  registerRunEventsRoute({
+    app,
+    runs,
+    path: "/runs/:runId/events",
+    notFoundMessage: "Run not found",
+    defaultAllowOrigin: "http://localhost:5173",
+    heartbeatMs: 1000,
+    subscribeRunEvents: async (runId, listener) => {
+      assert.equal(runId, "run-redis");
+      redisListener = listener;
+      return {
+        async close() {
+          subscriptionClosed = true;
+        },
+      };
+    },
+  });
+
+  const responsePromise = app.inject({
+    method: "GET",
+    url: "/runs/run-redis/events",
+  });
+  setTimeout(() => {
+    redisListener?.({
+      type: "completed",
+      snapshot: completedSnapshot,
+    } as RunEvent);
+  }, 0);
+
+  const response = await responsePromise;
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /"type":"completed"/);
+  assert.equal(record.listeners.size, 0);
+  assert.equal(subscriptionClosed, true);
+
+  await app.close();
+});
+
+test("run event SSE ends when the Redis subscriber fails during streaming", async () => {
+  const app = Fastify({ logger: false });
+  const runs = new Map<string, RunRecord>();
+  const record: RunRecord = {
+    snapshot: {
+      runId: "run-redis-error",
+      status: "running",
+    } as RunSnapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: false,
+  };
+  runs.set("run-redis-error", record);
+  let failSubscriber: ((error: unknown) => void) | null = null;
+  let subscriptionClosed = false;
+
+  registerRunEventsRoute({
+    app,
+    runs,
+    path: "/runs/:runId/events",
+    notFoundMessage: "Run not found",
+    defaultAllowOrigin: "http://localhost:5173",
+    heartbeatMs: 1000,
+    subscribeRunEvents: async (_runId, _listener, onError) => {
+      failSubscriber = onError ?? null;
+      return {
+        async close() {
+          subscriptionClosed = true;
+        },
+      };
+    },
+  });
+
+  const responsePromise = app.inject({
+    method: "GET",
+    url: "/runs/run-redis-error/events",
+  });
+  setTimeout(() => {
+    failSubscriber?.(new Error("redis connection closed"));
+  }, 0);
+
+  const response = await responsePromise;
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.includes('"type":"completed"'), false);
+  assert.equal(record.listeners.size, 0);
+  assert.equal(subscriptionClosed, true);
+
+  await app.close();
+});

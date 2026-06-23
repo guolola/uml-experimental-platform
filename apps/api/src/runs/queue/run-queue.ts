@@ -20,11 +20,22 @@ export interface QueuedRunJob {
   documentInput?: StartDocumentRunRequest;
 }
 
+export interface RunEventSubscription {
+  close(): Promise<void>;
+}
+
+export type SubscribeRunEvents = (
+  runId: string,
+  listener: (event: RunEvent) => void,
+  onError?: (error: unknown) => void,
+) => Promise<RunEventSubscription>;
+
 export interface RunQueue {
   enabled: boolean;
   enqueueRun(input: { record: RunRecord; documentInput?: StartDocumentRunRequest }): Promise<void>;
   cancelRun(runId: string): Promise<void>;
   attachEventPublisher(record: RunRecord): void;
+  subscribeRunEvents?: SubscribeRunEvents;
   close(): Promise<void>;
 }
 
@@ -164,6 +175,59 @@ export function createBullMqRunQueue(config: RunQueueConfig): RunQueue {
         }
       };
       record.listeners.add(publish);
+    },
+    async subscribeRunEvents(runId, listener, onError) {
+      const subscriber = createRedisConnection(config.redisUrl);
+      const channel = runEventChannel(config.eventChannelPrefix, runId);
+      let closed = false;
+      let closePromise: Promise<void> | null = null;
+      let initialSubscribeSettled = false;
+      let rejectInitialSubscribe: ((error: unknown) => void) | null = null;
+      const initialSubscribeError = new Promise<never>((_resolve, reject) => {
+        rejectInitialSubscribe = reject;
+      });
+
+      const close = async () => {
+        if (closePromise) {
+          return closePromise;
+        }
+        closed = true;
+        subscriber.removeAllListeners("message");
+        subscriber.removeAllListeners("error");
+        closePromise = Promise.allSettled([
+          subscriber.unsubscribe(channel),
+          subscriber.quit(),
+        ]).then(() => undefined);
+        return closePromise;
+      };
+
+      subscriber.on("message", (receivedChannel: string, message: string) => {
+        if (receivedChannel !== channel || closed) return;
+        try {
+          listener(JSON.parse(message) as RunEvent);
+        } catch (error) {
+          console.warn("[run-queue] ignored invalid run event message", error);
+        }
+      });
+      subscriber.on("error", (error: unknown) => {
+        if (closed) return;
+        onError?.(error);
+        if (!initialSubscribeSettled) {
+          rejectInitialSubscribe?.(error);
+        }
+        void close();
+      });
+
+      try {
+        await Promise.race([subscriber.subscribe(channel), initialSubscribeError]);
+        initialSubscribeSettled = true;
+      } catch (error) {
+        initialSubscribeSettled = true;
+        await close();
+        throw error;
+      }
+
+      return { close };
     },
     async close() {
       await Promise.allSettled([queue.close(), publisher.quit()]);

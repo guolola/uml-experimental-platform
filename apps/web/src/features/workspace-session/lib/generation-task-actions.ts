@@ -2,8 +2,10 @@
 import { useCallback, useMemo, useState } from "react";
 import type { DocumentKind } from "@uml-platform/contracts";
 import type {
+  GenerationSubtask,
   GenerationTask,
   GenerationTaskKind,
+  GenerationTaskRunSummary,
 } from "../model/session-state";
 import {
   createClientTaskId,
@@ -13,6 +15,109 @@ import {
 } from "./generation-tasks";
 
 const MAX_VISIBLE_GENERATION_TASKS = 30;
+type TerminalRunStatus = Extract<
+  GenerationTask["status"],
+  "completed" | "failed" | "cancelled" | "interrupted"
+>;
+
+function terminalStatusFromRun(status: string | null | undefined): TerminalRunStatus | null {
+  if (
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "interrupted"
+  ) {
+    return status;
+  }
+  return null;
+}
+
+function taskMessageFromTerminalRun(
+  status: TerminalRunStatus,
+  run: GenerationTaskRunSummary,
+) {
+  if (status === "completed") return "生成完成";
+  if (status === "failed") return run.errorMessage ?? "生成失败";
+  if (status === "cancelled") return run.errorMessage ?? "任务已取消";
+  return run.errorMessage ?? "服务中断，可重试";
+}
+
+function settleSubtaskFromTerminalRun(
+  subtask: GenerationSubtask,
+  status: TerminalRunStatus,
+  message: string,
+): GenerationSubtask {
+  if (
+    subtask.status !== "queued" &&
+    subtask.status !== "running" &&
+    subtask.status !== "repairing" &&
+    subtask.status !== "rendering"
+  ) {
+    return subtask;
+  }
+  if (status === "completed") {
+    return {
+      ...subtask,
+      status: "completed",
+      message: subtask.message ?? "已完成",
+    };
+  }
+  return {
+    ...subtask,
+    status: "failed",
+    message,
+    errorMessage: subtask.errorMessage ?? message,
+  };
+}
+
+function settleTaskFromTerminalRun(
+  task: GenerationTask,
+  run: GenerationTaskRunSummary,
+  status: TerminalRunStatus,
+): GenerationTask {
+  const finishedAt = run.completedAt ?? run.updatedAt ?? new Date().toISOString();
+  const message = taskMessageFromTerminalRun(status, run);
+  const errorMessage =
+    status === "failed" || status === "interrupted"
+      ? message
+      : status === "cancelled"
+        ? null
+        : task.errorMessage;
+
+  return {
+    ...task,
+    status,
+    progress: 100,
+    message,
+    errorMessage,
+    phaseSummary: message,
+    finishedAt,
+    diagnostics: {
+      ...task.diagnostics,
+      finishedAt,
+      activeStage: null,
+      events: [
+        ...task.diagnostics.events,
+        {
+          id: `${finishedAt}:server-${status}`,
+          at: finishedAt,
+          label:
+            status === "completed"
+              ? "任务完成"
+              : status === "failed"
+                ? "任务失败"
+                : status === "cancelled"
+                  ? "任务已取消"
+                  : "服务中断",
+          detail: status === "completed" || status === "cancelled" ? null : message,
+        },
+      ].slice(-80),
+    },
+    subtasks: task.subtasks.map((subtask) =>
+      settleSubtaskFromTerminalRun(subtask, status, message),
+    ),
+  };
+}
 
 function retainGenerationTasksWithinCapacity(tasks: GenerationTask[]) {
   const activeCount = tasks.filter(isTaskActive).length;
@@ -98,6 +203,40 @@ export function useGenerationTaskActions() {
     [],
   );
 
+  const reconcileGenerationTasksWithProjectRuns = useCallback(
+    (runs: GenerationTaskRunSummary[]) => {
+      const terminalRunsById = new Map<string, {
+        run: GenerationTaskRunSummary;
+        status: TerminalRunStatus;
+      }>();
+      for (const run of runs) {
+        if (!run.runId) continue;
+        const status = terminalStatusFromRun(run.status);
+        if (status) {
+          terminalRunsById.set(run.runId, { run, status });
+        }
+      }
+      if (terminalRunsById.size === 0) return;
+
+      setGenerationTasks((current) => {
+        let changed = false;
+        const next = current.map((task) => {
+          if (!task.runId || !isTaskActive(task)) return task;
+          const terminalRun = terminalRunsById.get(task.runId);
+          if (!terminalRun) return task;
+          changed = true;
+          return settleTaskFromTerminalRun(
+            task,
+            terminalRun.run,
+            terminalRun.status,
+          );
+        });
+        return changed ? retainGenerationTasksWithinCapacity(next) : current;
+      });
+    },
+    [],
+  );
+
   const visibleGenerationTask = useMemo(() => {
     if (selectedGenerationTaskId) {
       const selected = generationTasks.find(
@@ -117,6 +256,7 @@ export function useGenerationTaskActions() {
     enqueueGenerationTask,
     generating,
     generationTasks,
+    reconcileGenerationTasksWithProjectRuns,
     selectGenerationTask,
     selectedGenerationTaskId,
     updateGenerationTask,

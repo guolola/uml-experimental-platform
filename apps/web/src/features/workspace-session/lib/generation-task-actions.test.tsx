@@ -194,4 +194,169 @@ describe("workspace-session generation task actions", () => {
       ),
     ).toEqual(expect.objectContaining({ title: "历史任务 30" }));
   });
+
+  it("settles an active local task when the matching server run completed", () => {
+    const { result } = renderHook(() => useGenerationTaskActions());
+    let taskId = "";
+
+    act(() => {
+      taskId = result.current.enqueueGenerationTask({
+        kind: "requirements",
+        title: "需求规则生成",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 1,
+        subtasks: [
+          {
+            id: "extract_rules",
+            label: "抽取需求规则",
+            status: "running",
+            message: "正在抽取需求规则",
+            errorMessage: null,
+          },
+        ],
+      });
+      result.current.updateGenerationTask(taskId, (task) => ({
+        ...task,
+        runId: "run-completed",
+        status: "running",
+        progress: 20,
+        message: "正在抽取需求规则",
+      }));
+    });
+
+    act(() => {
+      result.current.reconcileGenerationTasksWithProjectRuns([
+        {
+          runId: "run-completed",
+          status: "completed",
+          completedAt: "2026-06-23T10:00:00.000Z",
+        },
+      ]);
+    });
+
+    expect(result.current.generating).toBe(false);
+    expect(result.current.generationTasks[0]).toEqual(
+      expect.objectContaining({
+        runId: "run-completed",
+        status: "completed",
+        progress: 100,
+        message: "生成完成",
+        finishedAt: "2026-06-23T10:00:00.000Z",
+      }),
+    );
+    expect(result.current.generationTasks[0]?.subtasks[0]).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        errorMessage: null,
+      }),
+    );
+  });
+
+  it.each([
+    ["failed", "模型输出为空"],
+    ["cancelled", "任务已取消"],
+    ["interrupted", "服务中断，可重试"],
+  ])("settles an active local task when the matching server run is %s", (status, message) => {
+    const { result } = renderHook(() => useGenerationTaskActions());
+    let taskId = "";
+
+    act(() => {
+      taskId = result.current.enqueueGenerationTask({
+        kind: "design",
+        title: "模型生成",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 1,
+        subtasks: [
+          {
+            id: "generate_models",
+            label: "生成模型",
+            status: "running",
+            message: "正在生成模型",
+            errorMessage: null,
+          },
+        ],
+      });
+      result.current.updateGenerationTask(taskId, (task) => ({
+        ...task,
+        runId: `run-${status}`,
+        status: "running",
+      }));
+    });
+
+    act(() => {
+      result.current.reconcileGenerationTasksWithProjectRuns([
+        {
+          runId: `run-${status}`,
+          status,
+          errorMessage: status === "failed" ? message : null,
+          completedAt: "2026-06-23T10:01:00.000Z",
+        },
+      ]);
+    });
+
+    expect(result.current.generating).toBe(false);
+    expect(result.current.generationTasks[0]).toEqual(
+      expect.objectContaining({
+        status,
+        progress: 100,
+        message,
+        finishedAt: "2026-06-23T10:01:00.000Z",
+      }),
+    );
+    expect(result.current.generationTasks[0]?.subtasks[0]).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: message,
+      }),
+    );
+  });
+
+  it("does not settle local tasks for unmatched or non-terminal server runs", () => {
+    const { result } = renderHook(() => useGenerationTaskActions());
+    let taskId = "";
+
+    act(() => {
+      taskId = result.current.enqueueGenerationTask({
+        kind: "code",
+        title: "代码生成",
+        providerModel: "fake-model",
+        message: "排队中",
+        startedAtMs: 1,
+      });
+      result.current.updateGenerationTask(taskId, (task) => ({
+        ...task,
+        runId: "run-active",
+        status: "running",
+        progress: 35,
+        message: "正在生成代码",
+      }));
+    });
+
+    act(() => {
+      result.current.reconcileGenerationTasksWithProjectRuns([
+        {
+          runId: "run-active",
+          status: "running",
+          updatedAt: "2026-06-23T10:02:00.000Z",
+        },
+        {
+          runId: "another-run",
+          status: "completed",
+          completedAt: "2026-06-23T10:03:00.000Z",
+        },
+      ]);
+    });
+
+    expect(result.current.generating).toBe(true);
+    expect(result.current.generationTasks[0]).toEqual(
+      expect.objectContaining({
+        runId: "run-active",
+        status: "running",
+        progress: 35,
+        message: "正在生成代码",
+      }),
+    );
+  });
 });

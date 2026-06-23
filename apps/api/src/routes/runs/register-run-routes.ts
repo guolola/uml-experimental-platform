@@ -1417,6 +1417,7 @@ export function registerRunRoutes({
       path: route.eventsPath,
       notFoundMessage: route.notFoundMessage,
       defaultAllowOrigin: defaultSseAllowOrigin,
+      subscribeRunEvents: runQueue?.subscribeRunEvents?.bind(runQueue),
       canReadRunRecord: (request, reply, record) =>
         canReadRunRecord(request, reply, record, runAccessGuard, "view_runs"),
     });

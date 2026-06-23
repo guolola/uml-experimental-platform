@@ -1416,7 +1416,12 @@ export function ProjectWorkspaceActions({
     runStatus,
     runProgress,
     generationTasks,
+    reconcileGenerationTasksWithProjectRuns,
   } = useWorkspaceSession();
+  useEffect(() => {
+    reconcileGenerationTasksWithProjectRuns(projectRuns);
+  }, [projectRuns, reconcileGenerationTasksWithProjectRuns]);
+
   const activeTaskCount = generationTasks.filter(
     (task) => task.status === "queued" || task.status === "running",
   ).length;
