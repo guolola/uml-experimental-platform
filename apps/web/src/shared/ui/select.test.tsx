@@ -5,6 +5,28 @@ import { describe, expect, test, vi } from "vitest";
 import { SelectControl } from "./select";
 
 describe("SelectControl", () => {
+  test("renders a single flexible visible value inside the trigger", () => {
+    render(
+      <SelectControl
+        aria-label="需求类型"
+        value="业务规则"
+        onValueChange={vi.fn()}
+        className="w-[6.5rem]"
+        options={[
+          { value: "业务规则", label: "业务规则" },
+          { value: "功能需求", label: "功能需求" },
+        ]}
+      />,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "需求类型" });
+    const valueNodes = trigger.querySelectorAll("[data-slot='select-value']");
+
+    expect(trigger).toHaveTextContent("业务规则");
+    expect(valueNodes).toHaveLength(1);
+    expect(valueNodes[0]).toHaveClass("flex-1");
+  });
+
   test("maps empty-string option values back to empty strings", async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();

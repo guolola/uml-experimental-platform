@@ -236,18 +236,17 @@ function SelectControl({
         className={className}
         aria-label={ariaLabel}
       >
-        <SelectValue aria-hidden="true" className="hidden">
-          {" "}
-        </SelectValue>
         <span
           data-slot="select-value"
           className={cn(
-            "min-w-0 truncate",
+            "min-w-0 flex-1",
             !selectedOption && "text-muted-foreground",
           )}
         >
-          {selectedOption?.label}
-          {!selectedOption && placeholder}
+          <span className="min-w-0 truncate">
+            {selectedOption?.label}
+            {!selectedOption && placeholder}
+          </span>
         </span>
       </SelectTrigger>
       <SelectContent className={contentClassName}>
