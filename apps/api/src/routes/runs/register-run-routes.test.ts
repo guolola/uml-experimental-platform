@@ -321,7 +321,6 @@ function createTestRunAccessGuard(
 async function createRunRouteTestApp(options?: {
   runAccessGuard?: RunAccessGuard;
   providerConfigs?: ReturnType<typeof createProviderConfigStore>;
-  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   resolveProjectName?: (projectId: string) => Promise<string | null | undefined>;
   providerUsageTracker?: ProviderUsageTracker;
   llmTransport?: LlmTransport;
@@ -341,7 +340,6 @@ async function createRunRouteTestApp(options?: {
 async function createRunRouteTestContext(options?: {
   runAccessGuard?: RunAccessGuard;
   providerConfigs?: ReturnType<typeof createProviderConfigStore>;
-  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   resolveProjectName?: (projectId: string) => Promise<string | null | undefined>;
   providerUsageTracker?: ProviderUsageTracker;
   llmTransport?: LlmTransport;
@@ -404,6 +402,18 @@ async function createRunRouteTestContext(options?: {
     } as RunEvent);
   };
 
+  app.addHook("preValidation", async (request) => {
+    if (!defaultProvider || !request.url.startsWith("/api/")) return;
+    const body = request.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) return;
+    const payload = body as { projectId?: unknown; providerSettings?: unknown };
+    if (typeof payload.projectId !== "string" || "providerSettings" in payload) return;
+    payload.providerSettings = {
+      providerConfigId: defaultProvider.id,
+      model: defaultProvider.defaultModel,
+    };
+  });
+
   registerRunRoutes({
     app,
     runs,
@@ -419,9 +429,6 @@ async function createRunRouteTestContext(options?: {
     addCodeDiagnostic: () => undefined,
     runAccessGuard: options?.runAccessGuard,
     providerConfigs: defaultProviderConfigs,
-    resolveProjectDefaultProviderConfig:
-      options?.resolveProjectDefaultProviderConfig ??
-      (defaultProvider ? async () => defaultProvider.id : undefined),
     resolveProjectName: options?.resolveProjectName,
     providerUsageTracker: options?.providerUsageTracker,
     generationUsage: options?.generationUsage,
@@ -1076,7 +1083,7 @@ test("project run starts can resolve managed provider config secrets", async () 
   await app.close();
 });
 
-test("project run starts derive provider settings from the project default config", async () => {
+test("project run rejects missing personal provider settings instead of using project defaults", async () => {
   let resolvedProviderSettings: ProviderSettings | null = null;
   const providerConfigs = createProviderConfigStore({
     baseUrlAllowlist: ["https://ai.comfly.org"],
@@ -1123,8 +1130,6 @@ test("project run starts derive provider settings from the project default confi
       "user-a": { start_runs: ["project-a"], view_runs: ["project-a"] },
     }),
     providerConfigs,
-    resolveProjectDefaultProviderConfig: async (projectId) =>
-      projectId === "project-a" ? provider.id : null,
   });
 
   const response = await app.inject({
@@ -1141,20 +1146,10 @@ test("project run starts derive provider settings from the project default confi
     },
   });
 
-  assert.equal(response.statusCode, 202);
-  assert.deepEqual(resolvedProviderSettings, {
-    apiBaseUrl: "https://ai.comfly.org",
-    apiKey: "sk-project-default",
-    model: "gpt-5.5",
-  });
-  const record = Array.from(runs.values())[0];
-  assert.deepEqual(
-    (record?.snapshot as { providerSettings?: unknown }).providerSettings,
-    {
-      providerConfigId: provider.id,
-      model: "gpt-5.5",
-    },
-  );
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /admin-managed provider config/i);
+  assert.equal(resolvedProviderSettings, null);
+  assert.equal(Array.from(runs.values()).length, 0);
 
   await app.close();
 });

@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AtomicRequirement,
   CodeRunSnapshot,
@@ -43,6 +43,21 @@ vi.mock("sonner", () => ({
     message: toastMessage,
   },
 }));
+
+function storeManagedUserSettings() {
+  localStorage.setItem(
+    "uml-lab-settings",
+    JSON.stringify({
+      providerConfigId: "provider-config-1",
+      defaultModel: "gpt-5.5",
+      providerModelOptions: ["gpt-5.5"],
+      imageModel: "nano-banana-pro",
+      fontSize: "md",
+      autoGenerate: false,
+      showStaleBanner: true,
+    }),
+  );
+}
 
 function GenerateRulesHarness() {
   const { generateRules } = useWorkspaceSession();
@@ -100,6 +115,15 @@ function createRequirementBaseline(
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  storeManagedUserSettings();
+  toastMessage.mockClear();
+});
+
+afterEach(() => {
+  localStorage.clear();
+});
 
 function createCodeRunSnapshot(
   overrides: Partial<CodeRunSnapshot> = {},

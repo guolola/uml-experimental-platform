@@ -1,7 +1,7 @@
 // Verifies the instruction document library keeps each generated DOCX visible.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   DocumentKind,
   DocumentLibraryItem,
@@ -184,7 +184,26 @@ function createControlledDocumentRepository() {
   return { repository, subscribers, complete };
 }
 
+function storeManagedUserSettings() {
+  localStorage.setItem(
+    "uml-lab-settings",
+    JSON.stringify({
+      providerConfigId: "provider-config-1",
+      defaultModel: "gpt-5.5",
+      providerModelOptions: ["gpt-5.5"],
+      imageModel: "nano-banana-pro",
+      fontSize: "md",
+      autoGenerate: false,
+      showStaleBanner: true,
+    }),
+  );
+}
+
 describe("InstructionDocumentsPage", () => {
+  beforeEach(() => {
+    storeManagedUserSettings();
+  });
+
   afterEach(() => {
     localStorage.clear();
     vi.clearAllMocks();

@@ -10,7 +10,7 @@ export function ProjectNewPage({ onNavigate }: { onNavigate: Navigate }) {
       <div>
         <h1>创建项目</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          项目名称、描述、可见性、课程/班级/team 和默认模型策略会提交到项目 API。
+          项目名称、描述、可见性和课程/班级/team 会提交到项目 API。
         </p>
       </div>
       <SectionCard>

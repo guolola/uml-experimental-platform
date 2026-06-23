@@ -1,7 +1,7 @@
 // Verifies sidebar navigation, diagram status trees, queued task visibility, and workspace tab interactions.
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
@@ -36,6 +36,21 @@ function SidebarDesignGenerationHarness() {
         生成设计类图
       </button>
     </>
+  );
+}
+
+function storeManagedUserSettings() {
+  localStorage.setItem(
+    "uml-lab-settings",
+    JSON.stringify({
+      providerConfigId: "provider-config-1",
+      defaultModel: "gpt-5.5",
+      providerModelOptions: ["gpt-5.5"],
+      imageModel: "nano-banana-pro",
+      fontSize: "md",
+      autoGenerate: false,
+      showStaleBanner: true,
+    }),
   );
 }
 
@@ -81,7 +96,12 @@ function SidebarSequenceGenerationHarness() {
 
 describe("SidebarMenu", () => {
   beforeEach(() => {
+    storeManagedUserSettings();
     vi.mocked(toast.message).mockClear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   it("renders the project workspace navigation root", async () => {

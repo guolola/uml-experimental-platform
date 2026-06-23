@@ -140,16 +140,6 @@ export function registerApiRoutes({
     providerConfigId: string | null;
   }> => {
     let input = readSnapshotProviderSettings(source);
-    if (!input && source.metadata?.projectId) {
-      const project = await authStore.getProject(source.metadata.projectId);
-      const providerConfigId = project?.defaultProviderConfigId ?? null;
-      if (providerConfigId) {
-        const config = await providerConfigs.get(providerConfigId);
-        if (config) {
-          input = { providerConfigId, model: config.defaultModel };
-        }
-      }
-    }
     if (!input) {
       return { input, resolved: null, providerConfigId: null };
     }
@@ -309,10 +299,6 @@ export function registerApiRoutes({
     runDocumentStagePipeline,
     addCodeDiagnostic,
     providerConfigs,
-    resolveProjectDefaultProviderConfig: async (projectId: string) => {
-      const project = await authStore.getProject(projectId);
-      return project?.defaultProviderConfigId ?? null;
-    },
     resolveProjectName: async (projectId: string) => {
       const project = await authStore.getProject(projectId);
       return project?.name ?? null;

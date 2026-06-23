@@ -448,7 +448,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
             <DialogHeader>
               <DialogTitle>创建项目</DialogTitle>
               <DialogDescription>
-                项目名称、描述、可见性和默认模型策略会提交到项目 API。
+                项目名称、描述、可见性和课程归属会提交到项目 API。
               </DialogDescription>
             </DialogHeader>
             <ProjectCreateForm onNavigate={onNavigate} />

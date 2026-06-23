@@ -5,9 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import { createWorkspaceRecord, withWorkspaceProviders } from "../../../test/workspace-test-utils";
 import {
-  loadUserSettings,
-} from "../../../shared/lib/user-settings";
-import {
   ProjectWorkspaceBanner,
   ProjectWorkspaceDrawer,
 } from "./user-platform-pages";
@@ -208,7 +205,7 @@ describe("ProjectWorkspaceDrawer", () => {
     expect(await screen.findByText("运行中 2")).toBeInTheDocument();
   });
 
-  it("constrains settings drawer content so long project and model text cannot overflow horizontally", async () => {
+  it("constrains settings drawer content and does not render project model policy", async () => {
     const projectId = stubProjectWorkspaceFetch();
 
     render(
@@ -226,14 +223,7 @@ describe("ProjectWorkspaceDrawer", () => {
     const body = await screen.findByTestId("project-workspace-drawer-body");
     expect(drawer).toHaveClass("overflow-x-hidden");
     expect(body).toHaveClass("overflow-x-hidden", "min-w-0");
-    const providerLabels = await screen.findAllByText(/goal-e2e comfly/u);
-    expect(providerLabels.some((label) => label.classList.contains("truncate"))).toBe(true);
-    const modelPolicyValue = providerLabels.find(
-      (label) => label.getAttribute("data-slot") === "select-value",
-    );
-    const modelPolicyTrigger = modelPolicyValue?.closest("button");
-    expect(modelPolicyTrigger).toBeTruthy();
-    expect(within(modelPolicyTrigger as HTMLElement).getAllByText(/goal-e2e comfly/u)).toHaveLength(1);
+    expect(screen.queryByText("默认模型策略")).not.toBeInTheDocument();
     const retentionValue = screen.getByText("手动归档", {
       selector: "[data-slot='select-value']",
     });
@@ -244,7 +234,7 @@ describe("ProjectWorkspaceDrawer", () => {
     expect(screen.queryByText(/gpt-5\.5-preview-with-long-model-name/u)).not.toBeInTheDocument();
   });
 
-  it("applies the saved project provider policy to local model settings", async () => {
+  it("saves project settings without writing a project provider policy", async () => {
     const user = userEvent.setup();
     const projectId = stubProjectWorkspaceFetch();
 
@@ -259,19 +249,18 @@ describe("ProjectWorkspaceDrawer", () => {
       ),
     );
 
-    expect(await screen.findAllByText(/goal-e2e comfly/u)).not.toHaveLength(0);
+    expect(await screen.findByLabelText("项目信息")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "保存项目设置" }));
 
     expect(await screen.findByText("项目设置已保存。")).toBeInTheDocument();
-    expect(loadUserSettings()).toMatchObject({
-      providerConfigId: "provider-long",
-      providerLabel: "OpenAI Compatible",
-      providerModelOptions: [
-        "gpt-5.5-preview-with-long-model-name",
-        "provider-native-long-model",
-      ],
-      defaultModel: "gpt-5.5-preview-with-long-model-name",
+    const fetchMock = vi.mocked(fetch);
+    const updateCall = fetchMock.mock.calls.find(([input, init]) => {
+      const url = new URL(String(input), "http://127.0.0.1:4101");
+      return url.pathname === `/api/projects/${projectId}` && init?.method === "PATCH";
     });
+    expect(JSON.parse(String(updateCall?.[1]?.body))).not.toHaveProperty(
+      "defaultProviderConfigId",
+    );
   });
 
   it("saves a manual project background from settings", async () => {
@@ -305,7 +294,7 @@ describe("ProjectWorkspaceDrawer", () => {
     });
   });
 
-  it("hides disabled project default providers and saves the user-default fallback", async () => {
+  it("does not render project default provider controls for unavailable old bindings", async () => {
     const user = userEvent.setup();
     const scopedProjectId = "project-with-very-long-drawer-values";
     const projectId = stubProjectWorkspaceFetch({
@@ -365,19 +354,11 @@ describe("ProjectWorkspaceDrawer", () => {
       ),
     );
 
-    expect(
-      await screen.findByText("当前项目默认 Provider 已不可用，保存后将跟随用户默认模型。"),
-    ).toBeInTheDocument();
-    const fallbackValue = screen.getByText("跟随用户默认模型", {
-      selector: "[data-slot='select-value']",
-    });
-    expect(fallbackValue).toBeInTheDocument();
+    expect(await screen.findByLabelText("项目信息")).toBeInTheDocument();
+    expect(screen.queryByText("默认模型策略")).not.toBeInTheDocument();
+    expect(screen.queryByText("当前项目默认 Provider 已不可用，保存后将跟随用户默认模型。")).not.toBeInTheDocument();
+    expect(screen.queryByText("跟随用户默认模型")).not.toBeInTheDocument();
     expect(screen.queryByText("已禁用 OpenAI 托管配置")).not.toBeInTheDocument();
-
-    await user.click(fallbackValue.closest("button") as HTMLElement);
-    expect(await screen.findByText("可用 OpenAI 托管配置")).toBeInTheDocument();
-    expect(screen.queryByText("已禁用 OpenAI 托管配置")).not.toBeInTheDocument();
-    await user.keyboard("{Escape}");
 
     await user.click(screen.getByRole("button", { name: "保存项目设置" }));
     await screen.findByText("项目设置已保存。");
@@ -387,9 +368,9 @@ describe("ProjectWorkspaceDrawer", () => {
       const url = new URL(String(input), "http://127.0.0.1:4101");
       return url.pathname === `/api/projects/${projectId}` && init?.method === "PATCH";
     });
-    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({
-      defaultProviderConfigId: null,
-    });
+    expect(JSON.parse(String(updateCall?.[1]?.body))).not.toHaveProperty(
+      "defaultProviderConfigId",
+    );
   });
 
   it("constrains member drawer cards and truncates long member identity text", async () => {

@@ -566,7 +566,7 @@ test("project governance actions require owner-level project settings permission
   await app.close();
 });
 
-test("project create and update persist academic binding and default provider metadata", async () => {
+test("project create and update persist academic binding and ignore default provider metadata", async () => {
   const { app, authStore } = await createTestApp();
   const owner = await registerUser({
     authStore,
@@ -595,7 +595,7 @@ test("project create and update persist academic binding and default provider me
   assert.equal(created.json().project.courseId, "course-1");
   assert.equal(created.json().project.classId, "class-1");
   assert.equal(created.json().project.teamId, "team-1");
-  assert.equal(created.json().project.defaultProviderConfigId, "provider-1");
+  assert.equal(created.json().project.defaultProviderConfigId, null);
   assert.equal(created.json().project.backgroundKey, "booking");
 
   const updated = await app.inject({
@@ -614,7 +614,7 @@ test("project create and update persist academic binding and default provider me
   assert.equal(updated.json().project.courseId, "course-2");
   assert.equal(updated.json().project.classId, null);
   assert.equal(updated.json().project.teamId, null);
-  assert.equal(updated.json().project.defaultProviderConfigId, "provider-2");
+  assert.equal(updated.json().project.defaultProviderConfigId, null);
   assert.equal(updated.json().project.backgroundKey, "quality_traceability");
 
   const automatic = await app.inject({

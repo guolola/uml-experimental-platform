@@ -12,10 +12,7 @@ import {
   buildAcademicBindingOptions,
   type AcademicBindingOption,
 } from "../lib/academic-binding";
-import {
-  platformApi,
-  type PlatformProviderConfig,
-} from "../services/platform-api";
+import { platformApi } from "../services/platform-api";
 import { ProjectBackgroundPicker } from "./project-background-picker";
 
 type Navigate = (path: string) => void;
@@ -73,11 +70,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
   ]);
   const [academicLoading, setAcademicLoading] = useState(true);
   const [academicStatus, setAcademicStatus] = useState("");
-  const [providerConfigs, setProviderConfigs] = useState<PlatformProviderConfig[]>([]);
-  const [providerLoading, setProviderLoading] = useState(true);
-  const [providerStatus, setProviderStatus] = useState("");
   const [visibility, setVisibility] = useState("team");
-  const [defaultModelPolicy, setDefaultModelPolicy] = useState("");
   const [backgroundKey, setBackgroundKey] = useState<ProjectBackgroundKey | null>(null);
   const [creating, setCreating] = useState(false);
   const [status, setStatus] = useState("");
@@ -101,25 +94,6 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
       .finally(() => {
         if (active) setAcademicLoading(false);
       });
-    setProviderLoading(true);
-    platformApi
-      .listProviderConfigs()
-      .then((response) => {
-        if (!active) return;
-        const activeConfigs = response.providerConfigs.filter(
-          (config) => config.status === "active",
-        );
-        setProviderConfigs(activeConfigs);
-        setDefaultModelPolicy(activeConfigs[0]?.id ?? "");
-        setProviderStatus(activeConfigs.length > 0 ? "" : "暂无可用托管 Provider。");
-      })
-      .catch((error) => {
-        if (!active) return;
-        setProviderStatus(error instanceof Error ? error.message : "托管 Provider 加载失败。");
-      })
-      .finally(() => {
-        if (active) setProviderLoading(false);
-      });
     return () => {
       active = false;
     };
@@ -138,10 +112,9 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         courseId: academicBinding.courseId,
         classId: academicBinding.classId,
         teamId: academicBinding.teamId,
-        defaultProviderConfigId: defaultModelPolicy || null,
         backgroundKey,
       });
-      setStatus("项目已保存课程/班级/team 归属和默认模型策略。");
+      setStatus("项目已保存课程/班级/team 归属。");
       window.setTimeout(() => onNavigate(`/projects/${response.project.id}`), 900);
     } catch (error) {
       setStatus(
@@ -228,28 +201,6 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
             )}
           </div>
         )}
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="default-model-policy">默认模型策略</Label>
-        <SelectControl
-          id="default-model-policy"
-          aria-label="默认模型策略"
-          value={defaultModelPolicy}
-          onValueChange={setDefaultModelPolicy}
-          disabled={providerLoading || providerConfigs.length === 0}
-          className="h-9"
-          options={[
-            {
-              value: "",
-              label: providerLoading ? "正在加载托管 Provider" : "暂不设置默认 Provider",
-            },
-            ...providerConfigs.map((config) => ({
-              value: config.id,
-              label: config.name,
-            })),
-          ]}
-        />
-        {providerStatus && <span className="text-xs text-muted-foreground">{providerStatus}</span>}
       </div>
       <div>
         <Button type="button" onClick={createProject} disabled={creating}>

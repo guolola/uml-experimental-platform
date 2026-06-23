@@ -57,7 +57,6 @@ export async function createProjectRunAction({
   runs,
   runAccessGuard,
   providerConfigs,
-  resolveProjectDefaultProviderConfig,
   providerUsageTracker,
   generationUsage,
   billingEntitlements,
@@ -73,7 +72,6 @@ export async function createProjectRunAction({
   runs: RunRecordStore;
   runAccessGuard: RunAccessResolver;
   providerConfigs?: ProviderConfigStore;
-  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   providerUsageTracker?: ProviderUsageTracker;
   generationUsage?: GenerationUsageService;
   billingEntitlements?: Pick<
@@ -107,7 +105,6 @@ export async function createProjectRunAction({
     providerSettings: providerSettingsInput,
     metadata,
     providerConfigs,
-    resolveProjectDefaultProviderConfig,
     request,
     reply,
   });
@@ -118,8 +115,6 @@ export async function createProjectRunAction({
   }
   const providerConfigId = await resolveProviderConfigIdForRun({
     providerSettings: providerSettingsInput,
-    metadata,
-    resolveProjectDefaultProviderConfig,
   });
   const taskType = taskTypeForRun(source);
   const generationLimitCheck = await checkGenerationUsageLimit({

@@ -3067,11 +3067,7 @@ describe("App shell routes", () => {
         "暂不绑定课程团队",
       );
     });
-    await waitFor(() => {
-      expect(getSelectTrigger("默认模型策略")).toHaveTextContent(
-        "课程 OpenAI 托管配置",
-      );
-    });
+    expect(screen.queryByText("默认模型策略")).not.toBeInTheDocument();
   });
 
   it("blocks the project workspace body when project access is forbidden", async () => {
@@ -3532,7 +3528,7 @@ describe("App shell routes", () => {
     expect(screen.queryByRole("button", { name: "上传新文档" })).not.toBeInTheDocument();
   });
 
-  it("creates projects with explicit binding, visibility, and provider state", async () => {
+  it("creates projects with explicit binding and visibility", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
     window.history.pushState({}, "", "/projects/new");
@@ -3546,11 +3542,7 @@ describe("App shell routes", () => {
       "软件学院 / 软件工程 2026 春 / 1 班 / Team A",
     );
     await user.click(screen.getByRole("button", { name: "课程班级可见" }));
-    await chooseSelectOption(
-      user,
-      await findSelectTrigger("默认模型策略"),
-      "课程 OpenAI 托管配置",
-    );
+    expect(screen.queryByText("默认模型策略")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "创建并进入项目" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -3565,13 +3557,12 @@ describe("App shell routes", () => {
           courseId: "course-software-2026-spring",
           classId: "class-software-2026-spring-1",
           teamId: "team-software-2026-a",
-          defaultProviderConfigId: "provider-config-1",
           backgroundKey: null,
         }),
       }),
     );
     expect(
-      await screen.findByText("项目已保存课程/班级/team 归属和默认模型策略。"),
+      await screen.findByText("项目已保存课程/班级/team 归属。"),
     ).toBeInTheDocument();
   });
 
