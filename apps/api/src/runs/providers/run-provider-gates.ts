@@ -42,38 +42,20 @@ export async function resolveProviderSettingsForRun({
   providerSettings,
   metadata,
   providerConfigs,
-  resolveProjectDefaultProviderConfig,
   request,
   reply,
 }: {
   providerSettings: ProviderSettingsInput | undefined;
   metadata: RunRecordMetadata | undefined;
   providerConfigs?: ProviderConfigStore;
-  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   request: FastifyRequest;
   reply: FastifyReply;
 }): Promise<ProviderSettings | null> {
   const isProjectRun = Boolean(metadata?.projectId);
 
   if (!providerSettings) {
-    if (!isProjectRun || !metadata?.projectId || !providerConfigs || !resolveProjectDefaultProviderConfig) {
-      reply.code(400);
-      return null;
-    }
-    const providerConfigId = await resolveProjectDefaultProviderConfig(metadata.projectId);
-    if (!providerConfigId) {
-      reply.code(400);
-      return null;
-    }
-    const providerConfig = await providerConfigs.get(providerConfigId);
-    if (!providerConfig) {
-      reply.code(400);
-      return null;
-    }
-    providerSettings = {
-      providerConfigId,
-      model: providerConfig.defaultModel,
-    };
+    reply.code(400);
+    return null;
   }
 
   if (isManagedProviderSettings(providerSettings)) {
@@ -132,17 +114,10 @@ function providerConfigIdFromSettings(providerSettings: ProviderSettingsInput | 
 
 export async function resolveProviderConfigIdForRun({
   providerSettings,
-  metadata,
-  resolveProjectDefaultProviderConfig,
 }: {
   providerSettings: ProviderSettingsInput | undefined;
-  metadata: RunRecordMetadata | undefined;
-  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
 }) {
-  const explicitProviderConfigId = providerConfigIdFromSettings(providerSettings);
-  if (explicitProviderConfigId) return explicitProviderConfigId;
-  if (!metadata?.projectId || !resolveProjectDefaultProviderConfig) return null;
-  return resolveProjectDefaultProviderConfig(metadata.projectId);
+  return providerConfigIdFromSettings(providerSettings);
 }
 
 export function snapshotProviderSettings(record: RunRecord) {

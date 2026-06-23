@@ -27,6 +27,21 @@ const managedProviderSettings = {
   model: "gpt-5.5",
 };
 
+function storeManagedUserSettings() {
+  localStorage.setItem(
+    "uml-lab-settings",
+    JSON.stringify({
+      providerConfigId: managedProviderSettings.providerConfigId,
+      defaultModel: managedProviderSettings.model,
+      providerModelOptions: [managedProviderSettings.model],
+      imageModel: "nano-banana-pro",
+      fontSize: "md",
+      autoGenerate: false,
+      showStaleBanner: true,
+    }),
+  );
+}
+
 function createCodeRunSnapshot(
   overrides: Partial<CodeRunSnapshot> = {},
 ): CodeRunSnapshot {
@@ -133,7 +148,7 @@ describe("createStartRunInput", () => {
     localStorage.clear();
   });
 
-  it("omits plaintext provider settings in production so project defaults can resolve server-side", () => {
+  it("requires a managed provider before starting generation", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -146,22 +161,12 @@ describe("createStartRunInput", () => {
       }),
     );
 
-    expect(createStartRunInput("生成 UML", ["usecase"])).toEqual({
-      requirementText: "生成 UML",
-      selectedDiagrams: ["usecase"],
-      requestedDiagrams: ["usecase"],
-      dependencyDiagrams: [],
-      rules: [],
-      contextModels: [],
-      contextRequirementModelTraceability: [],
-      analysisTargetUseCaseIds: [],
-      providerSettings: {
-        model: "gpt-5.5",
-      },
-    });
+    expect(() => createStartRunInput("生成 UML", ["usecase"])).toThrow(
+      "请先在个人设置中选择托管 Provider",
+    );
   });
 
-  it("ignores stale plaintext provider settings even when they are still in local storage", () => {
+  it("rejects stale plaintext provider settings even when they are still in local storage", () => {
     localStorage.setItem(
       "uml-lab-settings",
       JSON.stringify({
@@ -175,14 +180,9 @@ describe("createStartRunInput", () => {
       }),
     );
 
-    expect(createStartRunInput("生成 UML", ["usecase"])).toMatchObject({
-      providerSettings: {
-        model: "gpt-5.5",
-      },
-    });
-    expect(
-      createStartRunInput("生成 UML", ["usecase"]).providerSettings,
-    ).not.toHaveProperty("apiKey");
+    expect(() => createStartRunInput("生成 UML", ["usecase"])).toThrow(
+      "请先在个人设置中选择托管 Provider",
+    );
   });
 
   it("includes only managed provider config references when selected", () => {
@@ -193,6 +193,7 @@ describe("createStartRunInput", () => {
         apiBaseUrl: "https://ai.comfly.org",
         apiKey: "sk-stale",
         defaultModel: "gpt-5.5",
+        providerModelOptions: ["gpt-5.5"],
         fontSize: "md",
         autoGenerate: false,
         showStaleBanner: true,
@@ -213,7 +214,9 @@ describe("createStartRunInput", () => {
       JSON.stringify({
         apiBaseUrl: "https://ai.comfly.org",
         apiKey: "sk-demo",
+        providerConfigId: "provider-config-1",
         defaultModel: "gpt-5.5",
+        providerModelOptions: ["gpt-5.5"],
         imageModel: "nano-banana-pro",
         fontSize: "md",
         autoGenerate: false,
@@ -241,6 +244,7 @@ describe("createStartRunInput", () => {
 
     expect(input.existingFiles["/src/App.tsx"]).toContain("return null");
     expect(input.providerSettings).toMatchObject({
+      providerConfigId: "provider-config-1",
       model: "gpt-5.5",
     });
     expect(input.providerSettings).not.toHaveProperty("apiKey");
@@ -493,18 +497,7 @@ describe("createHttpWorkspaceRepository", () => {
   });
 
   it("adds project headers to project workspace run and document requests", async () => {
-    localStorage.setItem(
-      "uml-lab-settings",
-      JSON.stringify({
-        apiBaseUrl: "https://ai.comfly.org",
-        apiKey: "sk-demo",
-        defaultModel: "gpt-5.5",
-        imageModel: "nano-banana-pro",
-        fontSize: "md",
-        autoGenerate: false,
-        showStaleBanner: true,
-      }),
-    );
+    storeManagedUserSettings();
 
     class MockEventSource {
       onmessage: ((event: MessageEvent<string>) => void) | null = null;
@@ -690,6 +683,7 @@ describe("createHttpWorkspaceRepository", () => {
       requestedDiagrams: ["usecase"],
       dependencyDiagrams: [],
       analysisTargetUseCaseIds: [],
+      providerSettings: managedProviderSettings,
     });
     const startDocumentCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith("/api/document-runs"),
@@ -721,6 +715,7 @@ describe("createHttpWorkspaceRepository", () => {
     expect(startCodeBody).toEqual({
       projectId: "library-booking",
       generationMode: "continue",
+      providerSettings: managedProviderSettings,
     });
     expect(startCodeBody.existingFiles).toBeUndefined();
 
@@ -845,10 +840,12 @@ describe("createHttpWorkspaceRepository", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
+    storeManagedUserSettings();
 
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await repository.updateCodeDiagnostics?.([diagnostic]);
 
@@ -956,6 +953,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await repository.updateRequirementRules?.([updatedRule], {
       requirementBaseline: null,
@@ -1128,6 +1126,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await expect(
       repository.updateRequirementText("本地还没成功保存的需求"),
@@ -1198,6 +1197,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await expect(
       repository.updateRequirementRules?.([mappedRule], {
@@ -1272,6 +1272,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     const editedModel: DiagramModelSpec = {
       diagramKind: "usecase",
@@ -1390,6 +1391,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await expect(
       repository.saveDesignModelEdit!(
@@ -1411,6 +1413,7 @@ describe("createHttpWorkspaceRepository", () => {
       ),
     ).rejects.toThrow();
 
+    storeManagedUserSettings();
     await expect(
       repository.startCodeRun!(
         createStartCodeRunInput(
@@ -1492,6 +1495,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await repository.saveRequirementModelEdit!(
       "class",
@@ -1607,6 +1611,7 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
+    storeManagedUserSettings();
     await repository.loadWorkspace();
     await repository.saveRequirementModelEdit!(
       "class",
@@ -4247,7 +4252,7 @@ describe("createHttpWorkspaceRepository", () => {
     expect(requestBody.targetRuleIds).toEqual(["r1"]);
   });
 
-  it("omits unmanaged provider settings for requirement rule repairs", async () => {
+  it("keeps explicit provider settings for requirement rule repairs", async () => {
     const requirement = createAtomicRequirement();
     const baseline = createRequirementBaseline([requirement]);
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
@@ -4273,9 +4278,6 @@ describe("createHttpWorkspaceRepository", () => {
     const repository = createHttpWorkspaceRepository({
       projectId: "library-booking",
     });
-    const unmanagedProviderSettings = {
-      model: "qwen3.5-plus",
-    } as RepairRequirementRulesRequest["providerSettings"];
     await repository.repairRequirementRules?.({
       requirementText: "订单需求",
       rules: [
@@ -4288,12 +4290,12 @@ describe("createHttpWorkspaceRepository", () => {
       ],
       targetRuleIds: ["r1"],
       baseline,
-      providerSettings: unmanagedProviderSettings,
+      providerSettings: managedProviderSettings,
     });
 
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(requestBody.projectId).toBe("library-booking");
-    expect(requestBody.providerSettings).toBeUndefined();
+    expect(requestBody.providerSettings).toEqual(managedProviderSettings);
   });
 });
 

@@ -1565,11 +1565,11 @@ test("contracts describe user, session, admin, and account security DTOs", () =>
   );
 });
 
-test("project contracts carry academic binding and default provider metadata", () => {
+test("project contracts carry academic binding and deprecated default provider metadata", () => {
   const project = projectDtoSchema.parse({
     id: "project-1",
     name: "课程 UML 实验项目",
-    description: "绑定课程班级与默认模型策略",
+    description: "绑定课程班级",
     visibility: "team",
     status: "active",
     ownerUserId: "user-1",
@@ -1577,13 +1577,13 @@ test("project contracts carry academic binding and default provider metadata", (
     courseId: "course-1",
     classId: "class-1",
     teamId: "team-1",
-    defaultProviderConfigId: "provider-1",
+    defaultProviderConfigId: null,
     createdAt: "2026-05-22T00:00:00.000Z",
     updatedAt: "2026-05-22T00:00:00.000Z",
   });
 
   assert.equal(project.courseId, "course-1");
-  assert.equal(project.defaultProviderConfigId, "provider-1");
+  assert.equal(project.defaultProviderConfigId, null);
 
   const create = projectCreateRequestSchema.parse({
     name: project.name,

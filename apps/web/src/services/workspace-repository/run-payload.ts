@@ -3,12 +3,6 @@ type ProviderSettingsPresence = {
   providerConfigId?: string;
 };
 
-function shouldSendProviderSettings(
-  providerSettings?: ProviderSettingsPresence | null,
-) {
-  return Boolean(providerSettings?.providerConfigId?.trim());
-}
-
 export function snapshotErrorMessage(
   snapshot: { error?: { message?: string } | null },
   fallback: string,
@@ -19,9 +13,5 @@ export function snapshotErrorMessage(
 export function runPayloadWithoutUnmanagedProviderSettings<T extends object>(
   input: T & { providerSettings?: ProviderSettingsPresence | null },
 ) {
-  if (shouldSendProviderSettings(input.providerSettings)) {
-    return input;
-  }
-  const { providerSettings: _providerSettings, ...payload } = input;
-  return payload;
+  return input;
 }

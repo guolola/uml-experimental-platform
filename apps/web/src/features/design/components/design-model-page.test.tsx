@@ -1,7 +1,7 @@
 // Verifies design model page generation controls, traceability views, and stale diagram handling.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesignRunSnapshot } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
@@ -73,7 +73,30 @@ const prototypeModel = {
   relationships: [],
 };
 
+function storeManagedUserSettings() {
+  localStorage.setItem(
+    "uml-lab-settings",
+    JSON.stringify({
+      providerConfigId: "provider-config-1",
+      defaultModel: "gpt-5.5",
+      providerModelOptions: ["gpt-5.5"],
+      imageModel: "nano-banana-pro",
+      fontSize: "md",
+      autoGenerate: false,
+      showStaleBanner: true,
+    }),
+  );
+}
+
 describe("DesignModelPage", () => {
+  beforeEach(() => {
+    storeManagedUserSettings();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
   it("treats per-use-case analysis models as available requirement sources", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>

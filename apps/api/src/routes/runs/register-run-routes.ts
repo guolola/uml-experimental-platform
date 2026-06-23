@@ -226,7 +226,6 @@ export function registerRunRoutes({
   addCodeDiagnostic,
   runAccessGuard = defaultRunAccessGuard,
   providerConfigs,
-  resolveProjectDefaultProviderConfig,
   resolveProjectName,
   providerUsageTracker,
   generationUsage,
@@ -255,7 +254,6 @@ export function registerRunRoutes({
   ) => void;
   runAccessGuard?: RunAccessGuard;
   providerConfigs?: ProviderConfigStore;
-  resolveProjectDefaultProviderConfig?: (projectId: string) => Promise<string | null>;
   resolveProjectName?: (projectId: string) => Promise<string | null | undefined>;
   providerUsageTracker?: ProviderUsageTracker;
   generationUsage?: GenerationUsageService;
@@ -359,7 +357,6 @@ export function registerRunRoutes({
       providerSettings: input.providerSettings,
       metadata,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       request,
       reply,
     });
@@ -370,8 +367,6 @@ export function registerRunRoutes({
     }
     const providerConfigId = await resolveProviderConfigIdForRun({
       providerSettings: input.providerSettings,
-      metadata,
-      resolveProjectDefaultProviderConfig,
     });
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
@@ -430,7 +425,6 @@ export function registerRunRoutes({
       providerSettings: input.providerSettings,
       metadata,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       request,
       reply,
     });
@@ -442,8 +436,6 @@ export function registerRunRoutes({
     }
     const providerConfigId = await resolveProviderConfigIdForRun({
       providerSettings: input.providerSettings,
-      metadata,
-      resolveProjectDefaultProviderConfig,
     });
     const limitCheck = await checkProviderUsageLimit({
       usageTracker: providerUsageTracker,
@@ -538,7 +530,6 @@ export function registerRunRoutes({
       providerSettings: input.providerSettings,
       metadata,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       request,
       reply,
     });
@@ -549,8 +540,6 @@ export function registerRunRoutes({
     }
     const providerConfigId = await resolveProviderConfigIdForRun({
       providerSettings: input.providerSettings,
-      metadata,
-      resolveProjectDefaultProviderConfig,
     });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
@@ -681,7 +670,6 @@ export function registerRunRoutes({
       providerSettings: input.providerSettings,
       metadata,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       request,
       reply,
     });
@@ -692,8 +680,6 @@ export function registerRunRoutes({
     }
     const providerConfigId = await resolveProviderConfigIdForRun({
       providerSettings: input.providerSettings,
-      metadata,
-      resolveProjectDefaultProviderConfig,
     });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
@@ -811,7 +797,6 @@ export function registerRunRoutes({
       providerSettings: input.providerSettings,
       metadata,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       request,
       reply,
     });
@@ -822,8 +807,6 @@ export function registerRunRoutes({
     }
     const providerConfigId = await resolveProviderConfigIdForRun({
       providerSettings: input.providerSettings,
-      metadata,
-      resolveProjectDefaultProviderConfig,
     });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
@@ -955,7 +938,6 @@ export function registerRunRoutes({
       providerSettings: input.providerSettings,
       metadata,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       request,
       reply,
     });
@@ -966,8 +948,6 @@ export function registerRunRoutes({
     }
     const providerConfigId = await resolveProviderConfigIdForRun({
       providerSettings: input.providerSettings,
-      metadata,
-      resolveProjectDefaultProviderConfig,
     });
     const generationLimitCheck = await checkGenerationUsageLimit({
       generationUsage,
@@ -1288,7 +1268,6 @@ export function registerRunRoutes({
       runs,
       runAccessGuard,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       providerUsageTracker,
       generationUsage,
       billingEntitlements,
@@ -1321,7 +1300,6 @@ export function registerRunRoutes({
       runs,
       runAccessGuard,
       providerConfigs,
-      resolveProjectDefaultProviderConfig,
       providerUsageTracker,
       generationUsage,
       billingEntitlements,

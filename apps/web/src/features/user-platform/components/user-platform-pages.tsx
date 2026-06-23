@@ -35,15 +35,6 @@ import {
 } from "../../../shared/ui/dropdown-menu";
 import { cn } from "../../../shared/ui/utils";
 import {
-  loadUserSettings,
-  patchUserSettings,
-} from "../../../shared/lib/user-settings";
-import {
-  getProviderAllowedModels,
-  getProviderLabel,
-  resolveProviderModel,
-} from "../../../shared/lib/provider-config-models";
-import {
   ProjectGenerationTasksDrawerContent,
   ProjectWorkspaceActions,
 } from "../../workspace-shell/components/top-bar";
@@ -734,36 +725,6 @@ export function ProjectWorkspaceBanner({
   ).length;
   const [lineageOpen, setLineageOpen] = useState(false);
   const activeRuns = Math.max(activeServerRuns, activeGenerationTaskCount);
-  useEffect(() => {
-    const defaultProviderConfigId = overview.project?.defaultProviderConfigId;
-    if (!defaultProviderConfigId) return;
-    let active = true;
-    platformApi
-      .listProjectProviderConfigs(projectId)
-      .then((response) => {
-        if (!active) return;
-        const config = response.providerConfigs.find(
-          (item) => item.id === defaultProviderConfigId,
-        );
-        patchUserSettings({
-          providerConfigId: defaultProviderConfigId,
-          providerModelOptions: getProviderAllowedModels(config),
-          providerLabel: getProviderLabel(config),
-          defaultModel: resolveProviderModel(config, loadUserSettings().defaultModel),
-        });
-      })
-      .catch(() => {
-        if (!active) return;
-        patchUserSettings({
-          providerConfigId: defaultProviderConfigId,
-          providerModelOptions: [],
-          providerLabel: "",
-        });
-      });
-    return () => {
-      active = false;
-    };
-  }, [overview.project?.defaultProviderConfigId, projectId]);
   const shortcuts: Array<{ label: string; kind: ProjectDrawerKind; icon: typeof Settings }> = [
     { label: "项目设置", kind: "settings", icon: Settings },
     { label: "成员", kind: "members", icon: Users },

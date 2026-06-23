@@ -19,7 +19,7 @@ import type { RequirementRule } from "../../entities/requirement-rule/model";
 import { loadUserSettings } from "../../shared/lib/user-settings";
 
 export interface ProviderSettingsInput {
-  providerConfigId?: string;
+  providerConfigId: string;
   model: ProviderSettings["model"];
 }
 
@@ -103,18 +103,24 @@ function createProviderSettingsInput(): ProviderSettingsInput {
   const settings = loadUserSettings();
   const providerConfigId = settings.providerConfigId.trim();
   const model = settings.defaultModel.trim();
+  const providerModelOptions = settings.providerModelOptions
+    .map((option) => option.trim())
+    .filter(Boolean);
 
+  if (!providerConfigId) {
+    throw new Error("请先在个人设置中选择托管 Provider");
+  }
   if (!model) {
-    throw new Error("请先在设置中选择默认模型");
+    throw new Error("请先在个人设置中选择默认模型");
   }
-  if (providerConfigId) {
-    return {
-      providerConfigId,
-      model,
-    };
+  if (!providerModelOptions.includes(model)) {
+    throw new Error("默认模型必须来自当前托管 Provider 的模型目录");
   }
 
-  return { model };
+  return {
+    providerConfigId,
+    model,
+  };
 }
 
 export function createStartDesignRunInput(

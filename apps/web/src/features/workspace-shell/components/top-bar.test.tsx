@@ -42,8 +42,24 @@ vi.mock("sonner", () => {
 });
 
 afterEach(() => {
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
+
+function storeManagedUserSettings() {
+  localStorage.setItem(
+    "uml-lab-settings",
+    JSON.stringify({
+      providerConfigId: "provider-config-1",
+      defaultModel: "gpt-5.5",
+      providerModelOptions: ["gpt-5.5"],
+      imageModel: "nano-banana-pro",
+      fontSize: "md",
+      autoGenerate: false,
+      showStaleBanner: true,
+    }),
+  );
+}
 
 function TopBarHarness({
   currentRoute = "/projects/library-booking",
@@ -189,6 +205,7 @@ function TopBarRestoreCodeSkillHarness() {
 
 describe("TopBar", () => {
   beforeEach(() => {
+    storeManagedUserSettings();
     toastMessage.mockClear();
     toastSuccess.mockClear();
     toastError.mockClear();

@@ -6,12 +6,6 @@ import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Select, SelectContent, SelectControl, SelectItem, SelectTrigger } from "../../../shared/ui/select";
-import { loadUserSettings, patchUserSettings } from "../../../shared/lib/user-settings";
-import {
-  getProviderAllowedModels,
-  getProviderLabel,
-  resolveProviderModel,
-} from "../../../shared/lib/provider-config-models";
 import {
   ACADEMIC_BINDING_OPTIONS,
   academicBindingFromValue,
@@ -19,7 +13,6 @@ import {
 import {
   platformApi,
   type PlatformProject,
-  type PlatformProviderConfig,
 } from "../services/platform-api";
 import { ProjectBackgroundPicker } from "./project-background-picker";
 
@@ -43,16 +36,12 @@ export function ProjectSettings({
         option.teamId === project.teamId,
     )?.value ?? "unassigned",
   );
-  const [defaultProviderConfigId, setDefaultProviderConfigId] = useState(
-    project.defaultProviderConfigId ?? "user-default",
-  );
   const [backgroundKey, setBackgroundKey] = useState<ProjectBackgroundKey | null>(
     project.backgroundKey ?? null,
   );
   const [retentionPolicy, setRetentionPolicy] = useState(project.retentionPolicy ?? "manual");
   const [newOwnerUserId, setNewOwnerUserId] = useState("");
   const [currentProject, setCurrentProject] = useState(project);
-  const [providerConfigs, setProviderConfigs] = useState<PlatformProviderConfig[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -68,43 +57,17 @@ export function ProjectSettings({
           option.teamId === project.teamId,
       )?.value ?? "unassigned",
     );
-    setDefaultProviderConfigId(project.defaultProviderConfigId ?? "user-default");
     setBackgroundKey(project.backgroundKey ?? null);
     setRetentionPolicy(project.retentionPolicy ?? "manual");
     setNewOwnerUserId("");
     setCurrentProject(project);
   }, [project]);
 
-  useEffect(() => {
-    let active = true;
-    platformApi
-      .listProjectProviderConfigs(project.id)
-      .then((response) => {
-        if (!active) return;
-        setProviderConfigs(response.providerConfigs);
-      })
-      .catch(() => {
-        if (!active) return;
-        setProviderConfigs([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [project.id]);
-
-  const activeProviderConfigs = providerConfigs.filter((config) => config.status === "active");
-  const selectedProviderConfig = activeProviderConfigs.find((config) => config.id === defaultProviderConfigId);
-
   const saveProject = async () => {
     setMessage("");
     setError("");
     try {
       const academicBinding = academicBindingFromValue(courseTeam);
-      const activeDefaultProviderConfigId = activeProviderConfigs.some(
-        (config) => config.id === defaultProviderConfigId,
-      )
-        ? defaultProviderConfigId
-        : null;
       const response = await platformApi.updateProject(project.id, {
         name: name.trim(),
         description: description.trim() || null,
@@ -113,7 +76,6 @@ export function ProjectSettings({
         courseId: academicBinding.courseId,
         classId: academicBinding.classId,
         teamId: academicBinding.teamId,
-        defaultProviderConfigId: activeDefaultProviderConfigId,
         backgroundKey,
       });
       const retentionResponse = await platformApi.updateProjectRetentionPolicy(
@@ -121,17 +83,6 @@ export function ProjectSettings({
         retentionPolicy,
       );
       setCurrentProject({ ...response.project, retentionPolicy: retentionResponse.project.retentionPolicy });
-      const selectedConfig = providerConfigs.find(
-        (config) => config.id === response.project.defaultProviderConfigId,
-      );
-      if (selectedConfig) {
-        patchUserSettings({
-          providerConfigId: selectedConfig.id,
-          providerModelOptions: getProviderAllowedModels(selectedConfig),
-          providerLabel: getProviderLabel(selectedConfig),
-          defaultModel: resolveProviderModel(selectedConfig, loadUserSettings().defaultModel),
-        });
-      }
       setMessage("项目设置已保存。");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "项目设置保存失败。");
@@ -196,18 +147,12 @@ export function ProjectSettings({
     }
   };
 
-  const selectedProviderConfigLabel = selectedProviderConfig
-    ? selectedProviderConfig.name
-    : "跟随用户默认模型";
-  const hasUnavailableDefaultProvider =
-    defaultProviderConfigId !== "user-default" && !selectedProviderConfig;
   const retentionPolicyLabel =
     retentionPolicy === "semester_180_days"
       ? "保留到学期结束后 180 天"
       : retentionPolicy === "one_year_365_days"
         ? "保留一年"
         : "手动归档";
-  const providerOptions = activeProviderConfigs;
   const settingGridClass =
     layout === "drawer" ? "grid min-w-0 max-w-full gap-4 overflow-hidden" : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]";
   const sectionClass = layout === "drawer" ? "min-w-0 max-w-full overflow-hidden p-4" : "";
@@ -276,49 +221,6 @@ export function ProjectSettings({
                 { value: "public", label: "public" },
               ]}
             />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>默认模型策略</Label>
-            <Select
-              value={selectedProviderConfig ? defaultProviderConfigId : "user-default"}
-              onValueChange={setDefaultProviderConfigId}
-              disabled={!canManageProjectSettings}
-            >
-              <SelectTrigger className="min-w-0 max-w-full">
-                <span
-                  data-slot="select-value"
-                  className="min-w-0 truncate"
-                  title={selectedProviderConfigLabel}
-                >
-                  {selectedProviderConfigLabel}
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user-default">跟随用户默认模型</SelectItem>
-                {providerOptions.map((config) => (
-                  <SelectItem key={config.id} value={config.id}>
-                    <span
-                      className="block min-w-0 truncate"
-                      title={`${config.name} / ${config.provider}${
-                        config.defaultModel ? ` / ${config.defaultModel}` : ""
-                      }`}
-                    >
-                      {config.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {providerOptions.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                当前项目没有可选的服务端托管 Provider，将跟随用户默认模型。
-              </p>
-            )}
-            {hasUnavailableDefaultProvider && (
-              <p className="text-xs text-warning">
-                当前项目默认 Provider 已不可用，保存后将跟随用户默认模型。
-              </p>
-            )}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="settings-course-team">课程/班级/team</Label>

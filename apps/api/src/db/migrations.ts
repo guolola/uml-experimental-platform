@@ -959,6 +959,12 @@ begin
 end $$;
 `;
 
+export const clearProjectDefaultProviderConfigSql = `
+update projects
+set default_provider_config_id = null
+where default_provider_config_id is not null;
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -1035,6 +1041,10 @@ export const migrations = [
   {
     id: "019_enforce_provider_structured_output_capabilities",
     sql: providerStructuredOutputCapabilitiesEnforcementSql,
+  },
+  {
+    id: "020_clear_project_default_provider_config",
+    sql: clearProjectDefaultProviderConfigSql,
   },
 ] as const;
 

@@ -9,6 +9,7 @@ import {
   baseSchemaSql,
   billingCompatibilityColumnsSql,
   billingAndPaymentsSql,
+  clearProjectDefaultProviderConfigSql,
   migrationTableName,
   migrations,
   providerModelCapabilitiesEnforcementSql,
@@ -197,6 +198,21 @@ test("provider structured output capability enforcement deletes old capability r
   );
 });
 
+test("project default provider cleanup clears stale project bindings", () => {
+  assert.match(
+    clearProjectDefaultProviderConfigSql,
+    /update projects\s+set default_provider_config_id = null/is,
+  );
+  assert.match(
+    clearProjectDefaultProviderConfigSql,
+    /where default_provider_config_id is not null/i,
+  );
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /020_clear_project_default_provider_config/,
+  );
+});
+
 test("billing migration creates payment, entitlement, and reservation records", () => {
   for (const table of [
     "billing_skus",
@@ -313,6 +329,24 @@ test("migration runner applies structured output capability enforcement after pr
   assert.match(
     client.queries.join("\n"),
     /insert into schema_migrations \(id\) values \(\$1\).*019_enforce_provider_structured_output_capabilities/is,
+  );
+});
+
+test("migration runner applies project default provider cleanup after previous migrations", async () => {
+  const appliedMigrationIds = migrations
+    .filter(
+      (migration) => migration.id !== "020_clear_project_default_provider_config",
+    )
+    .map((migration) => migration.id);
+  const client = new FakeClient(new Set(appliedMigrationIds));
+
+  const applied = await runMigrations(client);
+
+  assert.deepEqual(applied, ["020_clear_project_default_provider_config"]);
+  assert.match(client.queries.join("\n"), /default_provider_config_id = null/i);
+  assert.match(
+    client.queries.join("\n"),
+    /insert into schema_migrations \(id\) values \(\$1\).*020_clear_project_default_provider_config/is,
   );
 });
 

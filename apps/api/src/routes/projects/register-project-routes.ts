@@ -122,7 +122,7 @@ export function registerProjectRoutes({
       courseId: input.courseId ?? null,
       classId: input.classId ?? null,
       teamId: input.teamId ?? null,
-      defaultProviderConfigId: input.defaultProviderConfigId ?? null,
+      defaultProviderConfigId: null,
       retentionPolicy: input.retentionPolicy ?? "manual",
       backgroundKey: input.backgroundKey ?? null,
     });
@@ -320,7 +320,10 @@ export function registerProjectRoutes({
       };
     }
     const input = parsedInput.data;
-    const project = await authStore.updateProject(projectId, input);
+    const project = await authStore.updateProject(projectId, {
+      ...input,
+      defaultProviderConfigId: null,
+    });
     if (!project) {
       reply.code(404);
       return { message: "Project not found" };

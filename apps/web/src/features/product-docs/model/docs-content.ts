@@ -145,7 +145,7 @@ const ARTICLE_MANIFEST = [
     recommendedPath: true,
     sourcePath: "../content/project-basics.md",
     tags: ["项目首页", "创建项目", "项目卡片", "项目入口"],
-    relatedArtifacts: ["项目", "成员权限", "默认模型策略", "运行历史"],
+    relatedArtifacts: ["项目", "成员权限", "个人模型设置", "运行历史"],
     screenshot: {
       src: "/help/images/docs-project-home.png",
       alt: "项目首页和项目卡片截图",
