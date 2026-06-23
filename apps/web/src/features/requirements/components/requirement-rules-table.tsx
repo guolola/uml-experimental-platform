@@ -273,7 +273,7 @@ export function RequirementRulesTable({
                               })
                             : undefined
                         }
-                        className="mx-auto h-7 w-[6.75rem] max-w-full rounded-md bg-background px-2 text-[11px] *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-center md:h-8 md:w-[7.5rem] md:text-xs"
+                        className="mx-auto h-7 w-auto min-w-[6.5rem] max-w-full rounded-md bg-background px-2 text-[11px] *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-center md:h-8 md:text-xs"
                         contentClassName="min-w-[8rem]"
                         aria-label={`需求类型 ${rule.id}`}
                         disabled={generating || !canEditRequirements}
@@ -284,22 +284,20 @@ export function RequirementRulesTable({
                       />
                     </td>
                     <td className="px-1.5 py-2 align-middle md:px-4 md:py-3">
-                      {displayRowState && (
-                        <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap md:gap-1.5">
-                          {hasHintDetails ? (
-                            <button
-                              type="button"
-                              className="inline-flex min-w-0 items-center gap-1 overflow-hidden rounded-md text-left transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40 md:gap-1.5"
-                              aria-label={`需求提示详情 ${rule.id}`}
-                              onClick={() => onOpenHintDetail(rule.id)}
-                            >
-                              {statusContent}
-                            </button>
-                          ) : (
-                            statusContent
-                          )}
-                        </div>
-                      )}
+                      <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap md:gap-1.5">
+                        {hasHintDetails ? (
+                          <button
+                            type="button"
+                            className="inline-flex min-w-0 items-center gap-1 overflow-hidden rounded-md text-left transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40 md:gap-1.5"
+                            aria-label={`需求提示详情 ${rule.id}`}
+                            onClick={() => onOpenHintDetail(rule.id)}
+                          >
+                            {statusContent}
+                          </button>
+                        ) : (
+                          statusContent
+                        )}
+                      </div>
                     </td>
                     <td className="min-w-0 px-1.5 py-2 align-middle md:px-6 md:py-3">
                       <input

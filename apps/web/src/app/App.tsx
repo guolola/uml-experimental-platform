@@ -50,7 +50,6 @@ import {
   ProjectWorkspaceBanner,
   useCurrentProjectOverview,
 } from "../features/user-platform/components/user-platform-pages";
-import { ManagedProviderSettingsSync } from "../features/user-platform/components/managed-provider-settings-sync";
 
 function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
   const meta = findShellRouteModule(route);
@@ -382,7 +381,6 @@ export function Shell() {
     <div className="flex h-screen h-[100dvh] min-h-[100svh] w-full flex-col overflow-hidden bg-background text-foreground">
       {protectedRoutePath ? (
         <AuthenticatedRoute routeKey={protectedRoutePath} onNavigate={navigate}>
-          <ManagedProviderSettingsSync />
           {guardedRouteContent}
         </AuthenticatedRoute>
       ) : (

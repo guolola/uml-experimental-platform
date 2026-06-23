@@ -1173,6 +1173,45 @@ describe("TextRequirementView", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows an edited status when a rule no longer has a derived requirement", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () =>
+        createWorkspaceRecord({
+          requirementText: "创建一个订单系统",
+          rules: [
+            createRule({
+              id: "r1",
+              text: "系统应提供订单提交能力。",
+            }),
+          ],
+          requirementBaseline: {
+            runId: "run-stale-rule",
+            sourceDocumentId: "inline-requirement",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            assumptions: [],
+            conflicts: [],
+            qualityReport: {
+              runId: "run-stale-rule",
+              status: "passed",
+              summary: "需求质量检查通过。",
+              issues: [],
+              blockingIssueIds: [],
+              reviewRequiredRequirementIds: [],
+            },
+            requirements: [],
+          },
+        }),
+      ),
+    });
+
+    render(withWorkspaceProviders(<TextRequirementView />, repository));
+
+    const row = await screen.findByRole("row", {
+      name: /r1.*系统应提供订单提交能力/u,
+    });
+    expect(within(row).getByText("已编辑")).toBeInTheDocument();
+  });
+
   it("does not expose single-rule repair actions from the requirement table", async () => {
     const startRun = vi.fn();
     const updateRequirementBaseline = vi.fn<
@@ -2473,7 +2512,8 @@ describe("TextRequirementView", () => {
     expect(firstRuleCell).toHaveClass("text-center");
     expect(typeCell).toHaveClass("text-center");
     expect(typeControl).toHaveClass(
-      "w-[6.75rem]",
+      "w-auto",
+      "min-w-[6.5rem]",
       "*:data-[slot=select-value]:justify-center",
     );
     expect(actionCell).toHaveClass("text-center");

@@ -23,6 +23,7 @@ let projectMembershipRole: "owner" | "editor" | "viewer";
 let loginApiMode: "failure" | "success" | "mfa-challenge" | "email-unverified";
 let authSessionMode: "authenticated" | "unauthenticated" | "offline";
 let accountMfaEnabled: boolean;
+let providerConfigFixtures: Array<Record<string, unknown>>;
 const projectUpdatedAt = "2026-05-22T02:00:00.000Z";
 const billingTestSkus = [
   {
@@ -315,6 +316,24 @@ describe("App shell routes", () => {
     loginApiMode = "failure";
     authSessionMode = "authenticated";
     accountMfaEnabled = false;
+    providerConfigFixtures = [
+      {
+        id: "provider-config-1",
+        name: "课程 OpenAI 托管配置",
+        provider: "openai",
+        baseUrl: "https://api.openai.example",
+        defaultModel: "gpt-5.5",
+        allowedModels: ["gpt-5.5", "gpt-5.4"],
+        maskedKey: "••••••••a91f",
+        status: "active",
+        riskState: "low",
+        quota: "unlimited",
+        lastUsedAt: null,
+        scopeType: "organization",
+        scopeId: "course-uml",
+        breakerState: "closed",
+      },
+    ];
     Object.defineProperty(Element.prototype, "hasPointerCapture", {
       configurable: true,
       value: vi.fn(() => false),
@@ -1341,24 +1360,7 @@ describe("App shell routes", () => {
           return new Response(
             JSON.stringify({
               generatedAt: "2026-05-22T02:00:00.000Z",
-              providerConfigs: [
-                {
-                  id: "provider-config-1",
-                  name: "课程 OpenAI 托管配置",
-                  provider: "openai",
-                  baseUrl: "https://api.openai.example",
-                  defaultModel: "gpt-5.5",
-                  allowedModels: ["gpt-5.5", "gpt-5.4"],
-                  maskedKey: "••••••••a91f",
-                  status: "active",
-                  riskState: "low",
-                  quota: "unlimited",
-                  lastUsedAt: null,
-                  scopeType: "organization",
-                  scopeId: "course-uml",
-                  breakerState: "closed",
-                },
-              ],
+              providerConfigs: providerConfigFixtures,
             }),
             {
               status: 200,
@@ -3600,10 +3602,12 @@ describe("App shell routes", () => {
     );
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
-    expect(loadUserSettings()).toMatchObject({
-      defaultModel: "gpt-5.5",
-      providerDefaultModelSeededFor: "provider-config-1",
+    await waitFor(() => {
+      expect(loadUserSettings()).toMatchObject({
+        providerConfigId: "provider-config-1",
+        defaultModel: "gpt-5.5",
+        providerDefaultModelSeededFor: "provider-config-1",
+      });
     });
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
     expect(screen.queryByRole("button", { name: "测试托管配置" })).not.toBeInTheDocument();
@@ -3653,6 +3657,106 @@ describe("App shell routes", () => {
         defaultModel: "gpt-5.5",
       });
     });
+  });
+
+  it("hydrates saved provider model catalogs when a project workspace is refreshed", async () => {
+    projectApiMode = "authenticated";
+    providerConfigFixtures = [
+      {
+        id: "provider-config-1",
+        name: "Nonelinear 模型网关",
+        provider: "nonelinear",
+        baseUrl: "https://api.nonelinear.com",
+        defaultModel: "qwen3.7-plus",
+        allowedModels: ["qwen3.7-plus", "qwen3.7-max"],
+        modelCapabilities: {
+          "qwen3.7-plus": {
+            id: "qwen3.7-plus",
+            supportsJsonSchema: false,
+            supportsJsonObject: true,
+            structuredOutputMode: "json_object",
+            modeLabel: "JSON 模式",
+          },
+        },
+        maskedKey: "sk-...7e6a",
+        status: "active",
+        riskState: "low",
+        quota: "unlimited",
+        lastUsedAt: null,
+        scopeType: "system",
+        scopeId: null,
+      },
+    ];
+    localStorage.setItem(
+      USER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        providerConfigId: "provider-config-1",
+        providerLabel: "Nonelinear",
+        providerModelOptions: [],
+        providerModelCapabilities: {},
+        defaultModel: "qwen3.7-plus",
+      }),
+    );
+    window.history.pushState({}, "", "/projects/library-booking");
+
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await waitForPlatformLoadingToExit();
+    expect(await screen.findByRole("heading", { name: "需求分析提取" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(loadUserSettings().providerModelOptions).toEqual([
+        "qwen3.7-plus",
+        "qwen3.7-max",
+      ]);
+    });
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "qwen3.7-plus" }).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("keeps model selection empty when no managed providers are available", async () => {
+    projectApiMode = "authenticated";
+    providerConfigFixtures = [];
+    window.history.pushState({}, "", "/projects/library-booking");
+
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await waitForPlatformLoadingToExit();
+    expect(await screen.findByRole("heading", { name: "需求分析提取" })).toBeInTheDocument();
+    expect(loadUserSettings().providerConfigId).toBe("");
+    expect(screen.getAllByRole("button", { name: "未选择模型" }).length).toBeGreaterThan(0);
+  });
+
+  it("clears stale provider settings when no active providers are available", async () => {
+    projectApiMode = "authenticated";
+    providerConfigFixtures = [];
+    localStorage.setItem(
+      USER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        providerConfigId: "deleted-provider",
+        providerLabel: "旧 Provider",
+        providerModelOptions: ["old-model"],
+        providerModelCapabilities: {
+          "old-model": { structuredOutputMode: "strict_json" },
+        },
+        defaultModel: "old-model",
+      }),
+    );
+    window.history.pushState({}, "", "/projects/library-booking");
+
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await waitForPlatformLoadingToExit();
+    expect(await screen.findByRole("heading", { name: "需求分析提取" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(loadUserSettings()).toMatchObject({
+        providerConfigId: "",
+        providerLabel: "",
+        providerModelOptions: [],
+        providerModelCapabilities: {},
+      });
+    });
+    expect(screen.getAllByRole("button", { name: "未选择模型" }).length).toBeGreaterThan(0);
   });
 
   it("blocks returning to the previous protected route after the session is cleared", async () => {

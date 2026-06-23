@@ -1,5 +1,11 @@
-// Keeps local model preferences hydrated from server-managed provider configs after login.
+// Keeps persisted model settings aligned with the server-managed provider catalog after login.
 import { useEffect } from "react";
+import {
+  DEFAULT_USER_SETTINGS,
+  loadUserSettings,
+  saveUserSettings,
+  type UserSettings,
+} from "../../../shared/lib/user-settings";
 import {
   getProviderAllowedModels,
   getProviderLabel,
@@ -8,12 +14,8 @@ import {
   sortProviderConfigsByScope,
 } from "../../../shared/lib/provider-config-models";
 import {
-  loadUserSettings,
-  saveUserSettings,
-  type UserSettings,
-} from "../../../shared/lib/user-settings";
-import {
   platformApi,
+  type PlatformAccountProfileResponse,
   type PlatformProviderConfig,
 } from "../services/platform-api";
 
@@ -22,8 +24,8 @@ function sameSettings(left: UserSettings, right: UserSettings) {
 }
 
 export function resolveManagedProviderSettingsSync(
-  current: UserSettings,
   providerConfigs: PlatformProviderConfig[],
+  current: UserSettings,
 ): UserSettings | null {
   const activeConfigs = sortProviderConfigsByScope(
     providerConfigs.filter((config) => config.status === "active"),
@@ -40,6 +42,7 @@ export function resolveManagedProviderSettingsSync(
       providerModelOptions: [],
       providerLabel: "",
       providerDefaultModelSeededFor: "",
+      defaultModel: DEFAULT_USER_SETTINGS.defaultModel,
     };
     return sameSettings(current, cleared) ? null : cleared;
   }
@@ -63,29 +66,36 @@ export function resolveManagedProviderSettingsSync(
   return sameSettings(current, next) ? null : next;
 }
 
-export function ManagedProviderSettingsSync() {
+export function ManagedProviderSettingsSync({
+  session,
+}: {
+  session: PlatformAccountProfileResponse | null;
+}) {
+  const userId = session?.user?.id ?? "";
+
   useEffect(() => {
+    if (!userId) return;
     let cancelled = false;
     platformApi
       .listProviderConfigs()
       .then((response) => {
         if (cancelled) return;
         const next = resolveManagedProviderSettingsSync(
-          loadUserSettings(),
           response.providerConfigs,
+          loadUserSettings(),
         );
         if (next) {
           saveUserSettings(next);
         }
       })
       .catch(() => {
-        // Settings remain editable through the dialog; route rendering should not fail on sync errors.
+        // Keep route rendering independent from catalog refresh failures.
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
 
   return null;
 }

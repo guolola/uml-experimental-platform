@@ -162,16 +162,22 @@ jobs:
           fi
 
       - name: Push deploy mirror
+        id: mirror_push
         env:
           DEPLOY_MIRROR_PUSH_URL: ${{ secrets.DEPLOY_MIRROR_PUSH_URL }}
         run: |
           set -euo pipefail
+          echo "used=false" >> "$GITHUB_OUTPUT"
           if [ -z "${DEPLOY_MIRROR_PUSH_URL:-}" ]; then
             echo "DEPLOY_MIRROR_PUSH_URL is not configured; skipping mirror push."
             exit 0
           fi
-          git push --force "$DEPLOY_MIRROR_PUSH_URL" \
-            "${GITHUB_SHA}:refs/heads/deploy-main"
+          if git push --force "$DEPLOY_MIRROR_PUSH_URL" \
+            "${GITHUB_SHA}:refs/heads/deploy-main"; then
+            echo "used=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::DEPLOY_MIRROR_PUSH_URL push failed; deploy will fall back to the GitHub repository."
+          fi
 
       - name: Configure SSH
         env:
@@ -208,6 +214,7 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/www/wwwroot/uml-platform' }}
           DEPLOY_REPO_URL: ${{ secrets.DEPLOY_REPO_URL }}
           DEPLOY_MIRROR_PUSH_URL: ${{ secrets.DEPLOY_MIRROR_PUSH_URL }}
+          DEPLOY_MIRROR_READY: ${{ steps.mirror_push.outputs.used }}
           FALLBACK_REPO_URL: https://github.com/${{ github.repository }}.git
         run: |
           set -euo pipefail
@@ -217,12 +224,15 @@ jobs:
           fi
           REPO_URL="${DEPLOY_REPO_URL:-$FALLBACK_REPO_URL}"
           SOURCE_REF="${GITHUB_REF_NAME}"
-          if [ -n "${DEPLOY_MIRROR_PUSH_URL:-}" ]; then
+          if [ "${DEPLOY_MIRROR_READY:-false}" = "true" ]; then
             if [ -z "${DEPLOY_REPO_URL:-}" ]; then
               echo "DEPLOY_REPO_URL is required when DEPLOY_MIRROR_PUSH_URL is configured." >&2
               exit 1
             fi
             SOURCE_REF="deploy-main"
+          elif [ -n "${DEPLOY_MIRROR_PUSH_URL:-}" ]; then
+            echo "Mirror push was not successful; falling back to GitHub repository for this deploy."
+            REPO_URL="$FALLBACK_REPO_URL"
           fi
           SSH_OPTIONS=(
             -o ServerAliveInterval=30
@@ -233,7 +243,7 @@ jobs:
           )
           ssh "${SSH_OPTIONS[@]}" -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' SOURCE_REF='$SOURCE_REF' REPO_URL='$REPO_URL' bash -s" <<'REMOTE_DEPLOY'
+            "DEPLOY_PATH='$DEPLOY_PATH' RELEASE_SHA='${GITHUB_SHA}' SOURCE_REF='$SOURCE_REF' FALLBACK_SOURCE_REF='${GITHUB_REF_NAME}' REPO_URL='$REPO_URL' FALLBACK_REPO_URL='$FALLBACK_REPO_URL' bash -s" <<'REMOTE_DEPLOY'
           set -Eeuo pipefail
 
           NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
@@ -300,9 +310,23 @@ jobs:
 
           log_deploy "Fetching $SOURCE_REF for release $RELEASE_SHA from $REPO_URL"
           git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
-          run_timed "git fetch $SOURCE_REF" \
+
+          fetch_source_ref() {
             git_network -C "$SOURCE_DIR" fetch --prune --depth=1 origin \
-            "+refs/heads/$SOURCE_REF:refs/remotes/origin/$SOURCE_REF"
+              "+refs/heads/$SOURCE_REF:refs/remotes/origin/$SOURCE_REF"
+          }
+
+          if ! run_timed "git fetch $SOURCE_REF" fetch_source_ref; then
+            if [ -n "${FALLBACK_REPO_URL:-}" ] && [ "$REPO_URL" != "$FALLBACK_REPO_URL" ]; then
+              log_deploy "Fetch from deploy repository failed; falling back to $FALLBACK_REPO_URL"
+              REPO_URL="$FALLBACK_REPO_URL"
+              SOURCE_REF="${FALLBACK_SOURCE_REF:-$SOURCE_REF}"
+              git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
+              run_timed "git fetch $SOURCE_REF from fallback repository" fetch_source_ref
+            else
+              exit 1
+            fi
+          fi
           if ! git -C "$SOURCE_DIR" cat-file -e "$RELEASE_SHA^{commit}" 2>/dev/null; then
             run_timed "git fetch release sha fallback" \
               git_network -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_SHA"
