@@ -20,6 +20,7 @@ import {
   buildRunArtifactSummary,
   calculateDurationMs,
   isGenerationTaskType,
+  readProviderConfigId,
   readProviderModel,
   snapshotErrorMessage,
   taskTypeForSnapshot,
@@ -118,14 +119,19 @@ export async function modelUsageByTask(
 export async function buildAdminRunDto(
   record: RunRecord,
   authStore: AuthStore,
-  options: { includeArtifactPreviews?: boolean } = {},
+  options: { includeArtifactPreviews?: boolean; providerConfigs?: ProviderConfigStore } = {},
 ) {
   const projectId = typeof record.metadata?.projectId === "string" ? record.metadata.projectId : null;
   const operatorId = typeof record.metadata?.userId === "string" ? record.metadata.userId : null;
+  const providerConfigId = readProviderConfigId(record.snapshot);
   const [project, operator] = await Promise.all([
     projectId ? authStore.getProject(projectId) : Promise.resolve(null),
     operatorId ? authStore.getUser(operatorId) : Promise.resolve(null),
   ]);
+  const providerConfig =
+    providerConfigId && options.providerConfigs
+      ? await options.providerConfigs.get(providerConfigId)
+      : null;
   const createdAt = record.metadata?.createdAt ?? null;
   const completedAt = record.metadata?.completedAt ?? null;
   return {
@@ -135,6 +141,11 @@ export async function buildAdminRunDto(
     errorMessage: snapshotErrorMessage(record.snapshot),
     taskType: taskTypeForSnapshot(record.snapshot),
     model: readProviderModel(record.snapshot) ?? record.metadata?.model ?? null,
+    providerConfigId,
+    providerName: providerConfig?.name ?? null,
+    provider: providerConfig?.provider ?? null,
+    providerScopeType: providerConfig?.scopeType ?? null,
+    providerStatus: providerConfig?.status ?? null,
     projectId,
     projectName: project?.name ?? null,
     operatorId,

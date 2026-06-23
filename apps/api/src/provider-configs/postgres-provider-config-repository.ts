@@ -669,6 +669,21 @@ export function createPostgresProviderConfigRepository({
       return result.rows[0] ? mapProviderRow(result.rows[0]) : null;
     },
 
+    async recordAudit(input: {
+      actor: string;
+      action: string;
+      target: string;
+      result: ProviderAuditLog["result"];
+    }) {
+      await audit({
+        actor: input.actor,
+        action: input.action,
+        targetId: null,
+        target: input.target,
+        result: input.result,
+      });
+    },
+
     async listAuditLogs() {
       const result = await db.query<AuditLogRow>(
         `

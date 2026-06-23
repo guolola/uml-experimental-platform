@@ -110,6 +110,12 @@ export interface ProviderConfigStore {
   markUsed(id: string): ProviderConfigView | null;
   recordFailure?(id: string): ProviderConfigView | null;
   resetBreaker?(id: string): ProviderConfigView | null;
+  recordAudit?(input: {
+    actor: string;
+    action: string;
+    target: string;
+    result: ProviderAuditLog["result"];
+  }): void | Promise<void>;
   listAuditLogs(): ProviderAuditLog[];
 }
 
@@ -466,6 +472,9 @@ export function createProviderConfigStore({
       closeBreaker(record.view);
       record.view.updatedAt = new Date().toISOString();
       return cloneView(record.view);
+    },
+    recordAudit(input) {
+      audit(input);
     },
     listAuditLogs() {
       return auditLogs.map((log) => ({ ...log }));

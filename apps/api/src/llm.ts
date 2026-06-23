@@ -176,6 +176,25 @@ async function normalizeOpenAiCompatibleErrorResponse(response: Response) {
   }
 }
 
+function blockProviderRedirectResponse(response: Response) {
+  if (response.status < 300 || response.status >= 400) return response;
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json");
+  return new Response(
+    JSON.stringify({
+      error: {
+        message:
+          "Provider request redirected; configure the final reviewed public HTTPS endpoint",
+      },
+    }),
+    {
+      status: 400,
+      statusText: "Provider Redirect Blocked",
+      headers,
+    },
+  );
+}
+
 function createOpenAiCompatibleClient({
   apiKey,
   baseURL,
@@ -191,7 +210,11 @@ function createOpenAiCompatibleClient({
     timeout: timeoutMs,
     maxRetries: 0,
     fetch: async (input, init) =>
-      normalizeOpenAiCompatibleErrorResponse(await fetch(input, init)),
+      normalizeOpenAiCompatibleErrorResponse(
+        blockProviderRedirectResponse(
+          await fetch(input, { ...init, redirect: "manual" }),
+        ),
+      ),
   });
   return {
     chat: {

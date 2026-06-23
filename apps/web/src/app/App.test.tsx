@@ -1348,7 +1348,7 @@ describe("App shell routes", () => {
                   provider: "openai",
                   baseUrl: "https://api.openai.example",
                   defaultModel: "gpt-5.5",
-                  allowedModels: ["gpt-5.5"],
+                  allowedModels: ["gpt-5.5", "gpt-5.4"],
                   maskedKey: "••••••••a91f",
                   status: "active",
                   riskState: "low",
@@ -3601,8 +3601,58 @@ describe("App shell routes", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(loadUserSettings().providerConfigId).toBe("provider-config-1");
+    expect(loadUserSettings()).toMatchObject({
+      defaultModel: "gpt-5.5",
+      providerDefaultModelSeededFor: "provider-config-1",
+    });
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
-    expect(screen.getByRole("button", { name: "测试托管配置" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "测试托管配置" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加供应商" })).toBeEnabled();
+  });
+
+  it("auto-selects the first active managed provider on protected routes", async () => {
+    projectApiMode = "authenticated";
+    window.history.pushState({}, "", "/projects/library-booking");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await waitForPlatformLoadingToExit();
+    await waitFor(() => {
+      expect(loadUserSettings()).toMatchObject({
+        providerConfigId: "provider-config-1",
+        providerLabel: "OpenAI",
+        providerModelOptions: ["gpt-5.5", "gpt-5.4"],
+        defaultModel: "gpt-5.5",
+      });
+    });
+  });
+
+  it("replaces a stale local provider with the first active managed provider", async () => {
+    projectApiMode = "authenticated";
+    localStorage.setItem(
+      USER_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        providerConfigId: "provider-stale",
+        providerLabel: "旧 Provider",
+        providerModelOptions: ["old-model"],
+        providerModelCapabilities: {},
+        defaultModel: "old-model",
+        imageModel: "gpt-image-2",
+        fontSize: "md",
+        autoGenerate: false,
+        showStaleBanner: true,
+      }),
+    );
+    window.history.pushState({}, "", "/projects/library-booking");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await waitForPlatformLoadingToExit();
+    await waitFor(() => {
+      expect(loadUserSettings()).toMatchObject({
+        providerConfigId: "provider-config-1",
+        providerModelOptions: ["gpt-5.5", "gpt-5.4"],
+        defaultModel: "gpt-5.5",
+      });
+    });
   });
 
   it("blocks returning to the previous protected route after the session is cleared", async () => {

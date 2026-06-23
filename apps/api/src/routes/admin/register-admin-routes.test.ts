@@ -2301,7 +2301,7 @@ test("admin run detail endpoint exposes readable run metadata and artifact summa
 
 test("admin run list classifies run kinds and returns readable summaries", async () => {
   const runs = createRunRecordStore();
-  const { app, authStore, cookie } = await createAdminRouteTestApp({ runs });
+  const { app, authStore, cookie, providerConfigs } = await createAdminRouteTestApp({ runs });
   const operator = authStore.createUser({
     email: "operator@example.com",
     displayName: "任务操作者",
@@ -2313,6 +2313,16 @@ test("admin run list classifies run kinds and returns readable summaries", async
     name: "任务项目",
     description: "四类任务归类测试",
     visibility: "private",
+  });
+  const provider = await providerConfigs.create({
+    name: "Admin readable provider",
+    provider: "openai",
+    baseUrl: "https://api.openai.com",
+    apiKey: "sk-run-provider-a91f",
+    defaultModel: "gpt-admin-readable",
+    allowedModels: ["gpt-admin-readable"],
+    createdBy: "admin",
+    scopeType: "system",
   });
   const snapshots: Array<{ snapshot: RunRecord["snapshot"]; expectedType: string; expectedTitle: string; createdAt: string }> = [
     {
@@ -2362,7 +2372,8 @@ test("admin run list classifies run kinds and returns readable summaries", async
   for (const { snapshot, createdAt } of snapshots) {
     snapshot.status = "completed";
     snapshot.currentStage = "completed";
-    (snapshot as unknown as { providerSettings?: { model: string } }).providerSettings = {
+    (snapshot as unknown as { providerSettings?: { providerConfigId: string; model: string } }).providerSettings = {
+      providerConfigId: provider.id,
       model: "gpt-admin-readable",
     };
     if ("models" in snapshot && "plantUml" in snapshot && "svgArtifacts" in snapshot) {
@@ -2412,6 +2423,10 @@ test("admin run list classifies run kinds and returns readable summaries", async
     id: string;
     taskType: string;
     model: string;
+    providerConfigId: string;
+    providerName: string;
+    provider: string;
+    providerScopeType: string;
     projectName: string;
     operatorName: string;
     durationMs: number;
@@ -2424,6 +2439,10 @@ test("admin run list classifies run kinds and returns readable summaries", async
     assert.ok(run);
     assert.equal(run.taskType, expectedType);
     assert.equal(run.model, "gpt-admin-readable");
+    assert.equal(run.providerConfigId, provider.id);
+    assert.equal(run.providerName, "Admin readable provider");
+    assert.equal(run.provider, "openai");
+    assert.equal(run.providerScopeType, "system");
     assert.equal(run.projectName, "任务项目");
     assert.equal(run.operatorName, "任务操作者");
     assert.equal(run.durationMs, 5_000);
@@ -3018,6 +3037,43 @@ test("provider configs mask keys and never read back plaintext secrets", async (
   assert.doesNotMatch(created.body, /sk-live-secret-a91f/);
   assert.doesNotMatch(listed.body, /sk-live-secret-a91f/);
   assert.equal(listed.json().providerConfigs[0].maskedKey, "sk-...a91f");
+
+  await app.close();
+});
+
+test("admin provider configs include user-owned providers with owner display metadata", async () => {
+  const { app, authStore, cookie, providerConfigs } = await createAdminRouteTestApp();
+  const owner = authStore.createUser({
+    email: "owner-provider@example.com",
+    displayName: "Owner Provider User",
+    passwordHash: hashPassword("password-123"),
+  });
+  assert.ok(owner);
+  const provider = await providerConfigs.create({
+    name: "Owner private gateway",
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com",
+    apiKey: "sk-owner-private-a91f",
+    defaultModel: "gpt-4.1",
+    createdBy: owner.id,
+    scopeType: "user",
+    scopeId: owner.id,
+  });
+
+  const listed = await app.inject({
+    method: "GET",
+    url: "/api/admin/provider-configs",
+    headers: { cookie },
+  });
+
+  assert.equal(listed.statusCode, 200);
+  const row = listed.json().providerConfigs.find((item: { id: string }) => item.id === provider.id);
+  assert.equal(row.scopeType, "user");
+  assert.equal(row.scopeId, owner.id);
+  assert.equal(row.scopeLabel, "用户：Owner Provider User");
+  assert.equal(row.ownerUserName, "Owner Provider User");
+  assert.equal(row.ownerUserEmail, "owner-provider@example.com");
+  assert.doesNotMatch(listed.body, /sk-owner-private-a91f/);
 
   await app.close();
 });

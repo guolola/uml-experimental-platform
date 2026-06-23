@@ -124,6 +124,13 @@ export function readProviderModel(snapshot: RunRecord["snapshot"]) {
     : null;
 }
 
+export function readProviderConfigId(snapshot: RunRecord["snapshot"]) {
+  const settings = asRecord(asRecord(snapshot).providerSettings);
+  return typeof settings.providerConfigId === "string" && settings.providerConfigId.trim()
+    ? settings.providerConfigId
+    : null;
+}
+
 export function taskTypeForSnapshot(snapshot: RunRecord["snapshot"]): AdminRunTaskType {
   if ("documentKind" in snapshot) return "document_generation";
   if ("files" in snapshot) return "code_generation";

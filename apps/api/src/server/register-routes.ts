@@ -235,7 +235,25 @@ export function registerApiRoutes({
     academicStore,
     runs,
   });
-  registerProviderConfigRoutes({ app, authStore, providerConfigs });
+  registerProviderConfigRoutes({
+    app,
+    authStore,
+    providerConfigs,
+    recordRiskEvent: (event) => {
+      riskEvents.unshift({
+        id: randomUUID(),
+        eventType: event.eventType,
+        severity: event.severity,
+        actorUserId: event.actorUserId,
+        projectId: event.projectId,
+        targetType: event.targetType,
+        targetId: event.targetId,
+        message: event.message,
+        metadata: event.metadata ?? {},
+        createdAt: new Date().toISOString(),
+      });
+    },
+  });
   registerSystemNoticeRoutes({
     app,
     authStore,

@@ -1,4 +1,5 @@
 // Builds admin provider telemetry and rate-limit read models for route callers.
+import type { AuthStore } from "../auth/in-memory-auth-store.js";
 import type { ProviderConfigStore } from "../provider-configs/provider-config-store.js";
 import type {
   ProviderRateLimitPolicy,
@@ -16,13 +17,44 @@ type RateLimitPolicyReader = {
 };
 
 export async function buildAdminProviderConfigListView({
+  authStore,
   providerConfigs,
 }: {
+  authStore: AuthStore;
   providerConfigs: ProviderConfigStore;
 }) {
+  const providerConfigRows = await providerConfigs.list();
+  const providerConfigDtos = await Promise.all(
+    providerConfigRows.map(async (config) => {
+      if (config.scopeType === "user" && config.scopeId) {
+        const owner = await authStore.getUser(config.scopeId);
+        return {
+          ...config,
+          scopeLabel: `用户：${owner?.displayName ?? config.scopeId}`,
+          ownerUserName: owner?.displayName ?? null,
+          ownerUserEmail: owner?.email ?? null,
+        };
+      }
+      if (config.scopeType === "project" && config.scopeId) {
+        const project = await authStore.getProject(config.scopeId);
+        return {
+          ...config,
+          scopeLabel: `项目：${project?.name ?? config.scopeId}`,
+          ownerUserName: null,
+          ownerUserEmail: null,
+        };
+      }
+      return {
+        ...config,
+        scopeLabel: "系统级",
+        ownerUserName: null,
+        ownerUserEmail: null,
+      };
+    }),
+  );
   return {
     generatedAt: new Date().toISOString(),
-    providerConfigs: await providerConfigs.list(),
+    providerConfigs: providerConfigDtos,
   };
 }
 

@@ -16,6 +16,11 @@ export type ProviderModelPolicy = {
   name?: string | null;
 };
 
+export type ProviderScopePolicy = {
+  name: string;
+  scopeType?: string | null;
+};
+
 const PROVIDER_LABELS: Record<string, string> = {
   "openai": "OpenAI",
   "openai-compatible": "OpenAI Compatible",
@@ -106,4 +111,28 @@ export function getProviderLabel(config: ProviderModelPolicy | null | undefined)
       .join(" ");
   }
   return config?.name?.trim() || "托管 Provider";
+}
+
+export function providerScopeLabel(config: ProviderScopePolicy) {
+  if (config.scopeType === "user") return "个人配置";
+  if (config.scopeType === "system") return "系统配置";
+  if (config.scopeType === "project") return "项目配置";
+  return "托管配置";
+}
+
+function providerScopePriority(config: ProviderScopePolicy) {
+  if (config.scopeType === "user") return 0;
+  if (config.scopeType === "system") return 1;
+  if (config.scopeType === "project") return 2;
+  return 3;
+}
+
+export function sortProviderConfigsByScope<T extends ProviderScopePolicy>(
+  configs: T[],
+) {
+  return [...configs].sort((left, right) => {
+    const priority = providerScopePriority(left) - providerScopePriority(right);
+    if (priority !== 0) return priority;
+    return left.name.localeCompare(right.name, "zh-Hans-CN");
+  });
 }

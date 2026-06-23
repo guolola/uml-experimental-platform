@@ -166,19 +166,19 @@ export function RequirementRulesTable({
         >
           <thead className="text-[11px] tracking-normal text-muted-foreground md:text-xs md:tracking-[0.02em]">
             <tr className="border-b border-border">
-              <th className="w-[34px] px-1.5 py-2 text-center font-medium md:w-[84px] md:px-6 md:py-4">
+              <th className="w-[32px] px-1.5 py-2 text-center font-medium md:w-[84px] md:px-6 md:py-4">
                 编号
               </th>
-              <th className="w-[78px] px-1.5 py-2 text-center font-medium md:w-48 md:px-4 md:py-4">
+              <th className="w-[112px] px-1.5 py-2 text-center font-medium md:w-48 md:px-4 md:py-4">
                 类型
               </th>
-              <th className="w-[92px] px-1.5 py-2 text-left font-medium md:w-52 md:px-4 md:py-4">
+              <th className="w-[84px] px-1.5 py-2 text-left font-medium md:w-52 md:px-4 md:py-4">
                 状态
               </th>
               <th className="px-1.5 py-2 text-left font-medium md:px-6 md:py-4">
                 需求文本内容（可编辑）
               </th>
-              <th className="w-[30px] px-1 py-2 text-center font-medium md:w-28 md:px-6 md:py-4">
+              <th className="w-[28px] px-1 py-2 text-center font-medium md:w-28 md:px-6 md:py-4">
                 操作
               </th>
             </tr>
@@ -202,10 +202,9 @@ export function RequirementRulesTable({
                 const qualityIssues = requirement
                   ? (qualityIssuesByRequirementId.get(requirement.id) ?? [])
                   : [];
-                const rowState = requirementRowState(
-                  requirement,
-                  qualityIssues,
-                );
+                const rowState = requirement
+                  ? requirementRowState(requirement, qualityIssues)
+                  : "已编辑";
                 const candidate = requirementReviewCandidates[rule.id];
                 const displayRowState = reviewCandidateStateLabel(
                   candidate,
@@ -274,7 +273,7 @@ export function RequirementRulesTable({
                               })
                             : undefined
                         }
-                        className="h-7 w-full min-w-0 rounded-md bg-background px-1 text-[11px] *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-center md:h-8 md:text-xs"
+                        className="mx-auto h-7 w-[6.75rem] max-w-full rounded-md bg-background px-2 text-[11px] *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-center md:h-8 md:w-[7.5rem] md:text-xs"
                         contentClassName="min-w-[8rem]"
                         aria-label={`需求类型 ${rule.id}`}
                         disabled={generating || !canEditRequirements}

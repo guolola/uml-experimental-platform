@@ -1,5 +1,5 @@
 // Verifies the global settings dialog information architecture and managed-provider flow.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
@@ -48,10 +48,45 @@ describe("SettingsDialog", () => {
     toastSuccess.mockClear();
     toastMessage.mockClear();
     toastError.mockClear();
+    let providerConfigs = [
+      {
+        id: "provider-system-siliconflow",
+        name: "系统级 SiliconFlow",
+        provider: "siliconflow",
+        baseUrl: "https://api.siliconflow.cn",
+        defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
+        allowedModels: ["deepseek-ai/DeepSeek-V4-Pro"],
+        maskedKey: "sk-...free",
+        status: "active",
+        riskState: "medium",
+        quota: "free-tier",
+        lastUsedAt: null,
+        scopeType: "system",
+        scopeId: null,
+        breakerState: "closed",
+      },
+      {
+        id: "provider-user-comfly",
+        name: "用户级 Comfly",
+        provider: "comfly",
+        baseUrl: "https://ai.comfly.org",
+        defaultModel: "gpt-5.4",
+        allowedModels: ["gpt-5.4"],
+        maskedKey: "sk-...paid",
+        status: "active",
+        riskState: "low",
+        quota: "paid-user",
+        lastUsedAt: null,
+        scopeType: "user",
+        scopeId: "user-1",
+        breakerState: "closed",
+      },
+    ];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        const method = init?.method?.toUpperCase() ?? "GET";
         if (url.includes("/api/auth/me")) {
           return Response.json({
             user: {
@@ -63,45 +98,71 @@ describe("SettingsDialog", () => {
             },
           });
         }
+        if (url.includes("/api/provider-configs/discover-models")) {
+          return Response.json({
+            models: [
+              {
+                id: "gpt-5.4",
+                object: "model",
+                category: "text_chat",
+                structuredOutputMode: "strict_json",
+                supportsJsonSchema: true,
+                supportsJsonObject: true,
+                strictJson: true,
+                modeLabel: "严格 JSON",
+                probeStatus: "strict",
+                probedAt: "2026-06-23T08:00:00.000Z",
+              },
+            ],
+            fetchedAt: "2026-06-23T08:00:00.000Z",
+            sourceBaseUrl: "https://api.nonelinear.com",
+            summary: {
+              rawCount: 1,
+              excludedByNameCount: 0,
+              chatProbeFailedCount: 0,
+              chatProbeUnknownCount: 0,
+              strictCount: 1,
+              jsonObjectCount: 0,
+              compatibleCount: 0,
+              unknownStrictCount: 0,
+            },
+          });
+        }
+        if (url.includes("/api/provider-configs/test-temporary")) {
+          return Response.json({ ok: true, message: "Provider connection ok" });
+        }
+        if (url.endsWith("/api/provider-configs") && method === "POST") {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            name: string;
+            baseUrl: string;
+            defaultModel: string;
+            allowedModels: string[];
+          };
+          const created = {
+            id: "provider-user-new",
+            name: body.name,
+            provider: "openai-compatible",
+            baseUrl: body.baseUrl,
+            defaultModel: body.defaultModel,
+            allowedModels: body.allowedModels,
+            maskedKey: "sk-...cret",
+            status: "active",
+            riskState: "medium",
+            quota: "user-managed",
+            lastUsedAt: null,
+            scopeType: "user",
+            scopeId: "user-1",
+            breakerState: "closed",
+          };
+          providerConfigs = [created, ...providerConfigs];
+          return Response.json(created, { status: 201 });
+        }
         if (url.includes("/api/provider-configs/provider-user-comfly/test")) {
           return Response.json({ ok: true, message: "Provider config ok" });
         }
         if (url.includes("/api/provider-configs")) {
           return Response.json({
-            providerConfigs: [
-              {
-                id: "provider-system-siliconflow",
-                name: "系统级 SiliconFlow",
-                provider: "siliconflow",
-                baseUrl: "https://api.siliconflow.cn",
-                defaultModel: "deepseek-ai/DeepSeek-V4-Pro",
-                allowedModels: ["deepseek-ai/DeepSeek-V4-Pro"],
-                maskedKey: "sk-...free",
-                status: "active",
-                riskState: "medium",
-                quota: "free-tier",
-                lastUsedAt: null,
-                scopeType: "system",
-                scopeId: null,
-                breakerState: "closed",
-              },
-              {
-                id: "provider-user-comfly",
-                name: "用户级 Comfly",
-                provider: "comfly",
-                baseUrl: "https://ai.comfly.org",
-                defaultModel: "gpt-5.4",
-                allowedModels: ["gpt-5.4"],
-                maskedKey: "sk-...paid",
-                status: "active",
-                riskState: "low",
-                quota: "paid-user",
-                lastUsedAt: null,
-                scopeType: "user",
-                scopeId: "user-1",
-                breakerState: "closed",
-              },
-            ],
+            providerConfigs,
           });
         }
         return Response.json({});
@@ -164,7 +225,7 @@ describe("SettingsDialog", () => {
     expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain("provider-user-comfly");
   });
 
-  it("tests the selected managed provider config through the API", async () => {
+  it("adds a private provider after discovery and temporary testing", async () => {
     const user = userEvent.setup();
     render(
       withWorkspaceProviders(
@@ -174,16 +235,97 @@ describe("SettingsDialog", () => {
     );
 
     expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加供应商" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "测试托管配置" })).not.toBeInTheDocument();
     vi.mocked(fetch).mockClear();
-    await user.click(screen.getByRole("button", { name: "测试托管配置" }));
+    await user.click(screen.getByRole("button", { name: "添加供应商" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "添加供应商" });
+    const dialogScope = within(dialog);
+    const testButton = dialogScope.getByRole("button", { name: "测试托管配置" });
+    const submitButton = dialogScope.getByRole("button", { name: "添加供应商" });
+    expect(testButton).toBeDisabled();
+    expect(submitButton).toBeDisabled();
+
+    await user.type(dialogScope.getByLabelText("名称"), "我的 Nonelinear");
+    await user.type(
+      dialogScope.getByLabelText("Base URL"),
+      "https://api.nonelinear.com",
+    );
+    await user.type(dialogScope.getByLabelText("API Key"), "sk-new-secret");
+    await user.click(dialogScope.getByRole("button", { name: "获取模型列表" }));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/api/provider-configs/provider-user-comfly/test"),
-        expect.objectContaining({ method: "POST", credentials: "include" }),
+      expect(
+        dialogScope.getByRole("combobox", { name: "新增供应商默认模型" }),
+      ).toHaveTextContent("gpt-5.4");
+    });
+    expect(testButton).toBeEnabled();
+    expect(submitButton).toBeDisabled();
+
+    await user.click(testButton);
+
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith("Provider connection ok");
+    });
+    expect(submitButton).toBeEnabled();
+
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith(
+        "供应商已添加并选中，点击保存后作为默认配置",
       );
     });
-    expect(toastSuccess).toHaveBeenCalledWith("Provider config ok");
+    expect(await screen.findByText("我的 Nonelinear（个人配置）")).toBeInTheDocument();
+    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY) ?? "").not.toContain(
+      "sk-new-secret",
+    );
+    const createCall = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-configs") &&
+          init?.method === "POST",
+      );
+    expect(createCall?.[1]?.body).toContain('"allowedModels":["gpt-5.4"]');
+  });
+
+  it("invalidates the add-provider test state when Base URL changes", async () => {
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <GlobalSettingsPanel active />,
+        createRepository(),
+      ),
+    );
+
+    expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "添加供应商" }));
+    const dialog = await screen.findByRole("dialog", { name: "添加供应商" });
+    const dialogScope = within(dialog);
+    const testButton = dialogScope.getByRole("button", { name: "测试托管配置" });
+    const submitButton = dialogScope.getByRole("button", { name: "添加供应商" });
+
+    await user.type(dialogScope.getByLabelText("名称"), "我的 Nonelinear");
+    await user.type(
+      dialogScope.getByLabelText("Base URL"),
+      "https://api.nonelinear.com",
+    );
+    await user.type(dialogScope.getByLabelText("API Key"), "sk-new-secret");
+    await user.click(dialogScope.getByRole("button", { name: "获取模型列表" }));
+    await waitFor(() => expect(testButton).toBeEnabled());
+    await user.click(testButton);
+    await waitFor(() => expect(submitButton).toBeEnabled());
+
+    await user.clear(dialogScope.getByLabelText("Base URL"));
+    await user.type(
+      dialogScope.getByLabelText("Base URL"),
+      "https://api.changed.example",
+    );
+
+    expect(testButton).toBeDisabled();
+    expect(submitButton).toBeDisabled();
   });
 
   it("requires a managed provider before choosing or saving the default model", async () => {
@@ -218,6 +360,7 @@ describe("SettingsDialog", () => {
     );
 
     expect(await screen.findByText("暂无可用托管 Provider 配置。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加供应商" })).toBeEnabled();
     expect(screen.getByRole("combobox", { name: "托管 Provider 配置" })).toHaveTextContent(
       "暂无可用托管 Provider 配置",
     );

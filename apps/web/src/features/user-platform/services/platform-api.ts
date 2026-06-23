@@ -1,6 +1,11 @@
 // Provides cookie-based user/project API calls for the first authenticated pages.
 import { buildApiUrl } from "../../../services/api-client";
-import type { DesignDiagramKind, DiagramKind, DocumentKind } from "@uml-platform/contracts";
+import type {
+  DesignDiagramKind,
+  DiagramKind,
+  DocumentKind,
+  ProviderModelDiscoveryResponse,
+} from "@uml-platform/contracts";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import type { RunHistorySnapshot } from "../../../entities/run-history";
 
@@ -751,6 +756,40 @@ export const platformApi = {
       projectId?: string;
       providerConfigs: PlatformProviderConfig[];
     }>(`/api/projects/${projectId}/provider-configs`);
+  },
+  discoverProviderModels(input: { baseUrl: string; apiKey: string }) {
+    return requestJson<ProviderModelDiscoveryResponse>(
+      "/api/provider-configs/discover-models",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    );
+  },
+  testTemporaryProviderConfig(input: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  }) {
+    return requestJson<{ ok?: boolean; message?: string }>(
+      "/api/provider-configs/test-temporary",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    );
+  },
+  createProviderConfig(input: {
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    defaultModel: string;
+    allowedModels: string[];
+  }) {
+    return requestJson<PlatformProviderConfig>("/api/provider-configs", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
   },
   testProviderConfig(providerConfigId: string, model?: string) {
     return requestJson<{ ok?: boolean; message?: string }>(

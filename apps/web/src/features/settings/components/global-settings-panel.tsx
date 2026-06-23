@@ -1,8 +1,18 @@
 // Renders global model and workspace preferences in either a dialog or an embedded settings tab.
-import { useEffect, useMemo, useState } from "react";
-import { KeyRound, Loader2, PlugZap, RotateCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { KeyRound, Loader2, Plus, PlugZap, RotateCw } from "lucide-react";
+import type { ProviderDiscoveredModel } from "@uml-platform/contracts";
 import { toast } from "sonner";
 import { Button } from "../../../shared/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
+import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Switch } from "../../../shared/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../shared/ui/select";
@@ -18,7 +28,9 @@ import {
   getProviderLabel,
   getProviderAllowedModels,
   getProviderModelCapabilities,
+  providerScopeLabel,
   resolveProviderModel,
+  sortProviderConfigsByScope,
 } from "../../../shared/lib/provider-config-models";
 import {
   platformApi,
@@ -32,26 +44,34 @@ type GlobalSettingsPanelProps = {
   onSaved?: () => void;
 };
 
-function providerScopeLabel(config: PlatformProviderConfig) {
-  if (config.scopeType === "user") return "个人配置";
-  if (config.scopeType === "system") return "系统配置";
-  if (config.scopeType === "project") return "项目配置";
-  return "托管配置";
-}
-
-function providerScopePriority(config: PlatformProviderConfig) {
-  if (config.scopeType === "user") return 0;
-  if (config.scopeType === "system") return 1;
-  if (config.scopeType === "project") return 2;
-  return 3;
-}
-
 function sortProviderConfigs(configs: PlatformProviderConfig[]) {
-  return [...configs].sort((left, right) => {
-    const priority = providerScopePriority(left) - providerScopePriority(right);
-    if (priority !== 0) return priority;
-    return left.name.localeCompare(right.name, "zh-Hans-CN");
-  });
+  return sortProviderConfigsByScope(configs);
+}
+
+type ProviderCreationForm = {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  defaultModel: string;
+};
+
+const EMPTY_PROVIDER_CREATION_FORM: ProviderCreationForm = {
+  name: "",
+  baseUrl: "",
+  apiKey: "",
+  defaultModel: "",
+};
+
+function buildTemporaryProviderSignature(
+  form: ProviderCreationForm,
+  modelIds: string[],
+) {
+  return JSON.stringify([
+    form.baseUrl.trim(),
+    form.apiKey,
+    form.defaultModel.trim(),
+    modelIds,
+  ]);
 }
 
 export function GlobalSettingsPanel({
@@ -65,7 +85,67 @@ export function GlobalSettingsPanel({
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [providerForm, setProviderForm] = useState<ProviderCreationForm>({
+    ...EMPTY_PROVIDER_CREATION_FORM,
+  });
+  const [discoveredModels, setDiscoveredModels] = useState<ProviderDiscoveredModel[]>([]);
+  const [discoveringModels, setDiscoveringModels] = useState(false);
+  const [testingTemporaryProvider, setTestingTemporaryProvider] = useState(false);
+  const [creatingProvider, setCreatingProvider] = useState(false);
+  const [testedProviderSignature, setTestedProviderSignature] = useState("");
+
+  const applyProviderConfigList = useCallback(
+    (configs: PlatformProviderConfig[], preferredProviderConfigId?: string) => {
+      const activeConfigs = sortProviderConfigs(
+        configs.filter((config) => config.status === "active"),
+      );
+      setProviderConfigs(activeConfigs);
+      setProviderStatus(
+        activeConfigs.length === 0 ? "暂无可用托管 Provider 配置。" : "",
+      );
+      setSettings((current) => {
+        const selected =
+          activeConfigs.find((config) => config.id === preferredProviderConfigId) ??
+          activeConfigs.find((config) => config.id === current.providerConfigId) ??
+          activeConfigs[0];
+        if (!selected) {
+          return {
+            ...current,
+            providerConfigId: "",
+            providerModelCapabilities: {},
+            providerModelOptions: [],
+            providerLabel: "",
+            providerDefaultModelSeededFor: "",
+          };
+        }
+        const shouldSeedProviderDefault =
+          selected.id !== current.providerConfigId ||
+          current.providerDefaultModelSeededFor !== selected.id;
+        return {
+          ...current,
+          providerConfigId: selected.id,
+          providerModelCapabilities: getProviderModelCapabilities(selected),
+          providerModelOptions: getProviderAllowedModels(selected),
+          providerLabel: getProviderLabel(selected),
+          providerDefaultModelSeededFor: selected.id,
+          defaultModel: shouldSeedProviderDefault
+            ? resolveProviderModel(selected, selected.defaultModel ?? "")
+            : resolveProviderModel(selected, current.defaultModel),
+        };
+      });
+    },
+    [],
+  );
+
+  const refreshProviderConfigs = useCallback(
+    async (preferredProviderConfigId?: string) => {
+      const response = await platformApi.listProviderConfigs();
+      applyProviderConfigList(response.providerConfigs, preferredProviderConfigId);
+      return response;
+    },
+    [applyProviderConfigList],
+  );
 
   useEffect(() => {
     if (!active) return;
@@ -76,50 +156,22 @@ export function GlobalSettingsPanel({
     let mounted = true;
     platformApi
       .me()
-      .then(() =>
-        platformApi
-          .listProviderConfigs()
-          .then((response) => {
-            if (!mounted) return;
-            const activeConfigs = sortProviderConfigs(
-              response.providerConfigs.filter((config) => config.status === "active"),
-            );
-            if (activeConfigs.length === 0) {
-              setProviderStatus("暂无可用托管 Provider 配置。");
-            }
-            setProviderConfigs(activeConfigs);
-            if (activeConfigs[0]) {
-              setSettings((current) => {
-                const selected =
-                  activeConfigs.find((config) => config.id === current.providerConfigId) ??
-                  activeConfigs[0];
-                return {
-                  ...current,
-                  providerConfigId: selected.id,
-                  providerModelCapabilities: getProviderModelCapabilities(selected),
-                  providerModelOptions: getProviderAllowedModels(selected),
-                  providerLabel: getProviderLabel(selected),
-                  defaultModel: resolveProviderModel(selected, current.defaultModel),
-                };
-              });
-            }
-          })
-          .catch((error) => {
-            if (!mounted) return;
-            if (error instanceof PlatformApiError && error.status === 403) {
-              setProviderStatus("当前账号没有托管 Provider 配置访问权限。");
-              return;
-            }
-            setProviderStatus(error instanceof Error ? error.message : "托管 Provider 加载失败。");
-          }),
-      )
+      .then(() => refreshProviderConfigs())
       .catch((error) => {
         if (!mounted) return;
-        setAuthRequired(true);
+        if (error instanceof PlatformApiError && error.status === 403) {
+          setProviderStatus("当前账号没有托管 Provider 配置访问权限。");
+          return;
+        }
+        setAuthRequired(
+          error instanceof PlatformApiError && error.status === 401,
+        );
         setProviderStatus(
           error instanceof PlatformApiError && error.status === 401
             ? "未登录时不能使用模型配置。"
-            : "无法校验登录状态，请先登录或确认 API 服务可用。",
+            : error instanceof Error
+              ? error.message
+              : "无法校验登录状态，请先登录或确认 API 服务可用。",
         );
       })
       .finally(() => {
@@ -128,7 +180,7 @@ export function GlobalSettingsPanel({
     return () => {
       mounted = false;
     };
-  }, [active]);
+  }, [active, refreshProviderConfigs]);
 
   const update = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) =>
     setSettings((current) => ({ ...current, [key]: value }));
@@ -149,6 +201,152 @@ export function GlobalSettingsPanel({
     : providerConfigs.length === 0
       ? "暂无可用托管 Provider 配置"
       : "请选择托管 Provider 配置";
+  const discoveredModelIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          discoveredModels
+            .map((model) => model.id.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [discoveredModels],
+  );
+  const currentProviderSignature = useMemo(
+    () => buildTemporaryProviderSignature(providerForm, discoveredModelIds),
+    [discoveredModelIds, providerForm],
+  );
+  const temporaryProviderTestPassed =
+    testedProviderSignature !== "" &&
+    testedProviderSignature === currentProviderSignature &&
+    discoveredModelIds.length > 0;
+  const canDiscoverModels = Boolean(
+    providerForm.baseUrl.trim() && providerForm.apiKey.trim(),
+  );
+  const canTestTemporaryProvider = Boolean(
+    canDiscoverModels &&
+      providerForm.defaultModel.trim() &&
+      discoveredModelIds.length > 0,
+  );
+  const canCreateProvider = Boolean(
+    providerForm.name.trim() &&
+      canTestTemporaryProvider &&
+      temporaryProviderTestPassed,
+  );
+
+  const resetProviderCreationForm = useCallback(() => {
+    setProviderForm({ ...EMPTY_PROVIDER_CREATION_FORM });
+    setDiscoveredModels([]);
+    setTestedProviderSignature("");
+  }, []);
+
+  const updateProviderCreationField = <K extends keyof ProviderCreationForm>(
+    key: K,
+    value: ProviderCreationForm[K],
+  ) => {
+    setProviderForm((current) => ({ ...current, [key]: value }));
+    if (key === "baseUrl" || key === "apiKey") {
+      setDiscoveredModels([]);
+    }
+    if (key !== "name") {
+      setTestedProviderSignature("");
+    }
+  };
+
+  const handleAddProviderOpenChange = (open: boolean) => {
+    setAddProviderOpen(open);
+    if (!open) {
+      resetProviderCreationForm();
+    }
+  };
+
+  const discoverModels = async () => {
+    if (!canDiscoverModels) {
+      toast.error("请先填写 Base URL 和 API Key");
+      return;
+    }
+    setDiscoveringModels(true);
+    setTestedProviderSignature("");
+    try {
+      const response = await platformApi.discoverProviderModels({
+        baseUrl: providerForm.baseUrl.trim(),
+        apiKey: providerForm.apiKey.trim(),
+      });
+      const models = response.models.filter((model) => model.id.trim());
+      setDiscoveredModels(models);
+      setProviderForm((current) => {
+        const modelIds = models.map((model) => model.id.trim()).filter(Boolean);
+        const currentDefault = current.defaultModel.trim();
+        return {
+          ...current,
+          defaultModel: modelIds.includes(currentDefault)
+            ? currentDefault
+            : modelIds[0] ?? "",
+        };
+      });
+      if (models.length === 0) {
+        toast.error("未发现可用模型");
+        return;
+      }
+      toast.success(`已获取 ${models.length} 个模型`);
+    } catch (error) {
+      setDiscoveredModels([]);
+      toast.error(error instanceof Error ? error.message : "获取模型列表失败");
+    } finally {
+      setDiscoveringModels(false);
+    }
+  };
+
+  const testTemporaryProvider = async () => {
+    if (!canTestTemporaryProvider) {
+      toast.error("请先获取模型列表并选择默认模型");
+      return;
+    }
+    setTestingTemporaryProvider(true);
+    setTestedProviderSignature("");
+    try {
+      const result = await platformApi.testTemporaryProviderConfig({
+        baseUrl: providerForm.baseUrl.trim(),
+        apiKey: providerForm.apiKey.trim(),
+        model: providerForm.defaultModel.trim(),
+      });
+      if (result.ok === false) {
+        toast.error(result.message ?? "连接测试失败");
+        return;
+      }
+      setTestedProviderSignature(currentProviderSignature);
+      toast.success(result.message ?? "托管配置连接成功");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "连接测试失败");
+    } finally {
+      setTestingTemporaryProvider(false);
+    }
+  };
+
+  const createProvider = async () => {
+    if (!canCreateProvider) {
+      toast.error("请先获取模型列表并通过托管配置测试");
+      return;
+    }
+    setCreatingProvider(true);
+    try {
+      const created = await platformApi.createProviderConfig({
+        name: providerForm.name.trim(),
+        baseUrl: providerForm.baseUrl.trim(),
+        apiKey: providerForm.apiKey.trim(),
+        defaultModel: providerForm.defaultModel.trim(),
+        allowedModels: discoveredModelIds,
+      });
+      await refreshProviderConfigs(created.id);
+      toast.success("供应商已添加并选中，点击保存后作为默认配置");
+      setAddProviderOpen(false);
+      resetProviderCreationForm();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "添加供应商失败");
+    } finally {
+      setCreatingProvider(false);
+    }
+  };
 
   const save = () => {
     try {
@@ -183,40 +381,6 @@ export function GlobalSettingsPanel({
     toast.message("已恢复默认值，记得点击保存");
   };
 
-  const testConnection = async () => {
-    setTesting(true);
-    try {
-      if (!settings.providerConfigId) {
-        toast.error("登录态必须测试托管 Provider 配置");
-        return;
-      }
-      if (!selectedProvider || selectedProviderModels.length === 0) {
-        toast.error("当前托管 Provider 没有可用模型");
-        return;
-      }
-      if (!selectedProviderModels.includes(resolvedDefaultModel)) {
-        toast.error("默认模型必须来自当前托管 Provider 的模型目录");
-        return;
-      }
-      const result = await platformApi.testProviderConfig(
-        settings.providerConfigId,
-        resolvedDefaultModel,
-      );
-      toast.success(result.message ?? "托管配置连接成功");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "连接测试失败");
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const canTest = Boolean(
-    settings.providerConfigId &&
-      selectedProvider &&
-      selectedProviderModels.length > 0 &&
-      selectedProviderModels.includes(resolvedDefaultModel),
-  );
-
   if (authRequired) {
     return (
       <div className="space-y-4">
@@ -239,9 +403,20 @@ export function GlobalSettingsPanel({
     <>
       <div className="space-y-5">
         <section className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
-          <div>
-            <h3 className="text-sm font-semibold">模型托管配置</h3>
-            <p className="text-xs text-muted-foreground">选择服务端托管 Provider 和默认模型。</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">模型托管配置</h3>
+              <p className="text-xs text-muted-foreground">选择服务端托管 Provider 和默认模型。</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setAddProviderOpen(true)}
+            >
+              <Plus className="size-4" />
+              添加供应商
+            </Button>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="managed-provider-config">托管 Provider 配置</Label>
@@ -258,8 +433,14 @@ export function GlobalSettingsPanel({
                     : {},
                   providerModelOptions: providerConfigId ? getProviderAllowedModels(config) : [],
                   providerLabel: providerConfigId ? getProviderLabel(config) : "",
+                  providerDefaultModelSeededFor: providerConfigId ? providerConfigId : "",
                   defaultModel: providerConfigId
-                    ? resolveProviderModel(config, current.defaultModel)
+                    ? resolveProviderModel(
+                        config,
+                        current.providerConfigId === providerConfigId
+                          ? current.defaultModel
+                          : config?.defaultModel ?? "",
+                      )
                     : current.defaultModel,
                 }));
               }}
@@ -396,20 +577,154 @@ export function GlobalSettingsPanel({
         </section>
       </div>
 
-      <ScaledToolbar className="mt-5" contentClassName="justify-end" minWidth={520}>
+      <ScaledToolbar className="mt-5" contentClassName="justify-end" minWidth={360}>
         <Button variant="ghost" onClick={reset}>
           <RotateCw className="size-4" />
           恢复默认
-        </Button>
-        <Button variant="outline" onClick={testConnection} disabled={testing || !canTest}>
-          {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-          测试托管配置
         </Button>
         <Button onClick={save}>
           <KeyRound className="size-4" />
           保存
         </Button>
       </ScaledToolbar>
+
+      <Dialog open={addProviderOpen} onOpenChange={handleAddProviderOpenChange}>
+        <DialogContent className="max-w-[720px]">
+          <DialogHeader>
+            <DialogTitle>添加供应商</DialogTitle>
+            <DialogDescription>
+              创建仅当前账号可用的模型供应商配置，密钥只会提交到后端保存。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="provider-create-name">名称</Label>
+              <Input
+                id="provider-create-name"
+                value={providerForm.name}
+                onChange={(event) =>
+                  updateProviderCreationField("name", event.target.value)
+                }
+                placeholder="例如：我的 SiliconFlow"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="provider-create-base-url">Base URL</Label>
+              <Input
+                id="provider-create-base-url"
+                value={providerForm.baseUrl}
+                onChange={(event) =>
+                  updateProviderCreationField("baseUrl", event.target.value)
+                }
+                placeholder="https://api.example.com"
+                spellCheck={false}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="provider-create-api-key">API Key</Label>
+              <Input
+                id="provider-create-api-key"
+                type="password"
+                value={providerForm.apiKey}
+                onChange={(event) =>
+                  updateProviderCreationField("apiKey", event.target.value)
+                }
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="provider-create-default-model">默认模型</Label>
+              <Select
+                value={providerForm.defaultModel || "__none__"}
+                onValueChange={(value) =>
+                  updateProviderCreationField(
+                    "defaultModel",
+                    value === "__none__" ? "" : value,
+                  )
+                }
+                disabled={discoveredModelIds.length === 0}
+              >
+                <SelectTrigger
+                  id="provider-create-default-model"
+                  aria-label="新增供应商默认模型"
+                  className="h-9"
+                >
+                  <SelectValue placeholder="请先获取模型列表" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__" disabled>
+                    请先获取模型列表
+                  </SelectItem>
+                  {discoveredModelIds.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {discoveredModelIds.length > 0 ? (
+                <span className="text-[11px] text-muted-foreground">
+                  已获取 {discoveredModelIds.length} 个模型
+                  {temporaryProviderTestPassed ? " · 测试已通过" : " · 等待测试"}
+                </span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">
+                  获取模型列表后才能测试和添加供应商。
+                </span>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="flex-wrap">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => handleAddProviderOpenChange(false)}
+              disabled={creatingProvider}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={discoverModels}
+              disabled={discoveringModels || testingTemporaryProvider || creatingProvider || !canDiscoverModels}
+            >
+              {discoveringModels ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RotateCw className="size-4" />
+              )}
+              获取模型列表
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={testTemporaryProvider}
+              disabled={discoveringModels || testingTemporaryProvider || creatingProvider || !canTestTemporaryProvider}
+            >
+              {testingTemporaryProvider ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PlugZap className="size-4" />
+              )}
+              测试托管配置
+            </Button>
+            <Button
+              type="button"
+              onClick={createProvider}
+              disabled={discoveringModels || testingTemporaryProvider || creatingProvider || !canCreateProvider}
+            >
+              {creatingProvider ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Plus className="size-4" />
+              )}
+              添加供应商
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

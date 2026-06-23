@@ -4,6 +4,7 @@ import {
   getProviderAllowedModels,
   getProviderLabel,
   resolveProviderModel,
+  sortProviderConfigsByScope,
 } from "./provider-config-models";
 
 describe("provider config model helpers", () => {
@@ -32,5 +33,17 @@ describe("provider config model helpers", () => {
     expect(getProviderLabel({ provider: "siliconflow" })).toBe("SiliconFlow");
     expect(getProviderLabel({ provider: "openai-compatible" })).toBe("OpenAI Compatible");
     expect(getProviderLabel({ provider: "custom_provider" })).toBe("Custom Provider");
+  });
+
+  it("sorts providers by user, system, project, then other scopes", () => {
+    expect(
+      sortProviderConfigsByScope([
+        { id: "project", name: "项目 Provider", scopeType: "project" },
+        { id: "other", name: "其他 Provider", scopeType: "organization" },
+        { id: "system", name: "系统 Provider", scopeType: "system" },
+        { id: "user-b", name: "用户 B", scopeType: "user" },
+        { id: "user-a", name: "用户 A", scopeType: "user" },
+      ]).map((config) => config.id),
+    ).toEqual(["user-a", "user-b", "system", "project", "other"]);
   });
 });

@@ -1799,6 +1799,7 @@ describe("TextRequirementView", () => {
     });
     expect(within(table).queryByText("修复失败待重试")).not.toBeInTheDocument();
     expect(within(table).queryByText("有待确认提示")).not.toBeInTheDocument();
+    expect(within(table).getByText("已编辑")).toBeInTheDocument();
   });
 
   it("shows repair candidates as before-after confirmation and accepts the repaired rule", async () => {
@@ -2444,8 +2445,12 @@ describe("TextRequirementView", () => {
       name: "操作",
     });
     expect(numberHeader).toHaveClass("text-center");
-    expect(typeHeader).toHaveClass("text-center");
-    expect(actionHeader).toHaveClass("text-center");
+    expect(numberHeader).toHaveClass("w-[32px]");
+    expect(typeHeader).toHaveClass("w-[112px]", "text-center");
+    expect(actionHeader).toHaveClass("w-[28px]", "text-center");
+    expect(within(table).getByRole("columnheader", { name: "状态" })).toHaveClass(
+      "w-[84px]",
+    );
     expect(
       within(table).getByRole("columnheader", { name: "状态" }),
     ).toBeInTheDocument();
@@ -2468,6 +2473,7 @@ describe("TextRequirementView", () => {
     expect(firstRuleCell).toHaveClass("text-center");
     expect(typeCell).toHaveClass("text-center");
     expect(typeControl).toHaveClass(
+      "w-[6.75rem]",
       "*:data-[slot=select-value]:justify-center",
     );
     expect(actionCell).toHaveClass("text-center");

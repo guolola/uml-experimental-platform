@@ -16,6 +16,7 @@ export type UserSettings = {
   >;
   providerModelOptions: string[];
   providerLabel: string;
+  providerDefaultModelSeededFor: string;
   defaultModel: string;
   imageModel: "gpt-image-2" | "gemini-3.1-flash-image-preview-2k" | "nano-banana-pro";
   fontSize: "sm" | "md" | "lg";
@@ -28,6 +29,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   providerModelCapabilities: {},
   providerModelOptions: [],
   providerLabel: "",
+  providerDefaultModelSeededFor: "",
   defaultModel: DEFAULT_MODEL_ID,
   imageModel: "gpt-image-2",
   fontSize: "md",
@@ -55,6 +57,10 @@ export function loadUserSettings(): UserSettings {
     next.providerModelOptions = sanitizedProviderModelOptions;
     next.providerLabel =
       typeof next.providerLabel === "string" ? next.providerLabel.trim() : "";
+    next.providerDefaultModelSeededFor =
+      typeof next.providerDefaultModelSeededFor === "string"
+        ? next.providerDefaultModelSeededFor.trim()
+        : "";
     const sanitizedProviderModelCapabilities =
       next.providerModelCapabilities &&
       typeof next.providerModelCapabilities === "object" &&
@@ -114,6 +120,7 @@ export function loadUserSettings(): UserSettings {
       next.providerModelOptions = [];
       next.providerLabel = "";
       next.providerModelCapabilities = {};
+      next.providerDefaultModelSeededFor = "";
     }
     if (next.providerConfigId) {
       next.providerModelCapabilities = sanitizedProviderModelCapabilities;
@@ -123,6 +130,7 @@ export function loadUserSettings(): UserSettings {
       providerModelCapabilities,
       providerModelOptions,
       providerLabel,
+      providerDefaultModelSeededFor,
       defaultModel,
       imageModel,
       fontSize,
@@ -134,6 +142,7 @@ export function loadUserSettings(): UserSettings {
       providerModelCapabilities,
       providerModelOptions,
       providerLabel,
+      providerDefaultModelSeededFor,
       defaultModel,
       imageModel,
       fontSize,

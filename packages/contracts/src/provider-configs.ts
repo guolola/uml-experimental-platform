@@ -306,3 +306,40 @@ export const providerConfigTestResponseSchema = z
 export type ProviderConfigTestResponse = z.infer<
   typeof providerConfigTestResponseSchema
 >;
+
+export const providerConfigSelfServiceCreateRequestSchema = z
+  .object({
+    name: z.string().trim().min(1),
+    provider: z.string().trim().min(1).optional(),
+    baseUrl: z.string().trim().min(1),
+    apiKey: z.string().trim().min(1),
+    defaultModel: z.string().trim().min(1),
+    allowedModels: z.array(z.string().trim().min(1)).optional(),
+    keyPurpose: z.string().trim().min(1).optional(),
+  })
+  .strict();
+export type ProviderConfigSelfServiceCreateRequest = z.infer<
+  typeof providerConfigSelfServiceCreateRequestSchema
+>;
+
+export const providerConfigSelfServiceUpdateRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    defaultModel: z.string().trim().min(1).optional(),
+    allowedModels: z.array(z.string().trim().min(1)).optional(),
+    keyPurpose: z.string().trim().min(1).optional(),
+  })
+  .strict();
+export type ProviderConfigSelfServiceUpdateRequest = z.infer<
+  typeof providerConfigSelfServiceUpdateRequestSchema
+>;
+
+export const providerConfigSelfServiceRotateRequestSchema = z
+  .object({
+    apiKey: z.string().trim().min(1),
+    model: z.string().trim().min(1).optional(),
+  })
+  .strict();
+export type ProviderConfigSelfServiceRotateRequest = z.infer<
+  typeof providerConfigSelfServiceRotateRequestSchema
+>;

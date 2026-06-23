@@ -8,6 +8,7 @@ import type {
   RunRecord,
   RunRecordStore,
 } from "../runs/records/run-record-store.js";
+import type { ProviderConfigStore } from "../provider-configs/provider-config-store.js";
 import { snapshotErrorMessage } from "../runs/records/admin-run-summaries.js";
 import type { AdminActor } from "../security/admin-guard.js";
 import {
@@ -21,6 +22,7 @@ type AdminRunReadInput = {
   authStore: AuthStore;
   actor: AdminActor;
   runs: RunRecordStore;
+  providerConfigs?: ProviderConfigStore;
 };
 
 function compareRunsNewestFirst(left: RunRecord, right: RunRecord) {
@@ -57,7 +59,11 @@ async function listVisibleAdminRunRecords({
 export async function listAdminRunDtos(input: AdminRunReadInput) {
   const visibleRuns = await listVisibleAdminRunRecords(input);
   return Promise.all(
-    visibleRuns.map((record) => buildAdminRunDto(record, input.authStore)),
+    visibleRuns.map((record) =>
+      buildAdminRunDto(record, input.authStore, {
+        providerConfigs: input.providerConfigs,
+      }),
+    ),
   );
 }
 
@@ -130,6 +136,7 @@ export async function getAdminRunDetail(input: AdminRunReadInput & { runId: stri
       run: {
         ...(await buildAdminRunDto(run, input.authStore, {
           includeArtifactPreviews: true,
+          providerConfigs: input.providerConfigs,
         })),
         id: run.snapshot.runId,
         status: run.snapshot.status,

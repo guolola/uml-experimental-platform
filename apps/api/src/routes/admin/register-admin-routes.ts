@@ -808,6 +808,7 @@ export function registerAdminRoutes({
       authStore,
       actor,
       runs,
+      providerConfigs,
     });
   });
 
@@ -826,6 +827,7 @@ export function registerAdminRoutes({
       authStore,
       actor,
       runs,
+      providerConfigs,
       runId: id,
     });
     reply.code(result.statusCode);
@@ -1129,7 +1131,7 @@ export function registerAdminRoutes({
       "admin.provider_configs.read",
     );
     if ("message" in actor) return actor;
-    return buildAdminProviderConfigListView({ providerConfigs });
+    return buildAdminProviderConfigListView({ providerConfigs, authStore });
   });
 
   app.post("/api/admin/provider-configs/discover-models", async (request, reply) => {
