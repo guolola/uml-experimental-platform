@@ -575,7 +575,7 @@ describe("buildLineageGraph", () => {
       (node) => node.id === "requirement-model:class",
     );
     expect(staleNode?.status).toBe("stale");
-    expect(staleNode?.reason).toContain("需求规则已修改");
+    expect(staleNode?.reason).toContain("需求规则或复核结果已变化");
     expect(
       graph.edges.find(
         (edge) =>
