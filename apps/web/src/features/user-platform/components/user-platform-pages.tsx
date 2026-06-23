@@ -57,6 +57,7 @@ import {
   useLoadingTransition,
 } from "./platform-loading-screen";
 import { AuthenticatedRouteSessionProvider } from "./authenticated-route-session";
+import { ManagedProviderSettingsSync } from "./managed-provider-settings-sync";
 import { ProjectDocuments } from "./project-documents";
 import { ProjectHistory } from "./project-history";
 import { ProjectMembers } from "./project-members";
@@ -352,6 +353,7 @@ function AuthenticatedRouteContent({
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <AuthenticatedRouteSessionProvider value={authSession}>
+        <ManagedProviderSettingsSync session={authSession} />
         {children}
       </AuthenticatedRouteSessionProvider>
       {loadingTransition.visible && loadingTransition.phase !== "hidden" && (
