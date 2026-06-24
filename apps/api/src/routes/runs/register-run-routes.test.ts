@@ -18,7 +18,10 @@ import type {
   RunSnapshot,
   SvgArtifact,
 } from "@uml-platform/contracts";
-import { snapshotInputFingerprint } from "@uml-platform/contracts";
+import {
+  designInputFingerprint,
+  snapshotInputFingerprint,
+} from "@uml-platform/contracts";
 import type { LlmTransport } from "../../llm.js";
 import {
   createInMemoryLlmScheduler,
@@ -288,6 +291,13 @@ function createProjectWorkspaceState(svg = "<svg><text>sequence</text></svg>") {
     },
     designSvgArtifacts: {
       "sequence:view": workspaceDesignSvg(svg),
+    },
+    generatedDesignDiagramTypes: ["sequence"],
+    designInputFingerprints: {
+      "sequence:view": designInputFingerprint(
+        [minimalUseCaseModel],
+        workspaceRequirementTraceability,
+      ),
     },
     codeFiles: {
       "/src/App.tsx": "export default function App() { return <main>活动日历</main>; }",
@@ -2732,6 +2742,14 @@ test("project start commands reject pending requirement review candidates before
       url: "/api/document-runs",
       payload: {
         projectId: "project-a",
+        documentKind: "requirementsSpec",
+        useAiText: false,
+      },
+    },
+    {
+      url: "/api/document-runs",
+      payload: {
+        projectId: "project-a",
         documentKind: "softwareDesignSpec",
         useAiText: false,
       },
@@ -2752,6 +2770,109 @@ test("project start commands reject pending requirement review candidates before
   assert.equal(runs.size, 0);
 
   await app.close();
+});
+
+test("project-scoped generation commands reject incomplete workspace state before queuing", async () => {
+  const cases = [
+    {
+      label: "requirements without requirement source",
+      state: {
+        ...createProjectWorkspaceState(),
+        requirementText: "   ",
+      },
+      url: "/api/runs",
+      payload: {
+        projectId: "project-a",
+        selectedDiagrams: ["usecase"],
+      },
+      message: /需求源为空/u,
+    },
+    {
+      label: "design without requirement traceability",
+      state: {
+        ...createProjectWorkspaceState(),
+        requirementModelTraceability: [],
+      },
+      url: "/api/design-runs",
+      payload: {
+        projectId: "project-a",
+        selectedDiagrams: ["sequence"],
+      },
+      message: /需求模型缺少元素级映射/u,
+    },
+    {
+      label: "code without design models",
+      state: {
+        ...createProjectWorkspaceState(),
+        designModels: {},
+        designPlantUml: {},
+        designSvgArtifacts: {},
+        generatedDesignDiagramTypes: [],
+      },
+      url: "/api/code-runs",
+      payload: {
+        projectId: "project-a",
+        generationMode: "continue",
+      },
+      message: /缺少设计模型/u,
+    },
+    {
+      label: "code with generated design missing metadata",
+      state: {
+        ...createProjectWorkspaceState(),
+        designInputFingerprints: {},
+        designPlantUml: {},
+      },
+      url: "/api/code-runs",
+      payload: {
+        projectId: "project-a",
+        generationMode: "continue",
+      },
+      message: /设计模型已生成但链路元数据不完整/u,
+    },
+    {
+      label: "requirements spec without requirement PlantUML",
+      state: {
+        ...createProjectWorkspaceState(),
+        plantUml: {},
+      },
+      url: "/api/document-runs",
+      payload: {
+        projectId: "project-a",
+        documentKind: "requirementsSpec",
+        useAiText: false,
+      },
+      message: /需求模型缺少 PlantUML/u,
+    },
+  ];
+
+  for (const entry of cases) {
+    const { app, runs } = await createRunRouteTestContext({
+      completeRuns: false,
+      runAccessGuard: createTestRunAccessGuard({
+        "user-a": {
+          start_runs: ["project-a"],
+          manage_documents: ["project-a"],
+        },
+      }),
+      loadProjectWorkspace: async () => ({ state: entry.state }),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: entry.url,
+      headers: {
+        "x-test-user-id": "user-a",
+      },
+      payload: entry.payload,
+    });
+
+    assert.equal(response.statusCode, 409, entry.label);
+    assert.match(response.json().message, entry.message);
+    assert.equal(runs.size, 0, entry.label);
+
+    await app.close();
+  }
 });
 
 test("project design start command filters old records for the replacing design kind", async () => {
@@ -3091,6 +3212,47 @@ test("project code and document start commands build run inputs from workspace",
   await app.close();
 });
 
+test("project software design document command rejects incomplete design chain metadata", async () => {
+  let documentPipelineCalled = false;
+  const brokenState = {
+    ...createProjectWorkspaceState(),
+    designModelTraceability: [],
+    designInputFingerprints: {},
+  };
+  const { app } = await createRunRouteTestContext({
+    completeRuns: false,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": {
+        start_runs: ["project-a"],
+        manage_documents: ["project-a"],
+      },
+    }),
+    loadProjectWorkspace: async () => ({ state: brokenState }),
+    runDocumentStagePipeline: async () => {
+      documentPipelineCalled = true;
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/document-runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      documentKind: "softwareDesignSpec",
+      useAiText: false,
+    },
+  });
+
+  assert.equal(response.statusCode, 409, response.body);
+  assert.match(response.json().message, /完整且新鲜的设计链路/);
+  assert.equal(documentPipelineCalled, false);
+
+  await app.close();
+});
+
 test("offline demo project start commands complete fixed artifacts without provider usage", async () => {
   const demoProjectId = "project-library-seat-demo";
   const previousDemoProjects = process.env.UML_DEMO_OFFLINE_PROJECT_IDS;
@@ -3356,7 +3518,7 @@ test("offline demo project name patterns do not affect unmatched projects", asyn
   }
 });
 
-test("project start commands return 400 when required workspace context is missing", async () => {
+test("project start commands reject missing workspace generation context before queuing", async () => {
   const app = await createRunRouteTestApp({
     runAccessGuard: createTestRunAccessGuard({
       "user-a": {
@@ -3381,8 +3543,8 @@ test("project start commands return 400 when required workspace context is missi
     },
   });
 
-  assert.equal(response.statusCode, 400);
-  assert.match(response.json().message, /designModels/);
+  assert.equal(response.statusCode, 409);
+  assert.match(response.json().message, /缺少需求模型/);
 
   await app.close();
 });

@@ -270,7 +270,7 @@ test("project workspace save reports invalid source run ids as bad requests", as
   await app.close();
 });
 
-test("project workspace restore applies a completed design run snapshot server-side", async () => {
+test("project workspace restore rejects completed design snapshots without changing workspace", async () => {
   const runs = createRunRecordStore();
   const { app, authStore } = await createTestApp(undefined, runs);
   const owner = await registerUser({
@@ -442,6 +442,7 @@ test("project workspace restore applies a completed design run snapshot server-s
     terminal: true,
     metadata: { projectId: project.id, userId: owner.user.id, createdAt },
   });
+  const before = await authStore.getProjectWorkspace(project.id);
 
   const response = await app.inject({
     method: "POST",
@@ -450,38 +451,14 @@ test("project workspace restore applies a completed design run snapshot server-s
     payload: { mode: "restore" },
   });
 
-  assert.equal(response.statusCode, 200);
-  const state = response.json().state as {
-    requirementText: string;
-    selectedDesignDiagramTypes: string[];
-    generatedDesignDiagramTypes: string[];
-    designModels: Record<string, unknown>;
-    designPlantUml: Record<string, string>;
-    designSvgArtifacts: Record<string, unknown>;
-  };
-  assert.equal(state.requirementText, "用户可以筛选日期并预约座位。");
-  assert.deepEqual(state.selectedDesignDiagramTypes, []);
-  assert.deepEqual(state.generatedDesignDiagramTypes, [
-    "architecture",
-    "sequence",
-    "class",
-    "activity",
-    "table",
-    "component",
-    "deployment",
-  ]);
-  assert.ok(state.designModels.architecture);
-  assert.ok(state.designModels["sequence:uc_filter_date"]);
-  assert.ok(state.designModels.class);
-  assert.ok(state.designModels.activity);
-  assert.ok(state.designModels.table);
-  assert.ok(state.designModels.component);
-  assert.ok(state.designModels.deployment);
-  assert.equal(state.designPlantUml["sequence:uc_filter_date"], "@startuml\n@enduml");
-  assert.ok(state.designSvgArtifacts["sequence:uc_filter_date"]);
+  assert.equal(response.statusCode, 410);
+  assert.match(response.json().message, /历史快照暂仅支持查看/);
+  const after = await authStore.getProjectWorkspace(project.id);
+  assert.equal(after.version, before.version);
+  assert.deepEqual(after.state, before.state);
 
   const logs = await authStore.listAuditLogs();
-  assert.ok(logs.some((entry) => entry.action === "project.workspace.restore"));
+  assert.equal(logs.some((entry) => entry.action === "project.workspace.restore"), false);
   await app.close();
 });
 

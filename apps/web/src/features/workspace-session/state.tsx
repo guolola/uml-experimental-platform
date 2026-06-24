@@ -2376,6 +2376,7 @@ export function WorkspaceSessionProvider({
           manualModelEditStatus,
           Object.values(models),
         );
+        const hasDesignModels = Object.keys(designModels).length > 0;
         if (
           documentKind === "requirementsSpec" &&
           (currentRulesStale ||
@@ -2391,7 +2392,7 @@ export function WorkspaceSessionProvider({
             currentStaleDiagrams.length > 0 ||
             (currentRequirementDiagrams.length > 0 &&
               requirementTraceabilityMissing) ||
-            (generatedDesignDiagrams.length > 0 &&
+            (hasDesignModels &&
               (!designFreshnessComplete || !designTraceabilityComplete)))
         ) {
           throw new Error(

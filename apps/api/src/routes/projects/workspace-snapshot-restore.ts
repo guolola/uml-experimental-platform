@@ -315,22 +315,55 @@ function applySnapshotToWorkspaceState(
   }
 
   if (isCodeRunSnapshot(snapshot)) {
-    next.designModels = Object.fromEntries(
+    const incomingDesignModels = Object.fromEntries(
       snapshot.designModels.map((model) => [getDesignModelId(model), model]),
     );
-    next.designModelTraceability = [];
+    const incomingDesignModelIds = new Set(Object.keys(incomingDesignModels));
+    const deletedDesignModelIds = Object.keys(recordValue(next.designModels)).filter(
+      (modelId) => !incomingDesignModelIds.has(modelId),
+    );
+
+    next.designModels = incomingDesignModels;
+    next.designModelTraceability = mergeDesignTraceability(
+      arrayValue(
+        next.designModelTraceability,
+      ) as DesignRunSnapshot["designModelTraceability"],
+      [],
+      [],
+      deletedDesignModelIds,
+    );
     next.designPlantUml = Object.fromEntries(
-      snapshot.designPlantUml.map((artifact) => [
-        getDesignArtifactId(artifact),
-        artifact.source,
-      ]),
+      [
+        ...Object.entries(
+          keepDesignRecordsForModelIds(
+            recordValue(next.designPlantUml),
+            incomingDesignModelIds,
+          ),
+        ),
+        ...snapshot.designPlantUml.map((artifact) => [
+          getDesignArtifactId(artifact),
+          artifact.source,
+        ] as const),
+      ],
     );
-    next.designSvgArtifacts = {};
-    next.designDiagramErrors = {};
-    next.generatedDesignDiagramTypes = Array.from(
-      new Set(snapshot.designModels.map((model) => model.diagramKind)),
+    next.designSvgArtifacts = keepDesignRecordsForModelIds(
+      recordValue(next.designSvgArtifacts),
+      incomingDesignModelIds,
     );
-    next.designInputFingerprints = {};
+    next.designDiagramErrors = keepDesignRecordsForModelIds(
+      recordValue(next.designDiagramErrors),
+      incomingDesignModelIds,
+    );
+    next.designInputFingerprints = keepDesignRecordsForModelIds(
+      recordValue(next.designInputFingerprints),
+      incomingDesignModelIds,
+    );
+    next.generatedDesignDiagramTypes = completeGeneratedDesignDiagrams(
+      next,
+      uniqueStrings(
+        snapshot.designModels.map((model) => model.diagramKind),
+      ) as DesignDiagramKind[],
+    );
     next.selectedDiagramTypes = [];
     next.selectedDesignDiagramTypes = [];
     next.codeSpec = snapshot.spec;
@@ -347,7 +380,7 @@ function applySnapshotToWorkspaceState(
     next.codeSkillResourcePlan = snapshot.skillResourcePlan;
     next.codeSkillContext = snapshot.codeSkillContext;
     next.codeDiagnostics = [...snapshot.diagnostics];
-    return next;
+    return finalizeSnapshotWorkspaceState(next);
   }
 
   if (isDesignRunSnapshot(snapshot)) {
@@ -507,7 +540,7 @@ function applySnapshotToWorkspaceState(
         ),
       };
     }
-    return next;
+    return finalizeSnapshotWorkspaceState(next);
   }
 
   const records = mapRequirementSnapshotToRecords(snapshot);
@@ -573,7 +606,7 @@ function applySnapshotToWorkspaceState(
   next.rulesBasedOnTextVersion = 0;
   next.requirementInputFingerprint = workspaceRequirementFingerprint;
   if (affected.length === 0) {
-    return next;
+    return finalizeSnapshotWorkspaceState(next);
   }
 
   if (successfulAffected.length > 0) {
@@ -623,7 +656,7 @@ function applySnapshotToWorkspaceState(
       ]),
     ),
   };
-  return next;
+  return finalizeSnapshotWorkspaceState(next);
 }
 
 function isCodeRunSnapshot(
@@ -831,6 +864,149 @@ function keepDesignScopedRecords<T>(
   ) as Record<string, T>;
 }
 
+function keepDesignRecordsForModelIds<T>(
+  current: Record<string, T>,
+  modelIds: Set<string>,
+) {
+  return Object.fromEntries(
+    Object.entries(current).filter(([key, value]) => {
+      const modelId =
+        value && typeof value === "object" && "modelId" in value
+          ? String((value as { modelId?: unknown }).modelId ?? "")
+          : "";
+      return modelIds.has(key) || modelIds.has(modelId);
+    }),
+  ) as Record<string, T>;
+}
+
+function repairMissingDesignInputFingerprints(state: WorkspaceState) {
+  const generatedDesignDiagrams = stringArrayValue(state.generatedDesignDiagramTypes);
+  const designModels = recordValue(state.designModels);
+  if (
+    generatedDesignDiagrams.length === 0 ||
+    Object.keys(designModels).length === 0
+  ) {
+    return state;
+  }
+
+  const currentDesignFingerprint = designInputFingerprint(
+    presentRecordValues(state.models) as DiagramModelSpec[],
+    arrayValue(
+      state.requirementModelTraceability,
+    ) as RequirementModelTraceabilityEntry[],
+  );
+  const generated = new Set(generatedDesignDiagrams);
+  const designInputFingerprints = {
+    ...stringRecordValue(state.designInputFingerprints),
+  };
+  let repaired = false;
+  for (const [modelId, model] of Object.entries(designModels)) {
+    const diagramKind = readNestedString(model, ["diagramKind"]);
+    if (!generated.has(diagramKind)) continue;
+    if (!designInputFingerprints[modelId]) {
+      designInputFingerprints[modelId] = currentDesignFingerprint;
+      repaired = true;
+    }
+  }
+  if (repaired) {
+    state.designInputFingerprints = designInputFingerprints;
+  }
+  return state;
+}
+
+function assertGeneratedDesignChainComplete(state: WorkspaceState) {
+  const generatedDesignDiagrams = stringArrayValue(state.generatedDesignDiagramTypes);
+  if (generatedDesignDiagrams.length === 0) return;
+  const generated = new Set(generatedDesignDiagrams);
+  const designModels = recordValue(state.designModels);
+  const generatedDesignModelIds = Object.entries(designModels)
+    .filter(([, model]) => generated.has(readNestedString(model, ["diagramKind"])))
+    .map(([modelId]) => modelId);
+  if (generatedDesignModelIds.length === 0) return;
+
+  const designInputFingerprints = stringRecordValue(state.designInputFingerprints);
+  const designPlantUml = stringRecordValue(state.designPlantUml);
+  const missingFingerprints = generatedDesignModelIds.filter(
+    (modelId) => !designInputFingerprints[modelId],
+  );
+  const missingPlantUml = generatedDesignModelIds.filter(
+    (modelId) => !designPlantUml[modelId],
+  );
+  const generatedDesignModelIdSet = new Set(generatedDesignModelIds);
+  const traceability = arrayValue(
+    state.designModelTraceability,
+  ) as DesignRunSnapshot["designModelTraceability"];
+  const hasGeneratedDesignTraceability = traceability.some((entry) => {
+    if (!entry.source) return false;
+    const sourceModelId = entry.source.modelId?.trim();
+    if (sourceModelId) return generatedDesignModelIdSet.has(sourceModelId);
+    return generated.has(entry.source.diagramKind);
+  });
+  if (
+    missingFingerprints.length === 0 &&
+    missingPlantUml.length === 0 &&
+    hasGeneratedDesignTraceability
+  ) {
+    return;
+  }
+
+  const issues = [
+    missingFingerprints.length > 0
+      ? `missing design fingerprints: ${missingFingerprints.join(", ")}`
+      : null,
+    missingPlantUml.length > 0
+      ? `missing design PlantUML: ${missingPlantUml.join(", ")}`
+      : null,
+    !hasGeneratedDesignTraceability ? "missing design traceability" : null,
+  ].filter(Boolean);
+  throw new Error(
+    `快照链路元数据不完整，已阻止写入当前项目工作区：${issues.join("; ")}`,
+  );
+}
+
+function completeGeneratedDesignDiagrams(
+  state: WorkspaceState,
+  candidates: readonly DesignDiagramKind[],
+) {
+  const designModels = recordValue(state.designModels);
+  const designInputFingerprints = stringRecordValue(state.designInputFingerprints);
+  const designPlantUml = stringRecordValue(state.designPlantUml);
+  const traceability = arrayValue(
+    state.designModelTraceability,
+  ) as DesignRunSnapshot["designModelTraceability"];
+  return candidates.filter((diagram) => {
+    const modelIds = Object.entries(designModels)
+      .filter(([, model]) => readNestedString(model, ["diagramKind"]) === diagram)
+      .map(([modelId]) => modelId);
+    if (modelIds.length === 0) return false;
+    const modelIdSet = new Set(modelIds);
+    const hasTraceability = traceability.some((entry) => {
+      if (!entry.source) return false;
+      const sourceModelId = entry.source.modelId?.trim();
+      if (sourceModelId) return modelIdSet.has(sourceModelId);
+      return entry.source.diagramKind === diagram;
+    });
+    return (
+      hasTraceability &&
+      modelIds.every(
+        (modelId) =>
+          Boolean(designInputFingerprints[modelId]) &&
+          Boolean(designPlantUml[modelId]),
+      )
+    );
+  });
+}
+
+function finalizeSnapshotWorkspaceState(state: WorkspaceState) {
+  const repaired = repairMissingDesignInputFingerprints(state);
+  repaired.generatedDesignDiagramTypes = completeGeneratedDesignDiagrams(
+    repaired,
+    stringArrayValue(repaired.generatedDesignDiagramTypes) as DesignDiagramKind[],
+  );
+  assertGeneratedDesignChainComplete(repaired);
+  return repaired;
+}
+
 function mergeDesignTraceability(
   current: DesignRunSnapshot["designModelTraceability"],
   incoming: DesignRunSnapshot["designModelTraceability"],
@@ -843,6 +1019,8 @@ function mergeDesignTraceability(
   return [
     ...current.filter(
       (entry) =>
+        entry.source &&
+        Array.isArray(entry.targets) &&
         !designTraceabilityTouchesDiagramKinds(entry, affected, deletedModelIds),
     ),
     ...incoming.filter((entry) =>
@@ -897,6 +1075,10 @@ function recordValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function presentRecordValues(value: unknown) {
+  return Object.values(recordValue(value)).filter(Boolean);
+}
+
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -909,6 +1091,14 @@ function stringArrayValue(value: unknown): string[] {
 
 function uniqueStrings(values: readonly string[]) {
   return Array.from(new Set(values));
+}
+
+function stringRecordValue(value: unknown) {
+  return Object.fromEntries(
+    Object.entries(recordValue(value)).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 function stringValue(value: unknown) {

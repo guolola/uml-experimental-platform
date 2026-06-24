@@ -31,10 +31,7 @@ import {
 } from "../../mail/mail-adapter.js";
 import type { AcademicAdminRepository } from "../../db/academic-admin-repository.js";
 import type { RunRecordStore } from "../../runs/records/run-record-store.js";
-import {
-  isRestorableRunSnapshot,
-  restoreRunSnapshotToWorkspaceState,
-} from "./workspace-snapshot-restore.js";
+import { isRestorableRunSnapshot } from "./workspace-snapshot-restore.js";
 import {
   devTokenPayload,
   isWorkspaceSourceRunConstraintError,
@@ -50,11 +47,6 @@ const projectWorkspaceSaveRequestSchema = z.object({
   baseVersion: z.number().int().min(0),
   state: z.record(z.string(), z.unknown()),
   sourceRunId: z.string().trim().min(1).nullable().optional(),
-});
-
-const projectWorkspaceRestoreRequestSchema = z.object({
-  baseVersion: z.number().int().min(0).optional(),
-  mode: z.enum(["merge", "restore"]).optional(),
 });
 
 export function registerProjectRoutes({
@@ -252,52 +244,11 @@ export function registerProjectRoutes({
       reply.code(400);
       return { message: "说明书快照不能恢复为项目工作台。" };
     }
-
-    const input = projectWorkspaceRestoreRequestSchema.parse(request.body ?? {});
-    const current = await authStore.getProjectWorkspace(projectId);
-    const state = restoreRunSnapshotToWorkspaceState({
-      currentState: current.state,
-      snapshot: record.snapshot,
-      mode: input.mode ?? "restore",
-    });
-
-    let result: Awaited<ReturnType<AuthStore["saveProjectWorkspace"]>>;
-    try {
-      result = await authStore.saveProjectWorkspace({
-        projectId,
-        baseVersion: input.baseVersion ?? current.version,
-        state,
-        updatedByUserId: context.user.id,
-        sourceRunId: runId,
-      });
-    } catch (error) {
-      if (isWorkspaceSourceRunConstraintError(error)) {
-        reply.code(400);
-        return { message: "Source run not found for project workspace" };
-      }
-      throw error;
-    }
-    if (!result.ok) {
-      reply.code(409);
-      const currentWorkspace = projectWorkspacePayload(result.workspace);
-      return {
-        message: "项目已由其他成员更新，请刷新最新状态后再恢复快照。",
-        projectId,
-        currentVersion: currentWorkspace.version,
-        workspace: currentWorkspace,
-      };
-    }
-
-    await authStore.recordAuditLog({
-      actorUserId: context.user.id,
-      action: "project.workspace.restore",
-      targetType: "project",
-      targetId: projectId,
-      outcome: "success",
-      message: `sourceRunId=${runId}`,
-    });
-
-    return projectWorkspacePayload(result.workspace);
+    reply.code(410);
+    return {
+      message:
+        "历史快照暂仅支持查看，不能直接覆盖当前项目工作区。请重新运行对应阶段生成当前状态。",
+    };
   });
 
   app.patch("/api/projects/:projectId", async (request, reply) => {

@@ -118,8 +118,9 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
     ),
     input.requirementModelTraceability,
   );
+  const hasDesignModels = Object.keys(input.designModels).length > 0;
   const designFreshnessComplete =
-    input.generatedDesignDiagrams.length === 0 ||
+    !hasDesignModels ||
     Object.entries(input.designModels).every(([modelId]) =>
       designFingerprintMatches(
         input.designInputFingerprints[modelId],
@@ -175,7 +176,7 @@ export function deriveWorkspaceStatus(input: WorkspaceDerivedStatusInput) {
       .map((model) => model.diagramKind),
   );
   const designTraceabilityStale =
-    input.generatedDesignDiagrams.length > 0 &&
+    hasDesignModels &&
     (requirementTraceabilityStale ||
       !designFreshnessComplete ||
       !designTraceabilityComplete);

@@ -1,4 +1,4 @@
-import { Download, RotateCcw, Trash2, X } from "lucide-react";
+import { Download, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "../../../shared/ui/badge";
@@ -12,6 +12,8 @@ import {
   isDocumentRunSnapshot,
 } from "../index";
 
+const WORKSPACE_RESTORE_DISABLED_REASON =
+  "历史快照暂仅支持查看，不能直接覆盖当前项目工作区";
 const DOCUMENT_RESTORE_DISABLED_REASON = "说明书快照不能恢复为项目工作台";
 const INTERRUPTED_RESTORE_DISABLED_REASON =
   "服务中断的运行不能直接恢复，请从项目历史重试或重新运行";
@@ -83,7 +85,7 @@ function getRestoreDisabledReason(item: {
   if (!item.snapshot && !item.snapshotAvailable && !item.canRestore) {
     return "没有可恢复快照";
   }
-  return null;
+  return WORKSPACE_RESTORE_DISABLED_REASON;
 }
 
 export function HistoryDrawer({
@@ -96,15 +98,11 @@ export function HistoryDrawer({
   const {
     historyItems,
     refreshHistory,
-    restoreRunHistory,
     deleteRunHistory,
     clearRunHistory,
   } = useWorkspaceSession();
   const repository = useWorkspaceRepository();
   const [deletingHistoryIds, setDeletingHistoryIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [restoringHistoryIds, setRestoringHistoryIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [clearingHistory, setClearingHistory] = useState(false);
@@ -117,32 +115,6 @@ export function HistoryDrawer({
   }, [open, refreshHistory]);
 
   if (!open) return null;
-
-  const restore = async (id: string) => {
-    setRestoringHistoryIds((current) => new Set(current).add(id));
-    try {
-      await restoreRunHistory(id);
-      toast.success("已恢复历史快照");
-      onClose();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? `恢复历史快照失败：${error.message}`
-          : "恢复历史快照失败",
-      );
-      try {
-        await refreshHistory();
-      } catch {
-        // The restore error above is the actionable user-facing failure.
-      }
-    } finally {
-      setRestoringHistoryIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-    }
-  };
 
   const deleteHistoryItem = async (id: string) => {
     setDeletingHistoryIds((current) => new Set(current).add(id));
@@ -256,9 +228,6 @@ export function HistoryDrawer({
                   : item.summary ?? (item.snapshotAvailable ? "快照可恢复" : "无快照");
                 const errorMessage = item.snapshot?.error?.message ?? item.errorMessage;
                 const restoreDisabledReason = getRestoreDisabledReason(item);
-                const hideRestoreButton =
-                  restoreDisabledReason === DOCUMENT_RESTORE_DISABLED_REASON;
-                const restoring = restoringHistoryIds.has(item.id);
                 const isDocumentHistory =
                   item.documentKind === "requirementsSpec" ||
                   item.documentKind === "softwareDesignSpec" ||
@@ -315,19 +284,6 @@ export function HistoryDrawer({
                         )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {!hideRestoreButton && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8"
-                            title="恢复"
-                            aria-label={`恢复历史快照：${item.title}`}
-                            disabled={Boolean(restoreDisabledReason) || restoring}
-                            onClick={() => void restore(item.id)}
-                          >
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
                         {documentCanDownload && (
                           <Button
                             variant="ghost"

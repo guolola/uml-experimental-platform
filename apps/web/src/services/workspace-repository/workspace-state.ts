@@ -388,6 +388,129 @@ function omitRecordKeys<T extends Record<string, unknown>>(
   return next as T;
 }
 
+function keepDesignRecordsForModelIds<T extends Record<string, unknown>>(
+  record: T,
+  modelIds: Set<string>,
+) {
+  return Object.fromEntries(
+    Object.entries(record).filter(
+      ([key, value]) =>
+        modelIds.has(key) || modelIds.has(stringProperty(value, "modelId")),
+    ),
+  ) as T;
+}
+
+function repairMissingDesignInputFingerprints(workspace: WorkspaceRecord) {
+  if (
+    workspace.generatedDesignDiagramTypes.length === 0 ||
+    Object.keys(workspace.designModels).length === 0
+  ) {
+    return workspace;
+  }
+  const currentDesignFingerprint = designInputFingerprint(
+    Object.values(workspace.models).filter(Boolean),
+    workspace.requirementModelTraceability,
+  );
+  let repaired = false;
+  const designInputFingerprints = { ...workspace.designInputFingerprints };
+  for (const [modelId, model] of Object.entries(workspace.designModels)) {
+    if (!workspace.generatedDesignDiagramTypes.includes(model.diagramKind)) {
+      continue;
+    }
+    if (!designInputFingerprints[modelId]) {
+      designInputFingerprints[modelId] = currentDesignFingerprint;
+      repaired = true;
+    }
+  }
+  if (!repaired) return workspace;
+  return { ...workspace, designInputFingerprints };
+}
+
+function assertGeneratedDesignChainComplete(workspace: WorkspaceRecord) {
+  if (workspace.generatedDesignDiagramTypes.length === 0) return;
+  const generatedDesignDiagrams = new Set(workspace.generatedDesignDiagramTypes);
+  const generatedDesignModelIds = Object.entries(workspace.designModels)
+    .filter(([, model]) => generatedDesignDiagrams.has(model.diagramKind))
+    .map(([modelId]) => modelId);
+  if (generatedDesignModelIds.length === 0) return;
+
+  const missingFingerprints = generatedDesignModelIds.filter(
+    (modelId) => !workspace.designInputFingerprints[modelId],
+  );
+  const missingPlantUml = generatedDesignModelIds.filter(
+    (modelId) => !workspace.designPlantUml[modelId],
+  );
+  const generatedDesignModelIdSet = new Set(generatedDesignModelIds);
+  const hasGeneratedDesignTraceability = workspace.designModelTraceability.some(
+    (entry) => {
+      const sourceModelId = entry.source?.modelId?.trim();
+      if (sourceModelId) return generatedDesignModelIdSet.has(sourceModelId);
+      return generatedDesignDiagrams.has(
+        entry.source?.diagramKind as DesignDiagramType,
+      );
+    },
+  );
+  if (
+    missingFingerprints.length === 0 &&
+    missingPlantUml.length === 0 &&
+    hasGeneratedDesignTraceability
+  ) {
+    return;
+  }
+
+  const issues = [
+    missingFingerprints.length > 0
+      ? `missing design fingerprints: ${missingFingerprints.join(", ")}`
+      : null,
+    missingPlantUml.length > 0
+      ? `missing design PlantUML: ${missingPlantUml.join(", ")}`
+      : null,
+    !hasGeneratedDesignTraceability ? "missing design traceability" : null,
+  ].filter(Boolean);
+  throw new Error(
+    `快照链路元数据不完整，已阻止写入当前项目工作区：${issues.join("; ")}`,
+  );
+}
+
+function completeGeneratedDesignDiagrams(
+  workspace: WorkspaceRecord,
+  candidates: readonly DesignDiagramType[],
+) {
+  return candidates.filter((diagram) => {
+    const modelIds = Object.entries(workspace.designModels)
+      .filter(([, model]) => model.diagramKind === diagram)
+      .map(([modelId]) => modelId);
+    if (modelIds.length === 0) return false;
+    const modelIdSet = new Set(modelIds);
+    const hasTraceability = workspace.designModelTraceability.some((entry) => {
+      const sourceModelId = entry.source?.modelId?.trim();
+      if (sourceModelId) return modelIdSet.has(sourceModelId);
+      return entry.source?.diagramKind === diagram;
+    });
+    return (
+      hasTraceability &&
+      modelIds.every(
+        (modelId) =>
+          Boolean(workspace.designInputFingerprints[modelId]) &&
+          Boolean(workspace.designPlantUml[modelId]),
+      )
+    );
+  });
+}
+
+function finalizeSnapshotWorkspace(workspace: WorkspaceRecord) {
+  const repaired = repairMissingDesignInputFingerprints(workspace);
+  const finalized = {
+    ...repaired,
+    generatedDesignDiagramTypes: completeGeneratedDesignDiagrams(
+      repaired,
+      repaired.generatedDesignDiagramTypes,
+    ),
+  };
+  assertGeneratedDesignChainComplete(finalized);
+  return finalized;
+}
+
 function cleanRequirementTraceability(
   traceability: WorkspaceRecord["requirementModelTraceability"],
   deletedModelIds: Set<string>,
@@ -406,6 +529,9 @@ function cleanDesignTraceability(
 ) {
   if (deletedModelIds.size === 0) return traceability;
   return traceability.flatMap((entry) => {
+    if (!entry.source || !Array.isArray(entry.targets)) {
+      return [];
+    }
     if (entry.source.modelId && deletedModelIds.has(entry.source.modelId)) {
       return [];
     }
@@ -547,10 +673,10 @@ function pruneUseCaseScopedWorkspace(workspace: WorkspaceRecord): WorkspaceRecor
 }
 
 export function mergeWorkspaceState(state?: Partial<WorkspaceRecord>): WorkspaceRecord {
-  return pruneUseCaseScopedWorkspace({
+  return repairMissingDesignInputFingerprints(pruneUseCaseScopedWorkspace({
     ...createEmptyWorkspace(),
     ...(state ?? {}),
-  });
+  }));
 }
 
 export function applySnapshotToWorkspace(
@@ -568,7 +694,7 @@ export function applySnapshotToWorkspace(
   next.errorMessage = null;
 
   if (isDocumentRunSnapshot(snapshot)) {
-    return next;
+    return finalizeSnapshotWorkspace(next);
   }
 
   const isRequirementSnapshot =
@@ -615,22 +741,53 @@ export function applySnapshotToWorkspace(
   }
 
   if (isCodeRunSnapshot(snapshot)) {
-    next.designModels = Object.fromEntries(
+    const incomingDesignModels = Object.fromEntries(
       snapshot.designModels.map((model) => [getDesignModelId(model), model]),
     ) as WorkspaceRecord["designModels"];
-    next.designModelTraceability = [];
-    next.designPlantUml = Object.fromEntries(
-      snapshot.designPlantUml.map((artifact) => [
-        getDesignArtifactId(artifact),
-        artifact.source,
-      ]),
-    ) as WorkspaceRecord["designPlantUml"];
-    next.designSvgArtifacts = {};
-    next.designDiagramErrors = {};
-    next.generatedDesignDiagramTypes = Array.from(
-      new Set(snapshot.designModels.map((model) => model.diagramKind)),
+    const incomingDesignModelIds = new Set(Object.keys(incomingDesignModels));
+    const deletedDesignModelIds = new Set(
+      Object.keys(next.designModels).filter(
+        (modelId) => !incomingDesignModelIds.has(modelId),
+      ),
     );
-    next.designInputFingerprints = {};
+    const validUseCaseIds = currentUseCaseIds(next.models) ?? new Set<string>();
+
+    next.designModels = incomingDesignModels;
+    next.designModelTraceability = cleanDesignTraceability(
+      next.designModelTraceability,
+      deletedDesignModelIds,
+      validUseCaseIds,
+    );
+    next.designPlantUml = Object.fromEntries(
+      [
+        ...Object.entries(
+          keepDesignRecordsForModelIds(
+            next.designPlantUml,
+            incomingDesignModelIds,
+          ),
+        ),
+        ...snapshot.designPlantUml.map((artifact) => [
+          getDesignArtifactId(artifact),
+          artifact.source,
+        ] as const),
+      ],
+    ) as WorkspaceRecord["designPlantUml"];
+    next.designSvgArtifacts = keepDesignRecordsForModelIds(
+      next.designSvgArtifacts,
+      incomingDesignModelIds,
+    );
+    next.designDiagramErrors = keepDesignRecordsForModelIds(
+      next.designDiagramErrors,
+      incomingDesignModelIds,
+    );
+    next.designInputFingerprints = keepDesignRecordsForModelIds(
+      next.designInputFingerprints,
+      incomingDesignModelIds,
+    );
+    next.generatedDesignDiagramTypes = completeGeneratedDesignDiagrams(
+      next,
+      Array.from(new Set(snapshot.designModels.map((model) => model.diagramKind))),
+    );
     next.selectedDiagramTypes = [];
     next.selectedDesignDiagramTypes = [];
     next.codeSpec = snapshot.spec;
@@ -647,7 +804,7 @@ export function applySnapshotToWorkspace(
     next.codeSkillResourcePlan = snapshot.skillResourcePlan;
     next.codeSkillContext = snapshot.codeSkillContext;
     next.codeDiagnostics = [...snapshot.diagnostics];
-    return next;
+    return finalizeSnapshotWorkspace(next);
   }
 
   if (isDesignRunSnapshot(snapshot)) {
@@ -803,7 +960,7 @@ export function applySnapshotToWorkspace(
         ),
       };
     }
-    return next;
+    return finalizeSnapshotWorkspace(next);
   }
 
   const records = mapSnapshotToRecords(snapshot);
@@ -875,7 +1032,7 @@ export function applySnapshotToWorkspace(
   next.rulesBasedOnTextVersion = 0;
   next.requirementInputFingerprint = workspaceRequirementFingerprint;
   if (affected.length === 0) {
-    return next;
+    return finalizeSnapshotWorkspace(next);
   }
   if (successfulAffected.length > 0) {
     next.models = {
@@ -921,7 +1078,7 @@ export function applySnapshotToWorkspace(
       ]),
     ),
   };
-  return next;
+  return finalizeSnapshotWorkspace(next);
 }
 
 export function restoreSnapshotToWorkspace(
@@ -1040,6 +1197,8 @@ function mergeDesignTraceability(
   return [
     ...current.filter(
       (entry) =>
+        entry.source &&
+        Array.isArray(entry.targets) &&
         !designTraceabilityTouchesDiagramKinds(
           entry,
           affectedDiagrams,

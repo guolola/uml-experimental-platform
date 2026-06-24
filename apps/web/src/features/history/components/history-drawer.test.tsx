@@ -82,39 +82,27 @@ describe("HistoryDrawer", () => {
     expect(screen.getByText("需求模型生成")).toBeInTheDocument();
   });
 
-  it("keeps the drawer open and refreshes history when restore returns no snapshot", async () => {
+  it("shows non-document history snapshots as read-only without workspace restore", async () => {
     const historyItems = [createHistoryItem({ id: "run-missing-restore" })];
-    let currentHistoryItems = historyItems;
     const repository = createMockWorkspaceRepository();
-    repository.listRunHistory = vi.fn(async () => currentHistoryItems);
+    repository.listRunHistory = vi.fn(async () => historyItems);
     repository.restoreRunHistory = vi.fn(async () => {
-      currentHistoryItems = [];
       return null;
     });
 
-    const { onClose } = renderHistoryDrawer(repository);
+    renderHistoryDrawer(repository);
 
     expect(await screen.findByText("需求模型生成")).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "恢复历史快照：需求模型生成" }),
-    );
-
-    await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        "恢复历史快照失败：历史快照不存在",
-      );
-    });
-    expect(toastSuccess).not.toHaveBeenCalledWith("已恢复历史快照");
-    expect(onClose).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(repository.listRunHistory).toHaveBeenCalled();
-    });
     expect(
-      await screen.findByText("暂无历史快照。完成一次生成后会自动保存。"),
+      screen.getByText("历史快照暂仅支持查看，不能直接覆盖当前项目工作区"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "恢复历史快照：需求模型生成" }),
+    ).not.toBeInTheDocument();
+    expect(repository.restoreRunHistory).not.toHaveBeenCalled();
   });
 
-  it("keeps the history item visible and shows an error when restore fails", async () => {
+  it("does not call restore for read-only history snapshots", async () => {
     const historyItems = [createHistoryItem({ id: "run-restore-failed" })];
     const repository = createMockWorkspaceRepository();
     repository.listRunHistory = vi.fn(async () => historyItems);
@@ -122,21 +110,13 @@ describe("HistoryDrawer", () => {
       throw new Error("运行中不可恢复");
     });
 
-    const { onClose } = renderHistoryDrawer(repository);
+    renderHistoryDrawer(repository);
 
     expect(await screen.findByText("需求模型生成")).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "恢复历史快照：需求模型生成" }),
-    );
-
-    await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        "恢复历史快照失败：运行中不可恢复",
-      );
-    });
-    expect(toastSuccess).not.toHaveBeenCalledWith("已恢复历史快照");
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText("需求模型生成")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "恢复历史快照：需求模型生成" }),
+    ).not.toBeInTheDocument();
+    expect(repository.restoreRunHistory).not.toHaveBeenCalled();
   });
 
   it("disables restore for active or unavailable history snapshots", async () => {
@@ -165,15 +145,15 @@ describe("HistoryDrawer", () => {
     expect(screen.getByText("运行仍在进行，完成后才能恢复")).toBeInTheDocument();
     expect(screen.getByText("没有可恢复快照")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "恢复历史快照：需求模型生成" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "恢复历史快照：需求模型生成" }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "恢复历史快照：无快照运行" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "恢复历史快照：无快照运行" }),
+    ).not.toBeInTheDocument();
     expect(repository.restoreRunHistory).not.toHaveBeenCalled();
   });
 
-  it("shows cancelled snapshots as restorable cancellations instead of failures", async () => {
+  it("shows cancelled snapshots as read-only cancellations instead of failures", async () => {
     const historyItems = [
       createHistoryItem({
         id: "run-cancelled",
@@ -195,8 +175,11 @@ describe("HistoryDrawer", () => {
       screen.getByText("已取消 · 已保留 1 个旧产物入口"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "恢复历史快照：需求模型生成" }),
-    ).toBeEnabled();
+      screen.getByText("历史快照暂仅支持查看，不能直接覆盖当前项目工作区"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "恢复历史快照：需求模型生成" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows project summary errors without requiring a full snapshot", async () => {
@@ -249,8 +232,8 @@ describe("HistoryDrawer", () => {
       screen.getByText("服务中断的运行不能直接恢复，请从项目历史重试或重新运行"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "恢复历史快照：需求模型生成" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "恢复历史快照：需求模型生成" }),
+    ).not.toBeInTheDocument();
     expect(repository.restoreRunHistory).not.toHaveBeenCalled();
   });
 

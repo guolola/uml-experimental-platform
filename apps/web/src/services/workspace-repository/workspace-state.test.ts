@@ -320,7 +320,7 @@ describe("applySnapshotToWorkspace", () => {
 
     expect(merged.selectedDiagramTypes).toEqual([]);
     expect(merged.selectedDesignDiagramTypes).toEqual([]);
-    expect(merged.generatedDesignDiagramTypes).toEqual(["table"]);
+    expect(merged.generatedDesignDiagramTypes).toEqual([]);
   });
 
   it("does not rewrite requirement model fingerprints from design snapshots without requirement input", () => {
@@ -367,7 +367,7 @@ describe("applySnapshotToWorkspace", () => {
     expect(merged.diagramVersions.usecase).toBe(3);
     expect(merged.models.usecase).toEqual(existingUseCaseModel);
     expect(merged.generatedDiagramTypes).toEqual(["usecase"]);
-    expect(merged.generatedDesignDiagramTypes).toEqual(["table"]);
+    expect(merged.generatedDesignDiagramTypes).toEqual([]);
   });
 
   it("preserves existing code files when a regenerate code snapshot fails", () => {
@@ -477,8 +477,78 @@ describe("applySnapshotToWorkspace", () => {
     expect(merged.designModelTraceability).toEqual([]);
     expect(merged.designSvgArtifacts).toEqual({});
     expect(merged.designDiagramErrors).toEqual({});
-    expect(merged.generatedDesignDiagramTypes).toEqual(["table"]);
+    expect(merged.generatedDesignDiagramTypes).toEqual([]);
     expect(merged.designInputFingerprints).toEqual({});
+  });
+
+  it("preserves matching design traceability when restoring code snapshots", () => {
+    const tableModel = tableDesignModel();
+    const traceability = [
+      {
+        source: {
+          modelId: "table",
+          diagramKind: "table",
+          elementId: "users",
+          elementKind: "table",
+          label: "users",
+        },
+        targets: [
+          {
+            modelId: "usecase",
+            diagramKind: "usecase",
+            elementId: "uc-1",
+            elementKind: "usecase",
+            label: "查看座位",
+          },
+        ],
+        rationale: "数据库表支撑查看座位用例。",
+      },
+    ] as WorkspaceRecord["designModelTraceability"];
+    const workspace = {
+      ...createEmptyWorkspace(),
+      designModels: { table: tableModel },
+      designModelTraceability: traceability,
+      designPlantUml: { table: "@startuml\nclass old_users\n@enduml" },
+      designSvgArtifacts: {
+        table: {
+          diagramKind: "table" as const,
+          modelId: "table",
+          svg: "<svg data-table=\"true\" />",
+          renderMeta: {
+            engine: "plantuml",
+            generatedAt: "2026-06-18T00:00:00.000Z",
+            sourceLength: 18,
+            durationMs: 1,
+          },
+        },
+      },
+      generatedDesignDiagramTypes: ["table" as const],
+      designInputFingerprints: { table: "fresh-design-fingerprint" },
+    };
+
+    const merged = applySnapshotToWorkspace(
+      workspace,
+      createCodeSnapshot({
+        designModels: [tableModel],
+        designPlantUml: [
+          {
+            diagramKind: "table",
+            modelId: "table",
+            source: "@startuml\nclass users\n@enduml",
+          },
+        ],
+      }),
+    );
+
+    expect(merged.designModelTraceability).toEqual(traceability);
+    expect(merged.designSvgArtifacts).toEqual(workspace.designSvgArtifacts);
+    expect(merged.designInputFingerprints).toEqual({
+      table: "fresh-design-fingerprint",
+    });
+    expect(merged.designPlantUml).toEqual({
+      table: "@startuml\nclass users\n@enduml",
+    });
+    expect(merged.generatedDesignDiagramTypes).toEqual(["table"]);
   });
 
   it("preserves existing code files when a regenerate code snapshot is cancelled before files are written", () => {
@@ -754,7 +824,7 @@ describe("applySnapshotToWorkspace", () => {
       }),
     );
 
-    expect(merged.generatedDesignDiagramTypes.sort()).toEqual(["class", "table"]);
+    expect(merged.generatedDesignDiagramTypes).toEqual([]);
     expect(merged.designModels.table).toEqual(tableModel);
     expect(merged.designSvgArtifacts.table?.svg).toContain("table");
     expect(merged.designDiagramErrors.component?.error.code).toBe(

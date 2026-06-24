@@ -4520,6 +4520,19 @@ describe("WorkspaceSessionProvider", () => {
           requirementText: "订单系统需求",
           models: { usecase: requirementModel },
           designModels: { sequence: designModel },
+          designPlantUml: { sequence: "@startuml\n@enduml" },
+          generatedDesignDiagramTypes: ["sequence"],
+          designInputFingerprints: {
+            sequence: designInputFingerprint([requirementModel], []),
+          },
+          manualModelEditStatus: {
+            sequence: {
+              status: "rerendered",
+              warning: null,
+              editedAt: "2026-06-24T00:00:00.000Z",
+              rerenderedAt: "2026-06-24T00:00:00.000Z",
+            },
+          },
         }),
       ),
       updateRequirementText: vi.fn(async () => {}),

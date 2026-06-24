@@ -454,7 +454,7 @@ test("restore does not rewrite requirement fingerprints from design snapshots wi
   );
   assert.equal((restored.diagramVersions as Record<string, number>).usecase, 3);
   assert.deepEqual(restored.generatedDiagramTypes, ["usecase"]);
-  assert.deepEqual(restored.generatedDesignDiagramTypes, ["table"]);
+  assert.deepEqual(restored.generatedDesignDiagramTypes, []);
 });
 
 test("restore writes requirement rules from model snapshots when text still matches", () => {
@@ -952,10 +952,7 @@ test("restore applies successful design artifacts from failed partial snapshots"
     mode: "merge",
   });
 
-  assert.deepEqual(
-    (restored.generatedDesignDiagramTypes as string[]).sort(),
-    ["class", "table"],
-  );
+  assert.deepEqual(restored.generatedDesignDiagramTypes, []);
   assert.deepEqual(Object.keys(restored.designModels as Record<string, unknown>), [
     "table",
   ]);
@@ -1029,8 +1026,68 @@ test("restore clears stale rendered design artifacts when applying code snapshot
   assert.deepEqual(restored.designModelTraceability, []);
   assert.deepEqual(restored.designSvgArtifacts, {});
   assert.deepEqual(restored.designDiagramErrors, {});
-  assert.deepEqual(restored.generatedDesignDiagramTypes, ["table"]);
+  assert.deepEqual(restored.generatedDesignDiagramTypes, []);
   assert.deepEqual(restored.designInputFingerprints, {});
+});
+
+test("restore preserves matching design traceability when applying code snapshots", () => {
+  const tableModel = tableDesignModel();
+  const traceability = [
+    {
+      source: {
+        modelId: "table",
+        diagramKind: "table",
+        elementId: "users",
+        elementKind: "table",
+        label: "users",
+      },
+      targets: [
+        {
+          modelId: "usecase",
+          diagramKind: "usecase",
+          elementId: "uc-1",
+          elementKind: "usecase",
+          label: "查看座位",
+        },
+      ],
+      rationale: "数据库表支撑查看座位用例。",
+    },
+  ];
+  const restored = restoreRunSnapshotToWorkspaceState({
+    currentState: {
+      designModels: { table: tableModel },
+      designModelTraceability: traceability,
+      designPlantUml: { table: "@startuml\nclass old_users\n@enduml" },
+      designSvgArtifacts: {
+        table: designSvgArtifact("table", "table"),
+      },
+      generatedDesignDiagramTypes: ["table"],
+      designInputFingerprints: { table: "fresh-design-fingerprint" },
+    },
+    snapshot: codeSnapshot({
+      designModels: [tableModel],
+      designPlantUml: [
+        {
+          diagramKind: "table",
+          modelId: "table",
+          source: "@startuml\nclass users\n@enduml",
+        },
+      ],
+    }),
+    mode: "merge",
+  });
+
+  assert.deepEqual(restored.designModelTraceability, traceability);
+  assert.deepEqual(restored.designSvgArtifacts, {
+    table: designSvgArtifact("table", "table"),
+  });
+  assert.deepEqual(restored.designInputFingerprints, {
+    table: "fresh-design-fingerprint",
+  });
+  assert.deepEqual(restored.designPlantUml, {
+    table: "@startuml\nclass users\n@enduml",
+  });
+  assert.deepEqual(restored.generatedDesignDiagramTypes, ["table"]);
 });
 
 test("restore fills missing requirement text without replacing existing rules", () => {
