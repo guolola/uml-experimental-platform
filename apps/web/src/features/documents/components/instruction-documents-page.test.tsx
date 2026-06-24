@@ -13,6 +13,7 @@ import {
   type WorkspaceRepository,
 } from "../../../services/workspace-repository";
 import { withWorkspaceProviders } from "../../../test/workspace-test-utils";
+import { designInputFingerprintFor } from "../../workspace-session/lib/workspace-context";
 import { useWorkspaceShell } from "../../workspace-shell/state";
 import { InstructionDocumentsPage } from "./instruction-documents-page";
 
@@ -30,20 +31,73 @@ const requirementModel = {
   summary: "核心参与者和用例",
   notes: [],
   actors: [],
-  useCases: [],
+  useCases: [
+    {
+      id: "usecase-submit-order",
+      name: "提交订单",
+      goal: "用户提交订单",
+      preconditions: [],
+      postconditions: ["订单已提交"],
+      primaryActorId: null,
+      supportingActorIds: [],
+    },
+  ],
   systemBoundaries: [],
   relationships: [],
 };
 
 const designModel = {
   diagramKind: "sequence",
+  sourceUseCaseId: "usecase-submit-order",
   title: "订单提交流程",
   summary: "订单提交的设计交互",
   notes: [],
   participants: [],
-  messages: [],
+  messages: [
+    {
+      id: "message-submit-order",
+      type: "sync",
+      sourceId: "participant-user",
+      targetId: "participant-order-service",
+      name: "提交订单",
+      parameters: [],
+    },
+  ],
   fragments: [],
 };
+
+const requirementModelTraceability = [
+  {
+    ruleId: "REQ-001",
+    target: {
+      diagramKind: "usecase" as const,
+      elementId: "usecase-submit-order",
+      elementKind: "usecase",
+      label: "提交订单",
+    },
+  },
+];
+
+const designModelTraceability = [
+  {
+    source: {
+      modelId: "sequence",
+      diagramKind: "sequence" as const,
+      elementId: "message-submit-order",
+      elementKind: "message",
+      label: "提交订单",
+    },
+    targets: [
+      {
+        diagramKind: "usecase" as const,
+        elementId: "usecase-submit-order",
+        elementKind: "usecase",
+        label: "提交订单",
+      },
+    ],
+    mappingSource: "llm" as const,
+  },
+];
 
 function createDocument(
   id: string,
@@ -138,7 +192,15 @@ function createControlledDocumentRepository() {
   const repository = createMockWorkspaceRepository({
     requirementText: "订单系统需求",
     models: { usecase: requirementModel as never },
+    requirementModelTraceability,
     designModels: { sequence: designModel as never },
+    designModelTraceability,
+    designInputFingerprints: {
+      sequence: designInputFingerprintFor(
+        [requirementModel as never],
+        requirementModelTraceability,
+      ),
+    },
   });
   repository.listDocuments = vi.fn(async () =>
     Array.from(documents.values()).sort((left, right) =>
@@ -200,11 +262,21 @@ function storeManagedUserSettings() {
 }
 
 describe("InstructionDocumentsPage", () => {
+  const clearDialogSideEffects = () => {
+    document.body.style.pointerEvents = "";
+    document.body.removeAttribute("data-scroll-locked");
+    document
+      .querySelectorAll("[data-radix-focus-guard]")
+      .forEach((element) => element.remove());
+  };
+
   beforeEach(() => {
+    clearDialogSideEffects();
     storeManagedUserSettings();
   });
 
   afterEach(() => {
+    clearDialogSideEffects();
     localStorage.clear();
     vi.clearAllMocks();
     onlyOfficeEditorHostMock.mockClear();
@@ -368,7 +440,7 @@ describe("InstructionDocumentsPage", () => {
     );
 
     await screen.findByRole("heading", { name: "已生成说明书" });
-    const generateButtons = screen.getAllByRole("button", {
+    let generateButtons = screen.getAllByRole("button", {
       name: /生成并打开/i,
     });
 
@@ -379,7 +451,11 @@ describe("InstructionDocumentsPage", () => {
     expect(generateButtons[0]).toBeDisabled();
     expect(generateButtons[1]).not.toBeDisabled();
 
-    await user.click(generateButtons[1]);
+    generateButtons = screen.getAllByRole("button", {
+      name: /生成并打开/i,
+    });
+    expect(generateButtons[1]).not.toBeDisabled();
+    fireEvent.click(generateButtons[1]);
     await waitFor(() => {
       expect(subscribers.has("run-design")).toBe(true);
     });

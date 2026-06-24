@@ -20,7 +20,10 @@ import {
   RUN_HISTORY_STORAGE_KEY,
 } from "../../entities/run-history";
 import { createRunSnapshot } from "../../test/workspace-test-utils";
-import { snapshotInputFingerprint } from "../../shared/lib/fingerprint";
+import {
+  designInputFingerprint,
+  snapshotInputFingerprint,
+} from "../../shared/lib/fingerprint";
 
 const managedProviderSettings = {
   providerConfigId: "provider-config-1",
@@ -3298,25 +3301,93 @@ describe("createHttpWorkspaceRepository", () => {
   });
 
   it("persists design run snapshots incrementally without deleting existing diagrams", async () => {
+    const requirementModel = {
+      diagramKind: "usecase",
+      modelId: "usecase",
+      actors: [],
+      useCases: [{ id: "uc-book-seat", name: "预约座位" }],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const requirementModelTraceability = [
+      {
+        ruleId: "rule-book-seat",
+        target: {
+          modelId: "usecase",
+          diagramKind: "usecase",
+          elementId: "uc-book-seat",
+          elementKind: "useCase",
+          label: "预约座位",
+        },
+      },
+    ];
+    const currentDesignFingerprint = designInputFingerprint(
+      [requirementModel as never],
+      requirementModelTraceability as never,
+    );
     const existingClass = {
       diagramKind: "class",
       modelId: "class",
-      classes: [],
+      classes: [{ id: "class-booking", name: "Booking" }],
     };
     const generatedTable = {
       diagramKind: "table",
       modelId: "table",
-      tables: [],
+      tables: [{ id: "table-bookings", name: "bookings", columns: [] }],
+    };
+    const existingClassTraceability = {
+      source: {
+        modelId: "class",
+        diagramKind: "class",
+        elementId: "class-booking",
+        elementKind: "class",
+        label: "Booking",
+      },
+      targets: [
+        {
+          modelId: "usecase",
+          diagramKind: "usecase",
+          elementId: "uc-book-seat",
+          elementKind: "useCase",
+          label: "预约座位",
+        },
+      ],
+      mappingSource: "llm",
+    };
+    const generatedTableTraceability = {
+      source: {
+        modelId: "table",
+        diagramKind: "table",
+        elementId: "table-bookings",
+        elementKind: "table",
+        label: "bookings",
+      },
+      targets: [
+        {
+          modelId: "usecase",
+          diagramKind: "usecase",
+          elementId: "uc-book-seat",
+          elementKind: "useCase",
+          label: "预约座位",
+        },
+      ],
+      mappingSource: "llm",
     };
     const snapshot = {
       runId: "design-table",
       requirementText: "图书馆需求",
-      rules: [],
+      rules: [
+        {
+          id: "rule-book-seat",
+          source: "用户可以预约座位。",
+          keywords: ["预约座位"],
+        },
+      ],
       selectedDiagrams: ["table"],
-      requirementModels: [],
-      requirementModelTraceability: [],
+      requirementModels: [requirementModel],
+      requirementModelTraceability,
       models: [generatedTable],
-      designModelTraceability: [],
+      designModelTraceability: [generatedTableTraceability],
       plantUml: [{ diagramKind: "table", source: "@startuml\n@enduml" }],
       svgArtifacts: [
         {
@@ -3343,6 +3414,8 @@ describe("createHttpWorkspaceRepository", () => {
             state: {
               requirementText: "图书馆需求",
               generatedDesignDiagramTypes: ["class"],
+              models: { usecase: requirementModel },
+              requirementModelTraceability,
               designModels: { class: existingClass },
               designPlantUml: { class: "@startuml\n@enduml" },
               designSvgArtifacts: {
@@ -3352,6 +3425,8 @@ describe("createHttpWorkspaceRepository", () => {
                   generatedAt: "2026-05-24T00:00:00.000Z",
                 },
               },
+              designInputFingerprints: { class: currentDesignFingerprint },
+              designModelTraceability: [existingClassTraceability],
             },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
