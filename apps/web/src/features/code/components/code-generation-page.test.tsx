@@ -410,6 +410,7 @@ describe("CodeGenerationPage", () => {
       expect(iframe).toBeInTheDocument();
     });
     monacoMocks.updateFile.mockClear();
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
     expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain("Edited preview text");
 
     fireEvent.click(screen.getByTestId("mock-edit-app-file"));

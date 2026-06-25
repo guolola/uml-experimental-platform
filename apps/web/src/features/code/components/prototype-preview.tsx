@@ -209,7 +209,7 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
       {previewState.srcDoc ? (
         <iframe
           title="Prototype Preview"
-          sandbox="allow-scripts"
+          sandbox="allow-scripts allow-forms"
           srcDoc={previewState.srcDoc}
           className="h-full w-full bg-white"
         />
