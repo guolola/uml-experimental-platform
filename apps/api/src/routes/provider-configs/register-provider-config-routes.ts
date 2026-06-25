@@ -1,13 +1,16 @@
 // Registers user/project-visible provider config routes with strict no-secret DTOs.
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   providerConfigDtoSchema,
   providerConfigListResponseSchema,
   providerConfigTestRequestSchema,
   providerConfigTestResponseSchema,
+  providerModelCapabilityMapSchema,
   providerModelDiscoveryRequestSchema,
+  providerModelDiscoveryProgressEventSchema,
   providerModelDiscoveryResponseSchema,
+  type ProviderModelDiscoveryProgressEvent,
 } from "@uml-platform/contracts";
 import { getModelCapability } from "../../model-capabilities.js";
 import { getHealthcheckResponseFormat } from "../../adapters/llm/response-formats/index.js";
@@ -33,6 +36,10 @@ import {
   runOpenAiCompatibleChatCompletionHealthcheck,
 } from "../../llm.js";
 import { discoverOpenAiCompatibleModelCapabilities } from "../../provider-configs/provider-model-discovery.js";
+import {
+  DEFAULT_LOCAL_CORS_ORIGINS,
+  readCorsOrigins,
+} from "../../server/cors.js";
 
 export type ProviderConfigRiskEventRecorder = (event: {
   eventType: string;
@@ -94,6 +101,13 @@ function providerVisibilityPriority(
   return 3;
 }
 
+const providerConfigSelfServiceRotateRequestSchema = z
+  .object({
+    apiKey: z.string().trim().min(1),
+    model: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
 const providerConfigSelfServiceCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -102,6 +116,7 @@ const providerConfigSelfServiceCreateRequestSchema = z
     apiKey: z.string().trim().min(1),
     defaultModel: z.string().trim().min(1),
     allowedModels: z.array(z.string().trim().min(1)).min(1),
+    modelCapabilities: providerModelCapabilityMapSchema.optional(),
     keyPurpose: z.string().trim().min(1).optional(),
   })
   .strict();
@@ -109,16 +124,13 @@ const providerConfigSelfServiceCreateRequestSchema = z
 const providerConfigSelfServiceUpdateRequestSchema = z
   .object({
     name: z.string().trim().min(1).optional(),
+    provider: z.string().trim().min(1).optional(),
+    baseUrl: z.string().trim().min(1).optional(),
+    apiKey: z.string().trim().min(1).optional(),
     defaultModel: z.string().trim().min(1).optional(),
     allowedModels: z.array(z.string().trim().min(1)).min(1).optional(),
+    modelCapabilities: providerModelCapabilityMapSchema.optional(),
     keyPurpose: z.string().trim().min(1).optional(),
-  })
-  .strict();
-
-const providerConfigSelfServiceRotateRequestSchema = z
-  .object({
-    apiKey: z.string().trim().min(1),
-    model: z.string().trim().min(1).optional(),
   })
   .strict();
 
@@ -320,7 +332,7 @@ async function recordSelfServiceProviderRiskEvent({
 }: {
   recordRiskEvent?: ProviderConfigRiskEventRecorder;
   actorUserId: string;
-  action: "create" | "rotate";
+  action: "create" | "rotate" | "update";
   providerName: string;
   providerConfigId?: string | null;
   baseUrl: string;
@@ -377,6 +389,110 @@ function providerConnectionFailureStatus(error: unknown) {
     return error.status >= 400 && error.status < 500 ? 400 : 502;
   }
   return 502;
+}
+
+function createProviderModelDiscoveryStream(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const allowedOrigins = new Set(
+    readCorsOrigins("API_CORS_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS),
+  );
+  const origin = request.headers.origin;
+  const abortController = new AbortController();
+  let closed = false;
+  let completed = false;
+
+  reply.hijack();
+  const response = reply.raw;
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  response.setHeader("Cache-Control", "no-cache, no-transform");
+  response.setHeader("Connection", "keep-alive");
+  response.setHeader("X-Accel-Buffering", "no");
+  if (origin && allowedOrigins.has(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Vary", "Origin");
+    response.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  response.flushHeaders?.();
+
+  const heartbeat = setInterval(() => {
+    if (closed || response.writableEnded || response.destroyed) return;
+    response.write(": heartbeat\n\n");
+  }, 15_000);
+
+  request.raw.on("close", () => {
+    closed = true;
+    clearInterval(heartbeat);
+    if (!completed) abortController.abort();
+  });
+
+  return {
+    abortSignal: abortController.signal,
+    close() {
+      completed = true;
+      closed = true;
+      clearInterval(heartbeat);
+      if (!response.writableEnded && !response.destroyed) {
+        response.end();
+      }
+    },
+    send(event: ProviderModelDiscoveryProgressEvent) {
+      if (closed || response.writableEnded || response.destroyed) return;
+      const parsed = providerModelDiscoveryProgressEventSchema.parse(event);
+      response.write(`event: ${parsed.type}\n`);
+      response.write(`data: ${JSON.stringify(parsed)}\n\n`);
+    },
+  };
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function runProviderModelDiscoveryStream({
+  apiBaseUrl,
+  apiKey,
+  reply,
+  request,
+}: {
+  apiBaseUrl: string;
+  apiKey: string;
+  reply: FastifyReply;
+  request: FastifyRequest;
+}) {
+  const stream = createProviderModelDiscoveryStream(request, reply);
+  stream.send({ type: "started", sourceBaseUrl: apiBaseUrl });
+  try {
+    const discovery = await discoverOpenAiCompatibleModelCapabilities({
+      apiBaseUrl,
+      apiKey,
+      abortSignal: stream.abortSignal,
+      onProgress: stream.send,
+    });
+    const result = providerModelDiscoveryResponseSchema.parse({
+      ...discovery,
+      fetchedAt: new Date().toISOString(),
+      sourceBaseUrl: apiBaseUrl,
+    });
+    stream.send({ type: "completed", result });
+  } catch (error) {
+    if (!isAbortError(error)) {
+      const providerStatus =
+        error instanceof ProviderHttpError ? error.status : undefined;
+      stream.send({
+        type: "error",
+        message:
+          error instanceof Error
+            ? redactProviderSecret(error.message, apiKey)
+            : "Provider model discovery failed",
+        status: providerStatus ?? 502,
+      });
+    }
+  } finally {
+    stream.close();
+  }
 }
 
 async function findOwnedUserProvider(
@@ -501,8 +617,10 @@ export function registerProviderConfigRoutes({
 
     return providerConfigListResponseSchema.parse({
       providerConfigs: sortVisibleProviders(
-        (await providerConfigs.list()).filter((config) =>
-          isUserVisibleProvider(config, auth.user.id),
+        (await providerConfigs.list()).filter(
+          (config) =>
+            config.status === "active" &&
+            isUserVisibleProvider(config, auth.user.id),
         ),
         auth.user.id,
       )
@@ -523,8 +641,10 @@ export function registerProviderConfigRoutes({
 
     return providerConfigListResponseSchema.parse({
       providerConfigs: sortVisibleProviders(
-        (await providerConfigs.list()).filter((config) =>
-          isProjectVisibleProvider(config, context.user.id, projectId),
+        (await providerConfigs.list()).filter(
+          (config) =>
+            config.status === "active" &&
+            isProjectVisibleProvider(config, context.user.id, projectId),
         ),
         context.user.id,
         projectId,
@@ -573,6 +693,36 @@ export function registerProviderConfigRoutes({
       reply.code(providerConnectionFailureStatus(error));
       return { message };
     }
+  });
+
+  app.post("/api/provider-configs/discover-models/stream", async (request, reply) => {
+    const auth = await requireAuth(request, reply, authStore);
+    if (isAuthError(auth)) return auth;
+
+    const input = parseProviderModelDiscoveryInput(request.body, reply);
+    if ("message" in input) return input;
+
+    let sourceBaseUrl: string;
+    try {
+      sourceBaseUrl = await assertManagedProviderBaseUrlResolvesPublicly(
+        input.baseUrl,
+        resolveProviderHostname,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? redactProviderSecret(error.message, input.apiKey)
+          : "Provider Base URL policy check failed";
+      reply.code(providerConnectionFailureStatus(error));
+      return { message };
+    }
+
+    return runProviderModelDiscoveryStream({
+      apiBaseUrl: sourceBaseUrl,
+      apiKey: input.apiKey,
+      reply,
+      request,
+    });
   });
 
   app.post("/api/provider-configs/test-temporary", async (request, reply) => {
@@ -658,6 +808,7 @@ export function registerProviderConfigRoutes({
       apiKey: input.apiKey,
       defaultModel: input.defaultModel,
       allowedModels: input.allowedModels,
+      modelCapabilities: input.modelCapabilities,
       keyPurpose: input.keyPurpose ?? "user-managed provider key",
       createdBy: auth.user.id,
       riskState: "medium",
@@ -686,11 +837,67 @@ export function registerProviderConfigRoutes({
       return { message: "Provider config update is unavailable" };
     }
 
+    if (input.baseUrl && input.baseUrl.trim() !== providerConfig.baseUrl && !input.apiKey?.trim()) {
+      reply.code(400);
+      return { message: "API Key is required when changing Provider Base URL" };
+    }
+
+    const nextBaseUrl = input.baseUrl ?? providerConfig.baseUrl;
+    const nextModel = input.defaultModel ?? providerConfig.defaultModel;
+    const nextAllowedModels = input.allowedModels ?? providerConfig.allowedModels;
+    if (!nextAllowedModels.includes(nextModel)) {
+      reply.code(400);
+      return { message: "Provider default model must be included in allowed models" };
+    }
+
+    const apiKey = input.apiKey?.trim() || (await providerConfigs.getSecret(id));
+    if (!apiKey) {
+      reply.code(400);
+      return { message: "Provider config secret is revoked" };
+    }
+
+    let normalizedBaseUrl: string;
+    try {
+      normalizedBaseUrl = await verifyTemporaryProviderConnection({
+        baseUrl: nextBaseUrl,
+        apiKey,
+        model: nextModel,
+        resolveHostname: resolveProviderHostname,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? redactProviderSecret(error.message, apiKey)
+          : "Provider connection test failed";
+      await recordSelfServiceProviderAudit({
+        providerConfigs,
+        actor: auth.user.id,
+        action: "user.provider_config.update",
+        target: providerConfig.name,
+        result: providerFailureResult(error),
+      });
+      await recordSelfServiceProviderRiskEvent({
+        recordRiskEvent,
+        actorUserId: auth.user.id,
+        action: "update",
+        providerName: input.name ?? providerConfig.name,
+        providerConfigId: providerConfig.id,
+        baseUrl: nextBaseUrl,
+        model: nextModel,
+        message,
+        error,
+      });
+      reply.code(providerConnectionFailureStatus(error));
+      return { message };
+    }
+
     try {
       const updated = await providerConfigs.updateMetadata(
         id,
         {
           ...input,
+          baseUrl: normalizedBaseUrl,
+          apiKey: input.apiKey,
           scopeType: "user",
           scopeId: auth.user.id,
         },
@@ -700,7 +907,9 @@ export function registerProviderConfigRoutes({
         reply.code(404);
         return { message: "Provider config not found" };
       }
-      return toProviderConfigDto(updated);
+      await providerConfigs.markUsed(id);
+      await providerConfigs.resetBreaker?.(id);
+      return toProviderConfigDto((await providerConfigs.get(id)) ?? updated);
     } catch (error) {
       if (error instanceof ProviderConfigPolicyError) {
         reply.code(400);

@@ -315,6 +315,7 @@ export const providerConfigSelfServiceCreateRequestSchema = z
     apiKey: z.string().trim().min(1),
     defaultModel: z.string().trim().min(1),
     allowedModels: z.array(z.string().trim().min(1)).min(1),
+    modelCapabilities: providerModelCapabilityMapSchema.optional(),
     keyPurpose: z.string().trim().min(1).optional(),
   })
   .strict();
@@ -325,8 +326,12 @@ export type ProviderConfigSelfServiceCreateRequest = z.infer<
 export const providerConfigSelfServiceUpdateRequestSchema = z
   .object({
     name: z.string().trim().min(1).optional(),
+    provider: z.string().trim().min(1).optional(),
+    baseUrl: z.string().trim().min(1).optional(),
+    apiKey: z.string().trim().min(1).optional(),
     defaultModel: z.string().trim().min(1).optional(),
     allowedModels: z.array(z.string().trim().min(1)).min(1).optional(),
+    modelCapabilities: providerModelCapabilityMapSchema.optional(),
     keyPurpose: z.string().trim().min(1).optional(),
   })
   .strict();

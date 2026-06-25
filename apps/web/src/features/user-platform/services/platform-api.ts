@@ -4,7 +4,9 @@ import type {
   DesignDiagramKind,
   DiagramKind,
   DocumentKind,
+  ProviderModelCapabilityMap,
   ProviderModelDiscoveryResponse,
+  ProviderModelDiscoveryProgressEvent,
 } from "@uml-platform/contracts";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import type { RunHistorySnapshot } from "../../../entities/run-history";
@@ -397,6 +399,67 @@ async function requestFormJson<T>(path: string, body: FormData): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+function flushProviderDiscoverySseChunk(
+  chunk: string,
+  onEvent: (event: ProviderModelDiscoveryProgressEvent) => void,
+) {
+  const data = chunk
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .join("\n");
+  if (!data) return;
+  onEvent(JSON.parse(data) as ProviderModelDiscoveryProgressEvent);
+}
+
+async function requestProviderModelDiscoveryStream(
+  input: { baseUrl: string; apiKey: string },
+  onEvent: (event: ProviderModelDiscoveryProgressEvent) => void,
+) {
+  const response = await fetch(buildApiUrl("/api/provider-configs/discover-models/stream"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    let message = `请求失败：HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { message?: unknown };
+      if (typeof body.message === "string" && body.message.trim()) {
+        message = body.message;
+      }
+    } catch {
+      // Keep the HTTP status message when the API does not return JSON.
+    }
+    throw new PlatformApiError(message, response.status);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("模型发现进度流不可用");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const chunks = buffer.split(/\r?\n\r?\n/);
+      buffer = chunks.pop() ?? "";
+      for (const chunk of chunks) {
+        flushProviderDiscoverySseChunk(chunk, onEvent);
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) {
+      flushProviderDiscoverySseChunk(buffer, onEvent);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
 export const platformApi = {
   me() {
     return requestJson<PlatformAccountProfileResponse>("/api/auth/me");
@@ -766,6 +829,12 @@ export const platformApi = {
       },
     );
   },
+  discoverProviderModelsStream(
+    input: { baseUrl: string; apiKey: string },
+    onEvent: (event: ProviderModelDiscoveryProgressEvent) => void,
+  ) {
+    return requestProviderModelDiscoveryStream(input, onEvent);
+  },
   testTemporaryProviderConfig(input: {
     baseUrl: string;
     apiKey: string;
@@ -785,11 +854,37 @@ export const platformApi = {
     apiKey: string;
     defaultModel: string;
     allowedModels: string[];
+    modelCapabilities?: ProviderModelCapabilityMap;
   }) {
     return requestJson<PlatformProviderConfig>("/api/provider-configs", {
       method: "POST",
       body: JSON.stringify(input),
     });
+  },
+  updateProviderConfig(
+    providerConfigId: string,
+    input: {
+      name?: string;
+      baseUrl?: string;
+      apiKey?: string;
+      defaultModel?: string;
+      allowedModels?: string[];
+      modelCapabilities?: ProviderModelCapabilityMap;
+    },
+  ) {
+    return requestJson<PlatformProviderConfig>(
+      `/api/provider-configs/${providerConfigId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      },
+    );
+  },
+  revokeProviderConfig(providerConfigId: string) {
+    return requestJson<PlatformProviderConfig>(
+      `/api/provider-configs/${providerConfigId}/revoke`,
+      { method: "POST" },
+    );
   },
   testProviderConfig(providerConfigId: string, model?: string) {
     return requestJson<{ ok?: boolean; message?: string }>(

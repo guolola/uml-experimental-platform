@@ -94,10 +94,13 @@ export interface ProviderConfigStore {
   get(id: string): ProviderConfigView | null;
   updateMetadata?(id: string, input: {
     allowedModels?: string[];
+    apiKey?: string;
+    baseUrl?: string;
     modelCapabilities?: ProviderModelCapabilityMap;
     defaultModel?: string;
     keyPurpose?: string;
     name?: string;
+    provider?: string;
     quota?: string;
     scopeId?: string | null;
     scopeType?: ProviderConfigScopeType;
@@ -364,18 +367,32 @@ export function createProviderConfigStore({
     updateMetadata(id, input, actor) {
       const record = records.get(id);
       if (!record || record.view.status === "revoked") return null;
+      const baseUrl = input.baseUrl
+        ? normalizeManagedProviderBaseUrl(input.baseUrl)
+        : record.view.baseUrl;
+      const provider = inferOpenAiCompatibleProvider(baseUrl, input.provider);
       const nextDefaultModel = input.defaultModel?.trim() || record.view.defaultModel;
       const nextAllowedModels = requireAllowedModels(
         nextDefaultModel,
         input.allowedModels ?? record.view.allowedModels,
-        { baseUrl: record.view.baseUrl, provider: record.view.provider },
+        { baseUrl, provider },
       );
       const nextScopeType = input.scopeType ?? record.view.scopeType;
       const scope = normalizeScope({
         scopeType: nextScopeType,
         scopeId: nextScopeType === "system" ? null : input.scopeId ?? record.view.scopeId,
       });
+      if (input.apiKey?.trim()) {
+        const apiKey = input.apiKey.trim();
+        record.apiKeyCiphertext = encryptSecret(apiKey, secretKey);
+        record.apiKeyHash = hashSecret(apiKey);
+        record.view.maskedKey = maskApiKey(apiKey);
+        record.view.status = "active";
+        closeBreaker(record.view);
+      }
       record.view.name = input.name?.trim() || record.view.name;
+      record.view.provider = provider;
+      record.view.baseUrl = baseUrl;
       record.view.keyPurpose = input.keyPurpose?.trim() || record.view.keyPurpose;
       record.view.defaultModel = nextDefaultModel;
       record.view.allowedModels = nextAllowedModels;

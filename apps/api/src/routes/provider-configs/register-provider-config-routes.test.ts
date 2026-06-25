@@ -321,6 +321,66 @@ test("temporary provider model discovery returns models without saving provider 
   }
 });
 
+test("temporary provider model discovery stream emits progress without leaking secrets", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url) => {
+    const testedUrl = String(url);
+    if (testedUrl.endsWith("/v1/chat/completions")) {
+      return createChatProbeStream('{"probe":"strict-json-ok","n":1}');
+    }
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [
+          { id: "deepseek-v4-flash", object: "model", created: 0, owned_by: "nonelinear" },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+  const { app, ownerCookie } = await createProviderRouteTestApp();
+
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/provider-configs/discover-models/stream",
+      headers: { cookie: ownerCookie },
+      payload: {
+        baseUrl: "https://api.nonelinear.com/v1",
+        apiKey: "sk-temporary-stream-9999",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"] as string, /text\/event-stream/);
+    const events = response.body
+      .split(/\r?\n\r?\n/u)
+      .flatMap((block) => {
+        const data = block
+          .split(/\r?\n/u)
+          .find((line) => line.startsWith("data:"))
+          ?.slice(5)
+          .trim();
+        return data ? [JSON.parse(data) as { type: string }] : [];
+      });
+    assert.deepEqual(events.map((event) => event.type), [
+      "started",
+      "models_listed",
+      "name_filtered",
+      "probe_started",
+      "probe_completed",
+      "completed",
+    ]);
+    assert.doesNotMatch(response.body, /sk-temporary-stream-9999|apiKey/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+  }
+});
+
 test("temporary provider tests run healthcheck without saving provider secrets", async () => {
   const originalFetch = globalThis.fetch;
   const calls: string[] = [];
@@ -530,6 +590,80 @@ test("users cannot manage another user's private provider config", async () => {
 
   assert.equal(update.statusCode, 404);
   assert.equal(disable.statusCode, 404);
+
+  await app.close();
+});
+
+test("users can fully update and revoke their private provider config", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: "{\"ok\":true}" } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  const { app, ownerCookie, userProvider } = await createProviderRouteTestApp();
+
+  try {
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/provider-configs/${userProvider.id}`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        name: "Owner Personal Nonelinear",
+        baseUrl: "https://api.nonelinear.com/v1",
+        apiKey: "sk-updated-owner-5555",
+        defaultModel: "gpt-5.4",
+        allowedModels: ["gpt-5.4"],
+      },
+    });
+
+    assert.equal(updated.statusCode, 200);
+    assert.equal(updated.json().name, "Owner Personal Nonelinear");
+    assert.equal(updated.json().baseUrl, "https://api.nonelinear.com");
+    assert.equal(updated.json().defaultModel, "gpt-5.4");
+    assert.equal(updated.json().maskedKey, "sk-...5555");
+    assert.doesNotMatch(updated.body, /sk-updated-owner-5555|apiKey/i);
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/api/provider-configs/${userProvider.id}/revoke`,
+      headers: { cookie: ownerCookie },
+    });
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/provider-configs",
+      headers: { cookie: ownerCookie },
+    });
+
+    assert.equal(revoked.statusCode, 200);
+    assert.equal(revoked.json().status, "revoked");
+    assert.equal(
+      listed.json().providerConfigs.some((config: { id: string }) => config.id === userProvider.id),
+      false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+  }
+});
+
+test("users cannot update or revoke system provider configs", async () => {
+  const { app, ownerCookie, systemProvider } = await createProviderRouteTestApp();
+
+  const update = await app.inject({
+    method: "PATCH",
+    url: `/api/provider-configs/${systemProvider.id}`,
+    headers: { cookie: ownerCookie },
+    payload: { name: "Not allowed" },
+  });
+  const revoke = await app.inject({
+    method: "POST",
+    url: `/api/provider-configs/${systemProvider.id}/revoke`,
+    headers: { cookie: ownerCookie },
+  });
+
+  assert.equal(update.statusCode, 404);
+  assert.equal(revoke.statusCode, 404);
 
   await app.close();
 });

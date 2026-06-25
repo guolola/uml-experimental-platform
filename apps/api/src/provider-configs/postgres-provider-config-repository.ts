@@ -403,21 +403,28 @@ export function createPostgresProviderConfigRepository({
 
     async updateMetadata(id: string, input: {
       allowedModels?: string[];
+      apiKey?: string;
+      baseUrl?: string;
       modelCapabilities?: ProviderModelCapabilityMap;
       defaultModel?: string;
       keyPurpose?: string;
       name?: string;
+      provider?: string;
       quota?: string;
       scopeId?: string | null;
       scopeType?: "system" | "user" | "project";
     }, actor: string) {
       const existing = await this.get(id);
       if (!existing || existing.status === "revoked") return null;
+      const baseUrl = input.baseUrl
+        ? normalizeManagedProviderBaseUrl(input.baseUrl)
+        : existing.baseUrl;
+      const provider = inferOpenAiCompatibleProvider(baseUrl, input.provider);
       const defaultModel = input.defaultModel?.trim() || existing.defaultModel;
       const allowedModels = requireAllowedModels(
         defaultModel,
         input.allowedModels ?? existing.allowedModels,
-        { baseUrl: existing.baseUrl, provider: existing.provider },
+        { baseUrl, provider },
       );
       const modelCapabilities = normalizeProviderModelCapabilities(
         allowedModels,
@@ -431,18 +438,60 @@ export function createPostgresProviderConfigRepository({
           "Provider config user and project scopes require a scope id",
         );
       }
+      const apiKey = input.apiKey?.trim();
+      if (apiKey) {
+        await db.query(
+          `
+            update provider_secrets
+            set status = 'revoked', revoked_at = now()
+            where provider_config_id = $1 and status = 'active'
+          `,
+          [id],
+        );
+        await db.query(
+          `
+            insert into provider_secrets (
+              id,
+              provider_config_id,
+              secret_ciphertext,
+              secret_hash,
+              key_tail,
+              status,
+              created_by_user_id,
+              rotated_at
+            )
+            values ($1, $2, $3, $4, $5, 'active', $6, now())
+          `,
+          [
+            randomUUID(),
+            id,
+            encryptSecret(apiKey, secretKey),
+            hashSecret(apiKey),
+            apiKey.slice(-4),
+            null,
+          ],
+        );
+      }
       const result = await db.query<ProviderConfigRow>(
         `
           update provider_configs
           set
             name = $2,
-            default_model = $3,
-            allowed_models = $4,
-            model_capabilities = $5,
-            key_purpose = $6,
-            quota = $7,
-            scope_type = $8,
-            scope_id = $9,
+            provider = $3,
+            base_url = $4,
+            default_model = $5,
+            allowed_models = $6,
+            model_capabilities = $7,
+            key_purpose = $8,
+            quota = $9,
+            masked_key = $10,
+            status = $11,
+            breaker_state = case when $12 then 'closed' else breaker_state end,
+            breaker_failure_count = case when $12 then 0 else breaker_failure_count end,
+            breaker_opened_at = case when $12 then null else breaker_opened_at end,
+            breaker_last_failure_at = case when $12 then null else breaker_last_failure_at end,
+            scope_type = $13,
+            scope_id = $14,
             updated_at = now()
           where id = $1
           returning ${providerViewColumns}
@@ -450,11 +499,16 @@ export function createPostgresProviderConfigRepository({
         [
           id,
           input.name?.trim() || existing.name,
+          provider,
+          baseUrl,
           defaultModel,
           allowedModels,
           modelCapabilities,
           input.keyPurpose?.trim() || existing.keyPurpose,
           input.quota?.trim() || existing.quota,
+          apiKey ? maskApiKey(apiKey) : existing.maskedKey,
+          apiKey ? "active" : existing.status,
+          Boolean(apiKey),
           scopeType,
           scopeId,
         ],

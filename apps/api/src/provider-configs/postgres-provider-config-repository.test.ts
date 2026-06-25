@@ -181,8 +181,10 @@ test("postgres provider repository updates editable metadata without touching se
   assert.equal(updated?.defaultModel, "gpt-4.1-mini");
   assert.match(client.calls[1]?.sql ?? "", /update provider_configs/i);
   assert.doesNotMatch(client.calls[1]?.sql ?? "", /provider_secrets/i);
-  assert.deepEqual(client.calls[1]?.params.slice(1, 9), [
+  assert.deepEqual(client.calls[1]?.params.slice(1, 14), [
     "OpenAI production gateway v2",
+    "openai",
+    "https://api.openai.com",
     "gpt-4.1-mini",
     normalizeProviderAllowedModels("gpt-4.1-mini", ["gpt-4.1", "gpt-4.1-mini"], {
       baseUrl: "https://api.openai.com",
@@ -191,10 +193,54 @@ test("postgres provider repository updates editable metadata without touching se
     {},
     "production generation",
     "contract label",
+    "sk-...a91f",
+    "active",
+    false,
     "system",
     null,
   ]);
   assert.match(client.calls[2]?.sql ?? "", /insert into audit_logs/i);
+});
+
+test("postgres provider repository updates base url and rotates secrets without plaintext readback", async () => {
+  const client = new ScriptedClient();
+  client.queueRows([createdRow]);
+  client.queueRows([]);
+  client.queueRows([]);
+  client.queueRows([{
+    ...createdRow,
+    name: "Owner Nonelinear",
+    provider: "openai-compatible",
+    base_url: "https://api.nonelinear.com",
+    default_model: "gpt-5.4",
+    allowed_models: ["gpt-5.4"],
+    masked_key: "sk-...5555",
+    scope_type: "user",
+    scope_id: "owner-user",
+  }]);
+  client.queueRows([]);
+  const repository = createPostgresProviderConfigRepository({
+    db: client,
+    baseUrlAllowlist: ["https://api.openai.com"],
+    secret: "test-secret",
+  });
+
+  const updated = await repository.updateMetadata("provider-1", {
+    name: "Owner Nonelinear",
+    baseUrl: "https://api.nonelinear.com/v1",
+    apiKey: "sk-updated-secret-5555",
+    defaultModel: "gpt-5.4",
+    allowedModels: ["gpt-5.4"],
+    scopeType: "user",
+    scopeId: "owner-user",
+  }, "owner-user");
+
+  assert.equal(updated?.baseUrl, "https://api.nonelinear.com");
+  assert.equal(updated?.maskedKey, "sk-...5555");
+  assert.match(client.calls[1]?.sql ?? "", /update provider_secrets/i);
+  assert.match(client.calls[2]?.sql ?? "", /insert into provider_secrets/i);
+  assert.match(client.calls[3]?.sql ?? "", /update provider_configs/i);
+  assert.doesNotMatch(JSON.stringify(client.calls), /sk-updated-secret-5555/);
 });
 
 test("postgres provider repository blocks non-public provider base URLs", async () => {

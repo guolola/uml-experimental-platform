@@ -42,6 +42,85 @@ function createRepository(): WorkspaceRepository {
   };
 }
 
+function createProviderDiscoveryStream(modelId = "gpt-5.4") {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      const events = [
+        {
+          type: "started",
+          sourceBaseUrl: "https://api.nonelinear.com",
+        },
+        {
+          type: "models_listed",
+          rawCount: 1,
+        },
+        {
+          type: "name_filtered",
+          rawCount: 1,
+          candidateCount: 1,
+          excludedByNameCount: 0,
+        },
+        {
+          type: "probe_started",
+          modelId,
+          index: 1,
+          total: 1,
+          stage: "strict_json",
+        },
+        {
+          type: "probe_completed",
+          modelId,
+          index: 1,
+          total: 1,
+          probeStatus: "strict",
+          structuredOutputMode: "strict_json",
+          strictJson: true,
+          supportsJsonSchema: true,
+          supportsJsonObject: true,
+        },
+        {
+          type: "completed",
+          result: {
+            models: [
+              {
+                id: modelId,
+                object: "model",
+                category: "text_chat",
+                structuredOutputMode: "strict_json",
+                supportsJsonSchema: true,
+                supportsJsonObject: true,
+                strictJson: true,
+                modeLabel: "严格 JSON",
+                probeStatus: "strict",
+                probedAt: "2026-06-23T08:00:00.000Z",
+              },
+            ],
+            fetchedAt: "2026-06-23T08:00:00.000Z",
+            sourceBaseUrl: "https://api.nonelinear.com",
+            summary: {
+              rawCount: 1,
+              excludedByNameCount: 0,
+              chatProbeFailedCount: 0,
+              chatProbeUnknownCount: 0,
+              strictCount: 1,
+              jsonObjectCount: 0,
+              compatibleCount: 0,
+              unknownStrictCount: 0,
+            },
+          },
+        },
+      ];
+      events.forEach((event) => {
+        controller.enqueue(
+          encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`),
+        );
+      });
+      controller.close();
+    },
+  });
+}
+
 describe("SettingsDialog", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -96,6 +175,11 @@ describe("SettingsDialog", () => {
               role: "student",
               emailVerified: true,
             },
+          });
+        }
+        if (url.includes("/api/provider-configs/discover-models/stream")) {
+          return new Response(createProviderDiscoveryStream(), {
+            headers: { "Content-Type": "text/event-stream" },
           });
         }
         if (url.includes("/api/provider-configs/discover-models")) {
@@ -157,6 +241,38 @@ describe("SettingsDialog", () => {
           providerConfigs = [created, ...providerConfigs];
           return Response.json(created, { status: 201 });
         }
+        if (url.includes("/api/provider-configs/provider-user-comfly") && method === "PATCH") {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            name?: string;
+            baseUrl?: string;
+            defaultModel?: string;
+            allowedModels?: string[];
+          };
+          providerConfigs = providerConfigs.map((config) =>
+            config.id === "provider-user-comfly"
+              ? {
+                  ...config,
+                  name: body.name ?? config.name,
+                  baseUrl: body.baseUrl ?? config.baseUrl,
+                  defaultModel: body.defaultModel ?? config.defaultModel,
+                  allowedModels: body.allowedModels ?? config.allowedModels,
+                }
+              : config,
+          );
+          return Response.json(
+            providerConfigs.find((config) => config.id === "provider-user-comfly"),
+          );
+        }
+        if (url.includes("/api/provider-configs/provider-user-comfly/revoke")) {
+          providerConfigs = providerConfigs.map((config) =>
+            config.id === "provider-user-comfly"
+              ? { ...config, status: "revoked" }
+              : config,
+          );
+          return Response.json(
+            providerConfigs.find((config) => config.id === "provider-user-comfly"),
+          );
+        }
         if (url.includes("/api/provider-configs/provider-user-comfly/test")) {
           return Response.json({ ok: true, message: "Provider config ok" });
         }
@@ -197,7 +313,14 @@ describe("SettingsDialog", () => {
       screen.queryByText("登录态必须使用服务端托管 Provider；明文 API Key 只允许显式 dev legacy 模式。"),
     ).not.toBeInTheDocument();
     expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
-    expect(screen.getByText("个人配置 · comfly · https://ai.comfly.org · sk-...paid")).toBeInTheDocument();
+    expect(
+      screen.queryByText("个人配置 · comfly · https://ai.comfly.org · sk-...paid"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("这里只能选择管理员在该托管配置中允许的模型。"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument();
   });
 
   it("loads and saves the embedded global settings panel", async () => {
@@ -257,9 +380,14 @@ describe("SettingsDialog", () => {
 
     await waitFor(() => {
       expect(
-        dialogScope.getByRole("combobox", { name: "新增供应商默认模型" }),
+        dialogScope.getByRole("combobox", { name: "供应商默认模型" }),
       ).toHaveTextContent("gpt-5.4");
     });
+    expect(dialogScope.getByRole("progressbar", { name: "获取模型列表进度" })).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    );
+    expect(dialogScope.getByText("已获取 1 个可用模型")).toBeInTheDocument();
     expect(testButton).toBeEnabled();
     expect(submitButton).toBeDisabled();
 
@@ -326,6 +454,81 @@ describe("SettingsDialog", () => {
 
     expect(testButton).toBeDisabled();
     expect(submitButton).toBeDisabled();
+  });
+
+  it("edits an owned provider after rediscovering and testing models", async () => {
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <GlobalSettingsPanel active />,
+        createRepository(),
+      ),
+    );
+
+    expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    vi.mocked(fetch).mockClear();
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "编辑供应商" });
+    const dialogScope = within(dialog);
+    await user.clear(dialogScope.getByLabelText("名称"));
+    await user.type(dialogScope.getByLabelText("名称"), "用户级 Comfly 更新");
+    await user.clear(dialogScope.getByLabelText("Base URL"));
+    await user.type(
+      dialogScope.getByLabelText("Base URL"),
+      "https://api.nonelinear.com",
+    );
+    await user.type(dialogScope.getByLabelText("API Key"), "sk-edited-secret");
+    expect(dialogScope.getByRole("button", { name: "保存供应商" })).toBeDisabled();
+
+    await user.click(dialogScope.getByRole("button", { name: "获取模型列表" }));
+    await waitFor(() => {
+      expect(
+        dialogScope.getByRole("combobox", { name: "供应商默认模型" }),
+      ).toHaveTextContent("gpt-5.4");
+    });
+    await user.click(dialogScope.getByRole("button", { name: "测试托管配置" }));
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith("Provider connection ok");
+    });
+
+    await user.click(dialogScope.getByRole("button", { name: "保存供应商" }));
+
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith("供应商已更新");
+    });
+    expect(await screen.findByText("用户级 Comfly 更新（个人配置）")).toBeInTheDocument();
+    const updateCall = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([input, init]) =>
+          String(input).includes("/api/provider-configs/provider-user-comfly") &&
+          init?.method === "PATCH",
+      );
+    expect(updateCall?.[1]?.body).toContain('"apiKey":"sk-edited-secret"');
+    expect(updateCall?.[1]?.body).toContain('"allowedModels":["gpt-5.4"]');
+  });
+
+  it("revokes an owned provider and falls back to the next active provider", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    render(
+      withWorkspaceProviders(
+        <GlobalSettingsPanel active />,
+        createRepository(),
+      ),
+    );
+
+    expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除" }));
+
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith("供应商已删除");
+    });
+    expect(screen.queryByText("用户级 Comfly（个人配置）")).not.toBeInTheDocument();
+    expect(await screen.findByText("系统级 SiliconFlow（系统配置）")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
   });
 
   it("requires a managed provider before choosing or saving the default model", async () => {

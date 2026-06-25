@@ -1,7 +1,11 @@
 // Renders global model and workspace preferences in either a dialog or an embedded settings tab.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { KeyRound, Loader2, Plus, PlugZap, RotateCw } from "lucide-react";
-import type { ProviderDiscoveredModel } from "@uml-platform/contracts";
+import { KeyRound, Loader2, Pencil, Plus, PlugZap, RotateCw, Trash2 } from "lucide-react";
+import type {
+  ProviderDiscoveredModel,
+  ProviderModelCapabilityMap,
+  ProviderModelDiscoveryProgressEvent,
+} from "@uml-platform/contracts";
 import { toast } from "sonner";
 import { Button } from "../../../shared/ui/button";
 import {
@@ -74,6 +78,76 @@ function buildTemporaryProviderSignature(
   ]);
 }
 
+function discoveredModelsToCapabilities(
+  models: ProviderDiscoveredModel[],
+): ProviderModelCapabilityMap {
+  return Object.fromEntries(
+    models.flatMap((model) => {
+      const id = model.id.trim();
+      if (!id) return [];
+      return [
+        [
+          id,
+          {
+            id,
+            category: model.category ?? "text_chat",
+            structuredOutputMode: model.structuredOutputMode ?? "compatible",
+            supportsJsonSchema: model.supportsJsonSchema ?? false,
+            supportsJsonObject: model.supportsJsonObject ?? false,
+            strictJson: model.strictJson ?? "unknown",
+            modeLabel: model.modeLabel ?? "兼容模式",
+            warning: model.warning,
+            probeStatus: model.probeStatus ?? "unknown",
+            probeReason: model.probeReason,
+            probedAt: model.probedAt ?? new Date().toISOString(),
+          },
+        ],
+      ];
+    }),
+  );
+}
+
+function providerConfigToDiscoveredModels(
+  config: PlatformProviderConfig,
+): ProviderDiscoveredModel[] {
+  return getProviderAllowedModels(config).map((model) => ({
+    id: model,
+    ...(config.modelCapabilities?.[model] ?? {}),
+  }));
+}
+
+function providerDiscoveryProgressText(event: ProviderModelDiscoveryProgressEvent) {
+  if (event.type === "started") return "正在连接供应商模型目录";
+  if (event.type === "models_listed") return `已列出 ${event.rawCount} 个原始模型`;
+  if (event.type === "name_filtered") {
+    return `筛选出 ${event.candidateCount} 个聊天模型候选`;
+  }
+  if (event.type === "probe_started") {
+    return `正在探测 ${event.modelId}（${event.index}/${event.total}）`;
+  }
+  if (event.type === "probe_completed") {
+    return `已完成 ${event.modelId}（${event.index}/${event.total}）`;
+  }
+  if (event.type === "completed") {
+    return `已获取 ${event.result.models.length} 个可用模型`;
+  }
+  return event.message;
+}
+
+function providerDiscoveryProgressValue(
+  event: ProviderModelDiscoveryProgressEvent,
+) {
+  if (event.type === "started") return 8;
+  if (event.type === "models_listed") return 16;
+  if (event.type === "name_filtered") return event.candidateCount === 0 ? 80 : 24;
+  if (event.type === "probe_started" || event.type === "probe_completed") {
+    if (event.total <= 0) return 80;
+    return Math.min(96, 24 + Math.round((event.index / event.total) * 70));
+  }
+  if (event.type === "completed") return 100;
+  return 100;
+}
+
 export function GlobalSettingsPanel({
   active,
   onNavigate,
@@ -85,14 +159,21 @@ export function GlobalSettingsPanel({
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
   const [authRequired, setAuthRequired] = useState(false);
-  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
+  const [providerDialogMode, setProviderDialogMode] = useState<"create" | "edit">("create");
+  const [editingProviderId, setEditingProviderId] = useState("");
   const [providerForm, setProviderForm] = useState<ProviderCreationForm>({
     ...EMPTY_PROVIDER_CREATION_FORM,
   });
   const [discoveredModels, setDiscoveredModels] = useState<ProviderDiscoveredModel[]>([]);
+  const [modelCatalogSource, setModelCatalogSource] = useState<"existing" | "discovered" | "">("");
+  const [discoveryProgressText, setDiscoveryProgressText] = useState("");
+  const [discoveryProgressValue, setDiscoveryProgressValue] = useState(0);
   const [discoveringModels, setDiscoveringModels] = useState(false);
   const [testingTemporaryProvider, setTestingTemporaryProvider] = useState(false);
-  const [creatingProvider, setCreatingProvider] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [deletingProvider, setDeletingProvider] = useState(false);
   const [testedProviderSignature, setTestedProviderSignature] = useState("");
 
   const applyProviderConfigList = useCallback(
@@ -157,7 +238,10 @@ export function GlobalSettingsPanel({
     let mounted = true;
     platformApi
       .me()
-      .then(() => refreshProviderConfigs())
+      .then((profile) => {
+        if (mounted) setCurrentUserId(profile.user?.id ?? "");
+        return refreshProviderConfigs();
+      })
       .catch((error) => {
         if (!mounted) return;
         if (error instanceof PlatformApiError && error.status === 403) {
@@ -194,6 +278,15 @@ export function GlobalSettingsPanel({
     () => getProviderAllowedModels(selectedProvider),
     [selectedProvider],
   );
+  const selectedProviderIsOwnedUserConfig = Boolean(
+    selectedProvider &&
+      selectedProvider.scopeType === "user" &&
+      selectedProvider.scopeId === currentUserId,
+  );
+  const editingProvider = useMemo(
+    () => providerConfigs.find((config) => config.id === editingProviderId),
+    [editingProviderId, providerConfigs],
+  );
   const resolvedDefaultModel = selectedProvider
     ? resolveProviderModel(selectedProvider, settings.defaultModel)
     : "";
@@ -225,20 +318,34 @@ export function GlobalSettingsPanel({
     providerForm.baseUrl.trim() && providerForm.apiKey.trim(),
   );
   const canTestTemporaryProvider = Boolean(
-    canDiscoverModels &&
+    providerForm.baseUrl.trim() &&
+      providerForm.apiKey.trim() &&
       providerForm.defaultModel.trim() &&
       discoveredModelIds.length > 0,
   );
-  const canCreateProvider = Boolean(
+  const providerDialogNeedsPassedTest = Boolean(
+    providerDialogMode === "create" ||
+      providerForm.apiKey.trim() ||
+      modelCatalogSource === "discovered" ||
+      (providerDialogMode === "edit" &&
+        editingProvider &&
+        providerForm.baseUrl.trim() !== editingProvider.baseUrl),
+  );
+  const canSaveProvider = Boolean(
     providerForm.name.trim() &&
-      canTestTemporaryProvider &&
-      temporaryProviderTestPassed,
+      providerForm.defaultModel.trim() &&
+      discoveredModelIds.length > 0 &&
+      (!providerDialogNeedsPassedTest || temporaryProviderTestPassed),
   );
 
   const resetProviderCreationForm = useCallback(() => {
     setProviderForm({ ...EMPTY_PROVIDER_CREATION_FORM });
     setDiscoveredModels([]);
+    setModelCatalogSource("");
+    setDiscoveryProgressText("");
+    setDiscoveryProgressValue(0);
     setTestedProviderSignature("");
+    setEditingProviderId("");
   }, []);
 
   const updateProviderCreationField = <K extends keyof ProviderCreationForm>(
@@ -246,16 +353,43 @@ export function GlobalSettingsPanel({
     value: ProviderCreationForm[K],
   ) => {
     setProviderForm((current) => ({ ...current, [key]: value }));
-    if (key === "baseUrl" || key === "apiKey") {
+    if (key === "baseUrl") {
       setDiscoveredModels([]);
+      setModelCatalogSource("");
+      setDiscoveryProgressText("");
+      setDiscoveryProgressValue(0);
     }
     if (key !== "name") {
       setTestedProviderSignature("");
     }
   };
 
-  const handleAddProviderOpenChange = (open: boolean) => {
-    setAddProviderOpen(open);
+  const openCreateProviderDialog = () => {
+    resetProviderCreationForm();
+    setProviderDialogMode("create");
+    setProviderDialogOpen(true);
+  };
+
+  const openEditProviderDialog = () => {
+    if (!selectedProvider || !selectedProviderIsOwnedUserConfig) return;
+    setProviderDialogMode("edit");
+    setEditingProviderId(selectedProvider.id);
+    setProviderForm({
+      name: selectedProvider.name,
+      baseUrl: selectedProvider.baseUrl,
+      apiKey: "",
+      defaultModel: selectedProvider.defaultModel ?? selectedProviderModels[0] ?? "",
+    });
+    setDiscoveredModels(providerConfigToDiscoveredModels(selectedProvider));
+    setModelCatalogSource("existing");
+    setDiscoveryProgressText("");
+    setDiscoveryProgressValue(0);
+    setTestedProviderSignature("");
+    setProviderDialogOpen(true);
+  };
+
+  const handleProviderDialogOpenChange = (open: boolean) => {
+    setProviderDialogOpen(open);
     if (!open) {
       resetProviderCreationForm();
     }
@@ -268,13 +402,34 @@ export function GlobalSettingsPanel({
     }
     setDiscoveringModels(true);
     setTestedProviderSignature("");
+    setDiscoveredModels([]);
+    setModelCatalogSource("");
+    setDiscoveryProgressText("正在连接供应商模型目录");
+    setDiscoveryProgressValue(4);
     try {
-      const response = await platformApi.discoverProviderModels({
-        baseUrl: providerForm.baseUrl.trim(),
-        apiKey: providerForm.apiKey.trim(),
-      });
-      const models = response.models.filter((model) => model.id.trim());
+      let models: ProviderDiscoveredModel[] = [];
+      let streamError = "";
+      await platformApi.discoverProviderModelsStream(
+        {
+          baseUrl: providerForm.baseUrl.trim(),
+          apiKey: providerForm.apiKey.trim(),
+        },
+        (event) => {
+          setDiscoveryProgressText(providerDiscoveryProgressText(event));
+          setDiscoveryProgressValue(providerDiscoveryProgressValue(event));
+          if (event.type === "completed") {
+            models = event.result.models.filter((model) => model.id.trim());
+          }
+          if (event.type === "error") {
+            streamError = event.message;
+          }
+        },
+      );
+      if (streamError) {
+        throw new Error(streamError);
+      }
       setDiscoveredModels(models);
+      setModelCatalogSource("discovered");
       setProviderForm((current) => {
         const modelIds = models.map((model) => model.id.trim()).filter(Boolean);
         const currentDefault = current.defaultModel.trim();
@@ -292,6 +447,9 @@ export function GlobalSettingsPanel({
       toast.success(`已获取 ${models.length} 个模型`);
     } catch (error) {
       setDiscoveredModels([]);
+      setModelCatalogSource("");
+      setDiscoveryProgressValue(100);
+      setDiscoveryProgressText(error instanceof Error ? error.message : "获取模型列表失败");
       toast.error(error instanceof Error ? error.message : "获取模型列表失败");
     } finally {
       setDiscoveringModels(false);
@@ -324,28 +482,61 @@ export function GlobalSettingsPanel({
     }
   };
 
-  const createProvider = async () => {
-    if (!canCreateProvider) {
-      toast.error("请先获取模型列表并通过托管配置测试");
+  const saveProviderConfig = async () => {
+    if (!canSaveProvider) {
+      toast.error(
+        providerDialogNeedsPassedTest
+          ? "请先获取模型列表并通过托管配置测试"
+          : "请先填写供应商名称并选择默认模型",
+      );
       return;
     }
-    setCreatingProvider(true);
+    setSavingProvider(true);
     try {
-      const created = await platformApi.createProviderConfig({
+      const payload = {
         name: providerForm.name.trim(),
         baseUrl: providerForm.baseUrl.trim(),
-        apiKey: providerForm.apiKey.trim(),
         defaultModel: providerForm.defaultModel.trim(),
         allowedModels: discoveredModelIds,
-      });
-      await refreshProviderConfigs(created.id);
-      toast.success("供应商已添加并选中，点击保存后作为默认配置");
-      setAddProviderOpen(false);
+        modelCapabilities: discoveredModelsToCapabilities(discoveredModels),
+      };
+      const saved =
+        providerDialogMode === "edit" && editingProvider
+          ? await platformApi.updateProviderConfig(editingProvider.id, {
+              ...payload,
+              apiKey: providerForm.apiKey.trim() || undefined,
+            })
+          : await platformApi.createProviderConfig({
+              ...payload,
+              apiKey: providerForm.apiKey.trim(),
+            });
+      await refreshProviderConfigs(saved.id);
+      toast.success(
+        providerDialogMode === "edit"
+          ? "供应商已更新"
+          : "供应商已添加并选中，点击保存后作为默认配置",
+      );
+      setProviderDialogOpen(false);
       resetProviderCreationForm();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "添加供应商失败");
+      toast.error(error instanceof Error ? error.message : "保存供应商失败");
     } finally {
-      setCreatingProvider(false);
+      setSavingProvider(false);
+    }
+  };
+
+  const deleteSelectedProvider = async () => {
+    if (!selectedProvider || !selectedProviderIsOwnedUserConfig || deletingProvider) return;
+    if (!window.confirm(`确定要删除供应商“${selectedProvider.name}”吗？`)) return;
+    setDeletingProvider(true);
+    try {
+      await platformApi.revokeProviderConfig(selectedProvider.id);
+      await refreshProviderConfigs();
+      toast.success("供应商已删除");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除供应商失败");
+    } finally {
+      setDeletingProvider(false);
     }
   };
 
@@ -413,7 +604,7 @@ export function GlobalSettingsPanel({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => setAddProviderOpen(true)}
+              onClick={openCreateProviderDialog}
             >
               <Plus className="size-4" />
               添加供应商
@@ -465,13 +656,37 @@ export function GlobalSettingsPanel({
                 ))}
               </SelectContent>
             </Select>
-            {selectedProvider ? (
-              <span className="text-[11px] text-muted-foreground">
-                {providerScopeLabel(selectedProvider)} · {selectedProvider.provider} · {selectedProvider.baseUrl} · {selectedProvider.maskedKey}
-              </span>
-            ) : providerStatus ? (
+            {providerStatus && !selectedProvider ? (
               <span className="text-[11px] text-muted-foreground">{providerStatus}</span>
             ) : null}
+            {selectedProviderIsOwnedUserConfig && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={openEditProviderDialog}
+                  disabled={deletingProvider}
+                >
+                  <Pencil className="size-4" />
+                  编辑
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={deleteSelectedProvider}
+                  disabled={deletingProvider}
+                >
+                  {deletingProvider ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  删除
+                </Button>
+              </div>
+            )}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="managed-default-model">默认模型</Label>
@@ -509,11 +724,6 @@ export function GlobalSettingsPanel({
                   <SelectItem value="__none__">请先选择托管 Provider</SelectItem>
                 </SelectContent>
               </Select>
-            )}
-            {selectedProvider && selectedProviderModels.length > 0 && (
-              <span className="text-[11px] text-muted-foreground">
-                这里只能选择管理员在该托管配置中允许的模型。
-              </span>
             )}
             {selectedProvider && selectedProviderModels.length === 0 && (
               <span className="text-[11px] text-warning">
@@ -589,12 +799,14 @@ export function GlobalSettingsPanel({
         </Button>
       </ScaledToolbar>
 
-      <Dialog open={addProviderOpen} onOpenChange={handleAddProviderOpenChange}>
+      <Dialog open={providerDialogOpen} onOpenChange={handleProviderDialogOpenChange}>
         <DialogContent className="max-w-[720px]">
           <DialogHeader>
-            <DialogTitle>添加供应商</DialogTitle>
+            <DialogTitle>{providerDialogMode === "edit" ? "编辑供应商" : "添加供应商"}</DialogTitle>
             <DialogDescription>
-              创建仅当前账号可用的模型供应商配置，密钥只会提交到后端保存。
+              {providerDialogMode === "edit"
+                ? "更新当前账号添加的模型供应商配置，密钥不会回显。"
+                : "创建仅当前账号可用的模型供应商配置，密钥只会提交到后端保存。"}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
@@ -632,6 +844,11 @@ export function GlobalSettingsPanel({
                 }
                 autoComplete="off"
                 spellCheck={false}
+                placeholder={
+                  providerDialogMode === "edit"
+                    ? "留空表示不更换密钥"
+                    : undefined
+                }
               />
             </div>
             <div className="grid gap-1.5">
@@ -648,7 +865,7 @@ export function GlobalSettingsPanel({
               >
                 <SelectTrigger
                   id="provider-create-default-model"
-                  aria-label="新增供应商默认模型"
+                  aria-label="供应商默认模型"
                   className="h-9"
                 >
                   <SelectValue placeholder="请先获取模型列表" />
@@ -664,14 +881,38 @@ export function GlobalSettingsPanel({
                   ))}
                 </SelectContent>
               </Select>
+              {(discoveringModels || discoveryProgressText) && (
+                <div className="grid gap-1">
+                  <div
+                    className="h-1.5 overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-label="获取模型列表进度"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={discoveryProgressValue}
+                  >
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${discoveryProgressValue}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">
+                    {discoveryProgressText}
+                  </span>
+                </div>
+              )}
               {discoveredModelIds.length > 0 ? (
                 <span className="text-[11px] text-muted-foreground">
                   已获取 {discoveredModelIds.length} 个模型
-                  {temporaryProviderTestPassed ? " · 测试已通过" : " · 等待测试"}
+                  {temporaryProviderTestPassed
+                    ? " · 测试已通过"
+                    : providerDialogNeedsPassedTest
+                      ? " · 等待测试"
+                      : " · 可保存"}
                 </span>
               ) : (
                 <span className="text-[11px] text-muted-foreground">
-                  获取模型列表后才能测试和添加供应商。
+                  获取模型列表后才能测试和保存供应商。
                 </span>
               )}
             </div>
@@ -680,8 +921,8 @@ export function GlobalSettingsPanel({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => handleAddProviderOpenChange(false)}
-              disabled={creatingProvider}
+              onClick={() => handleProviderDialogOpenChange(false)}
+              disabled={savingProvider}
             >
               取消
             </Button>
@@ -689,7 +930,7 @@ export function GlobalSettingsPanel({
               type="button"
               variant="outline"
               onClick={discoverModels}
-              disabled={discoveringModels || testingTemporaryProvider || creatingProvider || !canDiscoverModels}
+              disabled={discoveringModels || testingTemporaryProvider || savingProvider || !canDiscoverModels}
             >
               {discoveringModels ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -702,7 +943,7 @@ export function GlobalSettingsPanel({
               type="button"
               variant="outline"
               onClick={testTemporaryProvider}
-              disabled={discoveringModels || testingTemporaryProvider || creatingProvider || !canTestTemporaryProvider}
+              disabled={discoveringModels || testingTemporaryProvider || savingProvider || !canTestTemporaryProvider}
             >
               {testingTemporaryProvider ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -713,15 +954,15 @@ export function GlobalSettingsPanel({
             </Button>
             <Button
               type="button"
-              onClick={createProvider}
-              disabled={discoveringModels || testingTemporaryProvider || creatingProvider || !canCreateProvider}
+              onClick={saveProviderConfig}
+              disabled={discoveringModels || testingTemporaryProvider || savingProvider || !canSaveProvider}
             >
-              {creatingProvider ? (
+              {savingProvider ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <Plus className="size-4" />
               )}
-              添加供应商
+              {providerDialogMode === "edit" ? "保存供应商" : "添加供应商"}
             </Button>
           </DialogFooter>
         </DialogContent>
