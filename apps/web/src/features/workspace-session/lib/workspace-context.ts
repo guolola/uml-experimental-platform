@@ -792,6 +792,56 @@ export function hasCompleteDesignTraceability(
   );
 }
 
+export function describeDesignTraceabilityGap(input: {
+  models: Array<DesignDiagramModelSpec | undefined>;
+  traceability: DesignModelTraceabilityEntry[];
+  manualModelEditStatus?: WorkspaceRecord["manualModelEditStatus"];
+  requirementModels?: Array<DiagramModelSpec | undefined>;
+  limit?: number;
+}) {
+  const limit = input.limit ?? 5;
+  const availableModels = input.models.filter(
+    (model): model is DesignDiagramModelSpec => Boolean(model),
+  );
+  const manualStatus = input.manualModelEditStatus ?? {};
+  const modelsRequiringTraceability = availableModels.filter(
+    (model) => !isManualModelRerendered(manualStatus, getDesignModelId(model)),
+  );
+  const expectedSources = collectTraceableRefKeys(modelsRequiringTraceability);
+  const coveredSources = new Set(
+    input.traceability.map((entry) =>
+      refKey(entry.source.diagramKind, entry.source.elementId, entry.source.modelId),
+    ),
+  );
+  const missingSources = Array.from(expectedSources).filter(
+    (key) => !coveredSources.has(key),
+  );
+
+  const requirementRefs = collectTraceableRefKeys(
+    (input.requirementModels ?? []).filter((model): model is DiagramModelSpec =>
+      Boolean(model),
+    ),
+  );
+  const invalidTargets =
+    requirementRefs.size === 0
+      ? []
+      : input.traceability.flatMap((entry) =>
+          entry.targets
+            .map((target) =>
+              refKey(target.diagramKind, target.elementId, target.modelId),
+            )
+            .filter((key) => !requirementRefs.has(key)),
+        );
+  const details: string[] = [];
+  if (missingSources.length > 0) {
+    details.push(`缺少映射：${missingSources.slice(0, limit).join("、")}`);
+  }
+  if (invalidTargets.length > 0) {
+    details.push(`目标已失效：${invalidTargets.slice(0, limit).join("、")}`);
+  }
+  return details.join("；");
+}
+
 export type DesignModelTraceabilityCheck = {
   modelId: string;
   diagramKind: DesignDiagramType;

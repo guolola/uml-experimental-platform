@@ -10,6 +10,7 @@ import { createEmptyDiagnostics } from "./diagnostics";
 import { createEmptyRunUiState } from "./run-ui-state";
 import { deriveWorkspaceStatus } from "./workspace-derived-status";
 import {
+  describeDesignTraceabilityGap,
   designInputFingerprintFor,
   requirementInputFingerprintFor,
 } from "./workspace-context";
@@ -185,5 +186,18 @@ describe("deriveWorkspaceStatus", () => {
     expect(status.staleDesignDiagrams).toEqual(["class"]);
     expect(status.designStaleReasons["design-class"]).toContain("需求源头已删除");
     expect(status.designGenerationBlockedReason).toBe("请先输入需求文本");
+  });
+});
+
+describe("describeDesignTraceabilityGap", () => {
+  it("names the missing design element mapping instead of returning a generic stale state", () => {
+    const details = describeDesignTraceabilityGap({
+      models: [designTableModel],
+      traceability: [],
+      requirementModels: [requirementClassModel],
+    });
+
+    expect(details).toContain("缺少映射");
+    expect(details).toContain("design-table:table:tbl-order.col-order-id");
   });
 });

@@ -1,12 +1,15 @@
 // Verifies one-click marketing case project creation without depending on run history.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import {
   createInMemoryAuthStore,
   type AuthStore,
 } from "../../auth/in-memory-auth-store.js";
 import type { RenderClient } from "../../adapters/render/render-client.js";
+import { caseProjectTemplates } from "../../cases/case-project-templates.js";
 import { registerCaseRoutes } from "./register-case-routes.js";
 
 const caseIds = [
@@ -15,6 +18,10 @@ const caseIds = [
   ["device-monitoring", "设备监控系统", "iot"],
   ["library-lending", "图书馆借阅系统", "campus"],
 ] as const;
+
+const plantUmlJarPath = fileURLToPath(
+  new URL("../../../../../plantuml/build/libs/plantuml-1.2026.3beta8.jar", import.meta.url),
+);
 
 const mockRenderClient: RenderClient = async (artifact) => ({
   svg: `<svg data-diagram="${artifact.diagramKind}" data-model="${artifact.modelId ?? artifact.diagramKind}"></svg>`,
@@ -55,6 +62,36 @@ async function registerUser(input: {
     cookie: `uml_session=${encodeURIComponent(session.id)}`,
   };
 }
+
+async function renderPlantUmlSource(source: string) {
+  const stdout = execFileSync(
+    "java",
+    ["-Xmx128m", "-jar", plantUmlJarPath, "-tsvg", "-charset", "UTF-8", "-pipe"],
+    {
+      input: source,
+      maxBuffer: 1024 * 1024,
+      encoding: "utf8",
+    },
+  );
+  assert.match(stdout, /<svg[\s>]/);
+}
+
+test("case project templates contain PlantUML sources renderable by the real jar", async () => {
+  for (const template of caseProjectTemplates) {
+    for (const artifact of template.requirementSnapshot.plantUml) {
+      await assert.doesNotReject(
+        () => renderPlantUmlSource(artifact.source),
+        `${template.id} requirement ${artifact.modelId ?? artifact.diagramKind} should render`,
+      );
+    }
+    for (const artifact of template.designSnapshot.plantUml) {
+      await assert.doesNotReject(
+        () => renderPlantUmlSource(artifact.source),
+        `${template.id} design ${artifact.modelId ?? artifact.diagramKind} should render`,
+      );
+    }
+  }
+});
 
 test("case project creation requires an authenticated session", async () => {
   const { app } = await createTestApp();

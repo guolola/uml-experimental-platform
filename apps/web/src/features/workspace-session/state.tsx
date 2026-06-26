@@ -151,6 +151,7 @@ import {
   designFingerprintMatches,
   designInputFingerprintFor,
   designModelIdsFromRecord,
+  describeDesignTraceabilityGap,
   diagramErrorCount,
   diagramsFromRequirementSnapshot,
   fingerprintMatches,
@@ -1939,7 +1940,17 @@ export function WorkspaceSessionProvider({
           generatedDesignDiagrams.length > 0 &&
           (!designFreshnessComplete || !designTraceabilityComplete)
         ) {
-          throw new Error("设计模型缺少完整元素级映射，请先重新生成设计模型");
+          const details = describeDesignTraceabilityGap({
+            models: Object.values(designModels),
+            traceability: designModelTraceability,
+            manualModelEditStatus,
+            requirementModels: Object.values(models),
+          });
+          throw new Error(
+            details
+              ? `设计模型缺少完整元素级映射，请先重新生成设计模型（${details}）`
+              : "设计模型缺少完整元素级映射，请先重新生成设计模型",
+          );
         }
         const availableDesignPlantUml = Object.entries(designPlantUml)
           .filter(([, source]) => source.trim().length > 0)
@@ -2381,8 +2392,16 @@ export function WorkspaceSessionProvider({
             (hasDesignModels &&
               (!designFreshnessComplete || !designTraceabilityComplete)))
         ) {
+          const details = describeDesignTraceabilityGap({
+            models: Object.values(designModels),
+            traceability: designModelTraceability,
+            manualModelEditStatus,
+            requirementModels: Object.values(models),
+          });
           throw new Error(
-            "设计链路或元素级映射已过期，请先重新生成需求模型和设计模型",
+            details
+              ? `设计链路或元素级映射已过期，请先重新生成需求模型和设计模型（${details}）`
+              : "设计链路或元素级映射已过期，请先重新生成需求模型和设计模型",
           );
         }
 

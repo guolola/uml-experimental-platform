@@ -668,7 +668,7 @@ function buildDesignPlantUml(seed: CaseSeed): DesignPlantUmlArtifact[] {
     {
       diagramKind: "architecture",
       modelId: "architecture-main",
-      source: `@startuml\npackage "界面层" { component "${seed.dashboardTitle}" as UI }\npackage "业务层" { component "${seed.statusEntity}服务" as SVC }\ncloud "${seed.externalSystem}" as EXT\nUI --> SVC\nSVC --> EXT\n@enduml`,
+      source: `@startuml\npackage "界面层" {\n  component "${seed.dashboardTitle}" as UI\n}\npackage "业务层" {\n  component "${seed.statusEntity}服务" as SVC\n}\ncloud "${seed.externalSystem}" as EXT\nUI --> SVC\nSVC --> EXT\n@enduml`,
     },
     {
       diagramKind: "sequence",
@@ -678,7 +678,7 @@ function buildDesignPlantUml(seed: CaseSeed): DesignPlantUmlArtifact[] {
     {
       diagramKind: "class",
       modelId: "class-design",
-      source: `@startuml\nclass "${seed.statusEntity}Record" { status }\nclass "${seed.statusEntity}Service" { transition(nextStatus) }\nclass "DashboardState" { selectedStatus }\nDashboardState --> "${seed.statusEntity}Service"\n"${seed.statusEntity}Service" --> "${seed.statusEntity}Record"\n@enduml`,
+      source: `@startuml\nclass "${seed.statusEntity}Record" as Record {\n  status\n}\nclass "${seed.statusEntity}Service" as Service {\n  transition(nextStatus)\n}\nclass "DashboardState" as DashboardState {\n  selectedStatus\n}\nDashboardState --> Service\nService --> Record\n@enduml`,
     },
     {
       diagramKind: "table",
