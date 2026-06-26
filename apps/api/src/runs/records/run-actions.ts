@@ -37,9 +37,6 @@ function createQueuedSnapshotFromSource(
 
   if ("files" in source) {
     return createEmptyCodeSnapshot(newRunId, {
-      requirementText: source.requirementText,
-      rules: source.rules,
-      requirementBaseline: source.requirementBaseline,
       designModels: source.designModels,
       designPlantUml: source.designPlantUml,
       existingFiles: source.files,

@@ -921,9 +921,6 @@ export async function resolveCodeRunInput(
     ok: true,
     input: startCodeRunRequestSchema.parse({
       projectId: workspace.input.projectId,
-      requirementText: stringValue(workspace.input.state.requirementText),
-      rules: arrayValue(workspace.input.state.rules),
-      requirementBaseline: workspace.input.state.requirementBaseline ?? null,
       designModels: presentRecordValues(workspace.input.state.designModels),
       designPlantUml: designPlantUmlArtifactsFromWorkspace(workspace.input.state),
       existingFiles:

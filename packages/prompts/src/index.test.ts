@@ -483,24 +483,41 @@ test("design traceability prompts only ask for design-to-requirement mappings", 
 
 test("code generation prompts use business background theme and modular files", () => {
   const codeContext = {
-    requirementText: "校园活动平台支持活动浏览、报名和提醒邮件。",
-    rules: [],
-    designModels: [],
+    authority: "Design Model Only",
+    designModels: [
+      {
+        diagramKind: "architecture",
+        title: "校园活动架构",
+        summary: "前端模块和活动服务边界。",
+        notes: [],
+        packages: [{ id: "pkg-events", name: "活动模块", componentIds: ["cmp-events"] }],
+        components: [{ id: "cmp-events", name: "活动工作台", packageId: "pkg-events" }],
+        relationships: [],
+      },
+    ],
+    designToCodeMapping: {
+      generatedAt: "2026-06-26T00:00:00.000Z",
+      items: [
+        {
+          designModelId: "architecture",
+          diagramKind: "architecture",
+          elementId: "cmp-events",
+          elementKind: "architecture-component",
+          label: "活动工作台",
+          targetType: "component",
+          targetPath: "/src/components/EventsWorkspace.tsx",
+          rationale: "总体架构图组件决定模块边界。",
+        },
+      ],
+      diagnostics: [],
+    },
   };
 
-  const specPrompt = buildGenerateCodeSpecPrompt(
-    codeContext.requirementText,
-    [],
-    [],
-  );
+  const specPrompt = buildGenerateCodeSpecPrompt([]);
   const planPrompt = buildGenerateCodeAgentPlanPrompt(codeContext, {
     "/src/App.tsx": "",
   });
-  const appBlueprintPrompt = buildGenerateCodeAppBlueprintPrompt(
-    codeContext.requirementText,
-    [],
-    [],
-  );
+  const appBlueprintPrompt = buildGenerateCodeAppBlueprintPrompt([]);
   const appBlueprint = {
     appName: "校园活动平台",
     domain: "校园活动",
@@ -597,10 +614,26 @@ test("code generation prompts use business background theme and modular files", 
     plantUmlTraceability: ["class:Activity", "sequence:signup"],
   };
   const businessLogicPrompt = buildAnalyzeCodeBusinessLogicPrompt(
-    codeContext.requirementText,
     [],
     [],
-    [],
+    codeContext.designToCodeMapping,
+    {
+      generatedAt: "2026-06-26T00:00:00.000Z",
+      passed: true,
+      strictMode: false,
+      models: [
+        {
+          designModelId: "architecture",
+          diagramKind: "architecture",
+          mappedElementCount: 1,
+          targetPaths: ["/src/components/EventsWorkspace.tsx"],
+          status: "covered",
+          missingElements: [],
+          message: "已覆盖",
+        },
+      ],
+      diagnostics: [],
+    },
   );
   const filePlanPrompt = buildGenerateCodeFilePlanPrompt(
     codeContext,
@@ -684,6 +717,7 @@ test("code generation prompts use business background theme and modular files", 
     {},
     {
       businessLogic,
+      designToCodeMapping: codeContext.designToCodeMapping,
       uiBlueprint,
       visualDirection,
       skillResourceDiscoveryPlan,
@@ -743,6 +777,7 @@ test("code generation prompts use business background theme and modular files", 
     "缺少主题切换",
     {
       businessLogic,
+      designToCodeMapping: codeContext.designToCodeMapping,
       visualDirection,
       skillResourceDiscoveryPlan,
       skillResourcePreviews,
@@ -862,6 +897,10 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(businessLogicPrompt, /businessLogic/);
   assert.match(businessLogicPrompt, /PlantUML/);
   assert.match(businessLogicPrompt, /不是 skill/);
+  assert.match(businessLogicPrompt, /设计模型是代码实现的唯一事实来源/);
+  assert.match(businessLogicPrompt, /禁止从设计模型以外的信息推导新页面/);
+  assert.doesNotMatch(businessLogicPrompt, /requirementText|rules|requirementBaseline/);
+  assert.match(businessLogicPrompt, /designToCodeMapping/);
   assert.match(businessLogicPrompt, /必须全部是字符串数组/);
   assert.match(businessLogicPrompt, /不要输出对象数组/);
   assert.match(businessLogicPrompt, /coreWorkflow 必须是一个字符串/);
@@ -881,6 +920,10 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(operationsPrompt, /create_file\/update_file 的 content 必须是完整文件正文/);
   assert.match(operationsPrompt, /不能使用 type、action、op、kind/);
   assert.match(operationsPrompt, /businessLogic\.pageFlows/);
+  assert.match(operationsPrompt, /必须逐项覆盖 designToCodeMapping\.items/);
+  assert.match(operationsPrompt, /每个 create_file\/update_file 的 reason 必须引用至少一个设计模型元素 id/);
+  assert.match(operationsPrompt, /禁止从设计模型以外的信息推导/);
+  assert.doesNotMatch(operationsPrompt, /requirementText|rules|requirementBaseline/);
   assert.match(operationsPrompt, /\/src\/domain\/types\.ts/);
   assert.match(operationsPrompt, /\/src\/data\/mock-data\.ts/);
   assert.match(operationsPrompt, /不能默认套软件工程实践平台风格/);
@@ -978,7 +1021,7 @@ test("code generation prompts use business background theme and modular files", 
     uiBlueprint,
   );
   assert.ok(longUiMockupPrompt.length <= 24000);
-  assert.match(longUiMockupPrompt, /内容已截断/);
+  assert.doesNotMatch(longUiMockupPrompt, /requirementText|rules|requirementBaseline/);
 });
 
 test("document content prompt forbids unprovided school and personal names", () => {

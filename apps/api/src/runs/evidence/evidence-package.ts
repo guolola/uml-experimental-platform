@@ -25,6 +25,10 @@ type BuildEvidencePackageInput = {
   reviewDecisions?: EvidenceReviewDecision[];
 };
 
+function snapshotRequirementBaseline(snapshot: EvidenceSnapshot) {
+  return "requirementBaseline" in snapshot ? snapshot.requirementBaseline : null;
+}
+
 function reviewItemId(index: number) {
   return `REV-${String(index + 1).padStart(3, "0")}`;
 }
@@ -77,7 +81,7 @@ function buildReviewItems(
   reviewDecisions: EvidenceReviewDecision[],
 ) {
   const items: Array<Omit<EvidenceReviewItem, "id" | "status">> = [];
-  const baseline = snapshot.requirementBaseline;
+  const baseline = snapshotRequirementBaseline(snapshot);
 
   for (const issue of baseline?.qualityReport.issues ?? []) {
     if (!issue.blocksDownstream && issue.code !== "low-confidence") continue;
@@ -306,8 +310,8 @@ export function buildEvidencePackage({
     runId: snapshot.runId,
     generatedAt,
     status,
-    requirementBaseline: snapshot.requirementBaseline,
-    qualityReport: snapshot.requirementBaseline?.qualityReport ?? null,
+    requirementBaseline: snapshotRequirementBaseline(snapshot),
+    qualityReport: snapshotRequirementBaseline(snapshot)?.qualityReport ?? null,
     coverageMatrix: snapshot.coverageMatrix,
     traceabilityMatrix: snapshot.traceabilityMatrix,
     modelArtifacts: modelArtifacts(snapshot),

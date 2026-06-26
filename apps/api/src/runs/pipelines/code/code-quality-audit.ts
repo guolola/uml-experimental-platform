@@ -239,17 +239,13 @@ export function buildBusinessContextMarkdown(snapshot: CodeRunSnapshot) {
   const lines = [
     "# Business Context",
     "",
-    "此文件由平台根据已确认需求项和业务逻辑自动维护，用于承载项目背景、权限边界、规则溯源和服务边界。",
+    "此文件由平台根据设计模型和实现模型自动维护，用于承载项目背景、权限边界、设计溯源和服务边界。",
     "这些说明性内容供代码页查看，不应直接渲染到业务原型 UI 中。",
     "",
   ];
 
   if (!businessLogic) {
-    appendMarkdownList(
-      lines,
-      "已确认需求项",
-      snapshot.rules.map((rule) => `${rule.id} [${rule.category}] ${rule.text}`),
-    );
+    appendMarkdownList(lines, "设计模型", snapshot.designModels.map((model) => model.diagramKind));
     return `${lines.join("\n").trim()}\n`;
   }
 
@@ -273,11 +269,7 @@ export function buildBusinessContextMarkdown(snapshot: CodeRunSnapshot) {
   appendMarkdownList(lines, "前端必须实现的操作", businessLogic.frontendOperations);
   appendMarkdownList(lines, "异常与边界条件", businessLogic.edgeCases);
   appendMarkdownList(lines, "PlantUML 溯源", businessLogic.plantUmlTraceability);
-  appendMarkdownList(
-    lines,
-    "已确认需求项",
-    snapshot.rules.map((rule) => `${rule.id} [${rule.category}] ${rule.text}`),
-  );
+  appendMarkdownList(lines, "输入设计模型", snapshot.designModels.map((model) => model.diagramKind));
 
   return `${lines.join("\n").trim()}\n`;
 }

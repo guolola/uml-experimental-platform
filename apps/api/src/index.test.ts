@@ -3249,7 +3249,7 @@ test("api code runs with Claude send json_schema through file operations and reu
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson();
           return;
         }
@@ -3318,8 +3318,6 @@ test("api code runs with Claude send json_schema through file operations and reu
   });
 
   const payload = {
-    requirementText: "实验平台根据设计模型生成前端原型。",
-    rules: JSON.parse(RULES_JSON).rules,
     designModels: [DESIGN_SEQUENCE_MODEL],
     providerSettings: managedProviderSettings("claude-opus-4-6-thinking"),
   };
@@ -3458,7 +3456,7 @@ test("api records code file operations repair trace", async () => {
         const prompt = lastPromptText(messages);
 
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson("蓝图追踪");
           return;
         }
@@ -3507,8 +3505,6 @@ test("api records code file operations repair trace", async () => {
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: managedProviderSettings("claude-opus-4-6-thinking"),
     },
@@ -3580,7 +3576,7 @@ test("api code run normalizes object-array business logic fields", async () => {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicObjectArrayJson();
           return;
         }
@@ -3627,8 +3623,6 @@ test("api code run normalizes object-array business logic fields", async () => {
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
@@ -3679,7 +3673,7 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson();
           return;
         }
@@ -3724,8 +3718,6 @@ test("api code run accepts trailing text after UI blueprint JSON", async () => {
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
@@ -3758,7 +3750,7 @@ test("api code run does not call a separate UI blueprint stage", async () => {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson();
           return;
         }
@@ -3804,8 +3796,6 @@ test("api code run does not call a separate UI blueprint stage", async () => {
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
@@ -3841,7 +3831,7 @@ test("api code run continues when UI mockup image generation fails", async () =>
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson();
           return;
         }
@@ -3893,8 +3883,6 @@ test("api code run continues when UI mockup image generation fails", async () =>
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
@@ -3930,7 +3918,7 @@ test("api code runs repair invalid code operation discriminators", async () => {
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson();
           return;
         }
@@ -3992,8 +3980,6 @@ test("api code runs repair invalid code operation discriminators", async () => {
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: MANAGED_PROVIDER_SETTINGS,
     },
@@ -4029,7 +4015,7 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
       async *streamChatCompletion({ messages, responseFormat }) {
         const prompt = lastPromptText(messages);
         assert.equal(responseFormat?.type, "json_schema");
-        if (prompt.includes("抽取代码生成必须遵守的业务事实")) {
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
           yield createCodeBusinessLogicJson();
           return;
         }
@@ -4103,8 +4089,6 @@ test("api code run rejects near-black default backgrounds and repairs theme togg
     method: "POST",
     url: "/api/code-runs",
     payload: {
-      requirementText: "校园活动平台支持活动报名和提醒。",
-      rules: JSON.parse(RULES_JSON).rules,
       designModels: [DESIGN_SEQUENCE_MODEL],
       providerSettings: MANAGED_PROVIDER_SETTINGS,
     },

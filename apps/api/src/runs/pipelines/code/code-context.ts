@@ -139,6 +139,20 @@ export function summarizeDesignModelForCode(model: DesignDiagramModelSpec) {
         artifacts: limitArray(source.artifacts, 8),
         relationships: limitArray(source.relationships, 18),
       };
+    case "architecture":
+      return {
+        ...base,
+        packages: limitArray(source.packages, 12),
+        components: limitArray(source.components, 18),
+        relationships: limitArray(source.relationships, 24),
+      };
+    case "component":
+      return {
+        ...base,
+        components: limitArray(source.components, 18),
+        interfaces: limitArray(source.interfaces, 12),
+        relationships: limitArray(source.relationships, 24),
+      };
     default:
       return base;
   }
@@ -146,18 +160,15 @@ export function summarizeDesignModelForCode(model: DesignDiagramModelSpec) {
 
 export function buildCodeContext(snapshot: CodeRunSnapshot) {
   return {
-    requirementText: snapshot.requirementText,
-    rules: snapshot.rules.map((rule) => ({
-      id: rule.id,
-      category: rule.category,
-      text: rule.text,
-      relatedDiagrams: rule.relatedDiagrams,
-    })),
+    authority:
+      "Design Model Only: generated code must derive implementation facts only from designModels, designPlantUml, and designToCodeMapping.",
     designModels: snapshot.designModels.map(summarizeDesignModelForCode),
     designPlantUml: snapshot.designPlantUml.map((artifact) => ({
       diagramKind: artifact.diagramKind,
       sourceLength: artifact.source.length,
     })),
+    designToCodeMapping: snapshot.designToCodeMapping,
+    designModelCoverageReport: snapshot.designModelCoverageReport,
     businessLogic: snapshot.businessLogic,
     loadedCodeSkill: snapshot.loadedCodeSkill
       ? {
@@ -263,7 +274,7 @@ export function buildCodeContext(snapshot: CodeRunSnapshot) {
     constraints: {
       target: "React 18 + TypeScript + Sandpack front-end prototype",
       themePolicy:
-        "Infer the business prototype theme from requirementText, rules, and designModels. Do not copy the UML platform workbench style unless the business domain itself calls for it.",
+        "Infer the business prototype theme from designModels, designPlantUml, and designToCodeMapping. Do not copy the UML platform workbench style unless the design model business domain calls for it.",
       requiredFiles: [
         "/src/App.tsx",
         "/src/components/WorkspaceShell.tsx",

@@ -1827,8 +1827,6 @@ test("project run history exposes run kind for each snapshot type", async () => 
     {
       snapshot: {
         ...createEmptyCodeSnapshot("run-code", {
-          requirementText: "需求",
-          rules: [],
           designModels: [],
         }),
         currentStage: "generate_code_files",
@@ -3291,7 +3289,9 @@ test("project code and document start commands build run inputs from workspace",
   const codeRecord = runs.get(codeResponse.json().runId);
   assert.ok(codeRecord);
   const codeSnapshot = codeRecord.snapshot as CodeRunSnapshot;
-  assert.equal(codeSnapshot.requirementText, "用户可以查看公开活动日历。");
+  assert.equal("requirementText" in codeSnapshot, false);
+  assert.equal("rules" in codeSnapshot, false);
+  assert.equal("requirementBaseline" in codeSnapshot, false);
   assert.equal(codeSnapshot.designModels[0]?.modelId, "design-sequence-view");
   assert.equal(codeSnapshot.designPlantUml[0]?.modelId, "design-sequence-view");
   assert.equal(
@@ -4152,7 +4152,7 @@ test("blocked evidence package prevents downstream design run start", async () =
   await app.close();
 });
 
-test("blocked requirement baseline prevents downstream start routes before queuing runs", async () => {
+test("blocked requirement baseline no longer blocks design or code starts but still blocks documents", async () => {
   const blockedBaseline = createBlockedRequirementBaseline();
   const blockedWorkspaceState = {
     ...createProjectWorkspaceState(),
@@ -4175,18 +4175,11 @@ test("blocked requirement baseline prevents downstream start routes before queui
     headers: { "x-test-user-id": "reviewer-a" },
     payload: {
       projectId: "project-a",
-      requirementBaseline: blockedBaseline,
-      requirementModels: [minimalUseCaseModel],
-      requirementModelTraceability: workspaceRequirementTraceability,
       selectedDiagrams: ["sequence"],
     },
   });
 
-  assert.equal(designResponse.statusCode, 409);
-  assert.match(
-    designResponse.json().message,
-    /RequirementBaseline blocked downstream generation: 公开活动日历查看规则互相冲突/u,
-  );
+  assert.equal(designResponse.statusCode, 202);
 
   const codeResponse = await app.inject({
     method: "POST",
@@ -4198,11 +4191,7 @@ test("blocked requirement baseline prevents downstream start routes before queui
     },
   });
 
-  assert.equal(codeResponse.statusCode, 409);
-  assert.match(
-    codeResponse.json().message,
-    /RequirementBaseline blocked downstream generation/u,
-  );
+  assert.equal(codeResponse.statusCode, 202);
 
   const documentResponse = await app.inject({
     method: "POST",
@@ -4220,7 +4209,7 @@ test("blocked requirement baseline prevents downstream start routes before queui
     documentResponse.json().message,
     /RequirementBaseline blocked downstream generation/u,
   );
-  assert.equal(runs.size, 0);
+  assert.equal(runs.size, 2);
 
   await app.close();
 });

@@ -1,4 +1,4 @@
-// Verifies initial run snapshots carry the trusted requirements baseline artifact.
+// Verifies initial run snapshots carry the right upstream artifacts for each stage.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -60,14 +60,14 @@ test("createEmptyDesignSnapshot preserves the requested design selection", () =>
   assert.deepEqual(snapshot.requestedDiagrams, ["class"]);
 });
 
-test("createEmptyCodeSnapshot carries a RequirementBaseline into code runs", () => {
+test("createEmptyCodeSnapshot omits requirement facts from code runs", () => {
   const snapshot = createEmptyCodeSnapshot("code-1", {
-    requirementText: rule.text,
-    rules: [rule],
     designModels: [],
   });
 
-  assert.equal(snapshot.requirementBaseline?.requirements[0]?.criticality, "critical");
+  assert.equal("requirementText" in snapshot, false);
+  assert.equal("rules" in snapshot, false);
+  assert.equal("requirementBaseline" in snapshot, false);
 });
 
 test("createEmptyDocumentSnapshot preserves an empty baseline placeholder", () => {

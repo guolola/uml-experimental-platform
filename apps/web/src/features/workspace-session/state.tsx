@@ -1957,24 +1957,10 @@ export function WorkspaceSessionProvider({
           });
 
         const startInput = createStartCodeRunInput(
-          requirementText,
-          rules,
           availableDesignModels,
           availableDesignPlantUml,
           codeFiles,
           generationMode,
-          (() => {
-            const upstreamEvidencePackage = latestEvidencePackageForScopes(
-              historyItems,
-              ["requirements", "design"],
-            );
-            const evidenceBlockReason =
-              evidencePackageBlockReason(upstreamEvidencePackage);
-            if (evidenceBlockReason) {
-              throw new Error(evidenceBlockReason);
-            }
-            return upstreamEvidencePackage;
-          })(),
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({

@@ -93,8 +93,6 @@ test("appendCodeTrace uses the same rawOutput cap", () => {
 
   try {
     const snapshot = createEmptyCodeSnapshot("code-trace", {
-      requirementText: "需求文本",
-      rules: [],
       designModels: [],
     });
     const record = createRecord(snapshot);

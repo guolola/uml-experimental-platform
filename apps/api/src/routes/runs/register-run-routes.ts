@@ -352,7 +352,7 @@ export function registerRunRoutes({
 
   const rejectBlockedRequirementBaseline = (
     reply: FastifyReply,
-    baseline: StartDesignRunRequest["requirementBaseline"] | StartCodeRunRequest["requirementBaseline"] | StartDocumentRunRequest["requirementBaseline"],
+    baseline: StartDesignRunRequest["requirementBaseline"] | StartDocumentRunRequest["requirementBaseline"],
   ) => {
     if (!baseline) return null;
     try {
@@ -671,11 +671,6 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
-    const blockedBaseline = rejectBlockedRequirementBaseline(
-      reply,
-      input.requirementBaseline,
-    );
-    if (blockedBaseline) return blockedBaseline;
     if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
       const runId = randomUUID();
       const record: RunRecord = {
@@ -803,11 +798,6 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
-    const blockedBaseline = rejectBlockedRequirementBaseline(
-      reply,
-      input.requirementBaseline,
-    );
-    if (blockedBaseline) return blockedBaseline;
     if (await isOfflineDemoRun(input.projectId ?? metadata?.projectId)) {
       const runId = randomUUID();
       const record: RunRecord = {

@@ -374,8 +374,6 @@ test("terminal code snapshots auto-sync generated files while document snapshots
   const { authStore, project, user, syncProjectWorkspace } =
     await createWorkspaceSyncFixture();
   const codeSnapshot = createEmptyCodeSnapshot("run-code-sync", {
-    requirementText: rule.text,
-    rules: [rule],
     designModels: [designClassModel],
   });
   codeSnapshot.files = {
@@ -449,8 +447,6 @@ test("cancelled regenerate code snapshots do not clear existing project code fil
   assert.equal(seeded.ok, true);
 
   const snapshot = createEmptyCodeSnapshot("run-code-cancelled-sync", {
-    requirementText: rule.text,
-    rules: [rule],
     designModels: [designClassModel],
     existingFiles: oldCodeFiles,
     generationMode: "regenerate",

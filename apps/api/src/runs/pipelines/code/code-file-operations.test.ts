@@ -34,8 +34,6 @@ async function withTemporaryEnv<T>(
 
 test("code file operation generation aborts the LLM stream when the run is cancelled", async () => {
   const snapshot = createEmptyCodeSnapshot("run-code-cancel", {
-    requirementText: "用户可以浏览商品并提交订单。",
-    rules: [],
     designModels: [],
   });
   snapshot.status = "running";

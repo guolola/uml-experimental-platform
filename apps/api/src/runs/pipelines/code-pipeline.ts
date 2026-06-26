@@ -57,7 +57,6 @@ import { formatParseError, parseJson } from "../../normalizers/json/parse-json.j
 import { z } from "zod";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { throwIfRunCancelled } from "../records/run-cancellation.js";
-import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
 import { collectStructuredResult } from "./shared/structured-output.js";
@@ -80,6 +79,10 @@ import {
   hashCodeContext,
 } from "./code/code-context.js";
 import {
+  buildDesignModelCoverageReport,
+  buildDesignToCodeMapping,
+} from "./code/design-to-code-mapping.js";
+import {
   analyzeCodeUiMockup,
   generateCodeUiIr,
   generateCodeUiMockup,
@@ -94,18 +97,13 @@ import {
   validatePrototypeFileContents,
   verifyRenderedPreviewStructure,
 } from "./code/code-quality-audit.js";
-import { buildCodeBusinessAssertionResults } from "./code/code-business-assertions.js";
-import {
-  assertRequirementBaselineAllowsDownstream,
-  buildRequirementBaseline,
-} from "../baselines/requirement-baseline.js";
-import {
-  assertTrustedChainAllowsCompletion,
-  buildCodeStageTrustedChain,
-} from "../traceability/trusted-chain-traceability.js";
 
 const MAX_UI_FIDELITY_REPAIR_ROUNDS = 2;
 const MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS = 3;
+
+function strictDesignMappingEnabled() {
+  return process.env.UML_CODE_STRICT_DESIGN_MAPPING === "true";
+}
 
 // route -> pipeline -> record store contract: routes enqueue a record, this pipeline mutates its snapshot and emits run events.
 export async function runCodeStagePipeline(
@@ -115,14 +113,6 @@ export async function runCodeStagePipeline(
 ) {
   const snapshot = record.snapshot as CodeRunSnapshot;
   throwIfRunCancelled(record);
-  if (!snapshot.requirementBaseline && snapshot.rules.length > 0) {
-    snapshot.requirementBaseline = buildRequirementBaseline({
-      runId: snapshot.runId,
-      requirementText: snapshot.requirementText,
-      rules: snapshot.rules,
-    });
-  }
-  assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
 
   const updateStage = (stage: RunStage, message?: string) => {
     throwIfRunCancelled(record);
@@ -161,17 +151,52 @@ export async function runCodeStagePipeline(
   snapshot.dependencies = dependencies;
   snapshot.entryFile = snapshot.entryFile ?? "/src/App.tsx";
 
+  const strictDesignMapping = strictDesignMappingEnabled();
+  updateStage("analyze_code_business_logic", "正在建立设计模型到代码产物的确定性映射");
+  const designToCodeMapping = buildDesignToCodeMapping(snapshot.designModels);
+  snapshot.designToCodeMapping = designToCodeMapping;
+  let designModelCoverageReport = buildDesignModelCoverageReport({
+    designModels: snapshot.designModels,
+    mapping: designToCodeMapping,
+    strictMode: strictDesignMapping,
+  });
+  snapshot.designModelCoverageReport = designModelCoverageReport;
+  for (const diagnostic of designModelCoverageReport.diagnostics) {
+    addCodeDiagnostic(snapshot, "analyze_code_business_logic", diagnostic);
+  }
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "analyze_code_business_logic",
+      artifactKind: "designToCodeMapping",
+      designToCodeMapping,
+    }),
+  );
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "analyze_code_business_logic",
+      artifactKind: "designModelCoverageReport",
+      designModelCoverageReport,
+    }),
+  );
+  if (strictDesignMapping && !designModelCoverageReport.passed) {
+    throw new Error("Design-to-code mapping coverage failed in strict mode");
+  }
+
   let codeContext = buildCodeContext(snapshot);
   const codeContextHash = hashCodeContext(codeContext);
   snapshot.codeContextHash = codeContextHash;
 
-  updateStage("analyze_code_business_logic", "正在从需求、设计模型和 PlantUML 提取业务逻辑");
+  updateStage("analyze_code_business_logic", "正在只从设计模型和设计 PlantUML 提取实现模型");
   const businessLogicMessages = createMessages(
     buildAnalyzeCodeBusinessLogicPrompt(
-      snapshot.requirementText,
-      snapshot.rules,
       snapshot.designModels,
       snapshot.designPlantUml,
+      designToCodeMapping,
+      designModelCoverageReport,
     ),
   );
   let businessLogicResult: ReturnType<typeof parseCodeBusinessLogicResult> | null = null;
@@ -228,7 +253,7 @@ export async function runCodeStagePipeline(
   addCodeDiagnostic(
     snapshot,
     "analyze_code_business_logic",
-    `已抽取 ${businessLogic.pageFlows.length} 个页面流程和 ${businessLogic.frontendOperations.length} 个前端操作`,
+    `已基于设计模型抽取 ${businessLogic.pageFlows.length} 个页面流程和 ${businessLogic.frontendOperations.length} 个前端操作`,
   );
   emitEvent(
     record,
@@ -530,6 +555,8 @@ export async function runCodeStagePipeline(
     {
       businessLogic,
       uiBlueprint: null,
+      designToCodeMapping,
+      designModelCoverageReport,
       loadedCodeSkill,
       visualDirection,
       skillResourceDiscoveryPlan,
@@ -584,6 +611,8 @@ export async function runCodeStagePipeline(
       {
         businessLogic,
         uiBlueprint: null,
+        designToCodeMapping,
+        designModelCoverageReport,
         loadedCodeSkill,
         visualDirection,
         skillResourceDiscoveryPlan,
@@ -640,6 +669,8 @@ export async function runCodeStagePipeline(
       {
         businessLogic,
         uiBlueprint: null,
+        designToCodeMapping,
+        designModelCoverageReport,
         loadedCodeSkill,
         visualDirection,
         skillResourceDiscoveryPlan,
@@ -697,6 +728,30 @@ export async function runCodeStagePipeline(
     repaired: repairRoundsRun > 0,
   };
 
+  updateStage("verify_code_preview", "正在检查设计模型映射目标是否写入代码文件");
+  designModelCoverageReport = buildDesignModelCoverageReport({
+    designModels: snapshot.designModels,
+    mapping: designToCodeMapping,
+    strictMode: strictDesignMapping,
+    files: snapshot.files,
+  });
+  snapshot.designModelCoverageReport = designModelCoverageReport;
+  for (const diagnostic of designModelCoverageReport.diagnostics) {
+    addCodeDiagnostic(snapshot, "verify_code_preview", diagnostic);
+  }
+  emitEvent(
+    record,
+    artifactReadyRunEventSchema.parse({
+      type: "artifact_ready",
+      stage: "verify_code_preview",
+      artifactKind: "designModelCoverageReport",
+      designModelCoverageReport,
+    }),
+  );
+  if (strictDesignMapping && !designModelCoverageReport.passed) {
+    throw new Error("Generated files do not satisfy design-to-code mapping coverage in strict mode");
+  }
+
   updateStage("verify_code_rendered_preview", "正在进行结构化预览验证");
   const visualDiffReport = verifyRenderedPreviewStructure(snapshot);
   snapshot.visualDiffReport = visualDiffReport;
@@ -727,70 +782,6 @@ export async function runCodeStagePipeline(
     addCodeDiagnostic(snapshot, "verify_code_preview", "本次未产生文件变更");
   }
 
-  updateStage("verify_code_business_assertions", "正在验证需求绑定的业务断言");
-  const businessAssertionResults = buildCodeBusinessAssertionResults({
-    runId: snapshot.runId,
-    baseline: snapshot.requirementBaseline,
-    businessLogic,
-    files: snapshot.files,
-  });
-  snapshot.businessAssertionResults = businessAssertionResults;
-  addCodeDiagnostic(
-    snapshot,
-    "verify_code_business_assertions",
-    businessAssertionResults.passed
-      ? `业务断言通过：${businessAssertionResults.assertions.length} 条需求绑定断言已验证`
-      : `业务断言失败：${businessAssertionResults.blockingFailureIds.length} 条阻断性断言未通过`,
-  );
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "verify_code_business_assertions",
-      artifactKind: "businessAssertionResults",
-      businessAssertionResults,
-    }),
-  );
-
-  const trustedChain = buildCodeStageTrustedChain({
-    runId: snapshot.runId,
-    baseline: snapshot.requirementBaseline,
-    files: snapshot.files,
-    businessAssertionResults,
-  });
-  snapshot.coverageMatrix = trustedChain.coverageMatrix;
-  snapshot.traceabilityMatrix = trustedChain.traceabilityMatrix;
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "verify_code_preview",
-      artifactKind: "coverageMatrix",
-      coverageMatrix: trustedChain.coverageMatrix,
-    }),
-  );
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "verify_code_preview",
-      artifactKind: "traceabilityMatrix",
-      traceabilityMatrix: trustedChain.traceabilityMatrix,
-    }),
-  );
-  assertTrustedChainAllowsCompletion(trustedChain);
-
-  throwIfRunCancelled(record);
-  const evidencePackage = attachEvidencePackage(snapshot);
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "verify_code_preview",
-      artifactKind: "evidencePackage",
-      evidencePackage,
-    }),
-  );
   snapshot.status = "completed";
   snapshot.error = null;
   emitEvent(

@@ -50,9 +50,6 @@ export interface StartDesignRunInput {
 }
 
 export interface StartCodeRunInput {
-  requirementText: string;
-  rules: RequirementRule[];
-  evidencePackage?: EvidencePackage | null;
   designModels: DesignDiagramModelSpec[];
   designPlantUml: DesignPlantUmlArtifact[];
   existingFiles: Record<string, string>;
@@ -151,24 +148,17 @@ export function createStartDesignRunInput(
 }
 
 export function createStartCodeRunInput(
-  requirementText: string,
-  rules: RequirementRule[],
   designModels: DesignDiagramModelSpec[],
   designPlantUml: DesignPlantUmlArtifact[] = [],
   existingFiles: Record<string, string> = {},
   generationMode: "continue" | "regenerate" = "continue",
-  evidencePackage: EvidencePackage | null = null,
 ): StartCodeRunInput {
-  const base = createStartRunInput(requirementText, []);
   return {
-    requirementText,
-    rules,
-    evidencePackage,
     designModels,
     designPlantUml,
     existingFiles: generationMode === "regenerate" ? {} : existingFiles,
     generationMode,
-    providerSettings: base.providerSettings,
+    providerSettings: createProviderSettingsInput(),
   };
 }
 

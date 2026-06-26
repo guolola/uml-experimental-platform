@@ -4,6 +4,8 @@ import {
   llmChunkRunEventSchema,
   stageProgressRunEventSchema,
   type CodeBusinessLogic,
+  type DesignModelCoverageReport,
+  type DesignToCodeMapping,
   type CodeRunSnapshot,
   type CodeSkillContext,
   type CodeSkillResourceDiscoveryPlan,
@@ -53,6 +55,8 @@ export type CodeFileGenerationContext = {
   qualityIssues?: string[];
   selectedCodeSkills?: CodeSkillSelection[];
   codeSkillInstructions?: string;
+  designToCodeMapping?: DesignToCodeMapping | null;
+  designModelCoverageReport?: DesignModelCoverageReport | null;
 };
 
 function positiveIntegerEnv(value: string | undefined, fallback: number) {

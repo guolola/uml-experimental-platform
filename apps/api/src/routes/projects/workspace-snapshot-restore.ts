@@ -254,12 +254,15 @@ function applySnapshotToWorkspaceState(
   const currentHasRequirements =
     currentRequirementText.trim().length > 0 || currentRules.length > 0;
 
-  const snapshotRequirementFingerprint = snapshotInputFingerprint({
-    requirementText: snapshot.requirementText,
-    rules: snapshot.rules,
-  });
-  const isRequirementSnapshot =
-    !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
+  const isCodeSnapshot = isCodeRunSnapshot(snapshot);
+  const isDesignSnapshot = isDesignRunSnapshot(snapshot);
+  const isRequirementSnapshot = !isCodeSnapshot && !isDesignSnapshot;
+  const snapshotRequirementFingerprint = isCodeSnapshot
+    ? ""
+    : snapshotInputFingerprint({
+        requirementText: snapshot.requirementText,
+        rules: snapshot.rules,
+      });
   if (
     isRequirementSnapshot &&
     currentRequirementText.trim().length === 0 &&
@@ -314,7 +317,7 @@ function applySnapshotToWorkspaceState(
     applyRequirementBaselineToWorkspaceState(next, snapshot.requirementBaseline);
   }
 
-  if (isCodeRunSnapshot(snapshot)) {
+  if (isCodeSnapshot) {
     const incomingDesignModels = Object.fromEntries(
       snapshot.designModels.map((model) => [getDesignModelId(model), model]),
     );

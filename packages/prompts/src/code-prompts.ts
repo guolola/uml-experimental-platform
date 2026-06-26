@@ -3,6 +3,8 @@ import type {
   CodeAppBlueprint,
   CodeBusinessLogic,
   CodeGenerationSpec,
+  DesignModelCoverageReport,
+  DesignToCodeMapping,
   CodeSkillContext,
   CodeSkillResourceDiscoveryPlan,
   CodeSkillResourcePlan,
@@ -15,7 +17,6 @@ import type {
   CodeVisualDirection,
   DesignDiagramModelSpec,
   LoadedCodeSkill,
-  RequirementRule,
 } from "@uml-platform/contracts";
 
 const UI_MOCKUP_PROMPT_CHAR_LIMIT = 24000;
@@ -51,24 +52,23 @@ type CodeGenerationPromptContext = {
   qualityIssues?: string[];
   selectedCodeSkills?: CodeSkillSelection[];
   codeSkillInstructions?: string;
+  designToCodeMapping?: DesignToCodeMapping | null;
+  designModelCoverageReport?: DesignModelCoverageReport | null;
 };
 
 function compactCodeContextForUiMockup(codeContext: unknown) {
   if (!codeContext || typeof codeContext !== "object") return codeContext;
 
   const context = codeContext as Record<string, unknown>;
-  const rules = Array.isArray(context.rules) ? context.rules.slice(0, 20) : [];
   const designModels = Array.isArray(context.designModels)
     ? context.designModels.slice(0, 8)
     : [];
 
   return {
-    requirementText:
-      typeof context.requirementText === "string"
-        ? truncateForPrompt(context.requirementText, 2400)
-        : context.requirementText,
-    rules,
+    authority: context.authority ?? null,
     designModels,
+    designToCodeMapping: context.designToCodeMapping ?? null,
+    designModelCoverageReport: context.designModelCoverageReport ?? null,
     appBlueprint: context.appBlueprint ?? null,
     uiBlueprint: context.uiBlueprint ?? null,
     constraints: context.constraints ?? null,
@@ -78,8 +78,9 @@ function compactCodeContextForUiMockup(codeContext: unknown) {
 const CODE_GENERATION_SEMANTICS = [
   "代码生成阶段职责：",
   "- 第一版只生成可运行的前端原型，不生成真实后端、数据库迁移或完整仓库补丁。",
-  "- 外层代码页属于软件工程实践平台，但 Sandpack 内生成的业务原型必须契合用户需求背景，而不是套用软件工程实践平台视觉风格。",
-  "- 必须从已确认需求项和设计模型推导业务主题、领域文案、信息架构和视觉语言；requirementText 只作为背景，校园活动、医疗预约、仓储管理、图书借阅、在线商城等应呈现不同 UI 气质。",
+  "- 外层代码页属于软件工程实践平台，但 Sandpack 内生成的业务原型必须契合设计模型体现的业务背景，而不是套用软件工程实践平台视觉风格。",
+  "- 代码实现事实只能来自设计模型、设计 PlantUML 和 designToCodeMapping；不得绕过设计模型补页面、实体、流程或操作。",
+  "- 必须从设计模型推导业务主题、领域文案、信息架构和视觉语言；校园活动、医疗预约、仓储管理、图书借阅、在线商城等应呈现不同 UI 气质。",
   "- 生成的业务原型要低噪声、可读、可操作，不要营销页式空壳；但不要强制蓝色、低饱和或工程工作台风格，除非需求背景本身适合。",
   "- 总体架构图(architecture) -> 应用分层、模块边界、导航信息架构和跨模块依赖。",
   "- 用例实现设计(sequence) -> 用户操作流程、事件处理函数、API/mock 调用顺序。",
@@ -91,12 +92,10 @@ const CODE_GENERATION_SEMANTICS = [
 ].join("\n");
 
 export function buildGenerateCodeSpecPrompt(
-  requirementText: string,
-  rules: RequirementRule[],
   designModels: DesignDiagramModelSpec[],
 ) {
   return [
-    "请根据已确认需求项和设计阶段 UML 结构化模型生成前端原型代码规格。",
+    "请只根据设计阶段 UML 结构化模型生成前端原型代码规格。",
     "返回 JSON 对象，格式必须是 {\"spec\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -113,24 +112,16 @@ export function buildGenerateCodeSpecPrompt(
     "sourceDiagramIds 应引用设计模型中的元素 id、消息 id、表 id、类 id 或图类型名，便于溯源。",
     "theme 必须描述业务领域主题，例如医疗、校园、仓储、商城、图书馆等，而不是软件工程实践平台主题。",
     "",
-    "原始需求：",
-    requirementText,
-    "",
-    "已确认需求项：",
-    JSON.stringify(rules, null, 2),
-    "",
     "设计阶段模型：",
     JSON.stringify(designModels, null, 2),
   ].join("\n");
 }
 
 export function buildGenerateCodeAppBlueprintPrompt(
-  requirementText: string,
-  rules: RequirementRule[],
   designModels: DesignDiagramModelSpec[],
 ) {
   return [
-    "请作为产品架构师，根据已确认需求项和设计模型规划前端原型的业务应用蓝图。",
+    "请作为产品架构师，只根据设计模型规划前端原型的业务应用蓝图。",
     "返回 JSON 对象，格式必须是 {\"appBlueprint\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -138,17 +129,11 @@ export function buildGenerateCodeAppBlueprintPrompt(
     "appBlueprint 字段结构：",
     "- appName: 业务原型应用名称，必须贴合需求背景。",
     "- domain: 业务领域，例如校园活动、医疗预约、仓储管理、图书借阅、在线商城等。",
-    "- targetUsers[]: 目标用户或角色，来自需求和用例。",
+    "- targetUsers[]: 目标用户或角色，来自设计模型中的参与者、组件边界或流程节点。",
     "- coreWorkflow: 原型覆盖的核心业务闭环。",
     "- pages[]: 2 到 6 个页面，默认 3 到 5 个；字段为 id, name, route, purpose, sourceDiagramIds。",
     "- successCriteria[]: 原型体验验收标准。",
     "页面必须包含首页/总览页、核心流程页、详情或管理页；简单需求至少 2 页，复杂需求最多 6 页。",
-    "",
-    "原始需求：",
-    requirementText,
-    "",
-    "已确认需求项：",
-    JSON.stringify(rules, null, 2),
     "",
     "设计阶段模型：",
     JSON.stringify(designModels, null, 2),
@@ -156,19 +141,19 @@ export function buildGenerateCodeAppBlueprintPrompt(
 }
 
 export function buildAnalyzeCodeBusinessLogicPrompt(
-  requirementText: string,
-  rules: RequirementRule[],
   designModels: DesignDiagramModelSpec[],
   designPlantUml: unknown[] = [],
+  designToCodeMapping?: DesignToCodeMapping | null,
+  designModelCoverageReport?: DesignModelCoverageReport | null,
 ) {
   return [
-    "请作为前端业务逻辑分析器，从已确认需求项、设计模型和 PlantUML 中抽取代码生成必须遵守的业务事实；原始需求只作为背景。",
+    "请作为前端实现模型分析器，只从设计模型、设计 PlantUML 和 designToCodeMapping 中抽取代码生成必须遵守的实现事实。",
     "返回 JSON 对象，格式必须是 {\"businessLogic\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
     "",
     "businessLogic 字段结构：",
-    "- appName: 业务原型名称，必须来自需求语义，缺失时用中性业务名。",
+    "- appName: 业务原型名称，必须来自设计模型语义，缺失时用中性业务名。",
     "- domainSummary: 业务领域、目标用户和核心价值的一句话总结。",
     "- coreWorkflow: 前端原型必须覆盖的核心业务闭环。",
     "- actors[]: id, name, type, responsibilities[]。",
@@ -186,22 +171,23 @@ export function buildAnalyzeCodeBusinessLogicPrompt(
     "",
     "强约束：",
     "- 这一步不是 skill，而是代码生成必做的 function calling。",
-    "- 已确认需求项是唯一权威基线；如果原始需求与需求项冲突，必须以需求项为准。",
-    "- 必须把 sequence/activity/class/table/usecase 中能影响页面行为的数据关系、状态和异常分支落到 businessLogic。",
+    "- 设计模型是代码实现的唯一事实来源；禁止从设计模型以外的信息推导新页面、新实体、新流程或新操作。",
+    "- 必须把 architecture/sequence/activity/class/component/deployment/table 中能影响页面行为的数据关系、状态、模块边界和异常分支落到 businessLogic。",
+    "- 必须逐项消费 designToCodeMapping；如果覆盖报告指出某个设计模型缺少可实现依据，只能写入 edgeCases 或 plantUmlTraceability 诊断，不得回读需求补齐。",
     "- pageFlows 至少 2 个页面，简单需求也要包含总览/核心流程；route 必须以 / 开头。",
     "- 不要输出 UI 风格建议；视觉主题由下一步 plan_code_ui 决定。",
-    "",
-    "原始需求：",
-    requirementText,
-    "",
-    "已确认需求项：",
-    stringifyForPrompt(rules, 12000),
     "",
     "设计阶段模型：",
     stringifyForPrompt(designModels, 20000),
     "",
     "PlantUML 源：",
     stringifyForPrompt(designPlantUml, 16000),
+    "",
+    "设计到代码确定性映射：",
+    stringifyForPrompt(designToCodeMapping ?? null, 16000),
+    "",
+    "设计模型覆盖报告：",
+    stringifyForPrompt(designModelCoverageReport ?? null, 10000),
   ].join("\n");
 }
 
@@ -489,12 +475,10 @@ export function buildGenerateCodeFilePlanPrompt(
 
 export function buildGenerateCodeFilesPrompt(
   spec: CodeGenerationSpec,
-  requirementText: string,
-  rules: RequirementRule[],
   designModels: DesignDiagramModelSpec[],
 ) {
   return [
-    "请根据已确认需求项和前端原型代码规格生成 Sandpack 可运行文件集合。",
+    "请根据设计模型和前端原型代码规格生成 Sandpack 可运行文件集合。",
     "返回 JSON 对象，格式必须是 {\"bundle\":{\"files\":{},\"entryFile\":\"/src/App.tsx\",\"dependencies\":{}}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -505,17 +489,11 @@ export function buildGenerateCodeFilesPrompt(
     "- entryFile 必须是 /src/App.tsx。",
     "- dependencies 只列运行原型必需依赖，默认可使用 react、react-dom、lucide-react。",
     "- 不要使用真实网络请求；用 mock-data.ts 表达从数据库设计/设计类图推导的数据。",
-    "- UI 主题必须使用 spec.theme，并契合需求背景；不要使用软件工程实践平台风格作为业务原型主题。",
+    "- UI 主题必须使用 spec.theme，并契合设计模型体现的业务背景；不要使用软件工程实践平台风格作为业务原型主题。",
     "- 所有代码必须完整，不要省略 import、类型、组件实现或样式。",
     "",
     "代码规格：",
     JSON.stringify(spec, null, 2),
-    "",
-    "原始需求：",
-    requirementText,
-    "",
-    "已确认需求项：",
-    JSON.stringify(rules, null, 2),
     "",
     "设计阶段模型：",
     JSON.stringify(designModels, null, 2),
@@ -574,6 +552,8 @@ export function buildGenerateCodeFileOperationsPrompt(
     "文件要求：",
     "- 必须生成或更新 /src/App.tsx、/src/components/WorkspaceShell.tsx、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
     "- 必须覆盖 businessLogic.pageFlows 中的页面、操作、状态、权限和异常分支。",
+    "- 必须逐项覆盖 designToCodeMapping.items；每个 create_file/update_file 的 reason 必须引用至少一个设计模型元素 id，例如 architecture:component-id 或 sequence:message-id。",
+    "- 禁止从设计模型以外的信息推导 designToCodeMapping 中不存在的新页面、新实体、新流程或新操作。",
     "- 至少 2 个页面文件、至少 3 个组件文件；默认做 3 到 5 个页面。",
     "- 可以按需求新增 /src/components/*、/src/pages/*、/src/features/*、/src/lib/*，但必须保证所有 import 都能解析。",
     "- 不要生成 /index.html 或 /src/main.tsx，服务端已经提供稳定骨架。",
@@ -601,7 +581,7 @@ export function buildGenerateCodeFileOperationsPrompt(
     "- 必须体现 businessLogic.pageFlows[].route 的页面路径，但只能用内存模拟路由表和 React state 切换页面，例如 currentRoute/setCurrentRoute；可以在 UI 中显示当前模拟路径。",
     "- 禁止使用 BrowserRouter、createBrowserRouter、history.pushState、history.replaceState、window.location、location.href、location.assign、location.replace 或绝对 URL 跳转；预览运行在 about:srcdoc，真实 history 导航会触发 SecurityError。",
     "- 如果确实需要路由概念，优先自己实现轻量 mock route state；不要依赖真实浏览器地址栏，也不要把路径拼成 http(s):// 域名。",
-    "- 必须执行 ui-ux-pro-max skill；若 skill 与用户需求或 businessLogic 冲突，以用户需求和 function calling 输出为准。",
+    "- 必须执行 ui-ux-pro-max skill；若 skill 与设计模型、designToCodeMapping 或 businessLogic 冲突，以设计模型和 function calling 输出为准。",
     "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 文件操作。",
     "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上，例如不要在用户界面中展示“游客：查看列表、详情、申请注册”“findPublishedPublicEvents 过滤”等规则说明。",
     "- 允许维护根级 /BUSINESS_CONTEXT.md 来承载项目背景、权限边界、规则溯源和服务边界；不要放到 /src/docs/*，也不要把这些说明性规则渲染进业务 UI。",
@@ -626,6 +606,12 @@ export function buildGenerateCodeFileOperationsPrompt(
     "",
     "业务逻辑（必须覆盖）：",
     stringifyForPrompt(generationContext?.businessLogic ?? null, 12000),
+    "",
+    "设计到代码确定性映射（必须覆盖）：",
+    stringifyForPrompt(generationContext?.designToCodeMapping ?? null, 16000),
+    "",
+    "设计模型覆盖报告：",
+    stringifyForPrompt(generationContext?.designModelCoverageReport ?? null, 10000),
     "",
     "界面方案：",
     "新链路不单独提供 uiBlueprint，ui-ux-pro-max 必须在本步骤从业务逻辑直接完成界面方案并落到代码。",
@@ -665,6 +651,8 @@ export function buildRepairCodeFileOperationsPrompt(
     "- 必须使用模块化路径：/src/App.tsx、/src/components/*、/src/domain/types.ts、/src/data/mock-data.ts、/src/styles.css。",
     "- 不要生成或修改 /index.html；如果需要体现应用名称，必须在 React 中通过 useEffect 设置 document.title。",
     "- 必须覆盖 businessLogic.pageFlows、frontendOperations、stateMachines、permissions 和 edgeCases。",
+    "- 必须逐项覆盖 designToCodeMapping.items；每个 create_file/update_file 的 reason 必须引用至少一个设计模型元素 id。",
+    "- 禁止从设计模型以外的信息推导 designToCodeMapping 中不存在的新页面、新实体、新流程或新操作。",
     "- UI 内容和主题必须由 ui-ux-pro-max 从 businessLogic 推导，不要套软件工程实践平台风格。",
     "- 必须执行 visualDirection.promptBrief，修复时也要保留视觉方向，而不是退回普通后台表格。",
     "- 必须综合 styles/products/colors/typography 等视觉资源查询结果修复视觉系统。",
@@ -681,7 +669,7 @@ export function buildRepairCodeFileOperationsPrompt(
     "- 必须保持响应式布局：窄 iframe 和新窗口宽 viewport 都不能出现内容挤压、遮挡、横向溢出或关键操作不可见。",
     "- 修复路由时只能使用内存模拟路由表和 React state，保留 businessLogic.pageFlows[].route 作为模拟 path 字符串。",
     "- 禁止 BrowserRouter、createBrowserRouter、history.pushState、history.replaceState、window.location、location.href、location.assign、location.replace 和绝对 URL 跳转；如果已经生成这些代码，必须替换为 mock route state 或普通按钮 setState。",
-    "- 必须执行 ui-ux-pro-max；若 skill 与用户需求或 businessLogic 冲突，以 function calling 输出为准。",
+    "- 必须执行 ui-ux-pro-max；若 skill 与设计模型、designToCodeMapping 或 businessLogic 冲突，以 function calling 输出为准。",
     "- 禁止只输出 note 或说明，必须输出实际 create_file/update_file 操作。",
     "- 不要把权限边界、服务边界、过滤条件、函数名、规则溯源等说明性文本直接显示在业务页面上；这些内容只能进入根级 /BUSINESS_CONTEXT.md，不能放入 /src/docs/*。",
     "- 可见 UI 只呈现真实业务流程、业务数据、用户可执行操作、状态反馈和异常处理。",
@@ -705,6 +693,12 @@ export function buildRepairCodeFileOperationsPrompt(
     "",
     "业务逻辑（必须覆盖）：",
     stringifyForPrompt(generationContext?.businessLogic ?? null, 12000),
+    "",
+    "设计到代码确定性映射（必须覆盖）：",
+    stringifyForPrompt(generationContext?.designToCodeMapping ?? null, 16000),
+    "",
+    "设计模型覆盖报告：",
+    stringifyForPrompt(generationContext?.designModelCoverageReport ?? null, 10000),
     "",
     "界面方案：",
     "新链路不单独提供 uiBlueprint，ui-ux-pro-max 必须在修复中补齐界面主题、导航、布局、组件和状态表达。",

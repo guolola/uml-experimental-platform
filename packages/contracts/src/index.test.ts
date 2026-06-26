@@ -1399,8 +1399,6 @@ test("start run contracts accept optional project context", () => {
   assert.equal(
     startCodeRunRequestSchema.parse({
       projectId: "project-a",
-      requirementText: "项目需求",
-      rules: [],
       designModels: [
         {
           diagramKind: "sequence",
@@ -1421,6 +1419,24 @@ test("start run contracts accept optional project context", () => {
       providerSettings: baseProviderSettings,
     }).projectId,
     "project-a",
+  );
+  assert.throws(() =>
+    startCodeRunRequestSchema.parse({
+      projectId: "project-a",
+      requirementText: "项目需求",
+      rules: [],
+      designModels: [
+        {
+          diagramKind: "sequence",
+          title: "顺序图",
+          summary: "设计调用",
+          notes: [],
+          participants: [],
+          messages: [],
+          fragments: [],
+        },
+      ],
+    }),
   );
   assert.equal(
     startDocumentRunRequestSchema.parse({

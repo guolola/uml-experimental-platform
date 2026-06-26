@@ -403,11 +403,9 @@ export function createMockWorkspaceRepository(
           : {
               ...workspace.codeFiles,
               ...input.existingFiles,
-            };
+      };
       const snapshot: CodeRunSnapshot = {
         runId,
-        requirementText: input.requirementText,
-        rules: input.rules,
         designModels: input.designModels,
         designPlantUml: input.designPlantUml,
         spec: workspace.codeSpec,

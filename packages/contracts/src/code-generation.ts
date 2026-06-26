@@ -1,6 +1,76 @@
 // Shared code-generation contract schemas used by API pipelines, prompts, and web run snapshots.
 import { z } from "zod";
 
+export const codeDesignDiagramKindSchema = z.enum([
+  "architecture",
+  "sequence",
+  "activity",
+  "class",
+  "component",
+  "deployment",
+  "table",
+]);
+export type CodeDesignDiagramKind = z.infer<typeof codeDesignDiagramKindSchema>;
+
+export const codeMappingTargetTypeSchema = z.enum([
+  "page",
+  "component",
+  "domain-type",
+  "mock-data",
+  "mock-service",
+  "route-state",
+  "state-machine",
+  "environment-boundary",
+  "feature-module",
+]);
+export type CodeMappingTargetType = z.infer<typeof codeMappingTargetTypeSchema>;
+
+export const designToCodeMappingItemSchema = z.object({
+  designModelId: z.string().min(1),
+  diagramKind: codeDesignDiagramKindSchema,
+  elementId: z.string().min(1),
+  elementKind: z.string().min(1),
+  label: z.string().min(1),
+  targetType: codeMappingTargetTypeSchema,
+  targetPath: z.string().min(1),
+  rationale: z.string().min(1),
+});
+export type DesignToCodeMappingItem = z.infer<typeof designToCodeMappingItemSchema>;
+
+export const designToCodeMappingSchema = z.object({
+  generatedAt: z.string().min(1),
+  items: z.array(designToCodeMappingItemSchema),
+  diagnostics: z.array(z.string().min(1)).default([]),
+});
+export type DesignToCodeMapping = z.infer<typeof designToCodeMappingSchema>;
+
+export const designModelCoverageStatusSchema = z.enum([
+  "covered",
+  "partial",
+  "unmapped",
+]);
+export type DesignModelCoverageStatus = z.infer<typeof designModelCoverageStatusSchema>;
+
+export const designModelCoverageEntrySchema = z.object({
+  designModelId: z.string().min(1),
+  diagramKind: codeDesignDiagramKindSchema,
+  mappedElementCount: z.number().int().nonnegative(),
+  targetPaths: z.array(z.string().min(1)).default([]),
+  status: designModelCoverageStatusSchema,
+  missingElements: z.array(z.string().min(1)).default([]),
+  message: z.string().min(1),
+});
+export type DesignModelCoverageEntry = z.infer<typeof designModelCoverageEntrySchema>;
+
+export const designModelCoverageReportSchema = z.object({
+  generatedAt: z.string().min(1),
+  passed: z.boolean(),
+  strictMode: z.boolean().default(false),
+  models: z.array(designModelCoverageEntrySchema),
+  diagnostics: z.array(z.string().min(1)).default([]),
+});
+export type DesignModelCoverageReport = z.infer<typeof designModelCoverageReportSchema>;
+
 export const codeThemeSchema = z.object({
   name: z.string().min(1),
   primaryColor: z.string().min(1),

@@ -132,9 +132,6 @@ export function createEmptyDesignSnapshot(
 export function createEmptyCodeSnapshot(
   runId: string,
   input: {
-    requirementText: string;
-    rules: RequirementRule[];
-    requirementBaseline?: RequirementBaseline | null;
     designModels: DesignDiagramModelSpec[];
     designPlantUml?: Array<{ diagramKind: DesignDiagramKind; source: string }>;
     existingFiles?: Record<string, string>;
@@ -142,14 +139,6 @@ export function createEmptyCodeSnapshot(
   },
 ): CodeRunSnapshot {
   const generationMode = input.generationMode ?? "continue";
-  const requirementBaseline = input.requirementBaseline ??
-    (input.rules.length > 0
-      ? buildRequirementBaseline({
-          runId,
-          requirementText: input.requirementText,
-          rules: input.rules,
-        })
-      : buildEmptyRequirementBaseline({ runId }));
   const existingFiles = Object.fromEntries(
     Object.entries(input.existingFiles ?? {}).filter(
       ([path]) => !normalizeSnapshotFilePath(path).startsWith("/src/docs/"),
@@ -157,9 +146,6 @@ export function createEmptyCodeSnapshot(
   );
   return codeRunSnapshotSchema.parse({
     runId,
-    requirementText: input.requirementText,
-    rules: input.rules,
-    requirementBaseline,
     coverageMatrix: null,
     traceabilityMatrix: null,
     evidencePackage: null,

@@ -32,6 +32,8 @@ import {
   codeBusinessLogicSchema,
   codeComponentRegistrySchema,
   codeDesignTokensSchema,
+  designModelCoverageReportSchema,
+  designToCodeMappingSchema,
   codeFileGenerationDiagnosticSchema,
   codeFilePlanSchema,
   codeFileOperationManifestResultSchema,
@@ -203,19 +205,18 @@ export const startDesignRunCommandSchema = z
   .strict();
 export type StartDesignRunCommand = z.infer<typeof startDesignRunCommandSchema>;
 
-export const startCodeRunRequestSchema = z.object({
-  projectId: z.string().min(1).optional(),
-  requirementText: z.string().min(1),
-  rules: requirementRulesSchema,
-  requirementBaseline: requirementBaselineSchema.nullable().optional(),
-  evidencePackage: evidencePackageSchema.nullable().optional(),
-  designModels: z.array(designDiagramModelSpecSchema).min(1),
-  designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
-  existingFiles: z.record(z.string().min(1), z.string()).default({}),
-  generationMode: z.enum(["continue", "regenerate"]).default("continue"),
-  providerSettings: providerSettingsSchema.optional(),
-  imageProviderSettings: imageProviderSettingsSchema.optional(),
-});
+export const startCodeRunRequestSchema = z
+  .object({
+    projectId: z.string().min(1).optional(),
+    evidencePackage: evidencePackageSchema.nullable().optional(),
+    designModels: z.array(designDiagramModelSpecSchema).min(1),
+    designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
+    existingFiles: z.record(z.string().min(1), z.string()).default({}),
+    generationMode: z.enum(["continue", "regenerate"]).default("continue"),
+    providerSettings: providerSettingsSchema.optional(),
+    imageProviderSettings: imageProviderSettingsSchema.optional(),
+  })
+  .strict();
 export type StartCodeRunRequest = z.infer<typeof startCodeRunRequestSchema>;
 
 export const startCodeRunCommandSchema = z
@@ -478,9 +479,6 @@ export type DesignRunSnapshot = z.infer<typeof designRunSnapshotSchema>;
 
 export const codeRunSnapshotSchema = z.object({
   runId: z.string().min(1),
-  requirementText: z.string(),
-  rules: requirementRulesSchema,
-  requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
   evidencePackage: evidencePackageSchema.nullable().default(null),
@@ -488,6 +486,8 @@ export const codeRunSnapshotSchema = z.object({
   designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
   spec: codeGenerationSpecSchema.nullable(),
   businessLogic: codeBusinessLogicSchema.nullable().default(null),
+  designToCodeMapping: designToCodeMappingSchema.nullable().default(null),
+  designModelCoverageReport: designModelCoverageReportSchema.nullable().default(null),
   loadedCodeSkill: loadedCodeSkillSchema.nullable().default(null),
   visualDirection: codeVisualDirectionSchema.nullable().default(null),
   skillResourceDiscoveryPlan: codeSkillResourceDiscoveryPlanSchema.nullable().default(null),
@@ -619,6 +619,8 @@ export const artifactReadyRunEventSchema = z.object({
     "codeSpec",
     "codeFiles",
     "businessLogic",
+    "designToCodeMapping",
+    "designModelCoverageReport",
     "uiMockup",
     "uiReferenceSpec",
     "uiFidelityReport",
@@ -653,6 +655,8 @@ export const artifactReadyRunEventSchema = z.object({
     .optional(),
   parallelGroup: z.string().min(1).optional(),
   businessLogic: codeBusinessLogicSchema.optional(),
+  designToCodeMapping: designToCodeMappingSchema.optional(),
+  designModelCoverageReport: designModelCoverageReportSchema.optional(),
   loadedCodeSkill: loadedCodeSkillSchema.optional(),
   visualDirection: codeVisualDirectionSchema.optional(),
   skillResourceDiscoveryPlan: codeSkillResourceDiscoveryPlanSchema.optional(),

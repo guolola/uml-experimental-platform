@@ -128,10 +128,12 @@ function retargetSnapshotIds(
   runId: string,
 ) {
   snapshot.runId = runId;
-  snapshot.requirementBaseline = retargetBaseline(
-    snapshot.requirementBaseline,
-    runId,
-  );
+  if ("requirementBaseline" in snapshot) {
+    snapshot.requirementBaseline = retargetBaseline(
+      snapshot.requirementBaseline,
+      runId,
+    );
+  }
   if (snapshot.coverageMatrix) {
     snapshot.coverageMatrix = { ...snapshot.coverageMatrix, runId };
   }

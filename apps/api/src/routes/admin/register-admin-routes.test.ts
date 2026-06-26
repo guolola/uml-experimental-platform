@@ -493,8 +493,6 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
   });
 
   const codeSnapshot = createEmptyCodeSnapshot("code-completed", {
-    requirementText: "代码需求",
-    rules: [],
     designModels: [],
   });
   codeSnapshot.files = { "/src/App.tsx": "export default null", "/src/main.tsx": "main" };
@@ -507,8 +505,6 @@ test("admin metrics expose cumulative overview and single-day generation breakdo
   });
 
   const quickCodeSnapshot = createEmptyCodeSnapshot("code-quick", {
-    requirementText: "代码耗时",
-    rules: [],
     designModels: [],
   });
   quickCodeSnapshot.files = { "/src/Quick.tsx": "export default null" };
@@ -2350,8 +2346,6 @@ test("admin run list classifies run kinds and returns readable summaries", async
     },
     {
       snapshot: createEmptyCodeSnapshot("run-code", {
-        requirementText: "代码原型文本",
-        rules: [],
         designModels: [],
         existingFiles: { "/src/App.tsx": "export default function App() { return null; }" },
       }),

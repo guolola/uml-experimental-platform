@@ -9,8 +9,6 @@ import {
 
 function createSnapshotWithDialogSource(dialogSource: string) {
   const snapshot = createEmptyCodeSnapshot("code-audit-test", {
-    requirementText: "学生预约图书馆座位。",
-    rules: [],
     designModels: [],
   });
   snapshot.entryFile = "/src/App.tsx";

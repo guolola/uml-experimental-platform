@@ -12,6 +12,7 @@ import {
   type DiagramModelSpec,
   type PlantUmlArtifact,
   type ProjectBackgroundKey,
+  type AtomicRequirement,
   type RequirementBaseline,
   type RequirementRule,
   type RunSnapshot,
@@ -335,7 +336,7 @@ function buildRequirementBaseline(
   const requirements = rules.map((rule, index) => ({
     id: `${seed.id}-REQ-${index + 1}`,
     sourceFragment: rule.text,
-    type: index === 1 ? "business-rule" : index === 3 ? "interface" : "functional",
+    type: requirementTypeForRule(index),
     actor: index === 3 ? "系统" : seed.actors[Math.min(index, 1)],
     subject: seed.title,
     action: rule.text,
@@ -349,7 +350,7 @@ function buildRequirementBaseline(
     fieldProvenance: {},
     priority: index < 3 ? "must" : "should",
     sourceRuleId: rule.id,
-  }));
+  })) satisfies AtomicRequirement[];
   return {
     runId,
     sourceDocumentId: `${seed.id}-source`,
@@ -374,6 +375,12 @@ function buildRequirementBaseline(
     },
     createdAt: generatedAt,
   };
+}
+
+function requirementTypeForRule(index: number): AtomicRequirement["type"] {
+  if (index === 1) return "business-rule";
+  if (index === 3) return "interface";
+  return "functional";
 }
 
 function buildRequirementModels(seed: CaseSeed): DiagramModelSpec[] {
@@ -438,10 +445,11 @@ function buildRequirementModels(seed: CaseSeed): DiagramModelSpec[] {
       classes: seed.entityNames.map((name, index) => ({
         id: `c-${index + 1}`,
         name,
+        constraints: [],
         classKind: index === 1 ? "aggregate" : "entity",
         attributes: [
-          { name: "id", type: "string", visibility: "private", required: true },
-          { name: "status", type: "string", visibility: "private", required: index === 1 },
+          { name: "id", type: "string", visibility: "private", required: true, constraints: [] },
+          { name: "status", type: "string", visibility: "private", required: index === 1, constraints: [] },
         ],
         operations: [{ name: index === 1 ? "changeStatus" : "update", returnType: "void", visibility: "public", parameters: [] }],
       })),
@@ -557,9 +565,9 @@ function buildDesignModels(seed: CaseSeed): DesignDiagramModelSpec[] {
       summary: "将领域对象拆分为页面状态、服务和数据记录。",
       notes: ["与代码中的 mock 数据结构保持一致。"],
       classes: [
-        { id: "d-record", name: `${seed.statusEntity}Record`, classKind: "entity", attributes: [{ name: "status", type: "string", visibility: "private", required: true }], operations: [] },
-        { id: "d-service", name: `${seed.statusEntity}Service`, classKind: "service", attributes: [], operations: [{ name: "transition", returnType: "Record", visibility: "public", parameters: [{ name: "nextStatus", type: "string" }] }] },
-        { id: "d-page", name: "DashboardState", classKind: "valueObject", attributes: [{ name: "selectedStatus", type: "string", visibility: "private" }], operations: [] },
+        { id: "d-record", name: `${seed.statusEntity}Record`, constraints: [], classKind: "entity", attributes: [{ name: "status", type: "string", visibility: "private", required: true, constraints: [] }], operations: [] },
+        { id: "d-service", name: `${seed.statusEntity}Service`, constraints: [], classKind: "service", attributes: [], operations: [{ name: "transition", returnType: "Record", visibility: "public", parameters: [{ name: "nextStatus", type: "string" }] }] },
+        { id: "d-page", name: "DashboardState", constraints: [], classKind: "valueObject", attributes: [{ name: "selectedStatus", type: "string", visibility: "private", constraints: [] }], operations: [] },
       ],
       interfaces: [],
       enums: [{ id: "d-status", name: `${seed.statusEntity}Status`, literals: [...seed.states] }],
@@ -579,19 +587,21 @@ function buildDesignModels(seed: CaseSeed): DesignDiagramModelSpec[] {
           id: "tbl-resource",
           name: "resources",
           chineseName: seed.entityNames[0],
+          constraints: [],
           columns: [
-            { id: "col-resource-id", name: "id", dataType: "varchar(36)", isPrimaryKey: true, nullable: false },
-            { id: "col-resource-name", name: "name", dataType: "varchar(120)", nullable: false },
+            { id: "col-resource-id", name: "id", constraints: [], dataType: "varchar(36)", isPrimaryKey: true, isForeignKey: false, nullable: false },
+            { id: "col-resource-name", name: "name", constraints: [], dataType: "varchar(120)", isPrimaryKey: false, isForeignKey: false, nullable: false },
           ],
         },
         {
           id: "tbl-request",
           name: "requests",
           chineseName: seed.statusEntity,
+          constraints: [],
           columns: [
-            { id: "col-request-id", name: "id", dataType: "varchar(36)", isPrimaryKey: true, nullable: false },
-            { id: "col-request-status", name: "status", dataType: "varchar(32)", nullable: false },
-            { id: "col-request-resource-id", name: "resource_id", dataType: "varchar(36)", isForeignKey: true, nullable: false, references: { tableId: "tbl-resource", columnId: "col-resource-id" } },
+            { id: "col-request-id", name: "id", constraints: [], dataType: "varchar(36)", isPrimaryKey: true, isForeignKey: false, nullable: false },
+            { id: "col-request-status", name: "status", constraints: [], dataType: "varchar(32)", isPrimaryKey: false, isForeignKey: false, nullable: false },
+            { id: "col-request-resource-id", name: "resource_id", constraints: [], dataType: "varchar(36)", isPrimaryKey: false, isForeignKey: true, nullable: false, references: { tableId: "tbl-resource", columnId: "col-resource-id" } },
           ],
         },
       ],

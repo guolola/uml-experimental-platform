@@ -228,8 +228,6 @@ describe("createStartRunInput", () => {
     );
 
     const input = createStartCodeRunInput(
-      "生成前端原型",
-      [],
       [
         {
           diagramKind: "sequence",
@@ -630,8 +628,6 @@ describe("createHttpWorkspaceRepository", () => {
     });
     await repository.startCodeRun!(
       createStartCodeRunInput(
-        "生成代码",
-        [],
         [],
         [],
         { "/src/App.tsx": "export default function App() { return null; }" },
@@ -1420,8 +1416,6 @@ describe("createHttpWorkspaceRepository", () => {
     await expect(
       repository.startCodeRun!(
         createStartCodeRunInput(
-          "生成代码",
-          [],
           [],
           [],
           { "/src/App.tsx": "export default function App() { return null; }" },

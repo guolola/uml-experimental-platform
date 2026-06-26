@@ -232,8 +232,6 @@ test("run summaries use terminal metadata timestamps for completedAt", () => {
 
 test("run summaries expose code diagnostics for project history and task drawers", () => {
   const snapshot = createEmptyCodeSnapshot("run-code-summary", {
-    requirementText: "生成代码原型",
-    rules: [],
     designModels: [],
   });
   snapshot.status = "completed";
