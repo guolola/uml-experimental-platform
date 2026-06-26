@@ -700,7 +700,7 @@ export function InstructionDocumentsPage({
             <section>
               <MobileCompactGrid
                 minWidth={760}
-                className="grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]"
+                variant="document-cards"
               >
               {DOCUMENT_DEFINITIONS.map((definition) => {
                 const generating = documentGeneratingByKind[definition.kind];
@@ -735,7 +735,7 @@ export function InstructionDocumentsPage({
               ) : (
                 <MobileCompactGrid
                   minWidth={760}
-                  className="grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(320px,360px))]"
+                  variant="document-cards"
                 >
                   {filteredDocuments.map((document) => (
                     <GeneratedDocumentCard

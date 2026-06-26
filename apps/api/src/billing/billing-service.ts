@@ -85,21 +85,9 @@ function nextUtcDayStart(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
 }
 
-function dayStartIso(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
-}
-
 function merchantOrderNo(now: Date) {
   const stamp = now.toISOString().slice(0, 10).replace(/-/g, "");
   return `UML${stamp}${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-}
-
-function readPositiveInt(
-  value: string | undefined,
-  fallback: number,
-) {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function isValidLedgerEntry(entry: BillingLedgerEntryRecord, nowIso: string) {
@@ -154,18 +142,18 @@ function skuDto(sku: BillingSkuDto) {
   };
 }
 
+function isCurrentCreditSku(sku: { kind: string }) {
+  return sku.kind === "credit_pack";
+}
+
 function entitlementMessage(reason: BillingEntitlementFailureReason) {
-  if (reason === "pass_daily_limit") {
-    return "今日通行卡生成次数已用完。可购买次数包继续生成。";
-  }
   if (reason === "negative_balance") {
     return "账户权益余额异常，请先购买次数包或联系管理员处理。";
   }
-  return "当前账户没有可用于 AI 生成的权益，请先购买通行卡或次数包。";
+  return "当前账户没有可用于 AI 生成的权益，请先购买次数包。";
 }
 
 function entitlementCode(reason: BillingEntitlementFailureReason) {
-  if (reason === "pass_daily_limit") return "USER_PASS_DAILY_LIMIT";
   if (reason === "negative_balance") return "USER_ENTITLEMENT_NEGATIVE_BALANCE";
   return "USER_ENTITLEMENT_REQUIRED";
 }
@@ -178,7 +166,6 @@ export function createBillingService({
   now = () => new Date(),
 }: BillingServiceOptions) {
   let skuCatalogSource: "default" | "env" = "default";
-  const passDailyLimit = readPositiveInt(env.UML_BILLING_PASS_DAILY_LIMIT, 50);
   const production = nodeEnv === "production";
 
   async function ensureSkuCatalog() {
@@ -190,7 +177,7 @@ export function createBillingService({
 
   async function listSkus() {
     return billingSkuListResponseSchema.parse({
-      skus: (await repository.listActiveSkus()).map(skuDto),
+      skus: (await repository.listActiveSkus()).filter(isCurrentCreditSku).map(skuDto),
     });
   }
 
@@ -204,18 +191,14 @@ export function createBillingService({
     }
     const current = now();
     const nowString = current.toISOString();
-    const [ledger, recentOrders, reservedCredits, passUsage] = await Promise.all([
+    const [ledger, recentOrders, reservedCredits] = await Promise.all([
       summaryRepository.listLedgerEntriesForUser(userId),
       summaryRepository.listOrdersForUser(userId, 10),
       summaryRepository.countReservedCreditsForUser(userId),
-      summaryRepository.countConfirmedPassUsageSince(userId, dayStartIso(current)),
     ]);
     const validLedger = ledger.filter((entry) => isValidLedgerEntry(entry, nowString));
     const creditBalance =
       validLedger.reduce((total, entry) => total + entry.creditDelta, 0) - reservedCredits;
-    const passEntry = validLedger
-      .filter((entry) => entry.skuCode?.startsWith("time_") && entry.validUntil)
-      .sort((left, right) => (right.validUntil ?? "").localeCompare(left.validUntil ?? ""))[0];
     const signupBonus = ledger.find(
       (entry) =>
         entry.sourceType === "signup_bonus" &&
@@ -223,25 +206,12 @@ export function createBillingService({
     );
     return billingSummarySchema.parse({
       creditBalance,
-      activePass: passEntry
-        ? {
-            skuCode: passEntry.skuCode,
-            name: passEntry.skuName ?? "通行卡",
-            validFrom: passEntry.validFrom,
-            validUntil: passEntry.validUntil,
-            remainingDailyStarts: Math.max(passDailyLimit - passUsage, 0),
-          }
-        : null,
       signupBonus: {
         granted: Boolean(signupBonus),
         creditAmount: signupBonus ? Math.max(signupBonus.creditDelta, 0) : 0,
         validUntil: signupBonus?.validUntil ?? null,
       },
-      passDailyUsage: {
-        usedToday: passUsage,
-        limit: passDailyLimit,
-      },
-      recentOrders: recentOrders.map(orderToDto),
+      recentOrders: recentOrders.filter((order) => isCurrentCreditSku(order.sku)).map(orderToDto),
     });
   }
 
@@ -300,7 +270,7 @@ export function createBillingService({
       );
     }
     const sku = await repository.getSkuByCode(input.skuCode);
-    if (!sku || !sku.active) {
+    if (!sku || !sku.active || !isCurrentCreditSku(sku)) {
       throw new BillingValidationError("Billing SKU is not available");
     }
     const adapter = paymentProviders[input.channel];
@@ -356,23 +326,8 @@ export function createBillingService({
     targetRepository: BillingRepository,
     order: PaymentOrderRecord,
   ) {
-    if (order.sku.kind === "credit_pack") {
-      await targetRepository.addLedgerEntry({
-        userId: order.userId,
-        sourceType: "purchase",
-        sourceId: order.id,
-        skuCode: order.sku.code,
-        skuName: order.sku.name,
-        creditDelta: order.sku.creditAmount ?? 0,
-        validFrom: order.paidAt ?? now().toISOString(),
-        validUntil: null,
-        metadata: {
-          merchantOrderNo: order.merchantOrderNo,
-          provider: order.provider,
-          entitlementKind: "credit_pack",
-        },
-      });
-      return;
+    if (order.sku.kind !== "credit_pack") {
+      throw new BillingValidationError("Billing SKU is not available");
     }
     await targetRepository.addLedgerEntry({
       userId: order.userId,
@@ -380,13 +335,13 @@ export function createBillingService({
       sourceId: order.id,
       skuCode: order.sku.code,
       skuName: order.sku.name,
-      creditDelta: 0,
+      creditDelta: order.sku.creditAmount ?? 0,
       validFrom: order.paidAt ?? now().toISOString(),
-      validUntil: addDays(new Date(order.paidAt ?? now().toISOString()), order.sku.durationDays ?? 0).toISOString(),
+      validUntil: null,
       metadata: {
         merchantOrderNo: order.merchantOrderNo,
         provider: order.provider,
-        entitlementKind: "time_pass",
+        entitlementKind: "credit_pack",
       },
     });
   }
@@ -493,7 +448,7 @@ export function createBillingService({
             reason,
             billingSummary: summary,
             payCta: {
-              label: reason === "pass_daily_limit" ? "购买次数包" : "查看定价",
+              label: "查看定价",
               href: "/pricing",
             },
           },
@@ -508,23 +463,6 @@ export function createBillingService({
       if (summary.creditBalance < 0) {
         return entitlementError(summary, "negative_balance", 402);
       }
-      const passAvailable =
-        summary.activePass &&
-        summary.passDailyUsage.usedToday < summary.passDailyUsage.limit;
-      if (passAvailable) {
-        return {
-          allowed: true,
-          reservation: await tx.createUsageReservation({
-            ...input,
-            entitlementKind: "time_pass",
-            creditDelta: 0,
-            reservedAt: now().toISOString(),
-            metadata: {
-              activePass: summary.activePass,
-            },
-          }),
-        };
-      }
       if (summary.creditBalance > 0) {
         return {
           allowed: true,
@@ -533,13 +471,11 @@ export function createBillingService({
             entitlementKind: "credit",
             creditDelta: -1,
             reservedAt: now().toISOString(),
-            metadata: summary.activePass
-              ? { fallbackReason: "pass_daily_limit" }
-              : { fallbackReason: "credit_pack" },
+            metadata: { fallbackReason: "credit_pack" },
           }),
         };
       }
-      return entitlementError(summary, summary.activePass ? "pass_daily_limit" : "no_entitlement", summary.activePass ? 429 : 402);
+      return entitlementError(summary, "no_entitlement", 402);
     });
   }
 
@@ -604,7 +540,7 @@ export function createBillingService({
           });
         }
       }
-      // Platform-side provider failures should not consume credit or pass quota.
+      // Platform-side provider failures should not consume purchased credits.
       return tx.voidUsageReservation(runId, compensatedAt);
     });
   }

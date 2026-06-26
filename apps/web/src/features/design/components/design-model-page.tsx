@@ -569,7 +569,7 @@ export function DesignModelPage() {
               <section>
                 <MobileCompactGrid
                   minWidth={720}
-                  className="grid-cols-2 2xl:grid-cols-3"
+                  variant="model-targets"
                 >
                   {DESIGN_DIAGRAM_ORDER.map((diagram) => {
                     const meta = DESIGN_DIAGRAM_META[diagram];

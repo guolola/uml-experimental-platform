@@ -10,7 +10,6 @@ import { createInMemoryBillingRepository } from "./in-memory-billing-repository.
 
 const MOCK_SECRET = "billing-service-test-secret";
 const FIXED_NOW = new Date("2026-06-05T04:00:00.000Z");
-
 function mockRegistry(nodeEnv = "test"): PaymentProviderRegistry {
   return {
     wechat_native: createMockPaymentAdapter({
@@ -82,20 +81,18 @@ test("billing catalog exposes the configured PC web SKUs and server-priced order
   const { service } = await createTestService();
   const catalog = await service.listSkus();
 
-  assert.equal(catalog.skus.length, 8);
+  assert.equal(catalog.skus.length, 4);
   assert.deepEqual(
     catalog.skus.map((sku) => sku.code),
     [
-      "time_day",
-      "time_week",
-      "time_month",
-      "time_year",
       "credits_10",
       "credits_50",
       "credits_100",
       "credits_500",
     ],
   );
+  assert.equal(catalog.skus.find((sku) => sku.code === "credits_100")?.creditAmount, 120);
+  assert.equal(catalog.skus.find((sku) => sku.code === "credits_500")?.amountCents, 39900);
 
   const order = await service.createOrder(
     { id: "user-price", emailVerified: true },
@@ -104,6 +101,31 @@ test("billing catalog exposes the configured PC web SKUs and server-priced order
   assert.equal(order.amountCents, 990);
   assert.equal(order.currency, "CNY");
   assert.ok(order.codeUrl?.startsWith("uml-mock-pay://"));
+});
+
+test("billing catalog rejects legacy time pass SKU overrides", async () => {
+  await assert.rejects(
+    () =>
+      createTestService({
+        env: {
+          UML_BILLING_SKUS_JSON: JSON.stringify([
+            {
+              code: "time_day",
+              name: "日卡",
+              kind: "time_pass",
+              description: "1 天 AI 生成通行卡",
+              durationDays: 1,
+              creditAmount: null,
+              amountCents: 990,
+              currency: "CNY",
+              active: true,
+              sortOrder: 10,
+            },
+          ]),
+        },
+      }),
+    /credit_pack|Invalid/,
+  );
 });
 
 test("email verification signup bonus is idempotent and powers credit reservations", async () => {
@@ -152,7 +174,7 @@ test("guest development allowance is daily and idempotent", async () => {
   assert.equal(entries[0]?.validUntil, "2026-06-06T00:00:00.000Z");
 });
 
-test("run reservation distinguishes no entitlement from pass daily limit", async () => {
+test("run reservation requires a positive credit balance", async () => {
   const empty = await createTestService();
   const noEntitlement = await empty.service.reserveRunUsage({
     runId: "run-empty",
@@ -167,47 +189,18 @@ test("run reservation distinguishes no entitlement from pass daily limit", async
     "no_entitlement",
   );
 
-  const dailyLimited = await createTestService({
-    env: { UML_BILLING_PASS_DAILY_LIMIT: "1" },
-  });
   await payOrder({
-    service: dailyLimited.service,
-    userId: "user-pass",
-    skuCode: "time_day",
-  });
-  const firstPassRun = await dailyLimited.service.reserveRunUsage({
-    runId: "run-pass-1",
-    userId: "user-pass",
-    taskType: "requirements_to_uml",
-  });
-  assert.equal(firstPassRun.allowed, true);
-  await dailyLimited.service.confirmRunUsage("run-pass-1");
-
-  const blocked = await dailyLimited.service.reserveRunUsage({
-    runId: "run-pass-2",
-    userId: "user-pass",
-    taskType: "requirements_to_uml",
-  });
-  if (blocked.allowed) assert.fail("daily-limited pass reservation unexpectedly succeeded");
-  assert.equal(blocked.statusCode, 429);
-  assert.equal(blocked.error.code, "USER_PASS_DAILY_LIMIT");
-  assert.equal(
-    (blocked.error.details?.billing as { reason?: string } | undefined)?.reason,
-    "pass_daily_limit",
-  );
-
-  await payOrder({
-    service: dailyLimited.service,
-    userId: "user-pass",
+    service: empty.service,
+    userId: "user-credit",
     skuCode: "credits_10",
   });
-  const fallback = await dailyLimited.service.reserveRunUsage({
-    runId: "run-pass-credit-fallback",
-    userId: "user-pass",
+  const creditReservation = await empty.service.reserveRunUsage({
+    runId: "run-credit",
+    userId: "user-credit",
     taskType: "requirements_to_uml",
   });
-  assert.equal(fallback.allowed, true);
-  assert.equal(fallback.reservation?.entitlementKind, "credit");
+  assert.equal(creditReservation.allowed, true);
+  assert.equal(creditReservation.reservation?.entitlementKind, "credit");
 });
 
 test("payment callbacks verify signatures, validate amount, and grant purchases idempotently", async () => {
@@ -227,7 +220,23 @@ test("payment callbacks verify signatures, validate amount, and grant purchases 
     rawBody: paid.rawBody,
   });
   assert.deepEqual(duplicate, { ok: true, duplicate: true });
-  assert.equal((await service.getSummary("user-callback")).creditBalance, 10);
+  assert.equal((await service.getSummary("user-callback")).creditBalance, 11);
+
+  await payOrder({
+    service,
+    userId: "user-callback-100",
+    skuCode: "credits_100",
+    eventId: "evt-credits-100",
+  });
+  assert.equal((await service.getSummary("user-callback-100")).creditBalance, 120);
+
+  await payOrder({
+    service,
+    userId: "user-callback-500",
+    skuCode: "credits_500",
+    eventId: "evt-credits-500",
+  });
+  assert.equal((await service.getSummary("user-callback-500")).creditBalance, 620);
 
   await assert.rejects(
     () =>

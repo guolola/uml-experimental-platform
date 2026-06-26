@@ -305,7 +305,6 @@ export type RunStatus = z.infer<typeof runStatusSchema>;
 
 export const runErrorCodeSchema = z.enum([
   "USER_ENTITLEMENT_REQUIRED",
-  "USER_PASS_DAILY_LIMIT",
   "USER_ENTITLEMENT_NEGATIVE_BALANCE",
   "PLATFORM_PROVIDER_BALANCE_INSUFFICIENT",
   "PLATFORM_PROVIDER_AUTH_FAILED",

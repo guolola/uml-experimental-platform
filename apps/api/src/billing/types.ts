@@ -53,7 +53,7 @@ export type BillingLedgerEntryRecord = {
   createdAt: string;
 };
 
-export type BillingReservationKind = "time_pass" | "credit";
+export type BillingReservationKind = "credit";
 export type BillingReservationStatus = "reserved" | "confirmed" | "released";
 
 export type BillingUsageReservationRecord = {
@@ -170,7 +170,6 @@ export interface BillingRepository {
   releaseUsageReservation(runId: string, releasedAt: string): Promise<BillingUsageReservationRecord | null>;
   voidUsageReservation(runId: string, releasedAt: string): Promise<BillingUsageReservationRecord | null>;
   countReservedCreditsForUser(userId: string): Promise<number>;
-  countConfirmedPassUsageSince(userId: string, since: string): Promise<number>;
   recordPaymentNotification(
     input: CreatePaymentNotificationInput,
   ): Promise<{ record: PaymentNotificationRecord; inserted: boolean }>;

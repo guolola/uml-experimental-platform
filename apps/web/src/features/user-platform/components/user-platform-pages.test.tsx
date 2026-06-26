@@ -38,6 +38,7 @@ function createRepository(): WorkspaceRepository {
 describe("ProjectWorkspaceDrawer", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     localStorage.clear();
   });
 
@@ -77,6 +78,9 @@ describe("ProjectWorkspaceDrawer", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), "http://127.0.0.1:4101");
       if (url.pathname === `/api/projects/${projectId}`) {
+        if ((init?.method ?? "GET") === "DELETE") {
+          return new Response(null, { status: 204 });
+        }
         if ((init?.method ?? "GET") === "PATCH") {
           const body = JSON.parse(String(init?.body ?? "{}"));
           return new Response(
@@ -261,6 +265,55 @@ describe("ProjectWorkspaceDrawer", () => {
     expect(JSON.parse(String(updateCall?.[1]?.body))).not.toHaveProperty(
       "defaultProviderConfigId",
     );
+  });
+
+  it("confirms project deletion with an in-app dialog and leaves the project drawer", async () => {
+    const user = userEvent.setup();
+    const projectId = stubProjectWorkspaceFetch();
+    const onClose = vi.fn();
+    const onNavigate = vi.fn();
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmSpy);
+
+    render(
+      withWorkspaceProviders(
+        <ProjectWorkspaceDrawer
+          projectId={projectId}
+          activeDrawer="settings"
+          onClose={onClose}
+          onNavigate={onNavigate}
+        />,
+        projectDrawerRepository(),
+      ),
+    );
+
+    await screen.findByLabelText("项目信息");
+    await user.click(screen.getByRole("button", { name: "删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "确认删除项目" });
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(
+      vi.mocked(fetch).mock.calls.some(([input, init]) => {
+        const url = new URL(String(input), "http://127.0.0.1:4101");
+        return url.pathname === `/api/projects/${projectId}` && init?.method === "DELETE";
+      }),
+    ).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "删除项目" }));
+    const confirmationDialog = await screen.findByRole("dialog", {
+      name: "确认删除项目",
+    });
+    await user.click(
+      within(confirmationDialog).getByRole("button", { name: "确认删除" }),
+    );
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/projects/${projectId}`),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith("/projects");
   });
 
   it("saves a manual project background from settings", async () => {

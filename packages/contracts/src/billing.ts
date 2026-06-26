@@ -4,7 +4,7 @@ import { z } from "zod";
 export const paymentChannelSchema = z.enum(["wechat_native", "alipay_page"]);
 export type PaymentChannel = z.infer<typeof paymentChannelSchema>;
 
-export const billingSkuKindSchema = z.enum(["time_pass", "credit_pack"]);
+export const billingSkuKindSchema = z.enum(["credit_pack"]);
 export type BillingSkuKind = z.infer<typeof billingSkuKindSchema>;
 
 export const billingOrderStatusSchema = z.enum([
@@ -37,27 +37,12 @@ export const billingSkuListResponseSchema = z.object({
 });
 export type BillingSkuListResponse = z.infer<typeof billingSkuListResponseSchema>;
 
-export const billingActivePassSchema = z.object({
-  skuCode: z.string().min(1),
-  name: z.string().min(1),
-  validFrom: z.string().min(1),
-  validUntil: z.string().min(1),
-  remainingDailyStarts: z.number().int().min(0),
-});
-export type BillingActivePass = z.infer<typeof billingActivePassSchema>;
-
 export const billingSignupBonusSchema = z.object({
   granted: z.boolean(),
   creditAmount: z.number().int().min(0),
   validUntil: z.string().min(1).nullable(),
 });
 export type BillingSignupBonus = z.infer<typeof billingSignupBonusSchema>;
-
-export const billingPassDailyUsageSchema = z.object({
-  usedToday: z.number().int().min(0),
-  limit: z.number().int().positive(),
-});
-export type BillingPassDailyUsage = z.infer<typeof billingPassDailyUsageSchema>;
 
 export const billingOrderStatusDtoSchema = z.object({
   orderId: z.string().min(1),
@@ -75,9 +60,7 @@ export type BillingOrderStatusDto = z.infer<typeof billingOrderStatusDtoSchema>;
 
 export const billingSummarySchema = z.object({
   creditBalance: z.number().int(),
-  activePass: billingActivePassSchema.nullable(),
   signupBonus: billingSignupBonusSchema,
-  passDailyUsage: billingPassDailyUsageSchema,
   recentOrders: z.array(billingOrderStatusDtoSchema),
 });
 export type BillingSummary = z.infer<typeof billingSummarySchema>;
@@ -111,7 +94,6 @@ export type CreatePaymentOrderResponse = z.infer<
 
 export const billingEntitlementFailureReasonSchema = z.enum([
   "no_entitlement",
-  "pass_daily_limit",
   "negative_balance",
 ]);
 export type BillingEntitlementFailureReason = z.infer<

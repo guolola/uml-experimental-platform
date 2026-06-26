@@ -52,29 +52,19 @@ function formatDate(value: string | null) {
 }
 
 function skuMetric(sku: BillingSkuDto) {
-  if (sku.kind === "time_pass") {
-    return `${sku.durationDays ?? 0} 天`;
-  }
   return `${sku.creditAmount ?? 0} 次`;
 }
 
 function skuFeatures(sku: BillingSkuDto) {
-  if (sku.kind === "time_pass") {
-    return [
-      `${skuMetric(sku)}内优先使用通行卡`,
-      "高频使用时提示清晰",
-      "可叠加次数包继续生成",
-    ];
-  }
   return [
-    `增加 ${skuMetric(sku)}生成次数`,
-    "无通行卡时可直接抵扣",
-    "默认不过期，适合低频使用",
+    `到账 ${skuMetric(sku)}，所有可选模型统一扣 1 次`,
+    "默认不过期，适合持续生成",
+    "赠送次数已包含在到账次数内",
   ];
 }
 
 function isRecommendedSku(sku: BillingSkuDto) {
-  return sku.code === "time_month" || /month|月/u.test(sku.name);
+  return sku.code === "credits_100";
 }
 
 function channelLabel(channel: PaymentChannel) {
@@ -270,7 +260,7 @@ function PaymentConfirmDialog({
                     </div>
                     <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{sku.description}</p>
                   </div>
-                  <Badge variant={sku.kind === "time_pass" ? "info" : "success"}>
+                  <Badge variant="success">
                     {skuMetric(sku)}
                   </Badge>
                 </div>
@@ -430,13 +420,7 @@ function BillingSkuGrid({
   onSelect: (sku: BillingSkuDto) => void;
   variant?: "pricing" | "account";
 }) {
-  const groups = useMemo(
-    () => ({
-      time: skus.filter((sku) => sku.kind === "time_pass"),
-      credits: skus.filter((sku) => sku.kind === "credit_pack"),
-    }),
-    [skus],
-  );
+  const creditSkus = useMemo(() => skus, [skus]);
   if (loading) {
     return (
       <div className="motion-card rounded-xl border border-border bg-card p-6 text-[14px] leading-6 text-muted-foreground shadow-sm">
@@ -452,8 +436,7 @@ function BillingSkuGrid({
     );
   }
   const groupDefs = [
-    { key: "time", title: "通行卡", subtitle: "时效会员", items: groups.time },
-    { key: "credits", title: "次数包", subtitle: "永久次数", items: groups.credits },
+    { key: "credits", title: "次数包", subtitle: "永久次数", items: creditSkus },
   ];
   return (
     <div data-testid="billing-sku-grid" className={cn("grid", variant === "pricing" ? "gap-10" : "gap-6")}>
@@ -514,9 +497,7 @@ function BillingSkuCard({
   onNavigate: Navigate;
   onSelect: (sku: BillingSkuDto) => void;
 }) {
-  const actionLabel = signedIn
-    ? sku.kind === "time_pass" ? "立即开通" : "立即购买"
-    : "登录后购买";
+  const actionLabel = signedIn ? "立即购买" : "登录后购买";
   return (
     <article
       data-testid={recommended ? "billing-recommended-sku" : "billing-sku-card"}
@@ -543,7 +524,7 @@ function BillingSkuCard({
         </div>
         <Badge
           className="px-2.5 py-1 text-[12px]"
-          variant={sku.kind === "time_pass" ? "info" : "success"}
+          variant="success"
         >
           {skuMetric(sku)}
         </Badge>
@@ -689,7 +670,7 @@ export function PricingBillingPage({
             开通 AI 生成权益
           </h1>
           <p className="text-[15px] leading-[24px] text-muted-foreground md:text-[16px]">
-            通行卡优先覆盖生成任务；高频使用受限时可用次数包继续生成。新用户邮箱验证后自动赠送 5 次，有效期 30 天。
+            购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。
           </p>
         </div>
         <BillingSkuGrid
@@ -744,16 +725,18 @@ function SummaryPanel({ summary }: { summary: BillingSummary }) {
       </section>
       <section className="motion-card rounded-xl border border-border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[13px] font-medium leading-5 text-muted-foreground">当前通行卡</div>
+          <div className="text-[13px] font-medium leading-5 text-muted-foreground">邮箱验证赠送</div>
           <span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
-            <Clock3 className="size-4" />
+            <BadgeCheck className="size-4" />
           </span>
         </div>
         <div className="mt-4 font-display text-[22px] font-semibold leading-8 text-foreground">
-          {summary.activePass ? summary.activePass.name : "未开通"}
+          {summary.signupBonus.granted ? `${summary.signupBonus.creditAmount} 次` : "未领取"}
         </div>
         <div className="mt-1 text-[13px] leading-5 text-muted-foreground">
-          {summary.activePass ? `有效至 ${formatDate(summary.activePass.validUntil)}` : "可购买日卡、周卡、月卡或年卡"}
+          {summary.signupBonus.granted
+            ? `有效至 ${formatDate(summary.signupBonus.validUntil)}`
+            : "邮箱验证后自动发放"}
         </div>
       </section>
     </ScaleToFitFrame>
@@ -797,7 +780,7 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
                 权益与账单
               </h1>
               <p className="mt-2 max-w-3xl text-[14px] leading-6 text-muted-foreground">
-                查看当前通行卡、次数余额、邮箱验证赠送和最近支付订单。
+                查看次数余额、邮箱验证赠送和最近支付订单。
               </p>
             </div>
             <Button
@@ -833,7 +816,7 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
                 购买权益
               </h2>
               <span className="text-[13px] leading-5 text-muted-foreground">
-                通行卡优先，次数包兜底
+                次数余额按次抵扣
               </span>
             </div>
             <BillingSkuGrid

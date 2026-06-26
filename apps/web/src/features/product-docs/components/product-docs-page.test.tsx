@@ -1,5 +1,5 @@
 // Verifies the modular in-app product documentation center behavior.
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProductDocsPage } from "./product-docs-page";
@@ -34,6 +34,12 @@ describe("ProductDocsPage", () => {
       screen.getByRole("button", { name: /模型详情页、元素列表与追踪矩阵/u }),
     ).toBeInTheDocument();
     expect(
+      screen.getByRole("button", { name: /推荐模型/u }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /配置 Provider/u }),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: /生成、渲染与修复排障/u }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "模型配置" })).not.toBeInTheDocument();
@@ -63,26 +69,23 @@ describe("ProductDocsPage", () => {
   });
 
   it("filters documentation by title, summary, tags, artifacts, and markdown content", async () => {
-    const user = userEvent.setup();
     render(<ProductDocsPage />);
 
     const searchInput = screen.getByLabelText("搜索使用文档");
     const sidebar = screen.getByRole("complementary", { name: "使用文档目录" });
 
-    await user.type(searchInput, "AI 修复");
+    fireEvent.change(searchInput, { target: { value: "AI 修复" } });
     expect(screen.getByText("搜索结果")).toBeInTheDocument();
     expect(
       within(sidebar).getByRole("button", { name: /需求输入、规则确认与 AI 修复/u }),
     ).toBeInTheDocument();
 
-    await user.clear(searchInput);
-    await user.type(searchInput, "模型详情页");
+    fireEvent.change(searchInput, { target: { value: "模型详情页" } });
     expect(
       within(sidebar).getByRole("button", { name: /模型详情页、元素列表与追踪矩阵/u }),
     ).toBeInTheDocument();
 
-    await user.clear(searchInput);
-    await user.type(searchInput, "追踪矩阵");
+    fireEvent.change(searchInput, { target: { value: "追踪矩阵" } });
     expect(
       within(sidebar).getByRole("button", { name: /模型详情页、元素列表与追踪矩阵/u }),
     ).toBeInTheDocument();
@@ -90,14 +93,22 @@ describe("ProductDocsPage", () => {
       within(sidebar).getByRole("button", { name: /需求到设计的追踪链路/u }),
     ).toBeInTheDocument();
 
-    await user.clear(searchInput);
-    await user.type(searchInput, "PlantUML");
+    fireEvent.change(searchInput, { target: { value: "PlantUML" } });
     expect(
       within(sidebar).getByRole("button", { name: /需求 UML 模型与图表查看/u }),
     ).toBeInTheDocument();
 
-    await user.clear(searchInput);
-    await user.type(searchInput, "说明书版本");
+    fireEvent.change(searchInput, { target: { value: "推荐模型" } });
+    expect(
+      within(sidebar).getByRole("button", { name: /推荐模型/u }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "Provider" } });
+    expect(
+      within(sidebar).getByRole("button", { name: /配置 Provider/u }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "说明书版本" } });
     expect(
       within(sidebar).getByRole("button", { name: /说明书生成、样式、版本与下载/u }),
     ).toBeInTheDocument();

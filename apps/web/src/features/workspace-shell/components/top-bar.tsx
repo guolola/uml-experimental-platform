@@ -1528,6 +1528,7 @@ export function TopBar({
     onAccountDialogOpenChange ?? setUncontrolledAccountDialogOpen;
   const navItems = [
     { route: "/projects", label: "项目" },
+    { route: "/account/billing", label: "支付权益" },
     ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace"),
   ];
   const currentLabel =

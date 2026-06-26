@@ -139,7 +139,7 @@ describe("AccountDialog generation usage", () => {
     expect(within(trigger).getByText("Student")).toHaveClass("hidden", "md:inline");
   });
 
-  it("shows today's generation count as unlimited for regular users", async () => {
+  it("does not show today's generation count for regular users", async () => {
     const user = userEvent.setup();
     stubAccountFetch(
       profileResponse({
@@ -155,12 +155,13 @@ describe("AccountDialog generation usage", () => {
     render(<AccountDialog onNavigate={() => {}} initialUser={baseUser} />);
     await user.click(screen.getByRole("button", { name: "账号" }));
 
-    expect(await screen.findByText("今日生成次数")).toBeInTheDocument();
-    expect(screen.getByText("今日 3 次")).toBeInTheDocument();
-    expect(screen.getByText("不限额")).toBeInTheDocument();
+    await screen.findByText("个人资料信息");
+    expect(screen.queryByText("今日生成次数")).not.toBeInTheDocument();
+    expect(screen.queryByText("今日 3 次")).not.toBeInTheDocument();
+    expect(screen.queryByText("不限额")).not.toBeInTheDocument();
   });
 
-  it("shows today's generation quota and remaining count for guest users", async () => {
+  it("does not show today's generation quota for guest users", async () => {
     const user = userEvent.setup();
     stubAccountFetch(
       profileResponse(
@@ -194,11 +195,12 @@ describe("AccountDialog generation usage", () => {
     );
     await user.click(screen.getByRole("button", { name: "账号" }));
 
-    expect(await screen.findByText("今日生成次数")).toBeInTheDocument();
+    await screen.findByText("个人资料信息");
     await waitFor(() => {
-      expect(screen.getByText("今日 3 / 5 次")).toBeInTheDocument();
+      expect(screen.queryByText("今日生成次数")).not.toBeInTheDocument();
     });
-    expect(screen.getByText("剩余 2 次")).toBeInTheDocument();
+    expect(screen.queryByText("今日 3 / 5 次")).not.toBeInTheDocument();
+    expect(screen.queryByText("剩余 2 次")).not.toBeInTheDocument();
   });
 
   it("updates the account profile through the profile API", async () => {

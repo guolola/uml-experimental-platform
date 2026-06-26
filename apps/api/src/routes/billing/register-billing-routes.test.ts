@@ -76,7 +76,15 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
 
   const skus = await app.inject({ method: "GET", url: "/api/billing/skus" });
   assert.equal(skus.statusCode, 200);
-  assert.equal(skus.json().skus.length, 8);
+  assert.equal(skus.json().skus.length, 4);
+  assert.equal(
+    skus.json().skus.some((sku: { kind: string }) => sku.kind === "time_pass"),
+    false,
+  );
+  assert.equal(
+    skus.json().skus.find((sku: { code: string }) => sku.code === "credits_500")?.creditAmount,
+    620,
+  );
 
   const blockedOrder = await app.inject({
     method: "POST",
@@ -93,6 +101,15 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
   });
   assert.equal(createdOrder.statusCode, 201);
   assert.equal(createdOrder.json().amountCents, 990);
+
+  const bulkOrder = await app.inject({
+    method: "POST",
+    url: "/api/billing/orders",
+    headers: { cookie: userCookie },
+    payload: { skuCode: "credits_500", channel: "wechat_native" },
+  });
+  assert.equal(bulkOrder.statusCode, 201);
+  assert.equal(bulkOrder.json().amountCents, 39900);
 
   const ownOrder = await app.inject({
     method: "GET",

@@ -38,6 +38,10 @@ type StartProjectRunActionPipeline = (input: {
   record: RunRecord;
   providerSettings: ProviderSettings;
   providerConfigId: string | null;
+  billingEntitlements?: Pick<
+    BillingService,
+    "reserveRunUsage" | "confirmRunUsage" | "releaseRunUsage" | "compensateRunUsage"
+  >;
 }) => void | Promise<void>;
 
 type RunAccessResolver = {
@@ -135,8 +139,17 @@ export async function createProjectRunAction({
   });
   if (limitCheck !== true) return limitCheck;
   const newRunId = randomUUID();
+  const providerConfig = providerConfigId && providerConfigs
+    ? await providerConfigs.get(providerConfigId)
+    : null;
+  const runBillingEntitlements =
+    providerConfig?.scopeType === "user" &&
+    metadata.userId &&
+    providerConfig.scopeId === metadata.userId
+      ? undefined
+      : billingEntitlements;
   const billingCheck = await reserveBillingRunUsage({
-    billingEntitlements,
+    billingEntitlements: runBillingEntitlements,
     metadata,
     runId: newRunId,
     taskType,
@@ -178,6 +191,7 @@ export async function createProjectRunAction({
       record: newRecord,
       providerSettings,
       providerConfigId,
+      billingEntitlements: runBillingEntitlements,
     });
   }
 

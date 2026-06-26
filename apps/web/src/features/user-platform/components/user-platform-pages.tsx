@@ -417,6 +417,7 @@ export function ProjectSectionPage({
         <ProjectSettings
           project={overview.project}
           membershipRole={overview.membership?.role ?? null}
+          onProjectDeleted={() => onNavigate("/projects")}
         />
       )}
       {!overview.loading && !accessMessage && overview.project && section === "members" && (
@@ -584,6 +585,10 @@ export function ProjectWorkspaceDrawer({
     overview.project?.name ??
     (overview.loading ? "正在加载项目..." : `项目 ${projectId}`);
   const accessMessage = renderAccessMessage(overview, onNavigate);
+  const handleProjectDeleted = () => {
+    onClose();
+    onNavigate?.("/projects");
+  };
   let content: React.ReactNode;
 
   if (overview.loading) {
@@ -603,6 +608,7 @@ export function ProjectWorkspaceDrawer({
         project={overview.project}
         membershipRole={overview.membership?.role ?? null}
         layout="drawer"
+        onProjectDeleted={handleProjectDeleted}
       />
     );
   } else if (activeDrawer === "members") {

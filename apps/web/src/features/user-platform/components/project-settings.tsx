@@ -1,8 +1,16 @@
 // Owns project settings, provider policy, retention, and high-risk project actions.
 import { useEffect, useState } from "react";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
-import { Archive } from "lucide-react";
+import { Archive, Loader2 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../../shared/ui/dialog";
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
 import { Select, SelectContent, SelectControl, SelectItem, SelectTrigger } from "../../../shared/ui/select";
@@ -20,10 +28,12 @@ export function ProjectSettings({
   project,
   membershipRole,
   layout = "page",
+  onProjectDeleted,
 }: {
   project: PlatformProject;
   membershipRole?: string | null;
   layout?: "page" | "drawer";
+  onProjectDeleted?: (projectId: string) => void;
 }) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? "");
@@ -44,6 +54,8 @@ export function ProjectSettings({
   const [currentProject, setCurrentProject] = useState(project);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
 
   useEffect(() => {
     setName(project.name);
@@ -61,6 +73,8 @@ export function ProjectSettings({
     setRetentionPolicy(project.retentionPolicy ?? "manual");
     setNewOwnerUserId("");
     setCurrentProject(project);
+    setDeleteDialogOpen(false);
+    setDeletingProject(false);
   }, [project]);
 
   const saveProject = async () => {
@@ -134,16 +148,21 @@ export function ProjectSettings({
     }
   };
 
-  const deleteProject = async () => {
+  const confirmDeleteProject = async () => {
+    if (deletingProject) return;
     setMessage("");
     setError("");
-    if (!window.confirm("确定要删除此项目吗？此操作会写入审计日志。")) return;
+    setDeletingProject(true);
     try {
       await platformApi.deleteProject(project.id);
       setCurrentProject((current) => ({ ...current, status: "deleted" }));
       setMessage("项目已删除。");
+      setDeleteDialogOpen(false);
+      onProjectDeleted?.(project.id);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "项目删除失败。");
+    } finally {
+      setDeletingProject(false);
     }
   };
 
@@ -161,6 +180,7 @@ export function ProjectSettings({
   const settingsBlockedReason = "当前项目角色不能管理项目设置。";
 
   return (
+    <>
     <div className={settingGridClass}>
       <section className={`rounded-md border border-border bg-card p-5 ${sectionClass}`}>
         <div className="grid gap-4">
@@ -317,10 +337,11 @@ export function ProjectSettings({
           <Button
             type="button"
             variant="destructive"
-            onClick={() => void deleteProject()}
-            disabled={!canManageProjectSettings}
+            onClick={() => setDeleteDialogOpen(true)}
+            disabled={!canManageProjectSettings || deletingProject}
             title={!canManageProjectSettings ? settingsBlockedReason : undefined}
           >
+            {deletingProject ? <Loader2 className="size-4 animate-spin" /> : null}
             删除项目
           </Button>
         </div>
@@ -331,5 +352,40 @@ export function ProjectSettings({
         )}
       </section>
     </div>
+    <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>确认删除项目</DialogTitle>
+          <DialogDescription>
+            将删除“{currentProject.name}”，此操作会写入审计日志。删除成功后会返回项目列表。
+          </DialogDescription>
+        </DialogHeader>
+        {error && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setDeleteDialogOpen(false)}
+            disabled={deletingProject}
+          >
+            取消
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void confirmDeleteProject()}
+            disabled={deletingProject}
+          >
+            {deletingProject ? <Loader2 className="size-4 animate-spin" /> : null}
+            确认删除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

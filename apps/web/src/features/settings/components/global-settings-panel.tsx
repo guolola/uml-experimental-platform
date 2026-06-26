@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound, Loader2, Pencil, Plus, PlugZap, RotateCw, Trash2 } from "lucide-react";
 import type {
+  BillingSummary,
   ProviderDiscoveredModel,
   ProviderModelCapabilityMap,
   ProviderModelDiscoveryProgressEvent,
@@ -41,6 +42,7 @@ import {
   PlatformApiError,
   type PlatformProviderConfig,
 } from "../../user-platform/services/platform-api";
+import { billingApi } from "../../user-platform/services/billing-api";
 
 type GlobalSettingsPanelProps = {
   active: boolean;
@@ -158,6 +160,8 @@ export function GlobalSettingsPanel({
   const [providerConfigs, setProviderConfigs] = useState<PlatformProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
+  const [billingSummary, setBillingSummary] = useState<BillingSummary | null>(null);
+  const [billingSummaryUnavailable, setBillingSummaryUnavailable] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [currentUserId, setCurrentUserId] = useState("");
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
@@ -234,6 +238,7 @@ export function GlobalSettingsPanel({
     setSettings(loadUserSettings());
     setProviderLoading(true);
     setProviderStatus("");
+    setBillingSummaryUnavailable(false);
     setAuthRequired(false);
     let mounted = true;
     platformApi
@@ -262,6 +267,18 @@ export function GlobalSettingsPanel({
       .finally(() => {
         if (mounted) setProviderLoading(false);
       });
+    billingApi
+      .getSummary()
+      .then((summary) => {
+        if (!mounted) return;
+        setBillingSummary(summary);
+        setBillingSummaryUnavailable(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setBillingSummary(null);
+        setBillingSummaryUnavailable(true);
+      });
     return () => {
       mounted = false;
     };
@@ -283,6 +300,26 @@ export function GlobalSettingsPanel({
       selectedProvider.scopeType === "user" &&
       selectedProvider.scopeId === currentUserId,
   );
+  const selectedProviderBillingHint = useMemo(() => {
+    if (!selectedProvider) return "";
+    if (selectedProviderIsOwnedUserConfig) {
+      return "个人供应商不消耗平台权益次数";
+    }
+    if (selectedProvider.scopeType !== "system" && selectedProvider.scopeType !== "project") {
+      return "";
+    }
+    if (billingSummaryUnavailable) return "剩余次数暂不可用";
+    if (!billingSummary) return "";
+    if (billingSummary.creditBalance <= 0) {
+      return "剩余：0 次，可前往权益与账单购买";
+    }
+    return `剩余：${billingSummary.creditBalance} 次`;
+  }, [
+    billingSummary,
+    billingSummaryUnavailable,
+    selectedProvider,
+    selectedProviderIsOwnedUserConfig,
+  ]);
   const editingProvider = useMemo(
     () => providerConfigs.find((config) => config.id === editingProviderId),
     [editingProviderId, providerConfigs],
@@ -656,6 +693,11 @@ export function GlobalSettingsPanel({
                 ))}
               </SelectContent>
             </Select>
+            {selectedProviderBillingHint ? (
+              <span className="text-[11px] text-muted-foreground">
+                {selectedProviderBillingHint}
+              </span>
+            ) : null}
             {providerStatus && !selectedProvider ? (
               <span className="text-[11px] text-muted-foreground">{providerStatus}</span>
             ) : null}

@@ -70,8 +70,14 @@ async function resolveWorkerProviderSettings({
     throw new Error("Queued run provider config has no usable secret");
   }
   const modelCapability = config.modelCapabilities[input.model];
+  const billingRequired = !(
+    config.scopeType === "user" &&
+    record.metadata?.userId &&
+    config.scopeId === record.metadata.userId
+  );
   return {
     providerConfigId: input.providerConfigId,
+    billingRequired,
     providerSettings: {
       apiBaseUrl: config.baseUrl,
       apiKey,
@@ -148,7 +154,7 @@ async function start() {
           runDocumentStagePipeline,
           addCodeDiagnostic,
           documentInput: job.documentInput,
-          billingEntitlements: billingService,
+          billingEntitlements: provider.billingRequired ? billingService : undefined,
         });
       } catch (error) {
         handleRunPipelineError(record, error, addCodeDiagnostic);

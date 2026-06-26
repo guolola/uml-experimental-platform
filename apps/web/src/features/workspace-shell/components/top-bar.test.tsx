@@ -590,6 +590,7 @@ describe("TopBar", () => {
     const navButtons = within(within(banner).getByRole("navigation")).getAllByRole("button");
     expect(navButtons.map((button) => button.textContent)).toEqual([
       "项目",
+      "支付权益",
       "考试",
       "使用文档",
     ]);
@@ -599,10 +600,12 @@ describe("TopBar", () => {
     expect(within(banner).queryByRole("button", { name: "代码" })).not.toBeInTheDocument();
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
+    await user.click(within(banner).getByRole("button", { name: "支付权益" }));
     await user.click(within(banner).getByRole("button", { name: "考试" }));
     await user.click(within(banner).getByRole("button", { name: "使用文档" }));
 
     expect(onNavigate).toHaveBeenCalledWith("/projects");
+    expect(onNavigate).toHaveBeenCalledWith("/account/billing");
     expect(onNavigate).toHaveBeenCalledWith("/exam");
     expect(onNavigate).toHaveBeenCalledWith("/tutorial");
     expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();

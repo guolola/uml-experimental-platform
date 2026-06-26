@@ -759,14 +759,14 @@ insert into billing_skus (
   id, code, kind, name, description, duration_days, credit_amount, amount_cents, currency, active, sort_order, metadata_json
 )
 values
-  ('sku_time_day', 'time_day', 'time_pass', '日卡', '1 天 AI 生成通行卡', 1, null, 990, 'CNY', true, 10, '{"default":true}'::jsonb),
-  ('sku_time_week', 'time_week', 'time_pass', '周卡', '7 天 AI 生成通行卡', 7, null, 3900, 'CNY', true, 20, '{"default":true}'::jsonb),
-  ('sku_time_month', 'time_month', 'time_pass', '月卡', '30 天 AI 生成通行卡', 30, null, 9900, 'CNY', true, 30, '{"default":true}'::jsonb),
-  ('sku_time_year', 'time_year', 'time_pass', '年卡', '365 天 AI 生成通行卡', 365, null, 99900, 'CNY', true, 40, '{"default":true}'::jsonb),
-  ('sku_credits_10', 'credits_10', 'credit_pack', '10 次包', '10 次 AI 生成次数包，默认不过期', null, 10, 990, 'CNY', true, 110, '{"default":true}'::jsonb),
-  ('sku_credits_50', 'credits_50', 'credit_pack', '50 次包', '50 次 AI 生成次数包，默认不过期', null, 50, 3900, 'CNY', true, 120, '{"default":true}'::jsonb),
-  ('sku_credits_100', 'credits_100', 'credit_pack', '100 次包', '100 次 AI 生成次数包，默认不过期', null, 100, 6900, 'CNY', true, 130, '{"default":true}'::jsonb),
-  ('sku_credits_500', 'credits_500', 'credit_pack', '500 次包', '500 次 AI 生成次数包，默认不过期', null, 500, 29900, 'CNY', true, 140, '{"default":true}'::jsonb)
+  ('sku_time_day', 'time_day', 'time_pass', '日卡', '1 天 AI 生成通行卡', 1, null, 990, 'CNY', false, 10, '{"default":true}'::jsonb),
+  ('sku_time_week', 'time_week', 'time_pass', '周卡', '7 天 AI 生成通行卡', 7, null, 3900, 'CNY', false, 20, '{"default":true}'::jsonb),
+  ('sku_time_month', 'time_month', 'time_pass', '月卡', '30 天 AI 生成通行卡', 30, null, 9900, 'CNY', false, 30, '{"default":true}'::jsonb),
+  ('sku_time_year', 'time_year', 'time_pass', '年卡', '365 天 AI 生成通行卡', 365, null, 99900, 'CNY', false, 40, '{"default":true}'::jsonb),
+  ('sku_credits_10', 'credits_10', 'credit_pack', '10 次包', '买 10 次送 1 次，到账 11 次', null, 11, 990, 'CNY', true, 110, '{"default":true}'::jsonb),
+  ('sku_credits_50', 'credits_50', 'credit_pack', '50 次包', '买 50 次送 8 次，到账 58 次', null, 58, 4900, 'CNY', true, 120, '{"default":true}'::jsonb),
+  ('sku_credits_100', 'credits_100', 'credit_pack', '100 次包', '买 100 次送 20 次，到账 120 次', null, 120, 9900, 'CNY', true, 130, '{"default":true}'::jsonb),
+  ('sku_credits_500', 'credits_500', 'credit_pack', '500 次包', '买 500 次送 120 次，到账 620 次', null, 620, 39900, 'CNY', true, 140, '{"default":true}'::jsonb)
 on conflict (code) do nothing;
 `;
 

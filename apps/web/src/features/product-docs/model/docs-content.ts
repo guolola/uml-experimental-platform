@@ -5,6 +5,7 @@ export type ProductDocCategoryId =
   | "overview"
   | "project"
   | "workspace"
+  | "model-provider"
   | "requirements"
   | "models"
   | "design"
@@ -69,6 +70,11 @@ export const PRODUCT_DOC_CATEGORIES: readonly ProductDocCategory[] = [
     id: "workspace",
     label: "工作台基础",
     description: "顶部栏、侧边栏、标签页、生成任务和运行历史。",
+  },
+  {
+    id: "model-provider",
+    label: "模型与 Provider",
+    description: "推荐模型、个人 Provider、平台权益和模型列表测试。",
   },
   {
     id: "requirements",
@@ -214,6 +220,38 @@ const ARTICLE_MANIFEST = [
       src: "/help/images/docs-generation-task.png",
       alt: "生成任务和运行历史抽屉截图",
       caption: "生成任务展示阶段进度，运行历史保留可复盘证据。",
+    },
+  },
+  {
+    id: "recommended-models",
+    title: "推荐模型",
+    category: "model-provider",
+    summary: "基于公开中文模型榜单，按总榜和生成链路推荐效果优先的 Top10 模型。",
+    estimatedMinutes: 10,
+    recommendedPath: true,
+    sourcePath: "../content/recommended-models.md",
+    tags: ["推荐模型", "Top10", "国产模型", "国外模型", "Provider"],
+    relatedArtifacts: ["模型榜单", "Provider 配置", "需求生成", "设计生成", "代码原型", "说明书"],
+    screenshot: {
+      src: "/help/images/docs-provider-configuration.png",
+      alt: "模型与 Provider 配置截图",
+      caption: "推荐模型需要结合当前 Provider 的可用模型列表确认。",
+    },
+  },
+  {
+    id: "provider-configuration",
+    title: "配置 Provider",
+    category: "model-provider",
+    summary: "添加个人模型供应商，获取模型列表，测试通过后保存为默认 Provider。",
+    estimatedMinutes: 8,
+    recommendedPath: true,
+    sourcePath: "../content/provider-configuration.md",
+    tags: ["Provider", "API Key", "获取模型列表", "测试托管配置", "权益次数"],
+    relatedArtifacts: ["ProviderConfig", "模型列表", "默认模型", "平台权益"],
+    screenshot: {
+      src: "/help/images/docs-provider-configuration.png",
+      alt: "添加 Provider 表单截图",
+      caption: "个人自配 Provider 不消耗平台权益次数，保存前需要获取模型列表并测试通过。",
     },
   },
   {

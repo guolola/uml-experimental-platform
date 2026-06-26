@@ -168,8 +168,9 @@ describe("TextRequirementView", () => {
       '[data-workspace-density="compact-grid"]',
     );
     expect(modelGrid).toBeInTheDocument();
-    expect(modelGrid).toHaveAttribute("data-mobile-card-density", "two-column");
+    expect(modelGrid).toHaveAttribute("data-mobile-card-density", "model-targets");
     expect(modelGrid).toHaveClass("grid-cols-2");
+    expect(modelGrid?.className).toContain("min-[1900px]:grid-cols-6");
 
     await user.type(requirementInput, "创建一个订单系统");
     expect(requirementInput).toHaveValue("创建一个订单系统");
@@ -339,15 +340,10 @@ describe("TextRequirementView", () => {
               reason: "no_entitlement",
               billingSummary: {
                 creditBalance: 0,
-                activePass: null,
                 signupBonus: {
                   granted: false,
                   creditAmount: 0,
                   validUntil: null,
-                },
-                passDailyUsage: {
-                  usedToday: 0,
-                  limit: 1,
                 },
                 recentOrders: [],
               },
@@ -375,7 +371,7 @@ describe("TextRequirementView", () => {
 
     expect(await screen.findAllByText("需要开通生成权益")).not.toHaveLength(0);
     expect(screen.getByText(/可用次数 0/)).toBeInTheDocument();
-    expect(screen.getByText(/当前没有有效通行卡/)).toBeInTheDocument();
+    expect(screen.getByText(/系统托管 Provider 每次生成消耗 1 次/)).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "购买权益" }),
     ).not.toBeInTheDocument();

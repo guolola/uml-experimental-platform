@@ -868,6 +868,46 @@ describe("DiagramView", () => {
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
 
+  it("keeps the SVG preview canvas tall enough for detailed model diagrams", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase"],
+        plantUml: {
+          usecase: "@startuml\nactor 用户\n@enduml",
+        },
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例图",
+            summary: "核心用例",
+            notes: [],
+            actors: [],
+            useCases: [],
+            systemBoundaries: [],
+            relationships: [],
+          },
+        },
+        svgArtifacts: {
+          usecase: {
+            diagramKind: "usecase",
+            svg: '<svg width="1200" height="800"><text>large model</text></svg>',
+            renderMeta: {
+              engine: "plantuml",
+              generatedAt: new Date().toISOString(),
+              sourceLength: 10,
+              durationMs: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
+
+    const canvas = await screen.findByTestId("svg-preview-canvas");
+    expect(canvas).toHaveClass("h-[560px]", "sm:h-[720px]");
+  });
+
   it("keeps the SVG preview full width while opening and closing the model overview overlay", async () => {
     const repository = createRepository(
       createWorkspaceRecord({

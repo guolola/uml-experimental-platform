@@ -341,6 +341,7 @@ async function createRunRouteTestApp(options?: {
   runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
+  billingEntitlements?: Parameters<typeof registerRunRoutes>[0]["billingEntitlements"];
   loadProjectWorkspace?: Parameters<typeof registerRunRoutes>[0]["loadProjectWorkspace"];
   runQueue?: RunQueue;
 }) {
@@ -360,6 +361,7 @@ async function createRunRouteTestContext(options?: {
   runDesignStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDesignStagePipeline"];
   runDocumentStagePipeline?: Parameters<typeof registerRunRoutes>[0]["runDocumentStagePipeline"];
   generationUsage?: Parameters<typeof registerRunRoutes>[0]["generationUsage"];
+  billingEntitlements?: Parameters<typeof registerRunRoutes>[0]["billingEntitlements"];
   loadProjectWorkspace?: Parameters<typeof registerRunRoutes>[0]["loadProjectWorkspace"];
   runQueue?: RunQueue;
 }) {
@@ -442,6 +444,7 @@ async function createRunRouteTestContext(options?: {
     resolveProjectName: options?.resolveProjectName,
     providerUsageTracker: options?.providerUsageTracker,
     generationUsage: options?.generationUsage,
+    billingEntitlements: options?.billingEntitlements,
     llmScheduler: options?.llmScheduler,
     runQueue: options?.runQueue,
     loadProjectWorkspace: options?.loadProjectWorkspace,
@@ -1141,6 +1144,118 @@ test("project run rejects another user's private provider config", async () => {
   assert.equal(response.statusCode, 400);
   assert.equal(resolvedProviderSettings, null);
   assert.doesNotMatch(response.body, /user-a-private|sk-user-a-private/);
+
+  await app.close();
+});
+
+test("project run skips billing entitlement reservation for the owner's private provider config", async () => {
+  const reserveCalls: unknown[] = [];
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://ai.comfly.org"],
+    secret: "test-secret",
+  });
+  const provider = await providerConfigs.create({
+    name: "用户 A 私有模型",
+    provider: "openai-compatible",
+    baseUrl: "https://ai.comfly.org",
+    apiKey: "sk-user-a-private",
+    defaultModel: "gpt-5.5",
+    allowedModels: ["gpt-5.5"],
+    createdBy: "user-a",
+    scopeType: "user",
+    scopeId: "user-a",
+  });
+  const app = await createRunRouteTestApp({
+    providerConfigs,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"], view_runs: ["project-a"] },
+    }),
+    billingEntitlements: {
+      reserveRunUsage: async (input) => {
+        reserveCalls.push(input);
+        return { allowed: true, reservation: {} } as Awaited<ReturnType<NonNullable<Parameters<typeof registerRunRoutes>[0]["billingEntitlements"]>["reserveRunUsage"]>>;
+      },
+      confirmRunUsage: async () => null,
+      releaseRunUsage: async () => null,
+      compensateRunUsage: async () => null,
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: "项目 A 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        providerConfigId: provider.id,
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 202);
+  assert.equal(reserveCalls.length, 0);
+
+  await app.close();
+});
+
+test("project run keeps billing entitlement reservation for system provider config", async () => {
+  const reserveCalls: unknown[] = [];
+  const providerConfigs = createProviderConfigStore({
+    baseUrlAllowlist: ["https://ai.comfly.org"],
+    secret: "test-secret",
+  });
+  const provider = await providerConfigs.create({
+    name: "系统托管模型",
+    provider: "openai-compatible",
+    baseUrl: "https://ai.comfly.org",
+    apiKey: "sk-system",
+    defaultModel: "gpt-5.5",
+    allowedModels: ["gpt-5.5"],
+    createdBy: "admin",
+    scopeType: "system",
+    scopeId: "system",
+  });
+  const app = await createRunRouteTestApp({
+    providerConfigs,
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"], view_runs: ["project-a"] },
+    }),
+    billingEntitlements: {
+      reserveRunUsage: async (input) => {
+        reserveCalls.push(input);
+        return { allowed: true, reservation: {} } as Awaited<ReturnType<NonNullable<Parameters<typeof registerRunRoutes>[0]["billingEntitlements"]>["reserveRunUsage"]>>;
+      },
+      confirmRunUsage: async () => null,
+      releaseRunUsage: async () => null,
+      compensateRunUsage: async () => null,
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs",
+    headers: {
+      "x-test-user-id": "user-a",
+    },
+    payload: {
+      projectId: "project-a",
+      requirementText: "项目 A 的需求",
+      selectedDiagrams: ["usecase"],
+      providerSettings: {
+        providerConfigId: provider.id,
+        model: "gpt-5.5",
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 202);
+  assert.equal(reserveCalls.length, 1);
 
   await app.close();
 });

@@ -27,60 +27,12 @@ let providerConfigFixtures: Array<Record<string, unknown>>;
 const projectUpdatedAt = "2026-05-22T02:00:00.000Z";
 const billingTestSkus = [
   {
-    code: "time_day",
-    name: "日卡",
-    kind: "time_pass",
-    description: "1 天 AI 生成通行卡",
-    durationDays: 1,
-    creditAmount: null,
-    amountCents: 990,
-    currency: "CNY",
-    active: true,
-    sortOrder: 10,
-  },
-  {
-    code: "time_week",
-    name: "周卡",
-    kind: "time_pass",
-    description: "7 天 AI 生成通行卡",
-    durationDays: 7,
-    creditAmount: null,
-    amountCents: 3900,
-    currency: "CNY",
-    active: true,
-    sortOrder: 20,
-  },
-  {
-    code: "time_month",
-    name: "月卡",
-    kind: "time_pass",
-    description: "30 天 AI 生成通行卡",
-    durationDays: 30,
-    creditAmount: null,
-    amountCents: 9900,
-    currency: "CNY",
-    active: true,
-    sortOrder: 30,
-  },
-  {
-    code: "time_year",
-    name: "年卡",
-    kind: "time_pass",
-    description: "365 天 AI 生成通行卡",
-    durationDays: 365,
-    creditAmount: null,
-    amountCents: 99900,
-    currency: "CNY",
-    active: true,
-    sortOrder: 40,
-  },
-  {
     code: "credits_10",
     name: "10 次包",
     kind: "credit_pack",
-    description: "10 次 AI 生成次数包，默认不过期",
+    description: "买 10 次送 1 次，到账 11 次",
     durationDays: null,
-    creditAmount: 10,
+    creditAmount: 11,
     amountCents: 990,
     currency: "CNY",
     active: true,
@@ -90,10 +42,10 @@ const billingTestSkus = [
     code: "credits_50",
     name: "50 次包",
     kind: "credit_pack",
-    description: "50 次 AI 生成次数包，默认不过期",
+    description: "买 50 次送 8 次，到账 58 次",
     durationDays: null,
-    creditAmount: 50,
-    amountCents: 3900,
+    creditAmount: 58,
+    amountCents: 4900,
     currency: "CNY",
     active: true,
     sortOrder: 120,
@@ -102,10 +54,10 @@ const billingTestSkus = [
     code: "credits_100",
     name: "100 次包",
     kind: "credit_pack",
-    description: "100 次 AI 生成次数包，默认不过期",
+    description: "买 100 次送 20 次，到账 120 次",
     durationDays: null,
-    creditAmount: 100,
-    amountCents: 6900,
+    creditAmount: 120,
+    amountCents: 9900,
     currency: "CNY",
     active: true,
     sortOrder: 130,
@@ -114,21 +66,23 @@ const billingTestSkus = [
     code: "credits_500",
     name: "500 次包",
     kind: "credit_pack",
-    description: "500 次 AI 生成次数包，默认不过期",
+    description: "买 500 次送 120 次，到账 620 次",
     durationDays: null,
-    creditAmount: 500,
-    amountCents: 29900,
+    creditAmount: 620,
+    amountCents: 39900,
     currency: "CNY",
     active: true,
     sortOrder: 140,
   },
 ] as const;
 
+const billingPrimarySku = billingTestSkus.find((sku) => sku.code === "credits_100") ?? billingTestSkus[0]!;
+
 const billingTestOrder = {
   orderId: "order-test-1",
   merchantOrderNo: "UML202606050001",
-  sku: billingTestSkus[2],
-  amountCents: billingTestSkus[2].amountCents,
+  sku: billingPrimarySku,
+  amountCents: billingPrimarySku.amountCents,
   currency: "CNY",
   channel: "wechat_native",
   status: "pending",
@@ -643,13 +597,11 @@ describe("App shell routes", () => {
           return new Response(
             JSON.stringify({
               creditBalance: 5,
-              activePass: null,
               signupBonus: {
                 granted: true,
                 creditAmount: 5,
                 validUntil: "2026-07-05T04:00:00.000Z",
               },
-              passDailyUsage: { usedToday: 0, limit: 50 },
               recentOrders: [billingTestOrder],
             }),
             {
@@ -663,7 +615,7 @@ describe("App shell routes", () => {
             skuCode?: string;
             channel?: "wechat_native" | "alipay_page";
           };
-          const sku = billingTestSkus.find((candidate) => candidate.code === body.skuCode) ?? billingTestSkus[2];
+          const sku = billingTestSkus.find((candidate) => candidate.code === body.skuCode) ?? billingPrimarySku;
           const order = {
             ...billingTestOrder,
             sku,
@@ -1634,35 +1586,28 @@ describe("App shell routes", () => {
     window.history.pushState({}, "", "/pricing");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/");
-    });
-    expect(screen.queryByRole("heading", { name: "开通 AI 生成权益" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("pricing-payment-page")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/pricing");
+    expect(await screen.findByRole("heading", { name: "开通 AI 生成权益" })).toBeInTheDocument();
+    expect(screen.getByTestId("pricing-payment-page")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "定价" })).not.toBeInTheDocument();
   });
 
-  it("redirects direct billing routes without rendering purchase UI", async () => {
+  it("renders direct billing routes for signed-in users", async () => {
     authSessionMode = "authenticated";
     projectApiMode = "authenticated";
 
     window.history.pushState({}, "", "/account/billing");
     const billingView = render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/projects");
-    });
-    expect(screen.queryByRole("heading", { name: "权益与账单" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("account-billing-dashboard")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
+    expect(screen.getByTestId("account-billing-dashboard")).toBeInTheDocument();
     billingView.unmount();
 
-    window.history.pushState({}, "", "/billing/alipay/return");
+    window.history.pushState({}, "", "/billing/alipay/return?orderId=order-test-1");
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/projects");
-    });
-    expect(screen.queryByTestId("alipay-processing-card")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("alipay-processing-card")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "支付宝支付处理中" })).toBeInTheDocument();
   });
 
   it("marks marketing pages that should fill a desktop viewport separately from the scrolling workflow page", async () => {
@@ -1774,6 +1719,7 @@ describe("App shell routes", () => {
 
     expect(navButtons.map((button) => button.textContent)).toEqual([
       "项目",
+      "支付权益",
       "考试",
       "使用文档",
     ]);
@@ -1788,6 +1734,12 @@ describe("App shell routes", () => {
 
     expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
+
+    await user.click(within(banner).getByRole("button", { name: "支付权益" }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/account/billing");
+    });
+    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
 

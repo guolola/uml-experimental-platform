@@ -45,6 +45,7 @@ import {
   refreshProjectRunRecordsIfAvailable,
   refreshRunRecordIfAvailable,
   type RunRecord,
+  type RunRecordMetadata,
   type RunRecordStore,
 } from "../../runs/records/run-record-store.js";
 import { cancelRunRecord } from "../../runs/records/run-actions.js";
@@ -211,6 +212,11 @@ type DocumentPipeline = (
   pngRenderClient: PngRenderClient,
 ) => Promise<void>;
 
+type RunBillingEntitlements = Pick<
+  BillingService,
+  "reserveRunUsage" | "confirmRunUsage" | "releaseRunUsage" | "compensateRunUsage"
+>;
+
 export function registerRunRoutes({
   app,
   runs,
@@ -279,11 +285,13 @@ export function registerRunRoutes({
     record,
     providerSettings,
     providerConfigId,
+    billingEntitlements: runBillingEntitlements,
     documentInput,
   }: {
     record: RunRecord;
     providerSettings: ProviderSettings;
     providerConfigId: string | null;
+    billingEntitlements?: RunBillingEntitlements;
     documentInput?: StartDocumentRunRequest;
   }) => {
     attachRunSideEffects(record);
@@ -307,8 +315,28 @@ export function registerRunRoutes({
       runDocumentStagePipeline,
       addCodeDiagnostic,
       documentInput,
-      billingEntitlements,
+      billingEntitlements: runBillingEntitlements,
     });
+  };
+
+  const billingEntitlementsForProvider = async ({
+    providerConfigId,
+    metadata,
+  }: {
+    providerConfigId: string | null;
+    metadata?: RunRecordMetadata;
+  }): Promise<RunBillingEntitlements | undefined> => {
+    if (!billingEntitlements) return undefined;
+    if (!providerConfigId || !providerConfigs) return billingEntitlements;
+    const providerConfig = await providerConfigs.get(providerConfigId);
+    if (
+      providerConfig?.scopeType === "user" &&
+      metadata?.userId &&
+      providerConfig.scopeId === metadata.userId
+    ) {
+      return undefined;
+    }
+    return billingEntitlements;
   };
 
   const isOfflineDemoRun = async (projectId: string | null | undefined) => {
@@ -559,8 +587,12 @@ export function registerRunRoutes({
     });
     if (limitCheck !== true) return limitCheck;
     const runId = randomUUID();
+    const runBillingEntitlements = await billingEntitlementsForProvider({
+      providerConfigId,
+      metadata,
+    });
     const billingCheck = await reserveBillingRunUsage({
-      billingEntitlements,
+      billingEntitlements: runBillingEntitlements,
       metadata,
       runId,
       taskType: "requirements_to_uml",
@@ -614,6 +646,7 @@ export function registerRunRoutes({
       record,
       providerSettings,
       providerConfigId,
+      billingEntitlements: runBillingEntitlements,
     });
 
     reply.code(202);
@@ -699,8 +732,12 @@ export function registerRunRoutes({
     });
     if (limitCheck !== true) return limitCheck;
     const runId = randomUUID();
+    const runBillingEntitlements = await billingEntitlementsForProvider({
+      providerConfigId,
+      metadata,
+    });
     const billingCheck = await reserveBillingRunUsage({
-      billingEntitlements,
+      billingEntitlements: runBillingEntitlements,
       metadata,
       runId,
       taskType: "design_modeling",
@@ -741,6 +778,7 @@ export function registerRunRoutes({
       record,
       providerSettings,
       providerConfigId,
+      billingEntitlements: runBillingEntitlements,
     });
 
     reply.code(202);
@@ -826,8 +864,12 @@ export function registerRunRoutes({
     });
     if (limitCheck !== true) return limitCheck;
     const runId = randomUUID();
+    const runBillingEntitlements = await billingEntitlementsForProvider({
+      providerConfigId,
+      metadata,
+    });
     const billingCheck = await reserveBillingRunUsage({
-      billingEntitlements,
+      billingEntitlements: runBillingEntitlements,
       metadata,
       runId,
       taskType: "code_generation",
@@ -868,6 +910,7 @@ export function registerRunRoutes({
       record,
       providerSettings,
       providerConfigId,
+      billingEntitlements: runBillingEntitlements,
     });
 
     reply.code(202);
@@ -982,8 +1025,12 @@ export function registerRunRoutes({
       return { message: "请先在设计页生成设计模型，再导出软件设计说明书" };
     }
     const runId = randomUUID();
+    const runBillingEntitlements = await billingEntitlementsForProvider({
+      providerConfigId,
+      metadata,
+    });
     const billingCheck = await reserveBillingRunUsage({
-      billingEntitlements,
+      billingEntitlements: runBillingEntitlements,
       metadata,
       runId,
       taskType: "document_generation",
@@ -1018,6 +1065,7 @@ export function registerRunRoutes({
       record,
       providerSettings,
       providerConfigId,
+      billingEntitlements: runBillingEntitlements,
       documentInput: input,
     });
 

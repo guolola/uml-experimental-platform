@@ -50,6 +50,11 @@ import {
   ProjectWorkspaceBanner,
   useCurrentProjectOverview,
 } from "../features/user-platform/components/user-platform-pages";
+import {
+  AccountBillingPage,
+  AlipayReturnPage,
+  PricingBillingPage,
+} from "../features/user-platform/components/billing-pages";
 
 function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
   const meta = findShellRouteModule(route);
@@ -72,7 +77,9 @@ function getProtectedRoutePath(route: AppRoute) {
     route.kind === "projects-index" ||
     route.kind === "projects-new" ||
     route.kind === "project-workspace" ||
-    route.kind === "legacy-account"
+    route.kind === "legacy-account" ||
+    route.kind === "account-billing" ||
+    route.kind === "alipay-return"
   ) {
     return route.path;
   }
@@ -301,7 +308,7 @@ export function Shell() {
   const renderRoute = () => {
     if (route.kind === "marketing-home") {
       if (route.path === "/pricing") {
-        return <RedirectRoute to="/" onNavigate={navigate} />;
+        return <PricingBillingPage signedIn={false} onNavigate={navigate} />;
       }
       return <MarketingHomePage path={route.path} onNavigate={navigate} />;
     }
@@ -327,10 +334,10 @@ export function Shell() {
       return <ProjectNewPage onNavigate={navigate} />;
     }
     if (route.kind === "account-billing") {
-      return <RedirectRoute to="/projects" onNavigate={navigate} />;
+      return <AccountBillingPage onNavigate={navigate} />;
     }
     if (route.kind === "alipay-return") {
-      return <RedirectRoute to="/projects" onNavigate={navigate} />;
+      return <AlipayReturnPage onNavigate={navigate} />;
     }
     if (route.kind === "legacy-account") {
       return <RedirectRoute to="/projects" onNavigate={navigate} />;

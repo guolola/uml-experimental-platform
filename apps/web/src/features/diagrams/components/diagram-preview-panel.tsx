@@ -179,7 +179,7 @@ export function DiagramPreviewPanel({
           ref={svgCanvasRef}
           data-testid="svg-preview-canvas"
           className={cn(
-            "h-[440px] overflow-hidden select-none touch-none sm:h-[560px]",
+            "h-[560px] overflow-hidden select-none touch-none sm:h-[720px]",
             svgMarkup && (isPanning ? "cursor-grabbing" : "cursor-grab"),
           )}
           onPointerDown={onStartPan}

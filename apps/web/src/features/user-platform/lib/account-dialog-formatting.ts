@@ -1,7 +1,6 @@
 // Formats account dialog labels, dates, and usage summaries without owning UI state.
 import { formatSessionDevice } from "./session-device";
 import type {
-  PlatformAccountProfileResponse,
   PlatformLoginEvent,
   PlatformUser,
 } from "../services/platform-api";
@@ -9,10 +8,6 @@ import type {
 export const AVATAR_FILE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 export const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 export const ACCOUNT_SESSION_RECORD_LIMIT = 5;
-
-export type AccountGenerationUsage = NonNullable<
-  PlatformAccountProfileResponse["generationUsage"]
->;
 
 export function initials(user: PlatformUser | null) {
   const label = user?.displayName || user?.email || "登录";
@@ -48,18 +43,4 @@ export function loginOutcomeLabel(outcome: PlatformLoginEvent["outcome"]) {
 
 export function loginDetail(event: PlatformLoginEvent) {
   return event.message || (event.userAgent ? formatSessionDevice(event.userAgent) : "暂无详情");
-}
-
-export function generationUsagePrimaryText(usage: AccountGenerationUsage | null) {
-  if (!usage) return "今日 0 次";
-  if (usage.limited && usage.limit !== null) {
-    return `今日 ${usage.usedToday} / ${usage.limit} 次`;
-  }
-  return `今日 ${usage.usedToday} 次`;
-}
-
-export function generationUsageSecondaryText(usage: AccountGenerationUsage | null) {
-  if (!usage) return "不限额";
-  if (usage.limited && usage.remaining !== null) return `剩余 ${usage.remaining} 次`;
-  return "不限额";
 }

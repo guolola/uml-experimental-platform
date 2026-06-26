@@ -2,40 +2,30 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AccountBillingPage } from "./billing-pages";
+import { AccountBillingPage, PricingBillingPage } from "./billing-pages";
 
 const billingSkus = [
-  {
-    code: "time_day",
-    name: "日卡",
-    kind: "time_pass",
-    description: "1 天 AI 生成通行卡",
-    durationDays: 1,
-    creditAmount: null,
-    amountCents: 990,
-    currency: "CNY",
-    active: true,
-    sortOrder: 10,
-  },
   {
     code: "credits_100",
     name: "100 次包",
     kind: "credit_pack",
-    description: "100 次 AI 生成次数包",
+    description: "买 100 次送 20 次，到账 120 次",
     durationDays: null,
-    creditAmount: 100,
-    amountCents: 6900,
+    creditAmount: 120,
+    amountCents: 9900,
     currency: "CNY",
     active: true,
     sortOrder: 110,
   },
 ];
 
+const purchaseSku = billingSkus[0]!;
+
 const billingOrder = {
   orderId: "order-test-1",
   merchantOrderNo: "UML202606050001",
-  sku: billingSkus[0],
-  amountCents: billingSkus[0].amountCents,
+  sku: purchaseSku,
+  amountCents: purchaseSku.amountCents,
   currency: "CNY",
   channel: "wechat_native",
   status: "pending",
@@ -58,16 +48,11 @@ function stubBillingFetch() {
       return new Response(
         JSON.stringify({
           creditBalance: 128,
-          activePass: {
-            name: "周卡",
-            validUntil: "2026-06-25T04:00:00.000Z",
-          },
           signupBonus: {
             granted: true,
             creditAmount: 5,
             validUntil: "2026-07-05T04:00:00.000Z",
           },
-          passDailyUsage: { usedToday: 0, limit: 50 },
           recentOrders: [billingOrder],
         }),
         {
@@ -119,13 +104,41 @@ describe("AccountBillingPage", () => {
       "natural",
     );
     const summaryFrame = screen.getByText("可用次数").closest("[data-scale-to-fit]");
-    expect(summaryFrame).toHaveTextContent("当前通行卡");
+    expect(summaryFrame).toHaveTextContent("邮箱验证赠送");
 
-    await user.click(screen.getByRole("button", { name: "立即开通" }));
+    expect(screen.queryByTestId("billing-sku-group-time")).not.toBeInTheDocument();
+    expect(screen.queryByText("日卡")).not.toBeInTheDocument();
+    expect(screen.queryByText("月卡")).not.toBeInTheDocument();
+    expect(screen.queryByText("年卡")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "立即开通" })).not.toBeInTheDocument();
+    expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "立即购买" }));
 
     const dialog = await screen.findByTestId("payment-confirm-dialog");
     const paymentFrame = dialog.querySelector("[data-scale-to-fit]");
     expect(paymentFrame).toHaveTextContent("微信支付");
     expect(paymentFrame).toHaveTextContent("支付宝");
+  });
+});
+
+describe("PricingBillingPage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders only credit packs on the public payment page", async () => {
+    stubBillingFetch();
+    render(<PricingBillingPage signedIn onNavigate={() => {}} />);
+
+    expect(await screen.findByRole("heading", { name: "开通 AI 生成权益" })).toBeInTheDocument();
+    expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。")).toBeInTheDocument();
+    expect(screen.queryByText("通行卡")).not.toBeInTheDocument();
+    expect(screen.queryByText("日卡")).not.toBeInTheDocument();
+    expect(screen.queryByText("周卡")).not.toBeInTheDocument();
+    expect(screen.queryByText("月卡")).not.toBeInTheDocument();
+    expect(screen.queryByText("年卡")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "立即开通" })).not.toBeInTheDocument();
+    expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
   });
 });

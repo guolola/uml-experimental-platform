@@ -269,17 +269,6 @@ export function createInMemoryBillingRepository(): BillingRepository {
       ).length;
     },
 
-    async countConfirmedPassUsageSince(userId, since) {
-      return Array.from(reservations.values()).filter(
-        (reservation) =>
-          reservation.userId === userId &&
-          reservation.status === "confirmed" &&
-          reservation.entitlementKind === "time_pass" &&
-          reservation.confirmedAt !== null &&
-          reservation.confirmedAt >= since,
-      ).length;
-    },
-
     async recordPaymentNotification(input: CreatePaymentNotificationInput) {
       const key = notificationKey(input);
       const existing = notifications.get(key);

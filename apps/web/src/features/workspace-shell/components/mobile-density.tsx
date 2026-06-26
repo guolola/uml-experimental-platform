@@ -88,17 +88,29 @@ export function MobileRailCard({
 export function MobileCompactGrid({
   children,
   className,
+  variant = "standard",
 }: {
   children: ReactNode;
   className?: string;
   minWidth?: number;
+  variant?: "standard" | "model-targets" | "document-cards";
 }) {
+  const densityClass = {
+    standard:
+      "grid-cols-2 gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-3",
+    "model-targets":
+      "grid-cols-2 gap-2 md:gap-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1900px]:grid-cols-6",
+    "document-cards":
+      "grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+  }[variant];
+
   return (
     <div
       data-workspace-density="compact-grid"
-      data-mobile-card-density="two-column"
+      data-mobile-card-density={variant === "standard" ? "two-column" : variant}
       className={cn(
-        "grid min-w-0 grid-cols-2 gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-3",
+        "grid min-w-0",
+        densityClass,
         className,
       )}
     >

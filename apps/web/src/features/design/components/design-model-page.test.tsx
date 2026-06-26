@@ -143,8 +143,9 @@ describe("DesignModelPage", () => {
     expect(analysisSourceCard).toHaveTextContent("可用");
     const modelGrid = container.querySelector('[data-workspace-density="compact-grid"]');
     expect(modelGrid).toBeInTheDocument();
-    expect(modelGrid).toHaveAttribute("data-mobile-card-density", "two-column");
+    expect(modelGrid).toHaveAttribute("data-mobile-card-density", "model-targets");
     expect(modelGrid).toHaveClass("grid-cols-2");
+    expect(modelGrid?.className).toContain("min-[1900px]:grid-cols-6");
     expect(sourceGrid?.querySelector('[data-workspace-density="status-rail"]')).toBeInTheDocument();
   });
 

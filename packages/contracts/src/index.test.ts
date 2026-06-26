@@ -262,16 +262,16 @@ test("contracts describe structured model rerender requests", () => {
 
 test("contracts describe billing SKUs and payment order boundaries", () => {
   const sku = billingSkuDtoSchema.parse({
-    code: "time_month",
-    name: "月卡",
-    kind: "time_pass",
-    description: "30 天通行卡",
-    durationDays: 30,
-    creditAmount: null,
+    code: "credits_100",
+    name: "100 次包",
+    kind: "credit_pack",
+    description: "买 100 次送 20 次，到账 120 次",
+    durationDays: null,
+    creditAmount: 120,
     amountCents: 9900,
     currency: "CNY",
     active: true,
-    sortOrder: 30,
+    sortOrder: 130,
   });
   assert.equal(sku.amountCents, 9900);
   assert.equal(paymentChannelSchema.parse("wechat_native"), "wechat_native");

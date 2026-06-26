@@ -589,10 +589,7 @@ export function TextRequirementView() {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{billingGenerationBlock.message}</div>
                   <div className="text-xs text-muted-foreground">
-                    可用次数 {billingGenerationBlock.billingSummary.creditBalance}，
-                    {billingGenerationBlock.billingSummary.activePass
-                      ? `通行卡今日 ${billingGenerationBlock.billingSummary.passDailyUsage.usedToday}/${billingGenerationBlock.billingSummary.passDailyUsage.limit}`
-                      : "当前没有有效通行卡"}
+                    可用次数 {billingGenerationBlock.billingSummary.creditBalance}，系统托管 Provider 每次生成消耗 1 次
                   </div>
                 </div>
                 <Button
@@ -692,7 +689,7 @@ export function TextRequirementView() {
 
             <MobileCompactGrid
               minWidth={720}
-              className="grid-cols-2 2xl:grid-cols-3"
+              variant="model-targets"
             >
               {DIAGRAM_ORDER.map((diagram) => {
                 const meta = DIAGRAM_META[diagram];

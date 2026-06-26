@@ -33,12 +33,7 @@ const RUN_ERROR_DEFAULTS: Record<
   USER_ENTITLEMENT_REQUIRED: {
     category: "user_entitlement",
     retryable: false,
-    message: "当前账户没有可用于 AI 生成的权益，请先购买通行卡或次数包。",
-  },
-  USER_PASS_DAILY_LIMIT: {
-    category: "user_entitlement",
-    retryable: false,
-    message: "今日通行卡生成次数已用完。可购买次数包继续生成。",
+    message: "当前账户没有可用于 AI 生成的权益，请先购买次数包。",
   },
   USER_ENTITLEMENT_NEGATIVE_BALANCE: {
     category: "user_entitlement",

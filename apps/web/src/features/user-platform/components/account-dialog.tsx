@@ -1,7 +1,6 @@
 // Hosts the top-bar account modal for profile, MFA, sessions, and login-state actions.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   Camera,
   CheckCircle2,
   History,
@@ -43,12 +42,9 @@ import {
   MAX_AVATAR_BYTES,
   accountStatusLabel,
   formatDate,
-  generationUsagePrimaryText,
-  generationUsageSecondaryText,
   initials,
   loginDetail,
   loginOutcomeLabel,
-  type AccountGenerationUsage,
 } from "../lib/account-dialog-formatting";
 import {
   notifyAuthSessionChanged,
@@ -102,7 +98,6 @@ export function AccountDialog({
   const [disableCode, setDisableCode] = useState("");
   const [sessions, setSessions] = useState<PlatformAccountSession[]>([]);
   const [events, setEvents] = useState<PlatformLoginEvent[]>([]);
-  const [generationUsage, setGenerationUsage] = useState<AccountGenerationUsage | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [activeTab, setActiveTab] = useState("profile");
@@ -160,7 +155,6 @@ export function AccountDialog({
         setAvatarFile(null);
         setAvatarError("");
         setMfaEnabled(Boolean(profile.mfa?.enabled ?? profile.user.mfaEnabled));
-        setGenerationUsage(profile.generationUsage ?? null);
         setCurrentSessionId(profile.session?.id ?? null);
         setSessions(sessionResponse.sessions);
         setEvents(eventResponse.events);
@@ -285,7 +279,6 @@ export function AccountDialog({
         response = await platformApi.uploadAccountAvatar(avatarFile);
       }
       setUser(response.user);
-      setGenerationUsage(response.generationUsage ?? generationUsage);
       setAvatarUrl(response.user.avatarUrl ?? "");
       setCurrentSessionId(response.session?.id ?? currentSessionId);
       setAvatarFile(null);
@@ -334,7 +327,6 @@ export function AccountDialog({
     setUser(null);
     setSessions([]);
     setEvents([]);
-    setGenerationUsage(null);
     setCurrentSessionId(null);
     setMfaSetup(null);
     setMfaCode("");
@@ -637,25 +629,6 @@ export function AccountDialog({
                       </div>
                     </div>
 
-                    <div className="grid gap-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
-                      <div className="flex items-center gap-2 font-medium text-foreground">
-                        <Activity className="size-4 text-muted-foreground" />
-                        今日生成次数
-                      </div>
-                      <div className="flex flex-nowrap gap-2">
-                        <Badge variant="outline">{generationUsagePrimaryText(generationUsage)}</Badge>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            generationUsage?.limited && generationUsage.remaining === 0
-                              ? "border-destructive/30 text-destructive"
-                              : "text-primary",
-                          )}
-                        >
-                          {generationUsageSecondaryText(generationUsage)}
-                        </Badge>
-                      </div>
-                    </div>
                   </div>
                 </div>
 

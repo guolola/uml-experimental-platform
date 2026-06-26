@@ -599,21 +599,6 @@ class PostgresBillingRepository implements BillingRepository {
     return Number(result.rows[0]?.count ?? 0);
   }
 
-  async countConfirmedPassUsageSince(userId: string, since: string) {
-    const result = await this.db.query<{ count: string }>(
-      `
-        select count(*)::text as count
-        from billing_usage_reservations
-        where user_id = $1
-          and status = 'confirmed'
-          and reservation_kind = 'time_pass'
-          and confirmed_at >= $2
-      `,
-      [userId, since],
-    );
-    return Number(result.rows[0]?.count ?? 0);
-  }
-
   async recordPaymentNotification(input: CreatePaymentNotificationInput) {
     if (input.providerEventId) {
       const existing = await this.findNotification(input.provider, input.providerEventId);

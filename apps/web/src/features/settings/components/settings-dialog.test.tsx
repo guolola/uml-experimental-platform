@@ -215,6 +215,17 @@ describe("SettingsDialog", () => {
         if (url.includes("/api/provider-configs/test-temporary")) {
           return Response.json({ ok: true, message: "Provider connection ok" });
         }
+        if (url.includes("/api/billing/summary")) {
+          return Response.json({
+            creditBalance: 42,
+            signupBonus: {
+              granted: true,
+              creditAmount: 5,
+              validUntil: "2026-07-05T04:00:00.000Z",
+            },
+            recentOrders: [],
+          });
+        }
         if (url.endsWith("/api/provider-configs") && method === "POST") {
           const body = JSON.parse(String(init?.body ?? "{}")) as {
             name: string;
@@ -333,6 +344,7 @@ describe("SettingsDialog", () => {
     );
 
     expect(await screen.findByText("用户级 Comfly（个人配置）")).toBeInTheDocument();
+    expect(await screen.findByText("个人供应商不消耗平台权益次数")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "托管 Provider 配置" }));
     expect(screen.getByText("系统级 SiliconFlow（系统配置）")).toBeInTheDocument();
     expect(screen.getByText("工作台偏好")).toBeInTheDocument();
@@ -341,11 +353,14 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("修改后自动重新生成规则")).toBeInTheDocument();
     expect(screen.getByText("显示过期模型横幅")).toBeInTheDocument();
     await user.keyboard("[Escape]");
+    await user.click(screen.getByRole("combobox", { name: "托管 Provider 配置" }));
+    await user.click(screen.getByText("系统级 SiliconFlow（系统配置）"));
+    expect(await screen.findByText("剩余：42 次")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(toastSuccess).toHaveBeenCalledWith("设置已保存");
-    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain("provider-user-comfly");
+    expect(localStorage.getItem(USER_SETTINGS_STORAGE_KEY)).toContain("provider-system-siliconflow");
   });
 
   it("adds a private provider after discovery and temporary testing", async () => {
