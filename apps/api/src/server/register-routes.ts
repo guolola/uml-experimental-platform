@@ -11,6 +11,7 @@ import { registerAdminRoutes } from "../routes/admin/register-admin-routes.js";
 import type { AdminRiskEvent } from "../routes/admin/register-admin-routes.js";
 import { registerAuthRoutes } from "../routes/auth/register-auth-routes.js";
 import { registerBillingRoutes } from "../routes/billing/register-billing-routes.js";
+import { registerCaseRoutes } from "../routes/cases/register-case-routes.js";
 import { registerDocumentRoutes } from "../routes/documents/register-document-routes.js";
 import { registerProjectRoutes } from "../routes/projects/register-project-routes.js";
 import { registerProviderConfigRoutes } from "../routes/provider-configs/register-provider-config-routes.js";
@@ -235,6 +236,7 @@ export function registerApiRoutes({
     academicStore,
     runs,
   });
+  registerCaseRoutes({ app, authStore, renderClient });
   registerProviderConfigRoutes({
     app,
     authStore,

@@ -6,7 +6,7 @@ import {
   PlayCircle,
   ShieldCheck,
 } from "lucide-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
 import {
   MARKETING_PROMO_VIDEO_URL,
@@ -23,7 +23,11 @@ import {
 import { VideoPlayer } from "../../../shared/ui/video-player";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
 import { useAuthSession } from "../../user-platform/lib/use-auth-session";
-import type { PlatformUser } from "../../user-platform/services/platform-api";
+import {
+  PlatformApiError,
+  platformApi,
+  type PlatformUser,
+} from "../../user-platform/services/platform-api";
 import {
   caseStudies,
   features,
@@ -41,6 +45,7 @@ type MarketingHomePageProps = {
 
 type MarketingAuthState = {
   authUser: PlatformUser | null;
+  authChecking?: boolean;
 };
 
 const pagePadding = "px-[clamp(1.5rem,4vw,7rem)]";
@@ -475,7 +480,60 @@ function WorkflowTab() {
   );
 }
 
-function CasesTab() {
+function createCaseLoginRedirectPath(caseId: string) {
+  return `/login?redirect=${encodeURIComponent(`/cases?createCase=${caseId}`)}`;
+}
+
+function CasesTab({
+  onNavigate,
+  authUser,
+  authChecking = false,
+}: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
+  const signedIn = Boolean(authUser);
+  const [creatingCaseId, setCreatingCaseId] = useState<string | null>(null);
+  const [caseCreateError, setCaseCreateError] = useState<string | null>(null);
+  const autoCreateCaseRef = useRef<string | null>(null);
+
+  const createProjectFromCase = useCallback(async (study: (typeof caseStudies)[number]) => {
+    setCaseCreateError(null);
+    if (authChecking) return;
+    if (!signedIn) {
+      onNavigate(createCaseLoginRedirectPath(study.id));
+      return;
+    }
+    setCreatingCaseId(study.id);
+    try {
+      const response = await platformApi.createCaseProject(study.id);
+      onNavigate(`/projects/${response.project.id}`);
+    } catch (error) {
+      if (error instanceof PlatformApiError && error.status === 401) {
+        onNavigate(createCaseLoginRedirectPath(study.id));
+        return;
+      }
+      setCaseCreateError(error instanceof Error ? error.message : "案例项目创建失败，请稍后重试。");
+    } finally {
+      setCreatingCaseId((current) => (current === study.id ? null : current));
+    }
+  }, [authChecking, onNavigate, signedIn]);
+
+  useEffect(() => {
+    if (authChecking) return;
+    const caseId = new URLSearchParams(window.location.search).get("createCase") ?? "";
+    if (!caseId) return;
+    const study = caseStudies.find((candidate) => candidate.id === caseId);
+    if (!study) {
+      setCaseCreateError("未找到对应案例，请从下方案例卡片重新选择。");
+      return;
+    }
+    if (!signedIn) {
+      onNavigate(createCaseLoginRedirectPath(study.id));
+      return;
+    }
+    if (autoCreateCaseRef.current === study.id) return;
+    autoCreateCaseRef.current = study.id;
+    void createProjectFromCase(study);
+  }, [authChecking, createProjectFromCase, onNavigate, signedIn]);
+
   return (
     <MarketingFitPage>
       <section className={`flex flex-1 flex-col justify-center bg-background ${pagePadding} py-[clamp(3rem,7vh,6rem)] text-center`}>
@@ -485,28 +543,43 @@ function CasesTab() {
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-5xl text-[16px] font-normal leading-[24px] text-muted-foreground">
           通过常见课程与原型验证场景，体验软件工程实践平台如何在需求分析、架构设计与代码原型环节沉淀结构化实训产物。
         </p>
+        {caseCreateError && (
+          <p role="alert" className="mx-auto mt-6 max-w-3xl rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {caseCreateError}
+          </p>
+        )}
         <div className="mx-auto mt-[clamp(2.5rem,5vh,5rem)] grid w-full max-w-[1500px] gap-[clamp(1.5rem,2vw,2.25rem)] md:grid-cols-2">
-          {caseStudies.map((study, index) => (
-            <article
-              key={study.title}
-              className="motion-card rounded-xl border border-border bg-card p-[clamp(1.75rem,2.2vw,2.75rem)] text-left shadow-sm"
-              style={{ "--motion-delay": `${220 + index * 110}ms` } as CSSProperties}
-            >
-              <h2 className="font-display text-[20px] font-semibold leading-[28px] text-foreground">{study.title}</h2>
-              <p className="mt-4 text-[16px] font-normal leading-[24px] text-muted-foreground">{study.description}</p>
-              <div className="mt-6 flex flex-wrap gap-2">
-                {study.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="bg-muted text-primary">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-              <Button type="button" variant="ghost" className="motion-action mt-6 px-0 text-primary hover:bg-transparent">
-                查看案例
-                <ArrowRight className="size-4" />
-              </Button>
-            </article>
-          ))}
+          {caseStudies.map((study, index) => {
+            const creating = creatingCaseId === study.id;
+            return (
+              <article
+                key={study.id}
+                className="motion-card rounded-xl border border-border bg-card p-[clamp(1.75rem,2.2vw,2.75rem)] text-left shadow-sm"
+                style={{ "--motion-delay": `${220 + index * 110}ms` } as CSSProperties}
+              >
+                <h2 className="font-display text-[20px] font-semibold leading-[28px] text-foreground">{study.title}</h2>
+                <p className="mt-4 text-[16px] font-normal leading-[24px] text-muted-foreground">{study.description}</p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {study.tags.map((tag) => (
+                    <Badge key={tag} variant="secondary" className="bg-muted text-primary">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="motion-action mt-6 px-0 text-primary hover:bg-transparent"
+                  onClick={() => void createProjectFromCase(study)}
+                  disabled={authChecking || Boolean(creatingCaseId)}
+                  aria-busy={creating}
+                >
+                  {creating ? "创建中..." : "查看案例"}
+                  <ArrowRight className="size-4" />
+                </Button>
+              </article>
+            );
+          })}
         </div>
       </section>
     </MarketingFitPage>
@@ -514,7 +587,7 @@ function CasesTab() {
 }
 
 export function MarketingHomePage({ path, onNavigate }: MarketingHomePageProps) {
-  const { user: authUser } = useAuthSession();
+  const { checking: authChecking, user: authUser } = useAuthSession();
 
   return (
     <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background font-sans text-[16px] leading-[24px] text-foreground">
@@ -522,7 +595,9 @@ export function MarketingHomePage({ path, onNavigate }: MarketingHomePageProps) 
       {path === "/" && <HomeTab onNavigate={onNavigate} authUser={authUser} />}
       {path === "/features" && <FeaturesTab />}
       {path === "/workflow" && <WorkflowTab />}
-      {path === "/cases" && <CasesTab />}
+      {path === "/cases" && (
+        <CasesTab onNavigate={onNavigate} authUser={authUser} authChecking={authChecking} />
+      )}
     </main>
   );
 }

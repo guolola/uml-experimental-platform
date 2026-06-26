@@ -19,6 +19,7 @@ import {
 import { formatProjectDateTimeMinute } from "../features/user-platform/lib/project-presentation";
 
 let projectApiMode: "unauthenticated" | "authenticated" | "empty" | "forbidden" | "offline";
+let caseProjectApiMode: "success" | "failure";
 let projectMembershipRole: "owner" | "editor" | "viewer";
 let loginApiMode: "failure" | "success" | "mfa-challenge" | "email-unverified";
 let authSessionMode: "authenticated" | "unauthenticated" | "offline";
@@ -266,6 +267,7 @@ async function waitForPlatformLoadingToExit() {
 describe("App shell routes", () => {
   beforeEach(() => {
     projectApiMode = "unauthenticated";
+    caseProjectApiMode = "success";
     projectMembershipRole = "owner";
     loginApiMode = "failure";
     authSessionMode = "authenticated";
@@ -716,6 +718,83 @@ describe("App shell routes", () => {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
+        }
+        if (pathname.startsWith("/api/cases/") && pathname.endsWith("/project") && method === "POST") {
+          if (caseProjectApiMode === "failure") {
+            return new Response(JSON.stringify({ message: "案例项目创建失败" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          const caseId = pathname.split("/")[3] ?? "case";
+          const caseTitleById: Record<string, string> = {
+            "lab-booking": "实验室预约系统",
+            "order-management": "订单管理系统",
+            "device-monitoring": "设备监控系统",
+            "library-lending": "图书馆借阅系统",
+          };
+          return new Response(
+            JSON.stringify({
+              project: {
+                id: `case-project-${caseId}`,
+                name: `${caseTitleById[caseId] ?? "案例"} 示例项目`,
+                description: "案例生成项目",
+                visibility: "private",
+                status: "active",
+                ownerUserId: "user-new",
+                createdAt: "2026-06-26T00:00:00.000Z",
+                updatedAt: "2026-06-26T00:00:00.000Z",
+              },
+              membership: {
+                id: "member-case-owner",
+                projectId: `case-project-${caseId}`,
+                userId: "user-new",
+                email: "new-student@example.edu",
+                displayName: "new-student",
+                role: "owner",
+                status: "active",
+              },
+              currentUserRole: "owner",
+            }),
+            {
+              status: 201,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (
+          pathname.startsWith("/api/projects/case-project-") &&
+          pathname.split("/").length === 4 &&
+          method === "GET"
+        ) {
+          const projectId = pathname.split("/")[3] ?? "case-project";
+          return new Response(
+            JSON.stringify({
+              project: {
+                id: projectId,
+                name: "案例示例项目",
+                description: "案例生成项目",
+                visibility: "private",
+                status: "active",
+                ownerUserId: "user-new",
+                createdAt: "2026-06-26T00:00:00.000Z",
+                updatedAt: "2026-06-26T00:00:00.000Z",
+              },
+              membership: {
+                id: "member-case-owner",
+                projectId,
+                userId: "user-new",
+                email: "new-student@example.edu",
+                displayName: "new-student",
+                role: projectMembershipRole,
+                status: "active",
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
         }
         if (pathname === "/api/projects" && method === "GET" && projectApiMode === "authenticated") {
           return new Response(
@@ -1523,6 +1602,103 @@ describe("App shell routes", () => {
 
       view.unmount();
     }
+  });
+
+  it("creates a completed sample project from each marketing case button", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    const cases = [
+      { id: "lab-booking", title: "实验室预约系统" },
+      { id: "order-management", title: "订单管理系统" },
+      { id: "device-monitoring", title: "设备监控系统" },
+      { id: "library-lending", title: "图书馆借阅系统" },
+    ];
+
+    for (const [index, caseItem] of cases.entries()) {
+      window.history.pushState({}, "", "/cases");
+      const view = render(withWorkspaceProviders(<Shell />, createRepository()));
+
+      expect(await screen.findByRole("heading", { name: "探索工程验证案例" })).toBeInTheDocument();
+      const caseButtons = screen.getAllByRole("button", { name: "查看案例" });
+      expect(caseButtons).toHaveLength(4);
+      expect(screen.getByText(caseItem.title)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(caseButtons[index]).toBeEnabled();
+      });
+
+      await user.click(caseButtons[index]!);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining(`/api/cases/${caseItem.id}/project`),
+          expect.objectContaining({ method: "POST" }),
+        );
+        expect(window.location.pathname).toBe(`/projects/case-project-${caseItem.id}`);
+      });
+      view.unmount();
+    }
+  });
+
+  it("routes unauthenticated users to login with a case creation redirect", async () => {
+    const user = userEvent.setup();
+    authSessionMode = "unauthenticated";
+
+    window.history.pushState({}, "", "/cases");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    const button = (await screen.findAllByRole("button", { name: "查看案例" }))[0]!;
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    await user.click(button);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+      expect(new URLSearchParams(window.location.search).get("redirect")).toBe(
+        "/cases?createCase=lab-booking",
+      );
+    });
+  });
+
+  it("shows a retryable error when marketing case project creation fails", async () => {
+    const user = userEvent.setup();
+    caseProjectApiMode = "failure";
+    authSessionMode = "authenticated";
+
+    window.history.pushState({}, "", "/cases");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    const button = (await screen.findAllByRole("button", { name: "查看案例" }))[0]!;
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    await user.click(button);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("案例项目创建失败");
+    expect(screen.getAllByRole("button", { name: "查看案例" })[0]).toBeEnabled();
+    expect(window.location.pathname).toBe("/cases");
+  });
+
+  it("continues case project creation after login redirect returns to cases", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    loginApiMode = "success";
+    projectApiMode = "authenticated";
+    authSessionMode = "authenticated";
+    window.history.pushState({}, "", "/login?redirect=%2Fcases%3FcreateCase%3Dlab-booking");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await user.type(await screen.findByLabelText("邮箱或用户名"), "student@example.edu");
+    await user.type(screen.getByLabelText("密码"), "StrongPass123");
+    await user.click(screen.getByRole("button", { name: "登录" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/cases/lab-booking/project"),
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(window.location.pathname).toBe("/projects/case-project-lab-booking");
+    });
   });
 
   it("does not render the removed feature and workflow eyebrow labels", async () => {

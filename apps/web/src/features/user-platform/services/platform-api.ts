@@ -607,6 +607,12 @@ export const platformApi = {
       body: JSON.stringify(input),
     });
   },
+  createCaseProject(caseId: string) {
+    return requestJson<{ project: PlatformProject }>(
+      `/api/cases/${encodeURIComponent(caseId)}/project`,
+      { method: "POST" },
+    );
+  },
   getProject(projectId: string) {
     return requestJson<{
       project: PlatformProject;

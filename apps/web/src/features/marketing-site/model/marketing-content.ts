@@ -58,9 +58,15 @@ export type WorkflowStep = {
 };
 
 export type CaseStudy = {
+  id: string;
   title: string;
   description: string;
   tags: string[];
+  scenario: string;
+  actors: string[];
+  workflow: string[];
+  outputs: string[];
+  sampleRequirement: string;
 };
 
 export type PricingPlan = {
@@ -266,28 +272,60 @@ export const workflowSteps: WorkflowStep[] = [
 
 export const caseStudies: CaseStudy[] = [
   {
+    id: "lab-booking",
     title: "实验室预约系统",
     description:
       "围绕预约、审批、资源占用和权限角色设计需求规则、UML 图、React 原型与说明书产物。",
     tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+    scenario:
+      "面向高校实验室开放管理，帮助学生预约可用时段，教师审核申请，管理员维护实验室设备和开放时间。",
+    actors: ["学生", "教师", "实验室管理员"],
+    workflow: ["查看实验室空闲时段", "提交预约申请", "教师审核预约", "通知申请人审核结果"],
+    outputs: ["预约用例模型", "资源占用状态流转", "预约审批原型", "需求规格说明书"],
+    sampleRequirement:
+      "高校实验室预约平台。学生可以查看实验室空闲时段并提交预约申请，教师审核预约，管理员维护实验室设备和开放时间。系统需要避免时段冲突，并在审核通过或驳回时通知申请人。",
   },
   {
+    id: "order-management",
     title: "订单管理系统",
     description:
       "围绕订单状态、库存校验、支付节点和异常分支，展示需求建模、设计建模与原型验证链路。",
     tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+    scenario:
+      "面向中小商家订单履约，覆盖商品维护、客户下单、库存校验、发货通知和订单状态跟踪。",
+    actors: ["商家", "客户", "仓储系统"],
+    workflow: ["维护商品与库存", "客户提交订单", "校验库存余量", "通知仓储系统发货"],
+    outputs: ["订单状态机", "库存校验规则", "订单管理原型", "设计说明书"],
+    sampleRequirement:
+      "面向中小商家的订单管理系统。商家可以维护商品、创建订单、查看库存，客户可以提交订单并查询订单状态。系统需要在下单前校验库存，库存不足时给出明确提示，订单创建后通知仓储系统发货。",
   },
   {
+    id: "device-monitoring",
     title: "设备监控系统",
     description:
       "聚焦设备状态、告警流转和监控看板页面，演示如何把业务流程沉淀为模型和可预览原型。",
     tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+    scenario:
+      "面向工业设备运维，采集边缘网关上报的温度、振动和运行状态，并对严重异常及时告警。",
+    actors: ["边缘网关", "运维人员", "短信服务"],
+    workflow: ["采集设备运行数据", "识别异常告警", "运维人员确认处理", "严重告警发送短信通知"],
+    outputs: ["告警流程图", "设备状态模型", "监控看板原型", "运行证据记录"],
+    sampleRequirement:
+      "工业设备监控系统。边缘网关采集设备温度、振动和运行状态，平台实时展示异常告警，运维人员可以确认告警并记录处理结果。系统需要接入第三方短信服务，在严重告警时发送通知。",
   },
   {
+    id: "library-lending",
     title: "图书馆借阅系统",
     description:
       "以借阅、归还、逾期和读者管理为主线，展示数据关系、状态流转和用户交互页面的实训产物。",
     tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+    scenario:
+      "面向校园图书馆日常借阅，管理图书库存、读者借阅、归还登记和逾期提醒。",
+    actors: ["读者", "馆员", "系统通知服务"],
+    workflow: ["读者检索图书", "提交借阅申请", "馆员登记借出和归还", "系统处理逾期提醒"],
+    outputs: ["借阅领域模型", "逾期规则清单", "借还书操作原型", "需求说明书"],
+    sampleRequirement:
+      "校园图书馆借阅系统。读者可以检索图书、提交借阅申请并查看借阅状态，馆员负责登记借出和归还。系统需要维护图书库存，自动识别逾期记录，并向读者发送归还提醒。",
   },
 ];
 
