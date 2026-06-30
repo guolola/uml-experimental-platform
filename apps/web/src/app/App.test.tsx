@@ -1768,15 +1768,18 @@ describe("App shell routes", () => {
     expect(screen.queryByRole("link", { name: "定价" })).not.toBeInTheDocument();
   });
 
-  it("renders direct billing routes for signed-in users", async () => {
+  it("hides the direct account billing route and keeps payment return available", async () => {
     authSessionMode = "authenticated";
     projectApiMode = "authenticated";
 
     window.history.pushState({}, "", "/account/billing");
     const billingView = render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
-    expect(screen.getByTestId("account-billing-dashboard")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects");
+    });
+    expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
+    expect(screen.queryByTestId("account-billing-dashboard")).not.toBeInTheDocument();
     billingView.unmount();
 
     window.history.pushState({}, "", "/billing/alipay/return?orderId=order-test-1");
@@ -1895,7 +1898,6 @@ describe("App shell routes", () => {
 
     expect(navButtons.map((button) => button.textContent)).toEqual([
       "项目",
-      "支付权益",
       "考试",
       "使用文档",
     ]);
@@ -1911,11 +1913,7 @@ describe("App shell routes", () => {
     expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
 
-    await user.click(within(banner).getByRole("button", { name: "支付权益" }));
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/account/billing");
-    });
-    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
+    expect(within(banner).queryByRole("button", { name: "支付权益" })).not.toBeInTheDocument();
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
 
@@ -2035,6 +2033,11 @@ describe("App shell routes", () => {
     expect(matchAppRoute("/settings/models")).toMatchObject({
       kind: "legacy-redirect",
       path: "/settings/models",
+      to: "/projects",
+    });
+    expect(matchAppRoute("/account/billing")).toMatchObject({
+      kind: "legacy-redirect",
+      path: "/account/billing",
       to: "/projects",
     });
     expect(matchAppRoute("/about")).toMatchObject({

@@ -51,7 +51,6 @@ import {
   useCurrentProjectOverview,
 } from "../features/user-platform/components/user-platform-pages";
 import {
-  AccountBillingPage,
   AlipayReturnPage,
   PricingBillingPage,
 } from "../features/user-platform/components/billing-pages";
@@ -78,7 +77,6 @@ function getProtectedRoutePath(route: AppRoute) {
     route.kind === "projects-new" ||
     route.kind === "project-workspace" ||
     route.kind === "legacy-account" ||
-    route.kind === "account-billing" ||
     route.kind === "alipay-return"
   ) {
     return route.path;
@@ -332,9 +330,6 @@ export function Shell() {
     }
     if (route.kind === "projects-new") {
       return <ProjectNewPage onNavigate={navigate} />;
-    }
-    if (route.kind === "account-billing") {
-      return <AccountBillingPage onNavigate={navigate} />;
     }
     if (route.kind === "alipay-return") {
       return <AlipayReturnPage onNavigate={navigate} />;

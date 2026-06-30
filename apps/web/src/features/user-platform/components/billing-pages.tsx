@@ -991,9 +991,9 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
               type="button"
               variant="outline"
               className="motion-action rounded-lg bg-card"
-              onClick={() => onNavigate("/account/billing")}
+              onClick={() => onNavigate("/projects")}
             >
-              查看账单
+              返回项目
             </Button>
             <Button
               type="button"
