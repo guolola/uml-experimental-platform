@@ -259,7 +259,6 @@ async function createAdminRouteTestApp({
   assert.ok(admin);
   authStore.updateUser(admin.id, { mfaEnabled: true, mfaSecret: "TESTADMINMFASECRET" });
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
   registerAdminRoutes({
@@ -782,7 +781,6 @@ test("admin role users must enable MFA before accessing admin endpoints", async 
   });
   assert.ok(admin);
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
   registerAdminRoutes({
@@ -918,7 +916,6 @@ test("user login record admin route enforces role, data scope, and existence", a
   const academicStore = createInMemoryAcademicAdminRepository();
   const runs = createRunRecordStore();
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
   registerAdminRoutes({
@@ -1517,7 +1514,6 @@ test("admin project and user lists are filtered by course data scope", async () 
   const academicStore = createInMemoryAcademicAdminRepository();
   const runs = createRunRecordStore();
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
   const billingService = await createAdminBillingService();
@@ -2549,9 +2545,8 @@ test("admin can download visible documents through the admin document endpoint",
   }
 });
 
-test("provider config create accepts public custom HTTPS base URLs outside the environment allowlist", async () => {
+test("provider config create accepts arbitrary public custom HTTPS base URLs", async () => {
   const { app, cookie } = await createAdminSessionApp({
-    adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
   });
 
   const response = await app.inject({
@@ -2611,7 +2606,6 @@ test("provider configs accept SiliconFlow v1 endpoint with a fixed reviewed mode
 
   try {
     const { app, cookie } = await createAdminSessionApp({
-      adminProviderBaseUrlAllowlist: ["https://api.siliconflow.cn"],
     });
     const allowedModels = [
       "deepseek-ai/DeepSeek-V4-Pro",
@@ -3010,7 +3004,6 @@ test("admin provider model discovery blocks disabled configs before provider cal
 
 test("provider configs mask keys and never read back plaintext secrets", async () => {
   const { app, cookie } = await createAdminSessionApp({
-    adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
   });
 
   const created = await app.inject({
@@ -3081,7 +3074,6 @@ test("admin provider configs include user-owned providers with owner display met
 
 test("provider configs can update editable metadata without changing secrets or endpoints", async () => {
   const { app, authStore, cookie } = await createAdminSessionApp({
-    adminProviderBaseUrlAllowlist: ["https://api.siliconflow.cn"],
   });
   const owner = authStore.createUser({
     email: "owner@example.com",
@@ -3157,7 +3149,6 @@ test("provider configs can update editable metadata without changing secrets or 
 
 test("provider config create requires scope ids for user and project ownership", async () => {
   const { app, authStore, cookie } = await createAdminSessionApp({
-    adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
   });
   const owner = authStore.createUser({
     email: "owner@example.com",
@@ -3242,7 +3233,6 @@ test("provider configs can rotate, revoke, and test allowlisted connections", as
 
   try {
       const { app, cookie } = await createAdminSessionApp({
-        adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
       });
 
     const created = await app.inject({
@@ -3311,7 +3301,6 @@ test("admin cannot rotate, test, or discover models for user-owned provider conf
 
   try {
     const { app, authStore, providerConfigs, cookie } = await createAdminRouteTestApp({
-      adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
     });
     const owner = authStore.createUser({
       email: "owner-private@example.com",
@@ -3422,7 +3411,6 @@ test("provider configs can be disabled and re-enabled with audit records", async
 
   try {
     const { app, cookie } = await createAdminSessionApp({
-      adminProviderBaseUrlAllowlist: ["https://api.openai.com"],
     });
 
     const created = await app.inject({

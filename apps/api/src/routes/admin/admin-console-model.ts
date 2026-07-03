@@ -169,13 +169,6 @@ export function buildSystemConfig() {
       auditRequired: true,
     },
     {
-      id: "provider-base-url-allowlist",
-      name: "Provider Base URL allowlist",
-      value: safeConfigValue(process.env.UML_PROVIDER_BASE_URL_ALLOWLIST),
-      status: process.env.UML_PROVIDER_BASE_URL_ALLOWLIST ? "healthy" : "degraded",
-      auditRequired: true,
-    },
-    {
       id: "cors-origins",
       name: "CORS allowlist",
       value: safeConfigValue(process.env.API_CORS_ORIGINS),

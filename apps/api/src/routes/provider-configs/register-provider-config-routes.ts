@@ -379,6 +379,7 @@ async function verifyTemporaryProviderConnection({
     apiKey,
     model,
     responseFormat: getHealthcheckResponseFormat(model),
+    resolveHostname,
   });
   return normalizedBaseUrl;
 }
@@ -456,11 +457,13 @@ async function runProviderModelDiscoveryStream({
   apiKey,
   reply,
   request,
+  resolveHostname,
 }: {
   apiBaseUrl: string;
   apiKey: string;
   reply: FastifyReply;
   request: FastifyRequest;
+  resolveHostname?: ProviderHostnameResolver;
 }) {
   const stream = createProviderModelDiscoveryStream(request, reply);
   stream.send({ type: "started", sourceBaseUrl: apiBaseUrl });
@@ -470,6 +473,7 @@ async function runProviderModelDiscoveryStream({
       apiKey,
       abortSignal: stream.abortSignal,
       onProgress: stream.send,
+      resolveHostname,
     });
     const result = providerModelDiscoveryResponseSchema.parse({
       ...discovery,
@@ -516,11 +520,13 @@ async function testProviderConfig({
   providerConfig,
   model,
   reply,
+  resolveHostname,
 }: {
   providerConfigs: ProviderConfigStore;
   providerConfig: ProviderConfigView;
   model: string | undefined;
   reply: FastifyReply;
+  resolveHostname?: ProviderHostnameResolver;
 }) {
   if (!providerConfig.allowlisted) {
     reply.code(400);
@@ -571,6 +577,7 @@ async function testProviderConfig({
       apiKey,
       model: testModel,
       responseFormat: getHealthcheckResponseFormat(modelCapability ?? testModel),
+      resolveHostname,
     });
   } catch (error) {
     const breaker = await providerConfigs.recordFailure?.(providerConfig.id);
@@ -679,6 +686,7 @@ export function registerProviderConfigRoutes({
       const discovery = await discoverOpenAiCompatibleModelCapabilities({
         apiBaseUrl: sourceBaseUrl,
         apiKey: input.apiKey,
+        resolveHostname: resolveProviderHostname,
       });
       return providerModelDiscoveryResponseSchema.parse({
         ...discovery,
@@ -722,6 +730,7 @@ export function registerProviderConfigRoutes({
       apiKey: input.apiKey,
       reply,
       request,
+      resolveHostname: resolveProviderHostname,
     });
   });
 
@@ -1063,6 +1072,7 @@ export function registerProviderConfigRoutes({
       providerConfig,
       model: input.model,
       reply,
+      resolveHostname: resolveProviderHostname,
     });
   });
 
@@ -1097,6 +1107,7 @@ export function registerProviderConfigRoutes({
         providerConfig,
         model: input.model,
         reply,
+        resolveHostname: resolveProviderHostname,
       });
     },
   );

@@ -11,6 +11,8 @@ import {
 } from "./llm.js";
 import type { OpenAiCompatibleClientFactory } from "./llm.js";
 
+const resolvePublicHostname = async () => ["8.8.8.8"];
+
 function createResponseFromSse(blocks: string[]) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -168,7 +170,7 @@ test("listOpenAiCompatibleModels normalizes model ids and display metadata", asy
   const models = await listOpenAiCompatibleModels({
     apiBaseUrl: "https://api.nonelinear.com/v1/",
     apiKey: "sk-test",
-    options: { clientFactory },
+    options: { clientFactory, resolveHostname: resolvePublicHostname },
   });
 
   assert.equal(calls[0]?.baseURL, "https://api.nonelinear.com/v1");
@@ -209,7 +211,7 @@ test("listOpenAiCompatibleModels preserves provider HTTP status for admin diagno
       listOpenAiCompatibleModels({
         apiBaseUrl: "https://api.nonelinear.com",
         apiKey: "sk-test",
-        options: { clientFactory },
+        options: { clientFactory, resolveHostname: resolvePublicHostname },
       }),
     (error) =>
       error instanceof ProviderHttpError &&
@@ -232,7 +234,9 @@ test("createRealLlmTransport forwards json_schema response_format when provided"
   }) as typeof fetch;
 
   try {
-    const transport = createRealLlmTransport();
+    const transport = createRealLlmTransport({
+      resolveHostname: resolvePublicHostname,
+    });
     const chunks: string[] = [];
     for await (const chunk of transport.streamChatCompletion({
       providerSettings: {
@@ -278,6 +282,7 @@ test("createRealLlmTransport retries unsupported json_schema requests with JSON 
   const originalWarn = console.warn;
   const requestBodies: string[] = [];
   const warnings: string[] = [];
+  let resolveCalls = 0;
   globalThis.fetch = (async (_input, init) => {
     requestBodies.push(String(init?.body ?? ""));
     if (requestBodies.length === 1) {
@@ -304,7 +309,12 @@ test("createRealLlmTransport retries unsupported json_schema requests with JSON 
   };
 
   try {
-    const transport = createRealLlmTransport();
+    const transport = createRealLlmTransport({
+      resolveHostname: async () => {
+        resolveCalls += 1;
+        return ["8.8.8.8"];
+      },
+    });
     const chunks: string[] = [];
     for await (const chunk of transport.streamChatCompletion({
       providerSettings: {
@@ -332,6 +342,7 @@ test("createRealLlmTransport retries unsupported json_schema requests with JSON 
 
     assert.deepEqual(chunks, ['{"ok":true}']);
     assert.equal(requestBodies.length, 2);
+    assert.equal(resolveCalls, 2);
     assert.equal(JSON.parse(requestBodies[0]).response_format.type, "json_schema");
     assert.equal(JSON.parse(requestBodies[1]).response_format.type, "json_object");
     assert.match(warnings.join("\n"), /\[llm-json-schema-fallback\]/);
@@ -361,7 +372,9 @@ test("createRealLlmTransport does not downgrade auth failures", async () => {
   }) as typeof fetch;
 
   try {
-    const transport = createRealLlmTransport();
+    const transport = createRealLlmTransport({
+      resolveHostname: resolvePublicHostname,
+    });
     await assert.rejects(
       async () => {
         for await (const _chunk of transport.streamChatCompletion({
@@ -416,6 +429,7 @@ test("createRealLlmTransport times out a stalled streaming response", async () =
   try {
     const transport = createRealLlmTransport({
       responseTimeoutMs: 10,
+      resolveHostname: resolvePublicHostname,
     });
 
     await assert.rejects(
@@ -438,10 +452,8 @@ test("createRealLlmTransport times out a stalled streaming response", async () =
   }
 });
 
-test("createRealLlmTransport rejects provider URLs outside the allowlist", async () => {
-  const transport = createRealLlmTransport({
-    baseUrlAllowlist: ["https://api.openai.com"],
-  });
+test("createRealLlmTransport rejects unsafe provider URLs before network access", async () => {
+  const transport = createRealLlmTransport();
 
   await assert.rejects(
     async () => {
@@ -456,6 +468,63 @@ test("createRealLlmTransport rejects provider URLs outside the allowlist", async
         // noop
       }
     },
-    /not in the provider allowlist/,
+    /must use HTTPS/,
+  );
+});
+
+test("createRealLlmTransport allows arbitrary public HTTPS provider origins", async () => {
+  let requestedBaseUrl = "";
+  const transport = createRealLlmTransport({
+    resolveHostname: resolvePublicHostname,
+    clientFactory: ({ baseURL }) => {
+      requestedBaseUrl = baseURL;
+      return {
+        chat: {
+          completions: {
+            create: async () => (async function* () {
+              yield { choices: [{ delta: { content: "ok" } }] };
+            })() as never,
+          },
+        },
+        models: { list: async () => ({ data: [] }) },
+      };
+    },
+  });
+
+  const chunks: string[] = [];
+  for await (const chunk of transport.streamChatCompletion({
+    providerSettings: {
+      apiBaseUrl: "https://custom-provider.example/api",
+      apiKey: "sk-test",
+      model: "custom-model",
+    },
+    messages: [{ role: "user", content: "test" }],
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(requestedBaseUrl, "https://custom-provider.example/v1");
+  assert.deepEqual(chunks, ["ok"]);
+});
+
+test("createRealLlmTransport rejects hostnames that resolve to private addresses", async () => {
+  const transport = createRealLlmTransport({
+    resolveHostname: async () => ["10.0.0.8"],
+  });
+
+  await assert.rejects(
+    async () => {
+      for await (const _chunk of transport.streamChatCompletion({
+        providerSettings: {
+          apiBaseUrl: "https://rebound.example",
+          apiKey: "sk-test",
+          model: "custom-model",
+        },
+        messages: [{ role: "user", content: "test" }],
+      })) {
+        // noop
+      }
+    },
+    /must use a public HTTPS host/,
   );
 });

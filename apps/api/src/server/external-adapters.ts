@@ -21,10 +21,7 @@ import {
   createMailAdapterFromEnv,
   type MailAdapter,
 } from "../mail/mail-adapter.js";
-import {
-  DEFAULT_PROVIDER_BASE_URL_ALLOWLIST,
-  DEFAULT_RENDER_SERVICE_BASE_URL,
-} from "./defaults.js";
+import { DEFAULT_RENDER_SERVICE_BASE_URL } from "./defaults.js";
 
 export type ApiExternalAdapterOverrides = {
   llmTransport?: LlmTransport;
@@ -49,9 +46,7 @@ export function createApiExternalAdapters(
 ): ApiExternalAdapters {
   const llmTransport =
     overrides.llmTransport ??
-    createRealLlmTransport({
-      baseUrlAllowlist: DEFAULT_PROVIDER_BASE_URL_ALLOWLIST,
-    });
+    createRealLlmTransport();
   const llmScheduler =
     overrides.llmScheduler ??
     createInMemoryLlmScheduler(createLlmSchedulerLimitsFromEnv());

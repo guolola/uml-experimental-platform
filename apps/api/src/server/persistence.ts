@@ -37,10 +37,7 @@ import {
   type SystemNoticeStore,
 } from "../system-notices/records/system-notice-store.js";
 import { createPostgresSystemNoticeStore } from "../system-notices/records/postgres-system-notice-store.js";
-import {
-  DEFAULT_DOCUMENT_STORAGE_DIR,
-  DEFAULT_PROVIDER_BASE_URL_ALLOWLIST,
-} from "./defaults.js";
+import { DEFAULT_DOCUMENT_STORAGE_DIR } from "./defaults.js";
 
 export type ApiPersistenceOverrides = {
   authStore?: AuthStore;
@@ -48,7 +45,6 @@ export type ApiPersistenceOverrides = {
   runRecordStore?: RunRecordStore;
   documentLibrary?: DocumentLibrary;
   systemNoticeStore?: SystemNoticeStore;
-  adminProviderBaseUrlAllowlist?: string[];
 };
 
 export type ApiPersistence = {
@@ -108,15 +104,8 @@ export async function createApiPersistence({
     (pool
       ? (createPostgresProviderConfigRepository({
           db: pool,
-          baseUrlAllowlist:
-            overrides.adminProviderBaseUrlAllowlist ??
-            DEFAULT_PROVIDER_BASE_URL_ALLOWLIST,
         }) as unknown as ProviderConfigStore)
-      : createProviderConfigStore({
-          baseUrlAllowlist:
-            overrides.adminProviderBaseUrlAllowlist ??
-            DEFAULT_PROVIDER_BASE_URL_ALLOWLIST,
-        }));
+      : createProviderConfigStore());
   const runs =
     overrides.runRecordStore ??
     (pool ? await createPostgresRunRecordStore(pool) : createRunRecordStore());

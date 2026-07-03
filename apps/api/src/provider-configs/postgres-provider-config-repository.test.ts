@@ -53,7 +53,6 @@ test("postgres provider repository creates managed configs without storing plain
   client.queueRows([]);
   const repository = createPostgresProviderConfigRepository({
     db: client,
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
 
@@ -87,7 +86,6 @@ test("postgres provider repository infers provider labels for public custom HTTP
   client.queueRows([]);
   const repository = createPostgresProviderConfigRepository({
     db: client,
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
 
@@ -127,7 +125,6 @@ test("postgres provider repository keeps SiliconFlow model catalogs provider-sco
   client.queueRows([]);
   const repository = createPostgresProviderConfigRepository({
     db: client,
-    baseUrlAllowlist: ["https://api.siliconflow.cn"],
     secret: "test-secret",
   });
 
@@ -163,7 +160,6 @@ test("postgres provider repository updates editable metadata without touching se
   client.queueRows([]);
   const repository = createPostgresProviderConfigRepository({
     db: client,
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
 
@@ -221,7 +217,6 @@ test("postgres provider repository updates base url and rotates secrets without 
   client.queueRows([]);
   const repository = createPostgresProviderConfigRepository({
     db: client,
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
 
@@ -246,7 +241,6 @@ test("postgres provider repository updates base url and rotates secrets without 
 test("postgres provider repository blocks non-public provider base URLs", async () => {
   const repository = createPostgresProviderConfigRepository({
     db: new ScriptedClient(),
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
 
@@ -269,7 +263,6 @@ test("postgres provider repository maps views and never includes secret cipherte
   client.queueRows([{ ...createdRow, last_used_at: new Date("2026-05-22T00:01:00.000Z") }]);
   const repository = createPostgresProviderConfigRepository({
     db: client,
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "test-secret",
   });
 

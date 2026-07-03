@@ -1,6 +1,6 @@
 // Renders global model and workspace preferences in either a dialog or an embedded settings tab.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { KeyRound, Loader2, Pencil, Plus, PlugZap, RotateCw, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Pencil, Plus, PlugZap, RotateCw, Save, Trash2 } from "lucide-react";
 import type {
   BillingSummary,
   ProviderDiscoveredModel,
@@ -368,13 +368,6 @@ export function GlobalSettingsPanel({
         editingProvider &&
         providerForm.baseUrl.trim() !== editingProvider.baseUrl),
   );
-  const canSaveProvider = Boolean(
-    providerForm.name.trim() &&
-      providerForm.defaultModel.trim() &&
-      discoveredModelIds.length > 0 &&
-      (!providerDialogNeedsPassedTest || temporaryProviderTestPassed),
-  );
-
   const resetProviderCreationForm = useCallback(() => {
     setProviderForm({ ...EMPTY_PROVIDER_CREATION_FORM });
     setDiscoveredModels([]);
@@ -520,12 +513,27 @@ export function GlobalSettingsPanel({
   };
 
   const saveProviderConfig = async () => {
-    if (!canSaveProvider) {
-      toast.error(
-        providerDialogNeedsPassedTest
-          ? "请先获取模型列表并通过托管配置测试"
-          : "请先填写供应商名称并选择默认模型",
-      );
+    // Keep save actionable so each missing prerequisite can explain the next required step.
+    if (!providerForm.name.trim()) {
+      toast.error("请填写供应商名称");
+      return;
+    }
+    const baseUrlChanged = Boolean(
+      providerDialogMode === "edit" &&
+        editingProvider &&
+        providerForm.baseUrl.trim() !== editingProvider.baseUrl,
+    );
+    const apiKeyRequired = providerDialogMode === "create" || baseUrlChanged;
+    if (!providerForm.baseUrl.trim() || (apiKeyRequired && !providerForm.apiKey.trim())) {
+      toast.error("请先填写 Base URL 和 API Key");
+      return;
+    }
+    if (!providerForm.defaultModel.trim() || discoveredModelIds.length === 0) {
+      toast.error("请先获取模型列表并选择默认模型");
+      return;
+    }
+    if (providerDialogNeedsPassedTest && !temporaryProviderTestPassed) {
+      toast.error("请先测试托管配置并确保测试通过");
       return;
     }
     setSavingProvider(true);
@@ -997,14 +1005,14 @@ export function GlobalSettingsPanel({
             <Button
               type="button"
               onClick={saveProviderConfig}
-              disabled={discoveringModels || testingTemporaryProvider || savingProvider || !canSaveProvider}
+              disabled={discoveringModels || testingTemporaryProvider || savingProvider}
             >
               {savingProvider ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
-                <Plus className="size-4" />
+                <Save className="size-4" />
               )}
-              {providerDialogMode === "edit" ? "保存供应商" : "添加供应商"}
+              保存供应商
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -238,7 +238,7 @@ Provider 使用范围由后端强制校验：
 - `API Key`：模型服务密钥
 - 默认文本模型：用于需求、设计、代码和文档生成
 
-平台会自动拼接 OpenAI 兼容接口路径，通常不需要填写完整 `/v1/chat/completions`。生产部署必须关闭 legacy 明文配置入口，并在 `UML_PROVIDER_BASE_URL_ALLOWLIST` 中配置允许的系统/项目供应商域名；用户自建 Provider 仍会经过后端公网与重定向安全校验。
+平台会自动拼接 OpenAI 兼容接口路径，通常不需要填写完整 `/v1/chat/completions`。生产部署必须关闭 legacy 明文配置入口；所有 Provider 在测试、模型发现和生成请求前都会重新执行 HTTPS、公网 DNS、默认端口与重定向安全校验。
 
 ---
 

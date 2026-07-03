@@ -390,7 +390,6 @@ async function createRunRouteTestContext(options?: {
   const defaultProviderConfigs =
     options?.providerConfigs ??
     createProviderConfigStore({
-      baseUrlAllowlist: ["https://ai.comfly.org"],
       secret: "test-secret",
     });
   const defaultProvider =
@@ -1000,7 +999,6 @@ test("project run starts can resolve managed provider config secrets", async () 
     },
   };
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1100,7 +1098,6 @@ test("project run starts can resolve managed provider config secrets", async () 
 test("project run rejects another user's private provider config", async () => {
   let resolvedProviderSettings: ProviderSettings | null = null;
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1151,7 +1148,6 @@ test("project run rejects another user's private provider config", async () => {
 test("project run skips billing entitlement reservation for the owner's private provider config", async () => {
   const reserveCalls: unknown[] = [];
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1207,7 +1203,6 @@ test("project run skips billing entitlement reservation for the owner's private 
 test("project run keeps billing entitlement reservation for system provider config", async () => {
   const reserveCalls: unknown[] = [];
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1263,7 +1258,6 @@ test("project run keeps billing entitlement reservation for system provider conf
 test("project run rejects project-scoped provider config outside its project", async () => {
   let resolvedProviderSettings: ProviderSettings | null = null;
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1337,7 +1331,6 @@ test("project run rejects project-scoped provider config outside its project", a
 test("project run rejects missing personal provider settings instead of using project defaults", async () => {
   let resolvedProviderSettings: ProviderSettings | null = null;
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1458,7 +1451,6 @@ test("project run starts enqueue records instead of executing the pipeline when 
 test("project run starts reject managed provider models not allowed by the config", async () => {
   let pipelineCalls = 0;
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({
@@ -1525,7 +1517,6 @@ test("project run starts return 429 and do not call the pipeline when provider q
   let pipelineCalls = 0;
   const usageInputs: ProviderUsageInput[] = [];
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://ai.comfly.org"],
     secret: "test-secret",
   });
   const provider = await providerConfigs.create({

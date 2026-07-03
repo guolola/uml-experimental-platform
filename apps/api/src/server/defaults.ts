@@ -13,14 +13,6 @@ export const DEFAULT_DOCUMENT_STORAGE_DIR =
 export const RELEASE_STARTED_AT =
   process.env.UML_RELEASE_STARTED_AT ?? new Date().toISOString();
 export const DEFAULT_SSE_ALLOW_ORIGIN = "http://localhost:5173";
-export const DEFAULT_PROVIDER_BASE_URL_ALLOWLIST = (
-  process.env.UML_PROVIDER_BASE_URL_ALLOWLIST ??
-  "https://ai.comfly.org,https://ai.comfly.chat,https://api.openai.com,https://api.siliconflow.cn,https://api.nonelinear.com"
-)
-  .split(",")
-  .map((url) => url.trim())
-  .filter(Boolean);
-
 export function readPositiveInteger(value: unknown, fallback: number) {
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric > 0 ? numeric : fallback;

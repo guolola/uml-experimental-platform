@@ -1,6 +1,11 @@
 // Provides LLM transport helpers, provider request shaping, and response parsing boundaries for API pipelines.
 import type { ImageProviderSettings, ProviderSettings } from "@uml-platform/contracts";
 import OpenAI, { APIError } from "openai";
+import {
+  assertManagedProviderBaseUrlResolvesPublicly,
+  normalizeManagedProviderBaseUrl,
+  type ProviderHostnameResolver,
+} from "./provider-configs/provider-url-policy.js";
 import type {
   ChatCompletion,
   ChatCompletionChunk,
@@ -100,9 +105,9 @@ export type OpenAiCompatibleClientFactory = (input: {
 }) => OpenAiCompatibleClient;
 
 export interface RealProviderClientOptions {
-  baseUrlAllowlist?: string[];
   responseTimeoutMs?: number;
   clientFactory?: OpenAiCompatibleClientFactory;
+  resolveHostname?: ProviderHostnameResolver;
 }
 
 const IMAGE_PROMPT_CHAR_LIMIT = 24000;
@@ -233,20 +238,12 @@ function createOpenAiCompatibleClient({
   };
 }
 
-function normalizeOrigin(url: string) {
-  return new URL(url).origin;
-}
-
-function assertProviderBaseUrlAllowed(
+async function assertProviderBaseUrlSafe(
   baseUrl: string,
-  baseUrlAllowlist: string[] | undefined,
+  resolveHostname?: ProviderHostnameResolver,
 ) {
-  if (!baseUrlAllowlist || baseUrlAllowlist.length === 0) return;
-  const allowedOrigins = new Set(baseUrlAllowlist.map(normalizeOrigin));
-  const origin = normalizeOrigin(baseUrl);
-  if (!allowedOrigins.has(origin)) {
-    throw new Error("Provider Base URL is not in the provider allowlist");
-  }
+  // Revalidate immediately before outbound traffic so saved domains cannot later resolve to private infrastructure.
+  return assertManagedProviderBaseUrlResolvesPublicly(baseUrl, resolveHostname);
 }
 
 function clampImagePrompt(prompt: string) {
@@ -613,6 +610,7 @@ export async function runOpenAiCompatibleChatCompletionHealthcheck({
   responseFormat,
   responseTimeoutMs = DEFAULT_LLM_RESPONSE_TIMEOUT_MS,
   clientFactory = createOpenAiCompatibleClient,
+  resolveHostname,
 }: {
   apiBaseUrl: string;
   apiKey: string;
@@ -620,11 +618,13 @@ export async function runOpenAiCompatibleChatCompletionHealthcheck({
   responseFormat?: ChatCompletionResponseFormat | null;
   responseTimeoutMs?: number;
   clientFactory?: OpenAiCompatibleClientFactory;
+  resolveHostname?: ProviderHostnameResolver;
 }) {
+  const safeBaseUrl = await assertProviderBaseUrlSafe(apiBaseUrl, resolveHostname);
   const abortController = new AbortController();
   const client = clientFactory({
     apiKey,
-    baseURL: resolveOpenAiBaseUrl(apiBaseUrl),
+    baseURL: resolveOpenAiBaseUrl(safeBaseUrl),
     timeoutMs: responseTimeoutMs,
   });
   try {
@@ -655,6 +655,7 @@ export async function probeOpenAiCompatibleStreamingChat({
   abortSignal,
   responseTimeoutMs = 30_000,
   clientFactory = createOpenAiCompatibleClient,
+  resolveHostname,
 }: {
   apiBaseUrl: string;
   apiKey: string;
@@ -664,7 +665,9 @@ export async function probeOpenAiCompatibleStreamingChat({
   abortSignal?: AbortSignal;
   responseTimeoutMs?: number;
   clientFactory?: OpenAiCompatibleClientFactory;
+  resolveHostname?: ProviderHostnameResolver;
 }) {
+  const safeBaseUrl = await assertProviderBaseUrlSafe(apiBaseUrl, resolveHostname);
   const abortController = new AbortController();
   const abortHandler = () => abortController.abort();
   if (abortSignal) {
@@ -676,7 +679,7 @@ export async function probeOpenAiCompatibleStreamingChat({
   }
   const client = clientFactory({
     apiKey,
-    baseURL: resolveOpenAiBaseUrl(apiBaseUrl),
+    baseURL: resolveOpenAiBaseUrl(safeBaseUrl),
     timeoutMs: responseTimeoutMs,
   });
   try {
@@ -726,7 +729,10 @@ export async function listOpenAiCompatibleModels({
   abortSignal?: AbortSignal;
   options?: RealProviderClientOptions;
 }): Promise<ProviderDiscoveredModel[]> {
-  assertProviderBaseUrlAllowed(apiBaseUrl, options.baseUrlAllowlist);
+  const safeBaseUrl = await assertProviderBaseUrlSafe(
+    apiBaseUrl,
+    options.resolveHostname,
+  );
   const responseTimeoutMs =
     options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
   const clientFactory = options.clientFactory ?? createOpenAiCompatibleClient;
@@ -743,7 +749,7 @@ export async function listOpenAiCompatibleModels({
   try {
     const client = clientFactory({
       apiKey,
-      baseURL: resolveOpenAiBaseUrl(apiBaseUrl),
+      baseURL: resolveOpenAiBaseUrl(safeBaseUrl),
       timeoutMs: responseTimeoutMs,
     });
     const response = await withTimeout(
@@ -775,16 +781,15 @@ export function createRealLlmTransport(
       responseFormat,
       abortSignal,
     }: StreamChatCompletionInput) {
-      assertProviderBaseUrlAllowed(
+      const safeBaseUrl = normalizeManagedProviderBaseUrl(
         providerSettings.apiBaseUrl,
-        options.baseUrlAllowlist,
       );
       const responseTimeoutMs =
         options.responseTimeoutMs ?? DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
       const clientFactory = options.clientFactory ?? createOpenAiCompatibleClient;
       const client = clientFactory({
         apiKey: providerSettings.apiKey,
-        baseURL: resolveOpenAiBaseUrl(providerSettings.apiBaseUrl),
+        baseURL: resolveOpenAiBaseUrl(safeBaseUrl),
         timeoutMs: responseTimeoutMs,
       });
       const requestResponseFormat = effectiveResponseFormat(responseFormat);
@@ -808,6 +813,7 @@ export function createRealLlmTransport(
       const requestCompletionStream = async (
         nextResponseFormat: ChatCompletionResponseFormat | null,
       ) => {
+        await assertProviderBaseUrlSafe(safeBaseUrl, options.resolveHostname);
         const response = await withTimeout(
           client.chat.completions.create(
             createStreamingChatCompletionBody({
@@ -871,9 +877,9 @@ export function createRealImageGenerationClient(
 ): ImageGenerationClient {
   return {
     async generateImage({ providerSettings, prompt }: GenerateImageInput) {
-      assertProviderBaseUrlAllowed(
+      const safeBaseUrl = await assertProviderBaseUrlSafe(
         providerSettings.apiBaseUrl,
-        options.baseUrlAllowlist,
+        options.resolveHostname,
       );
       const safePrompt = clampImagePrompt(prompt);
       const responseTimeoutMs =
@@ -882,7 +888,7 @@ export function createRealImageGenerationClient(
       const clientFactory = options.clientFactory ?? createOpenAiCompatibleClient;
       const client = clientFactory({
         apiKey: providerSettings.apiKey,
-        baseURL: resolveOpenAiBaseUrl(providerSettings.apiBaseUrl),
+        baseURL: resolveOpenAiBaseUrl(safeBaseUrl),
         timeoutMs: responseTimeoutMs,
       });
       let payload: ChatCompletion;

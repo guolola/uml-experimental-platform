@@ -6,6 +6,25 @@ export class ProviderConfigPolicyError extends Error {}
 
 export type ProviderHostnameResolver = (hostname: string) => Promise<string[]>;
 
+function assertPublicIpv4(address: string) {
+  const parts = address.split(".").map((part) => Number(part));
+  const [first = -1, second = -1, third = -1] = parts;
+  if (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 0 && third === 0) ||
+    (first === 192 && second === 168) ||
+    (first === 198 && (second === 18 || second === 19)) ||
+    first >= 224
+  ) {
+    throw new ProviderConfigPolicyError("Provider Base URL must use a public HTTPS host");
+  }
+}
+
 export function assertPublicHostname(hostname: string) {
   const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/u, "$1");
   if (
@@ -18,28 +37,22 @@ export function assertPublicHostname(hostname: string) {
 
   const ipVersion = isIP(normalized);
   if (ipVersion === 4) {
-    const parts = normalized.split(".").map((part) => Number(part));
-    const [first, second] = parts;
-    if (
-      first === 10 ||
-      first === 127 ||
-      first === 0 ||
-      (first === 100 && second >= 64 && second <= 127) ||
-      (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168)
-    ) {
-      throw new ProviderConfigPolicyError("Provider Base URL must use a public HTTPS host");
-    }
+    assertPublicIpv4(normalized);
   }
 
   if (ipVersion === 6) {
+    const mappedIpv4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/u.exec(normalized)?.[1];
+    if (mappedIpv4 && isIP(mappedIpv4) === 4) {
+      assertPublicIpv4(mappedIpv4);
+    }
+    const firstHextet = Number.parseInt(normalized.split(":", 1)[0] || "0", 16);
     if (
       normalized === "::1" ||
       normalized === "::" ||
       normalized.startsWith("fc") ||
       normalized.startsWith("fd") ||
-      normalized.startsWith("fe80:")
+      (firstHextet >= 0xfe80 && firstHextet <= 0xfebf) ||
+      normalized.startsWith("ff")
     ) {
       throw new ProviderConfigPolicyError("Provider Base URL must use a public HTTPS host");
     }

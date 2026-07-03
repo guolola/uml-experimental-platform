@@ -41,7 +41,6 @@ function createTestApiServer(options?: Parameters<typeof createApiServer>[0]) {
   const providerConfigStore =
     options?.providerConfigStore ??
     createProviderConfigStore({
-      baseUrlAllowlist: ["https://ai.comfly.org"],
       secret: "api-index-test-secret",
     });
   if (!options?.providerConfigStore) {
@@ -5721,7 +5720,6 @@ test("guest access seed does not grant local billing credits in production", asy
     authStore,
     billingService,
     providerConfigStore: createProviderConfigStore({
-      baseUrlAllowlist: ["https://ai.comfly.org"],
       secret: "test-secret",
     }),
     runRecordStore: createRunRecordStore(),
@@ -5946,7 +5944,6 @@ test("api rejects plaintext provider connection tests in production", async () =
       llmTransport: createMockLlmTransport(),
       authStore: createInMemoryAuthStore(),
       providerConfigStore: createProviderConfigStore({
-        baseUrlAllowlist: ["https://ai.comfly.org"],
         secret: "test-secret",
       }),
       runRecordStore: createRunRecordStore(),

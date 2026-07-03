@@ -15,6 +15,7 @@ import {
   listOpenAiCompatibleModels,
   probeOpenAiCompatibleStreamingChat,
 } from "../llm.js";
+import type { ProviderHostnameResolver } from "./provider-url-policy.js";
 
 type RawProviderModel = Pick<
   ProviderDiscoveredModel,
@@ -176,6 +177,7 @@ async function probeStrictJson(input: {
   abortSignal?: AbortSignal;
   clientFactory?: OpenAiCompatibleClientFactory;
   responseTimeoutMs?: number;
+  resolveHostname?: ProviderHostnameResolver;
 }): Promise<{ strictJson: ProbeBoolean; reason?: string }> {
   try {
     const content = await probeOpenAiCompatibleStreamingChat({
@@ -218,6 +220,7 @@ async function probeJsonObject(input: {
   abortSignal?: AbortSignal;
   clientFactory?: OpenAiCompatibleClientFactory;
   responseTimeoutMs?: number;
+  resolveHostname?: ProviderHostnameResolver;
 }): Promise<{ jsonObject: ProbeBoolean; reason?: string }> {
   try {
     const content = await probeOpenAiCompatibleStreamingChat({
@@ -259,6 +262,7 @@ async function probePlainChat(input: {
   abortSignal?: AbortSignal;
   clientFactory?: OpenAiCompatibleClientFactory;
   responseTimeoutMs?: number;
+  resolveHostname?: ProviderHostnameResolver;
 }): Promise<{ chat: ProbeBoolean; reason?: string }> {
   try {
     await probeOpenAiCompatibleStreamingChat({
@@ -359,6 +363,7 @@ export async function discoverOpenAiCompatibleModelCapabilities({
   probeTimeoutMs = 30_000,
   onProgress,
   abortSignal,
+  resolveHostname,
 }: {
   apiBaseUrl: string;
   apiKey: string;
@@ -367,13 +372,14 @@ export async function discoverOpenAiCompatibleModelCapabilities({
   probeTimeoutMs?: number;
   onProgress?: DiscoveryProgressHandler;
   abortSignal?: AbortSignal;
+  resolveHostname?: ProviderHostnameResolver;
 }): Promise<Pick<ProviderModelDiscoveryResponse, "models" | "summary">> {
   throwIfAborted(abortSignal);
   const rawModels = await listOpenAiCompatibleModels({
     apiBaseUrl,
     apiKey,
     abortSignal,
-    options: { clientFactory, responseTimeoutMs: probeTimeoutMs },
+    options: { clientFactory, responseTimeoutMs: probeTimeoutMs, resolveHostname },
   });
   emitProgress(onProgress, { type: "models_listed", rawCount: rawModels.length });
   const summary: ProviderModelDiscoverySummary = {
@@ -424,6 +430,7 @@ export async function discoverOpenAiCompatibleModelCapabilities({
       abortSignal,
       clientFactory,
       responseTimeoutMs: probeTimeoutMs,
+      resolveHostname,
     });
     if (strict.strictJson === true) {
       const discovered = toCapability({
@@ -461,6 +468,7 @@ export async function discoverOpenAiCompatibleModelCapabilities({
       abortSignal,
       clientFactory,
       responseTimeoutMs: probeTimeoutMs,
+      resolveHostname,
     });
     if (jsonObject.jsonObject === true) {
       const discovered = toCapability({
@@ -500,6 +508,7 @@ export async function discoverOpenAiCompatibleModelCapabilities({
       abortSignal,
       clientFactory,
       responseTimeoutMs: probeTimeoutMs,
+      resolveHostname,
     });
     if (chat.chat !== true) {
       if (chat.chat === "unknown") summary.chatProbeUnknownCount += 1;

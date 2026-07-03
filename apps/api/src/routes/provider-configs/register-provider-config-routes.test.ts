@@ -61,7 +61,6 @@ async function createProviderRouteTestApp() {
     visibility: "private",
   });
   const providerConfigs = createProviderConfigStore({
-    baseUrlAllowlist: ["https://api.openai.com"],
     secret: "route-test-secret",
   });
   const riskEvents: Array<Parameters<ProviderConfigRiskEventRecorder>[0]> = [];

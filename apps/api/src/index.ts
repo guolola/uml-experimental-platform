@@ -43,7 +43,6 @@ export async function createApiServer(options?: {
   renderClient?: RenderClient;
   pngRenderClient?: PngRenderClient;
   renderServiceBaseUrl?: string;
-  adminProviderBaseUrlAllowlist?: string[];
   providerConfigStore?: ProviderConfigStore;
   authStore?: AuthStore;
   runRecordStore?: RunRecordStore;
@@ -97,7 +96,6 @@ export async function createApiServer(options?: {
       runRecordStore: options?.runRecordStore,
       documentLibrary: options?.documentLibrary,
       systemNoticeStore: options?.systemNoticeStore,
-      adminProviderBaseUrlAllowlist: options?.adminProviderBaseUrlAllowlist,
     },
   });
   if (pool) {

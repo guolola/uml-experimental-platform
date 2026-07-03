@@ -215,14 +215,12 @@ export function maskApiKey(apiKey: string) {
 }
 
 export function createProviderConfigStore({
-  baseUrlAllowlist: _baseUrlAllowlist,
   secret,
   breakerFailureThreshold = 3,
 }: {
-  baseUrlAllowlist: string[];
   secret?: string;
   breakerFailureThreshold?: number;
-}): ProviderConfigStore {
+} = {}): ProviderConfigStore {
   const secretKey = createSecretKey(
     secret ??
       process.env.UML_PROVIDER_CONFIG_SECRET ??

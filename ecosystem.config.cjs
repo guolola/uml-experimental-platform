@@ -44,9 +44,6 @@ const documentEnv = {
 };
 
 const providerEnv = {
-  ...(process.env.UML_PROVIDER_BASE_URL_ALLOWLIST
-    ? { UML_PROVIDER_BASE_URL_ALLOWLIST: process.env.UML_PROVIDER_BASE_URL_ALLOWLIST }
-    : {}),
   ...(process.env.UML_PROVIDER_CONFIG_SECRET
     ? { UML_PROVIDER_CONFIG_SECRET: process.env.UML_PROVIDER_CONFIG_SECRET }
     : {}),

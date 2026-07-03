@@ -92,7 +92,6 @@ jobs:
           UML_DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/uml-documents
           UML_PROVIDER_CONFIG_SECRET: ci-provider-secret
           UML_PROVIDER_SECRET_KEY: ci-provider-secret
-          UML_PROVIDER_BASE_URL_ALLOWLIST: https://api.openai.com,https://ai.comfly.org
           UML_ALLOW_LEGACY_PROVIDER_TEST: "false"
           UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS: "false"
           SMTP_HOST: smtp.example.test

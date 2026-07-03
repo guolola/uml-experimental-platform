@@ -49,11 +49,10 @@ Bootstrap 会创建 `super_admin` 用户、生成邮箱验证 token，并通过 
 | --- | --- | --- |
 | `UML_PROVIDER_SECRET_KEY` | 是 | 生产供应商 API Key 加密主密钥。必须是强随机值，并按密钥管理流程保管。若当前代码版本仍读取 `UML_PROVIDER_CONFIG_SECRET`，生产部署需同时设置两者为同一个强随机值，直到完成变量名统一。 |
 | `UML_PROVIDER_CONFIG_SECRET` | 兼容 | 当前 provider config 存储实现读取的加密密钥名。不要使用本地开发默认值。 |
-| `UML_PROVIDER_BASE_URL_ALLOWLIST` | 是 | 逗号分隔的供应商 Base URL 白名单，例如 `https://api.openai.com,https://api.siliconflow.cn,https://llm.example.edu`。不在白名单内的 Base URL 不允许测试或生成，防止 SSRF。 |
 | `UML_ALLOW_LEGACY_PROVIDER_TEST` | 否 | 仅本地/测试可显式设为 `true`，允许旧的明文 provider test 入口。生产必须为空或 `false`。 |
 | `UML_ALLOW_PROJECT_LEGACY_PROVIDER_SETTINGS` | 否 | 仅本地/测试可显式设为 `true`，允许项目 run 使用前端传入的明文 provider settings。生产必须为空或 `false`，项目 run 应使用后端托管的 `providerConfigId`。 |
 
-模型供应商配置只保存密钥密文、hash、掩码尾号、用途、创建人、最近使用时间和风险状态；任何管理端或用户端接口都不能回显 API Key 明文。
+模型供应商配置只保存密钥密文、hash、掩码尾号、用途、创建人、最近使用时间和风险状态；任何管理端或用户端接口都不能回显 API Key 明文。Provider Base URL 不使用静态域名白名单，而是在每次外部请求前强制校验 HTTPS、默认端口和全部 DNS 解析结果均为公网地址，并拒绝重定向。
 
 模型费用不是本平台账单事实源。本平台只能记录调用次数、usage、quota、token 数量和可选估算金额，用于运营观察与限流；真实费用、退款、折扣和税费以外部模型供应商账单为准。
 

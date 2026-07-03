@@ -8,7 +8,7 @@
 - `DATABASE_URL` 指向生产/预发 PostgreSQL，真实用户、项目、run、文档、审计、provider config 和 usage/quota 数据可持久化。
 - `SMTP_*` 已配置，并能发送邀请、验证和重置邮件。
 - `UML_PROVIDER_SECRET_KEY` 与当前兼容变量 `UML_PROVIDER_CONFIG_SECRET` 已设置为强随机值。
-- `UML_PROVIDER_BASE_URL_ALLOWLIST` 只包含允许的模型供应商源。
+- Provider 出口网络允许访问所需的公网 HTTPS 供应商，且没有依赖已废弃的静态 Base URL 白名单。
 - `API_CORS_ORIGINS` 同时包含主 Web 前端和后台前端源；后台构建使用 `VITE_ADMIN_API_BASE_URL` 指向主 API。
 - 后台独立域名部署时设置 `UML_SESSION_SAMESITE=None` 和 `UML_SESSION_SECURE=true`；同站反代可使用默认 `Lax`。
 - 已通过一次性 bootstrap 创建真实 `super_admin`，且 `UML_ENABLE_ADMIN_BOOTSTRAP` 已关闭。不存在生产固定默认账号密码。
@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | 未登录访问项目 | 清空 cookie 后访问项目详情、run snapshot、SSE、文档下载接口。 | 返回 `401`；不返回项目、run、文档或 SSE 事件内容。 |
 | 跨项目访问 | 使用 A 用户登录后猜测 B 项目的 `projectId`、`runId`、`documentId`。 | 返回 `403`；审计或风险事件记录越权尝试。 |
-| Provider SSRF 防护 | 在后台创建或测试不在 `UML_PROVIDER_BASE_URL_ALLOWLIST` 中的 Base URL，例如内网地址或 metadata 地址。 | 请求被拒绝；不发起外部探测；记录 blocked/failed 审计。 |
+| Provider SSRF 防护 | 创建或测试任意公网 HTTPS Provider，并分别尝试 HTTP、localhost、内网地址、metadata 地址、混合公网/私网 DNS 和保存后 DNS 变更。 | 公网 HTTPS Provider 可用；其他请求在外部探测前被拒绝并记录 blocked/failed 审计。 |
 | Provider 密钥不回显 | 创建、查看、轮换、吊销供应商 API Key。 | 任何响应和页面只显示 masked key、用途、创建人、最近使用时间、风险状态；旧密钥轮换/吊销后不可用。 |
 | Admin RBAC | 用不同后台角色访问 Dashboard、用户、项目、文档、provider、审计和系统页。 | 管理员只能查看/操作角色和数据范围允许的资源；高危动作缺权限返回 `403`。 |
 | Admin MFA | 管理员登录触发 MFA challenge 并输入正确/错误验证码。 | 正确验证码后获得真实 HttpOnly cookie session；错误或过期验证码返回失败；不能生成本地 mock session。 |

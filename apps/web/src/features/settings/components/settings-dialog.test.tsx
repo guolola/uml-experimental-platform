@@ -381,16 +381,30 @@ describe("SettingsDialog", () => {
     const dialog = await screen.findByRole("dialog", { name: "添加供应商" });
     const dialogScope = within(dialog);
     const testButton = dialogScope.getByRole("button", { name: "测试托管配置" });
-    const submitButton = dialogScope.getByRole("button", { name: "添加供应商" });
+    const submitButton = dialogScope.getByRole("button", { name: "保存供应商" });
     expect(testButton).toBeDisabled();
-    expect(submitButton).toBeDisabled();
+    expect(submitButton).toBeEnabled();
+
+    await user.click(submitButton);
+    expect(toastError).toHaveBeenLastCalledWith("请填写供应商名称");
 
     await user.type(dialogScope.getByLabelText("名称"), "我的 Nonelinear");
+    await user.click(submitButton);
+    expect(toastError).toHaveBeenLastCalledWith("请先填写 Base URL 和 API Key");
     await user.type(
       dialogScope.getByLabelText("Base URL"),
       "https://api.nonelinear.com",
     );
     await user.type(dialogScope.getByLabelText("API Key"), "sk-new-secret");
+    await user.click(submitButton);
+    expect(toastError).toHaveBeenLastCalledWith("请先获取模型列表并选择默认模型");
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-configs") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
     await user.click(dialogScope.getByRole("button", { name: "获取模型列表" }));
 
     await waitFor(() => {
@@ -404,7 +418,17 @@ describe("SettingsDialog", () => {
     );
     expect(dialogScope.getByText("已获取 1 个可用模型")).toBeInTheDocument();
     expect(testButton).toBeEnabled();
-    expect(submitButton).toBeDisabled();
+    expect(submitButton).toBeEnabled();
+
+    await user.click(submitButton);
+    expect(toastError).toHaveBeenLastCalledWith("请先测试托管配置并确保测试通过");
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([input, init]) =>
+          String(input).endsWith("/api/provider-configs") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
 
     await user.click(testButton);
 
@@ -448,7 +472,7 @@ describe("SettingsDialog", () => {
     const dialog = await screen.findByRole("dialog", { name: "添加供应商" });
     const dialogScope = within(dialog);
     const testButton = dialogScope.getByRole("button", { name: "测试托管配置" });
-    const submitButton = dialogScope.getByRole("button", { name: "添加供应商" });
+    const submitButton = dialogScope.getByRole("button", { name: "保存供应商" });
 
     await user.type(dialogScope.getByLabelText("名称"), "我的 Nonelinear");
     await user.type(
@@ -468,7 +492,9 @@ describe("SettingsDialog", () => {
     );
 
     expect(testButton).toBeDisabled();
-    expect(submitButton).toBeDisabled();
+    expect(submitButton).toBeEnabled();
+    await user.click(submitButton);
+    expect(toastError).toHaveBeenLastCalledWith("请先获取模型列表并选择默认模型");
   });
 
   it("edits an owned provider after rediscovering and testing models", async () => {
@@ -494,7 +520,9 @@ describe("SettingsDialog", () => {
       "https://api.nonelinear.com",
     );
     await user.type(dialogScope.getByLabelText("API Key"), "sk-edited-secret");
-    expect(dialogScope.getByRole("button", { name: "保存供应商" })).toBeDisabled();
+    expect(dialogScope.getByRole("button", { name: "保存供应商" })).toBeEnabled();
+    await user.click(dialogScope.getByRole("button", { name: "保存供应商" }));
+    expect(toastError).toHaveBeenLastCalledWith("请先获取模型列表并选择默认模型");
 
     await user.click(dialogScope.getByRole("button", { name: "获取模型列表" }));
     await waitFor(() => {
@@ -502,6 +530,8 @@ describe("SettingsDialog", () => {
         dialogScope.getByRole("combobox", { name: "供应商默认模型" }),
       ).toHaveTextContent("gpt-5.4");
     });
+    await user.click(dialogScope.getByRole("button", { name: "保存供应商" }));
+    expect(toastError).toHaveBeenLastCalledWith("请先测试托管配置并确保测试通过");
     await user.click(dialogScope.getByRole("button", { name: "测试托管配置" }));
     await waitFor(() => {
       expect(toastSuccess).toHaveBeenCalledWith("Provider connection ok");

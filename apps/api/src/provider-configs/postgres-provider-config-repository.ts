@@ -217,11 +217,9 @@ const providerViewColumns = `
 
 export function createPostgresProviderConfigRepository({
   db,
-  baseUrlAllowlist: _baseUrlAllowlist,
   secret,
 }: {
   db: Queryable;
-  baseUrlAllowlist: string[];
   secret?: string;
 }) {
   const secretKey = createSecretKey(
