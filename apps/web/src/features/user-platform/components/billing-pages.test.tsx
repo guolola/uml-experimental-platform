@@ -50,7 +50,7 @@ function stubBillingFetch() {
           creditBalance: 128,
           signupBonus: {
             granted: true,
-            creditAmount: 5,
+            creditAmount: 10,
             validUntil: "2026-07-05T04:00:00.000Z",
           },
           recentOrders: [billingOrder],
@@ -132,7 +132,7 @@ describe("PricingBillingPage", () => {
     render(<PricingBillingPage signedIn onNavigate={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "开通 AI 生成权益" })).toBeInTheDocument();
-    expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。")).toBeInTheDocument();
+    expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 10 次，有效期 30 天。")).toBeInTheDocument();
     expect(screen.queryByText("通行卡")).not.toBeInTheDocument();
     expect(screen.queryByText("日卡")).not.toBeInTheDocument();
     expect(screen.queryByText("周卡")).not.toBeInTheDocument();

@@ -220,7 +220,7 @@ describe("SettingsDialog", () => {
             creditBalance: 42,
             signupBonus: {
               granted: true,
-              creditAmount: 5,
+              creditAmount: 10,
               validUntil: "2026-07-05T04:00:00.000Z",
             },
             recentOrders: [],

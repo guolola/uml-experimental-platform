@@ -74,7 +74,8 @@ test("auth registration issues an email verification token and verify-email mark
   });
   assert.equal(summary.statusCode, 200);
   assert.equal(summary.json().signupBonus.granted, true);
-  assert.equal(summary.json().creditBalance, 5);
+  assert.equal(summary.json().signupBonus.creditAmount, 10);
+  assert.equal(summary.json().creditBalance, 10);
 
   const reused = await app.inject({
     method: "POST",

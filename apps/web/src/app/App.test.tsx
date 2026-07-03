@@ -598,10 +598,10 @@ describe("App shell routes", () => {
         if (pathname === "/api/billing/summary") {
           return new Response(
             JSON.stringify({
-              creditBalance: 5,
+              creditBalance: 10,
               signupBonus: {
                 granted: true,
-                creditAmount: 5,
+                creditAmount: 10,
                 validUntil: "2026-07-05T04:00:00.000Z",
               },
               recentOrders: [billingTestOrder],

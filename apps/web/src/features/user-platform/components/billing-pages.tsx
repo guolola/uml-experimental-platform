@@ -670,7 +670,7 @@ export function PricingBillingPage({
             开通 AI 生成权益
           </h1>
           <p className="text-[15px] leading-[24px] text-muted-foreground md:text-[16px]">
-            购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。
+            购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 10 次，有效期 30 天。
           </p>
         </div>
         <BillingSkuGrid
