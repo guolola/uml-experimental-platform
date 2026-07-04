@@ -363,16 +363,16 @@ function HomeTab({
           hideCloseButton
           className="max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] !max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none"
         >
-          <DialogTitle className="sr-only">查看产品宣传</DialogTitle>
+          <DialogTitle className="sr-only">查看平台介绍</DialogTitle>
           <DialogDescription className="sr-only">
             通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。
           </DialogDescription>
           {promoDialogOpen && (
             <VideoPlayer
               src={MARKETING_PROMO_VIDEO_URL}
-              title="软件工程实践平台产品宣传视频"
+              title="软件工程实践平台介绍视频"
               description="从可信链路和证据视角展示平台核心流程。"
-              caption="产品宣传视频"
+              caption="平台介绍视频"
               autoPlay
             />
           )}

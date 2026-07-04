@@ -124,7 +124,7 @@ export const referenceStandards: ReferenceStandard[] = [
     name: "CMMI/SEI requirements traceability",
     shortName: "CMMI",
     topic: "Traceability Practice",
-    description: "参考需求与下游工作产品之间保持双向追踪的过程改进实践。",
+    description: "参考需求与下游工程成果之间保持双向追踪的过程改进实践。",
     href: "https://resources.sei.cmu.edu/asset_files/TechnicalReport/2011_005_001_15392.pdf",
   },
 ];

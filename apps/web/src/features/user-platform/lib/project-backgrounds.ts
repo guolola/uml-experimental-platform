@@ -83,7 +83,7 @@ export const PROJECT_BACKGROUND_OPTIONS: ProjectBackgroundOption[] = [
   { key: "bi", label: "BI 商业智能", imageUrl: biImageUrl, aliases: ["BI", "商业智能", "数据分析"] },
   { key: "project_management", label: "项目管理系统", imageUrl: projectManagementImageUrl, aliases: ["项目管理", "项目协作", "Project Management"] },
   { key: "cms", label: "CMS 内容管理", imageUrl: cmsImageUrl, aliases: ["CMS", "内容管理", "内容发布"] },
-  { key: "plm", label: "PLM 产品生命周期", imageUrl: plmImageUrl, aliases: ["PLM", "产品生命周期", "产品管理"] },
+  { key: "plm", label: "PLM 全生命周期管理", imageUrl: plmImageUrl, aliases: ["PLM", "产品生命周期", "产品管理"] },
   { key: "eam", label: "EAM 资产管理", imageUrl: eamImageUrl, aliases: ["EAM", "资产管理", "固定资产"] },
   { key: "itsm", label: "ITSM 服务管理", imageUrl: itsmImageUrl, aliases: ["ITSM", "IT 服务", "服务管理"] },
   { key: "ticket", label: "工单系统", imageUrl: ticketImageUrl, aliases: ["工单", "工单系统", "Ticket"] },

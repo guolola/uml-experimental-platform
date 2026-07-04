@@ -1437,7 +1437,7 @@ describe("App shell routes", () => {
 
   it("renders the marketing site on the root route for signed-out visitors", async () => {
     authSessionMode = "unauthenticated";
-    render(withWorkspaceProviders(<Shell />, createRepository()));
+    const view = render(withWorkspaceProviders(<Shell />, createRepository()));
 
     expect(
       await screen.findByRole("heading", {
@@ -1488,6 +1488,8 @@ describe("App shell routes", () => {
       "text-[15px]",
     );
     expect(screen.queryByRole("button", { name: "查看产品宣传" })).not.toBeInTheDocument();
+    expect(view.container).not.toHaveTextContent("产品");
+    expect(view.container.querySelector('[aria-label*="产品"]')).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "查看案例项目" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "注册" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
@@ -1511,13 +1513,16 @@ describe("App shell routes", () => {
       "p-0",
       "shadow-none",
     );
-    expect(screen.getByRole("heading", { name: "查看产品宣传" })).toHaveClass("sr-only");
-    const promoVideo = screen.getByLabelText("软件工程实践平台产品宣传视频");
+    expect(screen.getByRole("heading", { name: "查看平台介绍" })).toHaveClass("sr-only");
+    const promoVideo = screen.getByLabelText("软件工程实践平台介绍视频");
     expect(dialog).toContainElement(screen.getByTestId("video-player"));
     expect(dialog.querySelector('[data-slot="dialog-header"]')).not.toBeInTheDocument();
     expect(
       screen.getByText("通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。"),
     ).toHaveClass("sr-only");
+    expect(screen.getByTestId("video-player")).toHaveTextContent("平台介绍视频");
+    expect(dialog).not.toHaveTextContent("产品");
+    expect(dialog.querySelector('[aria-label*="产品"]')).not.toBeInTheDocument();
     expect(promoVideo.querySelector("source")).toHaveAttribute(
       "src",
       "https://guolola.oss-cn-hangzhou.aliyuncs.com/video/trusted-chain-evidence-film.mp4",
