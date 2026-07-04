@@ -1481,12 +1481,13 @@ describe("App shell routes", () => {
       "justify-center",
       "text-[15px]",
     );
-    expect(screen.getByRole("button", { name: "查看产品宣传" })).toHaveClass(
+    expect(screen.getByRole("button", { name: "查看平台介绍" })).toHaveClass(
       "h-12",
       "min-w-0",
       "justify-center",
       "text-[15px]",
     );
+    expect(screen.queryByRole("button", { name: "查看产品宣传" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "查看案例项目" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "注册" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
@@ -1497,7 +1498,7 @@ describe("App shell routes", () => {
     authSessionMode = "unauthenticated";
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await user.click(await screen.findByRole("button", { name: "查看产品宣传" }));
+    await user.click(await screen.findByRole("button", { name: "查看平台介绍" }));
 
     expect(window.location.pathname).toBe("/");
     const dialog = await screen.findByRole("dialog");
@@ -1856,6 +1857,33 @@ describe("App shell routes", () => {
     expect(screen.queryByTestId("marketing-fit-page")).not.toBeInTheDocument();
 
     workflowView.unmount();
+  });
+
+  it("shows the personal-site introduction in every public marketing footer", async () => {
+    const publicRoutes = ["/", "/features", "/workflow", "/cases"];
+
+    for (const path of publicRoutes) {
+      window.history.pushState({}, "", path);
+      const view = render(withWorkspaceProviders(<Shell />, createRepository()));
+
+      expect(await screen.findByRole("heading", { name: "网站简介" })).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "本站为个人技术分享网站，由几位长期从事软件工程学科教学的高校老师共同打造。作为软件工程领域前沿技术的探索空间，本站致力于传播软件工程知识，探索前沿理论与技术，期望以此培养行业技术人才，助力国家软件技术发展。如果您对本站有任何意见或建议，欢迎联系我们。",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText("联系人：洪老师")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "672250123@qq.com" })).toHaveAttribute(
+        "href",
+        "mailto:672250123@qq.com",
+      );
+      expect(screen.getByRole("link", { name: "技术文档" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "服务条款" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "隐私政策" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "客户支持" })).not.toBeInTheDocument();
+
+      view.unmount();
+    }
   });
 
   it("redirects direct workspace access back to the website home when the session is missing", async () => {

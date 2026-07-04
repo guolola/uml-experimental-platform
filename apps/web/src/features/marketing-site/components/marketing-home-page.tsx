@@ -120,17 +120,34 @@ function MarketingHeader({
 function MarketingFooter() {
   return (
     <footer data-testid="marketing-footer" data-motion="marketing-footer" className="motion-footer border-t border-border bg-card">
-      <div className={`${wideContent} flex items-center justify-between gap-6 ${pagePadding} py-[clamp(0.85rem,1.4vh,1.25rem)] text-sm text-muted-foreground`}>
-        <div className="grid gap-2">
+      <div
+        className={`${wideContent} grid gap-6 ${pagePadding} py-[clamp(1.5rem,3vh,2.5rem)] text-sm text-muted-foreground lg:grid-cols-[minmax(14rem,0.7fr)_minmax(0,1.8fr)] lg:items-start lg:gap-12`}
+      >
+        <div className="grid gap-2 lg:pt-1">
           <div className="font-display text-[18px] font-semibold leading-[26px] text-foreground">软件工程实践平台</div>
           <p>© 2026 软件工程实践平台。保留所有权利。</p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-6">
-          {footerLinks.map((link) => (
-            <a key={link} href="#" className="underline-offset-4 hover:text-primary hover:underline">
-              {link}
+        <div className="grid min-w-0 gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-[16px] font-semibold leading-6 text-foreground">网站简介</h2>
+            {footerLinks.map((link) => (
+              <a key={link} href="#" className="underline-offset-4 hover:text-primary hover:underline">
+                {link}
+              </a>
+            ))}
+          </div>
+          <p className="max-w-5xl break-words leading-6">
+            本站为个人技术分享网站，由几位长期从事软件工程学科教学的高校老师共同打造。作为软件工程领域前沿技术的探索空间，本站致力于传播软件工程知识，探索前沿理论与技术，期望以此培养行业技术人才，助力国家软件技术发展。如果您对本站有任何意见或建议，欢迎联系我们。
+          </p>
+          <address className="flex flex-wrap gap-x-4 gap-y-1 not-italic leading-6">
+            <span>联系人：洪老师</span>
+            <a
+              href="mailto:672250123@qq.com"
+              className="break-all text-primary underline-offset-4 hover:underline"
+            >
+              672250123@qq.com
             </a>
-          ))}
+          </address>
         </div>
       </div>
     </footer>
@@ -314,7 +331,7 @@ function HomeTab({
                     className="motion-action h-12 min-w-0 justify-center rounded-full border-2 border-border bg-card px-3 font-display text-[15px] font-semibold leading-5 text-primary hover:bg-accent md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
                     onClick={() => setPromoDialogOpen(true)}
                   >
-                    查看产品宣传
+                    查看平台介绍
                     <PlayCircle className="size-4" />
                   </Button>
                 </div>

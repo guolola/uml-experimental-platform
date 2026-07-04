@@ -395,7 +395,7 @@ export const authSecurityHighlights = [
   },
 ];
 
-export const footerLinks = ["服务条款", "隐私政策", "客户支持", "技术文档"];
+export const footerLinks = ["技术文档"];
 
 export const securityHighlights = [
   { title: "HttpOnly Cookie 会话", icon: LockKeyhole },
