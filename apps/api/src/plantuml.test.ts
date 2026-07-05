@@ -842,7 +842,76 @@ test("design activity PlantUML handles reminder loops without losing the exit br
 
   assert.match(source, /记录提醒处理结果/);
   assert.match(source, /所有待提醒活动处理完成/);
+  assert.match(source, /label activity_loop_loop/);
+  assert.match(source, /goto activity_loop_loop/);
+  assert.doesNotMatch(source, /else\s*\([^)]*\)\s*endif/);
   assert.ok(source.length < 4000);
+});
+
+test("activity PlantUML connects the public calendar reminder no-branch back to monitoring", async () => {
+  const source = await renderActivityModel({
+    diagramKind: "activity",
+    title: "公开日历系统总体业务流程",
+    summary: "系统持续监控日程，并在活动开始前一天发送提醒。",
+    notes: [],
+    swimlanes: [{ id: "lane_system", name: "系统" }],
+    nodes: [
+      { id: "start_sys", type: "start", name: "开始" },
+      { id: "act_monitor", type: "activity", name: "监控活动日程", actorOrLane: "lane_system", input: [], output: [] },
+      { id: "dec_remind", type: "decision", question: "当前时间是否为活动开始前一天？" },
+      { id: "act_send_email", type: "activity", name: "发送电子邮件提醒", actorOrLane: "lane_system", input: [], output: [] },
+      { id: "end", type: "end", name: "结束" },
+    ],
+    relationships: [
+      { id: "rel1", type: "control_flow", sourceId: "start_sys", targetId: "act_monitor" },
+      { id: "rel2", type: "control_flow", sourceId: "act_monitor", targetId: "dec_remind" },
+      { id: "rel3", type: "control_flow", sourceId: "dec_remind", targetId: "act_send_email", guard: "[是]" },
+      { id: "rel4", type: "control_flow", sourceId: "dec_remind", targetId: "act_monitor", guard: "[否]" },
+      { id: "rel5", type: "control_flow", sourceId: "act_send_email", targetId: "end" },
+    ],
+  });
+
+  assert.match(source, /label activity_loop_act_monitor/);
+  assert.match(source, /else \(\[否\]\)\ngoto activity_loop_act_monitor/);
+  assert.doesNotMatch(source, /else\s*\(\[否\]\)\s*endif/);
+});
+
+test("activity PlantUML connects nested verification failures back to sending a code", async () => {
+  const source = await renderActivityModel({
+    diagramKind: "activity",
+    title: "用户登录业务流程",
+    summary: "验证码失败但未达到锁定阈值时重新发送验证码。",
+    notes: [],
+    swimlanes: [
+      { id: "lane_user", name: "用户" },
+      { id: "lane_system", name: "系统" },
+    ],
+    nodes: [
+      { id: "start", type: "start", name: "开始" },
+      { id: "send", type: "activity", name: "发送验证码", actorOrLane: "lane_system", input: [], output: [] },
+      { id: "input", type: "activity", name: "输入验证码", actorOrLane: "lane_user", input: [], output: [] },
+      { id: "valid", type: "decision", question: "验证码是否有效？" },
+      { id: "errors", type: "decision", question: "同一设备连续错误次数是否达到5次？" },
+      { id: "success", type: "activity", name: "登录成功", actorOrLane: "lane_system", input: [], output: [] },
+      { id: "lock", type: "activity", name: "锁定设备15分钟", actorOrLane: "lane_system", input: [], output: [] },
+      { id: "end", type: "end", name: "结束" },
+    ],
+    relationships: [
+      { id: "f1", type: "control_flow", sourceId: "start", targetId: "send" },
+      { id: "f2", type: "control_flow", sourceId: "send", targetId: "input" },
+      { id: "f3", type: "control_flow", sourceId: "input", targetId: "valid" },
+      { id: "f4", type: "control_flow", sourceId: "valid", targetId: "success", guard: "验证通过" },
+      { id: "f5", type: "control_flow", sourceId: "valid", targetId: "errors", guard: "验证失败" },
+      { id: "f6", type: "control_flow", sourceId: "errors", targetId: "lock", guard: "是" },
+      { id: "f7", type: "control_flow", sourceId: "errors", targetId: "send", condition: "否" },
+      { id: "f8", type: "control_flow", sourceId: "success", targetId: "end" },
+      { id: "f9", type: "control_flow", sourceId: "lock", targetId: "end" },
+    ],
+  });
+
+  assert.match(source, /label activity_loop_send/);
+  assert.match(source, /else \(否\)\ngoto activity_loop_send/);
+  assert.doesNotMatch(source, /else\s*\(否\)\s*endif/);
 });
 
 test("activity PlantUML keeps all branches for multi-way decisions", async () => {

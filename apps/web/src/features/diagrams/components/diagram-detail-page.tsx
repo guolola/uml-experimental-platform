@@ -1,5 +1,9 @@
 // Renders the diagram detail workspace, including diagram selection, trace highlights, export actions, and model/SVG views.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  designDiagramModelSpecSchema,
+  diagramModelSpecSchema,
+} from "@uml-platform/contracts";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -200,22 +204,32 @@ function DiagramDetailView({
     setDraft((current) => (current ? { ...current, [key]: value } : current));
   }, []);
   const commitDraftAndRerender = useCallback(async (nextDraft: Record<string, unknown>) => {
-    setDraft(nextDraft);
     setSaving(true);
     setSaveStatus("saving");
     try {
+      // Model edits cross the UI -> workspace -> renderer contract here; parsing
+      // removes editor-only metadata before it can affect downstream freshness.
+      const parsedDraft = (
+        isDesign
+          ? designDiagramModelSpecSchema.safeParse(nextDraft)
+          : diagramModelSpecSchema.safeParse(nextDraft)
+      );
+      const canonicalDraft = (
+        parsedDraft.success ? parsedDraft.data : nextDraft
+      ) as unknown as Record<string, unknown>;
+      setDraft(canonicalDraft);
       if (isDesign) {
-        await saveDesignModelEdit(designArtifactId, nextDraft as never);
-        await rerenderDesignModel(designArtifactId, nextDraft as never, {
+        await saveDesignModelEdit(designArtifactId, canonicalDraft as never);
+        await rerenderDesignModel(designArtifactId, canonicalDraft as never, {
           toastMessage: null,
         });
       } else {
-        await saveRequirementModelEdit(requirementType, nextDraft as never);
-        await rerenderRequirementModel(requirementType, nextDraft as never, {
+        await saveRequirementModelEdit(requirementType, canonicalDraft as never);
+        await rerenderRequirementModel(requirementType, canonicalDraft as never, {
           toastMessage: null,
         });
       }
-      persistedDraftFingerprintRef.current = draftFingerprint(nextDraft);
+      persistedDraftFingerprintRef.current = draftFingerprint(canonicalDraft);
       setSaveStatus("saved");
       toast.message("修改已保存，当前图已更新");
     } catch {

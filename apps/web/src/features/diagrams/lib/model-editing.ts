@@ -434,9 +434,18 @@ export function createRelationshipDraft(draft: Record<string, unknown>) {
       label: "新关系",
     };
   }
+  if (draft.diagramKind === "activity") {
+    return {
+      id: createDraftId("rel"),
+      type: "control_flow",
+      sourceId: source,
+      targetId: target,
+      condition: "新条件",
+    };
+  }
   return {
     id: createDraftId("rel"),
-    type: draft.diagramKind === "activity" ? "control_flow" : "association",
+    type: "association",
     sourceId: source,
     targetId: target,
     label: "新关系",

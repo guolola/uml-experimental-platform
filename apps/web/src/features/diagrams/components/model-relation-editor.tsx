@@ -43,17 +43,19 @@ export function ModelRelationEditor({
   const targetKey = relationEndpointKey(editorDraft, "target");
   return (
     <div className="space-y-3">
-      <LabelTextInput
-        label="关系名称"
-        value={relationName(relation)}
-        onChange={(value) =>
-          updateRelation(relationId, (currentRelation) => {
-            const nextRelation = { ...currentRelation };
-            setRelationName(nextRelation, value);
-            return nextRelation;
-          })
-        }
-      />
+      {editorDraft.diagramKind !== "activity" ? (
+        <LabelTextInput
+          label="关系名称"
+          value={relationName(relation)}
+          onChange={(value) =>
+            updateRelation(relationId, (currentRelation) => {
+              const nextRelation = { ...currentRelation };
+              setRelationName(nextRelation, value);
+              return nextRelation;
+            })
+          }
+        />
+      ) : null}
       <div className="grid gap-2 sm:grid-cols-3">
         <LabelSelect
           label="起点"

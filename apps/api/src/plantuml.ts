@@ -316,6 +316,61 @@ function escapeQuotedActivityLabel(value: string) {
   return escapeActivityLabel(value).replace(/"/g, "'");
 }
 
+function activityCycleLabels(
+  nodes: ActivityNode[],
+  relationships: ActivityRelationship[],
+) {
+  const outgoing = new Map<string, ActivityRelationship[]>();
+  for (const relationship of relationships) {
+    outgoing.set(relationship.sourceId, [
+      ...(outgoing.get(relationship.sourceId) ?? []),
+      relationship,
+    ]);
+  }
+
+  function canReach(startId: string, targetId: string) {
+    const pending = [startId];
+    const seen = new Set<string>();
+    while (pending.length > 0) {
+      const currentId = pending.pop();
+      if (!currentId || seen.has(currentId)) continue;
+      if (currentId === targetId) return true;
+      seen.add(currentId);
+      for (const relationship of outgoing.get(currentId) ?? []) {
+        pending.push(relationship.targetId);
+      }
+    }
+    return false;
+  }
+
+  const cycleNodeIds = new Set<string>();
+  for (const relationship of relationships) {
+    if (
+      relationship.sourceId === relationship.targetId ||
+      canReach(relationship.targetId, relationship.sourceId)
+    ) {
+      cycleNodeIds.add(relationship.sourceId);
+      cycleNodeIds.add(relationship.targetId);
+    }
+  }
+
+  const usedLabels = new Set<string>();
+  return new Map(
+    nodes.flatMap((node) => {
+      if (!cycleNodeIds.has(node.id)) return [];
+      const base = `activity_loop_${safeAlias(node.id)}`;
+      let label = base;
+      let suffix = 2;
+      while (usedLabels.has(label)) {
+        label = `${base}_${suffix}`;
+        suffix += 1;
+      }
+      usedLabels.add(label);
+      return [[node.id, label] as const];
+    }),
+  );
+}
+
 function renderActivity(model: ActivityDiagramSpec) {
   const lines = ["@startuml"];
   const nodesById = new Map<string, ActivityNode>(
@@ -326,6 +381,8 @@ function renderActivity(model: ActivityDiagramSpec) {
   );
   const outgoing = new Map<string, ActivityDiagramSpec["relationships"]>();
   const incoming = new Map<string, ActivityDiagramSpec["relationships"]>();
+  const cycleLabels = activityCycleLabels(model.nodes, activityFlows);
+  const emittedCycleLabels = new Set<string>();
   const shouldRenderStartNodesAsActions =
     model.nodes.some((node) => node.type === "start" && node.name.trim().length > 0) &&
     !model.nodes.some(
@@ -351,6 +408,13 @@ function renderActivity(model: ActivityDiagramSpec) {
   let currentLane: string | null = null;
   let sawStop = false;
   let stopCount = 0;
+
+  function pushCycleLabel(nodeId: string) {
+    const label = cycleLabels.get(nodeId);
+    if (!label || emittedCycleLabels.has(nodeId)) return;
+    lines.push(`label ${label}`);
+    emittedCycleLabels.add(nodeId);
+  }
 
   function pushLane(laneId?: string) {
     const lane = findSwimlaneName(model, laneId);
@@ -497,7 +561,15 @@ function renderActivity(model: ActivityDiagramSpec) {
       } else {
         lines.push(`elseif (${escapeConditionLabel(question)}) then (${label})`);
       }
+      const branchStartLine = lines.length;
       renderSequence(branch.targetId, branchStopBefore, new Set(pathSeen));
+      const reconnectsImmediately =
+        Boolean(commonContinuation) && branch.targetId === commonContinuation;
+      if (lines.length === branchStartLine && !reconnectsImmediately) {
+        throw new Error(
+          `Activity branch ${branch.id} (${branch.sourceId} -> ${branch.targetId}) produced no action, termination, or loop connection`,
+        );
+      }
     });
     lines.push("endif");
 
@@ -512,6 +584,13 @@ function renderActivity(model: ActivityDiagramSpec) {
     let nodeId = currentId;
     while (nodeId && !stopBefore.has(nodeId)) {
       if (pathSeen.has(nodeId)) {
+        const loopLabel = cycleLabels.get(nodeId);
+        if (!loopLabel || !emittedCycleLabels.has(nodeId)) {
+          throw new Error(
+            `Activity cycle re-enters ${nodeId} without a rendered loop label`,
+          );
+        }
+        lines.push(`goto ${loopLabel}`);
         return undefined;
       }
       pathSeen.add(nodeId);
@@ -522,6 +601,7 @@ function renderActivity(model: ActivityDiagramSpec) {
 
       switch (node.type) {
         case "start":
+          pushCycleLabel(node.id);
           // LLM output can occasionally wire a timer/start marker into an existing flow.
           if ((incoming.get(node.id) ?? []).length > 0) {
             if (shouldRenderStartNodesAsActions && node.name) {
@@ -573,6 +653,7 @@ function renderActivity(model: ActivityDiagramSpec) {
           nodeId = followSingleOutgoing(node.id);
           continue;
         case "end":
+          pushCycleLabel(node.id);
           lines.push("stop");
           sawStop = true;
           stopCount += 1;
@@ -580,6 +661,7 @@ function renderActivity(model: ActivityDiagramSpec) {
           return undefined;
         case "activity":
           pushLane(node.actorOrLane);
+          pushCycleLabel(node.id);
           lines.push(`:${escapeActivityLabel(node.name)};`);
           renderedNodes.add(node.id);
           {
@@ -602,10 +684,12 @@ function renderActivity(model: ActivityDiagramSpec) {
           continue;
         case "merge":
         case "join":
+          pushCycleLabel(node.id);
           renderedNodes.add(node.id);
           nodeId = followSingleOutgoing(node.id);
           continue;
         case "decision": {
+          pushCycleLabel(node.id);
           const branches = outgoing.get(node.id) ?? [];
           renderedNodes.add(node.id);
           if (branches.length < 2) {
@@ -628,6 +712,7 @@ function renderActivity(model: ActivityDiagramSpec) {
           continue;
         }
         case "fork": {
+          pushCycleLabel(node.id);
           const branches = outgoing.get(node.id) ?? [];
           renderedNodes.add(node.id);
           if (branches.length < 2) {

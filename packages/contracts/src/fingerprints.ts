@@ -1,4 +1,9 @@
 // Owns stable workspace input fingerprinting for requirement snapshots and design input compatibility.
+import {
+  diagramModelSpecSchema,
+  requirementModelTraceabilityEntrySchema,
+} from "./models.js";
+
 export const WORKSPACE_FINGERPRINT_VERSION = "fp:v2";
 
 export function snapshotInputFingerprint(value: unknown) {
@@ -98,16 +103,28 @@ function normalizeDesignInputFingerprintValue(value: unknown) {
   const record = isFingerprintRecord(value) ? value : {};
   return {
     requirementModels: sortByFingerprintKey(
-      Array.isArray(record.requirementModels) ? record.requirementModels : [],
+      canonicalRequirementModels(record.requirementModels),
       designModelFingerprintKey,
     ),
     requirementModelTraceability: sortByFingerprintKey(
-      Array.isArray(record.requirementModelTraceability)
-        ? record.requirementModelTraceability
-        : [],
+      canonicalRequirementTraceability(record.requirementModelTraceability),
       traceabilityFingerprintKey,
     ),
   };
+}
+
+function canonicalRequirementModels(value: unknown) {
+  return (Array.isArray(value) ? value : []).map((model) => {
+    const parsed = diagramModelSpecSchema.safeParse(model);
+    return parsed.success ? parsed.data : model;
+  });
+}
+
+function canonicalRequirementTraceability(value: unknown) {
+  return (Array.isArray(value) ? value : []).map((entry) => {
+    const parsed = requirementModelTraceabilityEntrySchema.safeParse(entry);
+    return parsed.success ? parsed.data : entry;
+  });
 }
 
 function sortByFingerprintKey<T>(values: T[], keyFor: (value: T) => string) {
