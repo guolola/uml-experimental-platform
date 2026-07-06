@@ -6389,7 +6389,9 @@ test("api updates profile and changes password through account routes", async ()
 test("api uploads and serves account avatar files", async () => {
   const avatarStorageDir = mkdtempSync(join(tmpdir(), "uml-avatar-test-"));
   const originalAvatarStorageDir = process.env.UML_AVATAR_STORAGE_DIR;
+  const originalPublicApiBaseUrl = process.env.PUBLIC_API_BASE_URL;
   process.env.UML_AVATAR_STORAGE_DIR = avatarStorageDir;
+  process.env.PUBLIC_API_BASE_URL = "https://jianglisoftware.com/";
   const app = await createTestApiServer({
     llmTransport: createMockLlmTransport(),
     renderClient: async () => ({
@@ -6447,7 +6449,10 @@ test("api uploads and serves account avatar files", async () => {
       }),
     });
     assert.equal(uploaded.statusCode, 200);
-    assert.match(uploaded.json().user.avatarUrl, /^http:\/\/localhost:80\/api\/account\/avatars\/.+\.png$/u);
+    assert.match(
+      uploaded.json().user.avatarUrl,
+      /^https:\/\/jianglisoftware\.com\/api\/account\/avatars\/.+\.png$/u,
+    );
     assert.equal(uploaded.json().mfa.enabled, false);
     assert.ok(uploaded.json().session.id);
 
@@ -6465,6 +6470,38 @@ test("api uploads and serves account avatar files", async () => {
     assert.equal(avatar.statusCode, 200);
     assert.match(String(avatar.headers["content-type"] ?? ""), /^image\/png/u);
     assert.ok(avatar.body.length > 0);
+
+    delete process.env.PUBLIC_API_BASE_URL;
+    const fallbackUpload = await app.inject({
+      method: "POST",
+      url: "/api/account/avatar",
+      headers: {
+        cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: multipartAvatarPayload({
+        boundary,
+        contentType: "image/png",
+        fileName: "avatar.png",
+        content: VALID_PNG,
+      }),
+    });
+    assert.equal(fallbackUpload.statusCode, 200);
+    assert.match(
+      fallbackUpload.json().user.avatarUrl,
+      /^http:\/\/localhost:80\/api\/account\/avatars\/.+\.png$/u,
+    );
+
+    const insecureProfileUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/account/profile",
+      headers: { cookie },
+      payload: {
+        avatarUrl: "http://cdn.example.com/avatar.png",
+      },
+    });
+    assert.equal(insecureProfileUpdate.statusCode, 400);
+    assert.match(insecureProfileUpdate.json().message, /HTTPS/u);
 
     const invalidType = await app.inject({
       method: "POST",
@@ -6526,6 +6563,11 @@ test("api uploads and serves account avatar files", async () => {
       delete process.env.UML_AVATAR_STORAGE_DIR;
     } else {
       process.env.UML_AVATAR_STORAGE_DIR = originalAvatarStorageDir;
+    }
+    if (originalPublicApiBaseUrl === undefined) {
+      delete process.env.PUBLIC_API_BASE_URL;
+    } else {
+      process.env.PUBLIC_API_BASE_URL = originalPublicApiBaseUrl;
     }
     rmSync(avatarStorageDir, { recursive: true, force: true });
   }

@@ -93,6 +93,10 @@ function avatarMimeForFileName(fileName: string) {
 }
 
 function avatarUrlForRequest(request: FastifyRequest, fileName: string) {
+  const configuredBaseUrl = process.env.PUBLIC_API_BASE_URL?.trim();
+  if (configuredBaseUrl) {
+    return `${configuredBaseUrl.replace(/\/+$/u, "")}/api/account/avatars/${fileName}`;
+  }
   const host = request.headers.host ?? "localhost";
   return `${request.protocol}://${host}/api/account/avatars/${fileName}`;
 }

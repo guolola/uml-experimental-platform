@@ -33,6 +33,7 @@ import {
   documentLibraryListResponseSchema,
   documentRunSnapshotSchema,
   onlyOfficeEditorConfigResponseSchema,
+  accountProfileUpdateRequestSchema,
   accountSecurityUpdateRequestSchema,
   accountProfileResponseSchema,
   adminRoleCapabilities,
@@ -1536,6 +1537,23 @@ test("contracts describe user, session, admin, and account security DTOs", () =>
     },
   });
   assert.equal(accountProfile.mfa.enforcement, "totp");
+  assert.equal(
+    accountProfileUpdateRequestSchema.parse({
+      avatarUrl: "https://cdn.example.com/avatar.png",
+    }).avatarUrl,
+    "https://cdn.example.com/avatar.png",
+  );
+  assert.equal(
+    accountProfileUpdateRequestSchema.parse({ avatarUrl: null }).avatarUrl,
+    null,
+  );
+  assert.throws(
+    () =>
+      accountProfileUpdateRequestSchema.parse({
+        avatarUrl: "http://cdn.example.com/avatar.png",
+      }),
+    /HTTPS/u,
+  );
 
   const admin = adminUserDtoSchema.parse({
     user,

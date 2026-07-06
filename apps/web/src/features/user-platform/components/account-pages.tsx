@@ -18,6 +18,17 @@ type Navigate = (path: string) => void;
 
 const ACCOUNT_PAGE_SCROLL_CLASS =
   "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-scroll bg-background [scrollbar-gutter:stable]";
+const AVATAR_HTTPS_ERROR = "头像 URL 必须使用 HTTPS。";
+
+function avatarUrlValidationMessage(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return "";
+  try {
+    return new URL(normalized).protocol === "https:" ? "" : AVATAR_HTTPS_ERROR;
+  } catch {
+    return AVATAR_HTTPS_ERROR;
+  }
+}
 
 function AccountPageFrame({
   children,
@@ -59,6 +70,7 @@ export function AccountPage({ onNavigate }: { onNavigate: Navigate }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const avatarUrlError = avatarUrlValidationMessage(avatarUrl);
 
   useEffect(() => {
     let active = true;
@@ -87,6 +99,10 @@ export function AccountPage({ onNavigate }: { onNavigate: Navigate }) {
   const saveProfile = async () => {
     setMessage("");
     setError("");
+    if (avatarUrlError) {
+      setError(avatarUrlError);
+      return;
+    }
     setSaving(true);
     try {
       const response = await platformApi.updateAccountProfile({
@@ -132,10 +148,18 @@ export function AccountPage({ onNavigate }: { onNavigate: Navigate }) {
               <Label htmlFor="profile-avatar">头像 URL</Label>
               <Input
                 id="profile-avatar"
+                type="url"
                 value={avatarUrl}
                 onChange={(event) => setAvatarUrl(event.target.value)}
                 placeholder="https://example.com/avatar.png"
+                aria-invalid={Boolean(avatarUrlError)}
+                aria-describedby={avatarUrlError ? "profile-avatar-error" : undefined}
               />
+              {avatarUrlError && (
+                <p id="profile-avatar-error" className="text-sm text-destructive" role="alert">
+                  {avatarUrlError}
+                </p>
+              )}
             </div>
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -144,7 +168,11 @@ export function AccountPage({ onNavigate }: { onNavigate: Navigate }) {
               </div>
               <Switch defaultChecked aria-label="启用通知" />
             </div>
-            <Button type="button" onClick={() => void saveProfile()} disabled={saving || loading}>
+            <Button
+              type="button"
+              onClick={() => void saveProfile()}
+              disabled={saving || loading || Boolean(avatarUrlError)}
+            >
               {saving && <Loader2 className="size-4 animate-spin" />}
               保存资料
             </Button>

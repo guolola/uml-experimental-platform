@@ -255,7 +255,15 @@ export type AccountMfaConfirmRequest = z.infer<
 
 export const accountProfileUpdateRequestSchema = z.object({
   displayName: publicNameSchema.optional(),
-  avatarUrl: z.string().url().nullable().optional(),
+  avatarUrl: z
+    .string()
+    .trim()
+    .url()
+    .refine((value) => new URL(value).protocol === "https:", {
+      message: "Avatar URL must use HTTPS",
+    })
+    .nullable()
+    .optional(),
 });
 export type AccountProfileUpdateRequest = z.infer<
   typeof accountProfileUpdateRequestSchema
