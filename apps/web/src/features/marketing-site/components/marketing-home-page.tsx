@@ -149,6 +149,16 @@ function MarketingFooter() {
             </a>
           </address>
         </div>
+        <div className="text-center lg:col-span-2">
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline-offset-4 hover:text-primary hover:underline"
+          >
+            闽ICP备2026024395号
+          </a>
+        </div>
       </div>
     </footer>
   );

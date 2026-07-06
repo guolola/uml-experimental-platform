@@ -1883,6 +1883,10 @@ describe("App shell routes", () => {
         "mailto:672250123@qq.com",
       );
       expect(screen.getByRole("link", { name: "技术文档" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "闽ICP备2026024395号" })).toHaveAttribute(
+        "href",
+        "https://beian.miit.gov.cn/",
+      );
       expect(screen.queryByRole("link", { name: "服务条款" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "隐私政策" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "客户支持" })).not.toBeInTheDocument();
