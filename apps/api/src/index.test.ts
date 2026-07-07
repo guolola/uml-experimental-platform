@@ -6163,7 +6163,16 @@ test("api registers users, stores sessions in HttpOnly cookies, and logs out", a
   const cookie = getSessionCookie(register);
   const registered = register.json();
   assert.equal(registered.user.email, "owner@example.com");
+  assert.equal(registered.user.status, "pending_email_verification");
   assert.equal(registered.user.passwordHash, undefined);
+  const verifyEmail = await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email",
+    payload: {
+      token: registered.verification.devToken,
+    },
+  });
+  assert.equal(verifyEmail.statusCode, 200);
 
   const me = await app.inject({
     method: "GET",
@@ -6433,6 +6442,14 @@ test("api uploads and serves account avatar files", async () => {
       },
     });
     const cookie = getSessionCookie(register);
+    const verifyEmail = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-email",
+      payload: {
+        token: register.json().verification.devToken,
+      },
+    });
+    assert.equal(verifyEmail.statusCode, 200);
 
     const uploaded = await app.inject({
       method: "POST",
@@ -6604,6 +6621,14 @@ test("api enforces project membership and member management guard rules", async 
     },
   });
   const ownerCookie = getSessionCookie(ownerRegister);
+  const ownerVerifyEmail = await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email",
+    payload: {
+      token: ownerRegister.json().verification.devToken,
+    },
+  });
+  assert.equal(ownerVerifyEmail.statusCode, 200);
 
   const viewerRegister = await app.inject({
     method: "POST",
@@ -6616,6 +6641,14 @@ test("api enforces project membership and member management guard rules", async 
     },
   });
   const viewerCookie = getSessionCookie(viewerRegister);
+  const viewerVerifyEmail = await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email",
+    payload: {
+      token: viewerRegister.json().verification.devToken,
+    },
+  });
+  assert.equal(viewerVerifyEmail.statusCode, 200);
 
   const projectCreate = await app.inject({
     method: "POST",
@@ -6762,6 +6795,14 @@ test("api server injects the configured mail adapter into project invitations", 
   });
   assert.equal(ownerRegister.statusCode, 201);
   const ownerCookie = getSessionCookie(ownerRegister);
+  const ownerVerifyEmail = await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email",
+    payload: {
+      token: ownerRegister.json().verification.devToken,
+    },
+  });
+  assert.equal(ownerVerifyEmail.statusCode, 200);
 
   const projectCreate = await app.inject({
     method: "POST",

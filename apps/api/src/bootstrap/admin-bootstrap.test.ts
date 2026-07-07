@@ -36,6 +36,7 @@ test("admin bootstrap creates a real super admin without fixed mock passwords", 
 
   assert.equal(result.user.email, "admin@example.edu");
   assert.deepEqual(result.user.systemRoles, ["super_admin"]);
+  assert.equal(result.user.status, "pending_email_verification");
   assert.equal(result.user.emailVerified, false);
   assert.equal(result.user.mfaEnabled, false);
   assert.equal(result.verification.purpose, "verify_email");

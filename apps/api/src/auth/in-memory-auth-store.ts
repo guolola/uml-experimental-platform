@@ -191,6 +191,7 @@ export function createInMemoryAuthStore() {
     displayName: string;
     passwordHash: string;
     systemRoles?: AdminRole[];
+    status?: UserStatus;
     emailVerified?: boolean;
   }) {
     const email = normalizeEmail(input.email);
@@ -201,14 +202,17 @@ export function createInMemoryAuthStore() {
     if (usersByUsername.has(username)) return null;
 
     const createdAt = now();
+    const emailVerified = input.emailVerified ?? true;
     const user: UserRecord = {
       id: randomUUID(),
       email,
       username,
       displayName: input.displayName,
       avatarUrl: null,
-      status: "active",
-      emailVerified: input.emailVerified ?? true,
+      status:
+        input.status ??
+        (emailVerified ? "active" : "pending_email_verification"),
+      emailVerified,
       mfaEnabled: false,
       mfaSecret: null,
       mfaPendingSecret: null,
@@ -400,7 +404,13 @@ export function createInMemoryAuthStore() {
   function verifyEmailToken(token: string) {
     const record = consumeAuthToken("email_verification", token);
     if (!record) return null;
-    return updateUser(record.userId, { emailVerified: true });
+    const user = getUser(record.userId);
+    if (!user) return null;
+    return updateUser(record.userId, {
+      // Verification is the state transition from pending signup to an active account.
+      emailVerified: true,
+      status: user.status === "pending_email_verification" ? "active" : user.status,
+    });
   }
 
   function createPasswordResetToken(email: string) {

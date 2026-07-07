@@ -55,6 +55,7 @@ export function registerAuthRoutes({
       username: input.username,
       displayName: input.displayName,
       passwordHash: hashPassword(input.password),
+      status: "pending_email_verification",
       emailVerified: false,
     });
     if (!user) {
@@ -121,18 +122,6 @@ export function registerAuthRoutes({
       });
       return { message: "Invalid email or password" };
     }
-    if (user.status !== "active") {
-      reply.code(403);
-      await authStore.recordLoginEvent({
-        userId: user.id,
-        email: user.email,
-        outcome: "failure",
-        ipAddress: request.ip ?? null,
-        userAgent: request.headers["user-agent"] ?? null,
-        message: "User is not active",
-      });
-      return { message: "User is not active" };
-    }
     if (!user.emailVerified) {
       reply.code(403);
       await authStore.recordLoginEvent({
@@ -144,6 +133,18 @@ export function registerAuthRoutes({
         message: "Email is not verified",
       });
       return { message: "Email verification is required before login" };
+    }
+    if (user.status !== "active") {
+      reply.code(403);
+      await authStore.recordLoginEvent({
+        userId: user.id,
+        email: user.email,
+        outcome: "failure",
+        ipAddress: request.ip ?? null,
+        userAgent: request.headers["user-agent"] ?? null,
+        message: "User is not active",
+      });
+      return { message: "User is not active" };
     }
 
     if (user.mfaEnabled) {
@@ -258,18 +259,6 @@ export function registerAuthRoutes({
       });
       return { message: "Invalid email or password" };
     }
-    if (user.status !== "active") {
-      reply.code(403);
-      await authStore.recordLoginEvent({
-        userId: user.id,
-        email: user.email,
-        outcome: "failure",
-        ipAddress: request.ip ?? null,
-        userAgent: request.headers["user-agent"] ?? null,
-        message: "User is not active",
-      });
-      return { message: "User is not active" };
-    }
     if (!user.emailVerified) {
       reply.code(403);
       await authStore.recordLoginEvent({
@@ -281,6 +270,18 @@ export function registerAuthRoutes({
         message: "Email is not verified",
       });
       return { message: "Email verification is required before login" };
+    }
+    if (user.status !== "active") {
+      reply.code(403);
+      await authStore.recordLoginEvent({
+        userId: user.id,
+        email: user.email,
+        outcome: "failure",
+        ipAddress: request.ip ?? null,
+        userAgent: request.headers["user-agent"] ?? null,
+        message: "User is not active",
+      });
+      return { message: "User is not active" };
     }
     if (!hasAnyAdminRole(user.systemRoles)) {
       reply.code(403);

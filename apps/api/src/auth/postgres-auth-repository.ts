@@ -468,12 +468,17 @@ export function createPostgresAuthRepository(db: Queryable) {
       displayName: string;
       passwordHash: string;
       systemRoles?: AdminRole[];
+      status?: UserStatus;
       emailVerified?: boolean;
     }) {
       const email = normalizeEmail(input.email);
       const username = input.username
         ? normalizeUsername(input.username)
         : usernameFromEmail(email);
+      const emailVerified = input.emailVerified ?? true;
+      const status =
+        input.status ??
+        (emailVerified ? "active" : "pending_email_verification");
       const result = await db.query<UserRow>(
         `
           insert into users (
@@ -483,9 +488,10 @@ export function createPostgresAuthRepository(db: Queryable) {
             display_name,
             password_hash,
             system_roles,
+            status,
             email_verified
           )
-          values ($1, $2, $3, $4, $5, $6, $7)
+          values ($1, $2, $3, $4, $5, $6, $7, $8)
           on conflict do nothing
           returning ${userColumns}
         `,
@@ -496,7 +502,8 @@ export function createPostgresAuthRepository(db: Queryable) {
           input.displayName,
           input.passwordHash,
           input.systemRoles ?? [],
-          input.emailVerified ?? true,
+          status,
+          emailVerified,
         ],
       );
 
@@ -794,7 +801,13 @@ export function createPostgresAuthRepository(db: Queryable) {
       );
       const tokenRow = result.rows[0];
       if (!tokenRow) return null;
-      return this.updateUser(tokenRow.user_id, { emailVerified: true });
+      const user = await this.getUser(tokenRow.user_id);
+      if (!user) return null;
+      return this.updateUser(tokenRow.user_id, {
+        // Verification is the state transition from pending signup to an active account.
+        emailVerified: true,
+        status: user.status === "pending_email_verification" ? "active" : user.status,
+      });
     },
 
     async createPasswordResetToken(email: string) {

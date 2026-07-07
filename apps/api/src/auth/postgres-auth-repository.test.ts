@@ -109,8 +109,29 @@ test("postgres auth repository creates users with normalized email and JSON syst
     "hash",
     ["super-admin"],
   ]);
-  assert.deepEqual(client.calls[0]?.params.slice(6, 7), [
+  assert.deepEqual(client.calls[0]?.params.slice(6, 8), [
+    "active",
     true,
+  ]);
+});
+
+test("postgres auth repository creates unverified users in pending email verification status", async () => {
+  const client = new CapturingClient();
+  client.nextRows = [{ ...userRow, status: "pending_email_verification", email_verified: false }];
+
+  const repository = createPostgresAuthRepository(client);
+  const user = await repository.createUser({
+    email: "verify@example.com",
+    displayName: "Verify User",
+    passwordHash: "hash",
+    emailVerified: false,
+  });
+
+  assert.equal(user?.status, "pending_email_verification");
+  assert.equal(user?.emailVerified, false);
+  assert.deepEqual(client.calls[0]?.params.slice(6, 8), [
+    "pending_email_verification",
+    false,
   ]);
 });
 

@@ -55,6 +55,7 @@ test("auth registration issues an email verification token and verify-email mark
   assert.equal(registered.statusCode, 201);
   const cookie = getSessionCookie(registered);
   assert.equal(registered.json().user.emailVerified, false);
+  assert.equal(registered.json().user.status, "pending_email_verification");
   assert.equal(typeof registered.json().verification.devToken, "string");
 
   const verified = await app.inject({
@@ -66,6 +67,7 @@ test("auth registration issues an email verification token and verify-email mark
   });
   assert.equal(verified.statusCode, 200);
   assert.equal(verified.json().user.emailVerified, true);
+  assert.equal(verified.json().user.status, "active");
 
   const summary = await app.inject({
     method: "GET",
@@ -199,6 +201,7 @@ test("auth login requires email verification", async () => {
   });
   assert.equal(blocked.statusCode, 403);
   assert.match(blocked.json().message, /Email verification/);
+  assert.equal(registered.json().user.status, "pending_email_verification");
 
   const verified = await app.inject({
     method: "POST",
@@ -208,6 +211,7 @@ test("auth login requires email verification", async () => {
     },
   });
   assert.equal(verified.statusCode, 200);
+  assert.equal(verified.json().user.status, "active");
 
   const allowed = await app.inject({
     method: "POST",

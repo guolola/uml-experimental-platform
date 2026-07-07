@@ -817,6 +817,7 @@ test("admin endpoints expose real users, projects, and audit logs from the platf
     email: "owner@example.com",
     displayName: "Project Owner",
     passwordHash: hashPassword("password-123"),
+    emailVerified: false,
   });
   assert.ok(owner);
   const { project } = authStore.createProject({
@@ -856,6 +857,8 @@ test("admin endpoints expose real users, projects, and audit logs from the platf
   );
   const ownerUser = users.json().users.find((user: { email: string }) => user.email === "owner@example.com");
   assert.ok(ownerUser);
+  assert.equal(ownerUser.emailVerified, false);
+  assert.equal(ownerUser.status, "pending_email_verification");
   assert.equal(typeof ownerUser.billingSummary.creditBalance, "number");
   assert.doesNotMatch(users.body, /passwordHash/i);
   assert.equal(projects.statusCode, 200);
