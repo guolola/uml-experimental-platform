@@ -66,7 +66,9 @@ Bootstrap 会创建 `super_admin` 用户、生成邮箱验证 token，并通过 
 | `RENDER_SERVICE_CORS_ORIGINS` | 是 | 允许访问 render-service 的源。生产通常只允许主站域名；render-service 不建议公网直暴露。 |
 | `VITE_APP_API_BASE_URL` | 前端构建 | 主 Web 前端访问 API 的 base。与 Nginx 同域反代时可为空字符串；跨域部署时填主 API 公网 base，例如 `https://uml.example.edu`。 |
 | `VITE_ADMIN_API_BASE_URL` | 后台构建 | 后台管理前端访问主 API 的 base，例如 `https://uml.example.edu`。后台也可兼容 `VITE_APP_API_BASE_URL`，但生产推荐使用后台专用变量。 |
-| `PUBLIC_WEB_BASE_URL` | 建议 | 前台公网 base，例如 `https://platform.example.com`，用于注册验证邮件、找回密码邮件等浏览器链接。未配置时会回退使用 `PUBLIC_API_BASE_URL`。 |
+| `PUBLIC_WEB_BASE_URL` | 是 | 前台唯一 HTTPS origin，例如 `https://jianglisoftware.com`；同时用于邮件链接、canonical、sitemap 和搜索引擎提交。生产 SEO 构建缺失时直接失败。 |
+| `INDEXNOW_KEY` | 建议 | IndexNow 域名验证 key。发布脚本将其写入共享目录并通过 `/indexnow-key.txt` 提供，不得提交仓库。 |
+| `BAIDU_PUSH_TOKEN` | 建议 | 百度搜索资源平台普通收录 API token。只在公开页面内容摘要变化时使用，日志不得输出原值。 |
 | `ADMIN_WEB_BASE_URL` | 建议 | 后台前端公网 base，例如 `https://admin.uml.example.edu`，用于运维记录、邮件或回调白名单口径。若当前代码未读取该变量，也应在部署文档和反代配置中保留。 |
 
 跨域使用 HttpOnly cookie session 时，API 必须允许 credentials，前端请求必须带 `credentials: "include"`，Cookie 应配置 `HttpOnly + Secure + SameSite`，生产 HTTPS 下建议使用 `SameSite=None; Secure` 支持独立后台域名。

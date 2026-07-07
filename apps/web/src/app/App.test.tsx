@@ -2078,12 +2078,12 @@ describe("App shell routes", () => {
       to: "/projects",
     });
     expect(matchAppRoute("/about")).toMatchObject({
-      kind: "marketing-home",
-      path: "/",
+      kind: "not-found",
+      path: "/about",
     });
     expect(matchAppRoute("/admin/system-notices")).toMatchObject({
-      kind: "marketing-home",
-      path: "/",
+      kind: "not-found",
+      path: "/admin/system-notices",
     });
   });
 

@@ -294,6 +294,8 @@ function HomeTab({
 }: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
   const signedIn = Boolean(authUser);
   const [promoDialogOpen, setPromoDialogOpen] = useState(false);
+  const [clientReady, setClientReady] = useState(false);
+  useEffect(() => setClientReady(true), []);
 
   return (
     <>
@@ -368,26 +370,28 @@ function HomeTab({
           </div>
         </section>
       </MarketingScrollPage>
-      <Dialog open={promoDialogOpen} onOpenChange={setPromoDialogOpen}>
-        <DialogContent
-          hideCloseButton
-          className="max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] !max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none"
-        >
-          <DialogTitle className="sr-only">查看平台介绍</DialogTitle>
-          <DialogDescription className="sr-only">
-            通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。
-          </DialogDescription>
-          {promoDialogOpen && (
-            <VideoPlayer
-              src={MARKETING_PROMO_VIDEO_URL}
-              title="软件工程实践平台介绍视频"
-              description="从可信链路和证据视角展示平台核心流程。"
-              caption="平台介绍视频"
-              autoPlay
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {clientReady && (
+        <Dialog open={promoDialogOpen} onOpenChange={setPromoDialogOpen}>
+          <DialogContent
+            hideCloseButton
+            className="max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] !max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none"
+          >
+            <DialogTitle className="sr-only">查看平台介绍</DialogTitle>
+            <DialogDescription className="sr-only">
+              通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。
+            </DialogDescription>
+            {promoDialogOpen && (
+              <VideoPlayer
+                src={MARKETING_PROMO_VIDEO_URL}
+                title="软件工程实践平台介绍视频"
+                description="从可信链路和证据视角展示平台核心流程。"
+                caption="平台介绍视频"
+                autoPlay
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }

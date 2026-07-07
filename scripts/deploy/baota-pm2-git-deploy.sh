@@ -165,6 +165,53 @@ verify_web_api_base() {
   echo "Web API base check passed: $dist_dir"
 }
 
+verify_web_seo_artifacts() {
+  local dist_dir="$1"
+  local required=(
+    "app.html"
+    "robots.txt"
+    "sitemap.xml"
+    "404.html"
+    "seo-manifest.json"
+    "features/index.html"
+    "workflow/index.html"
+    "cases/index.html"
+    "pricing/index.html"
+    "og-cover.png"
+  )
+
+  for relative_path in "${required[@]}"; do
+    if [[ ! -f "$dist_dir/$relative_path" ]]; then
+      echo "Web SEO artifact is missing: $dist_dir/$relative_path" >&2
+      exit 1
+    fi
+  done
+  echo "Web SEO artifact check passed: $dist_dir"
+}
+
+submit_changed_seo_urls() {
+  local current_manifest="$RELEASE_DIR/apps/web/dist/seo-manifest.json"
+  local previous_manifest=""
+  if [[ -n "$PREVIOUS_RELEASE" && -f "$PREVIOUS_RELEASE/apps/web/dist/seo-manifest.json" ]]; then
+    previous_manifest="$PREVIOUS_RELEASE/apps/web/dist/seo-manifest.json"
+  fi
+
+  (
+    load_production_env
+    if [[ -n "${INDEXNOW_KEY:-}" ]]; then
+      mkdir -p "$DEPLOY_PATH/shared/seo"
+      printf '%s\n' "$INDEXNOW_KEY" > "$DEPLOY_PATH/shared/seo/indexnow-key.txt"
+      chmod 644 "$DEPLOY_PATH/shared/seo/indexnow-key.txt"
+    fi
+
+    local args=(--current "$current_manifest")
+    if [[ -n "$previous_manifest" ]]; then
+      args+=(--previous "$previous_manifest")
+    fi
+    node "$SOURCE_DIR/apps/web/scripts/submit-seo.mjs" "${args[@]}"
+  ) || echo "Warning: search-engine notification failed; deployment remains healthy." >&2
+}
+
 copy_release_payload() {
   echo "Creating release payload ..."
   rm -rf "$TMP_DIR" "$RELEASE_DIR"
@@ -410,6 +457,7 @@ echo "Building production bundles from $SOURCE_DIR ..."
   run_timed "build production web" npm run build:web:production
 )
 verify_web_api_base "$SOURCE_DIR/apps/web/dist"
+verify_web_seo_artifacts "$SOURCE_DIR/apps/web/dist"
 
 copy_release_payload
 ensure_plantuml_jar
@@ -420,6 +468,7 @@ if [[ ! -f "$TMP_DIR/apps/web/dist/index.html" ]]; then
   exit 1
 fi
 verify_web_api_base "$TMP_DIR/apps/web/dist"
+verify_web_seo_artifacts "$TMP_DIR/apps/web/dist"
 
 mv "$TMP_DIR" "$RELEASE_DIR"
 publish_shared_web_assets "$RELEASE_DIR"
@@ -431,6 +480,15 @@ if ! run_timed "PM2 reload and release verification" \
   rollback_to_previous_release
   exit 1
 fi
+
+if ! run_timed "public SEO verification" \
+  node "$SOURCE_DIR/apps/web/scripts/verify-seo-deployment.mjs"; then
+  echo "New release failed SEO checks; restoring previous release" >&2
+  rollback_to_previous_release
+  exit 1
+fi
+
+submit_changed_seo_urls
 
 cleanup_old_releases
 

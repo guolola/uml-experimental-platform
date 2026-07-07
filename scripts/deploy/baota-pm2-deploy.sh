@@ -121,6 +121,30 @@ verify_web_api_base() {
   echo "Web API base check passed: $dist_dir"
 }
 
+verify_web_seo_artifacts() {
+  local dist_dir="$1"
+  local required=(
+    "app.html"
+    "robots.txt"
+    "sitemap.xml"
+    "404.html"
+    "seo-manifest.json"
+    "features/index.html"
+    "workflow/index.html"
+    "cases/index.html"
+    "pricing/index.html"
+    "og-cover.png"
+  )
+
+  for relative_path in "${required[@]}"; do
+    if [[ ! -f "$dist_dir/$relative_path" ]]; then
+      echo "Web SEO artifact is missing: $dist_dir/$relative_path" >&2
+      exit 1
+    fi
+  done
+  echo "Web SEO artifact check passed: $dist_dir"
+}
+
 trap cleanup_tmp_dir EXIT
 
 echo "Disk usage before deploy:"
@@ -144,6 +168,7 @@ if [[ ! -f "$TMP_DIR/apps/web/dist/index.html" ]]; then
   exit 1
 fi
 verify_web_api_base "$TMP_DIR/apps/web/dist"
+verify_web_seo_artifacts "$TMP_DIR/apps/web/dist"
 
 PLANTUML_JAR="plantuml-1.2026.3beta8.jar"
 PLANTUML_TARGET="$TMP_DIR/plantuml/build/libs/$PLANTUML_JAR"
