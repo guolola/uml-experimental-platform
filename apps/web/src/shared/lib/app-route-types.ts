@@ -16,6 +16,7 @@ export type AppRoute =
   | { kind: "shell"; path: ShellRoutePath }
   | { kind: "auth"; path: AuthRoutePath }
   | { kind: "invitation-accept"; path: "/invitations/accept" }
+  | { kind: "not-found"; path: string }
   | { kind: "legacy-account"; path: "/account" | "/account/security" }
   | { kind: "alipay-return"; path: "/billing/alipay/return" }
   | { kind: "legacy-redirect"; path: "/settings/models" | "/account/billing"; to: "/projects" }

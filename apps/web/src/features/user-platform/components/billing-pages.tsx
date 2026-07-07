@@ -655,6 +655,8 @@ export function PricingBillingPage({
 }) {
   const { skus, loading, error } = useBillingSkus();
   const payment = usePaymentFlow(onNavigate);
+  const [clientReady, setClientReady] = useState(false);
+  useEffect(() => setClientReady(true), []);
   return (
     <section
       data-testid="pricing-payment-page"
@@ -683,25 +685,30 @@ export function PricingBillingPage({
           variant="pricing"
         />
       </div>
-      <PaymentConfirmDialog
-        sku={payment.selectedSku}
-        open={Boolean(payment.selectedSku)}
-        creating={payment.creating}
-        error={payment.error}
-        channel={payment.channel}
-        onChannelChange={payment.setChannel}
-        onOpenChange={(open) => {
-          if (!open) payment.setSelectedSku(null);
-        }}
-        onConfirm={payment.createOrder}
-      />
-      <WechatQrDialog
-        order={payment.wechatOrder}
-        open={payment.qrOpen}
-        polling={payment.polling}
-        onOpenChange={payment.setQrOpen}
-        onRefresh={payment.refreshWechatOrder}
-      />
+      {clientReady && (
+        <>
+          {/* Payment portals mount after hydration so the crawlable pricing shell stays deterministic. */}
+          <PaymentConfirmDialog
+            sku={payment.selectedSku}
+            open={Boolean(payment.selectedSku)}
+            creating={payment.creating}
+            error={payment.error}
+            channel={payment.channel}
+            onChannelChange={payment.setChannel}
+            onOpenChange={(open) => {
+              if (!open) payment.setSelectedSku(null);
+            }}
+            onConfirm={payment.createOrder}
+          />
+          <WechatQrDialog
+            order={payment.wechatOrder}
+            open={payment.qrOpen}
+            polling={payment.polling}
+            onOpenChange={payment.setQrOpen}
+            onRefresh={payment.refreshWechatOrder}
+          />
+        </>
+      )}
     </section>
   );
 }

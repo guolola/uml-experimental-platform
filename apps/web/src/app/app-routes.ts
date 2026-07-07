@@ -70,5 +70,5 @@ export function matchAppRoute(pathname: string): AppRoute {
       : { kind: "project-workspace", path: pathname, projectId };
   }
 
-  return { kind: "marketing-home", path: "/" };
+  return { kind: "not-found", path: pathname };
 }

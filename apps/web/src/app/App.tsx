@@ -6,6 +6,7 @@ import {
   ResizablePanelGroup,
 } from "../shared/ui/resizable";
 import { Toaster } from "../shared/ui/sonner";
+import { Button } from "../shared/ui/button";
 import { ThemeProvider } from "./providers/theme-provider";
 import {
   DesignDiagramView,
@@ -18,6 +19,7 @@ import { TextRequirementView } from "../features/requirements/components/text-re
 import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
 import { TestModelPage } from "../features/testing/components/test-model-page";
 import { MarketingHomePage } from "../features/marketing-site/components/marketing-home-page";
+import { applyRouteMetadata } from "../features/marketing-site/model/seo";
 import { ProductDocsPage } from "../features/product-docs/components/product-docs-page";
 import { SidebarMenu } from "../features/workspace-shell/components/sidebar-menu";
 import {
@@ -270,12 +272,18 @@ function ProjectWorkspaceShell({
   );
 }
 
-export function Shell() {
+export function Shell({ initialPath }: { initialPath?: string }) {
   const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
-  const [route, setRoute] = useState<AppRoute>(() =>
-    typeof window === "undefined" ? { kind: "marketing-home", path: "/" } : matchAppRoute(window.location.pathname),
-  );
+  const [route, setRoute] = useState<AppRoute>(() => {
+    const pathname = initialPath ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+    return matchAppRoute(pathname);
+  });
+
+  useEffect(() => {
+    // Keep head metadata aligned with client-side History API navigation.
+    applyRouteMetadata(route);
+  }, [route]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -355,7 +363,22 @@ export function Shell() {
         </ProjectWorkspaceAccessBoundary>
       );
     }
-    return <MarketingHomePage path="/" onNavigate={navigate} />;
+    return (
+      <main className="flex min-h-0 flex-1 items-center justify-center bg-background px-6 text-center">
+        <section className="max-w-xl">
+          <p className="font-display text-7xl font-black text-primary">404</p>
+          <h1 className="mt-4 font-display text-3xl font-semibold text-foreground">页面未找到</h1>
+          <p className="mt-3 text-muted-foreground">这个地址不存在，或页面已经移动。</p>
+          <Button
+            type="button"
+            className="mt-6 rounded-full px-6 py-3"
+            onClick={() => navigate("/")}
+          >
+            返回官网首页
+          </Button>
+        </section>
+      </main>
+    );
   };
 
   const protectedRoutePath = getProtectedRoutePath(route);
@@ -364,7 +387,8 @@ export function Shell() {
     route.kind !== "marketing-home" &&
     route.kind !== "auth" &&
     route.kind !== "invitation-accept" &&
-    route.kind !== "legacy-redirect";
+    route.kind !== "legacy-redirect" &&
+    route.kind !== "not-found";
   const guardedRouteContent = (
     <>
       {showWorkspaceTopBar && (
@@ -411,12 +435,12 @@ function RedirectRoute({
   );
 }
 
-export default function App() {
+export default function App({ initialPath }: { initialPath?: string }) {
   return (
     <ThemeProvider>
       <WorkspaceRepositoryProvider>
         <WorkspaceSessionProvider>
-          <Shell />
+          <Shell initialPath={initialPath} />
         </WorkspaceSessionProvider>
       </WorkspaceRepositoryProvider>
     </ThemeProvider>
