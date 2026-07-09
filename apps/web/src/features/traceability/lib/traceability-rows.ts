@@ -21,7 +21,7 @@ import {
 import type { useWorkspaceSession } from "../../workspace-session/state";
 
 const AUTO_FILLED_PENDING_REVIEW_NOTE =
-  "未找到明确来源，系统仅临时补齐；请采纳、忽略或稍后处理。";
+  "由系统自动建立候选映射，需复核。";
 
 export type RowStatus = "mapped" | "unmapped";
 export type MatrixScope = {
@@ -74,6 +74,16 @@ function compactString(value: unknown) {
   return typeof value === "string" || typeof value === "number"
     ? String(value).trim()
     : "";
+}
+
+function hasInteractiveReviewText(text: string) {
+  return /未找到明确(?:上游)?来源|请在跟踪矩阵|采纳|忽略|确认是否采纳/u.test(text);
+}
+
+function traceabilityDisplayNote(value: string | undefined, fallback = AUTO_FILLED_PENDING_REVIEW_NOTE) {
+  const text = value?.trim();
+  if (!text || hasInteractiveReviewText(text)) return fallback;
+  return text;
 }
 
 function ensureArray(value: unknown): unknown[] {
@@ -361,14 +371,14 @@ export function buildRequirementRows(
       scopeKey: ref.modelId ?? ref.diagramKind,
       status: mappedRules.length > 0 ? "mapped" : "unmapped",
       mappingNote: pendingEntry
-        ? pendingEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE
+        ? traceabilityDisplayNote(pendingEntry.rationale)
         : null,
       requirementRules: mappedRules,
       requirementElements: [],
       upstreamDesignElements: [],
       detailLines: [
         ...(pendingEntry
-          ? [`待确认：${pendingEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE}`]
+          ? [`待确认：${traceabilityDisplayNote(pendingEntry.rationale)}`]
           : []),
         ...mappedEntries
           .filter((entry) => entry.confidence)
@@ -415,24 +425,16 @@ function deriveVisibleUpstreamDesignRefs(
 }
 
 export function buildDesignRows(
-  rules: RequirementRule[],
+  _rules: RequirementRule[],
   requirementModels: ReturnType<typeof useWorkspaceSession>["models"],
   designModels: ReturnType<typeof useWorkspaceSession>["designModels"],
-  requirementTraceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
+  _requirementTraceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
   designTraceability: ReturnType<typeof useWorkspaceSession>["designModelTraceability"],
   scope?: MatrixScope,
 ): ElementRow[] {
   const requirementRefMap = new Map(
     refsForRequirementModels(requirementModels).map(({ ref }) => [refKey(ref), ref]),
   );
-  const rulesById = new Map(rules.map((rule) => [rule.id.toLowerCase(), rule]));
-  const rulesByRequirementRef = new Map<string, RequirementRule[]>();
-  for (const entry of requirementTraceability) {
-    const rule = rulesById.get(entry.ruleId.toLowerCase());
-    if (!rule) continue;
-    const key = refKey(entry.target);
-    rulesByRequirementRef.set(key, [...(rulesByRequirementRef.get(key) ?? []), rule]);
-  }
   const traceBySource = new Map<
     string,
     ReturnType<typeof useWorkspaceSession>["designModelTraceability"][number]
@@ -447,10 +449,6 @@ export function buildDesignRows(
       (traceEntry?.targets ?? [])
         .map((target) => requirementRefMap.get(refKey(target)) ?? target),
       refKey,
-    );
-    const mappedRules = uniqueBy(
-      targets.flatMap((target) => rulesByRequirementRef.get(refKey(target)) ?? []),
-      (rule) => rule.id,
     );
     const upstreamDesignElements = uniqueBy<ModelElementRef>(
       traceEntry?.upstreamDesignRefs ?? [],
@@ -468,20 +466,20 @@ export function buildDesignRows(
       mappingNote:
         traceEntry?.mappingSource === "auto-filled-pending-review" ||
         traceEntry?.reviewStatus === "pending"
-          ? traceEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE
+          ? traceabilityDisplayNote(traceEntry.rationale)
           : traceEntry?.mappingSource === "derived-from-endpoints"
-            ? traceEntry.rationale ?? "由端点映射推导"
+            ? traceabilityDisplayNote(traceEntry.rationale, "由端点映射推导")
             : null,
-      requirementRules: mappedRules,
+      requirementRules: [],
       requirementElements: targets,
       upstreamDesignElements,
       detailLines: [
         ...(traceEntry?.mappingSource === "auto-filled-pending-review" ||
         traceEntry?.reviewStatus === "pending"
-          ? [`待确认：${traceEntry.rationale ?? AUTO_FILLED_PENDING_REVIEW_NOTE}`]
+          ? [`待确认：${traceabilityDisplayNote(traceEntry.rationale)}`]
           : []),
         ...(traceEntry?.mappingSource === "derived-from-endpoints"
-          ? [`映射说明：${traceEntry.rationale ?? "由端点映射推导"}`]
+          ? [`映射说明：${traceabilityDisplayNote(traceEntry.rationale, "由端点映射推导")}`]
           : []),
         ...upstreamDesignElements.map(
           (target) =>
@@ -490,9 +488,6 @@ export function buildDesignRows(
         ...targets.map(
           (target) =>
             `需求元素：${requirementGroupLabel(target.diagramKind)} / ${target.label}`,
-        ),
-        ...mappedRules.map(
-          (rule) => `${formatRuleId(rule.id)} [${rule.category}] ${rule.text}`,
         ),
       ],
     };

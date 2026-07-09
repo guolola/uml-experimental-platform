@@ -302,11 +302,11 @@ export function TraceabilityMatrixPage({
                         </th>
                         {isDesign && (
                           <th className="w-[22%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                            来源用例实现设计 / 映射需求元素
+                            直接上游
                           </th>
                         )}
                         <th className="w-[20%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                          {sourceColumnLabel}
+                          {isDesign ? "映射需求元素" : sourceColumnLabel}
                         </th>
                         <th className="w-[10%] border-b border-border px-4 py-4 text-center font-medium">
                           映射状态
@@ -362,11 +362,7 @@ export function TraceabilityMatrixPage({
                                         ? `${ref.modelId.replace(/^sequence:/, "")} · ${ref.label}`
                                         : ref.label,
                                     )}
-                                    emptyText="未记录来源用例实现设计"
-                                  />
-                                  <ChipList
-                                    items={row.requirementElements.map((ref) => ref.label)}
-                                    emptyText="未关联需求元素"
+                                    emptyText="无直接设计上游"
                                   />
                                 </div>
                               </td>
@@ -374,12 +370,18 @@ export function TraceabilityMatrixPage({
                             <td className="border-r border-border px-4 py-3 align-middle">
                               <ChipList
                                 items={
-                                  isAnalysisRequirementScope
+                                  isDesign
+                                    ? row.requirementElements.map((ref) => ref.label)
+                                    : isAnalysisRequirementScope
                                     ? row.requirementElements.map((ref) => ref.label)
                                     : row.requirementRules.map((rule) => formatRuleId(rule.id))
                                 }
                                 emptyText={
-                                  isAnalysisRequirementScope ? "未找到来源用例" : "未关联需求规则"
+                                  isDesign
+                                    ? "未关联需求元素"
+                                    : isAnalysisRequirementScope
+                                      ? "未找到来源用例"
+                                      : "未关联需求规则"
                                 }
                               />
                             </td>
