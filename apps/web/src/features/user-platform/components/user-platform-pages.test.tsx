@@ -192,7 +192,7 @@ describe("ProjectWorkspaceDrawer", () => {
     return projectId;
   }
 
-  it("counts active local generation tasks while server run polling is stale", async () => {
+  it("hides read-only project status text while keeping workspace actions", async () => {
     const projectId = stubProjectWorkspaceFetch();
 
     render(
@@ -206,7 +206,14 @@ describe("ProjectWorkspaceDrawer", () => {
       ),
     );
 
-    expect(await screen.findByText("运行中 2")).toBeInTheDocument();
+    expect(await screen.findByText("项目设置")).toBeInTheDocument();
+    expect(screen.getByText("成员")).toBeInTheDocument();
+    expect(screen.getByText("文档中心")).toBeInTheDocument();
+    expect(screen.queryByText("已同步")).not.toBeInTheDocument();
+    expect(screen.queryByText("运行中 2")).not.toBeInTheDocument();
+    expect(screen.queryByText("项目状态：active")).not.toBeInTheDocument();
+    expect(screen.queryByText("文档 0")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^owner$/u)).not.toBeInTheDocument();
   });
 
   it("constrains settings drawer content and does not render project model policy", async () => {

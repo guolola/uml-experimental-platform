@@ -43,7 +43,12 @@ function ChipList({
   return (
     <div className="flex flex-wrap gap-1">
       {visible.map((item) => (
-        <Badge key={item} variant="secondary" className="max-w-32 truncate text-[10px]">
+        <Badge
+          key={item}
+          title={item}
+          variant="secondary"
+          className="max-w-56 truncate text-[10px]"
+        >
           {item}
         </Badge>
       ))}
@@ -54,6 +59,14 @@ function ChipList({
       )}
     </div>
   );
+}
+
+function designRefLabel(ref: { diagramKind: string; label: string }) {
+  return `${designGroupLabel(ref.diagramKind)}：${ref.label}`;
+}
+
+function requirementRefLabel(ref: { diagramKind: string; label: string }) {
+  return `${requirementGroupLabel(ref.diagramKind)}：${ref.label}`;
 }
 
 function StatusBadge({ status }: { status: RowStatus }) {
@@ -302,11 +315,11 @@ export function TraceabilityMatrixPage({
                         </th>
                         {isDesign && (
                           <th className="w-[22%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                            直接上游
+                            来源设计图元素
                           </th>
                         )}
                         <th className="w-[20%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                          {isDesign ? "映射需求元素" : sourceColumnLabel}
+                          {isDesign ? "来源需求图" : sourceColumnLabel}
                         </th>
                         <th className="w-[10%] border-b border-border px-4 py-4 text-center font-medium">
                           映射状态
@@ -357,12 +370,8 @@ export function TraceabilityMatrixPage({
                               <td className="border-r border-border px-4 py-3 align-middle">
                                 <div className="flex flex-col gap-2">
                                   <ChipList
-                                    items={row.upstreamDesignElements.map((ref) =>
-                                      ref.modelId
-                                        ? `${ref.modelId.replace(/^sequence:/, "")} · ${ref.label}`
-                                        : ref.label,
-                                    )}
-                                    emptyText="无直接设计上游"
+                                    items={row.upstreamDesignElements.map(designRefLabel)}
+                                    emptyText="未记录来源设计图元素"
                                   />
                                 </div>
                               </td>
@@ -371,14 +380,14 @@ export function TraceabilityMatrixPage({
                               <ChipList
                                 items={
                                   isDesign
-                                    ? row.requirementElements.map((ref) => ref.label)
+                                    ? row.requirementElements.map(requirementRefLabel)
                                     : isAnalysisRequirementScope
-                                    ? row.requirementElements.map((ref) => ref.label)
+                                    ? row.requirementElements.map(requirementRefLabel)
                                     : row.requirementRules.map((rule) => formatRuleId(rule.id))
                                 }
                                 emptyText={
                                   isDesign
-                                    ? "未关联需求元素"
+                                    ? "未关联需求图元素"
                                     : isAnalysisRequirementScope
                                       ? "未找到来源用例"
                                       : "未关联需求规则"

@@ -251,7 +251,7 @@ describe("TraceabilityMatrixPage", () => {
     expect(within(table).getByText("来源用例 / 事件流")).toBeInTheDocument();
     expect(within(table).queryByText("来源需求规则")).not.toBeInTheDocument();
     expect(within(table).queryByText("未关联需求规则")).not.toBeInTheDocument();
-    expect(within(table).getByText("订单系统")).toBeInTheDocument();
+    expect(within(table).getAllByText("用例模型：提交订单").length).toBeGreaterThan(0);
     expect(within(table).queryByText("R1")).not.toBeInTheDocument();
     expect(within(table).queryByText("取消订单系统")).not.toBeInTheDocument();
     const row = within(table).getByText("客户").closest("tr");
@@ -366,13 +366,13 @@ describe("TraceabilityMatrixPage", () => {
     expect(screen.getByText("设计元素映射")).toBeInTheDocument();
 
     const table = await findMatrixTableByText("Class_UserAuth");
-    expect(within(table).getByText("直接上游")).toBeInTheDocument();
-    expect(within(table).getByText("映射需求元素")).toBeInTheDocument();
+    expect(within(table).getByText("来源设计图元素")).toBeInTheDocument();
+    expect(within(table).getByText("来源需求图")).toBeInTheDocument();
     expect(within(table).queryByText("来源需求规则")).not.toBeInTheDocument();
     const row = within(table).getByText("Class_UserAuth").closest("tr");
     expect(row).not.toBeNull();
-    expect(within(row!).getByText("UserDomain")).toBeInTheDocument();
-    expect(within(row!).getByText("submit-order · 认证服务")).toBeInTheDocument();
+    expect(within(row!).getByText("领域概念模型：UserDomain")).toBeInTheDocument();
+    expect(within(row!).getByText("用例实现设计：认证服务")).toBeInTheDocument();
     expect(within(row!).queryByText("R2")).not.toBeInTheDocument();
     expect(within(row!).getByText("已映射")).toBeInTheDocument();
     await userEvent.click(row!);

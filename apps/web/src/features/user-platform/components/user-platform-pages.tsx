@@ -12,7 +12,6 @@ import {
   Activity,
   BookOpen,
   Clock3,
-  FileText,
   GitBranch,
   Loader2,
   Lock,
@@ -815,17 +814,6 @@ export function ProjectWorkspaceBanner({
                   </Button>
                 );
               })}
-            <span>已同步</span>
-            <span>{overview.membership?.role ?? "unknown"}</span>
-            <span className="inline-flex items-center gap-1">
-              <Clock3 className="size-4" />
-              运行中 {activeRuns}
-            </span>
-            <span>项目状态：{overview.project.status}</span>
-            <span className="inline-flex items-center gap-1">
-              <FileText className="size-4" />
-              文档 {overview.documents.length}
-            </span>
           </div>
           {onOpenDrawer && (
             <DropdownMenu>
@@ -873,13 +861,6 @@ export function ProjectWorkspaceBanner({
                     </DropdownMenuItem>
                   );
                 })}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled>
-                  项目状态：{overview.project.status}
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  文档 {overview.documents.length}
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
