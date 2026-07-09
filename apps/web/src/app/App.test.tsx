@@ -3164,8 +3164,8 @@ describe("App shell routes", () => {
     expect(screen.getByRole("button", { name: "文档中心" })).toBeInTheDocument();
     expect(screen.getByText("智慧图书馆预约系统")).toBeInTheDocument();
     expect(await screen.findByText("成员 4")).toBeInTheDocument();
-    expect(screen.getByText("运行中 1")).toBeInTheDocument();
-    expect(screen.getByText("文档 1")).toBeInTheDocument();
+    expect(screen.queryByText("运行中 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("文档 1")).not.toBeInTheDocument();
     expect(screen.getByText("权限 owner")).toBeInTheDocument();
   });
 
