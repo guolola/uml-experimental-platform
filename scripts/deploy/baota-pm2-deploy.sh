@@ -84,17 +84,20 @@ publish_shared_web_assets() {
   chmod o+x "$DEPLOY_PATH/shared" || true
   chmod o+rx "$DEPLOY_PATH/shared/web" "$SHARED_WEB_ASSETS_DIR" || true
   while IFS= read -r -d '' asset_file; do
-    local asset_name
+    local relative_path
     local target_file
-    asset_name="$(basename "$asset_file")"
-    target_file="$SHARED_WEB_ASSETS_DIR/$asset_name"
+    relative_path="${asset_file#"$release_assets_dir"/}"
+    target_file="$SHARED_WEB_ASSETS_DIR/$relative_path"
+    mkdir -p "$(dirname "$target_file")"
     if [[ ! -e "$target_file" ]]; then
       cp -p "$asset_file" "$target_file"
     fi
-  done < <(find "$release_assets_dir" -maxdepth 1 -type f -print0)
+  done < <(find "$release_assets_dir" -type f -print0)
+  find "$SHARED_WEB_ASSETS_DIR" -type d -exec chmod o+rx {} + 2>/dev/null || true
 
   echo "Cleaning shared web assets older than $WEB_ASSET_RETENTION_DAYS days ..."
-  find "$SHARED_WEB_ASSETS_DIR" -maxdepth 1 -type f -mtime +"$WEB_ASSET_RETENTION_DAYS" -delete 2>/dev/null || true
+  find "$SHARED_WEB_ASSETS_DIR" -type f -mtime +"$WEB_ASSET_RETENTION_DAYS" -delete 2>/dev/null || true
+  find "$SHARED_WEB_ASSETS_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 }
 
 verify_web_api_base() {
@@ -143,6 +146,27 @@ verify_web_seo_artifacts() {
     fi
   done
   echo "Web SEO artifact check passed: $dist_dir"
+}
+
+verify_shared_public_assets() {
+  local release_dir="$1"
+  local dist_dir="$release_dir/apps/web/dist"
+  local public_asset="/assets/beian/gongan.png"
+  local release_asset="$dist_dir$public_asset"
+  local shared_asset="$SHARED_WEB_ASSETS_DIR/beian/gongan.png"
+
+  if find "$dist_dir" -type f \( -name 'index.html' -o -name 'app.html' -o -name '*.js' -o -name '*.css' \) \
+    -exec grep -q -- "$public_asset" {} +; then
+    if [[ ! -f "$release_asset" ]]; then
+      echo "Referenced public asset is missing from web dist: $release_asset" >&2
+      exit 1
+    fi
+    if [[ ! -f "$shared_asset" ]]; then
+      echo "Referenced public asset was not published to shared assets: $shared_asset" >&2
+      exit 1
+    fi
+  fi
+  echo "Shared public asset check passed: $SHARED_WEB_ASSETS_DIR"
 }
 
 trap cleanup_tmp_dir EXIT
@@ -211,6 +235,7 @@ fi
 
 mv "$TMP_DIR" "$RELEASE_DIR"
 publish_shared_web_assets "$RELEASE_DIR"
+verify_shared_public_assets "$RELEASE_DIR"
 ln -sfnT "$RELEASE_DIR" "$DEPLOY_PATH/current"
 
 echo "Reloading PM2 processes ..."
