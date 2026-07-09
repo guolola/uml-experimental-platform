@@ -267,63 +267,38 @@ function rulesForDiagram(input: StartDocumentRunRequest, diagramKind: DiagramKin
   return input.rules.filter((rule) => rule.relatedDiagrams.includes(diagramKind));
 }
 
-function hasInteractiveTraceReviewText(text: string | undefined) {
-  if (!text) return false;
-  return /未找到明确(?:上游)?来源|请在跟踪矩阵|采纳|忽略|确认是否采纳/u.test(text);
+function formatTraceRuleId(ruleId: string) {
+  const text = ruleId.trim();
+  return /^r\d+$/iu.test(text) ? text.toUpperCase() : text;
 }
 
-function requirementTraceBasis(
+function requirementRuleSourceLabel(rule: StartDocumentRunRequest["rules"][number]) {
+  return `需求规则：${formatTraceRuleId(rule.id)}（${rule.category}）${compactText(rule.text, "需求规则文本")}`;
+}
+
+function requirementTraceSource(
+  input: StartDocumentRunRequest,
   entry: StartDocumentRunRequest["requirementModelTraceability"][number],
 ) {
-  const rationale = entry.rationale?.trim();
-  if (
-    entry.mappingSource === "auto-filled-pending-review" ||
-    /未找到明确来源|相关图类型/u.test(rationale ?? "")
-  ) {
-    return "由需求规则关联图类型自动建立候选映射，需复核";
-  }
-  if (/相似度/u.test(rationale ?? "")) {
-    return "由需求规则文本与模型元素名称相似度建立映射";
-  }
-  if (rationale && !hasInteractiveTraceReviewText(rationale)) {
-    return rationale;
-  }
-  if (entry.mappingSource === "llm") {
-    return "由需求规则文本与模型元素语义对应关系建立映射";
-  }
-  if (entry.reviewStatus === "pending" || entry.confidence === "low") {
-    return "由需求规则覆盖范围与模型元素类别建立候选映射，需复核";
-  }
-  return "规则文本与模型元素语义一致";
+  const rule = input.rules.find(
+    (item) => item.id.toLowerCase() === entry.ruleId.toLowerCase(),
+  );
+  return rule
+    ? requirementRuleSourceLabel(rule)
+    : `需求规则：${formatTraceRuleId(entry.ruleId)}`;
 }
 
 function traceRefLabel(ref: { diagramKind: string; label: string }) {
   return `${documentDiagramLabel(ref.diagramKind)}：${ref.label}`;
 }
 
-function designTraceBasis(
+function designTraceSource(
   entry: StartDocumentRunRequest["designModelTraceability"][number],
 ) {
-  const rationale = entry.rationale?.trim();
   if ((entry.upstreamDesignRefs?.length ?? 0) > 0) {
-    return "由直接上游设计元素与当前设计元素职责关系建立映射";
+    return compactJoin((entry.upstreamDesignRefs ?? []).map(traceRefLabel));
   }
-  if (
-    entry.mappingSource === "auto-filled-pending-review" ||
-    /未找到明确(?:上游)?来源|最接近/u.test(rationale ?? "")
-  ) {
-    return "由设计元素与最接近的需求模型元素建立候选映射，需复核";
-  }
-  if (entry.mappingSource === "derived-from-endpoints") {
-    return "由用例实现设计的来源用例或元素名称确定追踪关系";
-  }
-  if (rationale && !hasInteractiveTraceReviewText(rationale)) {
-    return rationale;
-  }
-  if (entry.reviewStatus === "pending" || entry.confidence === "low") {
-    return "由设计元素与需求模型元素语义关系建立候选映射，需复核";
-  }
-  return "设计元素与需求模型元素语义一致";
+  return compactJoin(entry.targets.map(traceRefLabel), "需求模型元素");
 }
 
 function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: DiagramKind) {
@@ -331,9 +306,9 @@ function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: Diagr
     .filter((entry) => entry.target.diagramKind === diagramKind)
     .map((entry, index) => [
       String(index + 1),
-      entry.ruleId,
+      formatTraceRuleId(entry.ruleId),
       entry.target.label,
-      requirementTraceBasis(entry),
+      requirementTraceSource(input, entry),
     ]);
   if (traceRows.length > 0) return traceRows;
 
@@ -341,13 +316,13 @@ function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: Diagr
   if (relatedRules.length > 0) {
     return relatedRules.map((rule, index) => [
       String(index + 1),
-      rule.id,
+      formatTraceRuleId(rule.id),
       rule.text,
-      "由规则关联的模型类型推导",
+      requirementRuleSourceLabel(rule),
     ]);
   }
 
-  return [["1", "需求文本", briefText(input.requirementText, 120), FALLBACK_FACT]];
+  return [["1", "需求文本", briefText(input.requirementText, 120), `需求文本：${briefText(input.requirementText, 120)}`]];
 }
 
 function designTraceRows(input: StartDocumentRunRequest, diagramKind: DesignDiagramKind) {
@@ -356,15 +331,11 @@ function designTraceRows(input: StartDocumentRunRequest, diagramKind: DesignDiag
     .map((entry, index) => [
       String(index + 1),
       entry.source.label,
-      compactJoin(
-        (entry.upstreamDesignRefs ?? []).map(traceRefLabel),
-        "无直接设计上游",
-      ),
+      designTraceSource(entry),
       compactJoin(entry.targets.map(traceRefLabel), "需求模型元素"),
-      designTraceBasis(entry),
     ]);
   if (rows.length > 0) return rows;
-  return [["1", documentDiagramLabel(diagramKind), "无直接设计上游", "需求模型元素", FALLBACK_FACT]];
+  return [["1", documentDiagramLabel(diagramKind), "需求模型元素", "需求模型元素"]];
 }
 
 function requirementClasses(input: StartDocumentRunRequest) {
@@ -585,7 +556,7 @@ function designUseCaseInterfaceRows(input: StartDocumentRunRequest) {
       String(index + 1),
       useCase.name,
       compactJoin(screens, "与该用例交互路径一致的界面节点"),
-      "界面入口、表单提交、状态反馈和返回路径支撑该用例",
+      `用例：${useCase.name}`,
     ];
   });
 }
@@ -653,22 +624,6 @@ function tableRelationBody(input: StartDocumentRunRequest) {
     const target = model.tables.find((table) => table.id === relation.targetTableId)?.name ?? relation.targetTableId;
     return `${source} 与 ${target}：${relation.type}${relation.label ? `，${relation.label}` : ""}${relation.description ? `，${relation.description}` : ""}。`;
   });
-}
-
-function pendingDesignTraceabilityRows(input: StartDocumentRunRequest) {
-  return input.designModelTraceability
-    .filter(
-      (entry) =>
-        entry.mappingSource === "auto-filled-pending-review" ||
-        entry.reviewStatus === "pending",
-    )
-    .map((entry, index) => [
-      String(index + 1),
-      entry.source.modelId ?? entry.source.diagramKind,
-      entry.source.label,
-      entry.targets.map((target) => target.label).join("、"),
-      designTraceBasis(entry),
-    ]);
 }
 
 function unresolvedRequirementIssuesBody(input: StartDocumentRunRequest) {
@@ -832,7 +787,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 3, title: "跟踪关系", body: ["总体逻辑流程与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "activity") } },
       { level: 2, title: "系统架构设计", body: architectureBody(input), diagramKind: "architecture" },
       { level: 3, title: "总体架构描述", body: architectureBody(input) },
-      { level: 3, title: "跟踪关系", body: ["总体架构与直接上游及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "直接上游", "映射需求元素", "追踪依据"], rows: designTraceRows(input, "architecture") } },
+      { level: 3, title: "跟踪关系", body: ["总体架构与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "architecture") } },
       { level: 1, title: "用例实现设计 (Use Case Realization)", body: [] },
       ...useCases.flatMap((useCase) => {
         const model = sequenceModelForUseCase(input, useCase);
@@ -853,7 +808,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
             level: 3 as const,
             title: "跟踪关系",
             body: ["用例实现设计与需求模型元素的对应关系如下。"],
-            table: { headers: ["编号", "设计元素", "直接上游", "映射需求元素", "追踪依据"], rows: designTraceRows(input, "sequence") },
+            table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "sequence") },
           },
         ];
       }),
@@ -861,7 +816,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 2, title: "设计类图", body: ["设计类图表达实体类、服务类、值对象、接口和类之间的静态关系。"], diagramKind: "class" },
       { level: 2, title: "设计类描述", body: classDescriptionBody(designClasses(input)) },
       { level: 2, title: "设计类之间的关系", body: classRelationBody(designClass) },
-      { level: 2, title: "设计类跟踪矩阵", body: ["设计类与直接上游及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "直接上游", "映射需求元素", "追踪依据"], rows: designTraceRows(input, "class") } },
+      { level: 2, title: "设计类跟踪矩阵", body: ["设计类与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "class") } },
       { level: 1, title: "交互响应与前端组件设计 (UI/UX Componentization)", body: [] },
       { level: 2, title: "界面关系图", body: ["设计阶段界面关系图表达界面节点、状态反馈、表单提交和返回路径。"], diagramKind: "activity" },
       { level: 2, title: "界面的详述", body: activityBody(input, "design") },
@@ -870,28 +825,15 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 2, title: "表与表的关系图", body: ["表关系图表达数据表、主键、外键和表间基数关系。"], diagramKind: "table" },
       { level: 2, title: "表的详述", body: tableDesignBody(input) },
       { level: 2, title: "表与表的关系详述", body: tableRelationBody(input) },
-      { level: 2, title: "跟踪关系", body: ["数据库设计与直接上游及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "直接上游", "映射需求元素", "追踪依据"], rows: designTraceRows(input, "table") } },
+      { level: 2, title: "跟踪关系", body: ["数据库设计与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "table") } },
       { level: 1, title: "组件设计", body: [] },
       { level: 2, title: "设计阶段的组件关系图", body: ["组件（构件）关系图表达组件、接口、依赖、组合和通信关系。"], diagramKind: "component" },
       { level: 2, title: "组件描述", body: componentBody(input) },
-      { level: 2, title: "跟踪矩阵", body: ["组件设计与直接上游及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "直接上游", "映射需求元素", "追踪依据"], rows: designTraceRows(input, "component") } },
+      { level: 2, title: "跟踪矩阵", body: ["组件设计与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "component") } },
       { level: 1, title: "部署设计与交付 (Deployment & CI/CD)", body: [] },
       { level: 2, title: "设计阶段的部署图", body: ["部署设计图表达组件、节点、数据库和外部系统之间的交付关系。"], diagramKind: "deployment" },
       { level: 2, title: "部署描述", body: deploymentBody(designDeployment, "design") },
-      { level: 2, title: "跟踪矩阵", body: ["部署设计与直接上游及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "直接上游", "映射需求元素", "追踪依据"], rows: designTraceRows(input, "deployment") } },
-      ...(pendingDesignTraceabilityRows(input).length > 0
-        ? [
-            {
-              level: 1 as const,
-              title: "低置信追踪关系复核",
-              body: ["以下关系由系统保留为低置信映射，生成文档时单独列出以便维护追踪证据。"],
-              table: {
-                headers: ["编号", "设计模型", "设计元素", "关联需求元素", "说明"],
-                rows: pendingDesignTraceabilityRows(input),
-              },
-            },
-          ]
-        : []),
+      { level: 2, title: "跟踪矩阵", body: ["部署设计与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "deployment") } },
       { level: 1, title: "尚未设计的问题", body: unresolvedDesignIssuesBody(input) },
     ],
   }).sections;

@@ -1,7 +1,10 @@
-// Verifies document fallback sections preserve review cues for low-confidence traceability.
+// Verifies document fallback sections use deliverable trace sources.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { startDocumentRunRequestSchema } from "@uml-platform/contracts";
+import {
+  startDocumentRunRequestSchema,
+  type DocumentSection,
+} from "@uml-platform/contracts";
 import {
   buildDocumentContext,
   diagramPlantUmlForDocument,
@@ -12,9 +15,18 @@ import {
 } from "./document-context.js";
 
 const INTERACTIVE_TRACE_REVIEW_PATTERN =
-  /未找到明确(?:上游)?来源|请在跟踪矩阵|采纳|忽略|确认是否采纳/u;
+  /未找到明确(?:上游)?来源|请在跟踪矩阵|候选映射|需复核|自动补齐|相似度建立映射|低置信追踪关系复核|采纳|忽略|确认是否采纳/u;
 
-test("software design documents list pending auto-filled traceability for review", () => {
+function sectionTextValuesForTest(section: DocumentSection) {
+  return [
+    section.title,
+    ...section.body,
+    ...(section.table?.headers ?? []),
+    ...(section.table?.rows.flat() ?? []),
+  ];
+}
+
+test("software design documents omit pending traceability review appendix", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
     requirementText: "图书馆系统需要支持借书、还书。",
@@ -45,22 +57,20 @@ test("software design documents list pending auto-filled traceability for review
   });
 
   const sections = fallbackDocumentSections(input);
-  const reviewSection = sections.find((section) =>
-    section.title.includes("低置信追踪关系复核"),
-  );
 
-  assert.ok(reviewSection);
-  assert.deepEqual(reviewSection.table?.headers, [
-    "编号",
-    "设计模型",
-    "设计元素",
-    "关联需求元素",
-    "说明",
-  ]);
-  assert.equal(reviewSection.table?.rows[0]?.[2], "BookService");
+  assert.equal(
+    sections.some((section) => section.title.includes("低置信追踪关系复核")),
+    false,
+  );
+  assert.equal(
+    sections.flatMap((section) => sectionTextValuesForTest(section)).some((cell) =>
+      INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
+    ),
+    false,
+  );
 });
 
-test("requirements documents formalize auto-filled traceability rationale", () => {
+test("requirements documents use requirement rules as trace sources", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "requirementsSpec",
     requirementText: "简单图书馆管理系统需要支持借书、还书和图书检索。",
@@ -122,14 +132,14 @@ test("requirements documents formalize auto-filled traceability rationale", () =
     "模型元素",
     "追踪依据",
   ]);
-  assert.equal(traceSection.table?.rows[0]?.[1], "r1");
+  assert.equal(traceSection.table?.rows[0]?.[1], "R1");
   assert.equal(
     traceSection.table?.rows[0]?.[3],
-    "由需求规则关联图类型自动建立候选映射，需复核",
+    "需求规则：R1（功能需求）系统应支持借书。",
   );
   assert.equal(
     traceSection.table?.rows[1]?.[3],
-    "由需求规则文本与模型元素名称相似度建立映射",
+    "需求规则：R2（功能需求）系统应支持图书检索。",
   );
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>
@@ -188,16 +198,14 @@ test("software design class matrix shows direct upstream instead of requirement 
   assert.deepEqual(traceSection.table?.headers, [
     "编号",
     "设计元素",
-    "直接上游",
-    "映射需求元素",
     "追踪依据",
+    "映射需求元素",
   ]);
   assert.deepEqual(traceSection.table?.rows[0], [
     "1",
     "BorrowingService",
     "用例实现设计：借书实现",
     "用例图：借书",
-    "由直接上游设计元素与当前设计元素职责关系建立映射",
   ]);
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>
@@ -205,6 +213,123 @@ test("software design class matrix shows direct upstream instead of requirement 
     ),
     false,
   );
+});
+
+test("software design class matrix falls back to requirement elements as trace sources", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "softwareDesignSpec",
+    requirementText: "简单图书馆管理系统需要支持借书。",
+    designModelTraceability: [
+      {
+        source: {
+          diagramKind: "class",
+          modelId: "class:design",
+          elementKind: "class",
+          elementId: "BorrowingService",
+          label: "BorrowingService",
+        },
+        targets: [
+          {
+            diagramKind: "usecase",
+            modelId: "usecase:requirements",
+            elementKind: "useCase",
+            elementId: "UC-Borrow",
+            label: "借书",
+          },
+        ],
+        mappingSource: "auto-filled-pending-review",
+        reviewStatus: "pending",
+        confidence: "low",
+        rationale:
+          "未找到明确上游来源，系统仅按最接近的需求元素临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
+      },
+    ],
+    useAiText: false,
+  });
+
+  const traceSection = fallbackDocumentSections(input).find(
+    (section) => section.title === "设计类跟踪矩阵",
+  );
+
+  assert.ok(traceSection);
+  assert.deepEqual(traceSection.table?.rows[0], [
+    "1",
+    "BorrowingService",
+    "用例图：借书",
+    "用例图：借书",
+  ]);
+  assert.equal(
+    traceSection.table?.rows.flat().some((cell) =>
+      INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
+    ),
+    false,
+  );
+});
+
+test("software design interface matrix uses use cases as trace sources", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "softwareDesignSpec",
+    requirementText: "简单图书馆管理系统需要支持借书。",
+    requirementModels: [
+      {
+        diagramKind: "usecase",
+        title: "用例模型",
+        summary: "借书",
+        notes: [],
+        systemBoundaries: [],
+        actors: [
+          {
+            id: "reader",
+            name: "读者",
+            actorType: "human",
+            responsibilities: [],
+          },
+        ],
+        useCases: [
+          {
+            id: "UC-Borrow",
+            name: "借书",
+            goal: "完成图书借阅",
+            primaryActorId: "reader",
+            supportingActorIds: [],
+            preconditions: [],
+            postconditions: [],
+            eventFlows: [],
+          },
+        ],
+        relationships: [],
+      },
+      {
+        diagramKind: "prototype",
+        title: "界面需求",
+        summary: "借书界面",
+        notes: [],
+        nodes: [
+          {
+            id: "screen-borrow",
+            name: "借书页面",
+            nodeType: "screen",
+            sourceUseCaseIds: ["UC-Borrow"],
+            sourceRequirementIds: [],
+          },
+        ],
+        relationships: [],
+      },
+    ],
+    useAiText: false,
+  });
+
+  const traceSection = fallbackDocumentSections(input).find(
+    (section) => section.table?.headers.join("|") === "编号|用例名称|界面名称|追踪依据",
+  );
+
+  assert.ok(traceSection);
+  assert.deepEqual(traceSection.table?.rows[0], [
+    "1",
+    "借书",
+    "借书页面",
+    "用例：借书",
+  ]);
 });
 
 test("requirements documents use generated use case event flows", () => {
