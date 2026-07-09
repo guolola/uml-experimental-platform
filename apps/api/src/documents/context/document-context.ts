@@ -272,33 +272,8 @@ function formatTraceRuleId(ruleId: string) {
   return /^r\d+$/iu.test(text) ? text.toUpperCase() : text;
 }
 
-function requirementRuleSourceLabel(rule: StartDocumentRunRequest["rules"][number]) {
-  return `需求规则：${formatTraceRuleId(rule.id)}（${rule.category}）${compactText(rule.text, "需求规则文本")}`;
-}
-
-function requirementTraceSource(
-  input: StartDocumentRunRequest,
-  entry: StartDocumentRunRequest["requirementModelTraceability"][number],
-) {
-  const rule = input.rules.find(
-    (item) => item.id.toLowerCase() === entry.ruleId.toLowerCase(),
-  );
-  return rule
-    ? requirementRuleSourceLabel(rule)
-    : `需求规则：${formatTraceRuleId(entry.ruleId)}`;
-}
-
 function traceRefLabel(ref: { diagramKind: string; label: string }) {
   return `${documentDiagramLabel(ref.diagramKind)}：${ref.label}`;
-}
-
-function designTraceSource(
-  entry: StartDocumentRunRequest["designModelTraceability"][number],
-) {
-  if ((entry.upstreamDesignRefs?.length ?? 0) > 0) {
-    return compactJoin((entry.upstreamDesignRefs ?? []).map(traceRefLabel));
-  }
-  return compactJoin(entry.targets.map(traceRefLabel), "需求模型元素");
 }
 
 function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: DiagramKind) {
@@ -308,7 +283,6 @@ function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: Diagr
       String(index + 1),
       formatTraceRuleId(entry.ruleId),
       entry.target.label,
-      requirementTraceSource(input, entry),
     ]);
   if (traceRows.length > 0) return traceRows;
 
@@ -318,11 +292,10 @@ function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: Diagr
       String(index + 1),
       formatTraceRuleId(rule.id),
       rule.text,
-      requirementRuleSourceLabel(rule),
     ]);
   }
 
-  return [["1", "需求文本", briefText(input.requirementText, 120), `需求文本：${briefText(input.requirementText, 120)}`]];
+  return [["1", "需求文本", briefText(input.requirementText, 120)]];
 }
 
 function designTraceRows(input: StartDocumentRunRequest, diagramKind: DesignDiagramKind) {
@@ -331,11 +304,10 @@ function designTraceRows(input: StartDocumentRunRequest, diagramKind: DesignDiag
     .map((entry, index) => [
       String(index + 1),
       entry.source.label,
-      designTraceSource(entry),
       compactJoin(entry.targets.map(traceRefLabel), "需求模型元素"),
     ]);
   if (rows.length > 0) return rows;
-  return [["1", documentDiagramLabel(diagramKind), "需求模型元素", "需求模型元素"]];
+  return [["1", documentDiagramLabel(diagramKind), "需求模型元素"]];
 }
 
 function requirementClasses(input: StartDocumentRunRequest) {
@@ -556,7 +528,6 @@ function designUseCaseInterfaceRows(input: StartDocumentRunRequest) {
       String(index + 1),
       useCase.name,
       compactJoin(screens, "与该用例交互路径一致的界面节点"),
-      `用例：${useCase.name}`,
     ];
   });
 }
@@ -693,7 +664,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
     return documentContentResultSchema.parse({
       sections: [
         { level: 1, title: "项目引言", body: [] },
-        { level: 2, title: "编写目的", body: ["本文档基于需求文本、需求规则、需求模型和模型追踪关系，说明系统目标、功能边界、数据对象、运行环境、界面关系和需求分析结果，为后续设计、实现和测试提供可追踪依据。"] },
+        { level: 2, title: "编写目的", body: ["本文档基于需求文本、需求规则、需求模型和模型追踪关系，说明系统目标、功能边界、数据对象、运行环境、界面关系和需求分析结果，为后续设计、实现和测试提供可追溯线索。"] },
         { level: 2, title: "基线", body: [`基线由 ${input.rules.length || 1} 条需求线索、${input.requirementModels.length || 1} 类需求模型、PlantUML 图源和渲染图产物组成。`] },
         { level: 2, title: "定义与标识", body: [`需求项以规则编号和模型元素标识表达；用例以 UC 标识表达；图产物按 ${expectedDocumentDiagramKinds("requirementsSpec").join("、")} 分类组织。`] },
         { level: 2, title: "参考资料", body: ["参考资料为用户输入的原始需求文本、平台抽取的需求规则、需求阶段 UML 模型、PlantUML 图源、SVG 图产物和元素级追踪关系。"] },
@@ -702,13 +673,13 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         { level: 2, title: "文本需求", body: requirementRulesBody(input) },
         { level: 2, title: "功能结构", body: ["功能结构图按照系统能力、子功能和功能依赖组织，表达需求文本中的功能分解关系。"], diagramKind: "function" },
         { level: 3, title: "功能结构详述", body: sectionBodyFromLines(functionStructureBody(input), "功能结构由需求规则中的业务能力分解形成。") },
-        { level: 3, title: "跟踪关系", body: ["功能结构与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "function") } },
+        { level: 3, title: "跟踪关系", body: ["功能结构与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "function") } },
         { level: 2, title: "总体业务流程", body: ["总体业务流程图描述跨角色业务活动、条件分支、状态流转和结果反馈。"], diagramKind: "activity" },
         { level: 3, title: "总体业务流程详述", body: activityBody(input, "requirement") },
-        { level: 3, title: "跟踪关系", body: ["总体业务流程与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "activity") } },
+        { level: 3, title: "跟踪关系", body: ["总体业务流程与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "activity") } },
         { level: 1, title: "功能需求（用例模型）", body: [] },
         { level: 2, title: "用例图", body: ["用例图表达系统边界、参与者、用例目标和用例之间的包含、扩展或泛化关系。"], diagramKind: "usecase" },
-        { level: 2, title: "用户（角色）和跟踪关系", body: actorDescriptionBody(input), table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "usecase") } },
+        { level: 2, title: "用户（角色）和跟踪关系", body: actorDescriptionBody(input), table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "usecase") } },
         ...useCases.map((useCase) => ({
           level: 2 as const,
           title: `用例：${useCase.name}`,
@@ -725,15 +696,15 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         { level: 2, title: "领域概念模型", body: ["领域概念模型描述业务对象、属性、关系和约束，承接功能需求中的数据语义。"], diagramKind: "class" },
         { level: 2, title: "类的描述", body: classDescriptionBody(requirementClasses(input)) },
         { level: 2, title: "类与类的关系", body: classRelationBody(requirementClass) },
-        { level: 2, title: "跟踪矩阵", body: ["领域概念模型与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "class") } },
+        { level: 2, title: "跟踪矩阵", body: ["领域概念模型与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "class") } },
         { level: 1, title: "运行需求", body: [] },
         { level: 2, title: "部署需求模型", body: ["部署需求模型表达需求阶段可识别的运行节点、外部系统、数据存储、通信关系和部署约束。"], diagramKind: "deployment" },
         { level: 2, title: "部署描述", body: deploymentBody(requirementDeployment, "requirement") },
-        { level: 2, title: "跟踪矩阵", body: ["部署需求模型与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "deployment") } },
+        { level: 2, title: "跟踪矩阵", body: ["部署需求模型与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "deployment") } },
         { level: 1, title: "界面需求", body: [] },
         { level: 2, title: "界面关系图", body: ["原型界面关系图描述页面、模块、入口点、提交动作和返回路径。"], diagramKind: "prototype" },
         { level: 2, title: "界面总体描述", body: prototypeBody(input) },
-        { level: 2, title: "跟踪矩阵", body: ["界面需求与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "prototype") } },
+        { level: 2, title: "跟踪矩阵", body: ["界面需求与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "prototype") } },
         { level: 1, title: "需求分析", body: [] },
         ...useCases.flatMap((useCase) => {
           const model = analysisModelForUseCase(input, useCase);
@@ -754,7 +725,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
               level: 3 as const,
               title: "跟踪关系",
               body: ["需求分析模型与需求规则的对应关系如下。"],
-              table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "analysis") },
+              table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "analysis") },
             },
           ];
         }),
@@ -784,10 +755,10 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 1, title: "系统总体架构 (System Architecture)", body: [] },
       { level: 2, title: "系统总体逻辑流程设计", body: ["本节复用需求阶段总体业务流程图，说明设计方案需要承接的业务活动、条件分支和状态流转。"], diagramKind: "activity", diagramModelId: "requirement:activity" },
       { level: 3, title: "流程描述", body: activityBody(input, "requirement") },
-      { level: 3, title: "跟踪关系", body: ["总体逻辑流程与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素", "追踪依据"], rows: requirementTraceRows(input, "activity") } },
+      { level: 3, title: "跟踪关系", body: ["总体逻辑流程与需求规则的对应关系如下。"], table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "activity") } },
       { level: 2, title: "系统架构设计", body: architectureBody(input), diagramKind: "architecture" },
       { level: 3, title: "总体架构描述", body: architectureBody(input) },
-      { level: 3, title: "跟踪关系", body: ["总体架构与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "architecture") } },
+      { level: 3, title: "跟踪关系", body: ["总体架构与需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "architecture") } },
       { level: 1, title: "用例实现设计 (Use Case Realization)", body: [] },
       ...useCases.flatMap((useCase) => {
         const model = sequenceModelForUseCase(input, useCase);
@@ -808,7 +779,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
             level: 3 as const,
             title: "跟踪关系",
             body: ["用例实现设计与需求模型元素的对应关系如下。"],
-            table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "sequence") },
+            table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "sequence") },
           },
         ];
       }),
@@ -816,24 +787,24 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 2, title: "设计类图", body: ["设计类图表达实体类、服务类、值对象、接口和类之间的静态关系。"], diagramKind: "class" },
       { level: 2, title: "设计类描述", body: classDescriptionBody(designClasses(input)) },
       { level: 2, title: "设计类之间的关系", body: classRelationBody(designClass) },
-      { level: 2, title: "设计类跟踪矩阵", body: ["设计类与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "class") } },
+      { level: 2, title: "设计类跟踪矩阵", body: ["设计类与需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "class") } },
       { level: 1, title: "交互响应与前端组件设计 (UI/UX Componentization)", body: [] },
       { level: 2, title: "界面关系图", body: ["设计阶段界面关系图表达界面节点、状态反馈、表单提交和返回路径。"], diagramKind: "activity" },
       { level: 2, title: "界面的详述", body: activityBody(input, "design") },
-      { level: 2, title: "跟踪关系", body: ["用例与界面的对应关系如下。"], table: { headers: ["编号", "用例名称", "界面名称", "追踪依据"], rows: designUseCaseInterfaceRows(input) } },
+      { level: 2, title: "跟踪关系", body: ["用例与界面的对应关系如下。"], table: { headers: ["编号", "用例名称", "界面名称"], rows: designUseCaseInterfaceRows(input) } },
       { level: 1, title: "数据库设计 (Persistence & Data Strategy)", body: [] },
       { level: 2, title: "表与表的关系图", body: ["表关系图表达数据表、主键、外键和表间基数关系。"], diagramKind: "table" },
       { level: 2, title: "表的详述", body: tableDesignBody(input) },
       { level: 2, title: "表与表的关系详述", body: tableRelationBody(input) },
-      { level: 2, title: "跟踪关系", body: ["数据库设计与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "table") } },
+      { level: 2, title: "跟踪关系", body: ["数据库设计与需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "table") } },
       { level: 1, title: "组件设计", body: [] },
       { level: 2, title: "设计阶段的组件关系图", body: ["组件（构件）关系图表达组件、接口、依赖、组合和通信关系。"], diagramKind: "component" },
       { level: 2, title: "组件描述", body: componentBody(input) },
-      { level: 2, title: "跟踪矩阵", body: ["组件设计与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "component") } },
+      { level: 2, title: "跟踪矩阵", body: ["组件设计与需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "component") } },
       { level: 1, title: "部署设计与交付 (Deployment & CI/CD)", body: [] },
       { level: 2, title: "设计阶段的部署图", body: ["部署设计图表达组件、节点、数据库和外部系统之间的交付关系。"], diagramKind: "deployment" },
       { level: 2, title: "部署描述", body: deploymentBody(designDeployment, "design") },
-      { level: 2, title: "跟踪矩阵", body: ["部署设计与追踪依据及需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "追踪依据", "映射需求元素"], rows: designTraceRows(input, "deployment") } },
+      { level: 2, title: "跟踪矩阵", body: ["部署设计与需求模型元素的对应关系如下。"], table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "deployment") } },
       { level: 1, title: "尚未设计的问题", body: unresolvedDesignIssuesBody(input) },
     ],
   }).sections;

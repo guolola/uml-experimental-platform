@@ -1,4 +1,4 @@
-// Verifies document fallback sections use deliverable trace sources.
+// Verifies document fallback sections keep deliverable trace matrices concise.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -70,7 +70,7 @@ test("software design documents omit pending traceability review appendix", () =
   );
 });
 
-test("requirements documents use requirement rules as trace sources", () => {
+test("requirements documents omit trace basis column from rule mapping tables", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "requirementsSpec",
     requirementText: "简单图书馆管理系统需要支持借书、还书和图书检索。",
@@ -130,17 +130,11 @@ test("requirements documents use requirement rules as trace sources", () => {
     "编号",
     "需求规则",
     "模型元素",
-    "追踪依据",
   ]);
+  assert.equal(traceSection.table?.headers.includes("追踪依据"), false);
   assert.equal(traceSection.table?.rows[0]?.[1], "R1");
-  assert.equal(
-    traceSection.table?.rows[0]?.[3],
-    "需求规则：R1（功能需求）系统应支持借书。",
-  );
-  assert.equal(
-    traceSection.table?.rows[1]?.[3],
-    "需求规则：R2（功能需求）系统应支持图书检索。",
-  );
+  assert.deepEqual(traceSection.table?.rows[0], ["1", "R1", "Book"]);
+  assert.deepEqual(traceSection.table?.rows[1], ["2", "R2", "图书检索"]);
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>
       INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
@@ -149,7 +143,7 @@ test("requirements documents use requirement rules as trace sources", () => {
   );
 });
 
-test("software design class matrix shows direct upstream instead of requirement rules", () => {
+test("software design class matrix omits trace basis column", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
     requirementText: "简单图书馆管理系统需要支持借书。",
@@ -198,13 +192,11 @@ test("software design class matrix shows direct upstream instead of requirement 
   assert.deepEqual(traceSection.table?.headers, [
     "编号",
     "设计元素",
-    "追踪依据",
     "映射需求元素",
   ]);
   assert.deepEqual(traceSection.table?.rows[0], [
     "1",
     "BorrowingService",
-    "用例实现设计：借书实现",
     "用例图：借书",
   ]);
   assert.equal(
@@ -215,7 +207,7 @@ test("software design class matrix shows direct upstream instead of requirement 
   );
 });
 
-test("software design class matrix falls back to requirement elements as trace sources", () => {
+test("software design class matrix keeps requirement element mapping when no upstream exists", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
     requirementText: "简单图书馆管理系统需要支持借书。",
@@ -256,7 +248,6 @@ test("software design class matrix falls back to requirement elements as trace s
     "1",
     "BorrowingService",
     "用例图：借书",
-    "用例图：借书",
   ]);
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>
@@ -266,7 +257,7 @@ test("software design class matrix falls back to requirement elements as trace s
   );
 });
 
-test("software design interface matrix uses use cases as trace sources", () => {
+test("software design interface matrix omits trace basis column", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
     requirementText: "简单图书馆管理系统需要支持借书。",
@@ -320,7 +311,7 @@ test("software design interface matrix uses use cases as trace sources", () => {
   });
 
   const traceSection = fallbackDocumentSections(input).find(
-    (section) => section.table?.headers.join("|") === "编号|用例名称|界面名称|追踪依据",
+    (section) => section.table?.headers.join("|") === "编号|用例名称|界面名称",
   );
 
   assert.ok(traceSection);
@@ -328,7 +319,6 @@ test("software design interface matrix uses use cases as trace sources", () => {
     "1",
     "借书",
     "借书页面",
-    "用例：借书",
   ]);
 });
 

@@ -4255,7 +4255,7 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
   assert.match(documentXml, /编号/);
   assert.match(documentXml, /需求规则/);
   assert.match(documentXml, /模型元素/);
-  assert.match(documentXml, /追踪依据/);
+  assert.doesNotMatch(documentXml, /追踪依据/);
   assert.doesNotMatch(documentXml, /图示：/);
   assert.doesNotMatch(documentXml, /当前阶段未明确|待填写|待补充|待完善|后续评审/);
   assert.match(documentXml, /1 项目引言<\/w:t><w:tab\/><w:t(?: [^>]*)?>1<\/w:t>/);
@@ -4326,12 +4326,11 @@ test("api software design document uses generic cover without school names", asy
   assert.match(documentXml, /5 交互响应与前端组件设计/);
   assert.match(documentXml, /5\.3 跟踪关系/);
   assert.match(documentXml, /界面名称/);
-  assert.match(documentXml, /4\.4 需求到类跟踪矩阵/);
-  assert.match(documentXml, /对象名称/);
-  assert.match(documentXml, /设计类名称/);
+  assert.match(documentXml, /4\.4 设计类跟踪矩阵/);
   assert.match(documentXml, /6 数据库设计/);
   assert.match(documentXml, /6\.2 表的详述/);
   assert.match(documentXml, /6\.3 表与表的关系详述/);
+  assert.doesNotMatch(documentXml, /追踪依据/);
   assert.doesNotMatch(documentXml, /图示：/);
   assert.doesNotMatch(documentXml, /当前阶段未明确|待填写|待补充|待完善|后续评审/);
 
