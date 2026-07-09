@@ -1887,6 +1887,17 @@ describe("App shell routes", () => {
         "href",
         "https://beian.miit.gov.cn/",
       );
+      const publicSecurityFilingLink = screen.getByRole("link", {
+        name: /闽公网安备35010402351938号/u,
+      });
+      expect(publicSecurityFilingLink).toHaveAttribute(
+        "href",
+        "https://beian.mps.gov.cn/#/query/webSearch?code=35010402351938",
+      );
+      expect(within(publicSecurityFilingLink).getByAltText("公安备案图标")).toHaveAttribute(
+        "src",
+        "/assets/beian/gongan.png",
+      );
       expect(screen.queryByRole("link", { name: "服务条款" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "隐私政策" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "客户支持" })).not.toBeInTheDocument();

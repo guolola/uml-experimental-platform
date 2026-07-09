@@ -149,7 +149,7 @@ function MarketingFooter() {
             </a>
           </address>
         </div>
-        <div className="text-center lg:col-span-2">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-center lg:col-span-2">
           <a
             href="https://beian.miit.gov.cn/"
             target="_blank"
@@ -157,6 +157,20 @@ function MarketingFooter() {
             className="underline-offset-4 hover:text-primary hover:underline"
           >
             闽ICP备2026024395号
+          </a>
+          <a
+            href="https://beian.mps.gov.cn/#/query/webSearch?code=35010402351938"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center gap-1.5 underline-offset-4 hover:text-primary hover:underline"
+          >
+            <img
+              src="/assets/beian/gongan.png"
+              alt="公安备案图标"
+              className="size-5 shrink-0"
+              loading="lazy"
+            />
+            <span>闽公网安备35010402351938号</span>
           </a>
         </div>
       </div>
