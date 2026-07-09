@@ -509,8 +509,8 @@ export function autoFillRequirementTraceability(
         reviewStatus: deterministic ? "confirmed" : "pending",
         confidence: deterministic ? "medium" : "low",
         rationale: deterministic
-          ? "系统按需求规则文本和模型元素名称的相似度补齐；请在跟踪矩阵中确认是否采纳。"
-          : "未找到明确来源，系统仅按相关图类型临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
+          ? "由需求规则文本与模型元素名称相似度建立映射。"
+          : "由需求规则关联图类型自动建立候选映射，需复核。",
       },
     ];
   });

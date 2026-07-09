@@ -329,8 +329,8 @@ function autoFillDesignTraceability(
         reviewStatus: mappingIsDeterministic ? "confirmed" : "pending",
         confidence: mappingIsDeterministic ? "medium" : "low",
         rationale: mappingIsDeterministic
-          ? "系统按用例实现设计的来源用例或元素名称确定追踪关系；请在跟踪矩阵中确认是否采纳。"
-          : "未找到明确上游来源，系统仅按最接近的需求元素临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
+          ? "由用例实现设计的来源用例或元素名称确定追踪关系。"
+          : "由设计元素与最接近的需求模型元素建立候选映射，需复核。",
       },
     ];
   });

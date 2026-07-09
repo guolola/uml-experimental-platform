@@ -11,6 +11,9 @@ import {
   findForbiddenDocumentPhrases,
 } from "./document-context.js";
 
+const INTERACTIVE_TRACE_REVIEW_PATTERN =
+  /未找到明确(?:上游)?来源|请在跟踪矩阵|采纳|忽略|确认是否采纳/u;
+
 test("software design documents list pending auto-filled traceability for review", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
@@ -55,6 +58,153 @@ test("software design documents list pending auto-filled traceability for review
     "说明",
   ]);
   assert.equal(reviewSection.table?.rows[0]?.[2], "BookService");
+});
+
+test("requirements documents formalize auto-filled traceability rationale", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "requirementsSpec",
+    requirementText: "简单图书馆管理系统需要支持借书、还书和图书检索。",
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "系统应支持借书。",
+        relatedDiagrams: ["class"],
+      },
+      {
+        id: "r2",
+        category: "功能需求",
+        text: "系统应支持图书检索。",
+        relatedDiagrams: ["class"],
+      },
+    ],
+    requirementModelTraceability: [
+      {
+        ruleId: "r1",
+        target: {
+          diagramKind: "class",
+          elementKind: "class",
+          elementId: "Book",
+          label: "Book",
+        },
+        mappingSource: "auto-filled-pending-review",
+        reviewStatus: "pending",
+        confidence: "low",
+        rationale:
+          "未找到明确来源，系统仅按相关图类型临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
+      },
+      {
+        ruleId: "r2",
+        target: {
+          diagramKind: "class",
+          elementKind: "class",
+          elementId: "BookSearch",
+          label: "图书检索",
+        },
+        mappingSource: "llm",
+        reviewStatus: "confirmed",
+        confidence: "medium",
+        rationale:
+          "系统按需求规则文本和模型元素名称的相似度补齐；请在跟踪矩阵中确认是否采纳。",
+      },
+    ],
+    useAiText: false,
+  });
+
+  const traceSection = fallbackDocumentSections(input).find(
+    (section) => section.title === "跟踪矩阵" && section.body.join("").includes("领域概念模型"),
+  );
+
+  assert.ok(traceSection);
+  assert.deepEqual(traceSection.table?.headers, [
+    "编号",
+    "需求规则",
+    "模型元素",
+    "追踪依据",
+  ]);
+  assert.equal(traceSection.table?.rows[0]?.[1], "r1");
+  assert.equal(
+    traceSection.table?.rows[0]?.[3],
+    "由需求规则关联图类型自动建立候选映射，需复核",
+  );
+  assert.equal(
+    traceSection.table?.rows[1]?.[3],
+    "由需求规则文本与模型元素名称相似度建立映射",
+  );
+  assert.equal(
+    traceSection.table?.rows.flat().some((cell) =>
+      INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
+    ),
+    false,
+  );
+});
+
+test("software design class matrix shows direct upstream instead of requirement rules", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "softwareDesignSpec",
+    requirementText: "简单图书馆管理系统需要支持借书。",
+    designModelTraceability: [
+      {
+        source: {
+          diagramKind: "class",
+          modelId: "class:design",
+          elementKind: "class",
+          elementId: "BorrowingService",
+          label: "BorrowingService",
+        },
+        upstreamDesignRefs: [
+          {
+            diagramKind: "sequence",
+            modelId: "sequence:borrow",
+            elementKind: "participant",
+            elementId: "BorrowingService",
+            label: "借书实现",
+          },
+        ],
+        targets: [
+          {
+            diagramKind: "usecase",
+            modelId: "usecase:requirements",
+            elementKind: "useCase",
+            elementId: "UC-Borrow",
+            label: "借书",
+          },
+        ],
+        mappingSource: "auto-filled-pending-review",
+        reviewStatus: "pending",
+        confidence: "low",
+        rationale:
+          "未找到明确上游来源，系统仅按最接近的需求元素临时补齐；请在跟踪矩阵中采纳、忽略或稍后处理。",
+      },
+    ],
+    useAiText: false,
+  });
+
+  const traceSection = fallbackDocumentSections(input).find(
+    (section) => section.title === "设计类跟踪矩阵",
+  );
+
+  assert.ok(traceSection);
+  assert.deepEqual(traceSection.table?.headers, [
+    "编号",
+    "设计元素",
+    "直接上游",
+    "映射需求元素",
+    "追踪依据",
+  ]);
+  assert.deepEqual(traceSection.table?.rows[0], [
+    "1",
+    "BorrowingService",
+    "用例实现设计：借书实现",
+    "用例图：借书",
+    "由直接上游设计元素与当前设计元素职责关系建立映射",
+  ]);
+  assert.equal(
+    traceSection.table?.rows.flat().some((cell) =>
+      /^r\d+$/iu.test(cell) || INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
+    ),
+    false,
+  );
 });
 
 test("requirements documents use generated use case event flows", () => {
