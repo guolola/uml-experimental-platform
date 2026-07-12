@@ -1,8 +1,14 @@
 // Defines the canonical metadata contract shared by runtime navigation and static prerendering.
 import type { AppRoute, MarketingRoutePath } from "../../../shared/lib/app-route-types";
+import { LOCALE_OG_LOCALE, type AppLocale } from "../../../shared/i18n";
 
 export const PUBLIC_SITE_URL = "https://jianglisoftware.com";
 export const SEO_JSON_LD_ID = "marketing-seo-json-ld";
+
+type LocalizedMarketingSeoMetadata = {
+  title: string;
+  description: string;
+};
 
 export type MarketingSeoMetadata = {
   path: MarketingRoutePath;
@@ -12,6 +18,7 @@ export type MarketingSeoMetadata = {
   imagePath: "/og-cover.png";
   indexable: true;
   jsonLd?: Record<string, unknown>[];
+  localized?: Partial<Record<Exclude<AppLocale, "zh-CN">, LocalizedMarketingSeoMetadata>>;
 };
 
 const sharedApplication = {
@@ -41,6 +48,13 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
       },
       { "@context": "https://schema.org", ...sharedApplication },
     ],
+    localized: {
+      en: {
+        title: "Software Engineering Practice Platform | AI-powered Requirements and UML Modeling",
+        description:
+          "A traceable engineering workflow for software engineering education and practice, from requirements and UML models to prototypes, code, and documents.",
+      },
+    },
   },
   "/features": {
     path: "/features",
@@ -49,6 +63,13 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
     canonicalPath: "/features",
     imagePath: "/og-cover.png",
     indexable: true,
+    localized: {
+      en: {
+        title: "Features | Requirements, UML Modeling, Prototypes, and Documents",
+        description:
+          "See how the platform connects requirements review, UML models, design derivation, code prototypes, testing traceability, and specification generation.",
+      },
+    },
   },
   "/workflow": {
     path: "/workflow",
@@ -57,6 +78,13 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
     canonicalPath: "/workflow",
     imagePath: "/og-cover.png",
     indexable: true,
+    localized: {
+      en: {
+        title: "Workflow | From Requirements to UML, Code, and Documents",
+        description:
+          "Follow a staged workflow for requirements input, rule review, UML modeling, design derivation, prototype code, and software specifications.",
+      },
+    },
   },
   "/cases": {
     path: "/cases",
@@ -65,6 +93,13 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
     canonicalPath: "/cases",
     imagePath: "/og-cover.png",
     indexable: true,
+    localized: {
+      en: {
+        title: "Case Studies | Software Engineering Modeling and Generation",
+        description:
+          "Explore lab booking, order fulfillment, device monitoring, and library lending examples from requirements to models, code, and documents.",
+      },
+    },
   },
   "/pricing": {
     path: "/pricing",
@@ -73,8 +108,26 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
     canonicalPath: "/pricing",
     imagePath: "/og-cover.png",
     indexable: true,
+    localized: {
+      en: {
+        title: "Pricing | Software Engineering Practice Platform",
+        description:
+          "Review available plans and generation credits, then choose the software engineering modeling and delivery capabilities that fit your needs.",
+      },
+    },
   },
 };
+
+function localizeMetadata(metadata: MarketingSeoMetadata, locale: AppLocale) {
+  const localized = locale === "zh-CN" ? null : metadata.localized?.[locale];
+  return localized
+    ? {
+        ...metadata,
+        title: localized.title,
+        description: localized.description,
+      }
+    : metadata;
+}
 
 function upsertMeta(selector: string, attributes: Record<string, string>) {
   let element = document.head.querySelector<HTMLMetaElement>(selector);
@@ -89,12 +142,26 @@ function removeManagedStructuredData() {
   document.getElementById(SEO_JSON_LD_ID)?.remove();
 }
 
-export function applyRouteMetadata(route: AppRoute, siteUrl = PUBLIC_SITE_URL) {
-  const metadata = route.kind === "marketing-home" ? MARKETING_SEO[route.path] : null;
+export function applyRouteMetadata(
+  route: AppRoute,
+  siteUrl = PUBLIC_SITE_URL,
+  locale: AppLocale = "zh-CN",
+) {
+  const metadata =
+    route.kind === "marketing-home"
+      ? localizeMetadata(MARKETING_SEO[route.path], locale)
+      : null;
   const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
 
   if (!metadata) {
-    document.title = route.kind === "not-found" ? "页面未找到｜软件工程实践平台" : "软件工程实践平台";
+    document.title =
+      route.kind === "not-found"
+        ? locale === "en"
+          ? "Page not found | Software Engineering Practice Platform"
+          : "页面未找到｜软件工程实践平台"
+        : locale === "en"
+          ? "Software Engineering Practice Platform"
+          : "软件工程实践平台";
     upsertMeta('meta[name="robots"]', { name: "robots", content: "noindex, nofollow" });
     canonical?.remove();
     document.head.querySelector('meta[name="description"]')?.remove();
@@ -120,8 +187,14 @@ export function applyRouteMetadata(route: AppRoute, siteUrl = PUBLIC_SITE_URL) {
   document.head.querySelectorAll('[data-seo-social="true"]').forEach((element) => element.remove());
   const socialTags: Array<Record<string, string>> = [
     { property: "og:type", content: "website" },
-    { property: "og:locale", content: "zh_CN" },
-    { property: "og:site_name", content: "软件工程实践平台" },
+    { property: "og:locale", content: LOCALE_OG_LOCALE[locale] },
+    {
+      property: "og:site_name",
+      content:
+        locale === "en"
+          ? "Software Engineering Practice Platform"
+          : "软件工程实践平台",
+    },
     { property: "og:title", content: metadata.title },
     { property: "og:description", content: metadata.description },
     { property: "og:url", content: absoluteCanonical },

@@ -12,13 +12,8 @@ const MOCK_SECRET = "billing-service-test-secret";
 const FIXED_NOW = new Date("2026-06-05T04:00:00.000Z");
 function mockRegistry(nodeEnv = "test"): PaymentProviderRegistry {
   return {
-    wechat_native: createMockPaymentAdapter({
-      channel: "wechat_native",
-      nodeEnv,
-      secret: MOCK_SECRET,
-    }),
-    alipay_page: createMockPaymentAdapter({
-      channel: "alipay_page",
+    alipay: createMockPaymentAdapter({
+      channel: "alipay",
       nodeEnv,
       secret: MOCK_SECRET,
     }),
@@ -53,7 +48,7 @@ async function payOrder(input: {
   amountOverride?: number;
   eventId?: string;
 }) {
-  const channel = input.channel ?? "wechat_native";
+  const channel = input.channel ?? "alipay";
   const order = await input.service.createOrder(
     { id: input.userId, emailVerified: true },
     { skuCode: input.skuCode, channel },
@@ -96,11 +91,11 @@ test("billing catalog exposes the configured PC web SKUs and server-priced order
 
   const order = await service.createOrder(
     { id: "user-price", emailVerified: true },
-    { skuCode: "credits_10", channel: "wechat_native" },
+    { skuCode: "credits_10", channel: "alipay" },
   );
   assert.equal(order.amountCents, 990);
   assert.equal(order.currency, "CNY");
-  assert.ok(order.codeUrl?.startsWith("uml-mock-pay://"));
+  assert.match(order.paymentFormHtml ?? "", /支付/u);
 });
 
 test("billing catalog rejects legacy time pass SKU overrides", async () => {
@@ -133,7 +128,7 @@ test("email verification signup bonus is idempotent and powers credit reservatio
 
   await service.grantSignupBonus("user-bonus");
   await service.grantSignupBonus("user-bonus");
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 10);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 5);
 
   const reserved = await service.reserveRunUsage({
     runId: "run-reserve-release",
@@ -141,9 +136,9 @@ test("email verification signup bonus is idempotent and powers credit reservatio
     taskType: "requirements_to_uml",
   });
   assert.equal(reserved.allowed, true);
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 9);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 4);
   await service.releaseRunUsage("run-reserve-release");
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 10);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 5);
 
   const confirmed = await service.reserveRunUsage({
     runId: "run-confirm",
@@ -153,7 +148,7 @@ test("email verification signup bonus is idempotent and powers credit reservatio
   assert.equal(confirmed.allowed, true);
   await service.confirmRunUsage("run-confirm");
   await service.confirmRunUsage("run-confirm");
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 9);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 4);
 });
 
 test("guest development allowance is daily and idempotent", async () => {
@@ -214,7 +209,7 @@ test("payment callbacks verify signatures, validate amount, and grant purchases 
   assert.deepEqual(paid.callbackResult, { ok: true, duplicate: false });
 
   const duplicate = await service.processPaymentCallback({
-    channel: "wechat_native",
+    channel: "alipay",
     headers: { "x-uml-mock-payment-signature": sign(paid.rawBody) },
     body: JSON.parse(paid.rawBody),
     rawBody: paid.rawBody,
@@ -251,15 +246,43 @@ test("payment callbacks verify signatures, validate amount, and grant purchases 
   );
 });
 
-test("production orders fail closed without explicit official payment configuration", async () => {
+test("production orders fail closed without explicit SKU and payment configuration", async () => {
   const { service } = await createTestService({ nodeEnv: "production" });
 
   await assert.rejects(
     () =>
       service.createOrder(
         { id: "user-prod", emailVerified: true },
-        { skuCode: "credits_10", channel: "wechat_native" },
+        { skuCode: "credits_10", channel: "alipay" },
       ),
     /Production billing requires UML_BILLING_SKUS_JSON/,
+  );
+
+  const configuredSkus = await createTestService({
+    nodeEnv: "production",
+    env: {
+      UML_BILLING_SKUS_JSON: JSON.stringify([
+        {
+          code: "credits_10",
+          name: "10 次包",
+          kind: "credit_pack",
+          description: "买 10 次送 1 次，到账 11 次",
+          durationDays: null,
+          creditAmount: 11,
+          amountCents: 990,
+          currency: "CNY",
+          active: true,
+          sortOrder: 110,
+        },
+      ]),
+    },
+  });
+  await assert.rejects(
+    () =>
+      configuredSkus.service.createOrder(
+        { id: "user-prod", emailVerified: true },
+        { skuCode: "credits_10", channel: "alipay" },
+      ),
+    /alipay payment configuration is incomplete/,
   );
 });

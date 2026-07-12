@@ -3,7 +3,6 @@ import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   createPaymentOrderRequestSchema,
-  paymentChannelSchema,
 } from "@uml-platform/contracts";
 import { isAuthError, requireAdminRole, requireAuth } from "../../auth/guards.js";
 import type { AuthStore } from "../../auth/in-memory-auth-store.js";
@@ -48,6 +47,24 @@ function sendCallbackError(reply: FastifyReply, error: unknown) {
     ok: false,
     message: error instanceof Error ? error.message : "Payment callback rejected",
   };
+}
+
+async function handleEpayCallback(
+  billingService: BillingService,
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    await billingService.processPaymentCallback({
+      channel: "alipay",
+      headers: request.headers,
+      body: request.method === "GET" ? request.query : request.body,
+      rawBody: rawBodyFromRequest(request),
+    });
+    return reply.type("text/plain").send("success");
+  } catch (error) {
+    return sendCallbackError(reply, error);
+  }
 }
 
 export function registerBillingRoutes({
@@ -118,20 +135,13 @@ export function registerBillingRoutes({
     return billingService.getOrderForUser(auth.user.id, orderId);
   });
 
-  app.post("/api/billing/callbacks/:channel", async (request, reply) => {
-    const { channel } = request.params as { channel: string };
-    const parsedChannel = paymentChannelSchema.parse(channel);
-    try {
-      return await billingService.processPaymentCallback({
-        channel: parsedChannel,
-        headers: request.headers,
-        body: request.body,
-        rawBody: rawBodyFromRequest(request),
-      });
-    } catch (error) {
-      return sendCallbackError(reply, error);
-    }
-  });
+  app.get("/api/billing/callbacks/epay", async (request, reply) =>
+    handleEpayCallback(billingService, request, reply),
+  );
+
+  app.post("/api/billing/callbacks/epay", async (request, reply) =>
+    handleEpayCallback(billingService, request, reply),
+  );
 
   app.get("/api/admin/billing/orders", async (request, reply) => {
     const admin = await requireAdminRole(request, reply, authStore, ["super_admin"]);

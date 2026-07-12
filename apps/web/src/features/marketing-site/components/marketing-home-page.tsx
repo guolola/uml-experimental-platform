@@ -7,7 +7,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
+import type { AppLocale } from "../../../shared/i18n";
 import {
   MARKETING_PROMO_VIDEO_URL,
   WORKFLOW_CHAIN_VIDEO_URL,
@@ -21,6 +23,7 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { VideoPlayer } from "../../../shared/ui/video-player";
+import { LanguagePreferenceMenu } from "../../../shared/i18n/components/language-preference-menu";
 import { AccountDialog } from "../../user-platform/components/account-dialog";
 import { useAuthSession } from "../../user-platform/lib/use-auth-session";
 import {
@@ -29,13 +32,7 @@ import {
   type PlatformUser,
 } from "../../user-platform/services/platform-api";
 import {
-  caseStudies,
-  features,
-  footerLinks,
-  heroTrustPoints,
-  marketingNavItems,
-  referenceStandards,
-  workflowSteps,
+  getMarketingContent,
 } from "../model/marketing-content";
 
 type MarketingHomePageProps = {
@@ -48,14 +45,22 @@ type MarketingAuthState = {
   authChecking?: boolean;
 };
 
+type MarketingContent = ReturnType<typeof getMarketingContent>;
+
 const pagePadding = "px-[clamp(1.5rem,4vw,7rem)]";
 const wideContent = "mx-auto w-full max-w-[1760px]";
+
+function resolvedAppLocale(language: string | undefined): AppLocale {
+  return language?.startsWith("en") ? "en" : "zh-CN";
+}
 
 function MarketingHeader({
   path,
   onNavigate,
   authUser,
-}: MarketingHomePageProps & MarketingAuthState) {
+  content,
+}: MarketingHomePageProps & MarketingAuthState & { content: MarketingContent }) {
+  const { t } = useTranslation();
   const signedIn = Boolean(authUser);
 
   return (
@@ -65,12 +70,12 @@ function MarketingHeader({
           type="button"
           className="motion-brand max-w-[58vw] break-words font-display text-left text-[22px] font-black leading-[28px] tracking-normal text-primary sm:text-[28px] sm:leading-[36px] md:max-w-none md:text-[32px] md:leading-[40px]"
           onClick={() => onNavigate("/")}
-          aria-label="软件工程实践平台官网"
+          aria-label={t("marketing.header.homeAria")}
         >
-          软件工程实践平台
+          {t("common.appName")}
         </button>
-        <nav className="hidden items-center gap-8 md:flex" aria-label="官网导航">
-          {marketingNavItems.map((item) => (
+        <nav className="hidden items-center gap-8 md:flex" aria-label={t("marketing.header.navAria")}>
+          {content.marketingNavItems.map((item) => (
             <a
               key={item.path}
               href={item.path}
@@ -90,6 +95,7 @@ function MarketingHeader({
           ))}
         </nav>
         <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+          <LanguagePreferenceMenu className="motion-action size-10 rounded-full bg-transparent text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground" />
           {signedIn ? (
             <AccountDialog onNavigate={onNavigate} initialUser={authUser} />
           ) : (
@@ -100,14 +106,14 @@ function MarketingHeader({
                 className="motion-action rounded-full px-2 text-[14px] font-medium leading-[22px] text-primary hover:text-primary sm:px-4 sm:text-[16px] sm:leading-[24px]"
                 onClick={() => onNavigate("/login")}
               >
-                登录
+                {t("auth.login")}
               </Button>
               <Button
                 type="button"
                 className="motion-action hidden rounded-full px-4 text-[14px] font-medium leading-[22px] shadow-sm min-[480px]:inline-flex sm:px-6 sm:text-[16px] sm:leading-[24px]"
                 onClick={() => onNavigate("/register")}
               >
-                注册
+                {t("auth.register")}
               </Button>
             </>
           )}
@@ -117,30 +123,31 @@ function MarketingHeader({
   );
 }
 
-function MarketingFooter() {
+function MarketingFooter({ content }: { content: MarketingContent }) {
+  const { t } = useTranslation();
   return (
     <footer data-testid="marketing-footer" data-motion="marketing-footer" className="motion-footer border-t border-border bg-card">
       <div
         className={`${wideContent} grid gap-6 ${pagePadding} py-[clamp(1.5rem,3vh,2.5rem)] text-sm text-muted-foreground lg:grid-cols-[minmax(14rem,0.7fr)_minmax(0,1.8fr)] lg:items-start lg:gap-12`}
       >
         <div className="grid gap-2 lg:pt-1">
-          <div className="font-display text-[18px] font-semibold leading-[26px] text-foreground">软件工程实践平台</div>
-          <p>© 2026 软件工程实践平台。保留所有权利。</p>
+          <div className="font-display text-[18px] font-semibold leading-[26px] text-foreground">{t("common.appName")}</div>
+          <p>{t("marketing.footer.copyright")}</p>
         </div>
         <div className="grid min-w-0 gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-display text-[16px] font-semibold leading-6 text-foreground">网站简介</h2>
-            {footerLinks.map((link) => (
+            <h2 className="font-display text-[16px] font-semibold leading-6 text-foreground">{t("marketing.footer.aboutTitle")}</h2>
+            {content.footerLinks.map((link) => (
               <a key={link} href="#" className="underline-offset-4 hover:text-primary hover:underline">
                 {link}
               </a>
             ))}
           </div>
           <p className="max-w-5xl break-words leading-6">
-            本站为个人技术分享网站，由几位长期从事软件工程学科教学的高校老师共同打造。作为软件工程领域前沿技术的探索空间，本站致力于传播软件工程知识，探索前沿理论与技术，期望以此培养行业技术人才，助力国家软件技术发展。如果您对本站有任何意见或建议，欢迎联系我们。
+            {t("marketing.footer.aboutDescription")}
           </p>
           <address className="flex flex-wrap gap-x-4 gap-y-1 not-italic leading-6">
-            <span>联系人：洪老师</span>
+            <span>{t("marketing.footer.contact")}</span>
             <a
               href="mailto:672250123@qq.com"
               className="break-all text-primary underline-offset-4 hover:underline"
@@ -166,7 +173,7 @@ function MarketingFooter() {
           >
             <img
               src="/assets/beian/gongan.png"
-              alt="公安备案图标"
+              alt={t("marketing.footer.policeIconAlt")}
               className="size-5 shrink-0"
               loading="lazy"
             />
@@ -178,7 +185,7 @@ function MarketingFooter() {
   );
 }
 
-function MarketingFitPage({ children }: { children: ReactNode }) {
+function MarketingFitPage({ children, content }: { children: ReactNode; content: MarketingContent }) {
   return (
     <div
       data-testid="marketing-fit-page"
@@ -187,21 +194,25 @@ function MarketingFitPage({ children }: { children: ReactNode }) {
       className="flex min-h-[calc(100dvh-73px)] flex-col"
     >
       <div className="flex flex-1 flex-col">{children}</div>
-      <MarketingFooter />
+      <MarketingFooter content={content} />
     </div>
   );
 }
 
-function MarketingScrollPage({ children }: { children: ReactNode }) {
+function MarketingScrollPage({ children, content }: { children: ReactNode; content: MarketingContent }) {
   return (
     <div data-testid="marketing-scroll-page" data-fit-mode="scroll" data-motion="marketing-page">
       {children}
-      <MarketingFooter />
+      <MarketingFooter content={content} />
     </div>
   );
 }
 
-function LayeredProductMockup() {
+function LayeredProductMockup({ content }: { content: MarketingContent }) {
+  const { t } = useTranslation();
+  const [reportCard, umlCard] = content.productPreviewCards;
+  const ReportIcon = reportCard?.icon ?? FileText;
+  const UmlIcon = umlCard?.icon ?? Network;
   return (
     <div className="relative mx-auto h-[clamp(31rem,38vw,38rem)] min-h-[31rem] w-full min-w-0 max-w-[58rem]">
       <div className="absolute right-[8%] top-[8%] size-[27rem] rounded-full bg-primary/10 blur-[40px]" />
@@ -219,10 +230,10 @@ function LayeredProductMockup() {
               </span>
               <div className="grid min-w-0 gap-1">
                 <h2 className="truncate font-display text-[18px] font-semibold leading-6 text-foreground md:text-[22px]">
-                  图书馆借阅系统
+                  {t("marketing.mockup.projectName")}
                 </h2>
                 <p className="font-mono text-[12px] font-medium leading-4 text-primary">
-                  实验进度 68%
+                  {t("marketing.mockup.progress", { progress: 68 })}
                 </p>
               </div>
             </div>
@@ -235,8 +246,8 @@ function LayeredProductMockup() {
         </div>
         <div className="mt-8 grid gap-3">
           <div className="flex items-center justify-between font-mono text-[12px] font-medium leading-4">
-            <span className="text-muted-foreground">生成进度</span>
-            <span className="text-primary">正在生成 UML...</span>
+            <span className="text-muted-foreground">{t("marketing.mockup.generationProgress")}</span>
+            <span className="text-primary">{t("marketing.mockup.generatingUml")}</span>
           </div>
           <div className="h-3 overflow-hidden rounded-full bg-border/50 shadow-inner">
             <div className="motion-progress-bar h-full w-[68%] rounded-full bg-gradient-to-r from-primary via-info to-primary" />
@@ -246,8 +257,8 @@ function LayeredProductMockup() {
 
       <article className="motion-layer-secondary absolute left-[2%] top-[43%] z-10 w-[min(28rem,54%)] rotate-[-2deg] rounded-2xl border border-border/60 bg-card p-8 shadow-xl">
         <div className="flex items-center gap-3 text-primary">
-          <FileText className="size-5" />
-          <h3 className="font-display text-[18px] font-semibold leading-6">需求报告</h3>
+          <ReportIcon className="size-5" />
+          <h3 className="font-display text-[18px] font-semibold leading-6">{reportCard?.title}</h3>
         </div>
         <div className="mt-5 grid gap-4">
           <span className="h-2.5 w-3/4 rounded-full bg-border" />
@@ -259,8 +270,8 @@ function LayeredProductMockup() {
 
       <article className="motion-layer-tertiary absolute right-[-1%] top-[54%] z-10 w-[min(24rem,46%)] rotate-[3deg] rounded-2xl border border-border/60 bg-card p-7 shadow-xl">
         <div className="flex items-center gap-3 text-info">
-          <Network className="size-5" />
-          <h3 className="font-display text-[18px] font-bold leading-6">UML 预览</h3>
+          <UmlIcon className="size-5" />
+          <h3 className="font-display text-[18px] font-bold leading-6">{umlCard?.title}</h3>
         </div>
         <div className="mt-4 flex h-32 items-center justify-center rounded-xl border-2 border-dashed border-border/70 bg-background/30 text-muted-foreground">
           <span className="font-mono text-xl leading-none">...</span>
@@ -270,14 +281,15 @@ function LayeredProductMockup() {
   );
 }
 
-function IntegratedReferenceStandardsStrip() {
+function IntegratedReferenceStandardsStrip({ content }: { content: MarketingContent }) {
+  const { t } = useTranslation();
   return (
     <section
-      aria-label="参考标准"
+      aria-label={t("marketing.standards.aria")}
       data-testid="marketing-standards-row"
       className="relative z-10 mt-[clamp(1.25rem,2vh,2rem)] grid grid-cols-4 gap-2 border-t border-border/60 pt-5 md:flex md:flex-wrap md:gap-6 md:pt-6"
     >
-      {referenceStandards.map((standard, index) => (
+      {content.referenceStandards.map((standard, index) => (
         <a
           key={standard.name}
           href={standard.href}
@@ -305,7 +317,9 @@ function IntegratedReferenceStandardsStrip() {
 function HomeTab({
   onNavigate,
   authUser,
-}: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
+  content,
+}: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState & { content: MarketingContent }) {
+  const { t } = useTranslation();
   const signedIn = Boolean(authUser);
   const [promoDialogOpen, setPromoDialogOpen] = useState(false);
   const [clientReady, setClientReady] = useState(false);
@@ -313,7 +327,7 @@ function HomeTab({
 
   return (
     <>
-      <MarketingScrollPage>
+      <MarketingScrollPage content={content}>
         <section
           data-testid="marketing-home-hero"
           data-footer-fit="same-viewport"
@@ -326,17 +340,17 @@ function HomeTab({
               <div className="grid min-w-0 max-w-full gap-[clamp(2rem,3.4vh,3.25rem)]">
                 <div className="motion-rise motion-delay-2 grid gap-4">
                   <h1
-                    aria-label="让需求、UML模型、原型和说明书一站式生成"
+                    aria-label={t("marketing.home.heroAria")}
                     className="max-w-[820px] break-words font-display text-[32px] font-semibold leading-[40px] tracking-normal text-foreground [overflow-wrap:anywhere] md:text-[clamp(3.75rem,4vw,5rem)] md:font-bold md:leading-[1.12]"
                   >
-                    <span className="block md:inline">让需求、UML模型、</span>
-                    <span className="block md:inline">原型和说明书</span>
+                    <span className="block md:inline">{t("marketing.home.heroLine1")}</span>
+                    <span className="block md:inline">{t("marketing.home.heroLine2")}</span>
                     <span className="block bg-gradient-to-r from-primary to-info bg-clip-text text-transparent">
-                      一站式生成
+                      {t("marketing.home.heroAccent")}
                     </span>
                   </h1>
                   <p className="max-w-[22rem] break-all text-[clamp(1rem,1.1vw,1.25rem)] font-normal leading-[1.6] text-muted-foreground md:max-w-3xl md:break-words">
-                    输入需求文本，平台辅助生成需求规则、UML模型、React 原型与实训说明书。
+                    {t("marketing.home.description")}
                   </p>
                 </div>
                 <div
@@ -348,7 +362,7 @@ function HomeTab({
                     className="motion-action h-12 min-w-0 justify-center rounded-full px-3 font-display text-[15px] font-semibold leading-5 shadow-xl md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
                     onClick={() => onNavigate(signedIn ? "/projects" : "/login")}
                   >
-                    开始生成
+                    {t("marketing.home.start")}
                     <ArrowRight className="size-4" />
                   </Button>
                   <Button
@@ -357,7 +371,7 @@ function HomeTab({
                     className="motion-action h-12 min-w-0 justify-center rounded-full border-2 border-border bg-card px-3 font-display text-[15px] font-semibold leading-5 text-primary hover:bg-accent md:h-[4.5rem] md:min-w-[16rem] md:px-14 md:text-[20px] md:leading-[28px]"
                     onClick={() => setPromoDialogOpen(true)}
                   >
-                    查看平台介绍
+                    {t("marketing.home.watchIntro")}
                     <PlayCircle className="size-4" />
                   </Button>
                 </div>
@@ -365,7 +379,7 @@ function HomeTab({
                   data-testid="marketing-trust-row"
                   className="grid grid-cols-5 gap-1.5 border-t border-border/60 pt-6 md:flex md:max-w-none md:flex-wrap md:gap-6 md:pt-8"
                 >
-                  {heroTrustPoints.map(({ label, icon: Icon }, index) => (
+                  {content.heroTrustPoints.map(({ label, icon: Icon }, index) => (
                     <span
                       key={label}
                       className="motion-rise inline-flex min-w-0 flex-col items-center gap-1 rounded-lg px-0.5 py-1 text-center text-[12px] font-medium leading-4 text-muted-foreground md:flex-row md:gap-2 md:px-3 md:text-[14px] md:font-normal md:leading-[20px]"
@@ -378,9 +392,9 @@ function HomeTab({
                   ))}
                 </div>
               </div>
-              <LayeredProductMockup />
+              <LayeredProductMockup content={content} />
             </div>
-            <IntegratedReferenceStandardsStrip />
+            <IntegratedReferenceStandardsStrip content={content} />
           </div>
         </section>
       </MarketingScrollPage>
@@ -390,16 +404,16 @@ function HomeTab({
             hideCloseButton
             className="max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] !max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none"
           >
-            <DialogTitle className="sr-only">查看平台介绍</DialogTitle>
+            <DialogTitle className="sr-only">{t("marketing.home.watchIntro")}</DialogTitle>
             <DialogDescription className="sr-only">
-              通过短片了解软件工程实践平台如何串联需求、模型、原型和说明书证据。
+              {t("marketing.home.videoDialogDescription")}
             </DialogDescription>
             {promoDialogOpen && (
               <VideoPlayer
                 src={MARKETING_PROMO_VIDEO_URL}
-                title="软件工程实践平台介绍视频"
-                description="从可信链路和证据视角展示平台核心流程。"
-                caption="平台介绍视频"
+                title={t("marketing.home.videoTitle")}
+                description={t("marketing.home.videoDescription")}
+                caption={t("marketing.home.videoCaption")}
                 autoPlay
               />
             )}
@@ -410,24 +424,25 @@ function HomeTab({
   );
 }
 
-function FeaturesTab() {
+function FeaturesTab({ content }: { content: MarketingContent }) {
+  const { t } = useTranslation();
   return (
-    <MarketingFitPage>
+    <MarketingFitPage content={content}>
       <section className={`flex flex-1 flex-col justify-center bg-background ${pagePadding} py-[clamp(2.5rem,5vh,5rem)] text-center`}>
         <h1
-          aria-label="阶段化 AI 辅助的软件工程实验室"
+          aria-label={t("marketing.features.heroAria")}
           className="motion-rise motion-delay-1 mx-auto max-w-5xl font-display text-[24px] font-semibold leading-[32px] tracking-normal text-foreground md:text-[48px] md:font-bold md:leading-[56px]"
         >
-          阶段化 AI 辅助的
+          {t("marketing.features.heroLine1")}
           <span className="block bg-gradient-to-r from-primary to-info bg-clip-text text-transparent">
-            现代软件工程实验室
+            {t("marketing.features.heroAccent")}
           </span>
         </h1>
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-4xl text-[16px] font-normal leading-[24px] text-muted-foreground">
-          软件工程实践平台提供从需求分析到代码原型和说明书导出的阶段化工具链。平台通过大模型推理与结构化输出，把需求文本沉淀为可追踪、可渲染、可修复的实训产物。
+          {t("marketing.features.description")}
         </p>
         <div className={`${wideContent} mt-[clamp(2rem,4vh,4rem)] grid gap-[clamp(1.25rem,1.5vw,2rem)] md:grid-cols-2 xl:grid-cols-3`}>
-          {features.map(({ title, shortTitle, description, icon: Icon }, index) => (
+          {content.features.map(({ title, shortTitle, description, icon: Icon }, index) => (
             <article
               key={title}
               className="motion-card relative min-h-[clamp(12rem,18vh,17rem)] overflow-hidden rounded-xl border border-border bg-card p-[clamp(1.5rem,2vw,2.25rem)] text-left shadow-sm"
@@ -447,17 +462,18 @@ function FeaturesTab() {
   );
 }
 
-function WorkflowTab() {
+function WorkflowTab({ content }: { content: MarketingContent }) {
+  const { t } = useTranslation();
   return (
-    <MarketingScrollPage>
+    <MarketingScrollPage content={content}>
       <section className={`relative overflow-hidden bg-background ${pagePadding} pb-16 pt-20 text-center`}>
         <div className="absolute left-1/2 top-0 h-64 w-[60%] -translate-x-1/2 rounded-full bg-accent/50 blur-3xl" />
         <div className="relative mx-auto grid max-w-[22rem] justify-items-center gap-6 md:max-w-3xl">
           <h1 className="motion-rise motion-delay-1 break-words font-display text-[24px] font-semibold leading-[32px] tracking-normal text-foreground [overflow-wrap:anywhere] md:text-[48px] md:font-bold md:leading-[56px]">
-            智能研发实验全链路
+            {t("marketing.workflow.title")}
           </h1>
           <p className="motion-rise motion-delay-2 w-full break-all text-[16px] font-normal leading-[24px] text-muted-foreground md:break-words">
-            软件工程实践平台提供从需求输入到 UML模型、React 原型和 DOCX 说明书导出的标准化流程，通过大模型推理与结构化校验保留每一步实训产物。
+            {t("marketing.workflow.description")}
           </p>
         </div>
       </section>
@@ -468,18 +484,18 @@ function WorkflowTab() {
         <div className="mx-auto grid max-w-5xl justify-items-center gap-6 text-center">
           <div className="grid max-w-3xl gap-3">
             <h2 className="break-words font-display text-[24px] font-semibold leading-[32px] tracking-normal text-foreground md:text-[32px] md:leading-[40px]">
-              可信链路功能演示
+              {t("marketing.workflow.videoHeading")}
             </h2>
             <p className="break-words text-[16px] font-normal leading-[24px] text-muted-foreground">
-              用一段短片快速了解需求、模型、原型、说明书和证据如何在同一条链路中连接。
+              {t("marketing.workflow.videoDescription")}
             </p>
           </div>
           <VideoPlayer
             className="w-full shadow-xl"
             src={WORKFLOW_CHAIN_VIDEO_URL}
-            title="可信链路功能演示视频"
-            description="从可信链路和证据视角展示平台核心流程。"
-            caption="使用流程视频"
+            title={t("marketing.workflow.videoTitle")}
+            description={t("marketing.workflow.videoPlayerDescription")}
+            caption={t("marketing.workflow.videoCaption")}
           />
         </div>
       </section>
@@ -487,7 +503,7 @@ function WorkflowTab() {
         <div className="relative mx-auto max-w-5xl">
           <div className="absolute left-1/2 top-4 hidden h-[calc(100%-2rem)] w-1 -translate-x-1/2 rounded-full bg-gradient-to-b from-primary/20 via-info/20 to-muted-foreground/20 lg:block" />
           <div className="grid gap-16">
-            {workflowSteps.map((step, index) => {
+            {content.workflowSteps.map((step, index) => {
               const alignLeft = index % 2 === 0;
               const Icon = step.icon;
               return (
@@ -533,13 +549,15 @@ function CasesTab({
   onNavigate,
   authUser,
   authChecking = false,
-}: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState) {
+  content,
+}: Pick<MarketingHomePageProps, "onNavigate"> & MarketingAuthState & { content: MarketingContent }) {
+  const { t } = useTranslation();
   const signedIn = Boolean(authUser);
   const [creatingCaseId, setCreatingCaseId] = useState<string | null>(null);
   const [caseCreateError, setCaseCreateError] = useState<string | null>(null);
   const autoCreateCaseRef = useRef<string | null>(null);
 
-  const createProjectFromCase = useCallback(async (study: (typeof caseStudies)[number]) => {
+  const createProjectFromCase = useCallback(async (study: MarketingContent["caseStudies"][number]) => {
     setCaseCreateError(null);
     if (authChecking) return;
     if (!signedIn) {
@@ -555,19 +573,19 @@ function CasesTab({
         onNavigate(createCaseLoginRedirectPath(study.id));
         return;
       }
-      setCaseCreateError(error instanceof Error ? error.message : "案例项目创建失败，请稍后重试。");
+      setCaseCreateError(error instanceof Error ? error.message : t("marketing.cases.createFailed"));
     } finally {
       setCreatingCaseId((current) => (current === study.id ? null : current));
     }
-  }, [authChecking, onNavigate, signedIn]);
+  }, [authChecking, onNavigate, signedIn, t]);
 
   useEffect(() => {
     if (authChecking) return;
     const caseId = new URLSearchParams(window.location.search).get("createCase") ?? "";
     if (!caseId) return;
-    const study = caseStudies.find((candidate) => candidate.id === caseId);
+    const study = content.caseStudies.find((candidate) => candidate.id === caseId);
     if (!study) {
-      setCaseCreateError("未找到对应案例，请从下方案例卡片重新选择。");
+      setCaseCreateError(t("marketing.cases.notFound"));
       return;
     }
     if (!signedIn) {
@@ -577,16 +595,16 @@ function CasesTab({
     if (autoCreateCaseRef.current === study.id) return;
     autoCreateCaseRef.current = study.id;
     void createProjectFromCase(study);
-  }, [authChecking, createProjectFromCase, onNavigate, signedIn]);
+  }, [authChecking, content.caseStudies, createProjectFromCase, onNavigate, signedIn, t]);
 
   return (
-    <MarketingFitPage>
+    <MarketingFitPage content={content}>
       <section className={`flex flex-1 flex-col justify-center bg-background ${pagePadding} py-[clamp(3rem,7vh,6rem)] text-center`}>
         <h1 className="motion-rise motion-delay-1 font-display text-[24px] font-semibold leading-[32px] tracking-normal text-foreground md:text-[48px] md:font-bold md:leading-[56px]">
-          探索工程验证案例
+          {t("marketing.cases.title")}
         </h1>
         <p className="motion-rise motion-delay-2 mx-auto mt-6 max-w-5xl text-[16px] font-normal leading-[24px] text-muted-foreground">
-          通过常见课程与原型验证场景，体验软件工程实践平台如何在需求分析、架构设计与代码原型环节沉淀结构化实训产物。
+          {t("marketing.cases.description")}
         </p>
         {caseCreateError && (
           <p role="alert" className="mx-auto mt-6 max-w-3xl rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -594,7 +612,7 @@ function CasesTab({
           </p>
         )}
         <div className="mx-auto mt-[clamp(2.5rem,5vh,5rem)] grid w-full max-w-[1500px] gap-[clamp(1.5rem,2vw,2.25rem)] md:grid-cols-2">
-          {caseStudies.map((study, index) => {
+          {content.caseStudies.map((study, index) => {
             const creating = creatingCaseId === study.id;
             return (
               <article
@@ -619,7 +637,7 @@ function CasesTab({
                   disabled={authChecking || Boolean(creatingCaseId)}
                   aria-busy={creating}
                 >
-                  {creating ? "创建中..." : "查看案例"}
+                  {creating ? t("marketing.cases.creating") : t("marketing.cases.viewCase")}
                   <ArrowRight className="size-4" />
                 </Button>
               </article>
@@ -632,16 +650,18 @@ function CasesTab({
 }
 
 export function MarketingHomePage({ path, onNavigate }: MarketingHomePageProps) {
+  const { i18n } = useTranslation();
   const { checking: authChecking, user: authUser } = useAuthSession();
+  const content = getMarketingContent(resolvedAppLocale(i18n.resolvedLanguage ?? i18n.language));
 
   return (
     <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background font-sans text-[16px] leading-[24px] text-foreground">
-      <MarketingHeader path={path} onNavigate={onNavigate} authUser={authUser} />
-      {path === "/" && <HomeTab onNavigate={onNavigate} authUser={authUser} />}
-      {path === "/features" && <FeaturesTab />}
-      {path === "/workflow" && <WorkflowTab />}
+      <MarketingHeader path={path} onNavigate={onNavigate} authUser={authUser} content={content} />
+      {path === "/" && <HomeTab onNavigate={onNavigate} authUser={authUser} content={content} />}
+      {path === "/features" && <FeaturesTab content={content} />}
+      {path === "/workflow" && <WorkflowTab content={content} />}
       {path === "/cases" && (
-        <CasesTab onNavigate={onNavigate} authUser={authUser} authChecking={authChecking} />
+        <CasesTab onNavigate={onNavigate} authUser={authUser} authChecking={authChecking} content={content} />
       )}
     </main>
   );

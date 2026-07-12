@@ -69,7 +69,7 @@ type PaymentCallbackProcessInput = {
   rawBody: string;
 };
 
-const SIGNUP_BONUS_CREDITS = 10;
+const SIGNUP_BONUS_CREDITS = 5;
 const SIGNUP_BONUS_DAYS = 30;
 const ORDER_EXPIRES_MINUTES = 15;
 
@@ -88,6 +88,13 @@ function nextUtcDayStart(date: Date) {
 function merchantOrderNo(now: Date) {
   const stamp = now.toISOString().slice(0, 10).replace(/-/g, "");
   return `UML${stamp}${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+}
+
+function returnUrlWithOrderId(returnUrl: string | undefined, orderId: string) {
+  if (!returnUrl) return undefined;
+  const url = new URL(returnUrl);
+  url.searchParams.set("orderId", orderId);
+  return url.toString();
 }
 
 function isValidLedgerEntry(entry: BillingLedgerEntryRecord, nowIso: string) {
@@ -295,7 +302,7 @@ export function createBillingService({
       currency: "CNY",
       expiresAt: order.expiresAt,
       notifyUrl: "",
-      returnUrl: input.returnUrl,
+      returnUrl: returnUrlWithOrderId(input.returnUrl, order.id),
     });
     const updatedOrder =
       (await repository.updateOrderProviderPayload(order.id, providerPayment.providerPayload)) ??
@@ -315,9 +322,45 @@ export function createBillingService({
   }
 
   async function getOrderForUser(userId: string, orderId: string) {
-    const order = await repository.getOrderById(orderId);
+    let order = await repository.getOrderById(orderId);
     if (!order || order.userId !== userId) {
       throw new BillingNotFoundError("Payment order not found");
+    }
+    if (order.status === "pending") {
+      const adapter = paymentProviders[order.provider];
+      if (adapter?.isConfigured()) {
+        const providerState = await adapter.queryPayment(order).catch(() => null);
+        if (providerState?.merchantOrderNo === order.merchantOrderNo) {
+          if (providerState.state === "paid") {
+            assertCallbackMatchesOrder(providerState, order);
+            order =
+              (await repository.withTransaction(async (tx) => {
+                const currentOrder = await tx.getOrderById(orderId);
+                if (!currentOrder) return null;
+                const paidOrder =
+                  currentOrder.status === "paid"
+                    ? currentOrder
+                    : await tx.markOrderPaid({
+                        orderId: currentOrder.id,
+                        providerTransactionId: providerState.providerTransactionId,
+                        providerPayload: buildProviderPayload(providerState),
+                        paidAt: providerState.paidAt ?? now().toISOString(),
+                      });
+                if (paidOrder) await grantPurchaseEntitlement(tx, paidOrder);
+                return paidOrder;
+              })) ?? order;
+          } else if (providerState.state === "closed" || providerState.state === "failed") {
+            assertCallbackMatchesOrder(providerState, order);
+            order =
+              (await repository.markOrderStatus({
+                orderId: order.id,
+                status: transactionStateToOrderStatus(providerState.state),
+                providerTransactionId: providerState.providerTransactionId,
+                providerPayload: buildProviderPayload(providerState),
+              })) ?? order;
+          }
+        }
+      }
     }
     return orderToDto(order);
   }

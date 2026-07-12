@@ -10,6 +10,7 @@ import {
   billingCompatibilityColumnsSql,
   billingAndPaymentsSql,
   clearProjectDefaultProviderConfigSql,
+  epayAlipayOnlySql,
   migrationTableName,
   migrations,
   providerModelCapabilitiesEnforcementSql,
@@ -249,6 +250,21 @@ test("billing compatibility migration backfills columns added after initial bill
   assert.match(
     migrations.map((migration) => migration.id).join("\n"),
     /013_billing_compatibility_columns/,
+  );
+});
+
+test("epay migration narrows payment providers to Alipay aggregate checkout", () => {
+  assert.match(
+    epayAlipayOnlySql,
+    /payment_orders_provider_check check \(provider in \('alipay'\)\)/i,
+  );
+  assert.match(
+    epayAlipayOnlySql,
+    /payment_notifications_provider_check check \(provider in \('alipay'\)\)/i,
+  );
+  assert.match(
+    migrations.map((migration) => migration.id).join("\n"),
+    /021_epay_alipay_only/,
   );
 });
 

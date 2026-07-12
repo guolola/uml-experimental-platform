@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { Grid3X3 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "../../../shared/ui/utils";
 
 type PlatformLoadingScreenVariant = "fullscreen" | "content";
@@ -204,6 +205,7 @@ export function PlatformLoadingScreen({
   phase?: Exclude<PlatformLoadingPhase, "hidden">;
   progress?: number;
 }) {
+  const { t } = useTranslation();
   const simulatedProgress = useSimulatedProgress({ enabled: progress === undefined });
   const displayProgress = Math.round(progress ?? simulatedProgress);
   const rootClassName = useMemo(
@@ -233,13 +235,13 @@ export function PlatformLoadingScreen({
             <span className="inline-flex size-7 shrink-0 items-center justify-center rounded bg-primary text-primary-foreground">
               <Grid3X3 className="size-[18px]" aria-hidden="true" />
             </span>
-            <span>软件工程实践平台</span>
+            <span>{t("loading.appName")}</span>
           </span>
           <span className="text-base text-muted-foreground" aria-hidden="true">
             ×
           </span>
           <span className="text-lg font-semibold tracking-normal text-muted-foreground md:text-xl">
-            项目工作台
+            {t("loading.workspace")}
           </span>
           <span className="text-base text-muted-foreground" aria-hidden="true">
             ×

@@ -18,6 +18,7 @@ import type { AuthRoutePath } from "../../../shared/lib/app-route-types";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
 import { Label } from "../../../shared/ui/label";
+import { LanguagePreferenceMenu } from "../../../shared/i18n/components/language-preference-menu";
 import {
   getQueryParam,
   getSafeRedirectPath,
@@ -422,11 +423,12 @@ export function AuthPage({
           <section
             data-testid="auth-form-panel"
             data-motion="auth-form"
-            className="motion-auth-form-panel flex w-full flex-col justify-center p-8 md:w-1/2 md:p-12"
+            className="motion-auth-form-panel relative flex w-full flex-col justify-center p-8 md:w-1/2 md:p-12"
           >
+            <LanguagePreferenceMenu className="motion-action absolute right-4 top-4 size-10 rounded-full bg-transparent text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground md:right-5 md:top-5" />
             <button
               type="button"
-              className="motion-auth-brand mb-8 text-left"
+              className="motion-auth-brand mb-8 pr-12 text-left"
               style={{ "--motion-delay": "40ms" } as CSSProperties}
               onClick={() => onNavigate("/")}
               aria-label="返回官网"

@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Sun,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type {
   CodeTraceEntry,
@@ -47,6 +48,7 @@ import {
   type ShellRoutePath,
 } from "../../../entities/workspace/modules";
 import { LineageGraphDialog } from "../../lineage/components/lineage-graph-dialog";
+import { LanguagePreferenceMenu } from "../../../shared/i18n/components/language-preference-menu";
 
 export type { ShellRoutePath };
 
@@ -178,6 +180,16 @@ const taskStatusButtonClass =
 
 const mainNavButtonClass =
   "relative h-10 px-1 text-[15px] font-semibold text-sidebar-foreground/75 transition-colors after:absolute after:inset-x-1 after:bottom-1 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-full after:bg-primary after:opacity-0 after:transition-all hover:text-primary hover:after:scale-x-100 hover:after:opacity-100 aria-[current=page]:text-primary";
+
+const SHELL_ROUTE_TRANSLATION_KEYS: Partial<Record<string, "workspace" | "exam" | "tutorial">> = {
+  "/workspace": "workspace",
+  "/exam": "exam",
+  "/tutorial": "tutorial",
+};
+
+function shellRouteTranslationKey(route: string) {
+  return route === "/projects" ? "projects" : (SHELL_ROUTE_TRANSLATION_KEYS[route] ?? "workspace");
+}
 
 function formatStageLabel(stage: RunStage | null) {
   if (!stage) return "等待任务";
@@ -1420,6 +1432,7 @@ export function ProjectWorkspaceActions({
   onOpenDrawer,
   projectRuns = [],
 }: ProjectWorkspaceActionsProps) {
+  const { t } = useTranslation();
   const [lineageOpen, setLineageOpen] = useState(false);
   const {
     runStatus,
@@ -1462,21 +1475,21 @@ export function ProjectWorkspaceActions({
       <Button
         variant="ghost"
         className={taskStatusButtonClass}
-        title="链路图"
-        aria-label="链路图"
+        title={t("status.lineage")}
+        aria-label={t("status.lineage")}
         onClick={() => setLineageOpen(true)}
       >
         <GitBranch className="size-5" />
         <span className="hidden max-w-28 truncate font-semibold xl:inline">
-          链路图
+          {t("status.lineage")}
         </span>
       </Button>
 
       <Button
         variant="ghost"
         className={taskStatusButtonClass}
-        title="生成任务"
-        aria-label="生成任务"
+        title={t("status.tasks")}
+        aria-label={t("status.tasks")}
         onClick={() => onOpenDrawer("tasks")}
       >
         {visibleTaskIsActive ? (
@@ -1492,10 +1505,13 @@ export function ProjectWorkspaceActions({
         )}
         <span className="hidden max-w-36 truncate font-semibold xl:inline">
           {visibleActiveTaskCount > 1
-            ? `${visibleActiveTaskCount} 个任务`
+            ? t("status.run.count", { count: visibleActiveTaskCount })
             : visibleTaskIsActive
-              ? `${RUN_STATUS_LABEL[visibleRunStatus]} ${visibleRunProgress}%`
-              : RUN_STATUS_LABEL[visibleRunStatus]}
+              ? t("status.run.progress", {
+                  status: t(`status.run.${visibleRunStatus}`),
+                  progress: visibleRunProgress,
+                })
+              : t(`status.run.${visibleRunStatus}`)}
         </span>
       </Button>
 
@@ -1506,7 +1522,7 @@ export function ProjectWorkspaceActions({
         onClick={() => onOpenDrawer("history")}
       >
         <History className="size-5" />
-        运行历史
+        {t("status.runHistory")}
       </Button>
     </div>
   );
@@ -1518,6 +1534,7 @@ export function TopBar({
   accountDialogOpen: controlledAccountDialogOpen,
   onAccountDialogOpenChange,
 }: TopBarProps) {
+  const { t } = useTranslation();
   const { theme, toggle } = useTheme();
   const authSession = useAuthenticatedRouteSession();
   const [uncontrolledAccountDialogOpen, setUncontrolledAccountDialogOpen] =
@@ -1527,15 +1544,19 @@ export function TopBar({
   const setAccountDialogOpen =
     onAccountDialogOpenChange ?? setUncontrolledAccountDialogOpen;
   const navItems = [
-    { route: "/projects", label: "项目" },
-    ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace"),
+    { route: "/projects" as const, label: t("nav.projects") },
+    ...SHELL_ROUTE_MODULES.filter((item) => item.route !== "/workspace").map((item) => ({
+      ...item,
+      label: t(`nav.${shellRouteTranslationKey(item.route)}`),
+    })),
+    { route: "/account/billing" as const, label: t("nav.payment") },
   ];
   const currentLabel =
     navItems.find(
       (item) =>
         currentRoute === item.route ||
         (item.route === "/projects" && currentRoute?.startsWith("/projects")),
-    )?.label ?? "工作台";
+    )?.label ?? t("nav.workspace");
 
   return (
     <header className="flex h-14 shrink-0 flex-nowrap items-center gap-3 overflow-hidden border-b border-sidebar-border bg-background/80 px-3 font-semibold text-sidebar-foreground backdrop-blur-xl md:h-16 md:gap-6 md:px-6">
@@ -1544,7 +1565,7 @@ export function TopBar({
           <Boxes className="size-4 text-primary-foreground" />
         </span>
         <span className="hidden whitespace-nowrap text-[18px] font-semibold leading-7 tracking-[-0.45px] sm:inline">
-          软件工程实践平台
+          {t("common.appName")}
         </span>
         <span className="truncate text-sm font-semibold text-primary sm:hidden">
           {currentLabel}
@@ -1576,34 +1597,35 @@ export function TopBar({
             <Button
               variant="ghost"
               size="icon"
-              className={`${topBarActionButtonClass} md:hidden`}
-              title="打开主导航"
-              aria-label="打开主导航"
+            className={`${topBarActionButtonClass} md:hidden`}
+              title={t("nav.openMainNavigation")}
+              aria-label={t("nav.openMainNavigation")}
             >
               <Menu className="size-5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-44">
-            <DropdownMenuLabel>主导航</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("nav.mainNavigation")}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {navItems.map((item) => (
               <DropdownMenuItem key={item.label} onSelect={() => onNavigate(item.route)}>
                 {item.label}
                 {(currentRoute === item.route ||
                   (item.route === "/projects" && currentRoute?.startsWith("/projects"))) && (
-                  <span className="ml-auto text-xs text-primary">当前</span>
+                  <span className="ml-auto text-xs text-primary">{t("common.current")}</span>
                 )}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
         <SystemNoticeButton className={topBarActionButtonClass} />
+        <LanguagePreferenceMenu className={topBarActionButtonClass} />
         <Button
           variant="ghost"
           size="icon"
           className={topBarActionButtonClass}
           onClick={toggle}
-          title={theme === "dark" ? "切换到浅色" : "切换到深色"}
+          title={theme === "dark" ? t("theme.switchToLight") : t("theme.switchToDark")}
         >
           {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
         </Button>

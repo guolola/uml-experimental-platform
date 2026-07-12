@@ -1,5 +1,6 @@
 // Renders the diagram detail workspace, including diagram selection, trace highlights, export actions, and model/SVG views.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   designDiagramModelSpecSchema,
   diagramModelSpecSchema,
@@ -104,6 +105,7 @@ function DiagramDetailView({
   modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
 }) {
+  const { t } = useTranslation();
   const {
     models,
     plantUml,
@@ -132,6 +134,11 @@ function DiagramDetailView({
   const designType = type as DesignDiagramType;
   const isStale = !isDesign && staleDiagrams.includes(requirementType);
   const meta = isDesign ? DESIGN_DIAGRAM_META[designType] : DIAGRAM_META[requirementType];
+  const diagramKindKey = String(type);
+  const metaLabel = t(`diagrams.kinds.${diagramKindKey}.label`, { defaultValue: meta.label });
+  const metaDescription = t(`diagrams.kinds.${diagramKindKey}.description`, {
+    defaultValue: meta.description,
+  });
   const designModel = isDesign
     ? modelId
       ? designModels[modelId]
@@ -231,10 +238,10 @@ function DiagramDetailView({
       }
       persistedDraftFingerprintRef.current = draftFingerprint(canonicalDraft);
       setSaveStatus("saved");
-      toast.message("修改已保存，当前图已更新");
+      toast.message(t("diagrams.detail.savedToast"));
     } catch {
       setSaveStatus("error");
-      toast.error("保存失败，请稍后重试");
+      toast.error(t("diagrams.detail.saveFailedToast"));
       return;
     } finally {
       setSaving(false);
@@ -247,6 +254,7 @@ function DiagramDetailView({
     rerenderRequirementModel,
     saveDesignModelEdit,
     saveRequirementModelEdit,
+    t,
   ]);
   useEffect(() => {
     if (!draft || saving) return;
@@ -336,8 +344,8 @@ function DiagramDetailView({
     if (!highlightedElementKey || overviewPanelDismissedRef.current) return;
     setIsOverviewPanelOpen(true);
   }, [highlightedElementKey]);
-  const modelTitle = getModelText(draft ?? model, "title", meta.label);
-  const modelSummary = getModelText(draft ?? model, "summary", meta.description);
+  const modelTitle = getModelText(draft ?? model, "title", metaLabel);
+  const modelSummary = getModelText(draft ?? model, "summary", metaDescription);
   const designSourceText = isDesign
     ? designSourceLabel(designType, draft ?? (designModel ? cloneDraftModel(designModel) : null))
     : null;
@@ -350,11 +358,15 @@ function DiagramDetailView({
     : null;
   const sourceText = designSourceText ?? requirementSourceText;
   const saveStatusLabel =
-    saveStatus === "saving" ? "更新中" : saveStatus === "saved" ? "已保存" : "失败";
+    saveStatus === "saving"
+      ? t("diagrams.detail.saveUpdating")
+      : saveStatus === "saved"
+        ? t("diagrams.detail.saveSaved")
+        : t("diagrams.detail.saveFailed");
   const editWarningText = editStatus?.warning?.includes("重绘当前图")
-    ? "模型已手动修改，可能与前置需求映射不一致。保存后会自动更新当前图。"
+    ? t("diagrams.detail.editWarningMapped")
     : editStatus?.warning ??
-      "手动修改会更新当前模型结构，可能不再完全对应原始需求或上游用例。修改保存后会基于当前结构自动更新此图。";
+      t("diagrams.detail.editWarningDefault");
   const overviewPanelId = `model-overview-${stage}-${statusKey}`.replace(/[^A-Za-z0-9_-]/g, "-");
   const openOverviewPanel = useCallback(() => {
     overviewPanelDismissedRef.current = false;
@@ -377,13 +389,13 @@ function DiagramDetailView({
       openDesignDiagram(
         designType,
         designArtifactId,
-        getModelText(model, "title", meta.label),
+        getModelText(model, "title", metaLabel),
       );
     } else {
       openDiagram(
         requirementType,
         requirementArtifactId,
-        getModelText(model, "title", meta.label),
+        getModelText(model, "title", metaLabel),
       );
     }
   }, [
@@ -391,7 +403,7 @@ function DiagramDetailView({
     designType,
     isDesign,
     localHighlightedElement,
-    meta.label,
+    metaLabel,
     model,
     openDesignDiagram,
     openDiagram,
@@ -427,7 +439,7 @@ function DiagramDetailView({
               <div className="rounded-xl border border-destructive/40 bg-card px-5 py-8 text-sm shadow-sm">
                 <div className="flex items-center gap-2 font-medium text-destructive">
                   <AlertTriangle className="size-4 shrink-0" />
-                  {meta.label} 生成失败
+                  {t("diagrams.detail.generatedFailed", { label: metaLabel })}
                 </div>
                 <div className="mt-2 leading-relaxed text-foreground">
                   {diagramError.error.message}
@@ -435,7 +447,9 @@ function DiagramDetailView({
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-border bg-card px-4 py-12 text-center text-sm text-muted-foreground shadow-sm">
-                尚未生成。请回到「{isDesign ? "设计" : "需求"}」点击「生成模型」。
+                {t("diagrams.detail.notGenerated", {
+                  stage: t(`diagrams.stage.${isDesign ? "design" : "requirements"}`),
+                })}
               </div>
             )}
           </div>
@@ -446,7 +460,7 @@ function DiagramDetailView({
           {isStale && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
               <AlertTriangle className="size-4 shrink-0 text-warning" />
-              <span>此图基于旧规则生成，可能已过时。</span>
+              <span>{t("diagrams.detail.stale")}</span>
             </div>
           )}
 
@@ -479,7 +493,7 @@ function DiagramDetailView({
                     mobileTouchTargetClass,
                   )}
                 >
-                  图
+                  {t("diagrams.tabs.diagram")}
                 </TabsTrigger>
                 {compactViewport ? (
                   <>
@@ -490,7 +504,7 @@ function DiagramDetailView({
                         mobileTouchTargetClass,
                       )}
                     >
-                      元素
+                      {t("diagrams.tabs.elements")}
                     </TabsTrigger>
                     <TabsTrigger
                       value="relations"
@@ -499,7 +513,7 @@ function DiagramDetailView({
                         mobileTouchTargetClass,
                       )}
                     >
-                      关系
+                      {t("diagrams.tabs.relations")}
                     </TabsTrigger>
                     {draft ? (
                       <TabsTrigger
@@ -509,7 +523,7 @@ function DiagramDetailView({
                           mobileTouchTargetClass,
                         )}
                       >
-                        编辑
+                        {t("diagrams.tabs.edit")}
                       </TabsTrigger>
                     ) : null}
                   </>
@@ -520,9 +534,10 @@ function DiagramDetailView({
             <TabsContent value="diagram" className="m-0 p-0">
               <div className="p-3 sm:p-5">
                 <DiagramPreviewPanel
-                  description={meta.description}
+                  description={metaDescription}
                   stage={stage}
                   type={type}
+                  plantUmlSource={source}
                   normalizedSvgMarkup={normalizedSvgMarkup}
                   svgMarkup={svgMarkup}
                   svgUrl={svgUrl}
@@ -538,7 +553,7 @@ function DiagramDetailView({
                   highlightAliases={highlightAliases}
                   highlightRequestId={highlightRequestId}
                   diagramError={diagramError}
-                  diagramLabel={meta.label}
+                  diagramLabel={metaLabel}
                   isOverviewPanelOpen={isOverviewPanelOpen}
                   overviewPanelId={overviewPanelId}
                   compactViewport={compactViewport}
@@ -595,9 +610,9 @@ function DiagramDetailView({
                 <div className="border-b border-border p-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                    <h3 className="text-sm font-semibold text-foreground">元素清单</h3>
+                    <h3 className="text-sm font-semibold text-foreground">{t("diagrams.detail.elementsTitle")}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      按类型浏览模型元素，点击卡片可定位到对应元素。
+                      {t("diagrams.detail.elementsDescription")}
                     </p>
                     </div>
                     <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1">
@@ -607,7 +622,7 @@ function DiagramDetailView({
                         size="sm"
                         className="h-7 px-2"
                         aria-pressed="true"
-                        aria-label="网格视图"
+                        aria-label={t("diagrams.detail.gridView")}
                       >
                         <LayoutGrid className="size-3.5" />
                       </Button>
@@ -617,7 +632,7 @@ function DiagramDetailView({
                         size="sm"
                         className="h-7 px-2 text-muted-foreground"
                         aria-pressed="false"
-                        aria-label="列表视图"
+                        aria-label={t("diagrams.detail.listView")}
                       >
                         <List className="size-3.5" />
                       </Button>
@@ -631,12 +646,12 @@ function DiagramDetailView({
                           value={elementSearch}
                           onChange={(event) => setElementSearch(event.target.value)}
                           className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-64"
-                          placeholder="搜索元素、属性或说明"
+                          placeholder={t("diagrams.detail.searchPlaceholder")}
                         />
                       </label>
                       <div
                         className="flex flex-wrap gap-2"
-                        aria-label="按元素类型筛选"
+                        aria-label={t("diagrams.detail.kindFilter")}
                         role="group"
                       >
                         <Button
@@ -646,7 +661,7 @@ function DiagramDetailView({
                           className="h-8 rounded-full px-3 text-xs"
                           onClick={() => setElementKindFilter("all")}
                         >
-                          全部类型
+                          {t("diagrams.detail.allKinds")}
                           <span className="ml-1 font-mono text-[10px] opacity-75">
                             {items.length}
                           </span>
@@ -673,11 +688,11 @@ function DiagramDetailView({
                 <div className="min-h-0 flex-1 overflow-auto p-4">
                 {groups.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-                    未识别到元素。
+                    {t("diagrams.detail.noElements")}
                   </div>
                 ) : filteredElements.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-                    没有匹配的元素，请调整搜索或类型筛选。
+                    {t("diagrams.detail.noMatchedElements")}
                   </div>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
@@ -737,7 +752,7 @@ function DiagramDetailView({
                                 )}
                                 {!el.description && (
                                   <span className="mt-1.5 line-clamp-2 block min-h-10 text-[11px] leading-5 text-muted-foreground">
-                                    暂无说明。
+                                    {t("diagrams.detail.noDescription")}
                                   </span>
                                 )}
                                 <span className="mt-2 block border-t border-border pt-2">
@@ -745,12 +760,12 @@ function DiagramDetailView({
                                     <span className="min-w-0 line-clamp-1 break-words">
                                       {el.fields.length > 0
                                         ? fieldSummary
-                                        : "暂无字段"}
+                                        : t("diagrams.detail.noFields")}
                                     </span>
                                     <ArrowRight className="size-3.5 shrink-0" />
                                   </span>
                                   <span className="mt-1 block font-mono text-[10px] text-muted-foreground">
-                                    {el.fields.length} 个字段
+                                    {t("diagrams.detail.fieldCount", { count: el.fields.length })}
                                   </span>
                                 </span>
                               </button>
@@ -766,9 +781,9 @@ function DiagramDetailView({
               <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-foreground">关系说明</h3>
+                    <h3 className="text-sm font-semibold text-foreground">{t("diagrams.detail.relationsTitle")}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      查看元素之间的结构化连接、角色、条件和说明。
+                      {t("diagrams.detail.relationsDescription")}
                     </p>
                   </div>
                   {highlighted ? (
@@ -779,18 +794,18 @@ function DiagramDetailView({
                         onChange={(event) => setRelationsOnlyFocus(event.target.checked)}
                         className="size-3.5"
                       />
-                      只看焦点相关关系
+                      {t("diagrams.detail.focusRelationsOnly")}
                     </label>
                   ) : null}
                 </div>
                 <div className="min-h-0 flex-1 overflow-auto p-4">
                 {relationships.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-                    暂无结构化关系。
+                    {t("diagrams.detail.noRelations")}
                   </div>
                 ) : visibleRelationships.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-                    当前焦点元素暂无关联关系。
+                    {t("diagrams.detail.noFocusRelations")}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4">

@@ -110,12 +110,6 @@ export function createMockPaymentAdapter({
         merchantOrderNo: input.merchantOrderNo,
         amountCents: input.amountCents,
       };
-      if (channel === "wechat_native") {
-        return {
-          providerPayload: payload,
-          codeUrl: `uml-mock-pay://${encodeURIComponent(input.merchantOrderNo)}?amountCents=${input.amountCents}`,
-        };
-      }
       const formBody = JSON.stringify({
         channel,
         merchantOrderNo: input.merchantOrderNo,
@@ -128,7 +122,7 @@ export function createMockPaymentAdapter({
       const signature = sign(formBody, secret);
       return {
         providerPayload: payload,
-        paymentFormHtml: `<form method="post" action="/api/billing/callbacks/alipay_page"><input type="hidden" name="payload" value='${formBody.replace(/'/g, "&#39;")}' /><input type="hidden" name="signature" value="${signature}" /><button type="submit">支付</button></form>`,
+        paymentFormHtml: `<form method="post" action="/api/billing/callbacks/epay"><input type="hidden" name="payload" value='${formBody.replace(/'/g, "&#39;")}' /><input type="hidden" name="signature" value="${signature}" /><button type="submit">支付</button></form>`,
         redirectUrl: input.returnUrl ?? undefined,
       };
     },

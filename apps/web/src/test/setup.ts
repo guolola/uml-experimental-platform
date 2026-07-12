@@ -2,6 +2,16 @@ import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 
+Object.defineProperty(window.navigator, "languages", {
+  configurable: true,
+  value: ["zh-CN"],
+});
+
+Object.defineProperty(window.navigator, "language", {
+  configurable: true,
+  value: "zh-CN",
+});
+
 afterEach(() => {
   cleanup();
 });

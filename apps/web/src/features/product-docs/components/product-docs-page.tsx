@@ -1,10 +1,12 @@
 // Composes the in-app documentation center from modular docs data, search, and article panels.
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, BookOpenCheck, FolderOpen } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
-import { PRODUCT_DOC_ARTICLES, PRODUCT_DOC_CATEGORIES } from "../model/docs-content";
+import { i18n as appI18n } from "../../../shared/i18n";
+import { getProductDocArticles, getProductDocCategories } from "../model/docs-content";
 import {
   extractMarkdownHeadings,
   searchProductDocs,
@@ -18,14 +20,19 @@ type ProductDocsPageProps = {
 };
 
 export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
-  const [selectedArticleId, setSelectedArticleId] = useState(PRODUCT_DOC_ARTICLES[0]?.id ?? "");
+  const { t: translate, i18n } = useTranslation();
+  const t = i18n.exists("docs.title") ? translate : appI18n.t.bind(appI18n);
+  const locale = i18n.resolvedLanguage === "en" || i18n.language === "en" ? "en" : "zh-CN";
+  const articles = useMemo(() => getProductDocArticles(locale), [locale]);
+  const categories = useMemo(() => getProductDocCategories(locale), [locale]);
+  const [selectedArticleId, setSelectedArticleId] = useState(articles[0]?.id ?? "");
   const [searchQuery, setSearchQuery] = useState("");
   const selectedArticle =
-    PRODUCT_DOC_ARTICLES.find((article) => article.id === selectedArticleId) ??
-    PRODUCT_DOC_ARTICLES[0];
+    articles.find((article) => article.id === selectedArticleId) ??
+    articles[0];
   const searchResults = useMemo(
-    () => searchProductDocs(PRODUCT_DOC_ARTICLES, searchQuery),
-    [searchQuery],
+    () => searchProductDocs(articles, searchQuery),
+    [articles, searchQuery],
   );
   const headings = useMemo(
     () => extractMarkdownHeadings(selectedArticle.content),
@@ -38,13 +45,13 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
         <section className="flex flex-wrap items-start justify-between gap-5">
           <div className="min-w-0 max-w-4xl">
             <Badge variant="info" className="mb-3">
-              项目内使用文档
+              {t("docs.badge")}
             </Badge>
             <h1 className="break-words font-display text-3xl font-semibold leading-tight tracking-normal md:text-5xl">
-              软件工程实践平台使用手册
+              {t("docs.title")}
             </h1>
             <p className="mt-3 max-w-3xl break-words text-sm leading-6 text-muted-foreground md:text-base">
-              面向普通用户，把项目创建、需求建模、UML、设计、代码原型、测试、说明书和排障收进项目内，不再依赖外部知识库入口。
+              {t("docs.description")}
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap gap-2">
@@ -54,7 +61,7 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
               onClick={() => onNavigate?.("/projects")}
             >
               <FolderOpen className="size-4" />
-              进入项目
+              {t("docs.openProjects")}
             </Button>
           </div>
         </section>
@@ -64,8 +71,8 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
           contentClassName="grid min-h-0 w-full grid-cols-[292px_minmax(0,1fr)] gap-5 xl:grid-cols-[292px_minmax(0,1fr)_250px]"
         >
           <DocsSidebar
-            articles={PRODUCT_DOC_ARTICLES}
-            categories={PRODUCT_DOC_CATEGORIES}
+            articles={articles}
+            categories={categories}
             searchQuery={searchQuery}
             searchResults={searchResults}
             selectedArticleId={selectedArticle.id}
@@ -85,14 +92,14 @@ export function ProductDocsPage({ onNavigate }: ProductDocsPageProps) {
         <section className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-sm text-muted-foreground">
           <span className="inline-flex items-center gap-2">
             <BookOpenCheck className="size-4 text-primary" />
-            文档内容随项目代码维护，截图和路径以当前版本为准。
+            {t("docs.maintainedNotice")}
           </span>
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-            onClick={() => setSelectedArticleId(PRODUCT_DOC_ARTICLES[0]?.id ?? selectedArticle.id)}
+            onClick={() => setSelectedArticleId(articles[0]?.id ?? selectedArticle.id)}
           >
-            回到快速开始
+            {t("docs.backToQuickStart")}
             <ArrowRight className="size-4" />
           </button>
         </section>

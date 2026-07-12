@@ -1,5 +1,6 @@
 // Owns the diagram preview toolbar, SVG canvas, and overview drawer rendering.
 import type { PointerEventHandler, RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { DesignDiagramType, DiagramType } from "../../../entities/diagram/model";
 import {
   SEMANTIC_KIND_META,
@@ -35,6 +36,7 @@ type DiagramPreviewPanelProps = {
   description: string;
   stage: "requirements" | "design";
   type: DiagramType | DesignDiagramType;
+  plantUmlSource: string;
   normalizedSvgMarkup: string;
   svgMarkup: string;
   svgUrl: string;
@@ -69,6 +71,7 @@ export function DiagramPreviewPanel({
   description,
   stage,
   type,
+  plantUmlSource,
   normalizedSvgMarkup,
   svgMarkup,
   svgUrl,
@@ -98,6 +101,7 @@ export function DiagramPreviewPanel({
   summaryGroups,
   relationshipsCount,
 }: DiagramPreviewPanelProps) {
+  const { t } = useTranslation();
   return (
     <section
       data-testid="diagram-preview-section"
@@ -105,7 +109,7 @@ export function DiagramPreviewPanel({
     >
       <div className="flex flex-col gap-3 rounded-t-xl border-b border-border p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">预览</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t("diagrams.detail.preview")}</h3>
           <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
@@ -114,11 +118,11 @@ export function DiagramPreviewPanel({
             size="sm"
             className="h-8"
             onClick={isOverviewPanelOpen ? onCloseOverviewPanel : onOpenOverviewPanel}
-            aria-label={isOverviewPanelOpen ? "收起模型概览" : "打开模型概览"}
+            aria-label={isOverviewPanelOpen ? t("diagrams.detail.collapseOverview") : t("diagrams.detail.openOverview")}
             aria-expanded={isOverviewPanelOpen}
             aria-controls={overviewPanelId}
           >
-            <PanelRightOpen className="size-3.5" /> 模型概览
+            <PanelRightOpen className="size-3.5" /> {t("diagrams.detail.modelOverview")}
           </Button>
           {normalizedSvgMarkup ? (
             <>
@@ -127,7 +131,7 @@ export function DiagramPreviewPanel({
                 size="sm"
                 className="h-8 px-2"
                 onClick={() => onUpdateSvgScale(svgScale - 0.25)}
-                aria-label="缩小 SVG"
+                aria-label={t("diagrams.detail.zoomOut")}
               >
                 <ZoomOut className="size-3.5" />
               </Button>
@@ -139,7 +143,7 @@ export function DiagramPreviewPanel({
                 size="sm"
                 className="h-8 px-2"
                 onClick={() => onUpdateSvgScale(svgScale + 0.25)}
-                aria-label="放大 SVG"
+                aria-label={t("diagrams.detail.zoomIn")}
               >
                 <ZoomIn className="size-3.5" />
               </Button>
@@ -148,14 +152,14 @@ export function DiagramPreviewPanel({
                 size="sm"
                 className="h-8 px-2"
                 onClick={() => onUpdateSvgScale(1)}
-                aria-label="适应宽度"
+                aria-label={t("diagrams.detail.fitWidth")}
               >
                 <Maximize2 className="size-3.5" />
               </Button>
               {svgUrl && (
                 <Button variant="outline" size="sm" className="h-8" asChild>
                   <a href={svgUrl} target="_blank" rel="noreferrer">
-                    <ExternalLink className="size-3.5" /> 新标签
+                    <ExternalLink className="size-3.5" /> {t("diagrams.detail.newTab")}
                   </a>
                 </Button>
               )}
@@ -165,12 +169,25 @@ export function DiagramPreviewPanel({
                 className="h-8"
                 onClick={() => {
                   downloadTextFile(`${stage}-${type}.svg`, normalizedSvgMarkup, "image/svg+xml");
-                  toast.success(`已导出 ${type}.svg`);
+                  toast.success(t("diagrams.detail.exported", { file: `${type}.svg` }));
                 }}
               >
                 <Download className="size-3.5" /> SVG
               </Button>
             </>
+          ) : null}
+          {plantUmlSource.trim() ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => {
+                downloadTextFile(`${stage}-${type}.puml`, plantUmlSource, "text/plain");
+                toast.success(t("diagrams.detail.exported", { file: `${type}.puml` }));
+              }}
+            >
+              <Download className="size-3.5" /> PlantUML
+            </Button>
           ) : null}
         </div>
       </div>
@@ -208,7 +225,7 @@ export function DiagramPreviewPanel({
               <div className="max-w-xl rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
                 <div className="flex items-center gap-2 font-medium text-destructive">
                   <AlertTriangle className="size-4 shrink-0" />
-                  {diagramLabel} 生成失败
+                  {t("diagrams.detail.generatedFailed", { label: diagramLabel })}
                 </div>
                 <div className="mt-2 leading-relaxed text-foreground">
                   {diagramError.error?.message}
@@ -217,7 +234,7 @@ export function DiagramPreviewPanel({
             </div>
           ) : (
             <div className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
-              尚未生成 SVG
+              {t("diagrams.detail.noSvg")}
             </div>
           )}
         </div>
@@ -225,7 +242,7 @@ export function DiagramPreviewPanel({
           <aside
             id={overviewPanelId}
             role="complementary"
-            aria-label={highlighted ? "焦点元素详情" : "模型概览"}
+            aria-label={highlighted ? t("diagrams.detail.focusDetails") : t("diagrams.detail.modelOverview")}
             className={cn(
               "absolute z-20 flex flex-col gap-3 overflow-auto rounded-xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur",
               compactViewport
@@ -235,14 +252,14 @@ export function DiagramPreviewPanel({
           >
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-foreground">
-                {highlighted ? "焦点元素" : "模型概览"}
+                {highlighted ? t("diagrams.detail.focusElement") : t("diagrams.detail.modelOverview")}
               </h3>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="h-8 px-2"
-                aria-label={highlighted ? "关闭焦点" : "关闭模型概览"}
+                aria-label={highlighted ? t("diagrams.detail.closeFocus") : t("diagrams.detail.closeOverview")}
                 onClick={highlighted ? onFocusAction : onCloseOverviewPanel}
               >
                 <X className="size-3.5" />
@@ -263,7 +280,7 @@ export function DiagramPreviewPanel({
                     </span>
                   </div>
                   <div className="mt-4 text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">职责与属性</div>
+                    <div className="font-medium text-foreground">{t("diagrams.detail.responsibilities")}</div>
                     {highlighted.description && (
                       <div className="mt-1 leading-relaxed">{highlighted.description}</div>
                     )}
@@ -277,7 +294,7 @@ export function DiagramPreviewPanel({
                         ))}
                       </div>
                     ) : !highlighted.description ? (
-                      <div className="mt-1">暂无额外属性。</div>
+                      <div className="mt-1">{t("diagrams.detail.noExtraAttributes")}</div>
                     ) : null}
                     {highlighted.sections && highlighted.sections.length > 0 ? (
                       <div className="mt-3 flex flex-col gap-3">
@@ -353,22 +370,27 @@ export function DiagramPreviewPanel({
                     ) : null}
                     {sourceRuleIds.length > 0 && (
                       <div className="mt-3">
-                        来源规则：{sourceRuleIds.slice(0, 3).join("、")}
+                        {t("diagrams.detail.sourceRules", { rules: sourceRuleIds.slice(0, 3).join("、") })}
                         {sourceRuleIds.length > 3 ? ` +${sourceRuleIds.length - 3}` : ""}
                       </div>
                     )}
                   </div>
                 </section>
                 <section className="rounded-lg border border-border bg-background p-3">
-                  <h4 className="text-sm font-semibold text-foreground">相关关系与元素</h4>
+                  <h4 className="text-sm font-semibold text-foreground">{t("diagrams.detail.relatedTitle")}</h4>
                   <div className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                    相关关系 {relatedRelationships.length} 条
-                    {relatedItems.length > 0
-                      ? `，关联元素 ${relatedItems
-                          .map((item) => item.label)
-                          .slice(0, 4)
-                          .join("、")}`
-                      : "。"}
+                    {t("diagrams.detail.relatedSummary", {
+                      count: relatedRelationships.length,
+                      items:
+                        relatedItems.length > 0
+                          ? t("diagrams.detail.relatedItems", {
+                              items: relatedItems
+                                .map((item) => item.label)
+                                .slice(0, 4)
+                                .join("、"),
+                            })
+                          : ".",
+                    })}
                   </div>
                   {relatedRelationships[0] && (
                     <div className="mt-3 truncate text-sm text-foreground">
@@ -390,7 +412,7 @@ export function DiagramPreviewPanel({
                           {SEMANTIC_KIND_META[group.kind].label}
                         </div>
                         <div className="truncate text-xs text-muted-foreground">
-                          {group.items.slice(0, 3).map((item) => item.label).join("、") || "暂无元素"}
+                          {group.items.slice(0, 3).map((item) => item.label).join("、") || t("diagrams.detail.noItems")}
                         </div>
                       </div>
                       <Badge variant="secondary" className="font-mono">
@@ -400,8 +422,8 @@ export function DiagramPreviewPanel({
                   ))}
                   <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 last:border-0 last:pb-0">
                     <div>
-                      <div className="text-sm text-foreground">关系</div>
-                      <div className="text-xs text-muted-foreground">结构化连接</div>
+                      <div className="text-sm text-foreground">{t("diagrams.detail.relations")}</div>
+                      <div className="text-xs text-muted-foreground">{t("diagrams.detail.structuredConnections")}</div>
                     </div>
                     <Badge variant="secondary" className="font-mono">
                       {relationshipsCount}

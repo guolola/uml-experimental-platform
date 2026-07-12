@@ -1,5 +1,6 @@
 // Verifies billing HTTP boundaries for authenticated users and super-admin compensation actions.
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import Fastify from "fastify";
 import { createMockPaymentAdapter } from "../../adapters/payments/mock-payment-adapter.js";
@@ -12,13 +13,8 @@ import { registerBillingRoutes } from "./register-billing-routes.js";
 
 function mockPaymentProviders(): PaymentProviderRegistry {
   return {
-    wechat_native: createMockPaymentAdapter({
-      channel: "wechat_native",
-      nodeEnv: "test",
-      secret: "billing-routes-test-secret",
-    }),
-    alipay_page: createMockPaymentAdapter({
-      channel: "alipay_page",
+    alipay: createMockPaymentAdapter({
+      channel: "alipay",
       nodeEnv: "test",
       secret: "billing-routes-test-secret",
     }),
@@ -89,7 +85,7 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
   const blockedOrder = await app.inject({
     method: "POST",
     url: "/api/billing/orders",
-    payload: { skuCode: "credits_10", channel: "wechat_native" },
+    payload: { skuCode: "credits_10", channel: "alipay" },
   });
   assert.equal(blockedOrder.statusCode, 401);
 
@@ -97,7 +93,7 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
     method: "POST",
     url: "/api/billing/orders",
     headers: { cookie: userCookie },
-    payload: { skuCode: "credits_10", channel: "wechat_native" },
+    payload: { skuCode: "credits_10", channel: "alipay" },
   });
   assert.equal(createdOrder.statusCode, 201);
   assert.equal(createdOrder.json().amountCents, 990);
@@ -106,7 +102,7 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
     method: "POST",
     url: "/api/billing/orders",
     headers: { cookie: userCookie },
-    payload: { skuCode: "credits_500", channel: "wechat_native" },
+    payload: { skuCode: "credits_500", channel: "alipay" },
   });
   assert.equal(bulkOrder.statusCode, 201);
   assert.equal(bulkOrder.json().amountCents, 39900);
@@ -150,6 +146,81 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
   });
   assert.equal(refund.statusCode, 200);
   assert.equal(refund.json().order.status, "refund_pending");
+
+  await app.close();
+});
+
+test("epay callback route returns success and grants credits", async () => {
+  const { app, user, userCookie } = await createBillingRouteTestApp();
+
+  const createdOrder = await app.inject({
+    method: "POST",
+    url: "/api/billing/orders",
+    headers: { cookie: userCookie },
+    payload: { skuCode: "credits_10", channel: "alipay" },
+  });
+  assert.equal(createdOrder.statusCode, 201);
+  const payload = JSON.stringify({
+    channel: "alipay",
+    merchantOrderNo: createdOrder.json().merchantOrderNo,
+    providerTransactionId: `mock_${createdOrder.json().merchantOrderNo}`,
+    providerEventId: `evt_${createdOrder.json().merchantOrderNo}`,
+    amountCents: createdOrder.json().amountCents,
+    currency: "CNY",
+    state: "paid",
+    paidAt: "2026-06-05T04:00:00.000Z",
+  });
+  const callback = await app.inject({
+    method: "POST",
+    url: "/api/billing/callbacks/epay",
+    payload: {
+      payload,
+      signature: createHmac("sha256", "billing-routes-test-secret").update(payload).digest("hex"),
+    },
+  });
+  assert.equal(callback.statusCode, 200);
+  assert.equal(callback.body, "success");
+
+  const summary = await app.inject({
+    method: "GET",
+    url: "/api/billing/summary",
+    headers: { cookie: userCookie },
+  });
+  assert.equal(summary.json().creditBalance, 16);
+
+  await app.close();
+});
+
+test("epay callback route accepts GET notifications", async () => {
+  const { app, userCookie } = await createBillingRouteTestApp();
+
+  const createdOrder = await app.inject({
+    method: "POST",
+    url: "/api/billing/orders",
+    headers: { cookie: userCookie },
+    payload: { skuCode: "credits_10", channel: "alipay" },
+  });
+  assert.equal(createdOrder.statusCode, 201);
+  const payload = JSON.stringify({
+    channel: "alipay",
+    merchantOrderNo: createdOrder.json().merchantOrderNo,
+    providerTransactionId: `mock_${createdOrder.json().merchantOrderNo}`,
+    providerEventId: `evt_${createdOrder.json().merchantOrderNo}`,
+    amountCents: createdOrder.json().amountCents,
+    currency: "CNY",
+    state: "paid",
+    paidAt: "2026-06-05T04:00:00.000Z",
+  });
+  const query = new URLSearchParams({
+    payload,
+    signature: createHmac("sha256", "billing-routes-test-secret").update(payload).digest("hex"),
+  });
+  const callback = await app.inject({
+    method: "GET",
+    url: `/api/billing/callbacks/epay?${query.toString()}`,
+  });
+  assert.equal(callback.statusCode, 200);
+  assert.equal(callback.body, "success");
 
   await app.close();
 });

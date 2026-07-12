@@ -1,7 +1,7 @@
 // Defines billing request, response, entitlement, SKU, and payment order schemas shared by API and web clients.
 import { z } from "zod";
 
-export const paymentChannelSchema = z.enum(["wechat_native", "alipay_page"]);
+export const paymentChannelSchema = z.enum(["alipay"]);
 export type PaymentChannel = z.infer<typeof paymentChannelSchema>;
 
 export const billingSkuKindSchema = z.enum(["credit_pack"]);

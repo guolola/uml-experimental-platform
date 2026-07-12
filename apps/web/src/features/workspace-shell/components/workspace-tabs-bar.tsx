@@ -1,4 +1,6 @@
 import { MoreHorizontal, X } from "lucide-react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +13,19 @@ import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceShell } from "../state";
 import { useCompactViewport } from "../hooks/use-compact-viewport";
 
+function localizeWorkspaceTabLabel(label: string, t: TFunction) {
+  const exact: Record<string, string> = {
+    需求: t("workspace.tabs.labels.requirements"),
+    设计: t("workspace.tabs.labels.design"),
+    代码: t("workspace.tabs.labels.code"),
+    测试: t("workspace.tabs.labels.tests"),
+    说明书: t("workspace.tabs.labels.documents"),
+  };
+  return exact[label] ?? label;
+}
+
 export function WorkspaceTabsBar() {
+  const { t } = useTranslation();
   const {
     openTabs,
     activeTabId,
@@ -34,6 +48,7 @@ export function WorkspaceTabsBar() {
         >
           {openTabs.map((tab) => {
             const active = tab.id === activeTabId;
+            const tabLabel = localizeWorkspaceTabLabel(tab.label, t);
             return (
               <div
                 key={tab.id}
@@ -43,18 +58,18 @@ export function WorkspaceTabsBar() {
                     ? "border-border bg-card text-foreground shadow-sm"
                     : "border-transparent bg-secondary/60 text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
-                title={tab.label}
+                title={tabLabel}
               >
                 <button
                   type="button"
                   onClick={() => activateWorkspaceTab(tab.id)}
                   className="min-w-0 flex-1 cursor-pointer truncate text-left"
                 >
-                  {tab.label}
+                  {tabLabel}
                 </button>
                 <button
                   type="button"
-                  aria-label={`关闭 ${tab.label}`}
+                  aria-label={t("workspace.tabs.closeTab", { label: tabLabel })}
                   onClick={(event) => {
                     event.stopPropagation();
                     closeWorkspaceTab(tab.id);
@@ -75,34 +90,34 @@ export function WorkspaceTabsBar() {
             <button
               type="button"
               className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="标签页操作"
-              title="标签页操作"
+              aria-label={t("workspace.tabs.actions")}
+              title={t("workspace.tabs.actions")}
             >
               <MoreHorizontal className="size-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-48">
-            <DropdownMenuLabel>打开的标签</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("workspace.tabs.openTabs")}</DropdownMenuLabel>
             {openTabs.map((tab) => (
               <DropdownMenuItem key={tab.id} onSelect={() => activateWorkspaceTab(tab.id)}>
-                <span className="max-w-32 truncate">{tab.label}</span>
+                <span className="max-w-32 truncate">{localizeWorkspaceTabLabel(tab.label, t)}</span>
                 {tab.id === activeTabId && (
-                  <span className="ml-auto text-xs text-primary">当前</span>
+                  <span className="ml-auto text-xs text-primary">{t("workspace.tabs.current")}</span>
                 )}
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => closeOtherWorkspaceTabs(activeTabId)}>
-              关闭其他标签
+              {t("workspace.tabs.closeOthers")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => closeWorkspaceTabsByStage(activeTabId)}>
-              关闭同阶段标签
+              {t("workspace.tabs.closeSameStage")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={openRequirementsText}>回到需求首页</DropdownMenuItem>
-            <DropdownMenuItem onSelect={openDesignHome}>回到设计首页</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => openWorkspacePlaceholder("code", "代码")}>
-              回到代码页
+            <DropdownMenuItem onSelect={openRequirementsText}>{t("workspace.tabs.requirementsHome")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={openDesignHome}>{t("workspace.tabs.designHome")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openWorkspacePlaceholder("code", t("workspace.tabs.code"))}>
+              {t("workspace.tabs.codeHome")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -124,18 +139,20 @@ export function WorkspaceTabsBar() {
                   ? "border-border bg-card text-foreground shadow-sm"
                   : "border-transparent bg-secondary/60 text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
-              title={tab.label}
+              title={localizeWorkspaceTabLabel(tab.label, t)}
             >
               <button
                 type="button"
                 onClick={() => activateWorkspaceTab(tab.id)}
                 className="min-w-0 flex-1 cursor-pointer truncate text-left"
               >
-                {tab.label}
+                {localizeWorkspaceTabLabel(tab.label, t)}
               </button>
               <button
                 type="button"
-                aria-label={`关闭 ${tab.label}`}
+                aria-label={t("workspace.tabs.closeTab", {
+                  label: localizeWorkspaceTabLabel(tab.label, t),
+                })}
                 onClick={(event) => {
                   event.stopPropagation();
                   closeWorkspaceTab(tab.id);
@@ -156,24 +173,24 @@ export function WorkspaceTabsBar() {
           <button
             type="button"
             className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="标签页操作"
-            title="标签页操作"
+            aria-label={t("workspace.tabs.actions")}
+            title={t("workspace.tabs.actions")}
           >
             <MoreHorizontal className="size-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-44">
           <DropdownMenuItem onSelect={() => closeOtherWorkspaceTabs(activeTabId)}>
-            关闭其他标签
+            {t("workspace.tabs.closeOthers")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => closeWorkspaceTabsByStage(activeTabId)}>
-            关闭同阶段标签
+            {t("workspace.tabs.closeSameStage")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={openRequirementsText}>回到需求首页</DropdownMenuItem>
-          <DropdownMenuItem onSelect={openDesignHome}>回到设计首页</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openWorkspacePlaceholder("code", "代码")}>
-            回到代码页
+          <DropdownMenuItem onSelect={openRequirementsText}>{t("workspace.tabs.requirementsHome")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={openDesignHome}>{t("workspace.tabs.designHome")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openWorkspacePlaceholder("code", t("workspace.tabs.code"))}>
+            {t("workspace.tabs.codeHome")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

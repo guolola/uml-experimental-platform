@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   BookOpen,
@@ -108,6 +110,7 @@ export function useCurrentProjectOverview() {
 }
 
 function useProjectOverview(projectId: string) {
+  const { t } = useTranslation();
   const providedOverview = useContext(ProjectOverviewContext);
   const contextOverview =
     providedOverview?.projectId === projectId ? providedOverview.overview : null;
@@ -148,13 +151,13 @@ function useProjectOverview(projectId: string) {
           error:
             error instanceof Error
               ? error.message
-              : "项目数据加载失败。",
+              : t("projectShell.access.loadFailedFallback"),
         });
       });
     return () => {
       active = false;
     };
-  }, [contextOverview, projectId]);
+  }, [contextOverview, projectId, t]);
 
   const hasActiveRuns = state.runs.some(
     (run) => run.status === "queued" || run.status === "running",
@@ -189,6 +192,7 @@ function useProjectOverview(projectId: string) {
 
 function renderAccessMessage(
   overview: ProjectOverviewState,
+  t: TFunction,
   onNavigate?: Navigate,
 ) {
   if (overview.authRequired) {
@@ -196,14 +200,14 @@ function renderAccessMessage(
       <SectionCard>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base">需要登录后查看实名项目。</h2>
+            <h2 className="text-base">{t("projectShell.access.loginTitle")}</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              项目、运行记录、文档和成员权限都需要通过 Cookie 会话校验。
+              {t("projectShell.access.loginDescription")}
             </p>
           </div>
           {onNavigate && (
             <Button type="button" onClick={() => onNavigate("/login")}>
-              去登录
+              {t("projectShell.access.loginAction")}
             </Button>
           )}
         </div>
@@ -213,9 +217,9 @@ function renderAccessMessage(
   if (overview.forbidden) {
     return (
       <SectionCard>
-        <h2 className="text-base">权限不足</h2>
+        <h2 className="text-base">{t("projectShell.access.forbiddenTitle")}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          当前账号不是该项目成员，无法查看项目详情、运行历史或文档。
+          {t("projectShell.access.forbiddenDescription")}
         </p>
       </SectionCard>
     );
@@ -223,7 +227,7 @@ function renderAccessMessage(
   if (overview.error) {
     return (
       <SectionCard>
-        <h2 className="text-base">项目数据加载失败</h2>
+        <h2 className="text-base">{t("projectShell.access.loadFailedTitle")}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{overview.error}</p>
       </SectionCard>
     );
@@ -276,6 +280,7 @@ function AuthenticatedRouteContent({
   onNavigate: Navigate;
   routeKey?: string;
 }) {
+  const { t } = useTranslation();
   const [checking, setChecking] = useState(true);
   const [verifiedRouteKey, setVerifiedRouteKey] = useState<string | undefined>(undefined);
   const [authSession, setAuthSession] = useState<PlatformAccountProfileResponse | null>(null);
@@ -291,7 +296,7 @@ function AuthenticatedRouteContent({
   const effectiveChecking =
     !hasVerifiedSession && (checking || verifiedRouteKey !== routeKey);
   const overlayActive = effectiveChecking || childLoading.active;
-  const overlayMessage = childLoading.message ?? "正在校验登录状态...";
+  const overlayMessage = childLoading.message ?? t("projectShell.checkingSession");
   const loadingTransition = useLoadingTransition(overlayActive);
 
   const verifySession = useCallback((options: { blocking?: boolean } = {}) => {
@@ -380,17 +385,18 @@ export function ProjectSectionPage({
   section: "settings" | "members" | "history" | "documents";
   onNavigate: Navigate;
 }) {
+  const { t } = useTranslation();
   const overview = useProjectOverview(projectId);
   const sectionTitle = {
-    settings: "项目设置",
-    members: "项目成员与权限",
-    history: "运行历史",
-    documents: "文档中心",
+    settings: t("projectShell.sections.settings"),
+    members: t("projectShell.sections.members"),
+    history: t("projectShell.sections.history"),
+    documents: t("projectShell.sections.documents"),
   }[section];
   const projectName =
     overview.project?.name ??
-    (overview.loading ? "正在加载项目..." : `项目 ${projectId}`);
-  const accessMessage = renderAccessMessage(overview, onNavigate);
+    (overview.loading ? t("projectShell.loadingProject") : t("projectShell.projectFallback", { projectId }));
+  const accessMessage = renderAccessMessage(overview, t, onNavigate);
 
   return (
     <PageFrame onNavigate={onNavigate}>
@@ -400,14 +406,14 @@ export function ProjectSectionPage({
           <p className="mt-2 text-sm text-muted-foreground">{projectName}</p>
         </div>
         <Button type="button" variant="outline" onClick={() => onNavigate(`/projects/${projectId}`)}>
-          返回工作台
+          {t("projectShell.backToWorkspace")}
         </Button>
       </div>
       {overview.loading && (
         <SectionCard>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            正在加载项目数据...
+            {t("projectShell.loadingProjectData")}
           </div>
         </SectionCard>
       )}
@@ -435,39 +441,39 @@ export function ProjectSectionPage({
 const projectDrawerMeta: Record<
   ProjectDrawerKind,
   {
-    title: string;
-    description: string;
+    titleKey: string;
+    descriptionKey: string;
     icon: typeof Users;
     width: "compact" | "history" | "wide";
   }
 > = {
   tasks: {
-    title: "生成任务",
-    description: "后台生成任务、阶段进度与执行详情",
+    titleKey: "projectShell.drawer.tasks",
+    descriptionKey: "projectShell.drawer.tasksDescription",
     icon: Activity,
     width: "history",
   },
   members: {
-    title: "成员管理",
-    description: "邀请、角色、权限与成员导出",
+    titleKey: "projectShell.drawer.members",
+    descriptionKey: "projectShell.drawer.membersDescription",
     icon: Users,
     width: "compact",
   },
   history: {
-    title: "运行历史",
-    description: "任务流水、快照恢复、重试与导出",
+    titleKey: "projectShell.drawer.history",
+    descriptionKey: "projectShell.drawer.historyDescription",
     icon: Clock3,
     width: "history",
   },
   documents: {
-    title: "文档中心",
-    description: "说明书、版本、下载与编辑状态",
+    titleKey: "projectShell.drawer.documents",
+    descriptionKey: "projectShell.drawer.documentsDescription",
     icon: BookOpen,
     width: "compact",
   },
   settings: {
-    title: "项目设置",
-    description: "基础信息、模型策略、数据策略与危险操作",
+    titleKey: "projectShell.drawer.settings",
+    descriptionKey: "projectShell.drawer.settingsDescription",
     icon: Settings,
     width: "wide",
   },
@@ -488,9 +494,11 @@ function ProjectDrawerShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   if (!open) return null;
   const meta = projectDrawerMeta[kind];
   const Icon = meta.icon;
+  const title = t(meta.titleKey);
   const titleId = `project-${kind}-drawer-title`;
   const widthClass =
     meta.width === "wide"
@@ -506,7 +514,7 @@ function ProjectDrawerShell({
     >
       <button
         type="button"
-        aria-label={`关闭${meta.title}抽屉遮罩`}
+        aria-label={t("projectShell.drawer.closeOverlay", { title })}
         tabIndex={-1}
         className="absolute inset-0 z-0 cursor-default"
         onClick={onClose}
@@ -525,7 +533,7 @@ function ProjectDrawerShell({
             </span>
             <div className="min-w-0">
               <h2 id={titleId} className="text-xl font-semibold leading-7">
-                {meta.title}
+                {title}
               </h2>
               <p className="truncate font-mono text-xs leading-4 text-muted-foreground">{projectName}</p>
             </div>
@@ -535,7 +543,7 @@ function ProjectDrawerShell({
             variant="ghost"
             size="icon"
             className="size-10 shrink-0 rounded-full"
-            aria-label={`关闭${meta.title}抽屉`}
+            aria-label={t("projectShell.drawer.close", { title })}
             onClick={onClose}
           >
             <X className="size-4" />
@@ -544,11 +552,11 @@ function ProjectDrawerShell({
         <div className="flex min-h-[33px] min-w-0 items-center justify-between gap-3 overflow-hidden border-b border-border/60 bg-muted/70 px-6 py-2 text-xs text-muted-foreground">
           <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
             <ShieldCheck className="size-3.5" aria-hidden="true" />
-            权限: {accessLabel ?? "unknown"}
+            {t("projectShell.drawer.permission", { role: accessLabel ?? "unknown" })}
           </span>
           <span className="inline-flex shrink-0 items-center gap-1.5 text-primary">
             <CheckStatusDot />
-            已同步
+            {t("projectShell.drawer.synced")}
           </span>
         </div>
         <div
@@ -577,13 +585,14 @@ export function ProjectWorkspaceDrawer({
   onClose: () => void;
   onNavigate?: Navigate;
 }) {
+  const { t } = useTranslation();
   const overview = useProjectOverview(projectId);
   if (!activeDrawer) return null;
 
   const projectName =
     overview.project?.name ??
-    (overview.loading ? "正在加载项目..." : `项目 ${projectId}`);
-  const accessMessage = renderAccessMessage(overview, onNavigate);
+    (overview.loading ? t("projectShell.loadingProject") : t("projectShell.projectFallback", { projectId }));
+  const accessMessage = renderAccessMessage(overview, t, onNavigate);
   const handleProjectDeleted = () => {
     onClose();
     onNavigate?.("/projects");
@@ -594,7 +603,7 @@ export function ProjectWorkspaceDrawer({
     content = (
       <div className="flex items-center gap-2 rounded-md border border-border bg-muted p-3 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
-        正在加载项目数据...
+        {t("projectShell.loadingProjectData")}
       </div>
     );
   } else if (accessMessage || !overview.project) {
@@ -654,10 +663,11 @@ export function ProjectWorkspaceAccessBoundary({
   onNavigate: Navigate;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const overview = useProjectOverview(projectId);
-  const accessMessage = renderAccessMessage(overview, onNavigate);
+  const accessMessage = renderAccessMessage(overview, t, onNavigate);
   const coordinatedLoading = usePlatformRouteLoading(
-    "正在打开项目工作台...",
+    t("projectShell.openingWorkspace"),
     overview.loading,
   );
   const loadingTransition = useLoadingTransition(overview.loading);
@@ -673,7 +683,7 @@ export function ProjectWorkspaceAccessBoundary({
     return (
       <PageFrame onNavigate={onNavigate}>
         <PlatformLoadingScreen
-          message="正在打开项目工作台..."
+          message={t("projectShell.openingWorkspace")}
           variant="content"
           phase={loadingTransition.phase === "hidden" ? "loading" : loadingTransition.phase}
           progress={loadingTransition.progress}
@@ -688,7 +698,7 @@ export function ProjectWorkspaceAccessBoundary({
         <PageFrame onNavigate={onNavigate}>{accessMessage}</PageFrame>
         {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
           <PlatformLoadingScreen
-            message="正在打开项目工作台..."
+            message={t("projectShell.openingWorkspace")}
             variant="content"
             phase={loadingTransition.phase}
             progress={loadingTransition.progress}
@@ -706,7 +716,7 @@ export function ProjectWorkspaceAccessBoundary({
       </ProjectOverviewContext.Provider>
       {!coordinatedLoading && loadingTransition.visible && loadingTransition.phase !== "hidden" && (
         <PlatformLoadingScreen
-          message="正在打开项目工作台..."
+          message={t("projectShell.openingWorkspace")}
           variant="content"
           phase={loadingTransition.phase}
           progress={loadingTransition.progress}
@@ -726,6 +736,7 @@ export function ProjectWorkspaceBanner({
   onOpenDrawer?: (kind: ProjectDrawerKind) => void;
   activeGenerationTaskCount?: number;
 }) {
+  const { t } = useTranslation();
   const overview = useProjectOverview(projectId);
   const activeServerRuns = overview.runs.filter(
     (run) => run.status === "queued" || run.status === "running",
@@ -733,9 +744,9 @@ export function ProjectWorkspaceBanner({
   const [lineageOpen, setLineageOpen] = useState(false);
   const activeRuns = Math.max(activeServerRuns, activeGenerationTaskCount);
   const shortcuts: Array<{ label: string; kind: ProjectDrawerKind; icon: typeof Settings }> = [
-    { label: "项目设置", kind: "settings", icon: Settings },
-    { label: "成员", kind: "members", icon: Users },
-    { label: "文档中心", kind: "documents", icon: BookOpen },
+    { label: t("projectShell.drawer.settingsShort"), kind: "settings", icon: Settings },
+    { label: t("projectShell.drawer.membersShort"), kind: "members", icon: Users },
+    { label: t("projectShell.drawer.documentsShort"), kind: "documents", icon: BookOpen },
   ];
 
   if (overview.loading) {
@@ -743,7 +754,7 @@ export function ProjectWorkspaceBanner({
       <div className="flex min-h-[53px] items-center border-b border-border bg-card px-4 py-2">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          项目数据加载中...
+          {t("projectShell.projectDataLoading")}
         </div>
       </div>
     );
@@ -755,14 +766,14 @@ export function ProjectWorkspaceBanner({
         <div className="flex w-full flex-wrap items-center justify-between gap-3 text-sm">
           <div className="flex items-center gap-3">
             <Badge variant={overview.forbidden ? "destructive" : "outline"}>
-              {overview.forbidden ? "权限不足" : "项目工作台"}
+              {overview.forbidden ? t("projectShell.access.forbiddenTitle") : t("projectShell.workspace")}
             </Badge>
-            <span className="font-semibold">项目 {projectId}</span>
+            <span className="font-semibold">{t("projectShell.projectFallback", { projectId })}</span>
           </div>
           <span className="text-muted-foreground">
             {overview.authRequired
-              ? "需要登录后查看项目工作台"
-              : overview.error || "项目数据不可用"}
+              ? t("projectShell.requiresLoginWorkspace")
+              : overview.error || t("projectShell.projectDataUnavailable")}
           </span>
         </div>
       </div>
@@ -781,13 +792,13 @@ export function ProjectWorkspaceBanner({
       <div className="flex min-h-[53px] items-center border-b border-border bg-card px-3 py-2 md:px-4">
         <div className="flex w-full min-w-0 items-center justify-between gap-3 text-sm md:flex-wrap">
           <div className="flex min-w-0 items-center gap-2 md:gap-3">
-            <Badge variant="secondary">项目工作台</Badge>
+            <Badge variant="secondary">{t("projectShell.workspace")}</Badge>
             <span className="min-w-0 truncate font-semibold">{overview.project.name}</span>
             <span className="hidden text-muted-foreground sm:inline">
-              成员 {overview.members.length}
+              {t("projectShell.membersCount", { count: overview.members.length })}
             </span>
             <span className="hidden text-muted-foreground sm:inline">
-              权限 {overview.membership?.role ?? "unknown"}
+              {t("projectShell.permission", { role: overview.membership?.role ?? "unknown" })}
             </span>
           </div>
           <div className="hidden flex-wrap items-center gap-2 text-muted-foreground md:flex">
@@ -823,31 +834,31 @@ export function ProjectWorkspaceBanner({
                   variant="ghost"
                   size="icon"
                   className="size-9 shrink-0 rounded-full md:hidden"
-                  aria-label="打开项目操作"
-                  title="打开项目操作"
+                  aria-label={t("projectShell.openActions")}
+                  title={t("projectShell.openActions")}
                 >
                   <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-52">
                 <DropdownMenuLabel>
-                  {overview.membership?.role ?? "unknown"} · 已同步
+                  {overview.membership?.role ?? "unknown"} · {t("projectShell.drawer.synced")}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setLineageOpen(true)}>
                   <GitBranch className="size-4" />
-                  链路图
+                  {t("status.lineage")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => onOpenDrawer("tasks")}>
                   <Activity className="size-4" />
-                  生成任务
+                  {t("status.tasks")}
                   <span className="ml-auto text-xs text-muted-foreground">
                     {activeRuns}
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => onOpenDrawer("history")}>
                   <Clock3 className="size-4" />
-                  运行历史
+                  {t("status.runHistory")}
                 </DropdownMenuItem>
                 {shortcuts.map((shortcut) => {
                   const Icon = shortcut.icon;

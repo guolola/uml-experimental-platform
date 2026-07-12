@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AppI18nProvider } from "../app/providers/i18n-provider";
 import { ThemeProvider } from "../shared/ui/theme-provider";
 import type {
   AtomicRequirement,
@@ -157,13 +158,15 @@ export function withWorkspaceProviders(
   }
 
   return (
-    <ThemeProvider>
-      <WorkspaceShellProvider>
-        <WorkspaceRepositoryProvider repository={repository}>
-          <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>
-        </WorkspaceRepositoryProvider>
-      </WorkspaceShellProvider>
-    </ThemeProvider>
+    <AppI18nProvider>
+      <ThemeProvider>
+        <WorkspaceShellProvider>
+          <WorkspaceRepositoryProvider repository={repository}>
+            <WorkspaceSessionProvider>{children}</WorkspaceSessionProvider>
+          </WorkspaceRepositoryProvider>
+        </WorkspaceShellProvider>
+      </ThemeProvider>
+    </AppI18nProvider>
   );
 }
 

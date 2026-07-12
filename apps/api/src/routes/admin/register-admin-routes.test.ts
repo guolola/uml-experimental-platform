@@ -60,13 +60,8 @@ function createChatProbeStream(content: string) {
 
 function mockPaymentProviders(): PaymentProviderRegistry {
   return {
-    wechat_native: createMockPaymentAdapter({
-      channel: "wechat_native",
-      nodeEnv: "test",
-      secret: "admin-routes-billing-test-secret",
-    }),
-    alipay_page: createMockPaymentAdapter({
-      channel: "alipay_page",
+    alipay: createMockPaymentAdapter({
+      channel: "alipay",
       nodeEnv: "test",
       secret: "admin-routes-billing-test-secret",
     }),

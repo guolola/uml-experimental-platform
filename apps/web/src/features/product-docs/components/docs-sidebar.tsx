@@ -1,9 +1,11 @@
 // Owns documentation navigation, category grouping, and search result selection.
 import { BookOpen, FileText, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
 import { Input } from "../../../shared/ui/input";
 import { cn } from "../../../shared/ui/utils";
+import { i18n as appI18n } from "../../../shared/i18n";
 import type {
   ProductDocArticle,
   ProductDocCategory,
@@ -29,6 +31,8 @@ export function DocsSidebar({
   onSearchQueryChange,
   onSelectArticle,
 }: DocsSidebarProps) {
+  const { t: translate, i18n } = useTranslation();
+  const t = i18n.exists("docs.directory") ? translate : appI18n.t.bind(appI18n);
   const trimmedQuery = searchQuery.trim();
   const visibleArticles = trimmedQuery
     ? searchResults.map((result) => result.article)
@@ -36,16 +40,16 @@ export function DocsSidebar({
 
   return (
     <aside
-      aria-label="使用文档目录"
+      aria-label={t("docs.directoryAria")}
       className="min-w-0 overflow-x-hidden rounded-lg border border-border bg-card p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
     >
       <div className="flex items-center gap-2">
         <BookOpen className="size-4 text-primary" />
-        <h2 className="text-base font-semibold">文档目录</h2>
+        <h2 className="text-base font-semibold">{t("docs.directory")}</h2>
       </div>
 
       <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="product-docs-search">
-        搜索使用文档
+        {t("docs.searchLabel")}
       </label>
       <div className="relative mt-2">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -53,7 +57,7 @@ export function DocsSidebar({
           id="product-docs-search"
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.target.value)}
-          placeholder="搜索需求、说明书、模型配置..."
+          placeholder={t("docs.searchPlaceholder")}
           className="pl-9"
         />
       </div>
@@ -62,9 +66,9 @@ export function DocsSidebar({
         <div className="mt-4 grid gap-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-semibold text-muted-foreground">
-              搜索结果
+              {t("docs.searchResults")}
             </span>
-            <Badge variant="outline">{searchResults.length} 条</Badge>
+            <Badge variant="outline">{t("docs.resultCount", { count: searchResults.length })}</Badge>
           </div>
           {visibleArticles.length > 0 ? (
             visibleArticles.map((article) => (
@@ -77,7 +81,7 @@ export function DocsSidebar({
             ))
           ) : (
             <div className="rounded-md border border-dashed border-border p-3 text-sm leading-6 text-muted-foreground">
-              没有找到匹配文档。可以换一个关键词，例如“生成失败”“导出”或“项目成员”。
+              {t("docs.noResults")}
             </div>
           )}
         </div>

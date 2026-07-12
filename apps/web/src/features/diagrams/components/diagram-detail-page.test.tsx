@@ -141,7 +141,7 @@ describe("DiagramView", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not expose PlantUML source tabs or source export controls", async () => {
+  it("offers PlantUML export without exposing source tabs or inline source", async () => {
     const repository = createRepository(
       createWorkspaceRecord({
         generatedDiagramTypes: ["usecase"],
@@ -187,7 +187,7 @@ describe("DiagramView", () => {
     expect(await screen.findByText("预览")).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /PlantUML/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/@startuml/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /PUML/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "PlantUML" })).toBeInTheDocument();
     expect(screen.queryByText("溯源·需求规则")).not.toBeInTheDocument();
     expect(screen.queryByText("用户可以查看公开活动。")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /JSON/i })).not.toBeInTheDocument();
@@ -240,6 +240,7 @@ describe("DiagramView", () => {
 
     expect(await screen.findByDisplayValue("用例模型")).toBeInTheDocument();
     expect(screen.getByText("尚未生成 SVG")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "PlantUML" })).not.toBeInTheDocument();
     expect(screen.queryByText(/尚未生成。请回到/)).not.toBeInTheDocument();
     expect(screen.getByText("查看活动安排")).toBeInTheDocument();
   });
@@ -1074,6 +1075,39 @@ describe("DiagramView", () => {
       "image/svg+xml",
     );
     expect(downloadTextFileMock.mock.calls[0]?.[1]).not.toContain("lengthAdjust");
+  });
+
+  it("downloads PlantUML source for the current diagram", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["usecase"],
+        plantUml: {
+          usecase: "@startuml\nactor 用户\n@enduml",
+        },
+        models: {
+          usecase: {
+            diagramKind: "usecase",
+            title: "用例图",
+            summary: "核心用例",
+            notes: [],
+            actors: [],
+            useCases: [],
+            systemBoundaries: [],
+            relationships: [],
+          },
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<DiagramView type="usecase" />, repository));
+
+    await userEvent.click(await screen.findByRole("button", { name: "PlantUML" }));
+
+    expect(downloadTextFileMock).toHaveBeenCalledWith(
+      "requirements-usecase.puml",
+      "@startuml\nactor 用户\n@enduml",
+      "text/plain",
+    );
   });
 
   it("zooms only the SVG canvas on ctrl wheel and prevents page zoom", async () => {

@@ -27,7 +27,7 @@ const billingOrder = {
   sku: purchaseSku,
   amountCents: purchaseSku.amountCents,
   currency: "CNY",
-  channel: "wechat_native",
+  channel: "alipay",
   status: "pending",
   createdAt: "2026-06-05T04:00:00.000Z",
   expiresAt: "2026-06-05T04:15:00.000Z",
@@ -50,7 +50,7 @@ function stubBillingFetch() {
           creditBalance: 128,
           signupBonus: {
             granted: true,
-            creditAmount: 10,
+            creditAmount: 5,
             validUntil: "2026-07-05T04:00:00.000Z",
           },
           recentOrders: [billingOrder],
@@ -70,8 +70,8 @@ function stubBillingFetch() {
           amountCents: billingOrder.amountCents,
           currency: billingOrder.currency,
           expiresAt: billingOrder.expiresAt,
-          channel: "wechat_native",
-          codeUrl: "weixin://wxpay/bizpayurl?pr=test-order",
+          channel: "alipay",
+          paymentFormHtml: "<form action=\"https://zpayz.cn/submit.php\"><button>pay</button></form>",
         }),
         {
           status: 201,
@@ -117,8 +117,8 @@ describe("AccountBillingPage", () => {
 
     const dialog = await screen.findByTestId("payment-confirm-dialog");
     const paymentFrame = dialog.querySelector("[data-scale-to-fit]");
-    expect(paymentFrame).toHaveTextContent("微信支付");
     expect(paymentFrame).toHaveTextContent("支付宝");
+    expect(paymentFrame).not.toHaveTextContent("微信支付");
   });
 });
 
@@ -132,7 +132,7 @@ describe("PricingBillingPage", () => {
     render(<PricingBillingPage signedIn onNavigate={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "开通 AI 生成权益" })).toBeInTheDocument();
-    expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 10 次，有效期 30 天。")).toBeInTheDocument();
+    expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。")).toBeInTheDocument();
     expect(screen.queryByText("通行卡")).not.toBeInTheDocument();
     expect(screen.queryByText("日卡")).not.toBeInTheDocument();
     expect(screen.queryByText("周卡")).not.toBeInTheDocument();

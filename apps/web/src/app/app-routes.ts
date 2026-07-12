@@ -53,7 +53,10 @@ export function matchAppRoute(pathname: string): AppRoute {
   if (pathname === "/account" || pathname === "/account/security") {
     return { kind: "legacy-account", path: pathname };
   }
-  if (pathname === "/settings/models" || pathname === "/account/billing") {
+  if (pathname === "/account/billing") {
+    return { kind: "account-billing", path: "/account/billing" };
+  }
+  if (pathname === "/settings/models") {
     return { kind: "legacy-redirect", path: pathname, to: "/projects" };
   }
 

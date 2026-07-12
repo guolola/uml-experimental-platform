@@ -17,6 +17,7 @@ import {
   ProjectsIndexPage,
 } from "../features/user-platform/components/user-platform-pages";
 import { formatProjectDateTimeMinute } from "../features/user-platform/lib/project-presentation";
+import { i18n, LOCALE_PREFERENCE_STORAGE_KEY } from "../shared/i18n";
 
 let projectApiMode: "unauthenticated" | "authenticated" | "empty" | "forbidden" | "offline";
 let caseProjectApiMode: "success" | "failure";
@@ -85,7 +86,7 @@ const billingTestOrder = {
   sku: billingPrimarySku,
   amountCents: billingPrimarySku.amountCents,
   currency: "CNY",
-  channel: "wechat_native",
+  channel: "alipay",
   status: "pending",
   createdAt: "2026-06-05T04:00:00.000Z",
   expiresAt: "2026-06-05T04:15:00.000Z",
@@ -265,7 +266,7 @@ async function waitForPlatformLoadingToExit() {
 }
 
 describe("App shell routes", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     projectApiMode = "unauthenticated";
     caseProjectApiMode = "success";
     projectMembershipRole = "owner";
@@ -317,9 +318,12 @@ describe("App shell routes", () => {
     HTMLAnchorElement.prototype.click = vi.fn();
     HTMLFormElement.prototype.submit = vi.fn();
     window.history.pushState({}, "", "/");
+    localStorage.removeItem(LOCALE_PREFERENCE_STORAGE_KEY);
     localStorage.removeItem(USER_SETTINGS_STORAGE_KEY);
     localStorage.removeItem("uml-auth-remembered-email");
     localStorage.removeItem("uml-auth-remembered-password");
+    await i18n.changeLanguage("zh-CN");
+    document.documentElement.lang = "zh-CN";
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -601,7 +605,7 @@ describe("App shell routes", () => {
               creditBalance: 10,
               signupBonus: {
                 granted: true,
-                creditAmount: 10,
+                creditAmount: 5,
                 validUntil: "2026-07-05T04:00:00.000Z",
               },
               recentOrders: [billingTestOrder],
@@ -615,14 +619,14 @@ describe("App shell routes", () => {
         if (pathname === "/api/billing/orders" && method === "POST") {
           const body = JSON.parse(String(init?.body ?? "{}")) as {
             skuCode?: string;
-            channel?: "wechat_native" | "alipay_page";
+            channel?: "alipay";
           };
           const sku = billingTestSkus.find((candidate) => candidate.code === body.skuCode) ?? billingPrimarySku;
           const order = {
             ...billingTestOrder,
             sku,
             amountCents: sku.amountCents,
-            channel: body.channel ?? "wechat_native",
+            channel: body.channel ?? "alipay",
           };
           return new Response(
             JSON.stringify({
@@ -633,9 +637,7 @@ describe("App shell routes", () => {
               currency: order.currency,
               expiresAt: order.expiresAt,
               channel: order.channel,
-              ...(order.channel === "wechat_native"
-                ? { codeUrl: "weixin://wxpay/bizpayurl?pr=test-order" }
-                : { paymentFormHtml: "<form action=\"https://openapi.alipay.test\"><button>pay</button></form>" }),
+              paymentFormHtml: "<form action=\"https://zpayz.cn/submit.php\"><button>pay</button></form>",
             }),
             {
               status: 201,
@@ -1495,6 +1497,20 @@ describe("App shell routes", () => {
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
   });
 
+  it("shows the shared language menu on the public marketing header", async () => {
+    const user = userEvent.setup();
+    authSessionMode = "unauthenticated";
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await user.click(await screen.findByRole("button", { name: "切换界面语言" }));
+    await user.click(screen.getByRole("menuitem", { name: /English/u }));
+
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe("en");
+    });
+    expect(screen.getByRole("button", { name: "Change interface language" })).toBeInTheDocument();
+  });
+
   it("opens the marketing promo video without navigating away from the home page", async () => {
     const user = userEvent.setup();
     authSessionMode = "unauthenticated";
@@ -1774,18 +1790,16 @@ describe("App shell routes", () => {
     expect(screen.queryByRole("link", { name: "定价" })).not.toBeInTheDocument();
   });
 
-  it("hides the direct account billing route and keeps payment return available", async () => {
+  it("shows the account billing route and keeps payment return available", async () => {
     authSessionMode = "authenticated";
     projectApiMode = "authenticated";
 
     window.history.pushState({}, "", "/account/billing");
     const billingView = render(withWorkspaceProviders(<Shell />, createRepository()));
 
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/projects");
-    });
-    expect(await screen.findByRole("heading", { name: "项目首页" })).toBeInTheDocument();
-    expect(screen.queryByTestId("account-billing-dashboard")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/account/billing");
+    expect(await screen.findByTestId("account-billing-dashboard")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
     billingView.unmount();
 
     window.history.pushState({}, "", "/billing/alipay/return?orderId=order-test-1");
@@ -1948,6 +1962,7 @@ describe("App shell routes", () => {
       "项目",
       "考试",
       "使用文档",
+      "支付",
     ]);
     expect(within(banner).queryByRole("button", { name: "工作台" })).not.toBeInTheDocument();
 
@@ -1961,7 +1976,16 @@ describe("App shell routes", () => {
     expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
     expect(screen.queryByText("项目导航")).not.toBeInTheDocument();
 
-    expect(within(banner).queryByRole("button", { name: "支付权益" })).not.toBeInTheDocument();
+    await user.click(within(banner).getByRole("button", { name: "支付" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/account/billing");
+    });
+    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
+    expect(within(banner).getByRole("button", { name: "支付" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
     await user.click(within(banner).getByRole("button", { name: "项目" }));
 
@@ -2084,9 +2108,8 @@ describe("App shell routes", () => {
       to: "/projects",
     });
     expect(matchAppRoute("/account/billing")).toMatchObject({
-      kind: "legacy-redirect",
+      kind: "account-billing",
       path: "/account/billing",
-      to: "/projects",
     });
     expect(matchAppRoute("/about")).toMatchObject({
       kind: "not-found",
@@ -2145,6 +2168,20 @@ describe("App shell routes", () => {
     });
     expect(window.location.search).toContain("email=new-student%40example.edu");
     expect(await screen.findByText(/验证邮件已发送到/)).toBeInTheDocument();
+  });
+
+  it("shows the shared language menu on auth pages before login", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/login");
+    render(withWorkspaceProviders(<Shell />, createRepository()));
+
+    await user.click(await screen.findByRole("button", { name: "切换界面语言" }));
+    await user.click(screen.getByRole("menuitem", { name: /English/u }));
+
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe("en");
+    });
+    expect(screen.getByRole("button", { name: "Change interface language" })).toBeInTheDocument();
   });
 
   it("redirects the removed model settings route to projects", async () => {

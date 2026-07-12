@@ -432,6 +432,259 @@ const ARTICLE_MANIFEST = [
   },
 ] satisfies readonly ProductDocArticleManifestItem[];
 
+type ProductDocsLocale = "zh-CN" | "en";
+
+const EN_CATEGORY_TEXT: Record<ProductDocCategoryId, Pick<ProductDocCategory, "label" | "description">> = {
+  overview: {
+    label: "Overview and map",
+    description: "Full path, page entry points, and artifact mapping across the workflow.",
+  },
+  project: {
+    label: "Projects and account",
+    description: "Project home, project creation, members, settings, and account-level model configuration.",
+  },
+  workspace: {
+    label: "Workspace basics",
+    description: "Top bar, sidebar, tabs, generation tasks, and run history.",
+  },
+  "model-provider": {
+    label: "Models and providers",
+    description: "Recommended models, personal providers, platform credits, and model discovery tests.",
+  },
+  requirements: {
+    label: "Requirements stage",
+    description: "Requirement input, rule confirmation, quality prompts, AI repair, and baselines.",
+  },
+  models: {
+    label: "UML and model details",
+    description: "Requirement models, diagrams, element details, PlantUML, SVG, and traceability.",
+  },
+  design: {
+    label: "Design and traceability",
+    description: "Design models, use case realization, design details, and requirement-to-design mapping.",
+  },
+  delivery: {
+    label: "Delivery and review",
+    description: "Testing, specifications, run history, and evidence review.",
+  },
+  support: {
+    label: "Account and troubleshooting",
+    description: "Model configuration, account access, permissions, and common issues.",
+  },
+};
+
+const EN_ARTICLE_TEXT: Record<
+  string,
+  {
+    title: string;
+    summary: string;
+    tags: readonly string[];
+    relatedArtifacts: readonly string[];
+  }
+> = {
+  "quick-start": {
+    title: "Quick start",
+    summary: "Walk through the full flow with the library booking case, from project entry to specification evidence.",
+    tags: ["Beginner", "Full path", "Library booking", "Entry points"],
+    relatedArtifacts: ["Project", "Requirement text", "Requirement rules", "UML", "Design models", "Code prototype", "Specification"],
+  },
+  "feature-map": {
+    title: "Page entry points and workflow map",
+    summary: "Connect top navigation, project drawers, workspace tabs, and downstream artifacts.",
+    tags: ["Entry points", "Workflow map", "Artifacts", "Navigation"],
+    relatedArtifacts: ["Page entries", "Workspace tabs", "Artifact map", "Run evidence"],
+  },
+  "project-basics": {
+    title: "Project home and project creation",
+    summary: "View project lists, create lab projects, enter the workspace, and identify project states.",
+    tags: ["Project home", "Create project", "Project cards", "Project entry"],
+    relatedArtifacts: ["Project", "Member access", "Personal model settings", "Run history"],
+  },
+  "account-global-settings": {
+    title: "Account settings and global model configuration",
+    summary: "Open settings from the account entry to manage profile, security, and hosted providers.",
+    tags: ["Account", "Global settings", "Model configuration", "Hosted provider", "Default model"],
+    relatedArtifacts: ["Account session", "MFA", "Provider configuration", "Workspace preferences"],
+  },
+  "workspace-shell": {
+    title: "Project workspace: top bar, sidebar, and tabs",
+    summary: "Understand workspace navigation, tabs, sidebar state, and cross-stage entry points.",
+    tags: ["Workspace", "Top bar", "Sidebar", "Tabs", "Lineage graph"],
+    relatedArtifacts: ["Workspace tabs", "Model tree", "Generation tasks", "Lineage graph"],
+  },
+  "project-drawers": {
+    title: "Project drawers: settings, members, tasks, history, and documents",
+    summary: "Use the right-side project drawers to manage project data, members, generation tasks, and documents.",
+    tags: ["Project settings", "Members", "Generation tasks", "Run history", "Documents"],
+    relatedArtifacts: ["Project settings", "Members", "Run records", "Specification files"],
+  },
+  "generation-tasks-history": {
+    title: "Generation tasks, run history, and evidence review",
+    summary: "Inspect queued, running, failed, retried, restored, and evidence-backed runs.",
+    tags: ["Generation tasks", "Run history", "Retry", "Restore snapshot", "Evidence"],
+    relatedArtifacts: ["RunSnapshot", "RunEvent", "EvidencePackage"],
+  },
+  "recommended-models": {
+    title: "Recommended models",
+    summary: "Review Top 10 model recommendations for the generation workflow based on public model rankings.",
+    tags: ["Recommended models", "Top 10", "Domestic models", "International models", "Provider"],
+    relatedArtifacts: ["Model rankings", "Provider configuration", "Requirement generation", "Design generation", "Code prototype", "Specification"],
+  },
+  "provider-configuration": {
+    title: "Configure a provider",
+    summary: "Add a personal model provider, discover available models, test connectivity, and save it as the default provider.",
+    tags: ["Provider", "API key", "Model discovery", "Hosted configuration test", "Credits"],
+    relatedArtifacts: ["ProviderConfig", "Model list", "Default model", "Platform credits"],
+  },
+  requirements: {
+    title: "Requirement input, rule confirmation, and AI repair",
+    summary: "Enter requirement text, generate requirement rules, handle quality prompts, and accept or reject AI repairs.",
+    tags: ["Requirements", "Requirement rules", "AI repair", "Rule confirmation", "Quality prompts"],
+    relatedArtifacts: ["Requirement text", "Requirement rules", "Quality report", "Repair candidates", "Requirement baseline"],
+  },
+  "requirement-baseline": {
+    title: "Requirement quality, baseline, and pending confirmations",
+    summary: "Understand quality prompts, pending repairs, baselines, and downstream blocking reasons.",
+    tags: ["Requirement quality", "Requirement baseline", "Pending confirmation", "Blocking reason", "Quality prompts"],
+    relatedArtifacts: ["RequirementBaseline", "QualityReport", "ReviewCandidate"],
+  },
+  "uml-models": {
+    title: "Requirement UML models and diagram viewing",
+    summary: "Learn the seven requirement model types, PlantUML, SVG diagrams, model tree, and render states.",
+    tags: ["UML", "PlantUML", "SVG", "Work breakdown", "Use case model", "Model tree"],
+    relatedArtifacts: ["RequirementModel", "PlantUML", "SVG", "diagramErrors"],
+  },
+  "uml-model-detail": {
+    title: "Model detail page, element list, and traceability matrix",
+    summary: "Open model details to inspect elements, relationships, source code, manual redraw, and requirement traceability.",
+    tags: ["Model detail", "Element list", "Traceability matrix", "Manual redraw", "Model details"],
+    relatedArtifacts: ["Model elements", "Relationships", "PlantUML source", "TraceabilityMatrix"],
+  },
+  "design-models": {
+    title: "Design model generation and design details",
+    summary: "Generate seven design model types from requirement models and inspect design diagrams, element details, and failures.",
+    tags: ["Design models", "Use case realization", "Design class diagram", "UI relationship diagram", "Database design"],
+    relatedArtifacts: ["DesignModel", "DesignPlantUML", "DesignSVG", "DesignDiagram"],
+  },
+  "design-traceability": {
+    title: "Requirement-to-design traceability",
+    summary: "Check how requirement elements map to design models, design elements, and upstream design references.",
+    tags: ["Design traceability", "Requirement mapping", "Lineage graph", "Low-confidence links"],
+    relatedArtifacts: ["DesignTraceability", "RequirementTraceability", "LineageGraph"],
+  },
+  "code-prototype": {
+    title: "Code prototype generation and preview",
+    summary: "Generate a React prototype from design context, then inspect the file tree, preview, and quality diagnostics.",
+    tags: ["Code prototype", "React", "Preview", "Diagnostics"],
+    relatedArtifacts: ["Code files", "Preview", "Quality diagnostics"],
+  },
+  "testing-coverage": {
+    title: "Test cases and coverage relationships",
+    summary: "Generate test cases from requirements and design, filter by scenario, and inspect coverage relationships.",
+    tags: ["Test cases", "Coverage", "Test scenarios", "Black-box testing"],
+    relatedArtifacts: ["BlackBoxTestCase", "TestCoverageRelation", "RequirementRule"],
+  },
+  "documents-delivery": {
+    title: "Specification generation, style, versions, and download",
+    summary: "Generate requirement or design specifications, adjust styling, review versions, and download documents.",
+    tags: ["Specification", "Document versions", "DOCX", "Style", "Download", "OnlyOffice"],
+    relatedArtifacts: ["RequirementsSpec", "SoftwareDesignSpec", "DocumentVersion"],
+  },
+  "account-models-faq": {
+    title: "Account, model configuration, and permission issues",
+    summary: "Handle sign-in, permissions, global model configuration, project model policy, and generation credits.",
+    tags: ["Account", "Permissions", "Model configuration", "Global settings", "MFA"],
+    relatedArtifacts: ["UserSession", "ProviderConfig", "ProjectMembership"],
+  },
+  troubleshooting: {
+    title: "Troubleshooting generation, rendering, and repair",
+    summary: "Diagnose generation failures, render failures, AI repair failures, unavailable models, and missing document diagrams.",
+    tags: ["Troubleshooting", "Generation failure", "Render failure", "AI repair failure", "Missing diagrams", "Unavailable model"],
+    relatedArtifacts: ["RunError", "diagramErrors", "RepairRecord", "DocumentMissingArtifact"],
+  },
+};
+
+function buildEnglishContent(article: ProductDocArticleManifestItem, title: string, summary: string) {
+  const tags = EN_ARTICLE_TEXT[article.id]?.tags ?? article.tags;
+  const artifacts = EN_ARTICLE_TEXT[article.id]?.relatedArtifacts ?? article.relatedArtifacts;
+  return [
+    `# ${title}`,
+    "",
+    summary,
+    "",
+    "## When to use this page",
+    "Use this article when you need to understand where the feature lives, what input it expects, and which artifact or evidence it produces in the platform workflow.",
+    "",
+    "## Recommended workflow",
+    "1. Open the related project or workspace entry from the top navigation or project drawer.",
+    "2. Check prerequisites such as sign-in status, project membership, provider configuration, and completed upstream artifacts.",
+    "3. Run the action, review generated results, and use task history or traceability panels to verify evidence.",
+    "4. Return to the project home or workspace tabs when you need to continue with the next stage.",
+    "",
+    "## Key artifacts",
+    artifacts.map((item) => `- ${item}`).join("\n"),
+    "",
+    "## Search tags",
+    tags.map((item) => `- ${item}`).join("\n"),
+  ].join("\n");
+}
+
+function localizeArticle(
+  article: ProductDocArticleManifestItem,
+  categories: readonly ProductDocCategory[],
+  locale: ProductDocsLocale,
+): ProductDocArticle {
+  const category = categories.find((item) => item.id === article.category);
+  if (locale !== "en") {
+    return {
+      ...article,
+      categoryLabel: category?.label ?? "使用文档",
+      content: markdownModules[article.sourcePath] ?? "",
+    };
+  }
+
+  const english = EN_ARTICLE_TEXT[article.id];
+  const title = english?.title ?? article.title;
+  const summary = english?.summary ?? article.summary;
+  return {
+    ...article,
+    title,
+    summary,
+    categoryLabel: category?.label ?? "Docs",
+    content: buildEnglishContent(article, title, summary),
+    tags: english?.tags ?? article.tags,
+    relatedArtifacts: english?.relatedArtifacts ?? article.relatedArtifacts,
+    screenshot: article.screenshot
+      ? {
+          ...article.screenshot,
+          alt: `${title} screenshot`,
+          caption: `Screenshot for ${title}.`,
+        }
+      : undefined,
+    video: article.video
+      ? {
+          ...article.video,
+          title: `${title} video`,
+          description: `A guided walkthrough for ${title}.`,
+          caption: "Demo video",
+        }
+      : undefined,
+  };
+}
+
+export function getProductDocCategories(locale: ProductDocsLocale): readonly ProductDocCategory[] {
+  if (locale !== "en") return PRODUCT_DOC_CATEGORIES;
+  return PRODUCT_DOC_CATEGORIES.map((category) => ({
+    ...category,
+    ...EN_CATEGORY_TEXT[category.id],
+  }));
+}
+
+export function getProductDocArticles(locale: ProductDocsLocale): readonly ProductDocArticle[] {
+  const categories = getProductDocCategories(locale);
+  return ARTICLE_MANIFEST.map((article) => localizeArticle(article, categories, locale));
+}
+
 export const PRODUCT_DOC_ARTICLES: readonly ProductDocArticle[] = ARTICLE_MANIFEST.map(
   (article) => {
     const category = PRODUCT_DOC_CATEGORIES.find((item) => item.id === article.category);

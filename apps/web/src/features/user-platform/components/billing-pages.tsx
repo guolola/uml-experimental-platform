@@ -1,22 +1,18 @@
 // Renders billing and payment UI for public pricing and authenticated account pages.
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from "react";
-import { QRCodeSVG } from "qrcode.react";
 import {
   BadgeCheck,
   Check,
   CheckCircle2,
-  Clock3,
   CreditCard,
   ExternalLink,
   Loader2,
-  QrCode,
   RefreshCw,
   WalletCards,
 } from "lucide-react";
@@ -24,7 +20,6 @@ import type {
   BillingOrderStatusDto,
   BillingSkuDto,
   BillingSummary,
-  CreatePaymentOrderResponse,
   PaymentChannel,
 } from "@uml-platform/contracts";
 import { Badge } from "../../../shared/ui/badge";
@@ -68,7 +63,7 @@ function isRecommendedSku(sku: BillingSkuDto) {
 }
 
 function channelLabel(channel: PaymentChannel) {
-  return channel === "wechat_native" ? "微信支付" : "支付宝";
+  return channel === "alipay" ? "支付宝" : channel;
 }
 
 function orderStatusLabel(status: BillingOrderStatusDto["status"]) {
@@ -90,35 +85,6 @@ function orderStatusBadgeVariant(status: BillingOrderStatusDto["status"]) {
   if (status === "refund_pending") return "warning";
   if (status === "refunded") return "secondary";
   return "destructive";
-}
-
-function formatCountdown(expiresAt?: string) {
-  if (!expiresAt) return "--:--";
-  const remainingMs = Math.max(0, new Date(expiresAt).getTime() - Date.now());
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function usePaymentCountdown(expiresAt?: string, active = true) {
-  const [countdown, setCountdown] = useState(() => formatCountdown(expiresAt));
-
-  useEffect(() => {
-    if (!active || !expiresAt) {
-      setCountdown(formatCountdown(expiresAt));
-      return undefined;
-    }
-    setCountdown(formatCountdown(expiresAt));
-    const timer = window.setInterval(() => {
-      setCountdown(formatCountdown(expiresAt));
-    }, 1000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [active, expiresAt]);
-
-  return countdown;
 }
 
 function storageKey(orderId: string) {
@@ -170,7 +136,6 @@ function PaymentMethodCard({
   active: boolean;
   onSelect: (channel: PaymentChannel) => void;
 }) {
-  const Icon = channel === "wechat_native" ? QrCode : CreditCard;
   return (
     <button
       type="button"
@@ -189,12 +154,10 @@ function PaymentMethodCard({
           <span
             className={cn(
               "grid size-8 place-items-center rounded-lg",
-              channel === "wechat_native"
-                ? "bg-success/10 text-success"
-                : "bg-info/10 text-info",
+              "bg-info/10 text-info",
             )}
           >
-            <Icon className="size-4" />
+            <CreditCard className="size-4" />
           </span>
           {channelLabel(channel)}
         </span>
@@ -208,7 +171,7 @@ function PaymentMethodCard({
         </span>
       </span>
       <span className="mt-3 text-[13px] leading-5 text-muted-foreground">
-        {channel === "wechat_native" ? "使用微信扫码完成支付" : "跳转支付宝电脑网站支付"}
+        跳转支付宝电脑网站支付
       </span>
     </button>
   );
@@ -271,20 +234,15 @@ function PaymentConfirmDialog({
                   </span>
                 </div>
               </section>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3">
                 <PaymentMethodCard
-                  channel="wechat_native"
-                  active={channel === "wechat_native"}
-                  onSelect={onChannelChange}
-                />
-                <PaymentMethodCard
-                  channel="alipay_page"
-                  active={channel === "alipay_page"}
+                  channel="alipay"
+                  active={channel === "alipay"}
                   onSelect={onChannelChange}
                 />
               </div>
               <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning">
-                支付金额以后端 SKU 为准，请在第三方支付页确认金额一致。
+                支付金额以后端 SKU 为准，请在支付宝页面确认金额一致。
               </div>
               {error && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
@@ -310,91 +268,6 @@ function PaymentConfirmDialog({
             >
               {creating ? <Loader2 className="size-4 animate-spin" /> : <WalletCards className="size-4" />}
               {creating ? "正在创建订单" : "立即支付"}
-            </Button>
-          </div>
-        </ScaleToFitFrame>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function WechatQrDialog({
-  order,
-  open,
-  polling,
-  onOpenChange,
-  onRefresh,
-}: {
-  order: CreatePaymentOrderResponse | null;
-  open: boolean;
-  polling: boolean;
-  onOpenChange: (open: boolean) => void;
-  onRefresh: () => void;
-}) {
-  const countdown = usePaymentCountdown(order?.expiresAt, open);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-testid="wechat-qr-dialog"
-        overlayClassName="bg-foreground/40 backdrop-blur-[1px]"
-        className="overflow-hidden rounded-xl border-border bg-card p-0 shadow-xl sm:max-w-[430px]"
-      >
-        <ScaleToFitFrame minWidth={430} contentClassName="w-[430px]">
-          <DialogHeader className="border-b border-border px-6 py-5 pr-12 text-left">
-            <div className="flex items-center gap-3">
-              <span className="grid size-9 place-items-center rounded-full bg-success/10 text-success">
-                <QrCode className="size-5" />
-              </span>
-              <div>
-                <DialogTitle className="font-display text-[22px] font-semibold leading-8 text-foreground">
-                  微信支付
-                </DialogTitle>
-                <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
-                  {order ? `订单号 ${order.merchantOrderNo}` : "等待订单"}
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="grid justify-items-center gap-5 px-6 py-6">
-          <div className="text-center">
-            <div className="text-[13px] leading-5 text-muted-foreground">支付金额</div>
-            <div className="mt-1 font-display text-[34px] font-bold leading-10 tracking-normal text-primary">
-              {order ? formatCny(order.amountCents) : "¥--"}
-            </div>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            {order?.codeUrl ? (
-              <QRCodeSVG value={order.codeUrl} size={220} />
-            ) : (
-              <div className="grid size-[220px] place-items-center text-[13px] text-muted-foreground">
-                二维码生成中
-              </div>
-            )}
-          </div>
-          <div className="flex w-full items-center justify-center gap-2 rounded-lg bg-info/10 px-4 py-3 text-[14px] leading-6 text-foreground">
-            <QrCode className="size-4 text-info" />
-            请使用微信扫一扫完成支付
-          </div>
-          <div className="flex items-center gap-2 text-[14px] leading-6 text-muted-foreground">
-            {polling ? <RefreshCw className="size-4 animate-spin text-primary" /> : <Clock3 className="size-4" />}
-            支付倒计时
-            <span className="rounded-md bg-primary/10 px-2 py-0.5 font-mono font-semibold text-primary">
-              {countdown}
-            </span>
-          </div>
-        </div>
-          <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/40 px-6 py-4">
-            <Button
-              type="button"
-              variant="ghost"
-              className="motion-action rounded-lg px-0 text-[14px] text-muted-foreground hover:bg-transparent hover:text-foreground"
-              onClick={() => onOpenChange(false)}
-            >
-              取消支付
-            </Button>
-            <Button type="button" className={paymentPrimaryButtonClass} onClick={onRefresh}>
-              <RefreshCw className="size-4" />
-              刷新状态
             </Button>
           </div>
         </ScaleToFitFrame>
@@ -566,38 +439,9 @@ function BillingSkuCard({
 
 function usePaymentFlow(onNavigate: Navigate, onPaid?: () => void) {
   const [selectedSku, setSelectedSku] = useState<BillingSkuDto | null>(null);
-  const [channel, setChannel] = useState<PaymentChannel>("wechat_native");
+  const [channel, setChannel] = useState<PaymentChannel>("alipay");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  const [wechatOrder, setWechatOrder] = useState<CreatePaymentOrderResponse | null>(null);
-  const [qrOpen, setQrOpen] = useState(false);
-  const [polling, setPolling] = useState(false);
-
-  const refreshOrder = useCallback(async (orderId: string) => {
-    const order = await billingApi.getOrder(orderId);
-    if (order.status === "paid") {
-      setQrOpen(false);
-      onPaid?.();
-    }
-    return order;
-  }, [onPaid]);
-
-  useEffect(() => {
-    if (!qrOpen || !wechatOrder) return undefined;
-    let active = true;
-    const timer = window.setInterval(() => {
-      setPolling(true);
-      refreshOrder(wechatOrder.orderId)
-        .catch(() => undefined)
-        .finally(() => {
-          if (active) setPolling(false);
-        });
-    }, 2500);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [qrOpen, refreshOrder, wechatOrder]);
 
   const createOrder = async () => {
     if (!selectedSku) return;
@@ -609,16 +453,15 @@ function usePaymentFlow(onNavigate: Navigate, onPaid?: () => void) {
         channel,
         returnUrl: `${window.location.origin}/billing/alipay/return`,
       });
-      if (response.channel === "wechat_native") {
-        setSelectedSku(null);
-        setWechatOrder(response);
-        setQrOpen(true);
-        return;
-      }
       if (response.paymentFormHtml) {
         window.sessionStorage.setItem(storageKey(response.orderId), response.paymentFormHtml);
       }
       setSelectedSku(null);
+      if (response.redirectUrl && !response.paymentFormHtml) {
+        window.location.assign(response.redirectUrl);
+        onPaid?.();
+        return;
+      }
       onNavigate(`/billing/alipay/return?orderId=${encodeURIComponent(response.orderId)}`);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "订单创建失败");
@@ -635,14 +478,6 @@ function usePaymentFlow(onNavigate: Navigate, onPaid?: () => void) {
     creating,
     error,
     createOrder,
-    wechatOrder,
-    qrOpen,
-    setQrOpen,
-    polling,
-    refreshWechatOrder: () => {
-      if (!wechatOrder) return;
-      void refreshOrder(wechatOrder.orderId);
-    },
   };
 }
 
@@ -672,7 +507,7 @@ export function PricingBillingPage({
             开通 AI 生成权益
           </h1>
           <p className="text-[15px] leading-[24px] text-muted-foreground md:text-[16px]">
-            购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 10 次，有效期 30 天。
+            购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。
           </p>
         </div>
         <BillingSkuGrid
@@ -699,13 +534,6 @@ export function PricingBillingPage({
               if (!open) payment.setSelectedSku(null);
             }}
             onConfirm={payment.createOrder}
-          />
-          <WechatQrDialog
-            order={payment.wechatOrder}
-            open={payment.qrOpen}
-            polling={payment.polling}
-            onOpenChange={payment.setQrOpen}
-            onRefresh={payment.refreshWechatOrder}
           />
         </>
       )}
@@ -896,13 +724,6 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
         }}
         onConfirm={payment.createOrder}
       />
-      <WechatQrDialog
-        order={payment.wechatOrder}
-        open={payment.qrOpen}
-        polling={payment.polling}
-        onOpenChange={payment.setQrOpen}
-        onRefresh={payment.refreshWechatOrder}
-      />
     </main>
   );
 }
@@ -922,6 +743,7 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
     }
     const formHtml = window.sessionStorage.getItem(storageKey(orderId));
     if (formHtml && bridgeRef.current) {
+      window.sessionStorage.removeItem(storageKey(orderId));
       bridgeRef.current.innerHTML = formHtml;
       const form = bridgeRef.current.querySelector("form") as HTMLFormElement | null;
       form?.submit();

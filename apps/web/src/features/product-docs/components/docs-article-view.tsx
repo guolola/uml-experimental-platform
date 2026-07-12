@@ -3,10 +3,12 @@ import type { AnchorHTMLAttributes, HTMLAttributes, ImgHTMLAttributes, ReactNode
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Clock, ImageIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "../../../shared/ui/badge";
 import { ScaledTable } from "../../../shared/ui/scale-to-fit";
 import { VideoPlayer } from "../../../shared/ui/video-player";
 import { cn } from "../../../shared/ui/utils";
+import { i18n as appI18n } from "../../../shared/i18n";
 import {
   isAppRouteHref,
   slugifyMarkdownHeading,
@@ -25,6 +27,8 @@ export function DocsArticleView({
   headings,
   onNavigate,
 }: DocsArticleViewProps) {
+  const { t: translate, i18n } = useTranslation();
+  const t = i18n.exists("docs.minutes") ? translate : appI18n.t.bind(appI18n);
   const headingIds = new Map(
     headings.map((heading) => [headingKey(heading.level, heading.title), heading.id]),
   );
@@ -37,7 +41,7 @@ export function DocsArticleView({
           <Badge variant="outline">{article.categoryLabel}</Badge>
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="size-3.5" />
-            约 {article.estimatedMinutes} 分钟
+            {t("docs.minutes", { count: article.estimatedMinutes })}
           </span>
         </div>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">

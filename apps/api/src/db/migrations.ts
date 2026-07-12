@@ -672,7 +672,7 @@ create table if not exists payment_orders (
   paid_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (provider in ('wechat_native', 'alipay_page')),
+  check (provider in ('alipay')),
   check (status in ('pending', 'paid', 'expired', 'closed', 'failed', 'refund_pending', 'refunded')),
   check (amount_cents > 0),
   check (currency = 'CNY')
@@ -690,7 +690,7 @@ create table if not exists payment_notifications (
   error_message text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check (provider in ('wechat_native', 'alipay_page')),
+  check (provider in ('alipay')),
   check (notification_status in ('received', 'verified', 'rejected', 'duplicate', 'processed', 'ignored', 'failed'))
 );
 
@@ -965,6 +965,16 @@ set default_provider_config_id = null
 where default_provider_config_id is not null;
 `;
 
+export const epayAlipayOnlySql = `
+alter table payment_orders drop constraint if exists payment_orders_provider_check;
+alter table payment_orders
+  add constraint payment_orders_provider_check check (provider in ('alipay')) not valid;
+
+alter table payment_notifications drop constraint if exists payment_notifications_provider_check;
+alter table payment_notifications
+  add constraint payment_notifications_provider_check check (provider in ('alipay')) not valid;
+`;
+
 export const migrations = [
   {
     id: "001_user_admin_platform_base",
@@ -1045,6 +1055,10 @@ export const migrations = [
   {
     id: "020_clear_project_default_provider_config",
     sql: clearProjectDefaultProviderConfigSql,
+  },
+  {
+    id: "021_epay_alipay_only",
+    sql: epayAlipayOnlySql,
   },
 ] as const;
 

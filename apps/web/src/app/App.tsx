@@ -8,6 +8,8 @@ import {
 import { Toaster } from "../shared/ui/sonner";
 import { Button } from "../shared/ui/button";
 import { ThemeProvider } from "./providers/theme-provider";
+import { useTranslation } from "react-i18next";
+import { AppI18nProvider, useAppI18n } from "./providers/i18n-provider";
 import {
   DesignDiagramView,
   DiagramView,
@@ -54,18 +56,25 @@ import {
 } from "../features/user-platform/components/user-platform-pages";
 import {
   AlipayReturnPage,
+  AccountBillingPage,
   PricingBillingPage,
 } from "../features/user-platform/components/billing-pages";
 
 function StandaloneRoutePage({ route }: { route: Exclude<ShellRoutePath, "/workspace"> }) {
+  const { t } = useTranslation();
   const meta = findShellRouteModule(route);
+  const routeKey = route === "/exam" ? "exam" : route === "/tutorial" ? "tutorial" : "workspace";
 
   return (
     <main className="flex min-h-0 flex-1 bg-background px-8 py-8">
       <section className="flex w-full items-center justify-center rounded-2xl border border-border bg-card text-center">
         <div className="flex max-w-xl flex-col items-center gap-3 px-6">
-          <h1 className="text-3xl font-semibold">{meta.label}</h1>
-          <p className="text-sm text-muted-foreground">{meta.description}</p>
+          <h1 className="text-3xl font-semibold">{t(`nav.${routeKey}`)}</h1>
+          <p className="text-sm text-muted-foreground">
+            {t(`workspace.routeDescriptions.${routeKey}`, {
+              defaultValue: meta.description,
+            })}
+          </p>
         </div>
       </section>
     </main>
@@ -79,6 +88,7 @@ function getProtectedRoutePath(route: AppRoute) {
     route.kind === "projects-new" ||
     route.kind === "project-workspace" ||
     route.kind === "legacy-account" ||
+    route.kind === "account-billing" ||
     route.kind === "alipay-return"
   ) {
     return route.path;
@@ -273,6 +283,8 @@ function ProjectWorkspaceShell({
 }
 
 export function Shell({ initialPath }: { initialPath?: string }) {
+  const { t } = useTranslation();
+  const { locale } = useAppI18n();
   const [activeProjectDrawer, setActiveProjectDrawer] = useState<ProjectDrawerKind | null>(null);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [route, setRoute] = useState<AppRoute>(() => {
@@ -282,8 +294,8 @@ export function Shell({ initialPath }: { initialPath?: string }) {
 
   useEffect(() => {
     // Keep head metadata aligned with client-side History API navigation.
-    applyRouteMetadata(route);
-  }, [route]);
+    applyRouteMetadata(route, undefined, locale);
+  }, [locale, route]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -342,6 +354,9 @@ export function Shell({ initialPath }: { initialPath?: string }) {
     if (route.kind === "alipay-return") {
       return <AlipayReturnPage onNavigate={navigate} />;
     }
+    if (route.kind === "account-billing") {
+      return <AccountBillingPage onNavigate={navigate} />;
+    }
     if (route.kind === "legacy-account") {
       return <RedirectRoute to="/projects" onNavigate={navigate} />;
     }
@@ -367,14 +382,18 @@ export function Shell({ initialPath }: { initialPath?: string }) {
       <main className="flex min-h-0 flex-1 items-center justify-center bg-background px-6 text-center">
         <section className="max-w-xl">
           <p className="font-display text-7xl font-black text-primary">404</p>
-          <h1 className="mt-4 font-display text-3xl font-semibold text-foreground">页面未找到</h1>
-          <p className="mt-3 text-muted-foreground">这个地址不存在，或页面已经移动。</p>
+          <h1 className="mt-4 font-display text-3xl font-semibold text-foreground">
+            {t("seo.notFoundHeading")}
+          </h1>
+          <p className="mt-3 text-muted-foreground">
+            {t("common.notFoundDescription")}
+          </p>
           <Button
             type="button"
             className="mt-6 rounded-full px-6 py-3"
             onClick={() => navigate("/")}
           >
-            返回官网首页
+            {t("common.backToHome")}
           </Button>
         </section>
       </main>
@@ -430,19 +449,26 @@ function RedirectRoute({
 
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-      正在进入项目...
+      <RedirectMessage />
     </main>
   );
 }
 
+function RedirectMessage() {
+  const { t } = useTranslation();
+  return <>{t("common.loading")}</>;
+}
+
 export default function App({ initialPath }: { initialPath?: string }) {
   return (
-    <ThemeProvider>
-      <WorkspaceRepositoryProvider>
-        <WorkspaceSessionProvider>
-          <Shell initialPath={initialPath} />
-        </WorkspaceSessionProvider>
-      </WorkspaceRepositoryProvider>
-    </ThemeProvider>
+    <AppI18nProvider>
+      <ThemeProvider>
+        <WorkspaceRepositoryProvider>
+          <WorkspaceSessionProvider>
+            <Shell initialPath={initialPath} />
+          </WorkspaceSessionProvider>
+        </WorkspaceRepositoryProvider>
+      </ThemeProvider>
+    </AppI18nProvider>
   );
 }

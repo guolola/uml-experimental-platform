@@ -1,5 +1,6 @@
 // Renders the code generation workspace, including model selection, file browser, and preview actions.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SandpackProvider } from "@codesandbox/sandpack-react";
 import {
   AlertTriangle,
@@ -70,6 +71,7 @@ import { usePrototypeFiles } from "../hooks/use-prototype-files";
 
 
 export function CodeGenerationPage() {
+  const { t } = useTranslation();
   const {
     requirementText,
     designModels,
@@ -174,67 +176,67 @@ export function CodeGenerationPage() {
       ? {
           tone: "primary" as const,
           icon: Loader2,
-          title: "预览已就绪，仍在完善输出",
+          title: t("code.status.previewReadyPolishing.title"),
           message:
             runMessage ??
-            "可先查看和编辑当前原型，后台仍在补齐质量检查发现的问题。",
+            t("code.status.previewReadyPolishing.message"),
         }
       : generating
         ? {
             tone: "primary" as const,
             icon: Loader2,
-            title: "正在生成前端原型",
-            message: runMessage ?? "生成完成前，预览会在代码文件写入后自动刷新。",
+            title: t("code.status.generating.title"),
+            message: runMessage ?? t("code.status.generating.message"),
           }
         : previewState === "pending" && previewReady
           ? {
               tone: "primary" as const,
               icon: Info,
-              title: "有未运行的修改",
-              message: "当前编辑内容尚未构建到预览，点击“运行预览”后再查看最新效果。",
+              title: t("code.status.pending.title"),
+              message: t("code.status.pending.message"),
             }
           : previewState === "building" && hasPreviewFiles
             ? {
                 tone: "primary" as const,
                 icon: Loader2,
-                title: "正在构建预览",
-                message: "正在把当前编辑内容构建到右侧预览。",
+                title: t("code.status.building.title"),
+                message: t("code.status.building.message"),
               }
             : previewState === "error" && hasPreviewFiles
               ? {
                   tone: "destructive" as const,
                   icon: AlertTriangle,
-                  title: "预览构建失败",
-                  message: "请根据预览区域的错误修复代码，然后再次运行预览。",
+                  title: t("code.status.error.title"),
+                  message: t("code.status.error.message"),
                 }
               : previewReady
                 ? requirementSourceMissing
                   ? {
                       tone: "warning" as const,
                       icon: AlertTriangle,
-                      title: "需求源头已删除",
+                      title: t("code.status.requirementMissing.title"),
                       message:
-                        "当前代码为旧产物，仍可查看预览；请重新输入需求并重跑后再继续生成或重新生成。",
+                        t("code.status.requirementMissing.message"),
                     }
                   : codeDiagnosticSummary
                   ? {
                       tone: "warning" as const,
                       icon: AlertTriangle,
-                      title: "代码生成存在诊断",
-                      message: `${codeDiagnosticSummary}。当前预览仍可查看，建议复核后继续生成或重新生成。`,
+                      title: t("code.status.diagnostics.title"),
+                      message: t("code.status.diagnostics.message", { summary: codeDiagnosticSummary }),
                     }
                   : {
                       tone: "success" as const,
                       icon: CheckCircle2,
-                      title: "预览已更新",
-                      message: "当前预览已经使用最新生成结果完成构建，可以查看、继续生成或重新生成。",
+                      title: t("code.status.updated.title"),
+                      message: t("code.status.updated.message"),
                     }
                 : canGenerate
                   ? {
                       tone: "muted" as const,
                       icon: Info,
-                      title: "设计模型已就绪",
-                      message: "点击“启动生成”后，代码区和预览区会随着文件生成自动更新。",
+                      title: t("code.status.ready.title"),
+                      message: t("code.status.ready.message"),
               }
             : null;
   const visibleDependencies = {
@@ -324,7 +326,7 @@ export function CodeGenerationPage() {
           <div className="flex min-w-0 shrink items-center gap-1.5">
             <Code2 className="size-4 text-primary" />
             <span className="hidden truncate text-sm font-semibold min-[430px]:inline">
-              前端原型代码
+              {t("code.title")}
             </span>
             <Badge variant="secondary" className="px-1.5 font-mono text-[11px]">
               {sortedFiles.length} files
@@ -336,13 +338,13 @@ export function CodeGenerationPage() {
               {modelCapability.modeLabel}
             </Badge>
             <Badge variant="secondary" className="hidden px-1.5 text-[11px] min-[520px]:inline-flex">
-              设计模型 {designModelCount}
+              {t("code.designModelCount", { count: designModelCount })}
             </Badge>
           </div>
           {generating && (
             <div className="ml-2 flex min-w-0 shrink items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
-              <span className="truncate">{runMessage ?? "正在生成代码"}</span>
+              <span className="truncate">{runMessage ?? t("code.generatingCode")}</span>
               <span className="font-mono">{runProgress}%</span>
             </div>
           )}
@@ -371,10 +373,10 @@ export function CodeGenerationPage() {
               <Play className="size-3.5" />
             )}
             <span className="hidden min-[430px]:inline">
-              {generatedFileCount > 0 ? "继续生成" : "启动生成"}
+              {generatedFileCount > 0 ? t("code.actions.continue") : t("code.actions.start")}
             </span>
             <span className="min-[430px]:hidden">
-              {generatedFileCount > 0 ? "继续" : "生成"}
+              {generatedFileCount > 0 ? t("code.actions.continueShort") : t("code.actions.generateShort")}
             </span>
           </Button>
           {generatedFileCount > 0 && (
@@ -390,8 +392,8 @@ export function CodeGenerationPage() {
               ) : (
                 <Play className="size-3.5" />
               )}
-              <span className="hidden min-[430px]:inline">重新生成</span>
-              <span className="min-[430px]:hidden">重做</span>
+              <span className="hidden min-[430px]:inline">{t("code.actions.regenerate")}</span>
+              <span className="min-[430px]:hidden">{t("code.actions.redoShort")}</span>
             </Button>
           )}
           </div>
@@ -401,7 +403,7 @@ export function CodeGenerationPage() {
       {!canGenerate && (
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-xs">
           <AlertTriangle className="size-3.5 shrink-0 text-warning" />
-          <span>请先输入需求并生成设计模型，代码页会根据设计阶段模型生成 React 原型。</span>
+          <span>{t("code.missingPrerequisites")}</span>
         </div>
       )}
       {modelCapability.warning && (
@@ -472,9 +474,9 @@ export function CodeGenerationPage() {
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <div className="grid w-full min-w-0 grid-cols-3 gap-1 border-b border-border bg-card px-2 py-1.5">
               {[
-                { id: "files" as const, label: "文件" },
-                { id: "editor" as const, label: "编辑" },
-                { id: "preview" as const, label: "预览" },
+                { id: "files" as const, label: t("code.panes.files") },
+                { id: "editor" as const, label: t("code.panes.editor") },
+                { id: "preview" as const, label: t("code.panes.preview") },
               ].map((pane) => (
                 <button
                   key={pane.id}
@@ -496,7 +498,7 @@ export function CodeGenerationPage() {
               <aside className="min-h-0 flex-1 bg-sidebar">
                 <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs font-semibold text-muted-foreground">
                   <FolderTree className="size-3.5" />
-                  文件
+                  {t("code.panes.files")}
                 </div>
                 <div className="min-h-0 overflow-auto py-2">
                   <FileTree
@@ -549,12 +551,12 @@ export function CodeGenerationPage() {
                   <button
                     type="button"
                     className="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    title="新窗口查看预览"
-                    aria-label="新窗口查看预览"
+                    title={t("code.preview.openWindow")}
+                    aria-label={t("code.preview.openWindow")}
                     onClick={() => previewRef.current?.openPreviewWindow()}
                   >
                     <Play className="size-3.5 text-primary" />
-                    <span className="text-xs font-semibold">预览</span>
+                    <span className="text-xs font-semibold">{t("code.panes.preview")}</span>
                     {codeSpec && (
                       <span className="truncate text-xs text-muted-foreground">
                         {codeSpec.appName}
@@ -573,7 +575,7 @@ export function CodeGenerationPage() {
                     ) : (
                       <Play className="size-3.5" />
                     )}
-                    运行预览
+                    {t("code.actions.runPreview")}
                   </Button>
                 </div>
                 <div className="relative min-h-0 flex-1 bg-muted/40 p-2">
@@ -596,7 +598,7 @@ export function CodeGenerationPage() {
                 <aside className="min-h-0 border-r border-border bg-sidebar">
                   <div className="flex h-10 items-center gap-2 border-b border-border px-3 text-xs font-semibold text-muted-foreground">
                     <FolderTree className="size-3.5" />
-                    文件
+                    {t("code.panes.files")}
                   </div>
                   <div className="min-h-0 overflow-auto py-2">
                     <FileTree
@@ -646,12 +648,12 @@ export function CodeGenerationPage() {
                   <button
                     type="button"
                     className="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    title="新窗口查看预览"
-                    aria-label="新窗口查看预览"
+                    title={t("code.preview.openWindow")}
+                    aria-label={t("code.preview.openWindow")}
                     onClick={() => previewRef.current?.openPreviewWindow()}
                   >
                     <Play className="size-3.5 text-primary" />
-                    <span className="text-xs font-semibold">预览</span>
+                    <span className="text-xs font-semibold">{t("code.panes.preview")}</span>
                     {codeSpec && (
                       <span className="truncate text-xs text-muted-foreground">
                         {codeSpec.appName}
@@ -671,7 +673,7 @@ export function CodeGenerationPage() {
                       ) : (
                         <Play className="size-3.5" />
                       )}
-                      运行预览
+                      {t("code.actions.runPreview")}
                     </Button>
                     <Badge variant="secondary" className="font-mono">
                       Local TSX

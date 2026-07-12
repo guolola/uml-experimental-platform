@@ -16,6 +16,7 @@ export type StaticProject = {
   owner: string;
   ownerUserId: string;
   isOwnedByCurrentUser: boolean;
+  visibilityKind: PlatformProject["visibility"];
   visibility: string;
   status: string;
   statusLabel: string;
@@ -37,10 +38,10 @@ type StaticProjectMemberPreview = {
 };
 
 export const PROJECT_SCOPE_OPTIONS = [
-  { value: "all", label: "全部项目" },
-  { value: "mine", label: "我的项目" },
-  { value: "team", label: "团队项目" },
-  { value: "archived", label: "归档项目" },
+  { value: "all", labelKey: "projects.scope.all", shortLabelKey: "projects.scopeShort.all" },
+  { value: "mine", labelKey: "projects.scope.mine", shortLabelKey: "projects.scopeShort.mine" },
+  { value: "team", labelKey: "projects.scope.team", shortLabelKey: "projects.scopeShort.team" },
+  { value: "archived", labelKey: "projects.scope.archived", shortLabelKey: "projects.scopeShort.archived" },
 ] as const;
 
 function displayNameFromUser(user: PlatformUser | null | undefined) {
@@ -78,14 +79,20 @@ function padDatePart(value: number) {
   return String(value).padStart(2, "0");
 }
 
-export function formatProjectDateTimeMinute(value: string) {
+export function formatProjectDateTimeMinute(value: string, locale = "zh-CN") {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "未知";
-  return [
-    date.getFullYear(),
-    padDatePart(date.getMonth() + 1),
-    padDatePart(date.getDate()),
-  ].join("-") + ` ${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+  if (Number.isNaN(date.getTime())) return locale === "en" ? "Unknown" : "未知";
+  if (locale === "en") {
+    return new Intl.DateTimeFormat("en", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  }
+  return [date.getFullYear(), padDatePart(date.getMonth() + 1), padDatePart(date.getDate())].join("-") +
+    ` ${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
 }
 
 function projectMemberPreviewsFromApi(
@@ -115,7 +122,33 @@ function projectMemberPreviewsFromApi(
   });
 }
 
-export function projectFromApi(project: PlatformProject, currentUser: PlatformUser | null = null): StaticProject {
+function projectVisibilityLabel(visibility: PlatformProject["visibility"], locale: string) {
+  if (locale === "en") {
+    if (visibility === "private") return "Members only";
+    if (visibility === "team") return "Team visible";
+    return "Public";
+  }
+  if (visibility === "private") return "仅成员可见";
+  if (visibility === "team") return "团队成员可见";
+  return "公开可见";
+}
+
+function projectStatusLabel(status: string, locale: string) {
+  if (locale === "en") {
+    if (status === "archived") return "Archived";
+    if (status === "active") return "Active";
+    return status;
+  }
+  if (status === "archived") return "已归档";
+  if (status === "active") return "进行中";
+  return status;
+}
+
+export function projectFromApi(
+  project: PlatformProject,
+  currentUser: PlatformUser | null = null,
+  locale = "zh-CN",
+): StaticProject {
   const memberCount = Math.max(project.memberCount ?? 1, 1);
   const ownerName = ownerNameFromProject(project, currentUser);
   const members = projectMemberPreviewsFromApi(project, ownerName);
@@ -131,21 +164,12 @@ export function projectFromApi(project: PlatformProject, currentUser: PlatformUs
     owner: ownerName,
     ownerUserId: project.ownerUserId,
     isOwnedByCurrentUser: currentUser?.id === project.ownerUserId,
-    visibility:
-      project.visibility === "private"
-        ? "仅成员可见"
-        : project.visibility === "team"
-          ? "团队成员可见"
-          : "公开可见",
+    visibilityKind: project.visibility,
+    visibility: projectVisibilityLabel(project.visibility, locale),
     status: project.status,
-    statusLabel:
-      project.status === "archived"
-        ? "已归档"
-        : project.status === "active"
-          ? "进行中"
-          : project.status,
-    updatedAt: new Date(project.updatedAt).toLocaleString("zh-CN"),
-    updatedAtDisplay: formatProjectDateTimeMinute(project.updatedAt),
+    statusLabel: projectStatusLabel(project.status, locale),
+    updatedAt: new Date(project.updatedAt).toLocaleString(locale),
+    updatedAtDisplay: formatProjectDateTimeMinute(project.updatedAt, locale),
     lastGeneratedAt: project.lastGeneratedAt ?? "",
     searchableText: [
       project.name,
@@ -167,7 +191,9 @@ export function projectFromApi(project: PlatformProject, currentUser: PlatformUs
     members,
     background,
     recentRun: project.lastGeneratedAt
-      ? new Date(project.lastGeneratedAt).toLocaleString("zh-CN")
-      : "等待首次生成",
+      ? new Date(project.lastGeneratedAt).toLocaleString(locale)
+      : locale === "en"
+        ? "Waiting for first generation"
+        : "等待首次生成",
   };
 }

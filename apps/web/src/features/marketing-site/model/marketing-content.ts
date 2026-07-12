@@ -22,6 +22,7 @@ import {
   UserCheck,
   type LucideIcon,
 } from "lucide-react";
+import type { AppLocale } from "../../../shared/i18n";
 import type { MarketingRoutePath } from "../../../shared/lib/app-route-types";
 
 export type MarketingNavItem = {
@@ -79,13 +80,28 @@ export type PricingPlan = {
   highlighted?: boolean;
 };
 
-export const marketingNavItems: MarketingNavItem[] = [
+type MarketingContent = {
+  marketingNavItems: MarketingNavItem[];
+  heroTrustPoints: Array<{ label: string; icon: LucideIcon }>;
+  productPreviewCards: Array<{ title: string; icon: LucideIcon }>;
+  referenceStandards: ReferenceStandard[];
+  trustedChainHighlights: TrustedChainHighlight[];
+  features: MarketingFeature[];
+  workflowSteps: WorkflowStep[];
+  caseStudies: CaseStudy[];
+  pricingPlans: PricingPlan[];
+  authSecurityHighlights: Array<{ title: string; description: string; icon: LucideIcon }>;
+  footerLinks: string[];
+  securityHighlights: Array<{ title: string; icon: LucideIcon }>;
+};
+
+const marketingNavItemsZh: MarketingNavItem[] = [
   { label: "功能特性", path: "/features" },
   { label: "使用流程", path: "/workflow" },
   { label: "案例展示", path: "/cases" },
 ];
 
-export const heroTrustPoints = [
+const heroTrustPointsZh = [
   { label: "UML 建模", icon: Network },
   { label: "设计推导", icon: GitBranch },
   { label: "React 原型", icon: Code2 },
@@ -93,12 +109,12 @@ export const heroTrustPoints = [
   { label: "追踪审查", icon: Route },
 ];
 
-export const productPreviewCards = [
+const productPreviewCardsZh = [
   { title: "需求报告", icon: FileText },
   { title: "UML 预览", icon: Network },
 ];
 
-export const referenceStandards: ReferenceStandard[] = [
+const referenceStandardsZh: ReferenceStandard[] = [
   {
     name: "ISO/IEC/IEEE 29148:2018",
     shortName: "ISO/IEC",
@@ -129,7 +145,7 @@ export const referenceStandards: ReferenceStandard[] = [
   },
 ];
 
-export const trustedChainHighlights: TrustedChainHighlight[] = [
+const trustedChainHighlightsZh: TrustedChainHighlight[] = [
   {
     title: "结构化需求基线",
     description:
@@ -156,7 +172,7 @@ export const trustedChainHighlights: TrustedChainHighlight[] = [
   },
 ];
 
-export const features: MarketingFeature[] = [
+const featuresZh: MarketingFeature[] = [
   {
     title: "可信需求基线",
     shortTitle: "可信需求基线",
@@ -222,7 +238,7 @@ export const features: MarketingFeature[] = [
   },
 ];
 
-export const workflowSteps: WorkflowStep[] = [
+const workflowStepsZh: WorkflowStep[] = [
   {
     title: "输入项目需求",
     description:
@@ -270,7 +286,7 @@ export const workflowSteps: WorkflowStep[] = [
   },
 ];
 
-export const caseStudies: CaseStudy[] = [
+const caseStudiesZh: CaseStudy[] = [
   {
     id: "lab-booking",
     title: "实验室预约系统",
@@ -329,7 +345,7 @@ export const caseStudies: CaseStudy[] = [
   },
 ];
 
-export const pricingPlans: PricingPlan[] = [
+const pricingPlansZh: PricingPlan[] = [
   {
     name: "当前开放能力",
     description: "面向学生、教师和项目成员的现阶段可用能力",
@@ -372,7 +388,7 @@ export const pricingPlans: PricingPlan[] = [
   },
 ];
 
-export const authSecurityHighlights = [
+const authSecurityHighlightsZh = [
   {
     title: "HttpOnly Cookie 会话",
     description: "认证令牌通过严格的 HttpOnly Cookie 保存，降低脚本读取和 XSS 窃取风险。",
@@ -395,11 +411,371 @@ export const authSecurityHighlights = [
   },
 ];
 
-export const footerLinks = ["技术文档"];
+const footerLinksZh = ["技术文档"];
 
-export const securityHighlights = [
+const securityHighlightsZh = [
   { title: "HttpOnly Cookie 会话", icon: LockKeyhole },
   { title: "MFA 二次验证", icon: ShieldCheck },
   { title: "邮箱验证保护", icon: CheckCircle2 },
   { title: "模型配置托管", icon: Database },
 ];
+
+const marketingNavItemsEn: MarketingNavItem[] = [
+  { label: "Features", path: "/features" },
+  { label: "Workflow", path: "/workflow" },
+  { label: "Cases", path: "/cases" },
+];
+
+const heroTrustPointsEn = [
+  { label: "UML modeling", icon: Network },
+  { label: "Design derivation", icon: GitBranch },
+  { label: "React prototype", icon: Code2 },
+  { label: "Spec export", icon: FileText },
+  { label: "Trace review", icon: Route },
+];
+
+const productPreviewCardsEn = [
+  { title: "Requirements Report", icon: FileText },
+  { title: "UML Preview", icon: Network },
+];
+
+const referenceStandardsEn: ReferenceStandard[] = [
+  {
+    name: "ISO/IEC/IEEE 29148:2018",
+    shortName: "ISO/IEC",
+    topic: "29148 Requirements",
+    description: "Anchors requirement engineering lifecycle, documentation, management, verification, and validation activities.",
+    href: "https://www.iso.org/standard/72089.html",
+  },
+  {
+    name: "IEEE 29148 listing",
+    shortName: "IEEE",
+    topic: "29148 Listing",
+    description: "Confirms the 29148 standard scope and its alignment with systems and software engineering requirements topics.",
+    href: "https://standards.ieee.org/standard/29148-2018.html",
+  },
+  {
+    name: "INCOSE Requirements Working Group",
+    shortName: "INCOSE",
+    topic: "Systems Engineering",
+    description: "References engineering practices that carry requirement definition, management, verification, and validation across the lifecycle.",
+    href: "https://www.incose.org/communities/working-groups-initiatives/requirements",
+  },
+  {
+    name: "CMMI/SEI requirements traceability",
+    shortName: "CMMI",
+    topic: "Traceability Practice",
+    description: "References process improvement practices for bidirectional traceability between requirements and downstream engineering artifacts.",
+    href: "https://resources.sei.cmu.edu/asset_files/TechnicalReport/2011_005_001_15392.pdf",
+  },
+];
+
+const trustedChainHighlightsEn: TrustedChainHighlight[] = [
+  {
+    title: "Structured requirements baseline",
+    description:
+      "Breaks raw requirements into a RequirementBaseline with source excerpts, type, confidence, and quality reports as the shared basis for later generation.",
+    icon: BookOpenCheck,
+  },
+  {
+    title: "Quality gates and human review",
+    description:
+      "Keeps conflicts, low-confidence requirements, missing actors, or unclear boundaries blocked or pending review instead of packaging uncertainty as confirmed output.",
+    icon: ClipboardCheck,
+  },
+  {
+    title: "Coverage and bidirectional traceability",
+    description:
+      "Builds coverage matrices and a TraceabilityMatrix from requirements to models, code, tests, and evidence to expose uncovered requirements and orphan artifacts.",
+    icon: Route,
+  },
+  {
+    title: "Evidence packages and acceptance records",
+    description:
+      "Preserves baselines, quality reports, trace matrices, repair logs, test results, and browser acceptance records as reviewable EvidencePackages.",
+    icon: PackageCheck,
+  },
+];
+
+const featuresEn: MarketingFeature[] = [
+  {
+    title: "Trusted requirements baseline",
+    shortTitle: "Trusted baseline",
+    description:
+      "Extracts business entities, state transitions, and core rules from requirement text, then forms a structured baseline with source excerpts, confidence, and quality reports.",
+    icon: BookOpenCheck,
+  },
+  {
+    title: "Automatic UML modeling",
+    shortTitle: "UML modeling",
+    description:
+      "Generates use case, domain concept, business process, deployment requirement, and other UML models from requirement rules while preserving model structure for trace and repair.",
+    icon: Binary,
+  },
+  {
+    title: "Design-stage derivation",
+    shortTitle: "Design derivation",
+    description:
+      "Continues from requirement models into use case realization, design classes, interface relationships, deployment design, and database design.",
+    icon: GitBranch,
+  },
+  {
+    title: "PlantUML rendering and repair",
+    shortTitle: "PlantUML",
+    description:
+      "Integrates PlantUML rendering for SVG previews and DOCX-ready PNG output. Render failures are recorded and can trigger source repair retries.",
+    icon: Layers3,
+  },
+  {
+    title: "React prototype generation",
+    shortTitle: "React prototype",
+    description:
+      "Generates React + TypeScript prototype files from design models and business logic, then supports preview and quality checks for course lab validation.",
+    icon: Code2,
+  },
+  {
+    title: "Specification export",
+    shortTitle: "Spec export",
+    description:
+      "Assembles requirements, models, PlantUML diagrams, and generated text into SRS or software design DOCX files with clear placeholders for missing charts.",
+    icon: FileText,
+  },
+  {
+    title: "Coverage matrix and traceability",
+    shortTitle: "Coverage and trace",
+    description:
+      "Builds coverage status, model mappings, and bidirectional trace around the RequirementBaseline so requirements, models, code, and test evidence can locate one another.",
+    icon: Route,
+  },
+  {
+    title: "Quality gates and manual review",
+    shortTitle: "Quality gates",
+    description:
+      "Keeps conflicts, low confidence, pending assumptions, and key coverage gaps visible so downstream generation requires a passed baseline or explicit human decision.",
+    icon: UserCheck,
+  },
+  {
+    title: "Evidence packages and acceptance records",
+    shortTitle: "Evidence package",
+    description:
+      "Includes baselines, quality reports, trace matrices, repair records, and browser acceptance results in run evidence for course review and engineering audit.",
+    icon: PackageCheck,
+  },
+];
+
+const workflowStepsEn: WorkflowStep[] = [
+  {
+    title: "Enter project requirements",
+    description:
+      "Enter natural-language requirements in the project workspace. The system parses goals, actors, rules, and constraints as shared context for later stages.",
+    icon: UploadCloud,
+  },
+  {
+    title: "Confirm the requirements baseline",
+    description:
+      "The system generates a RequirementBaseline, quality report, and review prompts. Conflicts, low confidence, or missing boundaries keep explicit reasons before downstream generation.",
+    tags: ["Baseline", "Quality gate"],
+    icon: SearchCheck,
+  },
+  {
+    title: "Generate rules and UML",
+    description:
+      "The AI engine generates requirement rules and requirement-stage UML diagrams from the confirmed baseline, tracking PlantUML source, renders, and repairs.",
+    tags: ["PlantUML", "Trace"],
+    icon: Network,
+  },
+  {
+    title: "Derive design models",
+    description:
+      "Continue from requirement models into design-stage models including use case realization, design class, interface relationship, deployment design, and database design.",
+    icon: Bot,
+  },
+  {
+    title: "Review coverage and traceability",
+    description:
+      "Use coverage matrices and bidirectional traces to check whether requirements are covered by models, code, tests, or alternative evidence.",
+    tags: ["Coverage", "Traceability"],
+    icon: Route,
+  },
+  {
+    title: "Generate frontend prototype",
+    description:
+      "Transform business logic and design context into previewable React prototype code, with validation clues for permissions, state transitions, and boundary conditions.",
+    icon: Code2,
+  },
+  {
+    title: "Export reports and evidence",
+    description:
+      "Export SRS or software design DOCX files after iteration, and gradually accumulate baselines, traces, tests, repairs, and browser acceptance records.",
+    icon: FileText,
+  },
+];
+
+const caseStudiesEn: CaseStudy[] = [
+  {
+    id: "lab-booking",
+    title: "Lab Booking System",
+    description:
+      "Designs requirement rules, UML diagrams, React prototypes, and specifications around booking, approval, resource occupancy, and role permissions.",
+    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+    scenario:
+      "For university lab access management, helping students book available time slots, teachers approve requests, and administrators maintain equipment and opening hours.",
+    actors: ["Student", "Teacher", "Lab administrator"],
+    workflow: ["View available lab slots", "Submit booking request", "Teacher reviews booking", "Notify applicant of review result"],
+    outputs: ["Booking use case model", "Resource occupancy state flow", "Booking approval prototype", "Software requirements specification"],
+    sampleRequirement:
+      "University lab booking platform. Students can view available lab slots and submit booking requests. Teachers review bookings, and administrators maintain lab equipment and opening hours. The system must prevent time conflicts and notify applicants when requests are approved or rejected.",
+  },
+  {
+    id: "order-management",
+    title: "Order Management System",
+    description:
+      "Shows requirements modeling, design modeling, and prototype validation around order states, inventory checks, payment checkpoints, and exception branches.",
+    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+    scenario:
+      "For small and midsize merchant fulfillment, covering product maintenance, customer orders, inventory checks, shipping notifications, and order status tracking.",
+    actors: ["Merchant", "Customer", "Warehouse system"],
+    workflow: ["Maintain products and inventory", "Customer submits order", "Check stock balance", "Notify warehouse system to ship"],
+    outputs: ["Order state machine", "Inventory validation rules", "Order management prototype", "Design specification"],
+    sampleRequirement:
+      "Order management system for small and midsize merchants. Merchants can maintain products, create orders, and view inventory. Customers can submit orders and check order status. The system must validate inventory before checkout, show clear prompts when stock is insufficient, and notify the warehouse system after an order is created.",
+  },
+  {
+    id: "device-monitoring",
+    title: "Device Monitoring System",
+    description:
+      "Focuses on device states, alarm flow, and monitoring dashboard pages to show how business processes become models and previewable prototypes.",
+    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+    scenario:
+      "For industrial equipment operations, collecting temperature, vibration, and operating status from edge gateways while alerting serious anomalies promptly.",
+    actors: ["Edge gateway", "Operations staff", "SMS service"],
+    workflow: ["Collect device runtime data", "Detect abnormal alarms", "Operations staff confirms handling", "Send SMS for severe alarms"],
+    outputs: ["Alarm flow diagram", "Device state model", "Monitoring dashboard prototype", "Run evidence records"],
+    sampleRequirement:
+      "Industrial device monitoring system. Edge gateways collect device temperature, vibration, and operating status. The platform displays abnormal alarms in real time, and operations staff can confirm alarms and record handling results. The system must integrate a third-party SMS service to send notifications for severe alarms.",
+  },
+  {
+    id: "library-lending",
+    title: "Library Lending System",
+    description:
+      "Uses borrowing, returns, overdue handling, and reader management to demonstrate data relationships, state transitions, and user interaction pages.",
+    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+    scenario:
+      "For daily campus library lending, managing book inventory, reader borrowing, return registration, and overdue reminders.",
+    actors: ["Reader", "Librarian", "System notification service"],
+    workflow: ["Reader searches books", "Submit lending request", "Librarian registers lending and return", "System handles overdue reminders"],
+    outputs: ["Lending domain model", "Overdue rule list", "Borrow/return operation prototype", "Requirements specification"],
+    sampleRequirement:
+      "Campus library lending system. Readers can search books, submit lending requests, and view lending status. Librarians register lending and returns. The system must maintain book inventory, automatically identify overdue records, and send return reminders to readers.",
+  },
+];
+
+const pricingPlansEn: PricingPlan[] = [
+  {
+    name: "Currently available capabilities",
+    description: "Current capabilities for students, teachers, and project members",
+    price: "Free trial",
+    action: "Register free",
+    highlighted: true,
+    features: [
+      "Email verification and MFA",
+      "Project creation, project lists, and member management",
+      "Project member invitations and run history",
+      "Requirement rules, design models, and React prototype generation",
+      "UML diagram generation and rendering",
+      "Specification generation and document center",
+      "Hosted model configuration and cookie sessions",
+    ],
+  },
+  {
+    name: "Course/team enablement",
+    description: "For course groups, lab teams, and teaching scenarios that need unified project management",
+    price: "Apply to enable",
+    action: "Contact us",
+    features: [
+      "Invite members through teachers or administrators",
+      "Organize requirements, UML models, prototypes, and specifications by project",
+      "View project members, run history, and document records",
+      "Online payment and package permissions are not available yet",
+    ],
+  },
+  {
+    name: "Institution deployment consulting",
+    description: "For institutions evaluating campus accounts, unified model configuration, or deployment options",
+    price: "Contact for evaluation",
+    action: "Consult",
+    features: [
+      "Evaluate account systems, model configuration, and project space integration",
+      "Plan deployment scope from current platform capabilities",
+      "Clarify available features and future boundaries before launch",
+      "This page only explains enablement and does not promise undelivered capabilities",
+    ],
+  },
+];
+
+const authSecurityHighlightsEn = [
+  {
+    title: "HttpOnly Cookie sessions",
+    description: "Authentication tokens are stored in strict HttpOnly Cookies to reduce script access and XSS theft risk.",
+    icon: LockKeyhole,
+  },
+  {
+    title: "Mandatory MFA verification",
+    description: "Sensitive lab configuration requires second-factor verification to protect teachers, administrators, and project members.",
+    icon: ShieldCheck,
+  },
+  {
+    title: "No local active tokens",
+    description: "The platform does not store active session tokens in LocalStorage or SessionStorage, reducing frontend exposure.",
+    icon: KeyRound,
+  },
+  {
+    title: "Verified domains",
+    description: "Enterprise and course spaces can be limited to verified organization email domains to keep member identity trustworthy.",
+    icon: Mail,
+  },
+];
+
+const footerLinksEn = ["Technical docs"];
+
+const securityHighlightsEn = [
+  { title: "HttpOnly Cookie sessions", icon: LockKeyhole },
+  { title: "MFA verification", icon: ShieldCheck },
+  { title: "Email verification", icon: CheckCircle2 },
+  { title: "Hosted model config", icon: Database },
+];
+
+const marketingContentByLocale: Record<AppLocale, MarketingContent> = {
+  "zh-CN": {
+    marketingNavItems: marketingNavItemsZh,
+    heroTrustPoints: heroTrustPointsZh,
+    productPreviewCards: productPreviewCardsZh,
+    referenceStandards: referenceStandardsZh,
+    trustedChainHighlights: trustedChainHighlightsZh,
+    features: featuresZh,
+    workflowSteps: workflowStepsZh,
+    caseStudies: caseStudiesZh,
+    pricingPlans: pricingPlansZh,
+    authSecurityHighlights: authSecurityHighlightsZh,
+    footerLinks: footerLinksZh,
+    securityHighlights: securityHighlightsZh,
+  },
+  en: {
+    marketingNavItems: marketingNavItemsEn,
+    heroTrustPoints: heroTrustPointsEn,
+    productPreviewCards: productPreviewCardsEn,
+    referenceStandards: referenceStandardsEn,
+    trustedChainHighlights: trustedChainHighlightsEn,
+    features: featuresEn,
+    workflowSteps: workflowStepsEn,
+    caseStudies: caseStudiesEn,
+    pricingPlans: pricingPlansEn,
+    authSecurityHighlights: authSecurityHighlightsEn,
+    footerLinks: footerLinksEn,
+    securityHighlights: securityHighlightsEn,
+  },
+};
+
+export function getMarketingContent(locale: AppLocale) {
+  return marketingContentByLocale[locale] ?? marketingContentByLocale["zh-CN"];
+}

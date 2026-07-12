@@ -263,6 +263,42 @@ describe("TopBar", () => {
     );
   });
 
+  it("switches top bar navigation between explicit English and browser-matched Chinese", async () => {
+    const repository: WorkspaceRepository = {
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
+      updateRequirementText: vi.fn(async () => {}),
+      startRun: vi.fn(async () => ({ runId: "run-topbar" })),
+      subscribeToRun: vi.fn(async () => {}),
+      getRunSnapshot: vi.fn(async () => createRunSnapshot({ runId: "run-topbar" })),
+      renderPlantUml: vi.fn(),
+      testProviderSettings: vi.fn(),
+      saveRunHistory: vi.fn(),
+      listRunHistory: vi.fn(async () => []),
+      restoreRunHistory: vi.fn(async () => null),
+      deleteRunHistory: vi.fn(async () => []),
+      clearRunHistory: vi.fn(async () => {}),
+    };
+    const user = userEvent.setup();
+
+    render(withWorkspaceProviders(<TopBarHarness />, repository));
+
+    await user.click(screen.getByRole("button", { name: "切换界面语言" }));
+    expect(screen.getByRole("menuitem", { name: /跟随浏览器/u })).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: /English/u }));
+
+    expect(await screen.findByRole("button", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change interface language" })).toHaveClass(
+      "text-primary",
+    );
+    expect(document.documentElement.lang).toBe("en");
+
+    await user.click(screen.getByRole("button", { name: "Change interface language" }));
+    await user.click(screen.getByRole("menuitem", { name: /System/u }));
+
+    expect(await screen.findByRole("button", { name: "项目" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("zh-CN");
+  });
+
   it("opens project run history without the removed local snapshot drawer action", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () => createWorkspaceRecord()),
@@ -592,6 +628,7 @@ describe("TopBar", () => {
       "项目",
       "考试",
       "使用文档",
+      "支付",
     ]);
     expect(within(banner).queryByRole("button", { name: "工作台" })).not.toBeInTheDocument();
     expect(within(banner).queryByRole("button", { name: "需求" })).not.toBeInTheDocument();
@@ -601,10 +638,12 @@ describe("TopBar", () => {
     await user.click(within(banner).getByRole("button", { name: "项目" }));
     await user.click(within(banner).getByRole("button", { name: "考试" }));
     await user.click(within(banner).getByRole("button", { name: "使用文档" }));
+    await user.click(within(banner).getByRole("button", { name: "支付" }));
 
     expect(onNavigate).toHaveBeenCalledWith("/projects");
     expect(onNavigate).toHaveBeenCalledWith("/exam");
     expect(onNavigate).toHaveBeenCalledWith("/tutorial");
+    expect(onNavigate).toHaveBeenCalledWith("/account/billing");
     expect(within(banner).queryByRole("button", { name: "购买" })).not.toBeInTheDocument();
     expect(within(banner).queryByRole("button", { name: "关于" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 工作台" })).not.toBeInTheDocument();
@@ -637,9 +676,9 @@ describe("TopBar", () => {
     expect(screen.getByRole("button", { name: "打开主导航" })).toHaveClass("md:hidden");
 
     await user.click(screen.getByRole("button", { name: "打开主导航" }));
-    await user.click(screen.getByRole("menuitem", { name: "使用文档" }));
+    await user.click(screen.getByRole("menuitem", { name: "支付" }));
 
-    expect(onNavigate).toHaveBeenCalledWith("/tutorial");
+    expect(onNavigate).toHaveBeenCalledWith("/account/billing");
   });
 
   it("closes account modal on route changes without exposing purchase navigation", async () => {

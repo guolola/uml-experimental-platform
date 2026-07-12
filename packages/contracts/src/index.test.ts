@@ -275,11 +275,11 @@ test("contracts describe billing SKUs and payment order boundaries", () => {
     sortOrder: 130,
   });
   assert.equal(sku.amountCents, 9900);
-  assert.equal(paymentChannelSchema.parse("wechat_native"), "wechat_native");
+  assert.equal(paymentChannelSchema.parse("alipay"), "alipay");
 
   const request = createPaymentOrderRequestSchema.parse({
     skuCode: "credits_100",
-    channel: "alipay_page",
+    channel: "alipay",
     returnUrl: "https://example.com/account/billing",
   });
   assert.equal(request.skuCode, "credits_100");
@@ -293,7 +293,7 @@ test("contracts describe billing SKUs and payment order boundaries", () => {
   assert.throws(() =>
     createPaymentOrderRequestSchema.parse({
       skuCode: "credits_100",
-      channel: "wechat_native",
+      channel: "alipay",
       amountCents: 1,
     }),
   );
@@ -324,7 +324,7 @@ test("contracts enumerate user-visible billing order statuses", () => {
       },
       amountCents: 990,
       currency: "CNY",
-      channel: "wechat_native",
+      channel: "alipay",
       status,
       createdAt: "2026-06-05T00:00:00.000Z",
       expiresAt: "2026-06-05T00:15:00.000Z",
