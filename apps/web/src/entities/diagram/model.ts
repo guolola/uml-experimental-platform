@@ -5,6 +5,7 @@ import type {
   DesignSvgArtifact,
   DiagramKind,
 } from "@uml-platform/contracts";
+import type { TFunction } from "i18next";
 
 export type DiagramType = DiagramKind;
 export type DesignDiagramType = DesignDiagramKind;
@@ -133,4 +134,28 @@ export function getRequirementArtifactId(
   artifact: { diagramKind?: DiagramKind | string; modelId?: string },
 ) {
   return artifact.modelId ?? artifact.diagramKind ?? "unknown";
+}
+
+export function getDiagramLabel(diagram: DiagramType, t?: TFunction) {
+  return t?.(`diagrams.requirementKinds.${diagram}.label`, {
+    defaultValue: DIAGRAM_META[diagram].label,
+  }) ?? DIAGRAM_META[diagram].label;
+}
+
+export function getDiagramDescription(diagram: DiagramType, t?: TFunction) {
+  return t?.(`diagrams.requirementKinds.${diagram}.description`, {
+    defaultValue: DIAGRAM_META[diagram].description,
+  }) ?? DIAGRAM_META[diagram].description;
+}
+
+export function getDesignDiagramLabel(diagram: DesignDiagramType, t?: TFunction) {
+  return t?.(`diagrams.designKinds.${diagram}.label`, {
+    defaultValue: DESIGN_DIAGRAM_META[diagram].label,
+  }) ?? DESIGN_DIAGRAM_META[diagram].label;
+}
+
+export function getDesignDiagramDescription(diagram: DesignDiagramType, t?: TFunction) {
+  return t?.(`diagrams.designKinds.${diagram}.description`, {
+    defaultValue: DESIGN_DIAGRAM_META[diagram].description,
+  }) ?? DESIGN_DIAGRAM_META[diagram].description;
 }

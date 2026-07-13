@@ -49,6 +49,51 @@ export type ElementRow = {
 export const PAGE_SIZE_OPTIONS = [8, 12, 24] as const;
 export const ALL_GROUPS = "__all__";
 
+export type TraceabilityRowCopy = {
+  semanticKindLabel: (kind: keyof typeof SEMANTIC_KIND_META) => string;
+  requirementGroupLabel: (diagramKind: DiagramKind | DesignDiagramKind) => string;
+  designGroupLabel: (diagramKind: DiagramKind | DesignDiagramKind) => string;
+  autoFilledPendingReviewNote: string;
+  unnamedEventFlow: string;
+  step: (order?: string) => string;
+  systemResponse: (response: string) => string;
+  eventFlow: (flowType: string, flowLabel: string) => string;
+  derivedFromSourceUseCaseFlow: string;
+  missingSourceUseCaseOrEventFlow: string;
+  sourceUseCase: (label: string) => string;
+  sourceUseCaseMissing: string;
+  pending: (note: string) => string;
+  confidence: (confidence: string) => string;
+  endpointDerived: string;
+  mappingDescription: (note: string) => string;
+  sourceUseCaseRealization: (modelLabel: string, elementLabel?: string) => string;
+  requirementElement: (groupLabel: string, elementLabel?: string) => string;
+};
+
+export const DEFAULT_TRACEABILITY_ROW_COPY: TraceabilityRowCopy = {
+  semanticKindLabel: (kind) => SEMANTIC_KIND_META[kind].label,
+  requirementGroupLabel: (diagramKind) =>
+    DIAGRAM_META[diagramKind as DiagramType]?.label ?? String(diagramKind),
+  designGroupLabel: (diagramKind) =>
+    DESIGN_DIAGRAM_META[diagramKind as DesignDiagramType]?.label ?? String(diagramKind),
+  autoFilledPendingReviewNote: AUTO_FILLED_PENDING_REVIEW_NOTE,
+  unnamedEventFlow: "未命名事件流",
+  step: (order) => (order ? `步骤 ${order}` : "步骤"),
+  systemResponse: (response) => `系统响应：${response}`,
+  eventFlow: (flowType, flowLabel) => `事件流：${flowType ? `${flowType} · ` : ""}${flowLabel}`,
+  derivedFromSourceUseCaseFlow: "由来源用例事件流派生",
+  missingSourceUseCaseOrEventFlow: "缺少来源用例或事件流",
+  sourceUseCase: (label) => `来源用例：${label}`,
+  sourceUseCaseMissing: "来源用例：未找到",
+  pending: (note) => `待确认：${note}`,
+  confidence: (confidence) => `置信度：${confidence}`,
+  endpointDerived: "由端点映射推导",
+  mappingDescription: (note) => `映射说明：${note}`,
+  sourceUseCaseRealization: (modelLabel, elementLabel) =>
+    `来源用例实现设计：${modelLabel} / ${elementLabel}`,
+  requirementElement: (groupLabel, elementLabel) => `需求元素：${groupLabel} / ${elementLabel}`,
+};
+
 function refKey(ref: Pick<ModelElementRef, "diagramKind" | "elementId" | "modelId">) {
   const scope = ref.modelId?.trim() || ref.diagramKind;
   return `${scope}:${ref.diagramKind}:${ref.elementId}`.toLowerCase();
@@ -105,6 +150,7 @@ function isBusinessTraceabilityKind(kind: string) {
 function refsForRequirementModels(
   models: ReturnType<typeof useWorkspaceSession>["models"],
   scope?: MatrixScope,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
 ) {
   const scopedModels = uniqueBy(
     Object.values(models)
@@ -145,7 +191,7 @@ function refsForRequirementModels(
           elementKind: item.kind,
           label: item.label,
         },
-        typeLabel: SEMANTIC_KIND_META[item.kind].label,
+        typeLabel: copy.semanticKindLabel(item.kind),
         description: item.description ?? "",
       })),
       ...relationships.map((relationship) => ({
@@ -166,6 +212,7 @@ function refsForRequirementModels(
 function refsForDesignModels(
   models: ReturnType<typeof useWorkspaceSession>["designModels"],
   scope?: MatrixScope,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
 ) {
   return Object.values(models).filter((model) => {
     if (!scope) return true;
@@ -196,7 +243,7 @@ function refsForDesignModels(
           elementKind: item.kind,
           label: item.label,
         },
-        typeLabel: SEMANTIC_KIND_META[item.kind].label,
+        typeLabel: copy.semanticKindLabel(item.kind),
         description: item.description ?? "",
       })),
       ...relationships.map((relationship) => ({
@@ -214,12 +261,18 @@ function refsForDesignModels(
   });
 }
 
-export function requirementGroupLabel(diagramKind: DiagramKind | DesignDiagramKind) {
-  return DIAGRAM_META[diagramKind as DiagramType]?.label ?? String(diagramKind);
+export function requirementGroupLabel(
+  diagramKind: DiagramKind | DesignDiagramKind,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
+) {
+  return copy.requirementGroupLabel(diagramKind);
 }
 
-export function designGroupLabel(diagramKind: DiagramKind | DesignDiagramKind) {
-  return DESIGN_DIAGRAM_META[diagramKind as DesignDiagramType]?.label ?? String(diagramKind);
+export function designGroupLabel(
+  diagramKind: DiagramKind | DesignDiagramKind,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
+) {
+  return copy.designGroupLabel(diagramKind);
 }
 
 function sourceUseCaseIdFromAnalysisModel(model: NonNullable<ReturnType<typeof useWorkspaceSession>["models"][string]>) {
@@ -247,11 +300,11 @@ function sourceUseCaseForAnalysis(
   return useCase ? { useCaseModel, useCase } : null;
 }
 
-function eventFlowLines(useCase: unknown) {
+function eventFlowLines(useCase: unknown, copy = DEFAULT_TRACEABILITY_ROW_COPY) {
   const flows = ensureArray((useCase as { eventFlows?: unknown }).eventFlows);
   return flows.flatMap((flow) => {
     const record = flow as Record<string, unknown>;
-    const flowLabel = compactString(record.name) || compactString(record.id) || "未命名事件流";
+    const flowLabel = compactString(record.name) || compactString(record.id) || copy.unnamedEventFlow;
     const flowType = compactString(record.flowType) || compactString(record.type);
     const steps = ensureArray(record.steps).slice(0, 4).map((step) => {
       const stepRecord = step as Record<string, unknown>;
@@ -265,13 +318,13 @@ function eventFlowLines(useCase: unknown) {
         compactString(stepRecord.expectedResult);
       const order = compactString(stepRecord.order);
       return [
-        order ? `步骤 ${order}` : "步骤",
+        copy.step(order),
         action,
-        response ? `系统响应：${response}` : "",
+        response ? copy.systemResponse(response) : "",
       ].filter(Boolean).join("：");
     });
     return [
-      `事件流：${flowType ? `${flowType} · ` : ""}${flowLabel}`,
+      copy.eventFlow(flowType, flowLabel),
       ...steps,
     ];
   });
@@ -280,8 +333,9 @@ function eventFlowLines(useCase: unknown) {
 function buildAnalysisRequirementRows(
   models: ReturnType<typeof useWorkspaceSession>["models"],
   scope: MatrixScope,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
 ): ElementRow[] {
-  return refsForRequirementModels(models, scope).map(({ ref, typeLabel, description }) => {
+  return refsForRequirementModels(models, scope, copy).map(({ ref, typeLabel, description }) => {
     const source = ref.modelId ? sourceUseCaseForAnalysis(models, ref.modelId) : null;
     const sourceRef: ModelElementRef | null = source
       ? {
@@ -291,23 +345,23 @@ function buildAnalysisRequirementRows(
           label: source.useCase.name,
         }
       : null;
-    const flowLines = source ? eventFlowLines(source.useCase) : [];
+    const flowLines = source ? eventFlowLines(source.useCase, copy) : [];
     const mapped = Boolean(sourceRef && flowLines.length > 0);
     return {
       id: refKey(ref),
       label: ref.label,
-      subtitle: description || `${requirementGroupLabel(ref.diagramKind)} · ${typeLabel}`,
+      subtitle: description || `${requirementGroupLabel(ref.diagramKind, copy)} · ${typeLabel}`,
       typeLabel,
       groupKey: ref.modelId ?? ref.diagramKind,
-      groupLabel: requirementGroupLabel(ref.diagramKind),
+      groupLabel: requirementGroupLabel(ref.diagramKind, copy),
       scopeKey: ref.modelId ?? ref.diagramKind,
       status: mapped ? "mapped" : "unmapped",
-      mappingNote: mapped ? "由来源用例事件流派生" : "缺少来源用例或事件流",
+      mappingNote: mapped ? copy.derivedFromSourceUseCaseFlow : copy.missingSourceUseCaseOrEventFlow,
       requirementRules: [],
       requirementElements: sourceRef ? [sourceRef] : [],
       upstreamDesignElements: [],
       detailLines: [
-        ...(sourceRef ? [`来源用例：${sourceRef.label}`] : ["来源用例：未找到"]),
+        ...(sourceRef ? [copy.sourceUseCase(sourceRef.label)] : [copy.sourceUseCaseMissing]),
         ...flowLines,
       ],
     };
@@ -319,9 +373,10 @@ export function buildRequirementRows(
   models: ReturnType<typeof useWorkspaceSession>["models"],
   traceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
   scope?: MatrixScope,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
 ): ElementRow[] {
   if (scope?.diagramKind === "analysis") {
-    return buildAnalysisRequirementRows(models, scope);
+    return buildAnalysisRequirementRows(models, scope, copy);
   }
   const rulesById = new Map(rules.map((rule) => [rule.id.toLowerCase(), rule]));
   const traceByTarget = new Map<
@@ -350,7 +405,7 @@ export function buildRequirementRows(
     ]);
   }
 
-  return refsForRequirementModels(models, scope).map(({ ref, typeLabel, description }) => {
+  return refsForRequirementModels(models, scope, copy).map(({ ref, typeLabel, description }) => {
     const mappedEntries = uniqueBy(
       traceByTarget.get(refKey(ref)) ?? [],
       (entry) => entry.rule.id,
@@ -364,25 +419,25 @@ export function buildRequirementRows(
     return {
       id: refKey(ref),
       label: ref.label,
-      subtitle: description || `${requirementGroupLabel(ref.diagramKind)} · ${typeLabel}`,
+      subtitle: description || `${requirementGroupLabel(ref.diagramKind, copy)} · ${typeLabel}`,
       typeLabel,
       groupKey: ref.modelId ?? ref.diagramKind,
-      groupLabel: requirementGroupLabel(ref.diagramKind),
+      groupLabel: requirementGroupLabel(ref.diagramKind, copy),
       scopeKey: ref.modelId ?? ref.diagramKind,
       status: mappedRules.length > 0 ? "mapped" : "unmapped",
       mappingNote: pendingEntry
-        ? traceabilityDisplayNote(pendingEntry.rationale)
+        ? traceabilityDisplayNote(pendingEntry.rationale, copy.autoFilledPendingReviewNote)
         : null,
       requirementRules: mappedRules,
       requirementElements: [],
       upstreamDesignElements: [],
       detailLines: [
         ...(pendingEntry
-          ? [`待确认：${traceabilityDisplayNote(pendingEntry.rationale)}`]
+          ? [copy.pending(traceabilityDisplayNote(pendingEntry.rationale, copy.autoFilledPendingReviewNote))]
           : []),
         ...mappedEntries
           .filter((entry) => entry.confidence)
-          .map((entry) => `置信度：${entry.confidence}`),
+          .map((entry) => copy.confidence(entry.confidence ?? "")),
         ...mappedRules.map(
         (rule) => `${formatRuleId(rule.id)} [${rule.category}] ${rule.text}`,
         ),
@@ -431,9 +486,10 @@ export function buildDesignRows(
   _requirementTraceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
   designTraceability: ReturnType<typeof useWorkspaceSession>["designModelTraceability"],
   scope?: MatrixScope,
+  copy = DEFAULT_TRACEABILITY_ROW_COPY,
 ): ElementRow[] {
   const requirementRefMap = new Map(
-    refsForRequirementModels(requirementModels).map(({ ref }) => [refKey(ref), ref]),
+    refsForRequirementModels(requirementModels, undefined, copy).map(({ ref }) => [refKey(ref), ref]),
   );
   const traceBySource = new Map<
     string,
@@ -443,7 +499,7 @@ export function buildDesignRows(
     traceBySource.set(entry.source.elementId ? refKey(entry.source) : "", entry);
   }
 
-  return refsForDesignModels(designModels, scope).map(({ ref, typeLabel, description }) => {
+  return refsForDesignModels(designModels, scope, copy).map(({ ref, typeLabel, description }) => {
     const traceEntry = traceBySource.get(refKey(ref));
     const targets = uniqueBy<ModelElementRef>(
       (traceEntry?.targets ?? [])
@@ -457,18 +513,18 @@ export function buildDesignRows(
     return {
       id: refKey(ref),
       label: ref.label,
-      subtitle: description || `${designGroupLabel(ref.diagramKind)} · ${typeLabel}`,
+      subtitle: description || `${designGroupLabel(ref.diagramKind, copy)} · ${typeLabel}`,
       typeLabel,
       groupKey: ref.diagramKind,
-      groupLabel: designGroupLabel(ref.diagramKind),
+      groupLabel: designGroupLabel(ref.diagramKind, copy),
       scopeKey: ref.modelId ?? ref.diagramKind,
       status: targets.length > 0 ? "mapped" : "unmapped",
       mappingNote:
         traceEntry?.mappingSource === "auto-filled-pending-review" ||
         traceEntry?.reviewStatus === "pending"
-          ? traceabilityDisplayNote(traceEntry.rationale)
+          ? traceabilityDisplayNote(traceEntry.rationale, copy.autoFilledPendingReviewNote)
           : traceEntry?.mappingSource === "derived-from-endpoints"
-            ? traceabilityDisplayNote(traceEntry.rationale, "由端点映射推导")
+            ? traceabilityDisplayNote(traceEntry.rationale, copy.endpointDerived)
             : null,
       requirementRules: [],
       requirementElements: targets,
@@ -476,18 +532,18 @@ export function buildDesignRows(
       detailLines: [
         ...(traceEntry?.mappingSource === "auto-filled-pending-review" ||
         traceEntry?.reviewStatus === "pending"
-          ? [`待确认：${traceabilityDisplayNote(traceEntry.rationale)}`]
+          ? [copy.pending(traceabilityDisplayNote(traceEntry.rationale, copy.autoFilledPendingReviewNote))]
           : []),
         ...(traceEntry?.mappingSource === "derived-from-endpoints"
-          ? [`映射说明：${traceabilityDisplayNote(traceEntry.rationale, "由端点映射推导")}`]
+          ? [copy.mappingDescription(traceabilityDisplayNote(traceEntry.rationale, copy.endpointDerived))]
           : []),
         ...upstreamDesignElements.map(
           (target) =>
-            `来源用例实现设计：${target.modelId ?? designGroupLabel(target.diagramKind)} / ${target.label}`,
+            copy.sourceUseCaseRealization(target.modelId ?? designGroupLabel(target.diagramKind, copy), target.label),
         ),
         ...targets.map(
           (target) =>
-            `需求元素：${requirementGroupLabel(target.diagramKind)} / ${target.label}`,
+            copy.requirementElement(requirementGroupLabel(target.diagramKind, copy), target.label),
         ),
       ],
     };

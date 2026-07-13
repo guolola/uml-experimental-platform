@@ -1,6 +1,8 @@
 // Covers billing page scale-to-fit layout contracts for entitlement cards, orders, and payment dialogs.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AppI18nProvider } from "../../../app/providers/i18n-provider";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountBillingPage, AlipayReturnPage, PricingBillingPage } from "./billing-pages";
 
@@ -20,6 +22,10 @@ const billingSkus = [
 ];
 
 const purchaseSku = billingSkus[0]!;
+
+function renderWithI18n(ui: ReactElement) {
+  return render(<AppI18nProvider>{ui}</AppI18nProvider>);
+}
 
 const billingOrder = {
   orderId: "order-test-1",
@@ -129,7 +135,7 @@ describe("AccountBillingPage", () => {
   it("keeps entitlement cards, order table, and payment choices in scale-to-fit layouts", async () => {
     stubBillingFetch();
     const user = userEvent.setup();
-    render(<AccountBillingPage onNavigate={() => {}} />);
+    renderWithI18n(<AccountBillingPage onNavigate={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
     const orderTable = await screen.findByTestId("billing-order-table");
@@ -160,7 +166,7 @@ describe("AccountBillingPage", () => {
     stubBillingFetch();
     const user = userEvent.setup();
     const navigate = vi.fn();
-    render(<AccountBillingPage onNavigate={navigate} />);
+    renderWithI18n(<AccountBillingPage onNavigate={navigate} />);
 
     await user.click(await screen.findByRole("button", { name: "继续支付" }));
 
@@ -186,7 +192,7 @@ describe("AlipayReturnPage", () => {
       `/billing/alipay/return?out_trade_no=${billingOrder.merchantOrderNo}`,
     );
 
-    render(<AlipayReturnPage onNavigate={() => {}} />);
+    renderWithI18n(<AlipayReturnPage onNavigate={() => {}} />);
 
     expect(
       await screen.findAllByText((_, element) =>
@@ -204,7 +210,7 @@ describe("PricingBillingPage", () => {
 
   it("renders only credit packs on the public payment page", async () => {
     stubBillingFetch();
-    render(<PricingBillingPage signedIn onNavigate={() => {}} />);
+    renderWithI18n(<PricingBillingPage signedIn onNavigate={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "开通 AI 生成权益" })).toBeInTheDocument();
     expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。")).toBeInTheDocument();
