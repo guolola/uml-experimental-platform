@@ -26,8 +26,13 @@ import {
   type MatrixScope,
   type RowStatus,
 } from "../lib/traceability-rows";
+import type { DesignDiagramKind, DiagramKind } from "@uml-platform/contracts";
 
 type MatrixMode = "requirements" | "design";
+type TraceabilityRef = {
+  diagramKind?: DiagramKind | DesignDiagramKind;
+  label?: string;
+};
 function ChipList({
   items,
   emptyText,
@@ -61,12 +66,12 @@ function ChipList({
   );
 }
 
-function designRefLabel(ref: { diagramKind: string; label: string }) {
-  return `${designGroupLabel(ref.diagramKind)}：${ref.label}`;
+function designRefLabel(ref: TraceabilityRef) {
+  return `${designGroupLabel(ref.diagramKind ?? "sequence")}：${ref.label ?? "未命名元素"}`;
 }
 
-function requirementRefLabel(ref: { diagramKind: string; label: string }) {
-  return `${requirementGroupLabel(ref.diagramKind)}：${ref.label}`;
+function requirementRefLabel(ref: TraceabilityRef) {
+  return `${requirementGroupLabel(ref.diagramKind ?? "usecase")}：${ref.label ?? "未命名元素"}`;
 }
 
 function StatusBadge({ status }: { status: RowStatus }) {

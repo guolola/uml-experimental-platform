@@ -97,7 +97,10 @@ function providerState(value: string | number | undefined) {
   if (status === "TRADE_SUCCESS" || status === "SUCCESS" || status === "1" || status === "PAID") {
     return "paid" as const;
   }
-  if (status === "TRADE_CLOSED" || status === "CLOSED" || status === "0") {
+  if (status === "0" || status === "PENDING" || status === "WAIT_BUYER_PAY") {
+    return "pending" as const;
+  }
+  if (status === "TRADE_CLOSED" || status === "CLOSED") {
     return "closed" as const;
   }
   return "failed" as const;
@@ -177,6 +180,7 @@ export function createEpayAlipayPaymentAdapter(env: EpayEnv = process.env): Paym
         money: formatAmount(input.amountCents),
         sitename: config.siteName,
       };
+      if (input.param) params.param = input.param;
       params.sign = signEpayParams(params, config.key!);
       params.sign_type = "MD5";
       return {

@@ -18,6 +18,7 @@ import { ApiClientError, requestJson } from "../api-client";
 import {
   createRunHistoryTitle,
   loadRunHistory,
+  runHistorySnapshotRequirementText,
   type RunHistorySnapshot,
 } from "../../entities/run-history";
 import type {
@@ -689,7 +690,9 @@ export function createHttpWorkspaceRepository(
         return {
           id: snapshot.runId,
           createdAt: new Date().toISOString(),
-          title: createRunHistoryTitle(snapshot.requirementText),
+          title: createRunHistoryTitle(
+            runHistorySnapshotRequirementText(snapshot),
+          ),
           snapshot,
           providerModel: meta.providerModel,
           durationMs: meta.durationMs,

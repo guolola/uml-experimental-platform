@@ -4,6 +4,7 @@ import type {
   DesignRunSnapshot,
   DocumentKind,
   DocumentRunSnapshot,
+  RequirementRule,
   RunSnapshot,
 } from "@uml-platform/contracts";
 import {
@@ -95,6 +96,16 @@ export function isDocumentRunSnapshot(
   snapshot: RunHistorySnapshot,
 ): snapshot is DocumentRunSnapshot {
   return "documentKind" in snapshot;
+}
+
+export function runHistorySnapshotRequirementText(snapshot: RunHistorySnapshot) {
+  return "requirementText" in snapshot ? snapshot.requirementText : "";
+}
+
+export function runHistorySnapshotRules(
+  snapshot: RunHistorySnapshot,
+): RequirementRule[] {
+  return "rules" in snapshot ? (snapshot.rules ?? []) : [];
 }
 
 export function createRunHistoryTitle(requirementText: string) {
@@ -311,7 +322,7 @@ export function saveRunHistoryItem(
   const item: RunHistoryItem = {
     id: snapshot.runId,
     createdAt: meta.createdAt ?? new Date().toISOString(),
-    title: createRunHistoryTitle(snapshot.requirementText),
+    title: createRunHistoryTitle(runHistorySnapshotRequirementText(snapshot)),
     snapshot,
     providerModel: meta.providerModel,
     durationMs: meta.durationMs,

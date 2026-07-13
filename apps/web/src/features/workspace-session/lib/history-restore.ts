@@ -5,6 +5,8 @@ import {
   isCodeRunSnapshot,
   isDesignRunSnapshot,
   isDocumentRunSnapshot,
+  runHistorySnapshotRequirementText,
+  runHistorySnapshotRules,
   type RunHistorySnapshot,
 } from "../../../entities/run-history";
 import {
@@ -332,14 +334,15 @@ export function createRestoredSnapshotPlan(input: {
     throw new Error("说明书快照不能恢复为项目工作台。");
   }
   const restoredRulesVersion = input.rulesVersion + 1;
-  const rules = "rules" in input.snapshot ? input.snapshot.rules : [];
+  const requirementText = runHistorySnapshotRequirementText(input.snapshot);
+  const rules = runHistorySnapshotRules(input.snapshot);
   const restoredRequirementFingerprint = requirementInputFingerprintFor(
-    input.snapshot.requirementText,
+    requirementText,
     rules,
   );
 
   return {
-    requirementText: input.snapshot.requirementText,
+    requirementText,
     rules,
     rulesVersion: restoredRulesVersion,
     rulesBasedOnTextVersion: input.textVersion,

@@ -106,7 +106,7 @@ export function createProjectWorkspaceSync(
         replaceRequirementInput:
           runKind === "requirements" &&
           "rules" in record.snapshot &&
-          record.snapshot.rules.length > 0,
+          (record.snapshot.rules?.length ?? 0) > 0,
       });
       const result = await authStore.saveProjectWorkspace({
         projectId,

@@ -128,6 +128,20 @@ export function registerBillingRoutes({
     return response;
   });
 
+  app.get("/api/billing/orders/by-merchant/:merchantOrderNo", async (request, reply) => {
+    const auth = await requireAuth(request, reply, authStore);
+    if (isAuthError(auth)) return auth;
+    const { merchantOrderNo } = request.params as { merchantOrderNo: string };
+    return billingService.getOrderForUserByMerchantOrderNo(auth.user.id, merchantOrderNo);
+  });
+
+  app.post("/api/billing/orders/:orderId/resume", async (request, reply) => {
+    const auth = await requireAuth(request, reply, authStore);
+    if (isAuthError(auth)) return auth;
+    const { orderId } = request.params as { orderId: string };
+    return billingService.resumeOrderForUser(auth.user.id, orderId);
+  });
+
   app.get("/api/billing/orders/:orderId", async (request, reply) => {
     const auth = await requireAuth(request, reply, authStore);
     if (isAuthError(auth)) return auth;

@@ -479,6 +479,9 @@ export type DesignRunSnapshot = z.infer<typeof designRunSnapshotSchema>;
 
 export const codeRunSnapshotSchema = z.object({
   runId: z.string().min(1),
+  requirementText: z.string().optional(),
+  rules: requirementRulesSchema.optional(),
+  requirementBaseline: requirementBaselineSchema.nullable().optional(),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
   evidencePackage: evidencePackageSchema.nullable().default(null),

@@ -91,6 +91,10 @@ function storageKey(orderId: string) {
   return `uml-alipay-form:${orderId}`;
 }
 
+function orderIsPayable(order: BillingOrderStatusDto) {
+  return order.status === "pending" && new Date(order.expiresAt).getTime() > Date.now();
+}
+
 const paymentPrimaryButtonClass =
   "motion-action h-11 rounded-lg px-5 font-display text-[15px] font-semibold leading-6 shadow-sm hover:shadow-md";
 
@@ -583,6 +587,8 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [summaryError, setSummaryError] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const [orderActionError, setOrderActionError] = useState("");
+  const [resumingOrderId, setResumingOrderId] = useState<string | null>(null);
   const refreshSummary = () => {
     setSummaryLoading(true);
     billingApi
@@ -601,6 +607,27 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
   useEffect(() => {
     refreshSummary();
   }, []);
+
+  const resumeOrder = async (order: BillingOrderStatusDto) => {
+    setResumingOrderId(order.orderId);
+    setOrderActionError("");
+    try {
+      const response = await billingApi.resumeOrder(order.orderId);
+      if (response.paymentFormHtml) {
+        window.sessionStorage.setItem(storageKey(response.orderId), response.paymentFormHtml);
+      }
+      if (response.redirectUrl && !response.paymentFormHtml) {
+        window.location.assign(response.redirectUrl);
+        return;
+      }
+      onNavigate(`/billing/alipay/return?orderId=${encodeURIComponent(response.orderId)}`);
+    } catch (nextError) {
+      setOrderActionError(nextError instanceof Error ? nextError.message : "继续支付失败");
+      refreshSummary();
+    } finally {
+      setResumingOrderId(null);
+    }
+  };
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-background">
@@ -636,6 +663,11 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
           {summaryError && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-[14px] leading-6 text-destructive">
               {summaryError}
+            </div>
+          )}
+          {orderActionError && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-[14px] leading-6 text-destructive">
+              {orderActionError}
             </div>
           )}
           {summary && <SummaryPanel summary={summary} />}
@@ -675,7 +707,7 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
             </div>
             {summary?.recentOrders.length ? (
               <div className="max-w-full overflow-hidden">
-                <ScaledTable minWidth={640} data-testid="billing-order-table" className="text-left text-[13px] leading-5">
+                <ScaledTable minWidth={760} data-testid="billing-order-table" className="text-left text-[13px] leading-5">
                   <thead className="bg-muted/40 text-muted-foreground">
                     <tr>
                       <th className="px-5 py-3 font-medium">订单号</th>
@@ -683,6 +715,7 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
                       <th className="px-5 py-3 font-medium">金额</th>
                       <th className="px-5 py-3 font-medium">状态</th>
                       <th className="px-5 py-3 font-medium">创建时间</th>
+                      <th className="px-5 py-3 font-medium">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border text-muted-foreground">
@@ -699,6 +732,26 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
                           </Badge>
                         </td>
                         <td className="px-5 py-3 text-muted-foreground">{formatDate(order.createdAt)}</td>
+                        <td className="px-5 py-3">
+                          {orderIsPayable(order) ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="motion-action h-9 rounded-lg bg-card px-3 text-[12px]"
+                              disabled={resumingOrderId === order.orderId}
+                              onClick={() => void resumeOrder(order)}
+                            >
+                              {resumingOrderId === order.orderId ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : (
+                                <ExternalLink className="size-3.5" />
+                              )}
+                              继续支付
+                            </Button>
+                          ) : order.status === "expired" ? (
+                            <span className="text-[12px] text-muted-foreground">已过期</span>
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -732,16 +785,18 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
   const [order, setOrder] = useState<BillingOrderStatusDto | null>(null);
   const [error, setError] = useState("");
   const bridgeRef = useRef<HTMLDivElement | null>(null);
-  const orderId = typeof window === "undefined"
-    ? ""
-    : new URLSearchParams(window.location.search).get("orderId") ?? "";
+  const searchParams =
+    typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const orderId = searchParams.get("orderId") ?? searchParams.get("param") ?? "";
+  const merchantOrderNo = searchParams.get("out_trade_no") ?? "";
+  const lookupKey = orderId ? `id:${orderId}` : merchantOrderNo ? `merchant:${merchantOrderNo}` : "";
 
   useEffect(() => {
-    if (!orderId) {
+    if (!lookupKey) {
       setError("缺少订单号");
       return;
     }
-    const formHtml = window.sessionStorage.getItem(storageKey(orderId));
+    const formHtml = orderId ? window.sessionStorage.getItem(storageKey(orderId)) : null;
     if (formHtml && bridgeRef.current) {
       window.sessionStorage.removeItem(storageKey(orderId));
       bridgeRef.current.innerHTML = formHtml;
@@ -750,8 +805,10 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
     }
     let active = true;
     const load = () => {
-      billingApi
-        .getOrder(orderId)
+      const request = orderId
+        ? billingApi.getOrder(orderId)
+        : billingApi.getOrderByMerchantOrderNo(merchantOrderNo);
+      request
         .then((response) => {
           if (active) setOrder(response);
         })
@@ -765,7 +822,7 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
       active = false;
       window.clearInterval(timer);
     };
-  }, [orderId]);
+  }, [lookupKey, merchantOrderNo, orderId]);
 
   return (
     <main className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-background px-6 py-10">

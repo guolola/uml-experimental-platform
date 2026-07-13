@@ -12,6 +12,7 @@ export type ProviderCreatePaymentInput = {
   expiresAt: string;
   notifyUrl: string;
   returnUrl?: string | null;
+  param?: string | null;
 };
 
 export type ProviderCreatePaymentResult = {

@@ -22,6 +22,8 @@ import {
   isCodeRunSnapshot,
   isDesignRunSnapshot,
   isDocumentRunSnapshot,
+  runHistorySnapshotRequirementText,
+  runHistorySnapshotRules,
   type RunHistorySnapshot,
 } from "../../entities/run-history";
 import type { RequirementRule } from "../../entities/requirement-rule/model";
@@ -699,16 +701,18 @@ export function applySnapshotToWorkspace(
 
   const isRequirementSnapshot =
     !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
+  const snapshotRequirementText = runHistorySnapshotRequirementText(snapshot);
+  const snapshotRules = runHistorySnapshotRules(snapshot);
   if (
     isRequirementSnapshot &&
     !currentHasRequirementText &&
-    snapshot.requirementText.trim().length > 0
+    snapshotRequirementText.trim().length > 0
   ) {
-    next.requirementText = snapshot.requirementText;
+    next.requirementText = snapshotRequirementText;
   }
   const snapshotRequirementFingerprint = requirementInputFingerprint(
-    snapshot.requirementText,
-    snapshot.rules,
+    snapshotRequirementText,
+    snapshotRules,
   );
   const isRulesOnlyRequirementSnapshot =
     isRequirementSnapshot &&
@@ -721,8 +725,8 @@ export function applySnapshotToWorkspace(
     isRequirementSnapshot &&
     (isRulesOnlyRequirementSnapshot || !currentHasRequirements)
   ) {
-    next.requirementText = snapshot.requirementText;
-    next.rules = [...snapshot.rules];
+    next.requirementText = snapshotRequirementText;
+    next.rules = [...snapshotRules];
   }
   const workspaceRequirementFingerprint = requirementInputFingerprint(
     next.requirementText,
@@ -841,8 +845,8 @@ export function applySnapshotToWorkspace(
     );
     const canMergeRequirementContextFromSnapshot =
       requirementDiagrams.length > 0 &&
-      snapshot.requirementText.trim().length > 0 &&
-      snapshot.rules.length > 0 &&
+      snapshotRequirementText.trim().length > 0 &&
+      snapshotRules.length > 0 &&
       (!currentHasRequirements ||
         fingerprintMatches(
           snapshotRequirementFingerprint,

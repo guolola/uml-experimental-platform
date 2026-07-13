@@ -69,6 +69,7 @@ import {
   billingOrderStatusDtoSchema,
   billingSkuDtoSchema,
   createPaymentOrderRequestSchema,
+  resumePaymentOrderResponseSchema,
   adminUserDtoSchema,
   paymentChannelSchema,
   projectCreateRequestSchema,
@@ -297,6 +298,18 @@ test("contracts describe billing SKUs and payment order boundaries", () => {
       amountCents: 1,
     }),
   );
+
+  const resumed = resumePaymentOrderResponseSchema.parse({
+    orderId: "order-resume",
+    merchantOrderNo: "UML202606050001",
+    status: "pending",
+    amountCents: 9900,
+    currency: "CNY",
+    expiresAt: "2026-06-05T00:15:00.000Z",
+    channel: "alipay",
+    paymentFormHtml: "<form method=\"post\"></form>",
+  });
+  assert.equal(resumed.merchantOrderNo, "UML202606050001");
 });
 
 test("contracts enumerate user-visible billing order statuses", () => {

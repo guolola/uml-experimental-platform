@@ -92,6 +92,11 @@ export type CreatePaymentOrderResponse = z.infer<
   typeof createPaymentOrderResponseSchema
 >;
 
+export const resumePaymentOrderResponseSchema = createPaymentOrderResponseSchema;
+export type ResumePaymentOrderResponse = z.infer<
+  typeof resumePaymentOrderResponseSchema
+>;
+
 export const billingEntitlementFailureReasonSchema = z.enum([
   "no_entitlement",
   "negative_balance",

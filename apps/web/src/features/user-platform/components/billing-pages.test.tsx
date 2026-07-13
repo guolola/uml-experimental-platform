@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AccountBillingPage, PricingBillingPage } from "./billing-pages";
+import { AccountBillingPage, AlipayReturnPage, PricingBillingPage } from "./billing-pages";
 
 const billingSkus = [
   {
@@ -30,7 +30,7 @@ const billingOrder = {
   channel: "alipay",
   status: "pending",
   createdAt: "2026-06-05T04:00:00.000Z",
-  expiresAt: "2026-06-05T04:15:00.000Z",
+  expiresAt: "2026-08-05T04:15:00.000Z",
   paidAt: null,
 };
 
@@ -79,6 +79,39 @@ function stubBillingFetch() {
         },
       );
     }
+    if (url.pathname === `/api/billing/orders/${billingOrder.orderId}/resume` && method === "POST") {
+      return new Response(
+        JSON.stringify({
+          orderId: billingOrder.orderId,
+          merchantOrderNo: billingOrder.merchantOrderNo,
+          status: billingOrder.status,
+          amountCents: billingOrder.amountCents,
+          currency: billingOrder.currency,
+          expiresAt: billingOrder.expiresAt,
+          channel: "alipay",
+          paymentFormHtml: "<form action=\"https://zpayz.cn/submit.php\"><button>pay</button></form>",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+    if (url.pathname === `/api/billing/orders/${billingOrder.orderId}` && method === "GET") {
+      return new Response(JSON.stringify(billingOrder), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (
+      url.pathname === `/api/billing/orders/by-merchant/${billingOrder.merchantOrderNo}` &&
+      method === "GET"
+    ) {
+      return new Response(JSON.stringify(billingOrder), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ message: "Unhandled test request" }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
@@ -90,6 +123,7 @@ function stubBillingFetch() {
 describe("AccountBillingPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    window.sessionStorage.clear();
   });
 
   it("keeps entitlement cards, order table, and payment choices in scale-to-fit layouts", async () => {
@@ -112,6 +146,7 @@ describe("AccountBillingPage", () => {
     expect(screen.queryByText("年卡")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "立即开通" })).not.toBeInTheDocument();
     expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "继续支付" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "立即购买" }));
 
@@ -120,11 +155,51 @@ describe("AccountBillingPage", () => {
     expect(paymentFrame).toHaveTextContent("支付宝");
     expect(paymentFrame).not.toHaveTextContent("微信支付");
   });
+
+  it("resumes pending orders from the order table", async () => {
+    stubBillingFetch();
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    render(<AccountBillingPage onNavigate={navigate} />);
+
+    await user.click(await screen.findByRole("button", { name: "继续支付" }));
+
+    expect(navigate).toHaveBeenCalledWith(`/billing/alipay/return?orderId=${billingOrder.orderId}`);
+    expect(window.sessionStorage.getItem(`uml-alipay-form:${billingOrder.orderId}`)).toContain(
+      "zpayz.cn/submit.php",
+    );
+  });
+});
+
+describe("AlipayReturnPage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.sessionStorage.clear();
+    window.history.pushState({}, "", "/");
+  });
+
+  it("can recover the order from the merchant order number returned by ZPAY", async () => {
+    stubBillingFetch();
+    window.history.pushState(
+      {},
+      "",
+      `/billing/alipay/return?out_trade_no=${billingOrder.merchantOrderNo}`,
+    );
+
+    render(<AlipayReturnPage onNavigate={() => {}} />);
+
+    expect(
+      await screen.findAllByText((_, element) =>
+        Boolean(element?.textContent?.includes(billingOrder.merchantOrderNo)),
+      ),
+    ).not.toHaveLength(0);
+  });
 });
 
 describe("PricingBillingPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    window.sessionStorage.clear();
   });
 
   it("renders only credit packs on the public payment page", async () => {

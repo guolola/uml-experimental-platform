@@ -115,6 +115,23 @@ test("billing routes expose SKUs, server-priced orders, and admin adjustments", 
   assert.equal(ownOrder.statusCode, 200);
   assert.equal(ownOrder.json().merchantOrderNo, createdOrder.json().merchantOrderNo);
 
+  const merchantOrder = await app.inject({
+    method: "GET",
+    url: `/api/billing/orders/by-merchant/${createdOrder.json().merchantOrderNo}`,
+    headers: { cookie: userCookie },
+  });
+  assert.equal(merchantOrder.statusCode, 200);
+  assert.equal(merchantOrder.json().orderId, createdOrder.json().orderId);
+
+  const resumedOrder = await app.inject({
+    method: "POST",
+    url: `/api/billing/orders/${createdOrder.json().orderId}/resume`,
+    headers: { cookie: userCookie },
+  });
+  assert.equal(resumedOrder.statusCode, 200);
+  assert.equal(resumedOrder.json().merchantOrderNo, createdOrder.json().merchantOrderNo);
+  assert.match(resumedOrder.json().paymentFormHtml, /支付/u);
+
   const adminOrders = await app.inject({
     method: "GET",
     url: "/api/admin/billing/orders",

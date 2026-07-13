@@ -4,7 +4,11 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import type { PaymentChannel } from "@uml-platform/contracts";
 import { createMockPaymentAdapter } from "../adapters/payments/mock-payment-adapter.js";
-import type { PaymentProviderRegistry } from "../adapters/payments/types.js";
+import type {
+  PaymentProviderAdapter,
+  PaymentProviderRegistry,
+  ProviderPaymentCallback,
+} from "../adapters/payments/types.js";
 import { createBillingService } from "./billing-service.js";
 import { createInMemoryBillingRepository } from "./in-memory-billing-repository.js";
 
@@ -23,14 +27,16 @@ function mockRegistry(nodeEnv = "test"): PaymentProviderRegistry {
 async function createTestService(input: {
   env?: Record<string, string | undefined>;
   nodeEnv?: string;
+  now?: () => Date;
+  paymentProviders?: PaymentProviderRegistry;
 } = {}) {
   const repository = createInMemoryBillingRepository();
   const service = createBillingService({
     repository,
-    paymentProviders: mockRegistry(input.nodeEnv ?? "test"),
+    paymentProviders: input.paymentProviders ?? mockRegistry(input.nodeEnv ?? "test"),
     nodeEnv: input.nodeEnv ?? "test",
     env: input.env ?? {},
-    now: () => FIXED_NOW,
+    now: input.now ?? (() => FIXED_NOW),
   });
   await service.ensureSkuCatalog();
   return { repository, service };
@@ -38,6 +44,43 @@ async function createTestService(input: {
 
 function sign(rawBody: string) {
   return createHmac("sha256", MOCK_SECRET).update(rawBody).digest("hex");
+}
+
+function queryStateRegistry(
+  resolveState: (merchantOrderNo: string) => ProviderPaymentCallback["state"],
+): PaymentProviderRegistry {
+  const adapter: PaymentProviderAdapter = {
+    channel: "alipay",
+    isConfigured: () => true,
+    async createPayment(input) {
+      return {
+        providerPayload: {
+          merchantOrderNo: input.merchantOrderNo,
+          param: input.param,
+          returnUrl: input.returnUrl,
+        },
+        paymentFormHtml: `<form method="post" action="https://zpayz.cn/submit.php"><input name="out_trade_no" value="${input.merchantOrderNo}" /><input name="param" value="${input.param ?? ""}" /></form>`,
+      };
+    },
+    async queryPayment(order) {
+      const state = resolveState(order.merchantOrderNo);
+      return {
+        channel: "alipay",
+        merchantOrderNo: order.merchantOrderNo,
+        providerTransactionId: `query_${order.merchantOrderNo}`,
+        providerEventId: `query_evt_${order.merchantOrderNo}`,
+        amountCents: order.amountCents,
+        currency: "CNY",
+        state,
+        paidAt: state === "paid" ? FIXED_NOW.toISOString() : null,
+        rawPayload: { state },
+      };
+    },
+    async verifyCallback() {
+      throw new Error("not used");
+    },
+  };
+  return { alipay: adapter };
 }
 
 async function payOrder(input: {
@@ -96,6 +139,27 @@ test("billing catalog exposes the configured PC web SKUs and server-priced order
   assert.equal(order.amountCents, 990);
   assert.equal(order.currency, "CNY");
   assert.match(order.paymentFormHtml ?? "", /支付/u);
+});
+
+test("pending payment orders can be resumed with the same merchant order number", async () => {
+  const { service } = await createTestService({
+    paymentProviders: queryStateRegistry(() => "pending"),
+  });
+  const order = await service.createOrder(
+    { id: "user-resume", emailVerified: true },
+    {
+      skuCode: "credits_10",
+      channel: "alipay",
+      returnUrl: "https://jianglisoftware.com/billing/alipay/return",
+    },
+  );
+
+  const resumed = await service.resumeOrderForUser("user-resume", order.orderId);
+
+  assert.equal(resumed.orderId, order.orderId);
+  assert.equal(resumed.merchantOrderNo, order.merchantOrderNo);
+  assert.match(resumed.paymentFormHtml ?? "", new RegExp(order.merchantOrderNo));
+  assert.match(resumed.paymentFormHtml ?? "", new RegExp(order.orderId));
 });
 
 test("billing catalog rejects legacy time pass SKU overrides", async () => {
@@ -243,6 +307,53 @@ test("payment callbacks verify signatures, validate amount, and grant purchases 
         eventId: "evt-bad-amount",
       }),
     /amount does not match/,
+  );
+});
+
+test("pending orders expire and provider-paid queries grant credits", async () => {
+  let current = new Date(FIXED_NOW);
+  const pending = await createTestService({
+    now: () => current,
+    paymentProviders: queryStateRegistry(() => "pending"),
+  });
+  const pendingOrder = await pending.service.createOrder(
+    { id: "user-expired", emailVerified: true },
+    { skuCode: "credits_10", channel: "alipay" },
+  );
+  current = new Date(FIXED_NOW.getTime() + 16 * 60 * 1000);
+
+  const expired = await pending.service.getOrderForUser("user-expired", pendingOrder.orderId);
+  assert.equal(expired.status, "expired");
+  await assert.rejects(
+    () => pending.service.resumeOrderForUser("user-expired", pendingOrder.orderId),
+    /no longer payable/,
+  );
+
+  const paid = await createTestService({
+    paymentProviders: queryStateRegistry(() => "paid"),
+  });
+  const paidOrder = await paid.service.createOrder(
+    { id: "user-query-paid", emailVerified: true },
+    { skuCode: "credits_50", channel: "alipay" },
+  );
+
+  const synced = await paid.service.getOrderForUser("user-query-paid", paidOrder.orderId);
+  assert.equal(synced.status, "paid");
+  assert.equal((await paid.service.getSummary("user-query-paid")).creditBalance, 58);
+});
+
+test("users cannot resume another user's order", async () => {
+  const { service } = await createTestService({
+    paymentProviders: queryStateRegistry(() => "pending"),
+  });
+  const order = await service.createOrder(
+    { id: "user-owner", emailVerified: true },
+    { skuCode: "credits_10", channel: "alipay" },
+  );
+
+  await assert.rejects(
+    () => service.resumeOrderForUser("user-other", order.orderId),
+    /Payment order not found/,
   );
 });
 

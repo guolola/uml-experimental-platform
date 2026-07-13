@@ -4,6 +4,7 @@ import {
   formatDocumentMissingArtifactSummary,
   formatRunHistoryDiagramErrorSummary,
   isDocumentRunSnapshot,
+  runHistorySnapshotRequirementText,
   type RunHistoryItem,
   type RunHistoryDiagramErrorSummary,
   type RunHistorySnapshot,
@@ -156,7 +157,7 @@ export function projectRunSummaryToHistoryItem(
     run.updatedAt ??
     new Date().toISOString();
   const title = snapshot
-    ? createRunHistoryTitle(snapshot.requirementText)
+    ? createRunHistoryTitle(runHistorySnapshotRequirementText(snapshot))
     : projectRunStageTitle(run);
   const historySnapshot =
     snapshot && isDocumentRunSnapshot(snapshot) && run?.documentFileName
