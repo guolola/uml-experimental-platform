@@ -158,6 +158,26 @@ const modelTaskTimeoutEnv = {
     : {}),
 };
 
+const billingEnv = {
+  ...(process.env.UML_BILLING_SKUS_JSON
+    ? { UML_BILLING_SKUS_JSON: process.env.UML_BILLING_SKUS_JSON }
+    : {}),
+  ...(process.env.EPAY_GATEWAY_URL
+    ? { EPAY_GATEWAY_URL: process.env.EPAY_GATEWAY_URL }
+    : {}),
+  ...(process.env.EPAY_PID ? { EPAY_PID: process.env.EPAY_PID } : {}),
+  ...(process.env.EPAY_KEY ? { EPAY_KEY: process.env.EPAY_KEY } : {}),
+  ...(process.env.EPAY_NOTIFY_URL
+    ? { EPAY_NOTIFY_URL: process.env.EPAY_NOTIFY_URL }
+    : {}),
+  ...(process.env.EPAY_RETURN_URL
+    ? { EPAY_RETURN_URL: process.env.EPAY_RETURN_URL }
+    : {}),
+  ...(process.env.EPAY_SITE_NAME
+    ? { EPAY_SITE_NAME: process.env.EPAY_SITE_NAME }
+    : {}),
+};
+
 const renderServiceEnv = {
   NODE_ENV: "production",
   RENDER_SERVICE_HOST: "127.0.0.1",
@@ -181,6 +201,7 @@ const apiEnv = {
   ...providerEnv,
   ...queueEnv,
   ...modelTaskTimeoutEnv,
+  ...billingEnv,
 };
 
 const workerEnv = {
