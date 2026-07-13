@@ -241,7 +241,6 @@ export const resources = {
           confirmDescription: "请确认套餐内容与支付方式。",
           purchaseContent: "购买内容",
           orderAmount: "订单金额",
-          amountWarning: "支付金额以后端 SKU 为准，请在支付宝页面确认金额一致。",
           alipayDesktop: "跳转支付宝电脑网站支付",
           channels: {
             alipay: "支付宝",
@@ -261,6 +260,7 @@ export const resources = {
           description: "查看次数余额、邮箱验证赠送和最近支付订单。",
           purchaseTitle: "购买权益",
           purchaseSubtitle: "次数余额按次抵扣",
+          paymentSuccess: "支付成功，次数已到账",
         },
         orders: {
           history: "订单历史",
@@ -289,8 +289,7 @@ export const resources = {
           title: "支付宝支付处理中",
           description: "正在确认支付跳转与订单状态，请勿关闭页面。",
           connecting: "正在连接支付宝",
-          backToProjects: "返回项目",
-          backToPricing: "返回定价",
+          backToBilling: "返回支付页面",
         },
       },
       projectShell: {
@@ -960,7 +959,6 @@ export const resources = {
           confirmDescription: "Confirm the plan and payment method.",
           purchaseContent: "Purchase",
           orderAmount: "Order amount",
-          amountWarning: "The final amount follows the backend SKU. Confirm the same amount on the Alipay page.",
           alipayDesktop: "Redirect to Alipay desktop payment",
           channels: {
             alipay: "Alipay",
@@ -980,6 +978,7 @@ export const resources = {
           description: "View credit balance, email verification bonus, and recent payment orders.",
           purchaseTitle: "Buy credits",
           purchaseSubtitle: "Credit balance is deducted per generation",
+          paymentSuccess: "Payment successful. Credits have been added.",
         },
         orders: {
           history: "Order history",
@@ -1008,8 +1007,7 @@ export const resources = {
           title: "Processing Alipay payment",
           description: "Confirming the payment redirect and order status. Do not close this page.",
           connecting: "Connecting to Alipay",
-          backToProjects: "Back to projects",
-          backToPricing: "Back to pricing",
+          backToBilling: "Back to payment page",
         },
       },
       projectShell: {

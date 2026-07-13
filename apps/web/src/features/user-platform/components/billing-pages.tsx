@@ -36,6 +36,7 @@ import {
 import { cn } from "../../../shared/ui/utils";
 import { useAppI18n } from "../../../shared/i18n";
 import { billingApi } from "../services/billing-api";
+import { toast } from "sonner";
 
 type Navigate = (path: string) => void;
 
@@ -254,9 +255,6 @@ function PaymentConfirmDialog({
                   onSelect={onChannelChange}
                   t={t}
                 />
-              </div>
-              <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning">
-                {t("billing.payment.amountWarning")}
               </div>
               {error && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
@@ -650,6 +648,15 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
   const payment = usePaymentFlow(onNavigate, t, refreshSummary);
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get("payment") === "success") {
+      toast.success(t("billing.account.paymentSuccess"));
+      searchParams.delete("payment");
+      searchParams.delete("orderId");
+      const nextSearch = searchParams.toString();
+      const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
     refreshSummary();
   }, []);
 
@@ -862,25 +869,33 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
       form?.submit();
     }
     let active = true;
+    let timer: number | undefined;
     const load = () => {
       const request = orderId
         ? billingApi.getOrder(orderId)
         : billingApi.getOrderByMerchantOrderNo(merchantOrderNo);
       request
         .then((response) => {
-          if (active) setOrder(response);
+          if (!active) return;
+          if (response.status === "paid") {
+            active = false;
+            if (timer !== undefined) window.clearInterval(timer);
+            onNavigate(`/account/billing?payment=success&orderId=${encodeURIComponent(response.orderId)}`);
+            return;
+          }
+          setOrder(response);
         })
         .catch((nextError: unknown) => {
           if (active) setError(nextError instanceof Error ? nextError.message : t("billing.errors.orderStatusLoadFailed"));
         });
     };
     load();
-    const timer = window.setInterval(load, 2500);
+    timer = window.setInterval(load, 2500);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [lookupKey, merchantOrderNo, orderId, t]);
+  }, [lookupKey, merchantOrderNo, onNavigate, orderId, t]);
 
   return (
     <main className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-background px-6 py-10">
@@ -933,18 +948,10 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
           <div className="flex flex-wrap justify-center gap-3">
             <Button
               type="button"
-              variant="outline"
-              className="rounded-lg bg-card"
-              onClick={() => onNavigate("/projects")}
-            >
-              {t("billing.return.backToProjects")}
-            </Button>
-            <Button
-              type="button"
               className={paymentPrimaryButtonClass}
-              onClick={() => onNavigate("/pricing")}
+              onClick={() => onNavigate("/account/billing")}
             >
-              {t("billing.return.backToPricing")}
+              {t("billing.return.backToBilling")}
             </Button>
           </div>
           <div ref={bridgeRef} className="hidden" aria-hidden="true" />

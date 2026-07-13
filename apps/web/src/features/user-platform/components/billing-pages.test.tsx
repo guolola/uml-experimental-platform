@@ -1,11 +1,18 @@
 // Covers billing page scale-to-fit layout contracts for entitlement cards, orders, and payment dialogs.
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { AppI18nProvider } from "../../../app/providers/i18n-provider";
-import { LOCALE_PREFERENCE_STORAGE_KEY } from "../../../shared/i18n";
+import { i18n, LOCALE_PREFERENCE_STORAGE_KEY } from "../../../shared/i18n";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountBillingPage, AlipayReturnPage, PricingBillingPage } from "./billing-pages";
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+  },
+}));
 
 const billingSkus = [
   {
@@ -41,7 +48,19 @@ const billingOrder = {
   paidAt: null,
 };
 
-function stubBillingFetch() {
+const paidBillingOrder = {
+  ...billingOrder,
+  status: "paid",
+  paidAt: "2026-06-05T04:02:00.000Z",
+};
+
+function stubBillingFetch({
+  order = billingOrder,
+  onSummary,
+}: {
+  order?: typeof billingOrder | typeof paidBillingOrder;
+  onSummary?: () => void;
+} = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://127.0.0.1:4101");
     const method = init?.method ?? "GET";
@@ -52,6 +71,7 @@ function stubBillingFetch() {
       });
     }
     if (url.pathname === "/api/billing/summary") {
+      onSummary?.();
       return new Response(
         JSON.stringify({
           creditBalance: 128,
@@ -60,7 +80,7 @@ function stubBillingFetch() {
             creditAmount: 5,
             validUntil: "2026-07-05T04:00:00.000Z",
           },
-          recentOrders: [billingOrder],
+          recentOrders: [order],
         }),
         {
           status: 200,
@@ -73,10 +93,10 @@ function stubBillingFetch() {
         JSON.stringify({
           orderId: billingOrder.orderId,
           merchantOrderNo: billingOrder.merchantOrderNo,
-          status: billingOrder.status,
-          amountCents: billingOrder.amountCents,
-          currency: billingOrder.currency,
-          expiresAt: billingOrder.expiresAt,
+          status: order.status,
+          amountCents: order.amountCents,
+          currency: order.currency,
+          expiresAt: order.expiresAt,
           channel: "alipay",
           paymentFormHtml: "<form action=\"https://zpayz.cn/submit.php\"><button>pay</button></form>",
         }),
@@ -91,10 +111,10 @@ function stubBillingFetch() {
         JSON.stringify({
           orderId: billingOrder.orderId,
           merchantOrderNo: billingOrder.merchantOrderNo,
-          status: billingOrder.status,
-          amountCents: billingOrder.amountCents,
-          currency: billingOrder.currency,
-          expiresAt: billingOrder.expiresAt,
+          status: order.status,
+          amountCents: order.amountCents,
+          currency: order.currency,
+          expiresAt: order.expiresAt,
           channel: "alipay",
           paymentFormHtml: "<form action=\"https://zpayz.cn/submit.php\"><button>pay</button></form>",
         }),
@@ -105,7 +125,7 @@ function stubBillingFetch() {
       );
     }
     if (url.pathname === `/api/billing/orders/${billingOrder.orderId}` && method === "GET") {
-      return new Response(JSON.stringify(billingOrder), {
+      return new Response(JSON.stringify(order), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -114,7 +134,7 @@ function stubBillingFetch() {
       url.pathname === `/api/billing/orders/by-merchant/${billingOrder.merchantOrderNo}` &&
       method === "GET"
     ) {
-      return new Response(JSON.stringify(billingOrder), {
+      return new Response(JSON.stringify(order), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -130,8 +150,10 @@ function stubBillingFetch() {
 describe("AccountBillingPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
     window.sessionStorage.clear();
     window.localStorage.clear();
+    window.history.pushState({}, "", "/");
   });
 
   it("keeps entitlement cards, order table, and payment choices in scale-to-fit layouts", async () => {
@@ -165,6 +187,7 @@ describe("AccountBillingPage", () => {
     const paymentFrame = dialog.querySelector("[data-scale-to-fit]");
     expect(paymentFrame).toHaveTextContent("支付宝");
     expect(paymentFrame).not.toHaveTextContent("微信支付");
+    expect(paymentFrame).not.toHaveTextContent("支付金额以后端 SKU 为准");
   });
 
   it("resumes pending orders from the order table", async () => {
@@ -194,11 +217,34 @@ describe("AccountBillingPage", () => {
     expect(screen.getAllByText("100 次包").length).toBeGreaterThan(0);
     expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
   });
+
+  it("shows payment success feedback on account billing and clears the return marker", async () => {
+    await i18n.changeLanguage("zh-CN");
+    window.localStorage.setItem(LOCALE_PREFERENCE_STORAGE_KEY, "zh-CN");
+    const onSummary = vi.fn();
+    stubBillingFetch({ order: paidBillingOrder, onSummary });
+    window.history.pushState(
+      {},
+      "",
+      `/account/billing?payment=success&orderId=${billingOrder.orderId}`,
+    );
+
+    renderWithI18n(<AccountBillingPage onNavigate={() => {}} />);
+
+    expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("支付成功，次数已到账");
+    });
+    expect(window.location.pathname).toBe("/account/billing");
+    expect(window.location.search).toBe("");
+    expect(onSummary).toHaveBeenCalled();
+  });
 });
 
 describe("AlipayReturnPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
     window.sessionStorage.clear();
     window.localStorage.clear();
     window.history.pushState({}, "", "/");
@@ -212,7 +258,9 @@ describe("AlipayReturnPage", () => {
       `/billing/alipay/return?out_trade_no=${billingOrder.merchantOrderNo}`,
     );
 
-    const { container } = renderWithI18n(<AlipayReturnPage onNavigate={() => {}} />);
+    const navigate = vi.fn();
+    const user = userEvent.setup();
+    const { container } = renderWithI18n(<AlipayReturnPage onNavigate={navigate} />);
 
     expect(
       container.querySelector(".motion-card, .motion-rise, .motion-action"),
@@ -223,12 +271,37 @@ describe("AlipayReturnPage", () => {
         Boolean(element?.textContent?.includes(billingOrder.merchantOrderNo)),
       ),
     ).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: "返回支付页面" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "返回项目" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "返回定价" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回支付页面" }));
+    expect(navigate).toHaveBeenCalledWith("/account/billing");
+  });
+
+  it("returns to account billing with success marker after the backend confirms payment", async () => {
+    stubBillingFetch({ order: paidBillingOrder });
+    window.history.pushState(
+      {},
+      "",
+      `/billing/alipay/return?orderId=${billingOrder.orderId}`,
+    );
+    const navigate = vi.fn();
+
+    renderWithI18n(<AlipayReturnPage onNavigate={navigate} />);
+
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(
+        `/account/billing?payment=success&orderId=${billingOrder.orderId}`,
+      );
+    });
   });
 });
 
 describe("PricingBillingPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
     window.sessionStorage.clear();
     window.localStorage.clear();
   });
