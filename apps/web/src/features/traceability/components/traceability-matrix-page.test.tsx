@@ -1,14 +1,19 @@
 // Verifies traceability matrix filtering, coverage summaries, and evidence drill-down behavior.
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
+import { LOCALE_PREFERENCE_STORAGE_KEY } from "../../../shared/i18n";
 import {
   createRule,
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
 import { TraceabilityMatrixPage } from "./traceability-matrix-page";
+
+afterEach(() => {
+  window.localStorage.clear();
+});
 
 async function chooseSelectOption(
   user: ReturnType<typeof userEvent.setup>,
@@ -378,6 +383,124 @@ describe("TraceabilityMatrixPage", () => {
     await userEvent.click(row!);
     expect(screen.getByText("来源用例实现设计：sequence:submit-order / 认证服务")).toBeInTheDocument();
     expect(screen.getByText("需求元素：领域概念模型 / UserDomain")).toBeInTheDocument();
+    expect(screen.queryByText("R2 [业务规则] 用户资料需要建模。")).not.toBeInTheDocument();
+  });
+
+  it("renders design traceability system UI in English while preserving generated labels", async () => {
+    window.localStorage.setItem(LOCALE_PREFERENCE_STORAGE_KEY, "en");
+    const repository = createRepository(
+      createWorkspaceRecord({
+        generatedDiagramTypes: ["class"],
+        rules: [
+          createRule({
+            id: "r2",
+            category: "业务规则",
+            text: "用户资料需要建模。",
+            relatedDiagrams: ["class"],
+          }),
+        ],
+        models: { class: classModel },
+        requirementModelTraceability: [
+          {
+            ruleId: "r2",
+            target: {
+              diagramKind: "class",
+              elementId: "domain-user",
+              elementKind: "class",
+              label: "UserDomain",
+            },
+          },
+        ],
+        generatedDesignDiagramTypes: ["sequence", "class"],
+        designModels: {
+          "sequence:submit-order": {
+            diagramKind: "sequence",
+            modelId: "sequence:submit-order",
+            sourceUseCaseId: "submit-order",
+            sourceUseCaseName: "提交订单",
+            title: "提交订单用例实现设计",
+            summary: "订单提交时序",
+            notes: [],
+            participants: [
+              { id: "auth-service", name: "认证服务", participantType: "control" },
+            ],
+            messages: [],
+            fragments: [],
+          },
+          class: {
+            diagramKind: "class",
+            title: "设计类图",
+            summary: "静态结构",
+            notes: [],
+            classes: [
+              {
+                id: "class-user-auth",
+                name: "Class_UserAuth",
+                attributes: [],
+                operations: [],
+              },
+            ],
+            interfaces: [],
+            enums: [],
+            relationships: [],
+          },
+        },
+        designModelTraceability: [
+          {
+            source: {
+              modelId: "sequence:submit-order",
+              diagramKind: "sequence",
+              elementId: "auth-service",
+              elementKind: "participant",
+              label: "认证服务",
+            },
+            targets: [
+              {
+                diagramKind: "class",
+                elementId: "domain-user",
+                elementKind: "class",
+                label: "UserDomain",
+              },
+            ],
+          },
+          {
+            source: {
+              diagramKind: "class",
+              elementId: "class-user-auth",
+              elementKind: "class",
+              label: "Class_UserAuth",
+            },
+            targets: [
+              {
+                diagramKind: "class",
+                elementId: "domain-user",
+                elementKind: "class",
+                label: "UserDomain",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    render(
+      withWorkspaceProviders(<TraceabilityMatrixPage mode="design" />, repository),
+    );
+
+    expect(await screen.findByText("Design traceability matrix")).toBeInTheDocument();
+    expect(screen.getByText("Design element mappings")).toBeInTheDocument();
+    expect(screen.getByText("Source design diagram element")).toBeInTheDocument();
+    expect(screen.getByText("Source requirement diagram")).toBeInTheDocument();
+
+    const table = await findMatrixTableByText("Class_UserAuth");
+    const row = within(table).getByText("Class_UserAuth").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("Domain Concept Model: UserDomain")).toBeInTheDocument();
+    expect(within(row!).getByText("Use Case Realization Design: 认证服务")).toBeInTheDocument();
+    expect(within(row!).getByText("Mapped")).toBeInTheDocument();
+    await userEvent.click(row!);
+    expect(screen.getByText("Source use case realization design: sequence:submit-order / 认证服务")).toBeInTheDocument();
+    expect(screen.getByText("Requirement element: Domain Concept Model / UserDomain")).toBeInTheDocument();
     expect(screen.queryByText("R2 [业务规则] 用户资料需要建模。")).not.toBeInTheDocument();
   });
 

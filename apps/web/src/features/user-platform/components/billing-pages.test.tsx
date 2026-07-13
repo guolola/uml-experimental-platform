@@ -2,6 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppI18nProvider } from "../../../app/providers/i18n-provider";
+import { LOCALE_PREFERENCE_STORAGE_KEY } from "../../../shared/i18n";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountBillingPage, AlipayReturnPage, PricingBillingPage } from "./billing-pages";
@@ -130,14 +131,18 @@ describe("AccountBillingPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("keeps entitlement cards, order table, and payment choices in scale-to-fit layouts", async () => {
     stubBillingFetch();
     const user = userEvent.setup();
-    renderWithI18n(<AccountBillingPage onNavigate={() => {}} />);
+    const { container } = renderWithI18n(<AccountBillingPage onNavigate={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "权益与账单" })).toBeInTheDocument();
+    expect(
+      container.querySelector(".motion-card, .motion-rise, .motion-action"),
+    ).toBeNull();
     const orderTable = await screen.findByTestId("billing-order-table");
     expect(orderTable.closest("[data-scale-to-fit]")).toHaveAttribute(
       "data-scale-to-fit",
@@ -175,12 +180,27 @@ describe("AccountBillingPage", () => {
       "zpayz.cn/submit.php",
     );
   });
+
+  it("renders account billing system UI in English while preserving SKU text", async () => {
+    window.localStorage.setItem(LOCALE_PREFERENCE_STORAGE_KEY, "en");
+    stubBillingFetch();
+    renderWithI18n(<AccountBillingPage onNavigate={() => {}} />);
+
+    expect(await screen.findByRole("heading", { name: "Credits and billing" })).toBeInTheDocument();
+    expect(screen.getByText("Order history")).toBeInTheDocument();
+    expect(screen.getByText("Order no.")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume payment" })).toBeInTheDocument();
+    expect(screen.getAllByText("100 次包").length).toBeGreaterThan(0);
+    expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
+  });
 });
 
 describe("AlipayReturnPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.sessionStorage.clear();
+    window.localStorage.clear();
     window.history.pushState({}, "", "/");
   });
 
@@ -192,7 +212,11 @@ describe("AlipayReturnPage", () => {
       `/billing/alipay/return?out_trade_no=${billingOrder.merchantOrderNo}`,
     );
 
-    renderWithI18n(<AlipayReturnPage onNavigate={() => {}} />);
+    const { container } = renderWithI18n(<AlipayReturnPage onNavigate={() => {}} />);
+
+    expect(
+      container.querySelector(".motion-card, .motion-rise, .motion-action"),
+    ).toBeNull();
 
     expect(
       await screen.findAllByText((_, element) =>
@@ -206,13 +230,17 @@ describe("PricingBillingPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("renders only credit packs on the public payment page", async () => {
     stubBillingFetch();
-    renderWithI18n(<PricingBillingPage signedIn onNavigate={() => {}} />);
+    const { container } = renderWithI18n(<PricingBillingPage signedIn onNavigate={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "开通 AI 生成权益" })).toBeInTheDocument();
+    expect(
+      container.querySelector(".motion-card, .motion-rise, .motion-action"),
+    ).toBeNull();
     expect(screen.getByText("购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。")).toBeInTheDocument();
     expect(screen.queryByText("通行卡")).not.toBeInTheDocument();
     expect(screen.queryByText("日卡")).not.toBeInTheDocument();
@@ -220,6 +248,18 @@ describe("PricingBillingPage", () => {
     expect(screen.queryByText("月卡")).not.toBeInTheDocument();
     expect(screen.queryByText("年卡")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "立即开通" })).not.toBeInTheDocument();
+    expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
+  });
+
+  it("renders public payment system UI in English while preserving SKU text", async () => {
+    window.localStorage.setItem(LOCALE_PREFERENCE_STORAGE_KEY, "en");
+    stubBillingFetch();
+    renderWithI18n(<PricingBillingPage signedIn onNavigate={() => {}} />);
+
+    expect(await screen.findByRole("heading", { name: "Enable AI generation credits" })).toBeInTheDocument();
+    expect(screen.getByText("Credit packs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy now" })).toBeInTheDocument();
+    expect(screen.getAllByText("100 次包").length).toBeGreaterThan(0);
     expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
   });
 });

@@ -107,12 +107,22 @@ function createTraceabilityCopy(t: TFunction): TraceabilityRowCopy {
   };
 }
 
-function designRefLabel(ref: TraceabilityRef, copy: TraceabilityRowCopy, t: TFunction) {
-  return `${designGroupLabel(ref.diagramKind ?? "sequence", copy)}: ${ref.label ?? t("traceability.unnamedElement")}`;
+function designRefLabel(
+  ref: TraceabilityRef,
+  copy: TraceabilityRowCopy,
+  t: TFunction,
+  refSeparator: string,
+) {
+  return `${designGroupLabel(ref.diagramKind ?? "sequence", copy)}${refSeparator}${ref.label ?? t("traceability.unnamedElement")}`;
 }
 
-function requirementRefLabel(ref: TraceabilityRef, copy: TraceabilityRowCopy, t: TFunction) {
-  return `${requirementGroupLabel(ref.diagramKind ?? "usecase", copy)}: ${ref.label ?? t("traceability.unnamedElement")}`;
+function requirementRefLabel(
+  ref: TraceabilityRef,
+  copy: TraceabilityRowCopy,
+  t: TFunction,
+  refSeparator: string,
+) {
+  return `${requirementGroupLabel(ref.diagramKind ?? "usecase", copy)}${refSeparator}${ref.label ?? t("traceability.unnamedElement")}`;
 }
 
 function StatusBadge({ status, t }: { status: RowStatus; t: TFunction }) {
@@ -157,6 +167,7 @@ export function TraceabilityMatrixPage({
 
   const isDesign = mode === "design";
   const isAnalysisRequirementScope = !isDesign && scope?.diagramKind === "analysis";
+  const refSeparator = t("traceability.refSeparator");
   const traceabilityCopy = useMemo(() => createTraceabilityCopy(t), [t]);
   const rows = useMemo(
     () =>
@@ -424,7 +435,7 @@ export function TraceabilityMatrixPage({
                               <td className="border-r border-border px-4 py-3 align-middle">
                                 <div className="flex flex-col gap-2">
                                   <ChipList
-                                    items={row.upstreamDesignElements.map((ref) => designRefLabel(ref, traceabilityCopy, t))}
+                                    items={row.upstreamDesignElements.map((ref) => designRefLabel(ref, traceabilityCopy, t, refSeparator))}
                                     emptyText={t("traceability.empty.noSourceDesignElement")}
                                   />
                                 </div>
@@ -434,9 +445,9 @@ export function TraceabilityMatrixPage({
                               <ChipList
                                 items={
                                   isDesign
-                                    ? row.requirementElements.map((ref) => requirementRefLabel(ref, traceabilityCopy, t))
+                                    ? row.requirementElements.map((ref) => requirementRefLabel(ref, traceabilityCopy, t, refSeparator))
                                     : isAnalysisRequirementScope
-                                    ? row.requirementElements.map((ref) => requirementRefLabel(ref, traceabilityCopy, t))
+                                    ? row.requirementElements.map((ref) => requirementRefLabel(ref, traceabilityCopy, t, refSeparator))
                                     : row.requirementRules.map((rule) => formatRuleId(rule.id))
                                 }
                                 emptyText={

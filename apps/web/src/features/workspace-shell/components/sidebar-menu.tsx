@@ -6,6 +6,8 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
   FileText,
@@ -37,9 +39,9 @@ import { toast } from "sonner";
 import { cn } from "../../../shared/ui/utils";
 import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import {
-  DESIGN_DIAGRAM_META,
-  DIAGRAM_META,
+  getDesignDiagramLabel,
   getDesignModelId,
+  getDiagramLabel,
   getRequirementModelId,
   type DesignDiagramType,
   type DiagramType,
@@ -334,20 +336,21 @@ function buildDiagramNode(
     label: string,
     modelId?: string,
   ) => void,
+  t: TFunction,
 ): Node {
   const modelId = model ? getRequirementModelId(model) : diagram;
   const canOpen = viewable && status !== "failed";
   const label =
     diagram === "analysis" && model
       ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
-      : DIAGRAM_META[diagram].label;
+      : getDiagramLabel(diagram, t);
   const detail = buildDiagramDetailModel(model);
   const children: Node[] = [
     ...(model
       ? [
           {
             key: `requirements:trace-matrix:${modelId}`,
-            label: "跟踪矩阵",
+            label: t("traceability.title.short"),
             icon: <Network className="size-3.5 text-muted-foreground" />,
             onSelect: () => openRequirementTraceMatrix(diagram, modelId, label),
           },
@@ -361,6 +364,7 @@ function buildDiagramNode(
       (element) =>
         openDiagramElement(diagram, element.kind, element.id, element.label, modelId),
       { showGroupBadges: true },
+      t,
     ),
   ];
 
@@ -421,6 +425,7 @@ function buildDiagramElementGroupNodes(
   elementKeyPrefix: string,
   onSelectElement: (element: ReturnType<typeof buildDiagramDetailModel>["items"][number]) => void,
   options: { showGroupBadges: boolean },
+  t: TFunction,
 ): Node[] {
   const tableColumnsByTableId = new Map<
     string,
@@ -440,7 +445,9 @@ function buildDiagramElementGroupNodes(
     .filter((group) => !(hasTableHierarchy && group.kind === "table-column"))
     .map((group) => ({
       key: `${groupKeyPrefix}:${modelId}:${group.kind}`,
-      label: SEMANTIC_KIND_META[group.kind].label,
+      label: t(`diagrams.semantic.${group.kind}.label`, {
+        defaultValue: SEMANTIC_KIND_META[group.kind].label,
+      }),
       selectable: false,
       badge: options.showGroupBadges ? group.items.length : undefined,
       children: group.items.map((element) => {
@@ -491,20 +498,21 @@ function buildDesignDiagramNode(
     label: string,
     modelId?: string,
   ) => void,
+  t: TFunction,
 ): Node {
   const modelId = model ? getDesignModelId(model) : diagram;
   const canOpen = viewable && status !== "failed";
   const label =
     diagram === "sequence" && model
       ? ("sourceUseCaseName" in model ? model.sourceUseCaseName : undefined) ?? model.title
-      : DESIGN_DIAGRAM_META[diagram].label;
+      : getDesignDiagramLabel(diagram, t);
   const detail = buildDiagramDetailModel(model);
   const children: Node[] = [
     ...(model
       ? [
           {
             key: `design:trace-matrix:${modelId}`,
-            label: "跟踪矩阵",
+            label: t("traceability.title.short"),
             icon: <Network className="size-3.5 text-muted-foreground" />,
             onSelect: () => openDesignTraceMatrix(diagram, modelId, label),
           },
@@ -524,6 +532,7 @@ function buildDesignDiagramNode(
           modelId,
         ),
       { showGroupBadges: false },
+      t,
     ),
   ];
 
@@ -580,6 +589,7 @@ export function SidebarMenu({
   onNavigateItemSelect,
   projectRuns = [],
 }: SidebarMenuProps = {}) {
+  const { t } = useTranslation();
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const {
     generatedDiagrams,
@@ -667,7 +677,7 @@ export function SidebarMenu({
   const tree: Node[] = [
     {
       key: "requirements",
-      label: "需求",
+      label: t("workspace.tabs.labels.requirements"),
       icon: <FileText className="size-4 text-muted-foreground" />,
       status: requirementRootStatus,
       statusTooltip: rootGenerationStatusTooltip("需求链路", requirementRootStatus),
@@ -686,12 +696,12 @@ export function SidebarMenu({
             );
             return {
               key: "diagram-group:analysis",
-              label: `${DIAGRAM_META.analysis.label}（${analysisSubtaskNodes.length}）`,
+              label: `${getDiagramLabel("analysis", t)}（${analysisSubtaskNodes.length}）`,
               icon: <MessageSquare className="size-4 text-muted-foreground" />,
               selectable: false,
               status: groupStatus,
               statusTooltip: generationStatusTooltip(
-                DIAGRAM_META.analysis.label,
+                getDiagramLabel("analysis", t),
                 groupStatus,
                 analysisSubtaskNodes.some((node) =>
                   requirementModelViewable("analysis", node.id),
@@ -729,6 +739,7 @@ export function SidebarMenu({
                   openDiagram,
                   openRequirementTraceMatrix,
                   openDiagramElement,
+                  t,
                 );
               }),
             };
@@ -745,7 +756,7 @@ export function SidebarMenu({
             Boolean((modelId ? diagramErrors[modelId] : undefined) ?? diagramErrors[diagram]),
             status,
             generationStatusTooltip(
-              DIAGRAM_META[diagram].label,
+              getDiagramLabel(diagram, t),
               status,
               viewable,
               hasStructuredModel,
@@ -755,13 +766,14 @@ export function SidebarMenu({
             openDiagram,
             openRequirementTraceMatrix,
             openDiagramElement,
+            t,
           );
         }),
       ],
     },
     {
       key: "design",
-      label: "设计",
+      label: t("workspace.tabs.labels.design"),
       icon: <Palette className="size-4 text-muted-foreground" />,
       status: designRootStatus,
       statusTooltip: rootGenerationStatusTooltip("设计链路", designRootStatus),
@@ -796,7 +808,7 @@ export function SidebarMenu({
             );
             return {
               key: "design-diagram-group:sequence",
-              label: `${DESIGN_DIAGRAM_META.sequence.label}（${sequenceSubtaskNodes.length}）`,
+              label: `${getDesignDiagramLabel("sequence", t)}（${sequenceSubtaskNodes.length}）`,
               icon: (
                 <span className="relative inline-flex">
                   <MessageSquare className="size-4 text-muted-foreground" />
@@ -812,7 +824,7 @@ export function SidebarMenu({
               status: groupStatus,
               statusTooltip:
                 generationStatusTooltip(
-                  DESIGN_DIAGRAM_META.sequence.label,
+                  getDesignDiagramLabel("sequence", t),
                   groupStatus,
                   sequenceSubtaskNodes.some((node) =>
                     designModelViewable("sequence", node.id),
@@ -854,6 +866,7 @@ export function SidebarMenu({
                     openDesignDiagram,
                     openDesignTraceMatrix,
                     openDesignDiagramElement,
+                    t,
                   );
                 }
               ),
@@ -883,7 +896,7 @@ export function SidebarMenu({
             staleReason,
             status,
             generationStatusTooltip(
-              DESIGN_DIAGRAM_META[diagram].label,
+              getDesignDiagramLabel(diagram, t),
               status,
               viewable,
               hasStructuredModel,
@@ -893,27 +906,28 @@ export function SidebarMenu({
             openDesignDiagram,
             openDesignTraceMatrix,
             openDesignDiagramElement,
+            t,
           );
         }),
       ],
     },
     {
       key: "workspace:code",
-      label: "代码",
+      label: t("workspace.tabs.labels.code"),
       icon: <Code2 className="size-4 text-muted-foreground" />,
       status: codeRootStatus,
       statusTooltip: rootGenerationStatusTooltip("代码原型", codeRootStatus),
-      onSelect: () => openWorkspacePlaceholder("code", "代码"),
+      onSelect: () => openWorkspacePlaceholder("code", t("workspace.tabs.labels.code")),
     },
     {
       key: "test",
-      label: "测试",
+      label: t("workspace.tabs.labels.tests"),
       icon: <ClipboardCheck className="size-4 text-muted-foreground" />,
       onSelect: openTestHome,
     },
     {
       key: "documents",
-      label: "说明书",
+      label: t("workspace.tabs.labels.documents"),
       icon: <FileText className="size-4 text-muted-foreground" />,
       status: documentRootStatus,
       statusTooltip: rootGenerationStatusTooltip("说明书", documentRootStatus),
