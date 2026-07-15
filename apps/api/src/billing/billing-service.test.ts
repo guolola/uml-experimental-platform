@@ -192,7 +192,7 @@ test("email verification signup bonus is idempotent and powers credit reservatio
 
   await service.grantSignupBonus("user-bonus");
   await service.grantSignupBonus("user-bonus");
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 5);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 30);
 
   const reserved = await service.reserveRunUsage({
     runId: "run-reserve-release",
@@ -200,9 +200,9 @@ test("email verification signup bonus is idempotent and powers credit reservatio
     taskType: "requirements_to_uml",
   });
   assert.equal(reserved.allowed, true);
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 4);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 29);
   await service.releaseRunUsage("run-reserve-release");
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 5);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 30);
 
   const confirmed = await service.reserveRunUsage({
     runId: "run-confirm",
@@ -212,7 +212,7 @@ test("email verification signup bonus is idempotent and powers credit reservatio
   assert.equal(confirmed.allowed, true);
   await service.confirmRunUsage("run-confirm");
   await service.confirmRunUsage("run-confirm");
-  assert.equal((await service.getSummary("user-bonus")).creditBalance, 4);
+  assert.equal((await service.getSummary("user-bonus")).creditBalance, 29);
 });
 
 test("guest development allowance is daily and idempotent", async () => {

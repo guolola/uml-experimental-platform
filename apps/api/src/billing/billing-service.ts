@@ -71,7 +71,7 @@ type PaymentCallbackProcessInput = {
   rawBody: string;
 };
 
-const SIGNUP_BONUS_CREDITS = 5;
+const SIGNUP_BONUS_CREDITS = 30;
 const SIGNUP_BONUS_DAYS = 30;
 const ORDER_EXPIRES_MINUTES = 15;
 

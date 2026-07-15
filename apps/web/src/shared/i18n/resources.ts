@@ -234,7 +234,7 @@ export const resources = {
         pricing: {
           badge: "支付权益",
           title: "开通 AI 生成权益",
-          description: "购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 5 次，有效期 30 天。",
+          description: "购买次数包后可用于所有可选模型，每次生成扣 1 次。新用户邮箱验证后自动赠送 30 次，有效期 30 天。",
         },
         payment: {
           confirmTitle: "支付确认",

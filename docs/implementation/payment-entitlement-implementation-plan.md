@@ -8,7 +8,7 @@
 - 支持 8 个 SKU：
   - 时长卡：日卡、周卡、月卡、年卡。
   - 次数包：10 次、50 次、100 次、500 次。
-- 新用户邮箱验证成功后赠送 5 次，赠送次数 30 天后过期。
+- 新用户邮箱验证成功后赠送 30 次，赠送次数 30 天后过期。
 - 建立独立 `billing/payments` 领域，不复用 provider usage、admin quota 或 guest daily limit。
 - 支付回调以官方异步通知为准；前端同步跳转、轮询、返回页只做状态展示。
 - v1 不实现移动端 H5、小程序支付、自动续费订阅、发票申请前端、完整运营后台前端。
@@ -24,7 +24,7 @@
   - 年卡：365 天。
 - 次数包购买后默认不过期。
 - 新用户奖励：
-  - 用户邮箱验证成功后发放 5 次。
+  - 用户邮箱验证成功后发放 30 次。
   - 赠送次数 30 天后过期。
   - 发放必须幂等，同一用户只能收到一次 signup bonus。
 - 价格全部以后端 SKU 配置为准，前端不能提交或覆盖价格、次数、天数。
@@ -411,7 +411,7 @@ Run route 行为变化：
 
 ### Phase 3：Auth 与 Run 权益集成
 
-- 邮箱验证成功后幂等发放 5 次。
+- 邮箱验证成功后幂等发放 30 次。
 - 已验证老用户首次读取 summary 时补发 signup bonus。
 - run start、design/code/document run、retry/rerun 接入预占。
 - 生成阶段开始后确认消费，未进入生成阶段失败时释放预占。
@@ -480,7 +480,7 @@ Run route 行为变化：
 ## 14. Goal 模式提示词
 
 ```text
-请在 E:\umlExperimentalPlatform 中实现支付与权益模块，严格按照 docs/implementation/payment-entitlement-implementation-plan.md 执行。目标是完成 PC Web 支付 v1：微信 Native 扫码支付、支付宝电脑网站支付、8 个 SKU（日卡/周卡/月卡/年卡/10次/50次/100次/500次）、邮箱验证后新用户赠送 5 次、生成任务权益预占/确认/释放、无权益和通行卡每日上限提示、/pricing、/account/billing、支付确认弹窗、微信二维码弹窗、支付宝支付中间态页。
+请在 E:\umlExperimentalPlatform 中实现支付与权益模块，严格按照 docs/implementation/payment-entitlement-implementation-plan.md 执行。目标是完成 PC Web 支付 v1：微信 Native 扫码支付、支付宝电脑网站支付、8 个 SKU（日卡/周卡/月卡/年卡/10次/50次/100次/500次）、邮箱验证后新用户赠送 30 次、生成任务权益预占/确认/释放、无权益和通行卡每日上限提示、/pricing、/account/billing、支付确认弹窗、微信二维码弹窗、支付宝支付中间态页。
 
 实现时保持现有 monorepo 边界：apps/api/src/index.ts 只做注册和组装；API routes 放 apps/api/src/routes/billing/；支付和权益业务放 apps/api/src/billing/；微信/支付宝外部调用放 apps/api/src/adapters/payments/{wechat,alipay}/；contracts 放 packages/contracts/src/index.ts；前端遵守 apps/web 的 app/features/entities/services/shared 分层。不要把付费权益混入 provider usage、admin quota 或 guest daily limit。
 
