@@ -2,6 +2,8 @@
 import type {
   DesignDiagramKind,
   DiagramKind,
+  ContextDiagramSpec,
+  ContextTraceRow,
   ModelElementRef,
   RequirementRule,
 } from "@uml-platform/contracts";
@@ -49,7 +51,115 @@ export type ElementRow = {
 export const PAGE_SIZE_OPTIONS = [8, 12, 24] as const;
 export const ALL_GROUPS = "__all__";
 
+export function buildContextRows(
+  rules: RequirementRule[],
+  model: ContextDiagramSpec | null,
+  traceability: ContextTraceRow[],
+  copy: TraceabilityRowCopy = DEFAULT_TRACEABILITY_ROW_COPY,
+): ElementRow[] {
+  if (!model) return [];
+  const rulesById = new Map(rules.map((rule) => [rule.id.trim().toLowerCase(), rule]));
+  const hasPersistedTrace = traceability.length > 0;
+  const persistedPairs = new Set(
+    traceability.map((row) => `${row.requirementId.trim().toLowerCase()}:${row.targetId}`),
+  );
+  const createRow = (input: {
+    id: string;
+    label: string;
+    description?: string;
+    groupKey: string;
+    groupLabel: string;
+    typeLabel: string;
+    sourceRequirementIds: string[];
+    detailLines?: string[];
+  }): ElementRow => {
+    const sourceIds = Array.from(new Set(input.sourceRequirementIds.map((id) => id.trim()).filter(Boolean)));
+    const requirementRules = sourceIds
+      .map((id) => rulesById.get(id.toLowerCase()))
+      .filter((rule): rule is RequirementRule => Boolean(rule));
+    const invalidIds = sourceIds.filter((id) => !rulesById.has(id.toLowerCase()));
+    const traceComplete =
+      !hasPersistedTrace ||
+      sourceIds.every((id) => persistedPairs.has(`${id.toLowerCase()}:${input.id}`));
+    const mapped = sourceIds.length > 0 && invalidIds.length === 0 && traceComplete;
+    return {
+      id: `context:${input.groupKey}:${input.id}`,
+      label: input.label,
+      subtitle: input.description ?? copy.context.noDescription,
+      typeLabel: input.typeLabel,
+      groupKey: input.groupKey,
+      groupLabel: input.groupLabel,
+      scopeKey: "context",
+      status: mapped ? "mapped" : "unmapped",
+      mappingNote: invalidIds.length > 0
+        ? copy.context.invalidSources(invalidIds.join(", "))
+        : !traceComplete
+          ? copy.context.incompleteTrace
+          : sourceIds.length > 0
+            ? copy.context.deterministicMapping
+            : copy.context.missingSource,
+      requirementRules,
+      requirementElements: [],
+      upstreamDesignElements: [],
+      detailLines: [
+        copy.context.sourceRules(sourceIds.length > 0 ? sourceIds.join(", ") : copy.context.unmapped),
+        ...(input.detailLines ?? []),
+      ],
+    };
+  };
+  const people = model.people.map((item) => createRow({
+    id: item.id,
+    label: item.name,
+    description: item.description,
+    groupKey: "context:people",
+    groupLabel: copy.context.people,
+    typeLabel: copy.context.people,
+    sourceRequirementIds: item.sourceRequirementIds,
+  }));
+  const externalSystems = model.externalSystems.map((item) => createRow({
+    id: item.id,
+    label: item.name,
+    description: item.description,
+    groupKey: "context:external-systems",
+    groupLabel: copy.context.externalSystems,
+    typeLabel: copy.context.externalSystems,
+    sourceRequirementIds: item.sourceRequirementIds,
+  }));
+  const relationships = model.relationships.map((item) => createRow({
+    id: item.id,
+    label: item.label,
+    description: item.description,
+    groupKey: "context:relationships",
+    groupLabel: copy.context.relationships,
+    typeLabel: item.direction === "bidirectional" ? copy.context.bidirectionalInteraction : copy.context.directedInteraction,
+    sourceRequirementIds: item.sourceRequirementIds,
+    detailLines: [
+      copy.context.endpoints(item.sourceId, item.targetId),
+      copy.context.direction(item.direction === "bidirectional" ? copy.context.bidirectional : copy.context.directed),
+    ],
+  }));
+  return [...people, ...externalSystems, ...relationships];
+}
+
 export type TraceabilityRowCopy = {
+  context: {
+    noDescription: string;
+    people: string;
+    externalSystems: string;
+    relationships: string;
+    directedInteraction: string;
+    bidirectionalInteraction: string;
+    invalidSources: (ids: string) => string;
+    incompleteTrace: string;
+    deterministicMapping: string;
+    missingSource: string;
+    sourceRules: (ids: string) => string;
+    unmapped: string;
+    endpoints: (source: string, target: string) => string;
+    direction: (direction: string) => string;
+    directed: string;
+    bidirectional: string;
+  };
   semanticKindLabel: (kind: keyof typeof SEMANTIC_KIND_META) => string;
   requirementGroupLabel: (diagramKind: DiagramKind | DesignDiagramKind) => string;
   designGroupLabel: (diagramKind: DiagramKind | DesignDiagramKind) => string;
@@ -71,6 +181,24 @@ export type TraceabilityRowCopy = {
 };
 
 export const DEFAULT_TRACEABILITY_ROW_COPY: TraceabilityRowCopy = {
+  context: {
+    noDescription: "暂无说明",
+    people: "人员",
+    externalSystems: "外部系统",
+    relationships: "关系",
+    directedInteraction: "有向交互",
+    bidirectionalInteraction: "双向交互",
+    invalidSources: (ids) => `无效来源规则：${ids}`,
+    incompleteTrace: "持久化跟踪数据不完整，请保存或重新生成上下文图。",
+    deterministicMapping: "根据上下文模型的来源规则编号确定性映射。",
+    missingSource: "缺少来源需求规则。",
+    sourceRules: (ids) => `来源规则：${ids}`,
+    unmapped: "未映射",
+    endpoints: (source, target) => `端点：${source} → ${target}`,
+    direction: (direction) => `方向：${direction}`,
+    directed: "有向",
+    bidirectional: "双向",
+  },
   semanticKindLabel: (kind) => SEMANTIC_KIND_META[kind].label,
   requirementGroupLabel: (diagramKind) =>
     DIAGRAM_META[diagramKind as DiagramType]?.label ?? String(diagramKind),

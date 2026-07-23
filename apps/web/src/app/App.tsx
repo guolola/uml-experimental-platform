@@ -17,7 +17,8 @@ import {
 import { CodeGenerationPage } from "../features/code/components/code-generation-page";
 import { DesignModelPage } from "../features/design/components/design-model-page";
 import { InstructionDocumentsPage } from "../features/documents/components/instruction-documents-page";
-import { TextRequirementView } from "../features/requirements/components/text-requirement-page";
+import { RequirementsModelPage, SystemRequirementsPage } from "../features/requirements/components/text-requirement-page";
+import { FeasibilityPage } from "../features/feasibility/components/feasibility-page";
 import { TraceabilityMatrixPage } from "../features/traceability/components/traceability-matrix-page";
 import { TestModelPage } from "../features/testing/components/test-model-page";
 import { MarketingHomePage } from "../features/marketing-site/components/marketing-home-page";
@@ -109,6 +110,7 @@ function ProjectWorkspaceShell({
   onActiveProjectDrawerChange: (drawer: ProjectDrawerKind | null) => void;
   onNavigate: (route: string) => void;
 }) {
+  const { t } = useTranslation();
   const { selection } = useWorkspaceShell();
   const { generationTasks } = useWorkspaceSession();
   const projectOverview = useCurrentProjectOverview();
@@ -118,6 +120,9 @@ function ProjectWorkspaceShell({
     (task) => task.status === "queued" || task.status === "running",
   ).length;
   const activeDrawer = routeDrawer ?? activeProjectDrawer;
+  const traceabilityPrefix = t("traceability.title.scoped", { label: "" });
+  const traceabilityScopeLabel = (label: string) =>
+    label.startsWith(traceabilityPrefix) ? label.slice(traceabilityPrefix.length) : label;
   const closeDrawer = () => {
     onActiveProjectDrawerChange(null);
     if (routeDrawer) {
@@ -127,8 +132,40 @@ function ProjectWorkspaceShell({
 
   let body: ReactNode;
   switch (selection.kind) {
+    case "system-requirements":
+      body = <SystemRequirementsPage />;
+      break;
     case "requirements-text":
-      body = <TextRequirementView />;
+      body = <RequirementsModelPage />;
+      break;
+    case "feasibility-home":
+      body = <FeasibilityPage view="overview" />;
+      break;
+    case "feasibility-context":
+      body = <FeasibilityPage view="context" />;
+      break;
+    case "feasibility-context-element":
+      body = (
+        <FeasibilityPage
+          view="context"
+          highlightedElement={{
+            kind: selection.elementKind,
+            id: selection.elementId,
+          }}
+        />
+      );
+      break;
+    case "feasibility-context-trace":
+      body = <FeasibilityPage view="trace" />;
+      break;
+    case "feasibility-context-elements":
+      body = <FeasibilityPage view="elements" />;
+      break;
+    case "feasibility-context-relations":
+      body = <FeasibilityPage view="relations" />;
+      break;
+    case "feasibility-implementation":
+      body = <FeasibilityPage view="implementation" />;
       break;
     case "requirement-trace-matrix":
       body = (
@@ -137,7 +174,7 @@ function ProjectWorkspaceShell({
           scope={{
             diagramKind: selection.diagram,
             modelId: selection.modelId,
-            label: selection.label.replace(/^跟踪矩阵 · /u, ""),
+            label: traceabilityScopeLabel(selection.label),
           }}
         />
       );
@@ -173,7 +210,7 @@ function ProjectWorkspaceShell({
           scope={{
             diagramKind: selection.diagram,
             modelId: selection.modelId,
-            label: selection.label.replace(/^跟踪矩阵 · /u, ""),
+            label: traceabilityScopeLabel(selection.label),
           }}
         />
       );

@@ -714,4 +714,40 @@ describe("TraceabilityMatrixPage", () => {
     expect(await screen.findByText("暂无矩阵数据")).toBeInTheDocument();
     expect(screen.getByText("请先生成需求模型后再查看跟踪矩阵。")).toBeInTheDocument();
   });
+
+  it("reuses matrix search, coverage, and details for context targets while excluding the center system", async () => {
+    const user = userEvent.setup();
+    render(
+      withWorkspaceProviders(
+        <TraceabilityMatrixPage
+          mode="context"
+          contextData={{
+            model: {
+              diagramKind: "context",
+              modelId: "context",
+              title: "订单系统上下文",
+              summary: "系统边界",
+              notes: [],
+              system: { id: "system", name: "订单系统", sourceRequirementIds: [] },
+              people: [{ id: "customer", name: "客户", sourceRequirementIds: ["r1"] }],
+              externalSystems: [{ id: "payment", name: "支付平台", sourceRequirementIds: ["r1"] }],
+              relationships: [{ id: "pay", sourceId: "system", targetId: "payment", direction: "directed", label: "发起支付", sourceRequirementIds: ["r1"] }],
+            },
+            traceability: [],
+            rules: [createRule({ text: "客户可以发起订单" })],
+            stale: false,
+          }}
+        />,
+        createRepository(),
+      ),
+    );
+
+    expect(await screen.findByRole("heading", { name: "上下文图跟踪矩阵" })).toBeInTheDocument();
+    expect(screen.getByText("3 项")).toBeInTheDocument();
+    expect(screen.queryByText("订单系统")).not.toBeInTheDocument();
+    expect(screen.getByText(/覆盖完整性：/)).toHaveTextContent("100%");
+    await user.type(screen.getByPlaceholderText("搜索矩阵…"), "支付平台");
+    expect(screen.getAllByText("支付平台").length).toBeGreaterThan(0);
+    expect(screen.queryByText("客户")).not.toBeInTheDocument();
+  });
 });

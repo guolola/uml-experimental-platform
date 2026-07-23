@@ -14,33 +14,39 @@ export function initials(user: PlatformUser | null) {
   return label.trim().slice(0, 1).toUpperCase();
 }
 
-export function formatDate(value: string | null | undefined) {
-  if (!value) return "暂无";
+export function formatDate(value: string | null | undefined, locale = "zh-CN", empty = "暂无") {
+  if (!value) return empty;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
 
-export function accountStatusLabel(status: string | null | undefined) {
+export function accountStatusLabel(
+  status: string | null | undefined,
+  labels = { active: "正常", disabled: "已停用", pending: "待激活", unknown: "未知" },
+) {
   switch (status) {
     case "active":
-      return "正常";
+      return labels.active;
     case "disabled":
-      return "已停用";
+      return labels.disabled;
     case "pending":
-      return "待激活";
+      return labels.pending;
     default:
-      return status || "未知";
+      return status || labels.unknown;
   }
 }
 
-export function loginOutcomeLabel(outcome: PlatformLoginEvent["outcome"]) {
-  return outcome === "success" ? "成功" : "失败";
+export function loginOutcomeLabel(
+  outcome: PlatformLoginEvent["outcome"],
+  labels = { success: "成功", failed: "失败" },
+) {
+  return outcome === "success" ? labels.success : labels.failed;
 }
 
-export function loginDetail(event: PlatformLoginEvent) {
-  return event.message || (event.userAgent ? formatSessionDevice(event.userAgent) : "暂无详情");
+export function loginDetail(event: PlatformLoginEvent, noDetails = "暂无详情", unknownDevice = "未知设备") {
+  return event.message || (event.userAgent ? formatSessionDevice(event.userAgent, unknownDevice) : noDetails);
 }

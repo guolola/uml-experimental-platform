@@ -33,6 +33,12 @@ import {
 import { buildRequirementBaseline } from "../../runs/baselines/requirement-baseline.js";
 import { createInMemoryAcademicAdminRepository } from "../../db/academic-admin-repository.js";
 import { registerAdminRoutes } from "./register-admin-routes.js";
+
+function assertApiErrorCode(response: { json(): unknown }, code: string) {
+  const body = response.json() as { error?: { code?: string; retryable?: boolean } };
+  assert.equal(body.error?.code, code);
+  assert.equal(typeof body.error?.retryable, "boolean");
+}
 import type { AdminRiskEvent } from "./register-admin-routes.js";
 
 const ADMIN_HEADERS = {
@@ -378,7 +384,7 @@ test("admin endpoints require an authenticated user with a system admin role", a
   });
 
   assert.equal(blocked.statusCode, 403);
-  assert.match(blocked.body, /admin/i);
+  assertApiErrorCode(blocked, "ACCESS_DENIED");
   assert.equal(allowed.statusCode, 200);
   assert.equal(typeof allowed.json().generatedAt, "string");
 
@@ -398,7 +404,7 @@ test("admin header bootstrap is disabled unless explicitly allowed", async () =>
     });
 
     assert.equal(blocked.statusCode, 403);
-    assert.match(blocked.body, /admin/i);
+    assertApiErrorCode(blocked, "ACCESS_DENIED");
   } finally {
     await app.close();
     if (originalAllowHeader === undefined) {
@@ -1046,7 +1052,7 @@ test("admin organization endpoints create, read, and list v1 school/course/class
     headers: { cookie: regularCookie },
   });
   assert.equal(blocked.statusCode, 401);
-  assert.match(blocked.body, /Authentication/i);
+  assertApiErrorCode(blocked, "AUTHENTICATION_REQUIRED");
 
   const organization = await app.inject({
     method: "POST",
@@ -1319,7 +1325,7 @@ test("read-only admin gap endpoints require admin role and expose v1 admin data"
       headers: { cookie: regularCookie },
     });
     assert.equal(blocked.statusCode, 403);
-    assert.match(blocked.body, /admin/i);
+    assertApiErrorCode(blocked, "ACCESS_DENIED");
   }
 
   const roles = await app.inject({
@@ -1467,7 +1473,7 @@ test("admin role high-risk permission review writes audit logs and requires role
     headers: { cookie: auditorCookie },
   });
   assert.equal(forbidden.statusCode, 403);
-  assert.match(forbidden.body, /admin\.roles\.write/);
+  assertApiErrorCode(forbidden, "ACCESS_DENIED");
 
   await app.close();
 });
@@ -1501,7 +1507,7 @@ test("admin prompt runtime governance actions require write permission", async (
     headers: { cookie: auditorCookie },
   });
   assert.equal(submitted.statusCode, 403);
-  assert.match(submitted.body, /admin\.prompt_runtime\.write/);
+  assertApiErrorCode(submitted, "ACCESS_DENIED");
 
   await app.close();
 });
@@ -1888,7 +1894,7 @@ test("admin rate limit mutations require write permission", async () => {
     },
   });
   assert.equal(created.statusCode, 403);
-  assert.match(created.body, /admin\.rate_limits\.write/);
+  assertApiErrorCode(created, "ACCESS_DENIED");
 
   await app.close();
 });
@@ -1916,7 +1922,7 @@ test("non-admin users cannot execute dangerous admin actions or receive admin da
   });
 
   assert.equal(blocked.statusCode, 403);
-  assert.match(blocked.body, /admin/i);
+  assertApiErrorCode(blocked, "ACCESS_DENIED");
   assert.doesNotMatch(blocked.body, /target@example\.com/);
 
   await app.close();
@@ -2586,7 +2592,7 @@ test("provider config create rejects non-public or non-HTTPS base URLs", async (
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.body, /HTTPS|public/i);
+  assertApiErrorCode(response, "VALIDATION_FAILED");
 
   await app.close();
 });
@@ -2649,7 +2655,7 @@ test("provider configs accept SiliconFlow v1 endpoint with a fixed reviewed mode
     assert.equal(allowedTest.json().ok, true);
     assert.equal(testedUrl, "https://api.siliconflow.cn/v1/chat/completions");
     assert.equal(rejectedTest.statusCode, 400);
-    assert.match(rejectedTest.body, /model/i);
+    assertApiErrorCode(rejectedTest, "VALIDATION_FAILED");
 
     await app.close();
   } finally {
@@ -3140,7 +3146,7 @@ test("provider configs can update editable metadata without changing secrets or 
   assert.equal(updated.json().scopeId, project.id);
   assert.doesNotMatch(updated.body, /sk-siliconflow-secret-a91f/);
   assert.equal(rejected.statusCode, 400);
-  assert.match(rejected.body, /default model/i);
+  assertApiErrorCode(rejected, "VALIDATION_FAILED");
 
   await app.close();
 });
@@ -3200,12 +3206,12 @@ test("provider config create requires scope ids for user and project ownership",
   });
 
   assert.equal(missingUserScope.statusCode, 400);
-  assert.match(missingUserScope.body, /scopeId/i);
+  assertApiErrorCode(missingUserScope, "VALIDATION_FAILED");
   assert.equal(userScoped.statusCode, 201);
   assert.equal(userScoped.json().scopeType, "user");
   assert.equal(userScoped.json().scopeId, owner.id);
   assert.equal(missingProjectScope.statusCode, 400);
-  assert.match(missingProjectScope.body, /scopeId/i);
+  assertApiErrorCode(missingProjectScope, "VALIDATION_FAILED");
   assert.equal(projectScoped.statusCode, 201);
   assert.equal(projectScoped.json().scopeType, "project");
   assert.equal(projectScoped.json().scopeId, project.id);
@@ -3281,7 +3287,7 @@ test("provider configs can rotate, revoke, and test allowlisted connections", as
     assert.equal(revoked.statusCode, 200);
     assert.equal(revoked.json().status, "revoked");
     assert.equal(retested.statusCode, 400);
-    assert.match(retested.body, /revoked/i);
+    assertApiErrorCode(retested, "VALIDATION_FAILED");
 
     await app.close();
   } finally {
@@ -3439,7 +3445,7 @@ test("provider configs can be disabled and re-enabled with audit records", async
     assert.equal(disabled.statusCode, 200);
     assert.equal(disabled.json().status, "disabled");
     assert.equal(disabledTest.statusCode, 400);
-    assert.match(disabledTest.body, /disabled|inactive/i);
+    assertApiErrorCode(disabledTest, "VALIDATION_FAILED");
     assert.equal(fetchCalls, 0);
 
     const enabled = await app.inject({

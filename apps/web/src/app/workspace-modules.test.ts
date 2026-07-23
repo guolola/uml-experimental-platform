@@ -16,6 +16,8 @@ describe("workspaceModules", () => {
 
   it("keeps testing after code in workspace module order", () => {
     expect(WORKSPACE_MODULES.map((module) => module.id)).toEqual([
+      "system-requirements",
+      "feasibility",
       "requirements",
       "diagrams",
       "design",

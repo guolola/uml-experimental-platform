@@ -20,6 +20,16 @@ function localizeWorkspaceTabLabel(label: string, t: TFunction) {
     代码: t("workspace.tabs.labels.code"),
     测试: t("workspace.tabs.labels.tests"),
     说明书: t("workspace.tabs.labels.documents"),
+    系统需求: t("workspace.tabs.labels.systemRequirements"),
+    可行性分析: t("workspace.tabs.labels.feasibility"),
+    需求模型: t("workspace.tabs.labels.requirements"),
+    设计模型: t("workspace.tabs.labels.design"),
+    上下文图: t("workspace.tabs.labels.contextDiagram"),
+    上下文跟踪矩阵: t("workspace.tabs.labels.contextTrace"),
+    上下文元素: t("workspace.tabs.labels.contextElements"),
+    上下文关系: t("workspace.tabs.labels.contextRelations"),
+    实现方案: t("workspace.tabs.labels.implementation"),
+    跟踪矩阵: t("workspace.tabs.labels.traceability"),
   };
   return exact[label] ?? label;
 }

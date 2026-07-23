@@ -74,9 +74,7 @@ describe("HistoryDrawer", () => {
     );
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        "删除历史记录失败：Active runs cannot be deleted",
-      );
+      expect(toastError).toHaveBeenCalledWith("服务暂时不可用，请稍后重试。");
     });
     expect(toastSuccess).not.toHaveBeenCalledWith("已删除历史记录");
     expect(screen.getByText("需求模型生成")).toBeInTheDocument();
@@ -197,7 +195,7 @@ describe("HistoryDrawer", () => {
     renderHistoryDrawer(repository);
 
     expect(await screen.findByText("需求模型生成")).toBeInTheDocument();
-    expect(screen.getByText("部分图表渲染失败")).toBeInTheDocument();
+    expect(screen.getByText("服务暂时不可用，请稍后重试。")).toBeInTheDocument();
     expect(
       screen.getByText(
         "阶段 render_svg · 图级失败 1 张图：总体业务流程（render_svg：PlantUML 修复失败） · 快照可恢复",
@@ -418,9 +416,7 @@ describe("HistoryDrawer", () => {
     await userEvent.click(screen.getByRole("button", { name: "清空历史" }));
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        "清空历史失败：清空项目运行历史失败",
-      );
+      expect(toastError).toHaveBeenCalledWith("服务暂时不可用，请稍后重试。");
     });
     expect(toastSuccess).not.toHaveBeenCalledWith("已清空历史");
     expect(screen.getByText("需求模型生成")).toBeInTheDocument();

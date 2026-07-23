@@ -1,5 +1,6 @@
 // Provides manual model save and rerender actions for workspace session state.
 import { useCallback, type Dispatch, type SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type {
   DesignDiagramModelSpec,
@@ -71,6 +72,7 @@ export function useManualModelEditActions({
   setRequirementModelTraceability,
   setSvgArtifacts,
 }: ManualModelEditActionsInput) {
+  const { t } = useTranslation();
   const createManualEditStatus = useCallback(
     (status: "dirty" | "rerendered") => {
       const now = new Date().toISOString();
@@ -165,11 +167,11 @@ export function useManualModelEditActions({
     ) => {
       const model = modelOverride ?? models[diagramKind];
       if (!model) {
-        throw new Error("当前需求模型不存在，无法重绘");
+        throw new Error(t("diagrams.detail.requirementModelMissing"));
       }
       const modelKey = getRequirementModelId(model);
       if (!repository.renderStructuredModel) {
-        throw new Error("当前环境不支持结构化模型重绘");
+        throw new Error(t("diagrams.detail.rerenderUnsupported"));
       }
       const rendered = await repository.renderStructuredModel(model);
       const status = createManualEditStatus("rerendered");
@@ -202,7 +204,7 @@ export function useManualModelEditActions({
         svgArtifact,
       });
       if (options?.toastMessage !== null) {
-        toast.message(options?.toastMessage ?? "当前模型已重绘");
+        toast.message(options?.toastMessage ?? t("diagrams.detail.rerendered"));
       }
     },
     [
@@ -225,10 +227,10 @@ export function useManualModelEditActions({
     ) => {
       const model = modelOverride ?? designModels[modelId];
       if (!model) {
-        throw new Error("当前设计模型不存在，无法重绘");
+        throw new Error(t("diagrams.detail.designModelMissing"));
       }
       if (!repository.renderStructuredModel) {
-        throw new Error("当前环境不支持结构化模型重绘");
+        throw new Error(t("diagrams.detail.rerenderUnsupported"));
       }
       const rendered = await repository.renderStructuredModel(model);
       const status = createManualEditStatus("rerendered");
@@ -265,7 +267,7 @@ export function useManualModelEditActions({
         svgArtifact,
       });
       if (options?.toastMessage !== null) {
-        toast.message(options?.toastMessage ?? "当前模型已重绘");
+        toast.message(options?.toastMessage ?? t("diagrams.detail.rerendered"));
       }
     },
     [

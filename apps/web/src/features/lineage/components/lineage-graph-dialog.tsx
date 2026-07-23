@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   AlertCircle,
   CheckCircle2,
@@ -26,6 +28,12 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { cn } from "../../../shared/ui/utils";
+import {
+  getDesignDiagramDescription,
+  getDesignDiagramLabel,
+  getDiagramDescription,
+  getDiagramLabel,
+} from "../../../entities/diagram/model";
 import type { PlatformRunSummary } from "../../user-platform/services/platform-api";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { useWorkspaceShell } from "../../workspace-shell/state";
@@ -60,15 +68,6 @@ type LineageAnchor = {
 const EDGE_SOURCE_OFFSET = 12;
 const EDGE_TARGET_OFFSET = 22;
 
-const STATUS_LABELS: Record<LineageNodeStatus, string> = {
-  "not-generated": "未生成",
-  current: "最新",
-  stale: "需更新",
-  error: "错误",
-  running: "生成中",
-  interrupted: "服务中断",
-};
-
 const STATUS_BADGE_CLASS: Record<LineageNodeStatus, string> = {
   "not-generated": "border-slate-200 bg-slate-50 text-slate-600",
   current: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -78,12 +77,68 @@ const STATUS_BADGE_CLASS: Record<LineageNodeStatus, string> = {
   interrupted: "border-amber-200 bg-amber-50 text-amber-700",
 };
 
-const FILTERS: Array<{ value: LineageFilter; label: string }> = [
-  { value: "all", label: "全部链路" },
-  { value: "stale", label: "需更新" },
-  { value: "error", label: "错误" },
-  { value: "impact", label: "影响路径" },
-];
+const FILTERS: LineageFilter[] = ["all", "stale", "error", "impact"];
+
+function lineageStatusKey(status: LineageNodeStatus) {
+  return status === "not-generated" ? "not_generated" : status;
+}
+
+function localizeLineageGraph(graph: LineageGraph, t: TFunction): LineageGraph {
+  const actionByStatus: Record<LineageNodeStatus, string> = {
+    "not-generated": "generate",
+    current: "view",
+    stale: "update",
+    error: "retry",
+    running: "progress",
+    interrupted: "retry",
+  };
+  const categoryKeys: Record<string, string> = {
+    "\u4e1a\u52a1\u89c4\u5219": "business", "\u529f\u80fd\u9700\u6c42": "functional",
+    "\u5916\u90e8\u63a5\u53e3": "externalInterface", "\u754c\u9762\u9700\u6c42": "interface",
+    "\u6570\u636e\u9700\u6c42": "data", "\u975e\u529f\u80fd\u9700\u6c42": "nonFunctional",
+    "\u90e8\u7f72\u9700\u6c42": "deployment", "\u5f02\u5e38\u5904\u7406": "exception",
+  };
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      const stageKey = node.stage.replace("-", "_");
+      const reasonKey = lineageStatusKey(node.status);
+      let label = node.label;
+      let description = node.description;
+      let eyebrow = node.eyebrow;
+      if (node.kind === "requirement-model" && node.payload?.diagramKind) {
+        label = getDiagramLabel(node.payload.diagramKind, t);
+        description = getDiagramDescription(node.payload.diagramKind, t);
+      } else if (node.kind === "design-model" && node.payload?.designDiagramKind) {
+        label = getDesignDiagramLabel(node.payload.designDiagramKind, t);
+        description = getDesignDiagramDescription(node.payload.designDiagramKind, t);
+      } else if (node.kind === "document" && node.payload?.documentKind) {
+        const productKey = node.payload.documentKind === "requirementsSpec"
+          ? "requirementsSpec"
+          : "softwareDesignSpec";
+        label = t(`lineage.products.${productKey}.label`);
+        description = t(`lineage.products.${productKey}.description`);
+      } else if (node.kind === "code") {
+        label = t("lineage.products.code.label");
+        description = t("lineage.products.code.description");
+      } else if (node.kind === "rule" && node.id.endsWith(":empty")) {
+        label = t("lineage.products.emptyRules.label");
+        description = t("lineage.products.emptyRules.description");
+      } else if (node.kind === "rule" && categoryKeys[eyebrow]) {
+        eyebrow = t(`requirements.categories.${categoryKeys[eyebrow]}`);
+      }
+      return {
+        ...node,
+        stageLabel: t(`lineage.stages.${stageKey}`),
+        label,
+        eyebrow,
+        description,
+        reason: t(`lineage.reasons.${reasonKey}`),
+        actionLabel: t(`lineage.actions.${actionByStatus[node.status]}`),
+      };
+    }),
+  };
+}
 
 function edgeColor(status: string) {
   if (status === "stale") return "var(--warning)";
@@ -144,6 +199,7 @@ function DetailList({
   ids: string[];
   graph: LineageGraph;
 }) {
+  const { t } = useTranslation();
   const labels = new Map(graph.nodes.map((node) => [node.id, node.label]));
   return (
     <section>
@@ -161,7 +217,7 @@ function DetailList({
           ))}
         </div>
       ) : (
-        <p className="mt-2 text-sm text-muted-foreground">暂无关联节点。</p>
+        <p className="mt-2 text-sm text-muted-foreground">{t("lineage.noRelated")}</p>
       )}
     </section>
   );
@@ -178,12 +234,13 @@ function LineageDetailPanel({
   onPrimaryAction: (node: LineageNode) => void;
   onViewArtifact: (node: LineageNode) => void;
 }) {
+  const { t } = useTranslation();
   if (!selectedNode) {
     return (
       <aside className="w-full border-l bg-card p-5">
-        <h3 className="text-base font-semibold">节点详情</h3>
+        <h3 className="text-base font-semibold">{t("lineage.detail")}</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          选择一个节点后查看上下游来源、影响范围和建议操作。
+          {t("lineage.detailHint")}
         </p>
       </aside>
     );
@@ -197,7 +254,7 @@ function LineageDetailPanel({
             <LineageKindIcon kind={selectedNode.kind} className="size-10" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-muted-foreground">
-                {selectedNode.stageLabel} · {LINEAGE_KIND_STYLES[selectedNode.kind].label}
+                {selectedNode.stageLabel} · {t(`lineage.kinds.${selectedNode.kind.replace("-", "_")}`)}
               </p>
               <h3 className="mt-1 truncate text-lg font-semibold">{selectedNode.label}</h3>
               <p className="mt-1 text-sm text-muted-foreground">{selectedNode.eyebrow}</p>
@@ -214,7 +271,7 @@ function LineageDetailPanel({
             ) : (
               <AlertCircle className="size-3" />
             )}
-            {STATUS_LABELS[selectedNode.status]}
+            {t(`lineage.statuses.${lineageStatusKey(selectedNode.status)}`)}
           </Badge>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -231,39 +288,39 @@ function LineageDetailPanel({
             disabled={!selectedNode.hasViewableArtifact}
             onClick={() => onViewArtifact(selectedNode)}
           >
-            {selectedNode.status === "running" ? "查看旧版" : "查看产物"}
+            {selectedNode.status === "running" ? t("lineage.viewOld") : t("lineage.viewArtifact")}
           </Button>
         </div>
       </div>
       <div className="min-h-0 flex-1 space-y-5 overflow-auto p-5">
         <section>
-          <h4 className="text-xs font-semibold text-muted-foreground">状态原因</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground">{t("lineage.statusReason")}</h4>
           <p className="mt-2 rounded-md bg-muted px-3 py-2 text-sm leading-6">
             {selectedNode.reason}
           </p>
         </section>
-        <DetailList title="上游来源" ids={selectedNode.upstreamIds} graph={graph} />
-        <DetailList title="下游影响" ids={selectedNode.downstreamIds} graph={graph} />
+        <DetailList title={t("lineage.upstream")} ids={selectedNode.upstreamIds} graph={graph} />
+        <DetailList title={t("lineage.downstream")} ids={selectedNode.downstreamIds} graph={graph} />
         <section>
-          <h4 className="text-xs font-semibold text-muted-foreground">建议操作</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground">{t("lineage.recommendation")}</h4>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             {selectedNode.status === "stale"
-              ? "优先更新此节点，再检查下游节点是否恢复可生成。"
+              ? t("lineage.staleAdvice")
               : selectedNode.status === "error"
-                ? "查看生成任务中的执行详情，确认失败原因后重试此阶段。"
+                ? t("lineage.errorAdvice")
                 : selectedNode.status === "interrupted"
-                  ? "服务中断后保留旧产物证据，优先从运行历史重试或重新运行。"
+                  ? t("lineage.interruptedAdvice")
                   : selectedNode.status === "not-generated"
-                    ? "从上游满足条件的节点开始生成，逐步推进链路。"
+                    ? t("lineage.notGeneratedAdvice")
                     : selectedNode.status === "running"
                       ? selectedNode.hasViewableArtifact
-                        ? "新结果生成期间旧产物仍可查看；需要确认当前证据时先查看旧版。"
-                        : "保持在当前链路视图或打开生成任务查看实时日志。"
-                      : "当前节点可作为下游生成输入。"}
+                        ? t("lineage.runningOldAdvice")
+                        : t("lineage.runningAdvice")
+                      : t("lineage.currentAdvice")}
           </p>
         </section>
         <section>
-          <h4 className="text-xs font-semibold text-muted-foreground">最近生成记录</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground">{t("lineage.recent")}</h4>
           {selectedNode.recentEvents.length > 0 ? (
             <div className="mt-2 space-y-2">
               {selectedNode.recentEvents.map((event) => (
@@ -274,7 +331,7 @@ function LineageDetailPanel({
               ))}
             </div>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">暂无最近生成记录。</p>
+            <p className="mt-2 text-sm text-muted-foreground">{t("lineage.noRecent")}</p>
           )}
         </section>
       </div>
@@ -297,13 +354,20 @@ function LineageCanvas({
   onFilterChange: (filter: LineageFilter) => void;
   onPrimaryAction: (node: LineageNode) => void;
 }) {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const nodeRefs = useRef(new Map<string, HTMLElement>());
   const [anchors, setAnchors] = useState<Map<string, LineageAnchor>>(
     () => new Map(),
   );
-  const columns = useMemo(() => groupLineageColumns(graph), [graph]);
+  const columns = useMemo(
+    () => groupLineageColumns(graph).map((column) => ({
+      ...column,
+      label: t(`lineage.stages.${column.id.replace("-", "_")}`),
+    })),
+    [graph, t],
+  );
   const impactPath = useMemo(
     () => collectLineagePath(graph, selectedNodeId),
     [graph, selectedNodeId],
@@ -425,25 +489,25 @@ function LineageCanvas({
         <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card/95 p-2 shadow-sm backdrop-blur">
           {FILTERS.map((item) => (
             <Button
-              key={item.value}
+              key={item}
               type="button"
-              variant={filter === item.value ? "default" : "ghost"}
+              variant={filter === item ? "default" : "ghost"}
               size="sm"
-              onClick={() => handleFilterClick(item.value)}
+              onClick={() => handleFilterClick(item)}
             >
-              {item.label}
+              {t(`lineage.filters.${item}`)}
             </Button>
           ))}
           <span className="mx-1 h-6 w-px bg-border" />
           <Button type="button" variant="ghost" size="sm" onClick={resetView}>
             <RotateCcw className="size-4" />
-            重置视图
+            {t("lineage.reset")}
           </Button>
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-            <span>最新 {graph.summary.current}</span>
-            <span>需更新 {graph.summary.stale}</span>
-            <span>错误 {graph.summary.error}</span>
-            <span>服务中断 {graph.summary.interrupted}</span>
+            <span>{t("lineage.summaryCurrent", { count: graph.summary.current })}</span>
+            <span>{t("lineage.summaryStale", { count: graph.summary.stale })}</span>
+            <span>{t("lineage.summaryError", { count: graph.summary.error })}</span>
+            <span>{t("lineage.summaryInterrupted", { count: graph.summary.interrupted })}</span>
           </div>
         </div>
         <svg
@@ -580,12 +644,13 @@ export function LineageGraphDialog({
   onOpenChange,
   projectRuns = [],
 }: LineageGraphDialogProps) {
+  const { t, i18n } = useTranslation();
   const session = useWorkspaceSession();
   const workspaceShell = useWorkspaceShell();
   const [filter, setFilter] = useState<LineageFilter>("all");
   const graph = useMemo(
-    () => buildLineageGraph({ ...session, projectRuns }),
-    [projectRuns, session],
+    () => localizeLineageGraph(buildLineageGraph({ ...session, projectRuns }), t),
+    [i18n.resolvedLanguage, projectRuns, session, t],
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const selectedNode =
@@ -620,13 +685,13 @@ export function LineageGraphDialog({
           node.label,
         );
       } else if (node.kind === "code") {
-        workspaceShell.openWorkspacePlaceholder("code", "代码");
+        workspaceShell.openWorkspacePlaceholder("code", t("workspace.sidebar.code"));
       } else if (node.kind === "document") {
         workspaceShell.openDocumentsHome();
       }
       onOpenChange(false);
     },
-    [onOpenChange, workspaceShell],
+    [onOpenChange, t, workspaceShell],
   );
 
   const handlePrimaryAction = useCallback(
@@ -658,6 +723,9 @@ export function LineageGraphDialog({
       if (node.payload?.documentKind === "softwareDesignSpec") {
         void session.generateSoftwareDesignSpec();
       }
+      if (node.payload?.documentKind === "feasibilityStudy") {
+        void session.generateFeasibilityStudy();
+      }
     },
     [handleViewArtifact, session],
   );
@@ -679,21 +747,21 @@ export function LineageGraphDialog({
             <div>
               <DialogTitle className="flex items-center gap-2 text-xl">
                 <GitBranch className="size-5 text-primary" />
-                全局链路图
+                {t("lineage.title")}
               </DialogTitle>
               <DialogDescription className="mt-1">
-                查看需求规则、需求模型、设计模型、代码和文档之间的上下游映射。
+                {t("lineage.description")}
               </DialogDescription>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="gap-1">
                 <Search className="size-3" />
-                {graph.summary.total} 个节点
+                {t("lineage.nodes", { count: graph.summary.total })}
               </Badge>
-              <Badge variant="warning">需更新 {graph.summary.stale}</Badge>
-              <Badge variant="destructive">错误 {graph.summary.error}</Badge>
-              <Badge variant="warning">服务中断 {graph.summary.interrupted}</Badge>
-              <Button type="button" variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="关闭链路图">
+              <Badge variant="warning">{t("lineage.summaryStale", { count: graph.summary.stale })}</Badge>
+              <Badge variant="destructive">{t("lineage.summaryError", { count: graph.summary.error })}</Badge>
+              <Badge variant="warning">{t("lineage.summaryInterrupted", { count: graph.summary.interrupted })}</Badge>
+              <Button type="button" variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label={t("lineage.close")}>
                 <X className="size-4" />
               </Button>
             </div>

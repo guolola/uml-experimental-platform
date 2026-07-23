@@ -10,6 +10,7 @@ import type {
   ClassRelationship,
   ComponentRelationship,
   ComponentRelationshipDiagramSpec,
+  ContextDiagramSpec,
   DesignDiagramModelSpec,
   DeploymentDiagramSpec,
   DeploymentRelationship,
@@ -248,6 +249,57 @@ function tableRelationshipLabel(relation: TableRelationship) {
     "many-to-many": "多对多",
   };
   return meta[relation.type];
+}
+
+function buildContextDetailModel(model: ContextDiagramSpec): DiagramDetailModel {
+  const sourceField = (ids: string[]) => ({
+    label: "来源规则",
+    value: ids.length > 0 ? ids.join("、") : "不重复映射",
+  });
+  const systemItem: DiagramDetailItem = {
+    kind: "system-boundary",
+    id: model.system.id,
+    label: model.system.name,
+    description: model.system.description,
+    fields: [sourceField(model.system.sourceRequirementIds)],
+  };
+  const peopleItems: DiagramDetailItem[] = model.people.map((item) => ({
+    kind: "actor",
+    id: item.id,
+    label: item.name,
+    description: item.description,
+    fields: [sourceField(item.sourceRequirementIds)],
+  }));
+  const externalItems: DiagramDetailItem[] = model.externalSystems.map((item) => ({
+    kind: "external-system",
+    id: item.id,
+    label: item.name,
+    description: item.description,
+    fields: [sourceField(item.sourceRequirementIds)],
+  }));
+  const relationships: DiagramRelationshipDetail[] = model.relationships.map((relation) => ({
+    id: relation.id,
+    kind: "relationship",
+    label: relation.label,
+    typeLabel: relation.direction === "bidirectional" ? "双向交互" : "有向交互",
+    sourceId: relation.sourceId,
+    targetId: relation.targetId,
+    fields: [
+      { label: "方向", value: relation.direction === "bidirectional" ? "双向" : "有向" },
+      sourceField(relation.sourceRequirementIds),
+      ...(relation.description ? [{ label: "说明", value: relation.description }] : []),
+    ],
+  }));
+  const items = [systemItem, ...peopleItems, ...externalItems];
+  return {
+    items,
+    groups: nonEmptyGroups([
+      { kind: "system-boundary", label: "中心系统", items: [systemItem] },
+      { kind: "actor", label: "人员", items: peopleItems },
+      { kind: "external-system", label: "外部系统", items: externalItems },
+    ]),
+    relationships,
+  };
 }
 
 function functionRelationshipLabel(relation: FunctionRelationship) {
@@ -1223,6 +1275,8 @@ export function buildDiagramDetailModel(
   }
 
   switch (model.diagramKind) {
+    case "context":
+      return buildContextDetailModel(model);
     case "function":
       return buildFunctionDetailModel(model);
     case "architecture":

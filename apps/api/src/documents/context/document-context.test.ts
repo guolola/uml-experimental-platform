@@ -70,6 +70,66 @@ test("software design documents omit pending traceability review appendix", () =
   );
 });
 
+test("feasibility fallback report follows the fixed A.1–A.7 template without existing-system analysis", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "feasibilityStudy",
+    requirementText: "客户预约维修并在完成后支付。",
+    rules: [{ id: "R1", category: "功能需求", text: "客户可以预约维修。", relatedDiagrams: ["context"] }],
+    requirementModels: [{
+      diagramKind: "context",
+      title: "维修系统上下文",
+      summary: "研究边界",
+      notes: [],
+      system: { id: "system", name: "维修预约系统", sourceRequirementIds: [] },
+      people: [{ id: "customer", name: "客户", sourceRequirementIds: ["R1"] }],
+      externalSystems: [],
+      relationships: [{ id: "rel-1", sourceId: "customer", targetId: "system", direction: "bidirectional", label: "预约与确认", sourceRequirementIds: ["R1"] }],
+    }],
+    feasibilityInputs: { projectName: "维修预约系统" },
+    feasibilityImplementationPlan: {
+      overview: "采用模块化 Web 系统。",
+      candidates: [
+        { id: "c1", name: "模块化单体", summary: "集中部署", advantages: ["交付快"], disadvantages: ["扩展需规划"], estimatedCost: "待确认", estimatedSchedule: "待确认", sourceRequirementIds: ["R1"], implementation: {
+          architecture: { summary: "分层架构。", modules: [{ id: "m1", name: "预约工单", responsibility: "处理预约", sourceRequirementIds: ["R1"] }] },
+          dataStrategy: { summary: "保存工单事实。", sourceRequirementIds: ["R1"] },
+          integrations: [],
+          deploymentAndOperations: { summary: "环境待确认。", sourceRequirementIds: [] },
+          securityAndCompliance: { summary: "最小权限。", sourceRequirementIds: [] },
+          milestones: [{ id: "ms1", name: "交付", timeframe: "待确认", deliverables: ["系统"], roles: ["开发者"], dependencies: [], acceptanceCriteria: ["R1 通过"], sourceRequirementIds: ["R1"] }],
+          oneTimeCosts: ["开发成本待确认"], recurringCosts: [], quantitativeBenefits: [], qualitativeBenefits: ["流程透明"],
+          risks: [{ id: "risk1", risk: "需求变化", probability: "medium", impact: "medium", mitigation: "基线评审", owner: "待确认", sourceRequirementIds: ["R1"] }],
+          verdicts: [
+            { category: "technical", verdict: "conditional", rationale: "需验证环境。" },
+            { category: "operational", verdict: "conditional", rationale: "需确认用户。" },
+            { category: "schedule", verdict: "unknown", rationale: "期限未提供。" },
+            { category: "economic", verdict: "unknown", rationale: "金额未提供。" },
+            { category: "legal", verdict: "conditional", rationale: "约束待确认。" },
+          ],
+          decision: "conditional-go",
+          preconditions: ["确认预算与期限"],
+        } },
+        { id: "c2", name: "服务化方案", summary: "按域拆分", advantages: ["扩展强"], disadvantages: ["运维复杂"], estimatedCost: "待确认", estimatedSchedule: "待确认", sourceRequirementIds: ["R1"] },
+      ],
+      recommendedCandidateId: "c1",
+      recommendationRationale: "在事实不足时优先降低交付风险。",
+    },
+  });
+
+  const sections = fallbackDocumentSections(input);
+  assert.deepEqual(sections.filter((section) => section.level === 1).map((section) => section.title), [
+    "引言", "可行性研究的前提", "所建议的系统", "可选择的其他系统方案", "投资及效益分析", "社会因素方面的可行性", "结论",
+  ]);
+  assert.deepEqual(sections.filter((section) => section.level === 2 && ["引言", "可行性研究的前提"].includes(sections.slice(0, sections.indexOf(section)).filter((item) => item.level === 1).at(-1)?.title ?? "")).map((section) => section.title), [
+    "编写目的", "背景", "定义", "参考资料", "要求", "目标", "条件、假定和限制", "进行可行性研究的方法", "评价尺度",
+  ]);
+  assert.equal(sections.some((section) => section.title.includes("对现有系统的分析")), false);
+  assert.ok(sections.flatMap((section) => section.body).some((text) => text.includes("数据不足，未计算")));
+  assert.equal(sections.find((section) => section.title === "背景")?.diagramKind, "context");
+  assert.equal(sections.find((section) => section.title === "处理流程和数据流程")?.diagramKind, undefined);
+  assert.ok(sections.find((section) => section.title === "对开发的影响")?.table);
+  assert.ok(sections.find((section) => section.title === "局限性")?.table);
+});
+
 test("requirements documents omit trace basis column from rule mapping tables", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "requirementsSpec",

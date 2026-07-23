@@ -3,6 +3,7 @@ import {
   codeRunSnapshotSchema,
   designRunSnapshotSchema,
   documentRunSnapshotSchema,
+  feasibilityRunSnapshotSchema,
   runSnapshotSchema,
   type CodeRunSnapshot,
   type DesignDiagramKind,
@@ -12,9 +13,18 @@ import {
   type DiagramModelSpec,
   type DocumentKind,
   type DocumentRunSnapshot,
+  type FeasibilityArtifactKind,
+  type FeasibilityInputs,
+  type FeasibilityRunSnapshot,
   type RequirementRule,
   type RequirementBaseline,
   type RunSnapshot,
+  type ProviderSettingsInput,
+  type ContextDiagramSpec,
+  type ContextTraceRow,
+  type FeasibilityImplementationPlan,
+  type PlantUmlArtifact,
+  type SvgArtifact,
 } from "@uml-platform/contracts";
 import {
   buildEmptyRequirementBaseline,
@@ -201,7 +211,9 @@ export function createEmptyDocumentSnapshot(
   const fileName =
     input.documentKind === "requirementsSpec"
       ? `需求规格说明书-${timestamp}.docx`
-      : `软件设计说明书-${timestamp}.docx`;
+      : input.documentKind === "softwareDesignSpec"
+        ? `软件设计说明书-${timestamp}.docx`
+        : `可行性研究报告-${timestamp}.docx`;
   return documentRunSnapshotSchema.parse({
     runId,
     documentKind: input.documentKind,
@@ -217,6 +229,40 @@ export function createEmptyDocumentSnapshot(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     byteLength: 0,
     missingArtifacts: [],
+    currentStage: null,
+    status: "queued",
+    error: null,
+  });
+}
+
+export function createEmptyFeasibilitySnapshot(
+  runId: string,
+  input: {
+    projectId: string;
+    selectedArtifacts: FeasibilityArtifactKind[];
+    providerSettings: ProviderSettingsInput;
+    rules: RequirementRule[];
+    requirementBaseline: RequirementBaseline | null;
+    inputs: FeasibilityInputs;
+    contextModel?: ContextDiagramSpec | null;
+    contextTraceability?: ContextTraceRow[];
+    contextPlantUml?: PlantUmlArtifact | null;
+    contextSvg?: SvgArtifact | null;
+    implementationPlan?: FeasibilityImplementationPlan | null;
+    contextFingerprint?: string | null;
+    implementationFingerprint?: string | null;
+  },
+): FeasibilityRunSnapshot {
+  return feasibilityRunSnapshotSchema.parse({
+    runId,
+    ...input,
+    contextModel: input.contextModel ?? null,
+    contextTraceability: input.contextTraceability ?? [],
+    contextPlantUml: input.contextPlantUml ?? null,
+    contextSvg: input.contextSvg ?? null,
+    implementationPlan: input.implementationPlan ?? null,
+    contextFingerprint: input.contextFingerprint ?? null,
+    implementationFingerprint: input.implementationFingerprint ?? null,
     currentStage: null,
     status: "queued",
     error: null,

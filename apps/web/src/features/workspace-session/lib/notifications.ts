@@ -1,6 +1,7 @@
 // Owns user-facing generation notifications and completion events.
 
 import { toast } from "sonner";
+import { i18n } from "../../../shared/i18n/i18n";
 import type { DocumentKind } from "@uml-platform/contracts";
 
 export const GENERATION_COMPLETED_EVENT = "uml-generation-completed";
@@ -27,5 +28,5 @@ export function notifyGenerationFailed(message: string) {
 }
 
 export function notifyGenerationResultStale() {
-  toast.message("结果基于生成开始时的内容，期间修改不会自动合并到本次结果");
+  toast.message(i18n.t("generation.resultStale"));
 }

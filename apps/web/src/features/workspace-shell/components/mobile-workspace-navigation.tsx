@@ -8,6 +8,7 @@ import {
   ListTree,
   Palette,
   TestTube2,
+  Wrench,
 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import {
@@ -30,9 +31,24 @@ import { SidebarMenu } from "./sidebar-menu";
 const mobileStages: Array<{
   id: WorkspaceStage;
   labelKey: string;
+  label?: string;
   icon: typeof FileText;
   open: (shell: ReturnType<typeof useWorkspaceShell>) => void;
 }> = [
+  {
+    id: "system-requirements",
+    labelKey: "workspace.tabs.labels.systemRequirements",
+    label: "系统需求",
+    icon: FileText,
+    open: (shell) => shell.openSystemRequirements(),
+  },
+  {
+    id: "feasibility",
+    labelKey: "workspace.tabs.labels.feasibility",
+    label: "可行性",
+    icon: Wrench,
+    open: (shell) => shell.openFeasibilityHome(),
+  },
   {
     id: "requirements",
     labelKey: "workspace.tabs.labels.requirements",
@@ -107,7 +123,7 @@ export function MobileWorkspaceNavigation({
 
       <nav
         aria-label={t("workspace.mobile.stageNavigation")}
-        className="grid h-[66px] shrink-0 grid-cols-5 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-lg backdrop-blur"
+        className="grid h-[66px] shrink-0 grid-cols-7 border-t border-border bg-card/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-lg backdrop-blur"
       >
         {mobileStages.map((stage) => {
           const Icon = stage.icon;
@@ -124,7 +140,7 @@ export function MobileWorkspaceNavigation({
               onClick={() => stage.open(shell)}
             >
               <Icon className="size-4" aria-hidden="true" />
-              <span className="max-w-full truncate">{t(stage.labelKey)}</span>
+              <span className="max-w-full truncate">{stage.label ?? t(stage.labelKey)}</span>
             </button>
           );
         })}

@@ -16,11 +16,13 @@ export type {
   AdminRole,
 } from "./admin-rbac.js";
 export * from "./auth-account.js";
+export * from "./api-errors.js";
 export * from "./code-generation.js";
 export * from "./billing.js";
 export * from "./documents.js";
 export * from "./evidence.js";
 export * from "./fingerprints.js";
+export * from "./feasibility.js";
 export * from "./models.js";
 export * from "./provider-configs.js";
 export * from "./projects.js";

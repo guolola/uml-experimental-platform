@@ -241,7 +241,10 @@ function taskIsActive(task: GenerationTask) {
   return RUNNING_STATUSES.has(task.status);
 }
 
-function taskKindActive(input: LineageGraphInput, kind: GenerationTask["kind"]) {
+function taskKindActive(
+  input: LineageGraphInput,
+  kind: Exclude<GenerationTask["kind"], "feasibility">,
+) {
   return (
     input.generationTasks.some((task) => task.kind === kind && taskIsActive(task)) ||
     Boolean(activeStatusForProjectRunKind(input.projectRuns, kind))
@@ -270,7 +273,8 @@ function historyDocumentKind(
     return item.snapshot.documentKind;
   }
   return item.documentKind === "requirementsSpec" ||
-    item.documentKind === "softwareDesignSpec"
+    item.documentKind === "softwareDesignSpec" ||
+    item.documentKind === "feasibilityStudy"
     ? item.documentKind
     : null;
 }
@@ -904,7 +908,11 @@ function documentReason(
   documentKind: DocumentKind,
   status: LineageNodeStatus,
 ) {
-  const label = documentKind === "requirementsSpec" ? "需求说明书" : "设计说明书";
+  const label = documentKind === "requirementsSpec"
+    ? "需求说明书"
+    : documentKind === "softwareDesignSpec"
+      ? "设计说明书"
+      : "可行性研究报告";
   if (status === "running") return `${label}正在生成。`;
   if (status === "error") {
     const failed = input.generationTasks.find(

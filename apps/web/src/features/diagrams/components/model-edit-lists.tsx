@@ -1,10 +1,10 @@
 // Renders the model editor element and relationship list sections from prepared view data.
 import { ArrowRight, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../shared/ui/button";
 import { Badge } from "../../../shared/ui/badge";
 import { cn } from "../../../shared/ui/utils";
 import {
-  SEMANTIC_KIND_META,
   type DiagramDetailItem,
   type SemanticElementKind,
 } from "../../../entities/diagram/lib/model-details";
@@ -13,7 +13,8 @@ import {
   type EditableCollection,
 } from "../lib/model-editing";
 import { getRelationAccentClass } from "../lib/diagram-detail-view-model";
-import { namedActionLabel } from "./model-edit-fields";
+import { diagramDetailFieldLabel } from "../lib/diagram-presentation";
+import { editorOwnerLabel, namedActionLabel } from "./model-edit-fields";
 
 type EditableItemReference = {
   collection: EditableCollection;
@@ -25,6 +26,7 @@ export type ModelRelationshipListItem = {
   displayLabel: string;
   sourceLabel: string;
   targetLabel: string;
+  typeKey: string;
   typeLabel: string;
   searchText: string;
 };
@@ -62,29 +64,30 @@ export function ModelElementListSection({
   onDeleteElement: (elementId: string, editable: EditableItemReference) => void;
   onSelectElement: (element: DiagramDetailItem) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <section className="space-y-4">
       <div className="border-b border-border pb-3">
-        <h3 className="text-lg font-semibold text-foreground">元素清单</h3>
+        <h3 className="text-lg font-semibold text-foreground">{t("diagramLists.elements.title")}</h3>
         <div
           className="mt-3 flex items-center justify-between gap-3 overflow-x-auto pb-1"
-          aria-label="元素清单工具栏"
+          aria-label={t("diagramLists.elements.toolbar")}
         >
           <div className="flex min-w-max items-center gap-2">
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
-                aria-label="搜索元素"
+                aria-label={t("diagramLists.elements.search")}
                 value={elementSearch}
                 onChange={(event) => onElementSearchChange(event.target.value)}
                 className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder="搜索元素、属性或说明"
+                placeholder={t("diagramLists.elements.searchPlaceholder")}
               />
             </label>
             {detailGroups.length > 0 ? (
               <div
                 className="flex items-center gap-2"
-                aria-label="按元素类型筛选"
+                aria-label={t("diagramLists.elements.filter")}
                 role="group"
               >
                 <Button
@@ -94,7 +97,7 @@ export function ModelElementListSection({
                   className="h-8 rounded-full px-3 text-xs"
                   onClick={() => onElementKindFilterChange("all")}
                 >
-                  全部类型
+                  {t("diagramLists.elements.allTypes")}
                   <span className="ml-1 font-mono text-[10px] opacity-75">
                     {detailItemCount}
                   </span>
@@ -108,7 +111,7 @@ export function ModelElementListSection({
                     className="h-8 rounded-full px-3 text-xs"
                     onClick={() => onElementKindFilterChange(group.kind)}
                   >
-                    {SEMANTIC_KIND_META[group.kind].label}
+                    {t(`diagrams.semantic.${group.kind}.label`)}
                     <span className="ml-1 font-mono text-[10px] opacity-75">
                       {group.items.length}
                     </span>
@@ -118,7 +121,7 @@ export function ModelElementListSection({
             ) : null}
           </div>
           <div className="ml-auto flex min-w-max items-center gap-2">
-            {collections.map((collection) => (
+            {collections.filter((collection) => collection.allowCreate !== false).map((collection) => (
               <Button
                 key={`add:${collection.key}`}
                 type="button"
@@ -128,7 +131,7 @@ export function ModelElementListSection({
                 disabled={saving}
                 onClick={() => onCreateElement(collection)}
               >
-                <Plus className="size-3.5" /> 添加{collection.label}
+                <Plus className="size-3.5" /> {t("diagramLists.elements.add", { kind: editorOwnerLabel(collection.label) })}
               </Button>
             ))}
           </div>
@@ -137,11 +140,11 @@ export function ModelElementListSection({
       <div>
         {detailGroups.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-            未识别到元素。
+            {t("diagramLists.elements.empty")}
           </div>
         ) : filteredElements.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-            没有匹配的元素，请调整搜索或类型筛选。
+            {t("diagramLists.elements.noMatches")}
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -152,14 +155,14 @@ export function ModelElementListSection({
                 selectedElement.id === element.id;
               const fieldSummary = element.fields
                 .slice(0, 3)
-                .map((field) => `${field.label}：${field.value}`)
+                .map((field) => `${diagramDetailFieldLabel(field.label, t)}${t("traceability.refSeparator")}${field.value}`)
                 .join(" / ");
               return (
                 <article
                   key={`${element.kind}:${element.id}`}
                   role="button"
                   tabIndex={0}
-                  aria-label={`定位元素：${element.label}`}
+                  aria-label={t("diagramLists.elements.locate", { name: element.label })}
                   aria-pressed={active}
                   onClick={() => onSelectElement(element)}
                   onKeyDown={(event) => {
@@ -179,7 +182,7 @@ export function ModelElementListSection({
                       variant="secondary"
                       className="shrink-0 bg-primary/10 text-xs text-primary"
                     >
-                      {SEMANTIC_KIND_META[element.kind].label}
+                      {t(`diagrams.semantic.${element.kind}.label`)}
                     </Badge>
                     <div className="flex min-w-0 flex-1 justify-end gap-1">
                       {editable ? (
@@ -190,8 +193,8 @@ export function ModelElementListSection({
                             variant="ghost"
                             className="size-7"
                             aria-label={namedActionLabel(
-                              "编辑",
-                              editable.collection.label,
+                              t("diagramLists.actions.edit"),
+                              editorOwnerLabel(editable.collection.label),
                               itemLabel(editable.item, editable.collection),
                             )}
                             disabled={saving}
@@ -200,27 +203,29 @@ export function ModelElementListSection({
                               onEditElement(element.id, editable);
                             }}
                           >
-                            <span className="sr-only">编辑</span>
+                            <span className="sr-only">{t("diagramLists.actions.edit")}</span>
                             <Pencil className="size-3.5" />
                           </Button>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="size-7 text-destructive"
-                            aria-label={namedActionLabel(
-                              "删除",
-                              editable.collection.label,
-                              itemLabel(editable.item, editable.collection),
-                            )}
-                            disabled={saving}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onDeleteElement(element.id, editable);
-                            }}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
+                          {editable.collection.allowDelete !== false ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 text-destructive"
+                              aria-label={namedActionLabel(
+                                t("diagramLists.actions.delete"),
+                                editorOwnerLabel(editable.collection.label),
+                                itemLabel(editable.item, editable.collection),
+                              )}
+                              disabled={saving}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteElement(element.id, editable);
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          ) : null}
                         </>
                       ) : null}
                     </div>
@@ -229,14 +234,14 @@ export function ModelElementListSection({
                     {element.label}
                   </div>
                   <div className="mt-1.5 line-clamp-2 min-h-10 text-[11px] leading-5 text-muted-foreground">
-                    {element.description || "暂无说明。"}
+                    {element.description || t("diagramLists.elements.noDescription")}
                   </div>
                   <div className="mt-2 border-t border-border pt-2">
                     <div className="line-clamp-1 break-words text-[11px] text-muted-foreground">
-                      {fieldSummary || "暂无字段"}
+                      {fieldSummary || t("diagramLists.elements.noFields")}
                     </div>
                     <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {element.fields.length} 个字段
+                      {t("diagramLists.elements.fieldCount", { count: element.fields.length })}
                     </div>
                   </div>
                 </article>
@@ -270,7 +275,7 @@ export function ModelRelationshipListSection({
   onRelationKindFilterChange: (value: string) => void;
   relationshipsCount: number;
   filteredRelationships: ModelRelationshipListItem[];
-  relationFilterOptions: Array<{ label: string; count: number }>;
+  relationFilterOptions: Array<{ value: string; label: string; count: number }>;
   endpointOptionsCount: number;
   relationshipOrderIds: string[];
   saving: boolean;
@@ -278,29 +283,30 @@ export function ModelRelationshipListSection({
   onEditRelation: (relationId: string) => void;
   onDeleteRelation: (relationId: string, displayLabel: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <section className="space-y-4">
       <div className="border-b border-border pb-3">
-        <h3 className="text-lg font-semibold text-foreground">关系说明</h3>
+        <h3 className="text-lg font-semibold text-foreground">{t("diagramLists.relations.title")}</h3>
         <div
           className="mt-3 flex items-center justify-between gap-3 overflow-x-auto pb-1"
-          aria-label="关系说明工具栏"
+          aria-label={t("diagramLists.relations.toolbar")}
         >
           <div className="flex min-w-max items-center gap-2">
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
-                aria-label="搜索关系"
+                aria-label={t("diagramLists.relations.search")}
                 value={relationSearch}
                 onChange={(event) => onRelationSearchChange(event.target.value)}
                 className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder="搜索关系、端点或说明"
+                placeholder={t("diagramLists.relations.searchPlaceholder")}
               />
             </label>
             {relationshipsCount > 0 ? (
               <div
                 className="flex items-center gap-2"
-                aria-label="按关系类型筛选"
+                aria-label={t("diagramLists.relations.filter")}
                 role="group"
               >
                 <Button
@@ -310,19 +316,19 @@ export function ModelRelationshipListSection({
                   className="h-8 rounded-full px-3 text-xs"
                   onClick={() => onRelationKindFilterChange("all")}
                 >
-                  全部关系
+                  {t("diagramLists.relations.allTypes")}
                   <span className="ml-1 font-mono text-[10px] opacity-75">
                     {relationshipsCount}
                   </span>
                 </Button>
                 {relationFilterOptions.map((option) => (
                   <Button
-                    key={`relation-filter:${option.label}`}
+                    key={`relation-filter:${option.value}`}
                     type="button"
-                    variant={relationKindFilter === option.label ? "default" : "outline"}
+                    variant={relationKindFilter === option.value ? "default" : "outline"}
                     size="sm"
                     className="h-8 rounded-full px-3 text-xs"
-                    onClick={() => onRelationKindFilterChange(option.label)}
+                    onClick={() => onRelationKindFilterChange(option.value)}
                   >
                     {option.label}
                     <span className="ml-1 font-mono text-[10px] opacity-75">
@@ -341,18 +347,18 @@ export function ModelRelationshipListSection({
             disabled={endpointOptionsCount === 0 || saving}
             onClick={onCreateRelation}
           >
-            <Plus className="size-3.5" /> 添加关系
+            <Plus className="size-3.5" /> {t("diagramLists.relations.add")}
           </Button>
         </div>
       </div>
       <div className="space-y-3">
         {relationshipsCount === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-            暂无结构化关系。
+            {t("diagramLists.relations.empty")}
           </div>
         ) : filteredRelationships.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-xs text-muted-foreground">
-            没有匹配的关系，请调整搜索或类型筛选。
+            {t("diagramLists.relations.noMatches")}
           </div>
         ) : (
           filteredRelationships.map((relationSummary) => {
@@ -376,7 +382,7 @@ export function ModelRelationshipListSection({
                 <div className="flex items-center gap-4 p-4">
                   <div className="min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-4 py-3 text-center">
                     <div className="truncate text-sm font-medium text-foreground">
-                      {sourceLabel || "未指定起点"}
+                      {sourceLabel || t("diagramLists.relations.noSource")}
                     </div>
                   </div>
                   <div className="grid min-w-[160px] flex-[1.3] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center text-xs text-muted-foreground">
@@ -395,7 +401,7 @@ export function ModelRelationshipListSection({
                   </div>
                   <div className="min-w-0 flex-1 rounded-md border border-border bg-muted/40 px-4 py-3 text-center">
                     <div className="truncate text-sm font-medium text-foreground">
-                      {targetLabel || "未指定终点"}
+                      {targetLabel || t("diagramLists.relations.noTarget")}
                     </div>
                   </div>
                   <Button
@@ -403,11 +409,11 @@ export function ModelRelationshipListSection({
                     size="icon"
                     variant="ghost"
                     className="size-8"
-                    aria-label={namedActionLabel("编辑", "关系", displayLabel)}
+                    aria-label={namedActionLabel(t("diagramLists.actions.edit"), t("diagramLists.relations.kind"), displayLabel)}
                     disabled={saving}
                     onClick={() => onEditRelation(id)}
                   >
-                    <span className="sr-only">编辑</span>
+                    <span className="sr-only">{t("diagramLists.actions.edit")}</span>
                     <Pencil className="size-3.5" />
                   </Button>
                   <Button
@@ -415,7 +421,7 @@ export function ModelRelationshipListSection({
                     size="icon"
                     variant="ghost"
                     className="size-8 text-destructive"
-                    aria-label={namedActionLabel("删除", "关系", displayLabel)}
+                    aria-label={namedActionLabel(t("diagramLists.actions.delete"), t("diagramLists.relations.kind"), displayLabel)}
                     disabled={saving}
                     onClick={() => onDeleteRelation(id, displayLabel)}
                   >

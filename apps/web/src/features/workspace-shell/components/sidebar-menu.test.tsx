@@ -3,6 +3,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
+import { feasibilityImplementationPlanSchema } from "@uml-platform/contracts";
 import type { WorkspaceRepository } from "../../../services/workspace-repository";
 import {
   createRequirementBaseline,
@@ -129,11 +130,11 @@ describe("SidebarMenu", () => {
     expect(await screen.findByRole("navigation", { name: "项目导航" })).toHaveClass("h-full", "w-full");
     expect(screen.getByText("项目导航")).toHaveClass("tracking-[0.88px]");
     expect(screen.queryByRole("button", { name: "项目首页" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "需求" }).parentElement).toHaveClass(
+    expect(screen.getByRole("button", { name: "系统需求" }).parentElement).toHaveClass(
       "text-sm",
       "font-medium",
     );
-    expect(screen.getByRole("button", { name: "需求" }).parentElement).not.toHaveClass(
+    expect(screen.getByRole("button", { name: "系统需求" }).parentElement).not.toHaveClass(
       "text-[15px]",
       "font-semibold",
     );
@@ -142,7 +143,73 @@ describe("SidebarMenu", () => {
         .getAllByRole("button")
         .map((button) => button.textContent)
         .filter(Boolean),
-    ).toEqual(["需求", "设计", "代码", "测试", "说明书"]);
+    ).toEqual(["系统需求", "可行性分析", "需求模型", "设计模型", "代码", "测试", "说明书"]);
+    expect(screen.queryByRole("button", { name: "展开 可行性分析" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "上下文图" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "实现方案" })).not.toBeInTheDocument();
+  });
+
+  it("reveals feasibility artifact menus only after the corresponding artifacts exist", async () => {
+    const user = userEvent.setup();
+    const implementationPlan = feasibilityImplementationPlanSchema.parse({
+      overview: "采用模块化实现。",
+      candidates: [{ id: "candidate-1", name: "模块化方案", summary: "按模块实施。", estimatedCost: "待确认", estimatedSchedule: "待确认", sourceRequirementIds: ["R1"] }],
+      recommendedCandidateId: "candidate-1",
+      recommendationRationale: "满足当前规则。",
+      architecture: { summary: "分层架构。", modules: [{ id: "module-1", name: "核心模块", responsibility: "实现核心规则。", sourceRequirementIds: ["R1"] }] },
+      dataStrategy: { summary: "统一数据定义。", sourceRequirementIds: ["R1"] },
+      deploymentAndOperations: { summary: "建立部署与回滚流程。", sourceRequirementIds: ["R1"] },
+      securityAndCompliance: { summary: "执行最小权限。", sourceRequirementIds: ["R1"] },
+      milestones: [{ id: "milestone-1", name: "首期交付", timeframe: "待确认", acceptanceCriteria: ["规则通过验收"], sourceRequirementIds: ["R1"] }],
+      verdicts: [
+        { category: "technical", verdict: "conditional", rationale: "待验证。" },
+        { category: "operational", verdict: "conditional", rationale: "待验证。" },
+        { category: "schedule", verdict: "unknown", rationale: "待确认。" },
+        { category: "economic", verdict: "unknown", rationale: "待确认。" },
+        { category: "legal", verdict: "unknown", rationale: "待确认。" },
+      ],
+      decision: "conditional-go",
+    });
+    const repository = createSidebarRepository(
+      createWorkspaceRecord({
+        feasibilityContextModel: {
+          diagramKind: "context",
+          modelId: "context",
+          title: "系统上下文图",
+          summary: "系统边界",
+          notes: [],
+          system: { id: "system", name: "目标系统", sourceRequirementIds: [] },
+          people: [{ id: "person-1", name: "用户", sourceRequirementIds: ["R1"] }],
+          externalSystems: [],
+          relationships: [{ id: "relationship-1", sourceId: "person-1", targetId: "system", direction: "directed", label: "使用", sourceRequirementIds: ["R1"] }],
+        },
+        feasibilityContextPlantUml: "@startuml\n@enduml",
+        feasibilityContextSvg: "<svg></svg>",
+        feasibilityImplementationPlan: implementationPlan,
+      }),
+    );
+
+    render(withWorkspaceProviders(<SidebarMenu />, repository));
+
+    await user.click(await screen.findByRole("button", { name: "展开 可行性分析" }));
+    expect(screen.getByRole("button", { name: "上下文图" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "实现方案" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "跟踪矩阵" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "展开 上下文图" }));
+    expect(screen.getByRole("button", { name: "跟踪矩阵" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "元素" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关系" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "系统边界" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "角色" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "展开 系统边界" }));
+    expect(screen.getByRole("button", { name: "目标系统" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "展开 角色" }));
+    const personNode = screen.getByRole("button", { name: "用户" });
+    await user.click(personNode);
+    expect(personNode.parentElement).toHaveClass("bg-sidebar-accent");
   });
 
   it("projects active server requirement runs into sidebar status after reload", async () => {
@@ -166,8 +233,8 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    expect(await screen.findByLabelText("需求链路生成中")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "展开 需求" }));
+    expect(await screen.findByLabelText("需求模型链路生成中")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "展开 需求模型" }));
     expect(screen.getByLabelText("用例模型生成中")).toBeInTheDocument();
   });
 
@@ -218,7 +285,7 @@ describe("SidebarMenu", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     await user.click(screen.getByRole("button", { name: "展开 数据库设计" }));
     await user.click(screen.getByRole("button", { name: "展开 表" }));
     await user.click(screen.getByRole("button", { name: "展开 user" }));
@@ -334,10 +401,10 @@ describe("SidebarMenu", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await user.click(await screen.findByRole("button", { name: "展开 需求" }));
+    await user.click(await screen.findByRole("button", { name: "展开 需求模型" }));
     expect(screen.queryByText("需求分析模型")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "展开 设计" }));
+    await user.click(screen.getByRole("button", { name: "展开 设计模型" }));
     expect(screen.getByText("查询座位")).toBeInTheDocument();
     expect(screen.queryByText("预约座位")).not.toBeInTheDocument();
   });
@@ -386,7 +453,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 需求模型" }));
     expect(await screen.findByText("总体业务流程")).toBeInTheDocument();
     expect(screen.getByLabelText("总体业务流程生成失败")).toBeInTheDocument();
     expect(screen.queryByText("历史快照")).not.toBeInTheDocument();
@@ -488,7 +555,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 需求模型" }));
     const nodeLabels = screen
       .getAllByRole("button")
       .map((button) => button.textContent?.trim())
@@ -546,7 +613,7 @@ describe("SidebarMenu", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await user.click(await screen.findByRole("button", { name: "展开 需求" }));
+    await user.click(await screen.findByRole("button", { name: "展开 需求模型" }));
 
     expect(screen.getByText("用例模型")).toBeInTheDocument();
     expect(screen.queryByText("R1 R2 R3 +4")).not.toBeInTheDocument();
@@ -593,7 +660,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByText("用例实现设计")).toBeInTheDocument();
     expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
@@ -650,10 +717,10 @@ describe("SidebarMenu", () => {
 
     const nav = await screen.findByRole("navigation", { name: "项目导航" });
 
-    await userEvent.click(await within(nav).findByRole("button", { name: "展开 需求" }));
+    await userEvent.click(await within(nav).findByRole("button", { name: "展开 需求模型" }));
     expect(within(nav).queryByRole("button", { name: "需求跟踪矩阵" })).not.toBeInTheDocument();
 
-    await userEvent.click(within(nav).getByRole("button", { name: "展开 设计" }));
+    await userEvent.click(within(nav).getByRole("button", { name: "展开 设计模型" }));
     expect(within(nav).queryByRole("button", { name: "设计跟踪矩阵" })).not.toBeInTheDocument();
   });
 
@@ -691,7 +758,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByRole("button", { name: "设计类图" })).toBeInTheDocument();
     expect(screen.queryByText("领域概念模型")).not.toBeInTheDocument();
@@ -741,7 +808,7 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     expect(screen.queryByLabelText("设计类图已生成")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "设计类图" }));
@@ -833,7 +900,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 需求" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 需求模型" }));
 
     expect(screen.queryByLabelText("用例模型已生成")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("领域概念模型已生成")).not.toBeInTheDocument();
@@ -868,7 +935,7 @@ describe("SidebarMenu", () => {
     const user = userEvent.setup();
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     await user.click(screen.getByRole("button", { name: "设计类图" }));
 
     expect(toast.message).toHaveBeenCalledWith("当前只有结构化模型，SVG 尚未生成");
@@ -929,10 +996,10 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
 
     expect(
-      await screen.findByTitle("上游需求模型或追踪指纹已变化，此设计模型需更新。"),
+      await screen.findByTitle("此设计模型需更新"),
     ).toHaveClass("bg-warning");
   });
 
@@ -964,7 +1031,7 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByRole("button", { name: "组件（构件）关系" })).toBeInTheDocument();
     expect(screen.getByTitle("此设计图生成失败")).toHaveClass("bg-destructive");
@@ -1028,7 +1095,7 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     await user.click(screen.getByRole("button", { name: "展开 用例实现设计（2）" }));
 
     await user.click(screen.getByRole("button", { name: "查看动态" }));
@@ -1094,7 +1161,7 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    await user.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     expect(screen.getByLabelText("设计类图生成失败")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "设计类图" }));
@@ -1241,9 +1308,9 @@ describe("SidebarMenu", () => {
     await user.click(await screen.findByRole("button", { name: "生成设计类图" }));
     await confirmGenerationIfPresent(user);
     const designToggle = await screen.findByRole("button", {
-      name: /^(展开|折叠) 设计$/,
+      name: /^(展开|折叠) 设计模型$/,
     });
-    if (designToggle.getAttribute("aria-label") === "展开 设计") {
+    if (designToggle.getAttribute("aria-label") === "展开 设计模型") {
       await user.click(designToggle);
     }
 
@@ -1373,9 +1440,9 @@ describe("SidebarMenu", () => {
     await user.click(await screen.findByRole("button", { name: "生成用例实现设计" }));
     await confirmGenerationIfPresent(user);
     const designToggle = await screen.findByRole("button", {
-      name: /^(展开|折叠) 设计$/,
+      name: /^(展开|折叠) 设计模型$/,
     });
-    if (designToggle.getAttribute("aria-label") === "展开 设计") {
+    if (designToggle.getAttribute("aria-label") === "展开 设计模型") {
       await user.click(designToggle);
     }
     await user.click(await screen.findByRole("button", { name: "展开 用例实现设计（2）" }));
@@ -1514,7 +1581,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     await userEvent.click(screen.getByRole("button", { name: "展开 用例实现设计" }));
 
     expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
@@ -1636,14 +1703,14 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    expect(await screen.findByText("设计")).toBeInTheDocument();
+    expect(await screen.findByText("设计模型")).toBeInTheDocument();
     expect(screen.getByText("代码")).toBeInTheDocument();
     expect(screen.queryByText("收起侧边栏")).not.toBeInTheDocument();
     expect(screen.queryByText("文本需求")).not.toBeInTheDocument();
     expect(screen.queryByText("生成设计模型")).not.toBeInTheDocument();
     expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByRole("button", { name: "总体架构图" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "用例实现设计" })).toBeInTheDocument();
@@ -1708,10 +1775,10 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    expect(await screen.findByText("设计")).toBeInTheDocument();
+    expect(await screen.findByText("设计模型")).toBeInTheDocument();
     expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByText("用例实现设计")).toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
@@ -1725,7 +1792,7 @@ describe("SidebarMenu", () => {
 
     expect(screen.getByText("用户")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "折叠 设计" }));
+    await userEvent.click(screen.getByRole("button", { name: "折叠 设计模型" }));
 
     expect(screen.queryByText("用例实现设计")).not.toBeInTheDocument();
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
@@ -1780,7 +1847,7 @@ describe("SidebarMenu", () => {
 
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
-    await userEvent.click(await screen.findByRole("button", { name: "展开 设计" }));
+    await userEvent.click(await screen.findByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByText("用例实现设计（2）")).toBeInTheDocument();
     expect(screen.queryByText("查看活动")).not.toBeInTheDocument();
@@ -1839,14 +1906,14 @@ describe("SidebarMenu", () => {
       ),
     );
 
-    expect((await screen.findAllByRole("button", { name: "需求" })).length).toBeGreaterThan(0);
-    await userEvent.click(screen.getByRole("button", { name: "设计" }));
-    await userEvent.click(screen.getByRole("button", { name: "展开 设计" }));
+    expect((await screen.findAllByRole("button", { name: "系统需求" })).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: "设计模型" }));
+    await userEvent.click(screen.getByRole("button", { name: "展开 设计模型" }));
     await userEvent.click(screen.getByRole("button", { name: "用例实现设计" }));
     await userEvent.click(screen.getByRole("button", { name: "说明书" }));
 
-    expect(screen.getAllByText("需求").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("设计").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("系统需求").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("设计模型").length).toBeGreaterThan(0);
     expect(screen.getAllByText("用例实现设计").length).toBeGreaterThan(0);
     expect(screen.getAllByText("说明书").length).toBeGreaterThan(0);
 
@@ -1854,8 +1921,8 @@ describe("SidebarMenu", () => {
     expect(screen.queryByRole("button", { name: "关闭 用例实现设计" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "关闭 说明书" }));
-    await userEvent.click(screen.getByRole("button", { name: "关闭 设计" }));
-    await userEvent.click(screen.getByRole("button", { name: "关闭 需求" }));
-    expect(screen.getByRole("button", { name: "关闭 需求" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "关闭 设计模型" }));
+    await userEvent.click(screen.getByRole("button", { name: "关闭 系统需求" }));
+    expect(screen.getByRole("button", { name: "关闭 系统需求" })).toBeInTheDocument();
   });
 });

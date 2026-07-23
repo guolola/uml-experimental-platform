@@ -6,6 +6,7 @@ export type AdminRunTaskType =
   | "design_modeling"
   | "code_generation"
   | "document_generation"
+  | "feasibility_analysis"
   | "unknown";
 
 export type GenerationTaskType = Exclude<AdminRunTaskType, "unknown">;
@@ -37,6 +38,7 @@ export const GENERATION_TASKS: Array<{ taskType: GenerationTaskType; label: stri
   { taskType: "requirements_to_uml", label: "需求建模" },
   { taskType: "design_modeling", label: "设计建模" },
   { taskType: "document_generation", label: "说明书生成" },
+  { taskType: "feasibility_analysis", label: "可行性分析" },
   { taskType: "code_generation", label: "代码生成" },
 ];
 
@@ -132,6 +134,7 @@ export function readProviderConfigId(snapshot: RunRecord["snapshot"]) {
 }
 
 export function taskTypeForSnapshot(snapshot: RunRecord["snapshot"]): AdminRunTaskType {
+  if ("selectedArtifacts" in snapshot) return "feasibility_analysis";
   if ("documentKind" in snapshot) return "document_generation";
   if ("files" in snapshot) return "code_generation";
   if ("designModelTraceability" in snapshot) return "design_modeling";
@@ -477,7 +480,7 @@ function artifactCountSummary(counts: Array<{ label: string; value: number }>) {
 }
 
 function readMetricDocumentKind(value: unknown) {
-  return value === "requirementsSpec" || value === "softwareDesignSpec"
+  return value === "requirementsSpec" || value === "softwareDesignSpec" || value === "feasibilityStudy"
     ? value
     : null;
 }
@@ -489,6 +492,7 @@ function documentArtifactCounts(
   const counts = {
     requirementsSpec: 0,
     softwareDesignSpec: 0,
+    feasibilityStudy: 0,
   };
   const documentSourceRunIds = new Set<string>();
   for (const document of todayDocuments) {
@@ -507,6 +511,7 @@ function documentArtifactCounts(
   return [
     { label: "需求规格说明书", value: counts.requirementsSpec },
     { label: "软件设计说明书", value: counts.softwareDesignSpec },
+    { label: "可行性研究报告", value: counts.feasibilityStudy },
   ];
 }
 

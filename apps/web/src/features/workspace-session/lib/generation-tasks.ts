@@ -64,9 +64,11 @@ export function createGenerationTask(input: {
     kind: input.kind,
     documentKind: input.documentKind,
     title: input.title,
+    titleKey: input.kind,
     status: "queued",
     progress: 5,
     message: input.message,
+    messageCode: "RUN_QUEUED",
     errorMessage: null,
     previewReady: false,
     phaseSummary: input.message,
@@ -365,6 +367,7 @@ function updateSubtasksFromEvent(
           : subtask.label,
       status,
       message: messageForUpdatedSubtask(status, subtask.message),
+      messageCode: `RUN_SUBTASK_${status.toUpperCase()}`,
       errorMessage: eventFailureMessage(event) ?? subtask.errorMessage,
       queuePosition:
         "queuePosition" in event ? event.queuePosition ?? subtask.queuePosition : subtask.queuePosition,
@@ -387,6 +390,7 @@ function updateSubtasksFromEvent(
           label: "subtaskLabel" in event && event.subtaskLabel ? event.subtaskLabel : subtaskId,
           status: subtaskStatusFromEvent(event),
           message: messageForUpdatedSubtask(subtaskStatusFromEvent(event), null),
+          messageCode: `RUN_SUBTASK_${subtaskStatusFromEvent(event).toUpperCase()}`,
           errorMessage: eventFailureMessage(event),
           queuePosition: "queuePosition" in event ? event.queuePosition : undefined,
           queueAhead: "queueAhead" in event ? event.queueAhead : undefined,
@@ -818,6 +822,17 @@ export function updateTaskFromEvent(
       task.previewReady || (task.kind === "code" && event.type === "code_file_changed"),
     phaseSummary: taskPhaseSummaryFromEvent(event, subtasks, task.phaseSummary),
     message: nextMessage,
+    messageCode:
+      event.type === "failed"
+        ? event.error.code
+        : event.type === "completed"
+          ? nextStatus === "failed" ? "RUN_PARTIAL_FAILURE" : "RUN_COMPLETED"
+          : event.type === "cancelled"
+            ? "RUN_CANCELLED"
+            : event.type === "queued"
+              ? "RUN_QUEUED"
+              : "RUN_RUNNING",
+    messageParams: event.type === "failed" ? event.error.params : undefined,
     errorMessage:
       event.type === "failed"
         ? event.error.message

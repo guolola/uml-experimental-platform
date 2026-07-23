@@ -1,5 +1,6 @@
 // Owns project document list interactions for the project workspace page and drawer.
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Download } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
@@ -28,6 +29,8 @@ export function ProjectDocuments({
   documents: PlatformDocument[];
   layout?: "page" | "drawer";
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage?.startsWith("en") ? "en-US" : "zh-CN";
   const [currentDocuments, setCurrentDocuments] = useState(documents);
   const [names, setNames] = useState<Record<string, string>>({});
   const [versions, setVersions] = useState<Record<string, PlatformDocumentVersion[]>>({});
@@ -40,11 +43,11 @@ export function ProjectDocuments({
       Object.fromEntries(
         nextDocuments.map((document) => [
           document.id,
-          getProjectDocumentDisplayName(document),
+          getProjectDocumentDisplayName(document, t),
         ]),
       ),
     );
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     applyDocuments(documents);
@@ -58,14 +61,14 @@ export function ProjectDocuments({
         if (!active) return;
         applyDocuments(response.documents);
       })
-      .catch((loadError) => {
+      .catch(() => {
         if (!active) return;
-        setError(loadError instanceof Error ? loadError.message : "加载项目文档失败。");
+        setError(t("projectShell.documentsUi.errors.load"));
       });
     return () => {
       active = false;
     };
-  }, [applyDocuments, projectId]);
+  }, [applyDocuments, projectId, t]);
 
   const updateDocument = (document: PlatformDocument) => {
     setCurrentDocuments((current) =>
@@ -73,13 +76,13 @@ export function ProjectDocuments({
     );
     setNames((current) => ({
       ...current,
-      [document.id]: getProjectDocumentDisplayName(document),
+      [document.id]: getProjectDocumentDisplayName(document, t),
     }));
   };
 
   const findDocumentDisplayName = (documentId: string) => {
     const document = currentDocuments.find((item) => item.id === documentId);
-    return document ? getProjectDocumentDisplayName(document) : `文档 ${shortIdentifier(documentId)}`;
+    return document ? getProjectDocumentDisplayName(document, t) : t("projectShell.documentsUi.documentFallback", { id: shortIdentifier(documentId) });
   };
 
   const loadVersions = async (documentId: string) => {
@@ -89,9 +92,9 @@ export function ProjectDocuments({
     try {
       const response = await platformApi.listProjectDocumentVersions(projectId, documentId);
       setVersions((current) => ({ ...current, [documentId]: response.versions }));
-      setMessage(`已加载文档 ${displayName} 的版本记录。`);
-    } catch (versionError) {
-      setError(versionError instanceof Error ? versionError.message : "版本记录加载失败。");
+      setMessage(t("projectShell.documentsUi.messages.versionsLoaded", { name: displayName }));
+    } catch {
+      setError(t("projectShell.documentsUi.errors.versions"));
     }
   };
 
@@ -101,14 +104,14 @@ export function ProjectDocuments({
     try {
       const nextName = (names[documentId] ?? "").trim();
       if (!nextName) {
-        setError("文档名称不能为空。");
+        setError(t("projectShell.documentsUi.errors.nameRequired"));
         return;
       }
       const response = await platformApi.renameProjectDocument(projectId, documentId, nextName);
       updateDocument(response.document);
-      setMessage(`文档 ${getProjectDocumentDisplayName(response.document)} 已重命名。`);
-    } catch (renameError) {
-      setError(renameError instanceof Error ? renameError.message : "重命名失败。");
+      setMessage(t("projectShell.documentsUi.messages.renamed", { name: getProjectDocumentDisplayName(response.document, t) }));
+    } catch {
+      setError(t("projectShell.documentsUi.errors.rename"));
     }
   };
 
@@ -123,9 +126,9 @@ export function ProjectDocuments({
           document.id === documentId ? { ...document, status: "deleted" } : document,
         ),
       );
-      setMessage(`文档 ${displayName} 已删除，可在当前页面恢复。`);
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "删除失败。");
+      setMessage(t("projectShell.documentsUi.messages.deleted", { name: displayName }));
+    } catch {
+      setError(t("projectShell.documentsUi.errors.delete"));
     }
   };
 
@@ -135,9 +138,9 @@ export function ProjectDocuments({
     try {
       const response = await platformApi.restoreProjectDocument(projectId, documentId);
       updateDocument(response.document);
-      setMessage(`文档 ${getProjectDocumentDisplayName(response.document)} 已恢复。`);
-    } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : "恢复失败。");
+      setMessage(t("projectShell.documentsUi.messages.restored", { name: getProjectDocumentDisplayName(response.document, t) }));
+    } catch {
+      setError(t("projectShell.documentsUi.errors.restore"));
     }
   };
 
@@ -147,9 +150,9 @@ export function ProjectDocuments({
     try {
       const file = await platformApi.downloadProjectDocument(projectId, documentId);
       downloadBlobFile(file.fileName, file.blob);
-      setMessage(`已下载 ${file.fileName}。`);
-    } catch (downloadError) {
-      setError(downloadError instanceof Error ? downloadError.message : "下载失败。");
+      setMessage(t("projectShell.documentsUi.messages.downloaded", { name: file.fileName }));
+    } catch {
+      setError(t("projectShell.documentsUi.errors.download"));
     }
   };
 
@@ -158,13 +161,13 @@ export function ProjectDocuments({
       (document) => document.status !== "deleted" && document.download?.status !== "unavailable",
     );
     if (downloadableDocuments.length === 0) {
-      setError("当前没有可下载的文档。");
+      setError(t("projectShell.documentsUi.errors.noneDownloadable"));
       return;
     }
     for (const document of downloadableDocuments) {
       await downloadDocument(document.id);
     }
-    setMessage(`已触发 ${downloadableDocuments.length} 个文档下载。`);
+    setMessage(t("projectShell.documentsUi.messages.batchDownloaded", { count: downloadableDocuments.length }));
   };
 
   const sectionClass = layout === "drawer" ? "p-4" : "";
@@ -174,42 +177,42 @@ export function ProjectDocuments({
     <section className={`rounded-md border border-border bg-card p-5 ${sectionClass}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base">项目文档</h2>
+          <h2 className="text-base">{t("projectShell.documentsUi.title")}</h2>
           <p className="text-sm text-muted-foreground">
-            上传新文档当前没有项目 API 支撑，本页只展示已有文档能力。
+            {t("projectShell.documentsUi.description")}
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void batchDownload()}>
           <Download className="size-4" />
-          批量下载
+          {t("projectShell.documentsUi.batchDownload")}
         </Button>
       </div>
       <div className={gridClass}>
         {currentDocuments.map((document) => {
-          const displayName = getProjectDocumentDisplayName(document);
+          const displayName = getProjectDocumentDisplayName(document, t);
           return (
             <div key={document.id} className="rounded-md border border-border bg-background p-4">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-base">{displayName}</h2>
-                <Badge variant="secondary">{document.status}</Badge>
+                <Badge variant="secondary">{t(`projectShell.documentsUi.documentStatus.${["ready", "processing", "failed", "deleted"].includes(document.status) ? document.status : "unknown"}`)}</Badge>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                项目：{projectId}。版本 v{document.version ?? 1}，
-                更新时间：{document.updatedAt ? formatDateTime(document.updatedAt) : "未记录"}。
+                {t("projectShell.documentsUi.metadata", { projectId, version: document.version ?? 1, updatedAt: document.updatedAt ? formatDateTime(document.updatedAt, locale) : t("projectShell.documentsUi.notRecorded") })}
               </p>
               <div className="mt-3 grid gap-1 text-sm text-muted-foreground">
-                <span>OnlyOffice：{onlyOfficeStatusLabel(document.onlyOffice?.status)}</span>
-                <span>编辑锁：{document.editLock?.lockedBy ?? document.onlyOffice?.lockedBy ?? "未锁定"}</span>
+                <span>{t("projectShell.documentsUi.onlyOffice", { status: onlyOfficeStatusLabel(document.onlyOffice?.status, t) })}</span>
+                <span>{t("projectShell.documentsUi.editLock", { value: document.editLock?.lockedBy ?? document.onlyOffice?.lockedBy ?? t("projectShell.documentsUi.unlocked") })}</span>
                 <span>
-                  下载：
+                  {t("projectShell.documentsUi.downloadLabel")}
                   {downloadStatusLabel(
                     document.download?.status ?? (document.status === "deleted" ? "unavailable" : "available"),
+                    t,
                   )}
                 </span>
-                <span>大小：{document.byteLength ? `${document.byteLength} bytes` : "未记录"}</span>
+                <span>{t("projectShell.documentsUi.size", { value: document.byteLength ? `${new Intl.NumberFormat(locale).format(document.byteLength)} bytes` : t("projectShell.documentsUi.notRecorded") })}</span>
               </div>
               <div className="mt-4 grid gap-1.5">
-                <Label htmlFor={`document-name-${document.id}`}>文档名称</Label>
+                <Label htmlFor={`document-name-${document.id}`}>{t("projectShell.documentsUi.name")}</Label>
                 <Input
                   id={`document-name-${document.id}`}
                   value={names[document.id] ?? ""}
@@ -225,42 +228,42 @@ export function ProjectDocuments({
                 <Button
                   type="button"
                   variant="outline"
-                  aria-label={`下载 ${displayName}`}
+                  aria-label={t("projectShell.documentsUi.downloadFor", { name: displayName })}
                   onClick={() => void downloadDocument(document.id)}
                 >
-                  下载
+                  {t("projectShell.documentsUi.download")}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  aria-label={`重命名 ${displayName}`}
+                  aria-label={t("projectShell.documentsUi.renameFor", { name: displayName })}
                   onClick={() => void renameDocument(document.id)}
                 >
-                  重命名
+                  {t("projectShell.documentsUi.rename")}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  aria-label={`版本记录 ${displayName}`}
+                  aria-label={t("projectShell.documentsUi.versionsFor", { name: displayName })}
                   onClick={() => void loadVersions(document.id)}
                 >
-                  版本记录
+                  {t("projectShell.documentsUi.versions")}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  aria-label={`恢复 ${displayName}`}
+                  aria-label={t("projectShell.documentsUi.restoreFor", { name: displayName })}
                   onClick={() => void restoreDocument(document.id)}
                 >
-                  恢复
+                  {t("projectShell.documentsUi.restore")}
                 </Button>
                 <Button
                   type="button"
                   variant="destructive"
-                  aria-label={`删除 ${displayName}`}
+                  aria-label={t("projectShell.documentsUi.deleteFor", { name: displayName })}
                   onClick={() => void deleteDocument(document.id)}
                 >
-                  删除
+                  {t("projectShell.documentsUi.delete")}
                 </Button>
               </div>
               {versions[document.id] && (
@@ -277,7 +280,7 @@ export function ProjectDocuments({
         })}
         {currentDocuments.length === 0 && (
           <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-            暂无文档记录。
+            {t("projectShell.documentsUi.empty")}
           </div>
         )}
       </div>

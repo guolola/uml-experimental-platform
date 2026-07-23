@@ -125,7 +125,7 @@ export function ProjectsIndexPage({ onNavigate }: { onNavigate: Navigate }) {
   const projects = useMemo(
     () =>
       projectRecords.map((project) =>
-        projectFromApi(project, authSession?.user ?? null, locale),
+        projectFromApi(project, authSession?.user ?? null, locale, t("projects.noDescription")),
       ),
     [authSession?.user, locale, projectRecords],
   );

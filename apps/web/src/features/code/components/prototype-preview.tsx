@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useSandpack } from "@codesandbox/sandpack-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { cn } from "../../../shared/ui/utils";
 import { buildLocalPreviewDocument, previewErrorMessage } from "../lib/preview-runtime";
 
@@ -59,6 +60,7 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
   },
   ref,
 ) {
+  const { t } = useTranslation();
   const buildIndexRef = useRef(0);
   const activeBuildIdRef = useRef("");
   const [previewState, setPreviewState] = useState<{
@@ -168,12 +170,12 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
   const previewMessage =
     previewState.buildError ??
     previewState.runtimeError ??
-    (previewState.ready ? null : "预览正在编译");
+    (previewState.ready ? null : t("codePage.preview.compiling"));
   const isError = Boolean(previewState.buildError || previewState.runtimeError);
 
   const openPreviewWindow = useCallback(() => {
     if (!previewState.srcDoc) {
-      toast.error(previewState.buildError ?? "预览还没有准备好");
+      toast.error(t("codePage.preview.notReady"));
       return;
     }
 
@@ -183,11 +185,11 @@ export const LocalPrototypePreview = forwardRef<LocalPrototypePreviewHandle, {
     const opened = window.open(blobUrl, "_blank", "noopener,noreferrer");
     if (!opened) {
       URL.revokeObjectURL(blobUrl);
-      toast.error("新窗口被浏览器拦截，请允许弹窗后重试");
+      toast.error(t("codePage.preview.popupBlocked"));
       return;
     }
     window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-  }, [previewState.buildError, previewState.srcDoc]);
+  }, [previewState.srcDoc, t]);
 
   useImperativeHandle(ref, () => ({ openPreviewWindow }), [openPreviewWindow]);
 

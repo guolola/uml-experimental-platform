@@ -433,7 +433,7 @@ describe("SettingsDialog", () => {
     await user.click(testButton);
 
     await waitFor(() => {
-      expect(toastSuccess).toHaveBeenCalledWith("Provider connection ok");
+      expect(toastSuccess).toHaveBeenCalledWith("托管配置连接成功");
     });
     expect(submitButton).toBeEnabled();
 
@@ -534,7 +534,7 @@ describe("SettingsDialog", () => {
     expect(toastError).toHaveBeenLastCalledWith("请先测试托管配置并确保测试通过");
     await user.click(dialogScope.getByRole("button", { name: "测试托管配置" }));
     await waitFor(() => {
-      expect(toastSuccess).toHaveBeenCalledWith("Provider connection ok");
+      expect(toastSuccess).toHaveBeenCalledWith("托管配置连接成功");
     });
 
     await user.click(dialogScope.getByRole("button", { name: "保存供应商" }));

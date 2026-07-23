@@ -1,5 +1,6 @@
 // Hosts the top-bar account modal for profile, MFA, sessions, and login-state actions.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Camera,
   CheckCircle2,
@@ -71,6 +72,8 @@ export function AccountDialog({
   open: controlledOpen,
   onOpenChange,
 }: AccountDialogProps) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en-US" : "zh-CN";
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
   const setDialogOpen = useCallback(
@@ -165,7 +168,7 @@ export function AccountDialog({
           setUser(null);
           return;
         }
-        setStatus(error instanceof Error ? error.message : "账号信息加载失败。");
+        setStatus(error instanceof Error ? error.message : t("account.loadFailed"));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -173,11 +176,16 @@ export function AccountDialog({
     return () => {
       active = false;
     };
-  }, [open, userId]);
+  }, [open, t, userId]);
 
-  const title = useMemo(() => user?.displayName || user?.email || "登录", [user]);
+  const title = useMemo(() => user?.displayName || user?.email || t("auth.login"), [t, user]);
   const avatarPreviewSrc = avatarPreviewUrl || avatarUrl;
-  const accountStatus = accountStatusLabel(user?.status);
+  const accountStatus = accountStatusLabel(user?.status, {
+    active: t("account.normal"),
+    disabled: t("account.disabled"),
+    pending: t("account.pending"),
+    unknown: t("account.unknown"),
+  });
   const visibleSessions = sessions.slice(0, ACCOUNT_SESSION_RECORD_LIMIT);
   const visibleEvents = events.slice(0, ACCOUNT_SESSION_RECORD_LIMIT);
 
@@ -235,13 +243,13 @@ export function AccountDialog({
     }
     if (!AVATAR_FILE_TYPES.includes(file.type)) {
       clearPendingAvatar();
-      setAvatarError("请选择 PNG、JPG 或 WebP 图片。");
+      setAvatarError(t("account.avatarTypeError"));
       if (avatarInputRef.current) avatarInputRef.current.value = "";
       return;
     }
     if (file.size > MAX_AVATAR_BYTES) {
       clearPendingAvatar();
-      setAvatarError("头像图片不能超过 2MB。");
+      setAvatarError(t("account.avatarSizeError"));
       if (avatarInputRef.current) avatarInputRef.current.value = "";
       return;
     }
@@ -288,15 +296,15 @@ export function AccountDialog({
         URL.revokeObjectURL(avatarPreviewUrl);
       }
       setAvatarPreviewUrl("");
-      toast.success("资料已更新");
+      toast.success(t("account.profileSaved"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "资料更新失败");
+      toast.error(t("account.profileSaveFailed"));
     }
   };
 
   const changePassword = async () => {
     if (!currentPassword || !newPassword) {
-      toast.error("请输入当前密码和新密码");
+      toast.error(t("account.passwordRequired"));
       return;
     }
 
@@ -312,9 +320,9 @@ export function AccountDialog({
       setNewPassword("");
       const refreshed = await platformApi.listAccountSessions().catch(() => null);
       if (refreshed) setSessions(refreshed.sessions);
-      toast.success("密码已修改，其他设备会话已失效");
+      toast.success(t("account.passwordChanged"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "密码修改失败");
+      toast.error(t("account.passwordChangeFailed"));
     } finally {
       setPasswordSubmitting(false);
     }
@@ -322,7 +330,7 @@ export function AccountDialog({
 
   const logout = async () => {
     await platformApi.logout().catch((error) => {
-      toast.error(error instanceof Error ? error.message : "退出登录失败");
+      toast.error(t("account.logoutFailed"));
     });
     setUser(null);
     setSessions([]);
@@ -350,9 +358,9 @@ export function AccountDialog({
       const result = await platformApi.revokeOtherSessions();
       const refreshed = await platformApi.listAccountSessions();
       setSessions(refreshed.sessions);
-      toast.success(`已退出 ${result.revokedCount} 个其他会话`);
+      toast.success(t("account.revokedOthers", { count: result.revokedCount }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "退出其他设备失败");
+      toast.error(t("account.revokeFailed"));
     }
   };
 
@@ -360,9 +368,9 @@ export function AccountDialog({
     try {
       const setup = await platformApi.setupMfa();
       setMfaSetup(setup);
-      toast.success("MFA 设置已生成");
+      toast.success(t("account.mfaSetupReady"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "MFA 设置生成失败");
+      toast.error(t("account.mfaSetupFailed"));
     }
   };
 
@@ -373,16 +381,16 @@ export function AccountDialog({
       setMfaEnabled(response.mfa.enabled);
       setMfaSetup(null);
       setMfaCode("");
-      toast.success("MFA 已启用");
+      toast.success(t("account.mfaEnabledSuccess"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "MFA 启用失败");
+      toast.error(t("account.mfaEnableFailed"));
     }
   };
 
   const disableMfa = async () => {
     const trimmedCode = disableCode.trim();
     if (!trimmedCode) {
-      toast.error("请输入停用验证码");
+      toast.error(t("account.disableCodeRequired"));
       return;
     }
 
@@ -391,9 +399,9 @@ export function AccountDialog({
       keepAccountDialogOpen();
       setMfaEnabled(response.mfa.enabled);
       setDisableCode("");
-      toast.success("MFA 已停用");
+      toast.success(t("account.mfaDisabledSuccess"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "MFA 停用失败");
+      toast.error(t("account.mfaDisableFailed"));
     }
   };
 
@@ -411,8 +419,8 @@ export function AccountDialog({
           "outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
           "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         )}
-        aria-label={user ? "账号" : "登录"}
-        title={user ? "账号" : "登录"}
+        aria-label={user ? t("auth.account") : t("auth.login")}
+        title={user ? t("auth.account") : t("auth.login")}
       >
         <span className="inline-flex size-8 items-center justify-center overflow-hidden rounded-full bg-primary text-xs text-primary-foreground">
           {user?.avatarUrl ? (
@@ -444,16 +452,16 @@ export function AccountDialog({
           onClick={closeAccountDialog}
         >
           <X />
-          <span className="sr-only">Close</span>
+          <span className="sr-only">{t("account.close")}</span>
         </button>
         {!user ? (
           <div className="grid gap-4 p-6">
             <DialogHeader>
-              <DialogTitle>登录账号</DialogTitle>
-              <DialogDescription>登录后才能进入实名项目、托管模型配置和账号安全设置。</DialogDescription>
+              <DialogTitle>{t("auth.loginAccount")}</DialogTitle>
+              <DialogDescription>{t("auth.loginDialogDescription")}</DialogDescription>
             </DialogHeader>
             <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-              未登录时不能使用项目、工作台、模型设置和账号安全功能。
+              {t("auth.guestRestriction")}
             </div>
             <Button
               onClick={() => {
@@ -462,7 +470,7 @@ export function AccountDialog({
               }}
             >
               <LogIn className="size-4" />
-              前往登录
+              {t("auth.goToLogin")}
             </Button>
           </div>
         ) : (
@@ -474,9 +482,9 @@ export function AccountDialog({
                   <Settings className="size-5" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
-                  <DialogTitle className="text-base">设置</DialogTitle>
+                  <DialogTitle className="text-base">{t("account.settings")}</DialogTitle>
                   <DialogDescription className="truncate text-xs">
-                    用户偏好设置
+                    {t("account.preferences")}
                   </DialogDescription>
                 </div>
               </DialogHeader>
@@ -487,28 +495,28 @@ export function AccountDialog({
                   className="h-10 flex-none justify-start rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <User className="size-4" />
-                  个人资料
+                  {t("account.profile")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="security"
                   className="h-10 flex-none justify-start rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <Shield className="size-4" />
-                  安全设置
+                  {t("account.security")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="sessions"
                   className="h-10 flex-none justify-start rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <Monitor className="size-4" />
-                  登录会话
+                  {t("account.sessions")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="global"
                   className="h-10 flex-none justify-start rounded-md px-3 data-[state=active]:bg-background data-[state=active]:shadow-sm"
                 >
                   <Settings className="size-4" />
-                  全局设置
+                  {t("account.globalSettings")}
                 </TabsTrigger>
               </TabsList>
 
@@ -520,7 +528,7 @@ export function AccountDialog({
                   onClick={logout}
                 >
                   <LogOut className="size-4" />
-                  退出登录
+                  {t("account.logout")}
                 </Button>
               </div>
             </aside>
@@ -529,15 +537,15 @@ export function AccountDialog({
               {loading && (
                 <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
-                  正在加载账号信息...
+                  {t("account.loading")}
                 </div>
               )}
               {status && <div className="mb-4 rounded-md border border-border bg-muted p-3 text-sm">{status}</div>}
 
               <TabsContent value="profile" className="m-0 space-y-6">
                 <div className="border-b border-border pb-4">
-                  <h3 className="text-lg font-semibold text-foreground">个人资料信息</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">管理你的头像、昵称和账号基础信息。</p>
+                  <h3 className="text-lg font-semibold text-foreground">{t("account.profileTitle")}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("account.profileDescription")}</p>
                 </div>
 
                 <div className="flex flex-row gap-8">
@@ -545,7 +553,7 @@ export function AccountDialog({
                     <input
                       ref={avatarInputRef}
                       id="account-avatar-file"
-                      aria-label="头像图片"
+                      aria-label={t("account.avatarAria")}
                       className="sr-only"
                       type="file"
                       accept="image/png,image/jpeg,image/webp"
@@ -571,14 +579,14 @@ export function AccountDialog({
                       onClick={() => avatarInputRef.current?.click()}
                     >
                       <Camera className="size-4" />
-                      更换头像
+                      {t("account.changeAvatar")}
                     </Button>
                     <div className="max-w-40 text-center text-xs leading-5 text-muted-foreground">
-                      支持 PNG、JPG、WebP，最大 2MB。
+                      {t("account.avatarHint")}
                     </div>
                     {avatarFile && (
                       <div className="max-w-40 truncate text-xs text-muted-foreground">
-                        已选择：{avatarFile.name}
+                        {t("account.avatarSelected", { name: avatarFile.name })}
                       </div>
                     )}
                     {avatarError && <p className="max-w-44 text-center text-xs text-destructive">{avatarError}</p>}
@@ -586,17 +594,17 @@ export function AccountDialog({
 
                   <div className="grid min-w-0 flex-1 gap-5">
                     <div className="grid gap-1.5">
-                      <Label htmlFor="account-display-name">昵称</Label>
+                      <Label htmlFor="account-display-name">{t("account.displayName")}</Label>
                       <Input
                         id="account-display-name"
                         value={displayName}
                         onChange={(event) => setDisplayName(event.target.value)}
-                        placeholder="请输入昵称"
+                        placeholder={t("account.displayNamePlaceholder")}
                       />
                     </div>
 
                     <div className="grid gap-1.5">
-                      <Label htmlFor="account-email">电子邮箱</Label>
+                      <Label htmlFor="account-email">{t("account.email")}</Label>
                       <div className="flex flex-row items-center gap-2">
                         <Input
                           id="account-email"
@@ -608,10 +616,10 @@ export function AccountDialog({
                           {user.emailVerified ? (
                             <>
                               <CheckCircle2 className="size-3" />
-                              已验证
+                              {t("account.verified")}
                             </>
                           ) : (
-                            "未验证"
+                            t("account.unverified")
                           )}
                         </Badge>
                       </div>
@@ -620,12 +628,12 @@ export function AccountDialog({
                     <div className="grid gap-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
                       <div className="flex items-center gap-2 font-medium text-foreground">
                         <Mail className="size-4 text-muted-foreground" />
-                        账号状态
+                        {t("account.accountStatus")}
                       </div>
                       <div className="flex flex-nowrap gap-2">
                         <Badge variant="outline">{accountStatus}</Badge>
-                        <Badge variant="outline">{user.emailVerified ? "邮箱已验证" : "邮箱未验证"}</Badge>
-                        <Badge variant="outline">{mfaEnabled ? "MFA 已启用" : "MFA 未启用"}</Badge>
+                        <Badge variant="outline">{user.emailVerified ? t("account.emailVerified") : t("account.emailUnverified")}</Badge>
+                        <Badge variant="outline">{mfaEnabled ? t("account.mfaEnabled") : t("account.mfaDisabled")}</Badge>
                       </div>
                     </div>
 
@@ -636,7 +644,7 @@ export function AccountDialog({
                 <div className="flex justify-end">
                   <Button type="button" onClick={() => void saveProfile()}>
                     <User className="size-4" />
-                    保存资料
+                    {t("account.saveProfile")}
                   </Button>
                 </div>
               </TabsContent>
@@ -644,23 +652,23 @@ export function AccountDialog({
               <TabsContent value="security" className="m-0 space-y-6">
                 <div className="flex flex-row items-end justify-between gap-3 border-b border-border pb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">安全设置</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">管理 MFA 多因素身份验证和账号会话安全。</p>
+                    <h3 className="text-lg font-semibold text-foreground">{t("account.security")}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{t("account.securityDescription")}</p>
                   </div>
                   <Badge variant="outline" className={cn(mfaEnabled ? "border-emerald-600/20 bg-emerald-500/10 text-emerald-700" : "text-muted-foreground")}>
                     <span className={cn("size-1.5 rounded-full", mfaEnabled ? "bg-emerald-500" : "bg-muted-foreground")} />
-                    {mfaEnabled ? "MFA 已启用" : "MFA 已禁用"}
+                    {mfaEnabled ? t("account.mfaEnabled") : t("account.mfaDisabled")}
                   </Badge>
                 </div>
 
                 <div className="rounded-md border border-border bg-muted/30 p-4">
                   <div className="mb-3 flex items-center gap-2 font-semibold text-foreground">
                     <KeyRound className="size-4 text-primary" />
-                    修改密码
+                    {t("account.changePassword")}
                   </div>
                   <div className="grid gap-4 text-sm">
                     <div className="grid gap-1.5">
-                      <Label htmlFor="account-current-password">当前密码</Label>
+                      <Label htmlFor="account-current-password">{t("account.currentPassword")}</Label>
                       <Input
                         id="account-current-password"
                         type="password"
@@ -670,7 +678,7 @@ export function AccountDialog({
                       />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label htmlFor="account-new-password">新密码</Label>
+                      <Label htmlFor="account-new-password">{t("account.newPassword")}</Label>
                       <Input
                         id="account-new-password"
                         type="password"
@@ -691,7 +699,7 @@ export function AccountDialog({
                         ) : (
                           <KeyRound className="size-4" />
                         )}
-                        修改密码
+                        {t("account.changePassword")}
                       </Button>
                     </div>
                   </div>
@@ -700,15 +708,15 @@ export function AccountDialog({
                 <div className="rounded-md border border-border bg-muted/30 p-4">
                   <div className="mb-3 flex items-center gap-2 font-semibold text-foreground">
                     <KeyRound className="size-4 text-primary" />
-                    多因素身份验证 (MFA)
+                    {t("account.mfaTitle")}
                   </div>
                   {!mfaEnabled && !mfaSetup && (
                     <div className="grid gap-4 text-sm text-muted-foreground">
-                      <p>启用后，登录和高危操作需要输入认证器应用中的动态验证码。</p>
+                      <p>{t("account.mfaDescription")}</p>
                       <div>
                         <Button variant="outline" onClick={startMfaSetup}>
                           <ShieldCheck className="size-4" />
-                          启用 MFA
+                          {t("account.enableMfa")}
                         </Button>
                       </div>
                     </div>
@@ -724,21 +732,21 @@ export function AccountDialog({
                   )}
                   {mfaEnabled && (
                     <div className="grid gap-3 text-sm">
-                      <p className="text-muted-foreground">MFA 已启用。停用时请输入认证器验证码。</p>
+                      <p className="text-muted-foreground">{t("account.mfaEnabledDescription")}</p>
                       <div className="grid gap-1.5">
-                        <Label htmlFor="account-disable-mfa-code">停用验证码</Label>
+                        <Label htmlFor="account-disable-mfa-code">{t("account.disableCode")}</Label>
                         <Input
                           id="account-disable-mfa-code"
                           value={disableCode}
                           onChange={(event) => setDisableCode(event.target.value)}
                           inputMode="numeric"
                           autoComplete="one-time-code"
-                          placeholder="输入验证码"
+                          placeholder={t("account.codePlaceholder")}
                         />
                       </div>
                       <div>
                         <Button variant="outline" onClick={disableMfa} disabled={!disableCode.trim()}>
-                          停用 MFA
+                          {t("account.disableMfa")}
                         </Button>
                       </div>
                     </div>
@@ -748,11 +756,11 @@ export function AccountDialog({
                 <Separator />
                 <div className="flex flex-nowrap justify-between gap-2">
                   <Button variant="outline" onClick={revokeOtherSessions}>
-                    退出其他设备
+                    {t("account.otherDevices")}
                   </Button>
                   <Button variant="ghost" onClick={logout}>
                     <LogOut className="size-4" />
-                    退出登录
+                    {t("account.logout")}
                   </Button>
                 </div>
               </TabsContent>
@@ -760,19 +768,19 @@ export function AccountDialog({
               <TabsContent value="sessions" className="m-0 space-y-6">
                 <div className="flex flex-row items-end justify-between gap-3 border-b border-border pb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">活跃会话</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">查看当前登录设备、地区、最近活动和过期时间。</p>
+                    <h3 className="text-lg font-semibold text-foreground">{t("account.activeSessions")}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{t("account.activeSessionsDescription")}</p>
                   </div>
                   <Button variant="ghost" className="justify-start text-destructive hover:text-destructive" onClick={revokeOtherSessions}>
                     <LogOut className="size-4" />
-                    退出其他设备登录
+                    {t("account.revokeOthers")}
                   </Button>
                 </div>
 
                 <div className="space-y-3">
                   {visibleSessions.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                      暂无活跃会话。
+                      {t("account.noSessions")}
                     </div>
                   ) : visibleSessions.map((session) => {
                     const isCurrent = session.id === currentSessionId;
@@ -790,13 +798,13 @@ export function AccountDialog({
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-nowrap items-center gap-2">
-                            <span className="font-medium text-foreground">{formatSessionDevice(session.userAgent)}</span>
-                            {isCurrent && <Badge variant="outline" className="text-primary">当前设备</Badge>}
+                            <span className="font-medium text-foreground">{formatSessionDevice(session.userAgent, t("account.unknownDevice"))}</span>
+                            {isCurrent && <Badge variant="outline" className="text-primary">{t("account.currentDevice")}</Badge>}
                           </div>
                           <div className="mt-2 grid grid-cols-3 gap-1 text-xs text-muted-foreground">
-                            <span>地区: {formatSessionRegion(session)}</span>
-                            <span>最后活跃: {formatDate(session.lastSeenAt)}</span>
-                            <span>过期: {formatDate(session.expiresAt)}</span>
+                            <span>{t("account.region", { value: formatSessionRegion(session, t("account.unknownRegion")) })}</span>
+                            <span>{t("account.lastActive", { value: formatDate(session.lastSeenAt, locale, t("account.none")) })}</span>
+                            <span>{t("account.expires", { value: formatDate(session.expiresAt, locale, t("account.none")) })}</span>
                           </div>
                         </div>
                       </div>
@@ -807,33 +815,33 @@ export function AccountDialog({
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <History className="size-4 text-muted-foreground" />
-                    登录历史
+                    {t("account.loginHistory")}
                   </div>
                   <div className="overflow-hidden rounded-md border border-border">
-                    <ScaledTable minWidth={620} className="border-collapse text-left text-sm" aria-label="登录历史">
+                    <ScaledTable minWidth={620} className="border-collapse text-left text-sm" aria-label={t("account.loginHistory")}>
                       <thead className="bg-muted/50 text-xs text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-2 font-medium">状态</th>
-                          <th className="px-4 py-2 font-medium">时间</th>
-                          <th className="px-4 py-2 font-medium">地区</th>
-                          <th className="px-4 py-2 font-medium">详情</th>
+                          <th className="px-4 py-2 font-medium">{t("account.status")}</th>
+                          <th className="px-4 py-2 font-medium">{t("account.time")}</th>
+                          <th className="px-4 py-2 font-medium">{t("account.regionHeader")}</th>
+                          <th className="px-4 py-2 font-medium">{t("account.details")}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {visibleEvents.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="px-4 py-4 text-center text-sm text-muted-foreground">
-                              暂无登录记录。
+                              {t("account.noLoginEvents")}
                             </td>
                           </tr>
                         ) : visibleEvents.map((event) => (
                           <tr key={event.id} className="border-t border-border">
                             <td className={cn("px-4 py-2 font-medium", event.outcome === "success" ? "text-emerald-700" : "text-destructive")}>
-                              {loginOutcomeLabel(event.outcome)}
+                              {loginOutcomeLabel(event.outcome, { success: t("account.success"), failed: t("account.failed") })}
                             </td>
-                            <td className="px-4 py-2 text-muted-foreground">{formatDate(event.createdAt)}</td>
-                            <td className="px-4 py-2">{formatSessionRegion(event)}</td>
-                            <td className="max-w-52 truncate px-4 py-2 text-muted-foreground">{loginDetail(event)}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{formatDate(event.createdAt, locale, t("account.none"))}</td>
+                            <td className="px-4 py-2">{formatSessionRegion(event, t("account.unknownRegion"))}</td>
+                            <td className="max-w-52 truncate px-4 py-2 text-muted-foreground">{loginDetail(event, t("account.noDetails"), t("account.unknownDevice"))}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -845,8 +853,8 @@ export function AccountDialog({
 
               <TabsContent value="global" className="m-0 space-y-6">
                 <div className="border-b border-border pb-4">
-                  <h3 className="text-lg font-semibold text-foreground">全局设置</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">管理模型托管配置和工作台偏好。</p>
+                  <h3 className="text-lg font-semibold text-foreground">{t("account.globalSettings")}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("account.globalSettingsDescription")}</p>
                 </div>
                 <GlobalSettingsPanel
                   active={open && activeTab === "global"}
@@ -858,7 +866,7 @@ export function AccountDialog({
               </TabsContent>
 
               <div className="sr-only" aria-live="polite">
-                {currentSessionId ? `当前会话 ${currentSessionId}` : ""}
+                {currentSessionId ? t("account.currentSession", { id: currentSessionId }) : ""}
               </div>
             </main>
             </Tabs>

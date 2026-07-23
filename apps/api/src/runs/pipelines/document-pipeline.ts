@@ -180,6 +180,8 @@ export async function runDocumentStagePipeline(
   pngRenderClient: PngRenderClient,
 ) {
   const snapshot = record.snapshot as DocumentRunSnapshot;
+  snapshot.feasibilityImplementationPlan = input.feasibilityImplementationPlan;
+  snapshot.feasibilityInputs = input.feasibilityInputs;
   assertRequirementBaselineAllowsDownstream(snapshot.requirementBaseline);
   const updateStage = (stage: RunStage, message?: string) => {
     throwIfRunCancelled(record);
@@ -200,7 +202,7 @@ export async function runDocumentStagePipeline(
   throwIfRunCancelled(record);
   updateStage("generate_document_text", "正在生成说明书正文");
   let sections = fallbackDocumentSections(input);
-  if (input.useAiText) {
+  if (input.useAiText && input.documentKind !== "feasibilityStudy") {
     const generatedSections = await generateDocumentSectionsWithRepair(
       record,
       input,
@@ -224,6 +226,7 @@ export async function runDocumentStagePipeline(
     pngRenderClient,
     missingArtifacts,
     input.documentStyle,
+    input.feasibilityInputs,
   );
   throwIfRunCancelled(record);
   record.documentBuffer = buffer;

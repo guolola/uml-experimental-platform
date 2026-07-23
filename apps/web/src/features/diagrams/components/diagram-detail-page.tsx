@@ -1,9 +1,11 @@
 // Renders the diagram detail workspace, including diagram selection, trace highlights, export actions, and model/SVG views.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  contextDiagramSpecSchema,
   designDiagramModelSpecSchema,
   diagramModelSpecSchema,
+  type ContextDiagramSpec,
 } from "@uml-platform/contracts";
 import { toast } from "sonner";
 import {
@@ -35,7 +37,6 @@ import { useSvgPanZoom } from "../hooks/use-svg-pan-zoom";
 import { mobileTouchTargetClass } from "../../workspace-shell/components/mobile-density";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import {
-  SEMANTIC_KIND_META,
   buildDiagramDetailModel,
   type DiagramDetailItem,
   type SemanticElementKind,
@@ -55,6 +56,7 @@ import {
   isRelationConnectedTo,
   matchesItemSearch,
 } from "../lib/diagram-detail-view-model";
+import { diagramDetailFieldLabel, diagramRelationTypeLabel, semanticElementLabel } from "../lib/diagram-presentation";
 
 export function DiagramView({
   type,
@@ -94,16 +96,55 @@ export function DesignDiagramView({
   );
 }
 
+export type ContextDiagramSection = "diagram" | "elements" | "relations";
+
+type ContextDiagramData = {
+  model: ContextDiagramSpec | null;
+  plantUmlSource: string;
+  svgMarkup: string;
+  stale: boolean;
+  rules: Array<{ id: string; text: string }>;
+  saveStatus: "idle" | "saving" | "saved" | "error";
+  statusMessage?: string | null;
+  errorMessage?: string | null;
+  headerAction?: ReactNode;
+  onSave: (model: ContextDiagramSpec) => Promise<void>;
+};
+
+export function ContextDiagramView({
+  data,
+  section = "diagram",
+  highlightedElement,
+}: {
+  data: ContextDiagramData;
+  section?: ContextDiagramSection;
+  highlightedElement?: { kind: string; id: string } | null;
+}) {
+  return (
+    <DiagramDetailView
+      stage="context"
+      type="context"
+      contextData={data}
+      initialSection={section}
+      highlightedElement={highlightedElement}
+    />
+  );
+}
+
 function DiagramDetailView({
   stage,
   type,
   modelId,
   highlightedElement,
+  contextData,
+  initialSection = "diagram",
 }: {
-  stage: "requirements" | "design";
+  stage: "requirements" | "design" | "context";
   type: DiagramType | DesignDiagramType;
   modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
+  contextData?: ContextDiagramData;
+  initialSection?: ContextDiagramSection;
 }) {
   const { t } = useTranslation();
   const {
@@ -129,10 +170,14 @@ function DiagramDetailView({
     openDiagramElement,
     openDesignDiagramElement,
   } = useWorkspaceShell();
+  const isContext = stage === "context";
   const isDesign = stage === "design";
+  const saveContextModel = contextData?.onSave;
   const requirementType = type as DiagramType;
   const designType = type as DesignDiagramType;
-  const isStale = !isDesign && staleDiagrams.includes(requirementType);
+  const isStale = isContext
+    ? Boolean(contextData?.stale)
+    : !isDesign && staleDiagrams.includes(requirementType);
   const meta = isDesign ? DESIGN_DIAGRAM_META[designType] : DIAGRAM_META[requirementType];
   const diagramKindKey = String(type);
   const metaLabel = t(`diagrams.kinds.${diagramKindKey}.label`, { defaultValue: meta.label });
@@ -145,7 +190,7 @@ function DiagramDetailView({
       : Object.values(designModels).find((entry) => entry.diagramKind === designType)
     : undefined;
   const designArtifactId = designModel ? getDesignModelId(designModel) : modelId ?? designType;
-  const requirementModel = !isDesign
+  const requirementModel = !isDesign && !isContext
     ? modelId
       ? models[modelId]
       : models[requirementType]
@@ -153,20 +198,29 @@ function DiagramDetailView({
   const requirementArtifactId = requirementModel
     ? getRequirementModelId(requirementModel)
     : modelId ?? requirementType;
-  const source = isDesign
-    ? designPlantUml[designArtifactId] ?? ""
-    : plantUml[requirementArtifactId] ?? plantUml[requirementType] ?? "";
-  const model = isDesign ? designModel : requirementModel;
-  const svgMarkup = isDesign
-    ? designSvgArtifacts[designArtifactId]?.svg ?? ""
-    : svgArtifacts[requirementArtifactId]?.svg ?? svgArtifacts[requirementType]?.svg ?? "";
+  const source = isContext
+    ? contextData?.plantUmlSource ?? ""
+    : isDesign
+      ? designPlantUml[designArtifactId] ?? ""
+      : plantUml[requirementArtifactId] ?? plantUml[requirementType] ?? "";
+  const model = isContext ? contextData?.model : isDesign ? designModel : requirementModel;
+  const svgMarkup = isContext
+    ? contextData?.svgMarkup ?? ""
+    : isDesign
+      ? designSvgArtifacts[designArtifactId]?.svg ?? ""
+      : svgArtifacts[requirementArtifactId]?.svg ?? svgArtifacts[requirementType]?.svg ?? "";
   const normalizedSvgMarkup = useMemo(() => sanitizeSvgMarkup(svgMarkup), [svgMarkup]);
-  const diagramError = isDesign
+  const diagramError = isContext
+    ? null
+    : isDesign
     ? designDiagramErrors[designType] ?? null
     : diagramErrors[requirementArtifactId] ?? diagramErrors[requirementType] ?? null;
-  const statusKey = isDesign ? designArtifactId : requirementArtifactId;
-  const editStatus = manualModelEditStatus[statusKey];
+  const statusKey = isContext ? "context" : isDesign ? designArtifactId : requirementArtifactId;
+  const editStatus = isContext ? undefined : manualModelEditStatus[statusKey];
   const compactViewport = useCompactViewport();
+  const [activeTab, setActiveTab] = useState<"diagram" | "elements" | "relations" | "edit">(
+    "diagram",
+  );
   const [draft, setDraft] = useState<Record<string, unknown> | null>(() =>
     model ? cloneDraftModel(model) : null,
   );
@@ -207,6 +261,9 @@ function DiagramDetailView({
     overviewPanelDismissedRef.current = false;
     setIsOverviewPanelOpen(Boolean(highlightedElement));
   }, [highlightedElement, model, statusKey]);
+  useEffect(() => {
+    setActiveTab(compactViewport ? initialSection : "diagram");
+  }, [compactViewport, initialSection]);
   const setDraftField = useCallback((key: string, value: unknown) => {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
   }, []);
@@ -216,16 +273,21 @@ function DiagramDetailView({
     try {
       // Model edits cross the UI -> workspace -> renderer contract here; parsing
       // removes editor-only metadata before it can affect downstream freshness.
-      const parsedDraft = (
-        isDesign
+      const parsedDraft = isContext
+        ? contextDiagramSpecSchema.safeParse(nextDraft)
+        : isDesign
           ? designDiagramModelSpecSchema.safeParse(nextDraft)
-          : diagramModelSpecSchema.safeParse(nextDraft)
-      );
+          : diagramModelSpecSchema.safeParse(nextDraft);
       const canonicalDraft = (
         parsedDraft.success ? parsedDraft.data : nextDraft
       ) as unknown as Record<string, unknown>;
       setDraft(canonicalDraft);
-      if (isDesign) {
+      if (isContext) {
+        if (!saveContextModel) {
+          throw new Error("上下文模型校验失败");
+        }
+        await saveContextModel(contextDiagramSpecSchema.parse(canonicalDraft));
+      } else if (isDesign) {
         await saveDesignModelEdit(designArtifactId, canonicalDraft as never);
         await rerenderDesignModel(designArtifactId, canonicalDraft as never, {
           toastMessage: null,
@@ -248,11 +310,13 @@ function DiagramDetailView({
     }
   }, [
     designArtifactId,
+    isContext,
     isDesign,
     requirementType,
     rerenderDesignModel,
     rerenderRequirementModel,
     saveDesignModelEdit,
+    saveContextModel,
     saveRequirementModelEdit,
     t,
   ]);
@@ -267,7 +331,15 @@ function DiagramDetailView({
       window.clearTimeout(timer);
     };
   }, [commitDraftAndRerender, draft, saving]);
-  const sourceRules = isDesign || requirementType === "analysis" ? [] : rulesForDiagram(requirementType);
+  const sourceRules = useMemo(
+    () =>
+      isContext
+        ? contextData?.rules ?? []
+        : isDesign || requirementType === "analysis"
+          ? []
+          : rulesForDiagram(requirementType),
+    [contextData?.rules, isContext, isDesign, requirementType, rulesForDiagram],
+  );
   const detailModel = useMemo(() => buildDiagramDetailModel(draft ?? model), [draft, model]);
   const { items, groups, relationships } = detailModel;
   const itemsById = useMemo(
@@ -349,24 +421,27 @@ function DiagramDetailView({
   const designSourceText = isDesign
     ? designSourceLabel(designType, draft ?? (designModel ? cloneDraftModel(designModel) : null))
     : null;
-  const requirementSourceText = !isDesign
+  const requirementSourceText = !isDesign && !isContext
     ? requirementSourceLabel(
         requirementType,
         draft ?? (model ? cloneDraftModel(model) : null),
         sourceRules,
       )
     : null;
-  const sourceText = designSourceText ?? requirementSourceText;
+  const contextSourceText = isContext && sourceRules.length > 0
+    ? t("diagrams.detail.contextSource", { rules: sourceRules.map((rule) => rule.id).join(t("generation.dialog.listSeparator")) })
+    : null;
+  const sourceText = contextSourceText ?? designSourceText ?? requirementSourceText;
+  const effectiveSaveStatus = isContext ? contextData?.saveStatus ?? saveStatus : saveStatus;
   const saveStatusLabel =
-    saveStatus === "saving"
+    effectiveSaveStatus === "saving"
       ? t("diagrams.detail.saveUpdating")
-      : saveStatus === "saved"
+      : effectiveSaveStatus === "saved"
         ? t("diagrams.detail.saveSaved")
         : t("diagrams.detail.saveFailed");
-  const editWarningText = editStatus?.warning?.includes("重绘当前图")
+  const editWarningText = editStatus?.warning
     ? t("diagrams.detail.editWarningMapped")
-    : editStatus?.warning ??
-      t("diagrams.detail.editWarningDefault");
+    : t("diagrams.detail.editWarningDefault");
   const overviewPanelId = `model-overview-${stage}-${statusKey}`.replace(/[^A-Za-z0-9_-]/g, "-");
   const openOverviewPanel = useCallback(() => {
     overviewPanelDismissedRef.current = false;
@@ -385,7 +460,9 @@ function DiagramDetailView({
       setLocalHighlightedElement(null);
       return;
     }
-    if (isDesign) {
+    if (isContext) {
+      setActiveTab("diagram");
+    } else if (isDesign) {
       openDesignDiagram(
         designType,
         designArtifactId,
@@ -401,6 +478,7 @@ function DiagramDetailView({
   }, [
     designArtifactId,
     designType,
+    isContext,
     isDesign,
     localHighlightedElement,
     metaLabel,
@@ -434,7 +512,16 @@ function DiagramDetailView({
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {!model && !source ? (
         <div className="w-full overflow-auto py-6 lg:py-8">
-          <div className="mx-auto w-[calc(100%-2rem)] max-w-[1920px] sm:w-[calc(100%-3rem)] lg:w-[calc(100%-4rem)]">
+          <div className="mx-auto flex w-[calc(100%-2rem)] max-w-[1920px] flex-col gap-4 sm:w-[calc(100%-3rem)] lg:w-[calc(100%-4rem)]">
+            {isContext && contextData?.headerAction ? (
+              <div className="flex justify-end">{contextData.headerAction}</div>
+            ) : null}
+            {isContext && contextData?.errorMessage ? (
+              <div role="alert" className="flex items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                <AlertTriangle className="size-4 shrink-0" />
+                {contextData.errorMessage}
+              </div>
+            ) : null}
             {diagramError ? (
               <div className="rounded-xl border border-destructive/40 bg-card px-5 py-8 text-sm shadow-sm">
                 <div className="flex items-center gap-2 font-medium text-destructive">
@@ -448,7 +535,9 @@ function DiagramDetailView({
             ) : (
               <div className="rounded-xl border border-dashed border-border bg-card px-4 py-12 text-center text-sm text-muted-foreground shadow-sm">
                 {t("diagrams.detail.notGenerated", {
-                  stage: t(`diagrams.stage.${isDesign ? "design" : "requirements"}`),
+                  stage: isContext
+                    ? "可行性分析"
+                    : t(`diagrams.stage.${isDesign ? "design" : "requirements"}`),
                 })}
               </div>
             )}
@@ -464,24 +553,39 @@ function DiagramDetailView({
             </div>
           )}
 
+          {isContext && contextData?.errorMessage ? (
+            <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>{contextData.errorMessage}</span>
+            </div>
+          ) : null}
+
+          {isContext && contextData?.statusMessage ? (
+            <div aria-live="polite" className="rounded-xl border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+              {contextData.statusMessage}
+            </div>
+          ) : null}
+
           <DiagramDetailHeader
             draft={draft}
             modelTitle={modelTitle}
             modelSummary={modelSummary}
             sourceText={sourceText}
-            saveStatus={saveStatus}
+            saveStatus={effectiveSaveStatus}
             saveStatusLabel={saveStatusLabel}
             compactViewport={compactViewport}
             itemCount={items.length}
             relationshipCount={relationships.length}
             groupCount={groups.length}
+            actions={isContext ? contextData?.headerAction : undefined}
             onChangeTitle={(value) => setDraftField("title", value)}
             onChangeSummary={(value) => setDraftField("summary", value)}
           />
 
           <Tabs
             key={`${stage}:${type}:${highlighted ? highlighted.id : "all"}`}
-            defaultValue="diagram"
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as typeof activeTab)}
             className="gap-0 rounded-xl border border-border bg-card shadow-sm"
           >
             <div className="border-b border-border px-3 sm:px-5">
@@ -535,8 +639,9 @@ function DiagramDetailView({
               <div className="p-3 sm:p-5">
                 <DiagramPreviewPanel
                   description={metaDescription}
-                  stage={stage}
+                  stage={isContext ? "feasibility" : stage}
                   type={type}
+                  exportFileStem={isContext ? "context" : undefined}
                   plantUmlSource={source}
                   normalizedSvgMarkup={normalizedSvgMarkup}
                   svgMarkup={svgMarkup}
@@ -581,6 +686,10 @@ function DiagramDetailView({
                     onSelectElement={selectElementInDiagram}
                     selectedElement={effectiveHighlightedElement}
                     saving={saving}
+                    focusSection={isContext && !compactViewport && initialSection !== "diagram"
+                      ? initialSection === "relations" ? "relationships" : "elements"
+                      : null}
+                    sourceRuleOptions={isContext ? sourceRules.map((rule) => ({ id: rule.id, label: rule.text })) : []}
                   />
                 </div>
               ) : null}
@@ -600,6 +709,7 @@ function DiagramDetailView({
                   onSelectElement={selectElementInDiagram}
                   selectedElement={effectiveHighlightedElement}
                   saving={saving}
+                  sourceRuleOptions={isContext ? sourceRules.map((rule) => ({ id: rule.id, label: rule.text })) : []}
                 />
               </div>
             </TabsContent>
@@ -675,7 +785,7 @@ function DiagramDetailView({
                             className="h-8 rounded-full px-3 text-xs"
                             onClick={() => setElementKindFilter(group.kind)}
                           >
-                            {SEMANTIC_KIND_META[group.kind].label}
+                            {semanticElementLabel(group.kind, t)}
                             <span className="ml-1 font-mono text-[10px] opacity-75">
                               {group.items.length}
                             </span>
@@ -703,30 +813,37 @@ function DiagramDetailView({
                               highlighted.id === el.id;
                             const fieldSummary = el.fields
                               .slice(0, 3)
-                              .map((field) => `${field.label}：${field.value}`)
+                              .map((field) => `${diagramDetailFieldLabel(field.label, t)}${t("traceability.refSeparator")}${field.value}`)
                               .join(" / ");
                             return (
                               <button
                                 type="button"
                                 aria-label={el.label}
                                 key={`${el.kind}:${el.id}`}
-                                onClick={() =>
-                                  isDesign
-                                    ? openDesignDiagramElement(
-                                        designType,
-                                        el.kind,
-                                        el.id,
-                                        el.label,
-                                        designArtifactId,
-                                      )
-                                    : openDiagramElement(
-                                        requirementType,
-                                        el.kind,
-                                        el.id,
-                                        el.label,
-                                        requirementArtifactId,
-                                      )
-                                }
+                                onClick={() => {
+                                  if (isContext) {
+                                    selectElementInDiagram(el);
+                                    setActiveTab("diagram");
+                                    return;
+                                  }
+                                  if (isDesign) {
+                                    openDesignDiagramElement(
+                                      designType,
+                                      el.kind,
+                                      el.id,
+                                      el.label,
+                                      designArtifactId,
+                                    );
+                                    return;
+                                  }
+                                  openDiagramElement(
+                                    requirementType,
+                                    el.kind,
+                                    el.id,
+                                    el.label,
+                                    requirementArtifactId,
+                                  );
+                                }}
                                 className={cn(
                                   "min-h-[8.5rem] overflow-hidden rounded-lg border p-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                   active
@@ -736,10 +853,10 @@ function DiagramDetailView({
                               >
                                 <span className="flex items-start justify-between gap-3">
                                   <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-[10px] font-semibold text-primary">
-                                    {SEMANTIC_KIND_META[el.kind].shortLabel}
+                                    {semanticElementLabel(el.kind, t, true)}
                                   </span>
                                   <Badge variant="secondary" className="shrink-0 text-[10px]">
-                                    {SEMANTIC_KIND_META[el.kind].label}
+                                    {semanticElementLabel(el.kind, t)}
                                   </Badge>
                                 </span>
                                 <span className="mt-2 block min-w-0 line-clamp-1 break-words text-sm font-semibold leading-5 text-foreground">
@@ -821,7 +938,7 @@ function DiagramDetailView({
                       >
                         <div className="flex flex-wrap items-center gap-2 p-4 pb-3">
                           <Badge variant="secondary" className="font-mono">
-                            {relation.typeLabel}
+                            {diagramRelationTypeLabel(relation.typeLabel, t)}
                           </Badge>
                           <span className="font-medium text-foreground">{displayLabel}</span>
                         </div>
@@ -867,7 +984,7 @@ function DiagramDetailView({
                           <div className="grid gap-2 border-t border-border px-4 py-3 text-xs sm:grid-cols-2">
                             {relation.fields.map((field) => (
                               <div key={`${relation.id}:${field.label}`} className="min-w-0">
-                                <div className="text-muted-foreground">{field.label}</div>
+                                <div className="text-muted-foreground">{diagramDetailFieldLabel(field.label, t)}</div>
                                 <div className="mt-1 break-words text-foreground">{field.value}</div>
                               </div>
                             ))}

@@ -26,3 +26,23 @@ test("document numbering rewrites existing numeric headings into a stable hierar
     ],
   );
 });
+
+test("feasibility numbering applies a continuous A. prefix through three levels", () => {
+  const numbered = numberDocumentSections([
+    { level: 1, title: "引言", body: [] },
+    { level: 2, title: "背景", body: [] },
+    { level: 1, title: "所建议的系统", body: [] },
+    { level: 2, title: "影响", body: [] },
+    { level: 3, title: "对开发的影响", body: [] },
+    { level: 1, title: "结论", body: [] },
+  ], { prefix: "A." });
+
+  assert.deepEqual(numbered.map((section) => section.title), [
+    "A.1 引言",
+    "A.1.1 背景",
+    "A.2 所建议的系统",
+    "A.2.1 影响",
+    "A.2.1.1 对开发的影响",
+    "A.3 结论",
+  ]);
+});

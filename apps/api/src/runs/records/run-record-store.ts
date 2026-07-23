@@ -3,12 +3,13 @@ import type {
   CodeRunSnapshot,
   DesignRunSnapshot,
   DocumentRunSnapshot,
+  FeasibilityRunSnapshot,
   RunEvent,
   RunSnapshot,
 } from "@uml-platform/contracts";
 
 export interface RunRecord {
-  snapshot: RunSnapshot | DesignRunSnapshot | CodeRunSnapshot | DocumentRunSnapshot;
+  snapshot: RunSnapshot | DesignRunSnapshot | CodeRunSnapshot | DocumentRunSnapshot | FeasibilityRunSnapshot;
   events: RunEvent[];
   listeners: Set<(event: RunEvent) => void>;
   terminal: boolean;

@@ -370,7 +370,8 @@ describe("InstructionDocumentsPage", () => {
     expect(
       screen.queryByRole("button", { name: /自动生成文档/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /说明书样式/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /说明书样式/i })).toHaveLength(3);
+    expect(screen.getByText("可行性研究报告")).toBeInTheDocument();
     expect(screen.queryByText("需求规格说明书.docx")).not.toBeInTheDocument();
     expect(screen.queryByText("软件设计说明书.docx")).not.toBeInTheDocument();
     expect(

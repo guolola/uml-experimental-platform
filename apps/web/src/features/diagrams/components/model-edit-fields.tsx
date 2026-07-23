@@ -1,5 +1,7 @@
 // Provides reusable labeled form controls for diagram model editing dialogs.
 import { SelectControl } from "../../../shared/ui/select";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../../../shared/i18n/i18n";
 
 export function LabelTextInput({
   label,
@@ -64,8 +66,9 @@ export function LabelSelect({
   onChange: (value: string) => void;
   allowEmpty?: boolean;
 }) {
+  const { t } = useTranslation();
   const normalizedOptions = allowEmpty
-    ? [{ value: "", label: "无" }, ...options]
+    ? [{ value: "", label: t("diagramEditor.none") }, ...options]
     : options;
 
   return (
@@ -76,7 +79,7 @@ export function LabelSelect({
         value={value}
         onValueChange={onChange}
         options={normalizedOptions}
-        placeholder="请选择"
+        placeholder={t("diagramEditor.selectPlaceholder")}
         className="h-9 rounded-md text-sm"
       />
     </div>
@@ -105,18 +108,83 @@ export function LabelCheckbox({
   );
 }
 
+export function SourceRuleChecklist({
+  selectedIds,
+  options,
+  onChange,
+}: {
+  selectedIds: string[];
+  options: Array<{ id: string; label: string }>;
+  onChange: (ids: string[]) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <fieldset className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+      <legend className="px-1 text-xs font-medium text-foreground">{t("diagramEditor.sourceRules")}</legend>
+      {options.length === 0 ? (
+        <p className="text-xs text-destructive">{t("diagramEditor.noSourceRules")}</p>
+      ) : (
+        <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+          {options.map((option) => {
+            const checked = selectedIds.includes(option.id);
+            return (
+              <LabelCheckbox
+                key={option.id}
+                label={t("diagramEditor.sourceRuleLabel", { id: option.id, label: option.label })}
+                checked={checked}
+                onChange={(nextChecked) =>
+                  onChange(
+                    nextChecked
+                      ? Array.from(new Set([...selectedIds, option.id]))
+                      : selectedIds.filter((id) => id !== option.id),
+                  )
+                }
+              />
+            );
+          })}
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
 export function enumOptions(options: string[]) {
   return options.map((option) => ({ value: option, label: option }));
 }
 
 export function ordinalLabel(index: number, unit: string) {
-  return `第 ${index + 1} 个${unit}`;
+  const unitKey = ({ "属性": "attribute", "字段": "column", "参数": "parameter", "操作": "operation" } as Record<string, string>)[unit] ?? (["attribute", "column", "parameter", "operation"].includes(unit) ? unit : undefined);
+  return unitKey
+    ? i18n.t("diagramEditor.ordinal", { index: index + 1, unit: i18n.t(`diagramEditor.units.${unitKey}`) })
+    : i18n.t("diagramEditor.ordinal", { index: index + 1, unit });
+}
+
+const EDITOR_OWNER_KEYS: Record<string, string> = {
+  "中心系统": "system", "人员": "person", "外部系统": "externalSystem", "角色": "actor", "用例": "useCase",
+  "系统边界": "boundary", "类": "class", "接口": "interface", "枚举": "enum", "泳道": "lane",
+  "活动节点": "activityNode", "部署节点": "deploymentNode", "数据库": "database", "组件": "component",
+  "制品": "artifact", "参与对象": "participant", "组合片段": "fragment", "数据表": "table",
+};
+
+export function editorOwnerLabel(ownerLabel: string) {
+  const ownerKey = EDITOR_OWNER_KEYS[ownerLabel];
+  return ownerKey ? i18n.t(`diagramEditor.owners.${ownerKey}`) : ownerLabel;
 }
 
 export function editorFieldLabel(ownerLabel: string, fieldLabel: string) {
-  return `${ownerLabel}${fieldLabel}`;
+  const fieldKey = ({ "名称": "name", "说明": "description", "类型": "type", "职责": "responsibilities", "目标": "goal", "主参与者": "primaryActor", "前置条件": "preconditions", "后置条件": "postconditions", "辅助参与者": "supportingActors", "构造型": "stereotype", "字面量": "literals", "问题": "question", "泳道": "lane", "输入": "input", "输出": "output", "环境": "environment", "引擎": "engine", "组件类型": "componentType", "制品类型": "artifactType", "条件": "condition", "包含消息": "messages" } as Record<string, string>)[fieldLabel] ?? (["name", "description", "type", "responsibilities", "goal", "primaryActor", "preconditions", "postconditions", "supportingActors", "stereotype", "literals", "question", "lane", "input", "output", "environment", "engine", "componentType", "artifactType", "condition", "messages", "visibility", "multiplicity", "primaryKey", "foreignKey", "nullable", "referenceTable", "referenceColumn"].includes(fieldLabel) ? fieldLabel : undefined);
+  const owner = editorOwnerLabel(ownerLabel);
+  const tableField = fieldKey && ["primaryKey", "foreignKey", "nullable", "referenceTable", "referenceColumn"].includes(fieldKey);
+  const field = fieldKey
+    ? i18n.t(tableField ? `requirements.editorTable.${fieldKey}` : `diagramEditor.fields.${fieldKey}`)
+    : fieldLabel;
+  return i18n.t("diagramEditor.fieldLabel", { owner, field });
 }
 
 export function namedActionLabel(action: string, kind: string, name: string) {
-  return `${action}${kind}：${name || `未命名${kind}`}`;
+  return i18n.t("diagramEditor.namedAction", {
+    action,
+    kind,
+    name: name || i18n.t("diagramEditor.unnamed", { kind }),
+  });
 }

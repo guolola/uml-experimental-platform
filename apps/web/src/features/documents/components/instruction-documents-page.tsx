@@ -6,12 +6,14 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  DocumentKind,
-  DocumentLibraryItem,
-  DocumentStyleSettings,
-  OnlyOfficeUiTheme,
-  OnlyOfficeEditorConfigResponse,
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import {
+  type DocumentKind,
+  type DocumentLibraryItem,
+  type DocumentStyleSettings,
+  type OnlyOfficeUiTheme,
+  type OnlyOfficeEditorConfigResponse,
 } from "@uml-platform/contracts";
 import {
   AlertTriangle,
@@ -45,6 +47,7 @@ import { DocumentStyleDialog } from "./document-style-dialog";
 import { OnlyOfficeEditorHost } from "./only-office-editor-host";
 import { cloneDefaultDocumentStyle } from "../lib/document-style";
 import { useTheme } from "../../../shared/ui/theme-provider";
+import { feasibilityArtifactState } from "../../feasibility/lib/feasibility-freshness";
 
 function onlyOfficeUiThemeForProjectTheme(theme: "light" | "dark"): OnlyOfficeUiTheme {
   return theme === "light" ? "theme-classic-light" : "theme-dark";
@@ -63,6 +66,12 @@ const DOCUMENT_DEFINITIONS = [
     fileName: "软件设计说明书.docx",
     source: "Generated from Design Model",
   },
+  {
+    kind: "feasibilityStudy",
+    title: "可行性研究报告",
+    fileName: "可行性研究报告.docx",
+    source: "Generated from Feasibility Analysis",
+  },
 ] satisfies Array<{
   kind: DocumentKind;
   title: string;
@@ -73,20 +82,21 @@ const DOCUMENT_DEFINITIONS = [
 const IDLE_DOCUMENT_GENERATION_STATE: Record<DocumentKind, boolean> = {
   requirementsSpec: false,
   softwareDesignSpec: false,
+  feasibilityStudy: false,
 };
 
-function formatUpdatedAt(value: string | null | undefined) {
-  if (!value) return "尚未生成";
+function formatUpdatedAt(value: string | null | undefined, locale: string, t: TFunction) {
+  if (!value) return t("documentsPage.time.notGenerated");
   const time = new Date(value).getTime();
-  if (Number.isNaN(time)) return "更新时间未知";
+  if (Number.isNaN(time)) return t("documentsPage.time.unknown");
   const diff = Date.now() - time;
   const minute = 60_000;
   const hour = minute * 60;
   const day = hour * 24;
-  if (diff < minute) return "刚刚更新";
-  if (diff < hour) return `${Math.max(1, Math.floor(diff / minute))} 分钟前更新`;
-  if (diff < day) return `${Math.max(1, Math.floor(diff / hour))} 小时前更新`;
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (diff < minute) return t("documentsPage.time.justNow");
+  if (diff < hour) return t("documentsPage.time.minutes", { count: Math.max(1, Math.floor(diff / minute)) });
+  if (diff < day) return t("documentsPage.time.hours", { count: Math.max(1, Math.floor(diff / hour)) });
+  return new Intl.DateTimeFormat(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -98,18 +108,18 @@ function documentDefinition(kind: DocumentKind) {
   return DOCUMENT_DEFINITIONS.find((item) => item.kind === kind)!;
 }
 
-function formatByteLength(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "大小未知";
+function formatByteLength(value: number, t: TFunction) {
+  if (!Number.isFinite(value) || value <= 0) return t("documentsPage.sizeUnknown");
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatFullUpdatedAt(value: string | null | undefined) {
-  if (!value) return "尚未生成";
+function formatFullUpdatedAt(value: string | null | undefined, locale: string, t: TFunction) {
+  if (!value) return t("documentsPage.time.notGenerated");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(date.getTime())) return t("documentsPage.time.unknown");
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -118,12 +128,16 @@ function formatFullUpdatedAt(value: string | null | undefined) {
   }).format(date);
 }
 
-function documentStyleSummary(style: DocumentStyleSettings) {
+function documentStyleSummary(style: DocumentStyleSettings, t: TFunction) {
   return [
-    style.includeTableOfContents ? "自动目录" : "无目录",
-    style.autoNumberHeadings ? "标题编号" : "手动标题",
-    style.body?.eastAsiaFont ?? "正文宋体",
+    t(style.includeTableOfContents ? "documentsPage.style.toc" : "documentsPage.style.noToc"),
+    t(style.autoNumberHeadings ? "documentsPage.style.numbered" : "documentsPage.style.manual"),
+    style.body?.eastAsiaFont ?? t("documentsPage.style.defaultFont"),
   ];
+}
+
+function localizedDocumentTitle(kind: DocumentKind, t: TFunction) {
+  return t(`documentsPage.kinds.${kind}`);
 }
 
 function TemplatePreview({
@@ -135,11 +149,12 @@ function TemplatePreview({
   documentStyle: DocumentStyleSettings;
   onOpenStyle: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex h-36 flex-col gap-2 bg-muted/60 px-3 py-3 sm:h-44 sm:px-6 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <Badge variant="secondary" className="rounded-full text-[10px]">
-          课程设计模板
+          {t("documentsPage.courseTemplate")}
         </Badge>
         <Button
           type="button"
@@ -147,22 +162,22 @@ function TemplatePreview({
           size="sm"
           className="size-9 rounded-full bg-background/80 p-0 sm:h-8 sm:w-auto sm:px-3"
           onClick={onOpenStyle}
-          title="说明书样式"
-          aria-label="说明书样式"
+          title={t("documentsPage.documentStyle")}
+          aria-label={t("documentsPage.documentStyle")}
         >
           <Palette className="size-3.5" />
-          <span className="hidden sm:inline">说明书样式</span>
+          <span className="hidden sm:inline">{t("documentsPage.documentStyle")}</span>
         </Button>
       </div>
       <div className="mt-auto space-y-3">
         <div>
-          <p className="text-xs text-muted-foreground">生成模板</p>
+          <p className="text-xs text-muted-foreground">{t("documentsPage.generationTemplate")}</p>
           <p className="mt-1 line-clamp-2 text-sm font-semibold text-foreground sm:text-lg">
-            {definition.title}
+            {localizedDocumentTitle(definition.kind, t)}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 sm:gap-2">
-          {documentStyleSummary(documentStyle).map((item) => (
+          {documentStyleSummary(documentStyle, t).map((item) => (
             <span
               key={item}
               className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground sm:px-2.5 sm:py-1 sm:text-[11px]"
@@ -183,16 +198,18 @@ function GeneratedDocumentPreview({
   definition: (typeof DOCUMENT_DEFINITIONS)[number];
   document: DocumentLibraryItem;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en-US" : "zh-CN";
   return (
     <div className="flex h-36 flex-col justify-between bg-muted/60 px-3 py-3 sm:h-44 sm:px-6 sm:py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Badge variant="outline" className="rounded-full bg-background/70 text-[10px]">
-            {definition.title}
+            {localizedDocumentTitle(definition.kind, t)}
           </Badge>
           <p className="mt-3 flex items-center gap-2 text-xs font-semibold text-foreground sm:text-sm">
             <FileText className="size-4 text-primary" />
-            DOCX 文件
+            {t("documentsPage.docxFile")}
           </p>
         </div>
         <Badge variant="secondary" className="rounded-full font-mono text-[10px]">
@@ -202,16 +219,16 @@ function GeneratedDocumentPreview({
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] sm:gap-x-4 sm:gap-y-3 sm:text-xs">
         <div>
-          <dt className="text-muted-foreground">文件大小</dt>
+          <dt className="text-muted-foreground">{t("documentsPage.fileSize")}</dt>
           <dd className="mt-1 flex items-center gap-1.5 font-medium text-foreground">
             <HardDrive className="size-3.5 text-muted-foreground" />
-            {formatByteLength(document.byteLength)}
+            {formatByteLength(document.byteLength, t)}
           </dd>
         </div>
         <div className="col-span-2">
-          <dt className="text-muted-foreground">最近更新</dt>
+          <dt className="text-muted-foreground">{t("documentsPage.lastUpdated")}</dt>
           <dd className="mt-1 font-medium text-foreground">
-            {formatFullUpdatedAt(document.updatedAt)}
+            {formatFullUpdatedAt(document.updatedAt, locale, t)}
           </dd>
         </div>
       </dl>
@@ -234,6 +251,7 @@ function TemplateDocumentCard({
   onOpenStyle: () => void;
   onGenerate: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <article className="group flex min-h-[236px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors sm:min-h-[270px]">
       <TemplatePreview
@@ -243,14 +261,14 @@ function TemplateDocumentCard({
       />
       <div className="flex flex-1 flex-col gap-2 border-t border-border bg-card p-3 sm:gap-3 sm:p-4">
         <div className="mt-auto line-clamp-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground sm:text-xs">
-          {disabledReason ?? "生成后可进入 Word 编辑器。"}
+          {disabledReason ?? t("documentsPage.generatedHint")}
         </div>
         <Button
           type="button"
           size="sm"
           className="h-10 rounded-full sm:h-9"
           disabled={Boolean(disabledReason) || generating}
-          title={disabledReason ?? `生成${definition.title}`}
+          title={disabledReason ?? t("documentsPage.generateKind", { title: localizedDocumentTitle(definition.kind, t) })}
           onClick={onGenerate}
         >
           {generating ? (
@@ -258,7 +276,7 @@ function TemplateDocumentCard({
           ) : (
             <Sparkles className="size-3.5" />
           )}
-          生成并打开
+          {t("documentsPage.generateAndOpen")}
         </Button>
       </div>
     </article>
@@ -276,6 +294,8 @@ function GeneratedDocumentCard({
   onOpen: () => void;
   onDownload: () => void;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en-US" : "zh-CN";
   return (
     <article
       className="group flex min-h-[258px] cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors hover:border-primary/45 hover:shadow-md sm:min-h-[315px]"
@@ -293,7 +313,7 @@ function GeneratedDocumentCard({
               {definition.source}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {formatUpdatedAt(document.updatedAt)}
+              {formatUpdatedAt(document.updatedAt, locale, t)}
             </p>
           </div>
         </div>
@@ -310,7 +330,7 @@ function GeneratedDocumentCard({
             }}
           >
             <Download className="size-3.5" />
-            下载
+            {t("documentsPage.download")}
           </Button>
           <Button
             type="button"
@@ -322,7 +342,7 @@ function GeneratedDocumentCard({
             }}
           >
             <FileText className="size-3.5" />
-            打开编辑器
+            {t("documentsPage.openEditor")}
           </Button>
         </div>
       </div>
@@ -335,6 +355,7 @@ export function InstructionDocumentsPage({
 }: {
   activeDocumentId?: string;
 }) {
+  const { t } = useTranslation();
   const repository = useWorkspaceRepository();
   const { theme } = useTheme();
   const {
@@ -342,6 +363,7 @@ export function InstructionDocumentsPage({
     designModels,
     generateRequirementsSpec,
     generateSoftwareDesignSpec,
+    generateFeasibilityStudy,
   } = useWorkspaceSession();
   const { openDocumentsHome, openDocumentEditor } = useWorkspaceShell();
   const [documents, setDocuments] = useState<DocumentLibraryItem[]>([]);
@@ -363,13 +385,14 @@ export function InstructionDocumentsPage({
   const autoOpenClaimedRef = useRef(false);
   const hasRequirementModels = Object.values(models).some(Boolean);
   const hasDesignModels = Object.values(designModels).some(Boolean);
+  const [feasibilityReady, setFeasibilityReady] = useState(false);
   const onlyOfficeUiTheme = onlyOfficeUiThemeForProjectTheme(theme);
 
   const loadDocuments = useCallback(async () => {
     if (!repository.listDocuments) {
       setDocuments([]);
       setLoading(false);
-      setErrorMessage("当前仓储暂不支持说明书列表");
+      setErrorMessage(t("documentsPage.errors.listUnsupported"));
       return [];
     }
     try {
@@ -379,17 +402,31 @@ export function InstructionDocumentsPage({
       setDocuments(nextDocuments);
       return nextDocuments;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取说明书列表失败";
-      setErrorMessage(message);
+      setErrorMessage(t("documentsPage.errors.listFailed"));
       return [];
     } finally {
       setLoading(false);
     }
-  }, [repository]);
+  }, [repository, t]);
 
   useEffect(() => {
     void loadDocuments();
-  }, [loadDocuments]);
+    void repository.loadWorkspace().then((workspace) => {
+      const freshness = feasibilityArtifactState(workspace);
+      const implementationPlan = workspace.feasibilityImplementationPlan;
+      const recommendedImplementation = implementationPlan?.candidates.find(
+        (candidate) => candidate.id === implementationPlan.recommendedCandidateId,
+      )?.implementation;
+      setFeasibilityReady(Boolean(
+        workspace.feasibilityContextModel &&
+        workspace.feasibilityContextPlantUml &&
+        workspace.feasibilityContextSvg &&
+        recommendedImplementation &&
+        !freshness.contextStale &&
+        !freshness.implementationStale,
+      ));
+    });
+  }, [loadDocuments, repository]);
 
   const filteredDocuments = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -426,7 +463,7 @@ export function InstructionDocumentsPage({
         if (!active) return;
         setEditorConfig(null);
         setEditorError(
-          error instanceof Error ? error.message : "读取 OnlyOffice 编辑器配置失败",
+          t("documentsPage.errors.editorConfigFailed"),
         );
       })
       .finally(() => {
@@ -466,7 +503,9 @@ export function InstructionDocumentsPage({
         const snapshot =
           kind === "requirementsSpec"
             ? await generateRequirementsSpec(documentStyle)
-            : await generateSoftwareDesignSpec(documentStyle);
+            : kind === "softwareDesignSpec"
+              ? await generateSoftwareDesignSpec(documentStyle)
+              : await generateFeasibilityStudy(documentStyle);
 
         const nextDocuments = await loadDocuments();
         const document =
@@ -494,6 +533,7 @@ export function InstructionDocumentsPage({
     [
       generateRequirementsSpec,
       generateSoftwareDesignSpec,
+      generateFeasibilityStudy,
       documentStyle,
       loadDocuments,
       openDocument,
@@ -503,7 +543,7 @@ export function InstructionDocumentsPage({
   const downloadDocument = useCallback(
     async (document: DocumentLibraryItem) => {
       if (!repository.downloadDocument) {
-        toast.error("当前仓储不支持下载说明书");
+        toast.error(t("documentsPage.errors.downloadUnsupported"));
         return;
       }
       try {
@@ -512,23 +552,26 @@ export function InstructionDocumentsPage({
           document.fileName,
         );
         downloadBlobFile(downloaded.fileName, downloaded.blob);
-        toast.success(`已下载 ${downloaded.fileName}`);
+        toast.success(t("documentsPage.downloaded", { fileName: downloaded.fileName }));
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "下载说明书失败");
+        toast.error(t("documentsPage.errors.downloadFailed"));
       }
     },
-    [repository],
+    [repository, t],
   );
 
   const requirementDisabledReason = hasRequirementModels
     ? null
-    : "请先在需求页生成需求模型";
+    : t("documentsPage.prerequisites.requirements");
   const designDisabledReason = hasDesignModels
     ? null
-    : "请先在设计页生成设计模型";
+    : t("documentsPage.prerequisites.design");
   const disabledReasonByKind: Record<DocumentKind, string | null> = {
     requirementsSpec: requirementDisabledReason,
     softwareDesignSpec: designDisabledReason,
+    feasibilityStudy: feasibilityReady
+      ? null
+      : t("documentsPage.prerequisites.feasibility"),
   };
 
   if (activeDocumentId) {
@@ -542,18 +585,18 @@ export function InstructionDocumentsPage({
               size="icon"
               className="size-9 rounded-full"
               onClick={openDocumentsHome}
-              aria-label="返回说明书列表"
+              aria-label={t("documentsPage.backToList")}
             >
               <ArrowLeft className="size-4" />
             </Button>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-foreground">
-                {activeDocument?.fileName ?? editorConfig?.document.fileName ?? "说明书"}
+                {activeDocument?.fileName ?? editorConfig?.document.fileName ?? t("documentsPage.title")}
               </div>
               <div className="text-xs text-muted-foreground">
                 {activeDocument
                   ? `${documentDefinition(activeDocument.documentKind).title} · v${activeDocument.version}`
-                  : "正在读取文档信息"}
+                  : t("documentsPage.readingDocumentInfo")}
               </div>
             </div>
           </div>
@@ -566,7 +609,7 @@ export function InstructionDocumentsPage({
               onClick={() => void loadDocuments()}
             >
               <RefreshCw className="size-3.5" />
-              刷新
+              {t("documentsPage.refresh")}
             </Button>
             {activeDocument && (
               <Button
@@ -576,7 +619,7 @@ export function InstructionDocumentsPage({
                 onClick={() => void downloadDocument(activeDocument)}
               >
                 <Download className="size-3.5" />
-                下载
+                {t("documentsPage.download")}
               </Button>
             )}
           </div>
@@ -586,7 +629,7 @@ export function InstructionDocumentsPage({
           {editorLoading && (
             <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              正在加载 OnlyOffice 编辑器...
+              {t("documentsPage.editorLoading")}
             </div>
           )}
           {!editorLoading && editorConfig && (
@@ -605,11 +648,10 @@ export function InstructionDocumentsPage({
                   <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />
                   <div>
                     <h2 className="text-base font-semibold text-foreground">
-                      OnlyOffice 编辑器尚未就绪
+                      {t("documentsPage.editorNotReady")}
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {editorError ??
-                        "请确认 API 已配置 ONLYOFFICE_DOCUMENT_SERVER_URL，并且 Document Server 可以访问 PUBLIC_API_BASE_URL。"}
+                      {editorError ?? t("documentsPage.editorConfigurationHint")}
                     </p>
                     {activeDocument && (
                       <Button
@@ -618,7 +660,7 @@ export function InstructionDocumentsPage({
                         onClick={() => void downloadDocument(activeDocument)}
                       >
                         <Download className="size-3.5" />
-                        下载当前 DOCX
+                        {t("documentsPage.downloadCurrent")}
                       </Button>
                     )}
                   </div>
@@ -637,10 +679,10 @@ export function InstructionDocumentsPage({
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-              说明书
+              {t("documentsPage.title")}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              查看、生成并编辑需求规格说明书和软件设计说明书。
+              {t("documentsPage.description")}
             </p>
           </div>
         </header>
@@ -654,7 +696,7 @@ export function InstructionDocumentsPage({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   className="h-10 rounded-lg bg-background pl-9"
-                  placeholder="搜索已生成的文档..."
+                  placeholder={t("documentsPage.search")}
                 />
               </div>
               <label className="inline-flex h-10 items-center gap-2 text-sm text-muted-foreground">
@@ -663,11 +705,12 @@ export function InstructionDocumentsPage({
                   value={typeFilter}
                   onValueChange={(value) => setTypeFilter(value as DocumentKind | "all")}
                   className="h-10 min-w-44"
-                  aria-label="说明书类型"
+                  aria-label={t("documentsPage.typeFilter")}
                   options={[
-                    { value: "all", label: "所有类型" },
-                    { value: "requirementsSpec", label: "需求规格说明书" },
-                    { value: "softwareDesignSpec", label: "软件设计说明书" },
+                    { value: "all", label: t("documentsPage.allTypes") },
+                    { value: "requirementsSpec", label: localizedDocumentTitle("requirementsSpec", t) },
+                    { value: "softwareDesignSpec", label: localizedDocumentTitle("softwareDesignSpec", t) },
+                    { value: "feasibilityStudy", label: localizedDocumentTitle("feasibilityStudy", t) },
                   ]}
                 />
               </label>
@@ -679,7 +722,7 @@ export function InstructionDocumentsPage({
               onClick={() => void loadDocuments()}
             >
               <RefreshCw className="size-4" />
-              刷新列表
+              {t("documentsPage.refresh")}
             </Button>
           </ScaledToolbar>
         </section>
@@ -693,7 +736,7 @@ export function InstructionDocumentsPage({
         {loading ? (
           <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            正在读取说明书...
+            {t("documentsPage.loading")}
           </div>
         ) : (
           <>
@@ -722,15 +765,15 @@ export function InstructionDocumentsPage({
             <section className="flex flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-base font-semibold text-foreground">
-                  已生成说明书
+                  {t("documentsPage.generatedDocuments")}
                 </h2>
                 <span className="text-xs text-muted-foreground">
-                  {filteredDocuments.length} 份
+                  {t("documentsPage.documentCount", { count: filteredDocuments.length })}
                 </span>
               </div>
               {filteredDocuments.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground">
-                  暂无匹配的说明书
+                  {t("documentsPage.empty")}
                 </div>
               ) : (
                 <MobileCompactGrid

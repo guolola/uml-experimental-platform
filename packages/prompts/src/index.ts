@@ -38,3 +38,8 @@ export {
   buildRepairModelsPrompt,
   buildRepairRequirementTraceabilityPrompt,
 } from "./model-prompts.js";
+export {
+  buildGenerateFeasibilityContextPrompt,
+  buildGenerateFeasibilityImplementationPrompt,
+  buildRepairFeasibilityJsonPrompt,
+} from "./feasibility-prompts.js";

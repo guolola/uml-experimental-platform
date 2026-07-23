@@ -41,7 +41,7 @@ describe("api-client", () => {
     );
   });
 
-  it("preserves server error messages for JSON requests", async () => {
+  it("does not expose legacy server error messages for JSON requests", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -55,7 +55,7 @@ describe("api-client", () => {
     await expect(postJson("/api/runs", {})).rejects.toMatchObject({
       name: "ApiClientError",
       status: 401,
-      message: "Provider rejected API key",
+      message: "登录状态已失效，请重新登录。",
     } satisfies Partial<ApiClientError>);
   });
 

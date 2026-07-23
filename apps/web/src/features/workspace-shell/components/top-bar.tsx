@@ -16,6 +16,7 @@ import {
   Sun,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { toast } from "sonner";
 import type {
   CodeTraceEntry,
@@ -49,6 +50,7 @@ import {
 } from "../../../entities/workspace/modules";
 import { LineageGraphDialog } from "../../lineage/components/lineage-graph-dialog";
 import { LanguagePreferenceMenu } from "../../../shared/i18n/components/language-preference-menu";
+import { localizeApiFailure } from "../../../shared/i18n/api-errors";
 
 export type { ShellRoutePath };
 
@@ -66,34 +68,24 @@ type ProjectWorkspaceActionsProps = {
 };
 
 const RUN_STATUS_LABEL = {
-  idle: "暂无任务",
-  queued: "排队中",
-  running: "生成中",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  interrupted: "服务中断，可重试",
-} as const;
-
-const SUBTASK_STATUS_LABEL = {
-  queued: "排队",
-  running: "生成中",
-  repairing: "修复中",
-  rendering: "渲染中",
-  completed: "完成",
-  failed: "失败",
-  pending_review: "待确认",
+  idle: "idle",
+  queued: "queued",
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+  interrupted: "interrupted",
 } as const;
 
 const QUEUE_REASON_LABEL = {
-  global: "服务器忙",
-  provider: "供应商繁忙",
-  project: "项目并发已满",
-  user: "用户并发已满",
-  run: "本次任务并发已满",
+  global: "global",
+  provider: "provider",
+  project: "project",
+  user: "user",
+  run: "run",
 } as const;
 
-type RunKind = "requirements" | "design" | "code" | "document";
+type RunKind = "requirements" | "design" | "code" | "document" | "feasibility";
 
 const REQUIREMENT_DIAGRAM_KINDS = [
   "function",
@@ -115,34 +107,16 @@ const DESIGN_DIAGRAM_KINDS = [
 ] as const satisfies readonly DesignDiagramKind[];
 
 const STAGE_LABELS: Record<RunStage, string> = {
-  extract_rules: "抽取需求规则",
-  generate_models: "生成需求模型",
-  generate_design_sequence: "生成用例实现设计",
-  generate_design_models: "生成设计模型",
-  generate_tests: "生成测试用例",
-  analyze_code_business_logic: "分析业务逻辑",
-  analyze_code_product: "分析业务背景",
-  plan_code_ui: "规划界面方案",
-  generate_code_ui_mockup: "生成界面设计图",
-  analyze_code_ui_mockup: "解析界面设计图",
-  generate_code_ui_ir: "生成结构化 UI IR",
-  load_web_design_skill: "加载前端设计执行器",
-  select_code_skills: "选择前端设计执行器",
-  plan_code_files: "规划文件结构",
-  generate_code_spec: "生成代码规格",
-  generate_code_files: "生成代码文件",
-  plan_code: "制定实现步骤",
-  write_code_files: "写入原型文件",
-  audit_code_quality: "检查原型质量",
-  verify_code_ui_fidelity: "检查业务/界面覆盖",
-  verify_code_rendered_preview: "验证渲染预览",
-  verify_code_business_assertions: "验证业务断言",
-  verify_code_preview: "检查预览入口",
-  repair_code_files: "修复代码输出",
-  generate_document_text: "生成说明书正文",
-  render_document_file: "写入说明书文件",
-  generate_plantuml: "生成图源码",
-  render_svg: "渲染图像",
+  extract_rules: "extract_rules", generate_models: "generate_models", generate_design_sequence: "generate_design_sequence",
+  generate_design_models: "generate_design_models", generate_tests: "generate_tests", analyze_code_business_logic: "analyze_code_business_logic",
+  analyze_code_product: "analyze_code_product", plan_code_ui: "plan_code_ui", generate_code_ui_mockup: "generate_code_ui_mockup",
+  analyze_code_ui_mockup: "analyze_code_ui_mockup", generate_code_ui_ir: "generate_code_ui_ir", load_web_design_skill: "load_web_design_skill",
+  select_code_skills: "select_code_skills", plan_code_files: "plan_code_files", generate_code_spec: "generate_code_spec",
+  generate_code_files: "generate_code_files", plan_code: "plan_code", write_code_files: "write_code_files",
+  audit_code_quality: "audit_code_quality", verify_code_ui_fidelity: "verify_code_ui_fidelity", verify_code_rendered_preview: "verify_code_rendered_preview",
+  verify_code_business_assertions: "verify_code_business_assertions", verify_code_preview: "verify_code_preview", repair_code_files: "repair_code_files",
+  generate_document_text: "generate_document_text", render_document_file: "render_document_file", generate_plantuml: "generate_plantuml",
+  render_svg: "render_svg", generate_context: "generate_context", render_context: "render_context", generate_implementation: "generate_implementation",
 };
 
 const STAGES_BY_KIND: Record<RunKind, RunStage[]> = {
@@ -170,6 +144,11 @@ const STAGES_BY_KIND: Record<RunKind, RunStage[]> = {
     "repair_code_files",
   ],
   document: ["generate_document_text", "render_document_file"],
+  feasibility: [
+    "generate_context",
+    "render_context",
+    "generate_implementation",
+  ],
 };
 
 const topBarActionButtonClass =
@@ -191,84 +170,43 @@ function shellRouteTranslationKey(route: string) {
   return route === "/projects" ? "projects" : (SHELL_ROUTE_TRANSLATION_KEYS[route] ?? "workspace");
 }
 
-function formatStageLabel(stage: RunStage | null) {
-  if (!stage) return "等待任务";
-  return STAGE_LABELS[stage] ?? "处理生成任务";
+function formatStageLabel(stage: RunStage | null, t?: TFunction) {
+  if (!stage) return t ? t("generation.stages.waiting") : "waiting";
+  if (t) return t(`generation.stageLabels.${stage}`);
+  return STAGE_LABELS[stage] ?? stage;
 }
 
 function sanitizeTaskText(text: string | null | undefined) {
-  if (!text) return "";
-  const replacements = [
-    ["extract_rules", "抽取需求规则"],
-    ["generate_models", "生成需求模型"],
-    ["generate_design_sequence", "生成用例实现设计"],
-    ["generate_design_models", "生成设计模型"],
-    ["generate_tests", "生成测试用例"],
-    ["analyze_code_business_logic", "分析业务逻辑"],
-    ["analyze_code_product", "分析业务背景"],
-    ["plan_code_ui", "规划界面方案"],
-    ["generate_code_ui_mockup", "生成界面设计图"],
-    ["analyze_code_ui_mockup", "解析界面设计图"],
-    ["generate_code_ui_ir", "生成结构化 UI IR"],
-    ["load_web_design_skill", "加载前端设计执行器"],
-    ["select_code_skills", "选择前端设计执行器"],
-    ["plan_code_files", "规划文件结构"],
-    ["generate_code_spec", "生成代码规格"],
-    ["generate_code_files", "生成代码文件"],
-    ["plan_code", "制定实现步骤"],
-    ["write_code_files", "写入原型文件"],
-    ["audit_code_quality", "检查原型质量"],
-    ["verify_code_ui_fidelity", "检查设计图还原度"],
-    ["verify_code_rendered_preview", "验证渲染预览"],
-    ["verify_code_business_assertions", "验证业务断言"],
-    ["verify_code_preview", "检查预览入口"],
-    ["repair_code_files", "修复代码输出"],
-    ["generate_document_text", "生成说明书正文"],
-    ["render_document_file", "写入说明书文件"],
-    ["generate_plantuml", "生成图源码"],
-    ["render_svg", "渲染图像"],
-    ["PlantUML", "图源码"],
-    ["SVG", "图像"],
-    ["stage_started", "阶段开始"],
-    ["stage_progress", "阶段进度"],
-    ["llm_chunk", "收到模型输出"],
-    ["uiMockup", "界面设计图"],
-    ["uiReferenceSpec", "界面设计图解析"],
-    ["businessLogic", "业务逻辑"],
-    ["uiFidelityReport", "业务/界面覆盖检查"],
-    ["designTokens", "设计 Token"],
-    ["componentRegistry", "组件 Registry"],
-    ["uiIr", "结构化 UI IR"],
-    ["visualDiffReport", "预览验证报告"],
-    ["ui-ux-pro-max", "前端设计执行器"],
-  ];
-  return replacements.reduce(
-    (current, [source, target]) => current.split(source).join(target),
-    text,
-  );
+  return text ?? "";
 }
 
-function formatTaskDateTime(value: string | null | undefined) {
-  if (!value) return "未记录";
+function formatTaskDateTime(value: string | null | undefined, locale?: string, t?: TFunction) {
+  if (!value) return t ? t("generation.drawer.notRecorded") : "未记录";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "未记录";
-  return date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return t ? t("generation.drawer.notRecorded") : "未记录";
+  return date.toLocaleString(locale);
 }
 
 function formatTaskDuration(
   startedAt: string | null | undefined,
   finishedAt: string | null | undefined,
+  t?: TFunction,
 ) {
-  if (!startedAt || !finishedAt) return "进行中";
+  if (!startedAt || !finishedAt) return t ? t("generation.drawer.inProgress") : "进行中";
   const started = new Date(startedAt).getTime();
   const finished = new Date(finishedAt).getTime();
   if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) {
-    return "未记录";
+    return t ? t("generation.drawer.notRecorded") : "未记录";
   }
   const seconds = Math.round((finished - started) / 1000);
-  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 60) return t ? t("generation.drawer.seconds", { count: seconds }) : `${seconds} 秒`;
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
+  if (t) {
+    return rest > 0
+      ? t("generation.drawer.minuteSeconds", { minutes, seconds: rest })
+      : t("generation.drawer.minutes", { count: minutes });
+  }
   return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
 }
 
@@ -290,13 +228,14 @@ function normalizeRunKind(kind: PlatformRunSummary["runKind"]): RunKind | null {
   return kind === "requirements" ||
     kind === "design" ||
     kind === "code" ||
-    kind === "document"
+    kind === "document" ||
+    kind === "feasibility"
     ? kind
     : null;
 }
 
 function normalizeRunStage(stage: PlatformRunSummary["stage"]): RunStage | null {
-  return stage ? (stage as RunStage) : null;
+  return stage && stage in STAGE_LABELS ? (stage as RunStage) : null;
 }
 
 function isActiveProjectRun(run: PlatformRunSummary) {
@@ -338,26 +277,28 @@ function getProjectRunProgress(run: PlatformRunSummary) {
   return Math.min(95, Math.max(5, Math.round(((stageIndex + 1) / stages.length) * 100)));
 }
 
-function formatProjectRunTitle(run: PlatformRunSummary) {
+function formatProjectRunTitle(run: PlatformRunSummary, t?: TFunction) {
   const kind = normalizeRunKind(run.runKind);
+  if (t) return t(`generation.taskKinds.${kind ?? "unknown"}`);
   if (kind === "requirements") return "需求模型生成";
   if (kind === "design") return "设计模型生成";
   if (kind === "code") return "代码生成";
   if (kind === "document") return "说明书生成";
+  if (kind === "feasibility") return "可行性分析生成";
   return "项目生成任务";
 }
 
-function runActionLabel(action?: string | null) {
-  if (action === "retry") return "重试";
-  if (action === "rerun") return "重新运行";
-  return "派生运行";
+function runActionLabel(action: string | null | undefined, t: TFunction) {
+  if (action === "retry") return t("projectShell.historyUi.retry");
+  if (action === "rerun") return t("projectShell.historyUi.rerun");
+  return t("projectShell.historyUi.derived");
 }
 
-function projectRunRelationMessage(run: PlatformRunSummary) {
+function projectRunRelationMessage(run: PlatformRunSummary, t: TFunction) {
   const parts = [
-    run.sourceRunId ? `${runActionLabel(run.sourceAction)}自 ${run.sourceRunId}` : null,
+    run.sourceRunId ? t("projectShell.historyUi.relationSource", { action: runActionLabel(run.sourceAction, t), runId: run.sourceRunId }) : null,
     run.latestActionRunId
-      ? `已${runActionLabel(run.latestAction)}为 ${run.latestActionRunId}`
+      ? t("projectShell.historyUi.relationDerived", { action: runActionLabel(run.latestAction, t), runId: run.latestActionRunId })
       : null,
   ].filter(Boolean);
   return parts.join(" · ");
@@ -371,22 +312,28 @@ function projectRunCodeDiagnosticMessage(run: PlatformRunSummary) {
   });
 }
 
-function formatProjectRunMessage(run: PlatformRunSummary) {
-  const relation = projectRunRelationMessage(run);
+function formatProjectRunMessage(run: PlatformRunSummary, t?: TFunction) {
+  const relation = t ? projectRunRelationMessage(run, t) : "";
   const status = normalizeRunStatus(run.status);
   const codeDiagnostics = projectRunCodeDiagnosticMessage(run);
-  if (run.errorMessage) {
-    return [relation, sanitizeTaskText(run.errorMessage)].filter(Boolean).join(" · ");
+  if (run.error || run.errorMessage) {
+    return [relation, localizeApiFailure(run.error ? { error: run.error } : null, 500)]
+      .filter(Boolean)
+      .join(" · ");
   }
   if (status === "interrupted") {
-    return [relation, "服务中断，可从运行历史重试或重新运行"].filter(Boolean).join(" · ");
+    return [relation, t ? t("generation.status.interruptedDetail") : "interrupted"].filter(Boolean).join(" · ");
   }
   if (codeDiagnostics) {
     return [relation, codeDiagnostics].filter(Boolean).join(" · ");
   }
-  if (status === "queued") return [relation, "任务正在排队"].filter(Boolean).join(" · ");
+  if (status === "queued") return [relation, t ? t("generation.status.queued") : "任务正在排队"].filter(Boolean).join(" · ");
   const stage = normalizeRunStage(run.stage);
-  const statusMessage = stage ? `${formatStageLabel(stage)}进行中` : RUN_STATUS_LABEL[status];
+  const statusMessage = stage
+    ? formatStageLabel(stage, t)
+    : t
+      ? t(`generation.status.${status}`)
+      : RUN_STATUS_LABEL[status];
   return [relation, statusMessage].filter(Boolean).join(" · ");
 }
 
@@ -398,12 +345,12 @@ function runStatusBadgeVariant(status: keyof typeof RUN_STATUS_LABEL) {
 }
 
 const TRACE_KIND_LABELS: Record<string, string> = {
-  llm_output: "模型原始返回",
-  parse_error: "解析错误",
-  parsed_model: "解析后的模型",
-  parsed_data: "解析后的数据",
-  validation_error: "校验错误",
-  plantuml_source: "PlantUML 源码",
+  llm_output: "llm_output",
+  parse_error: "parse_error",
+  parsed_model: "parsed_model",
+  parsed_data: "parsed_data",
+  validation_error: "validation_error",
+  plantuml_source: "plantuml_source",
   render_error: "渲染错误",
   repair_output: "修复原始返回",
   repaired_data: "修复后数据",
@@ -411,25 +358,25 @@ const TRACE_KIND_LABELS: Record<string, string> = {
   file_content: "文件内容结果",
 };
 
-function formatDesignTraceEntryTitle(entry: DesignTraceEntry) {
+function formatDesignTraceEntryTitle(entry: DesignTraceEntry, t?: TFunction) {
   return [
-    formatStageLabel(entry.stage),
-    entry.diagramKind ?? "全局",
-    `第 ${entry.attempt} 次`,
-    TRACE_KIND_LABELS[entry.kind],
+    formatStageLabel(entry.stage, t),
+    entry.diagramKind ?? (t ? t("generation.drawer.traceGlobal") : "全局"),
+    t ? t("generation.drawer.traceAttempt", { count: entry.attempt }) : `第 ${entry.attempt} 次`,
+    t ? t(`generation.drawer.traceKinds.${entry.kind}`) : TRACE_KIND_LABELS[entry.kind],
   ].join(" / ");
 }
 
-function formatRequirementTraceEntryTitle(entry: RequirementTraceEntry) {
+function formatRequirementTraceEntryTitle(entry: RequirementTraceEntry, t?: TFunction) {
   return [
-    formatStageLabel(entry.stage),
-    entry.diagramKind ?? "全局",
-    `第 ${entry.attempt} 次`,
-    TRACE_KIND_LABELS[entry.kind],
+    formatStageLabel(entry.stage, t),
+    entry.diagramKind ?? (t ? t("generation.drawer.traceGlobal") : "全局"),
+    t ? t("generation.drawer.traceAttempt", { count: entry.attempt }) : `第 ${entry.attempt} 次`,
+    t ? t(`generation.drawer.traceKinds.${entry.kind}`) : TRACE_KIND_LABELS[entry.kind],
   ].join(" / ");
 }
 
-function formatCodeTraceEntryTitle(entry: CodeTraceEntry) {
+function formatCodeTraceEntryTitle(entry: CodeTraceEntry, t?: TFunction) {
   const stageLabel =
     entry.stage === "generate_file_operations"
       ? "生成代码文件操作"
@@ -440,13 +387,13 @@ function formatCodeTraceEntryTitle(entry: CodeTraceEntry) {
         : "生成单文件内容";
   return [
     stageLabel,
-    entry.path ?? "全局",
-    `第 ${entry.attempt} 次`,
-    TRACE_KIND_LABELS[entry.kind],
+    entry.path ?? (t ? t("generation.drawer.traceGlobal") : "全局"),
+    t ? t("generation.drawer.traceAttempt", { count: entry.attempt }) : `第 ${entry.attempt} 次`,
+    t ? t(`generation.drawer.traceKinds.${entry.kind}`) : TRACE_KIND_LABELS[entry.kind],
   ].join(" / ");
 }
 
-function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry | CodeTraceEntry) {
+function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry | CodeTraceEntry, t?: TFunction) {
   if (entry.rawOutput) {
     return entry.errorMessage
       ? `${entry.rawOutput}\n\n${entry.errorMessage}`
@@ -457,7 +404,7 @@ function getTraceEntryBody(entry: DesignTraceEntry | RequirementTraceEntry | Cod
   if (entry.parsedData !== undefined) {
     return JSON.stringify(entry.parsedData, null, 2);
   }
-  return "无详细内容";
+  return t ? t("generation.drawer.noTechnicalDetails") : "无详细内容";
 }
 
 type VisibleSubtask = NonNullable<
@@ -481,45 +428,39 @@ type StageTodoItem = {
   subtasks: VisibleSubtask[];
 };
 
-function formatDuration(ms?: number) {
+function formatDuration(ms: number | undefined, t?: TFunction) {
   if (typeof ms !== "number" || !Number.isFinite(ms)) return null;
   const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 60) return `${seconds} 秒`;
-  return `约 ${Math.ceil(seconds / 60)} 分钟`;
+  if (seconds < 60) return t ? t("generation.drawer.seconds", { count: seconds }) : `${seconds} 秒`;
+  return t
+    ? t("generation.drawer.aboutMinutes", { count: Math.ceil(seconds / 60) })
+    : `约 ${Math.ceil(seconds / 60)} 分钟`;
 }
 
-function formatSubtaskDetail(subtask: VisibleSubtask) {
+function formatSubtaskDetail(subtask: VisibleSubtask, t?: TFunction) {
   if (subtask.status === "queued" && typeof subtask.queueAhead === "number") {
     const reason = subtask.queueReason
-      ? QUEUE_REASON_LABEL[subtask.queueReason]
-      : "排队中";
-    const waited = formatDuration(subtask.waitMs);
-    const estimate = formatDuration(subtask.estimatedWaitMs);
+      ? (t ? t(`generation.drawer.queueReasons.${subtask.queueReason}`) : QUEUE_REASON_LABEL[subtask.queueReason])
+      : (t ? t("generation.drawer.queued") : "排队中");
+    const waited = formatDuration(subtask.waitMs, t);
+    const estimate = formatDuration(subtask.estimatedWaitMs, t);
     return [
-      `${reason}，前方 ${subtask.queueAhead} 个模型调用`,
-      waited ? `已等待 ${waited}` : null,
-      estimate ? `预计还需 ${estimate}` : null,
+      t ? t("generation.drawer.queueAhead", { reason, count: subtask.queueAhead }) : `${reason}，前方 ${subtask.queueAhead} 个模型调用`,
+      waited ? (t ? t("generation.drawer.waited", { duration: waited }) : `已等待 ${waited}`) : null,
+      estimate ? (t ? t("generation.drawer.estimated", { duration: estimate }) : `预计还需 ${estimate}`) : null,
     ]
       .filter(Boolean)
       .join(" · ");
   }
   if (subtask.status === "pending_review") {
-    return `有 ${subtask.pendingReviewCount ?? 1} 条追踪关系需复核`;
+    return t
+      ? t("generation.drawer.pendingRelations", { count: subtask.pendingReviewCount ?? 1 })
+      : `有 ${subtask.pendingReviewCount ?? 1} 条追踪关系需复核`;
   }
-  const detail = sanitizeTaskText(subtask.errorMessage ?? subtask.message ?? "");
-  if (
-    subtask.status === "completed" &&
-    (!detail ||
-      detail === "等待执行" ||
-      detail.includes("正在生成") ||
-      detail.includes("正在渲染") ||
-      detail.includes("正在修复") ||
-      detail.includes("开始执行") ||
-      detail.includes("排队中"))
-  ) {
-    return "已完成";
-  }
-  return detail;
+  if (t) return t(`generation.drawer.subtaskStatus.${subtask.status}`);
+  return subtask.status === "completed"
+    ? "已完成"
+    : sanitizeTaskText(subtask.errorMessage ?? subtask.message ?? "");
 }
 
 function isRequirementRuleSubtask(subtaskId: string) {
@@ -561,14 +502,16 @@ function retryDiagramId(id: string) {
   return rawSubtaskId(id).split(":")[0] ?? rawSubtaskId(id);
 }
 
-function retrySubtaskActionLabel(id: string) {
-  return rawSubtaskId(id).includes(":") ? "重试全部同类模型" : "重试此模型";
+function retrySubtaskActionLabel(id: string, t?: TFunction) {
+  return rawSubtaskId(id).includes(":")
+    ? (t ? t("generation.drawer.retrySameKind") : "重试全部同类模型")
+    : (t ? t("generation.drawer.retryOne") : "重试此模型");
 }
 
-function retrySubtaskActionTitle(id: string) {
+function retrySubtaskActionTitle(id: string, t?: TFunction) {
   return rawSubtaskId(id).includes(":")
-    ? "当前重试按模型类型执行，会重试同类模型而不是单个实例"
-    : "重试此模型";
+    ? (t ? t("generation.drawer.retrySameKindTitle") : "当前重试按模型类型执行，会重试同类模型而不是单个实例")
+    : (t ? t("generation.drawer.retryOne") : "重试此模型");
 }
 
 function getSubtaskStage(
@@ -606,7 +549,7 @@ function isCompletedSubtask(status: VisibleSubtask["status"]) {
   return status === "completed" || status === "pending_review";
 }
 
-function summarizeStageSubtasks(subtasks: VisibleSubtask[]) {
+function summarizeStageSubtasks(subtasks: VisibleSubtask[], t?: TFunction) {
   if (subtasks.length === 0) return null;
   const completed = subtasks.filter((subtask) =>
     isCompletedSubtask(subtask.status),
@@ -619,14 +562,14 @@ function summarizeStageSubtasks(subtasks: VisibleSubtask[]) {
   const running = subtasks.filter((subtask) => subtask.status === "running").length;
   const repairing = subtasks.filter((subtask) => subtask.status === "repairing").length;
   const rendering = subtasks.filter((subtask) => subtask.status === "rendering").length;
-  const parts = [`${completed}/${subtasks.length} 完成`];
-  if (queued > 0) parts.push(`${queued} 个排队`);
-  if (running > 0) parts.push(`${running} 个生成中`);
-  if (repairing > 0) parts.push(`${repairing} 个修复中`);
-  if (rendering > 0) parts.push(`${rendering} 个渲染中`);
-  if (failed > 0) parts.push(`${failed} 个失败`);
-  if (pendingReview > 0) parts.push(`${pendingReview} 个待确认`);
-  return parts.join("，");
+  const parts = [t ? t("generation.drawer.completedCount", { completed, total: subtasks.length }) : `${completed}/${subtasks.length} 完成`];
+  if (queued > 0) parts.push(t ? t("generation.drawer.queuedCount", { count: queued }) : `${queued} 个排队`);
+  if (running > 0) parts.push(t ? t("generation.drawer.runningCount", { count: running }) : `${running} 个生成中`);
+  if (repairing > 0) parts.push(t ? t("generation.drawer.repairingCount", { count: repairing }) : `${repairing} 个修复中`);
+  if (rendering > 0) parts.push(t ? t("generation.drawer.renderingCount", { count: rendering }) : `${rendering} 个渲染中`);
+  if (failed > 0) parts.push(t ? t("generation.drawer.failedCount", { count: failed }) : `${failed} 个失败`);
+  if (pendingReview > 0) parts.push(t ? t("generation.drawer.reviewCount", { count: pendingReview }) : `${pendingReview} 个待确认`);
+  return parts.join(t ? ", " : "，");
 }
 
 function getStageStatusFromSubtasks(
@@ -647,11 +590,13 @@ function buildStageTodoItems({
   selectedTask,
   diagnostics,
   runStatus,
+  t,
 }: {
   taskStages: RunStage[];
   selectedTask: VisibleGenerationTask | null;
   diagnostics: ReturnType<typeof useWorkspaceSession>["currentRunDiagnostics"];
   runStatus: keyof typeof RUN_STATUS_LABEL;
+  t?: TFunction;
 }): StageTodoItem[] {
   const activeStageIndex = diagnostics.activeStage
     ? taskStages.indexOf(diagnostics.activeStage)
@@ -677,24 +622,21 @@ function buildStageTodoItems({
           : current
             ? "running"
             : "waiting");
-    const summary = summarizeStageSubtasks(subtasks);
+    const summary = summarizeStageSubtasks(subtasks, t);
     const detail =
       summary ??
       (status === "completed"
-        ? "已完成"
+        ? (t ? t("generation.drawer.completed") : "已完成")
         : status === "failed"
-          ? "执行失败"
+          ? (t ? t("generation.drawer.executionFailed") : "执行失败")
           : status === "running"
-            ? sanitizeTaskText(
-                diagnostics.stageMessages[stage] ??
-                  (diagnostics.activeStage === stage ? null : undefined),
-              ) || "正在执行"
+            ? (t ? t("generation.drawer.executing") : "正在执行")
             : status === "queued"
-              ? "排队中"
-              : "等待执行");
+              ? (t ? t("generation.drawer.queued") : "排队中")
+              : (t ? t("generation.drawer.waiting") : "等待执行"));
     return {
       stage,
-      label: formatStageLabel(stage),
+      label: formatStageLabel(stage, t),
       status,
       detail,
       summary,
@@ -708,6 +650,8 @@ export function ProjectGenerationTasksDrawerContent({
 }: {
   projectRuns?: PlatformRunSummary[];
 } = {}) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en-US" : "zh-CN";
   const executionDetailRef = useRef<HTMLDivElement | null>(null);
   const {
     runStatus,
@@ -733,8 +677,8 @@ export function ProjectGenerationTasksDrawerContent({
     : null;
   const executionDetailPlaceholder =
     currentRunDiagnostics.streamText || !activeStageMessage
-      ? "等待模型输出..."
-      : activeStageMessage;
+      ? t("generation.drawer.waitingOutput")
+      : t("generation.drawer.executing");
   const uiMockup = currentRunDiagnostics.uiMockup;
   const uiMockupImage = uiMockup?.imageUrl ?? uiMockup?.imageDataUrl ?? null;
   const requirementTraceEntries = currentRunDiagnostics.requirementTrace;
@@ -775,8 +719,8 @@ export function ProjectGenerationTasksDrawerContent({
     ? getProjectRunProgress(selectedProjectRun)
     : runProgress;
   const visibleRunMessage = selectedProjectRun
-    ? formatProjectRunMessage(selectedProjectRun)
-    : runMessage;
+    ? formatProjectRunMessage(selectedProjectRun, t)
+    : t(`generation.status.${runStatus}`);
   const pendingReviewSubtasks =
     selectedTask?.subtasks.filter((subtask) => subtask.status === "pending_review") ??
     [];
@@ -791,17 +735,22 @@ export function ProjectGenerationTasksDrawerContent({
         selectedTask,
         diagnostics: currentRunDiagnostics,
         runStatus,
+        t,
       }),
-    [currentRunDiagnostics, runStatus, selectedTask, taskStages],
+    [currentRunDiagnostics, runStatus, selectedTask, t, taskStages],
   );
   const retrySubtask = (subtaskId: string) => {
     if (!selectedTask || taskIsActive) return;
     const diagramId = retryDiagramId(subtaskId);
     if (
       selectedTask.kind === "requirements" &&
-      REQUIREMENT_DIAGRAM_KINDS.includes(diagramId as DiagramKind)
+      REQUIREMENT_DIAGRAM_KINDS.includes(
+        diagramId as (typeof REQUIREMENT_DIAGRAM_KINDS)[number],
+      )
     ) {
-      void generateDiagrams([diagramId as DiagramKind]);
+      void generateDiagrams([
+        diagramId as (typeof REQUIREMENT_DIAGRAM_KINDS)[number],
+      ]);
       return;
     }
     if (
@@ -825,10 +774,10 @@ export function ProjectGenerationTasksDrawerContent({
     entry: DesignTraceEntry | RequirementTraceEntry | CodeTraceEntry,
   ) => {
     try {
-      await navigator.clipboard.writeText(getTraceEntryBody(entry));
-      toast.success("已复制追踪内容");
+      await navigator.clipboard.writeText(getTraceEntryBody(entry, t));
+      toast.success(t("generation.drawer.copiedTrace"));
     } catch {
-      toast.error("复制失败");
+      toast.error(t("generation.drawer.copyFailed"));
     }
   };
 
@@ -838,16 +787,16 @@ export function ProjectGenerationTasksDrawerContent({
               <div className="mb-4 min-w-0 max-w-full overflow-hidden">
                 <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
                   <span className="text-xs font-semibold text-muted-foreground">
-                    服务端运行中
+                    {t("generation.drawer.serverRuns")}
                   </span>
                 </div>
                 <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
                   {activeProjectRuns.map((run) => {
-                    const taskMessage = formatProjectRunMessage(run);
+                    const taskMessage = formatProjectRunMessage(run, t);
                     const runTimeSummary = [
-                      `开始 ${formatTaskDateTime(run.startedAt ?? run.createdAt)}`,
-                      run.completedAt ? `结束 ${formatTaskDateTime(run.completedAt)}` : null,
-                      run.model ? `模型 ${run.model}` : null,
+                      t("generation.drawer.started", { time: formatTaskDateTime(run.startedAt ?? run.createdAt, locale, t) }),
+                      run.completedAt ? t("generation.drawer.finished", { time: formatTaskDateTime(run.completedAt, locale, t) }) : null,
+                      run.model ? t("generation.drawer.modelInline", { model: run.model }) : null,
                     ]
                       .filter(Boolean)
                       .join(" · ");
@@ -858,8 +807,8 @@ export function ProjectGenerationTasksDrawerContent({
                       >
                         <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
                         <span className="min-w-0 flex-1 overflow-hidden">
-                          <span className="block truncate font-medium" title={formatProjectRunTitle(run)}>
-                            {formatProjectRunTitle(run)}
+                          <span className="block truncate font-medium" title={formatProjectRunTitle(run, t)}>
+                            {formatProjectRunTitle(run, t)}
                           </span>
                           <span
                             className="mt-0.5 block truncate text-xs text-muted-foreground"
@@ -887,7 +836,7 @@ export function ProjectGenerationTasksDrawerContent({
               <div className="mb-4 min-w-0 max-w-full overflow-hidden">
                 <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
                   <span className="text-xs font-semibold text-muted-foreground">
-                    任务列表
+                    {t("generation.drawer.taskList")}
                   </span>
                   <Button
                     type="button"
@@ -896,22 +845,25 @@ export function ProjectGenerationTasksDrawerContent({
                     className="h-7 px-2 text-xs"
                     onClick={clearCompletedGenerationTasks}
                   >
-                    清理已完成
+                    {t("generation.drawer.clearCompleted")}
                   </Button>
                 </div>
                 <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
                   {generationTasks.map((task) => {
                     const selected = selectedTask?.clientTaskId === task.clientTaskId;
                     const active = isActiveGenerationTask(task);
-                    const taskMessage = sanitizeTaskText(
-                      task.message ?? task.errorMessage ?? "",
-                    );
+                    const taskMessage = task.messageCode
+                      ? localizeApiFailure(
+                          { error: { code: task.messageCode, params: task.messageParams } },
+                          task.status === "failed" ? 500 : 200,
+                        )
+                      : t(`generation.status.${task.status}`);
                     const taskTimeSummary = [
-                      `开始 ${formatTaskDateTime(task.startedAt)}`,
-                      task.finishedAt ? `结束 ${formatTaskDateTime(task.finishedAt)}` : null,
-                      `耗时 ${formatTaskDuration(task.startedAt, task.finishedAt)}`,
+                      t("generation.drawer.started", { time: formatTaskDateTime(task.startedAt, locale, t) }),
+                      task.finishedAt ? t("generation.drawer.finished", { time: formatTaskDateTime(task.finishedAt, locale, t) }) : null,
+                      t("generation.drawer.durationInline", { duration: formatTaskDuration(task.startedAt, task.finishedAt, t) }),
                       task.diagnostics.providerModel
-                        ? `模型 ${task.diagnostics.providerModel}`
+                        ? t("generation.drawer.modelInline", { model: task.diagnostics.providerModel })
                         : null,
                     ]
                       .filter(Boolean)
@@ -934,14 +886,14 @@ export function ProjectGenerationTasksDrawerContent({
                           <CheckCircle2 className="size-4 shrink-0 text-success" />
                         )}
                         <span className="min-w-0 flex-1 overflow-hidden">
-                          <span className="block truncate font-medium" title={task.title}>
-                            {task.title}
+                          <span className="block truncate font-medium" title={t(`generation.taskKinds.${task.kind}`)}>
+                            {t(`generation.taskKinds.${task.kind}`)}
                           </span>
                           <span
                             className="mt-0.5 block truncate text-xs text-muted-foreground"
-                            title={taskMessage || RUN_STATUS_LABEL[task.status]}
+                            title={taskMessage}
                           >
-                            {taskMessage || RUN_STATUS_LABEL[task.status]}
+                            {taskMessage}
                           </span>
                           <span
                             className="mt-0.5 block truncate text-[11px] text-muted-foreground"
@@ -964,43 +916,43 @@ export function ProjectGenerationTasksDrawerContent({
               className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-lg border border-border bg-card p-4 text-sm"
             >
               <div className="flex min-w-0 items-center justify-between gap-3">
-                <span className="text-muted-foreground">状态</span>
+                <span className="text-muted-foreground">{t("generation.drawer.status")}</span>
                 <Badge variant={runStatusBadgeVariant(visibleRunStatus)}>
-                  {RUN_STATUS_LABEL[visibleRunStatus]}
+                  {t(`generation.status.${visibleRunStatus}`)}
                 </Badge>
               </div>
               <div className="flex min-w-0 items-center justify-between gap-3">
-                <span className="text-muted-foreground">进度</span>
+                <span className="text-muted-foreground">{t("generation.drawer.progress")}</span>
                 <span className="shrink-0 font-mono">{visibleRunProgress}%</span>
               </div>
               <div className="grid min-w-0 gap-1">
-                <span className="text-muted-foreground">消息</span>
+                <span className="text-muted-foreground">{t("generation.drawer.message")}</span>
                 <span
                   className="min-w-0 break-words"
-                  title={sanitizeTaskText(visibleRunMessage ?? errorMessage)}
+                  title={visibleRunMessage}
                 >
-                  {sanitizeTaskText(visibleRunMessage ?? errorMessage) || "暂无进行中的任务"}
+                  {visibleRunMessage || t("generation.drawer.noActiveTask")}
                 </span>
               </div>
               {selectedProjectRun?.runId && (
                 <div className="grid min-w-0 gap-1">
-                  <span className="text-muted-foreground">运行 ID</span>
+                  <span className="text-muted-foreground">{t("generation.drawer.runId")}</span>
                   <span className="min-w-0 truncate font-mono text-xs" title={selectedProjectRun.runId}>
                     {selectedProjectRun.runId}
                   </span>
                 </div>
               )}
-              {selectedProjectRun && projectRunRelationMessage(selectedProjectRun) && (
+              {selectedProjectRun && projectRunRelationMessage(selectedProjectRun, t) && (
                 <div className="grid min-w-0 gap-1">
-                  <span className="text-muted-foreground">运行关系</span>
-                  <span className="min-w-0 truncate text-xs" title={projectRunRelationMessage(selectedProjectRun)}>
-                    {projectRunRelationMessage(selectedProjectRun)}
+                  <span className="text-muted-foreground">{t("generation.drawer.relation")}</span>
+                  <span className="min-w-0 truncate text-xs" title={projectRunRelationMessage(selectedProjectRun, t)}>
+                    {projectRunRelationMessage(selectedProjectRun, t)}
                   </span>
                 </div>
               )}
               {selectedProjectRun && projectRunCodeDiagnosticMessage(selectedProjectRun) && (
                 <div className="grid min-w-0 gap-1">
-                  <span className="text-muted-foreground">代码诊断</span>
+                  <span className="text-muted-foreground">{t("generation.drawer.codeDiagnostics")}</span>
                   <span
                     className="min-w-0 break-words text-xs"
                     title={projectRunCodeDiagnosticMessage(selectedProjectRun) ?? undefined}
@@ -1012,15 +964,15 @@ export function ProjectGenerationTasksDrawerContent({
               {selectedProjectRun && (
                 <>
                   <div className="grid min-w-0 gap-1">
-                    <span className="text-muted-foreground">开始时间</span>
+                    <span className="text-muted-foreground">{t("generation.drawer.startedAt")}</span>
                     <span className="min-w-0 truncate text-xs">
-                      {formatTaskDateTime(selectedProjectRun.startedAt ?? selectedProjectRun.createdAt)}
+                      {formatTaskDateTime(selectedProjectRun.startedAt ?? selectedProjectRun.createdAt, locale, t)}
                     </span>
                   </div>
                   <div className="grid min-w-0 gap-1">
-                    <span className="text-muted-foreground">结束时间</span>
+                    <span className="text-muted-foreground">{t("generation.drawer.finishedAt")}</span>
                     <span className="min-w-0 truncate text-xs">
-                      {formatTaskDateTime(selectedProjectRun.completedAt)}
+                      {formatTaskDateTime(selectedProjectRun.completedAt, locale, t)}
                     </span>
                   </div>
                 </>
@@ -1029,7 +981,7 @@ export function ProjectGenerationTasksDrawerContent({
                 selectedTask?.diagnostics.providerModel ??
                 currentRunDiagnostics.providerModel) && (
                 <div className="grid min-w-0 gap-1">
-                  <span className="text-muted-foreground">模型</span>
+                  <span className="text-muted-foreground">{t("generation.drawer.model")}</span>
                   <span
                     className="min-w-0 truncate font-mono text-xs"
                     title={
@@ -1048,21 +1000,21 @@ export function ProjectGenerationTasksDrawerContent({
               {selectedTask && (
                 <>
                   <div className="grid min-w-0 gap-1">
-                    <span className="text-muted-foreground">开始时间</span>
+                    <span className="text-muted-foreground">{t("generation.drawer.startedAt")}</span>
                     <span className="min-w-0 truncate text-xs">
-                      {formatTaskDateTime(selectedTask.startedAt)}
+                      {formatTaskDateTime(selectedTask.startedAt, locale, t)}
                     </span>
                   </div>
                   <div className="grid min-w-0 gap-1">
-                    <span className="text-muted-foreground">结束时间</span>
+                    <span className="text-muted-foreground">{t("generation.drawer.finishedAt")}</span>
                     <span className="min-w-0 truncate text-xs">
-                      {formatTaskDateTime(selectedTask.finishedAt)}
+                      {formatTaskDateTime(selectedTask.finishedAt, locale, t)}
                     </span>
                   </div>
                   <div className="grid min-w-0 gap-1">
-                    <span className="text-muted-foreground">耗时</span>
+                    <span className="text-muted-foreground">{t("generation.drawer.duration")}</span>
                     <span className="min-w-0 truncate text-xs">
-                      {formatTaskDuration(selectedTask.startedAt, selectedTask.finishedAt)}
+                      {formatTaskDuration(selectedTask.startedAt, selectedTask.finishedAt, t)}
                     </span>
                   </div>
                 </>
@@ -1074,8 +1026,8 @@ export function ProjectGenerationTasksDrawerContent({
                 data-testid="generation-task-error-card"
                 className="mt-4 min-w-0 max-w-full overflow-hidden rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
               >
-                <span className="block break-words" title={errorMessage}>
-                  {errorMessage}
+                <span className="block break-words" title={localizeApiFailure(null, 500)}>
+                  {localizeApiFailure(null, 500)}
                 </span>
               </div>
             )}
@@ -1083,8 +1035,8 @@ export function ProjectGenerationTasksDrawerContent({
             {pendingReviewSubtasks.length > 0 && (
               <div className="mt-5 min-w-0 max-w-full overflow-hidden rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-warning">
                 {isRequirementRulesTask(selectedTask)
-                  ? `有 ${pendingReviewCount} 条需求规则修复候选需确认，确认后才能继续生成模型。`
-                  : `有 ${pendingReviewCount} 条追踪关系仅被临时补齐，请在跟踪矩阵中采纳、忽略或稍后处理。`}
+                  ? t("generation.drawer.pendingRulesNotice", { count: pendingReviewCount })
+                  : t("generation.drawer.pendingRelationsNotice", { count: pendingReviewCount })}
               </div>
             )}
 
@@ -1092,7 +1044,7 @@ export function ProjectGenerationTasksDrawerContent({
               <div className="mt-5 min-w-0 max-w-full overflow-hidden">
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                   <Palette className="size-3.5" />
-                  界面设计图
+                  {t("generation.drawer.uiMockup")}
                 </div>
                 <div
                   className={
@@ -1107,22 +1059,24 @@ export function ProjectGenerationTasksDrawerContent({
                       target="_blank"
                       rel="noreferrer"
                       className="block overflow-hidden rounded-md border border-border bg-background"
-                      title="查看界面设计图大图"
+                      title={t("generation.drawer.openUiMockup")}
                     >
                       <img
                         src={uiMockupImage}
-                        alt="界面设计图"
+                        alt={t("generation.drawer.uiMockupAlt")}
                         className="max-h-56 w-full object-contain"
                       />
                     </a>
                   ) : (
                     <div className="break-words text-sm">
-                      {uiMockup.errorMessage ?? "设计图暂未生成"}
+                      {uiMockup.errorMessage
+                        ? localizeApiFailure(null, 500)
+                        : t("generation.drawer.uiMockupMissing")}
                     </div>
                   )}
                   <div className="mt-2 grid min-w-0 gap-1 text-xs text-muted-foreground">
                     <span className="truncate" title={uiMockup.model}>
-                      图片模型：{uiMockup.model}
+                      {t("generation.drawer.imageModel", { model: uiMockup.model })}
                     </span>
                     <span className="break-words" title={uiMockup.summary}>
                       {uiMockup.summary}
@@ -1136,7 +1090,7 @@ export function ProjectGenerationTasksDrawerContent({
               <div className="mt-5 min-w-0 max-w-full overflow-hidden">
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                   <CheckCircle2 className="size-3.5" />
-                  设计图还原检查
+                  {t("generation.drawer.fidelityCheck")}
                 </div>
                 <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-card p-3 text-sm">
                   <div className="flex min-w-0 items-center justify-between gap-3">
@@ -1151,8 +1105,8 @@ export function ProjectGenerationTasksDrawerContent({
                       }
                     >
                       {currentRunDiagnostics.uiFidelityReport.passed
-                        ? "基本贴合"
-                        : "需要修复"}
+                        ? t("generation.drawer.fidelityPassed")
+                        : t("generation.drawer.fidelityFailed")}
                     </Badge>
                   </div>
                 </div>
@@ -1167,22 +1121,22 @@ export function ProjectGenerationTasksDrawerContent({
                 open={selectedTask?.technicalDetailsCollapsed === false}
               >
                 <summary className="cursor-pointer list-none text-xs font-semibold text-muted-foreground">
-                  技术详情 · 原始追踪与解析日志
+                  {t("generation.drawer.technicalDetails")}
                 </summary>
                 <div className="mt-3 min-w-0 max-w-full space-y-2 overflow-hidden">
                   {designTraceEntries.length > 0 && (
                     <div className="text-xs font-semibold text-muted-foreground">
-                      设计调试追踪
+                      {t("generation.drawer.designTrace")}
                     </div>
                   )}
                   {codeTraceEntries.length > 0 && (
                     <div className="text-xs font-semibold text-muted-foreground">
-                      代码调试追踪
+                      {t("generation.drawer.codeTrace")}
                     </div>
                   )}
                   {requirementTraceEntries.length > 0 && (
                     <div className="text-xs font-semibold text-muted-foreground">
-                      需求调试追踪
+                      {t("generation.drawer.requirementTrace")}
                     </div>
                   )}
                   {[
@@ -1198,13 +1152,13 @@ export function ProjectGenerationTasksDrawerContent({
                   ]
                     .slice(0, 8)
                     .map(({ entry, group }, index) => {
-                      const body = getTraceEntryBody(entry);
+                      const body = getTraceEntryBody(entry, t);
                       const title =
                         group === "code"
-                          ? formatCodeTraceEntryTitle(entry)
+                          ? formatCodeTraceEntryTitle(entry, t)
                           : group === "design"
-                            ? formatDesignTraceEntryTitle(entry)
-                            : formatRequirementTraceEntryTitle(entry as RequirementTraceEntry);
+                            ? formatDesignTraceEntryTitle(entry, t)
+                            : formatRequirementTraceEntryTitle(entry as RequirementTraceEntry, t);
                       return (
                         <details
                           key={`${entry.stage}:${entry.attempt}:${entry.kind}:${index}`}
@@ -1216,7 +1170,7 @@ export function ProjectGenerationTasksDrawerContent({
                                 <div className="truncate font-medium">{title}</div>
                                 <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                   <Badge variant="outline">
-                                    {TRACE_KIND_LABELS[entry.kind]}
+                                    {t(`generation.drawer.traceKinds.${entry.kind}`)}
                                   </Badge>
                                   <span>{new Date(entry.createdAt).toLocaleString()}</span>
                                 </div>
@@ -1226,8 +1180,8 @@ export function ProjectGenerationTasksDrawerContent({
                                 variant="ghost"
                                 size="icon"
                                 className="size-8 shrink-0"
-                                title="复制追踪内容"
-                                aria-label="复制追踪内容"
+                                title={t("generation.drawer.copyTrace")}
+                                aria-label={t("generation.drawer.copyTrace")}
                                 onClick={(event) => {
                                   event.preventDefault();
                                   void copyTraceEntry(entry);
@@ -1250,7 +1204,7 @@ export function ProjectGenerationTasksDrawerContent({
             <div className="mt-5 min-w-0 max-w-full overflow-hidden">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Activity className="size-3.5" />
-                链路阶段
+                {t("generation.drawer.stageChain")}
               </div>
               {stageTodoItems.length > 0 ? (
                 <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
@@ -1300,11 +1254,11 @@ export function ProjectGenerationTasksDrawerContent({
                             <div className="mt-3 grid gap-2">
                               {item.subtasks.map((subtask) => {
                                 const subtaskDetail =
-                                  formatSubtaskDetail(subtask) || "等待执行";
+                                  formatSubtaskDetail(subtask, t) || t("generation.drawer.waiting");
                                 const retryActionLabel =
-                                  retrySubtaskActionLabel(subtask.id);
+                                  retrySubtaskActionLabel(subtask.id, t);
                                 const retryActionTitle =
-                                  retrySubtaskActionTitle(subtask.id);
+                                  retrySubtaskActionTitle(subtask.id, t);
                                 return (
                                   <div
                                     key={subtask.id}
@@ -1339,7 +1293,7 @@ export function ProjectGenerationTasksDrawerContent({
                                               "border-success/40 text-success",
                                           )}
                                         >
-                                          {SUBTASK_STATUS_LABEL[subtask.status]}
+                                          {t(`generation.drawer.subtaskStatus.${subtask.status}`)}
                                         </Badge>
                                       </span>
                                       <span
@@ -1383,7 +1337,7 @@ export function ProjectGenerationTasksDrawerContent({
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                  暂无任务阶段。
+                  {t("generation.drawer.noStages")}
                 </div>
               )}
             </div>
@@ -1391,8 +1345,8 @@ export function ProjectGenerationTasksDrawerContent({
             <details className="mt-5 min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-card p-3">
               <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Activity className="size-3.5" />
-                <span>执行详情</span>
-                <span className="text-muted-foreground/70">· 技术执行流</span>
+                <span>{t("generation.drawer.executionDetails")}</span>
+                <span className="text-muted-foreground/70">· {t("generation.drawer.technicalFlow")}</span>
               </summary>
               <div
                 ref={executionDetailRef}

@@ -108,6 +108,7 @@ export function createRunError(
   options: {
     category?: RunErrorCategory;
     retryable?: boolean;
+    params?: Record<string, string | number | boolean | null>;
     details?: Record<string, unknown>;
   } = {},
 ): RunError {
@@ -117,6 +118,7 @@ export function createRunError(
     message,
     category: options.category ?? defaults.category,
     retryable: options.retryable ?? defaults.retryable,
+    params: options.params,
     details: options.details,
   });
 }

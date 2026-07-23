@@ -2684,4 +2684,32 @@ describe("TextRequirementView", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("keeps requirement authoring on the system requirements page only", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord({
+        requirementText: "维修预约系统",
+        rules: [createRule({ id: "R1", text: "客户可以预约维修。" })],
+      })),
+    });
+    render(withWorkspaceProviders(<TextRequirementView view="system" />, repository));
+    expect(await screen.findByRole("heading", { name: "系统需求" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "需求描述" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /需求规则/u })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "目标模型" })).not.toBeInTheDocument();
+  });
+
+  it("keeps requirement authoring controls off the requirement models page", async () => {
+    const repository = createBaseRepository({
+      loadWorkspace: vi.fn(async () => createWorkspaceRecord({
+        requirementText: "维修预约系统",
+        rules: [createRule({ id: "R1", text: "客户可以预约维修。" })],
+      })),
+    });
+    render(withWorkspaceProviders(<TextRequirementView view="models" />, repository));
+    expect(await screen.findByRole("heading", { name: "需求模型" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "目标模型" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "需求描述" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /需求规则/u })).not.toBeInTheDocument();
+  });
 });

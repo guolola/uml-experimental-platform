@@ -1,5 +1,6 @@
 // Renders the requirement authoring page and coordinates rule editing, quality checks, and generation actions.
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Wand2,
   Loader2,
@@ -26,6 +27,8 @@ import type {
 import {
   DIAGRAM_META,
   DIAGRAM_ORDER,
+  getDiagramDescription,
+  getDiagramLabel,
   type DiagramType,
 } from "../../../entities/diagram/model";
 import {
@@ -79,6 +82,7 @@ import {
 
 const DEFAULT_NEW_RULE_DIAGRAMS: DiagramType[] = ["function", "usecase", "activity"];
 const REQUIREMENT_DIAGRAM_ICON = {
+  context: Network,
   function: FileText,
   usecase: Network,
   activity: Activity,
@@ -88,7 +92,12 @@ const REQUIREMENT_DIAGRAM_ICON = {
   analysis: GitBranch,
 } satisfies Record<DiagramType, typeof Network>;
 
-export function TextRequirementView() {
+export function TextRequirementView({
+  view = "all",
+}: {
+  view?: "system" | "models" | "all";
+}) {
+  const { t } = useTranslation();
   const {
     requirementText,
     setRequirementText,
@@ -164,9 +173,9 @@ export function TextRequirementView() {
   const canEditRequirements = canUpdateWorkspace;
   const canRunGeneration = canUpdateWorkspace && canStartRuns;
   const editBlockedReason =
-    workspacePermissionReason ?? "当前项目角色不能编辑需求内容。";
+    workspacePermissionReason ?? t("requirements.permissions.edit");
   const generationBlockedByPermissionReason =
-    workspacePermissionReason ?? "当前项目角色不能启动生成。";
+    workspacePermissionReason ?? t("requirements.permissions.run");
 
   const runGenerateRules = () => {
     if (!canRunGeneration) return;
@@ -247,11 +256,11 @@ export function TextRequirementView() {
   const submitNewRule = () => {
     const trimmedText = newRuleText.trim();
     if (!trimmedText) {
-      setNewRuleError("请填写需求文本。");
+      setNewRuleError(t("requirements.validation.textRequired"));
       return;
     }
     if (newRuleDiagrams.length === 0) {
-      setNewRuleError("请至少选择一个对应模型。");
+      setNewRuleError(t("requirements.validation.modelRequired"));
       return;
     }
     createRequirementRule({
@@ -361,9 +370,13 @@ export function TextRequirementView() {
     generatedDiagrams,
     selectedDiagrams,
     staleDiagrams,
+    t,
   });
+  const visibleRequirementReviewBlockedReason = requirementReviewBlockedReason
+    ? t("requirements.reviewBlocked")
+    : null;
   const generationBlockedTitle =
-    requirementReviewBlockedReason ?? undefined;
+    visibleRequirementReviewBlockedReason ?? undefined;
   const selectedTargetBlockReason =
     selectedDiagrams
       .map((diagram) =>
@@ -386,16 +399,16 @@ export function TextRequirementView() {
   }, [generatedDiagrams, requirementModelTraceability, rules]);
   const rulesStaleMessage =
     rulesStaleReason === "rules"
-      ? "需求规则或复核结果已变化，下游模型可能需要更新。"
+      ? t("requirements.stale.downstream")
       : rulesStaleReason === "source-missing"
-        ? "需求描述为空，当前需求规则可能已失去来源。"
-        : "需求文本已修改，下方规则基于旧文本，可能已过时。";
+        ? t("requirements.stale.empty")
+        : t("requirements.stale.changed");
   const staleDiagramReason =
     isRulesStale && rulesStaleReason === "text"
-      ? "需求文本已修改"
+      ? t("requirements.stale.changedTitle")
       : rulesStaleReason === "source-missing"
-        ? "需求描述为空"
-      : "需求规则/复核结果已变化";
+        ? t("requirements.stale.emptyTitle")
+      : t("requirements.stale.reviewTitle");
 
   const renderRequirementInput = (mode: "empty" | "generated") => (
     <div
@@ -415,7 +428,7 @@ export function TextRequirementView() {
             id="requirement-text-heading"
             className="text-xl font-semibold tracking-normal text-foreground"
           >
-            {mode === "empty" ? "项目需求描述" : "需求描述"}
+            {mode === "empty" ? t("requirements.source.projectDescription") : t("requirements.source.description")}
           </h2>
         </div>
       </div>
@@ -427,7 +440,7 @@ export function TextRequirementView() {
         onChange={(event) => {
           if (canEditRequirements) setRequirementText(event.target.value);
         }}
-        placeholder="用一段话描述你的系统：做什么、给谁用、有哪些角色和关键流程，越具体越能抽出准确的需求规则"
+        placeholder={t("requirements.source.placeholder")}
         disabled={!canEditRequirements}
         title={!canEditRequirements ? editBlockedReason : undefined}
         className={cn(
@@ -450,7 +463,7 @@ export function TextRequirementView() {
           />
           {isRulesStale && (
             <Badge variant="warning" className="rounded-md px-1.5 py-0 text-[11px]">
-              需求已修改
+              {t("requirements.source.changed")}
             </Badge>
           )}
           <div className="ml-auto flex items-center gap-2">
@@ -463,7 +476,7 @@ export function TextRequirementView() {
               disabled={!requirementText || generating || !canEditRequirements}
               title={!canEditRequirements ? editBlockedReason : undefined}
             >
-              清空
+              {t("requirements.source.clear")}
             </Button>
             <button
               type="button"
@@ -473,8 +486,8 @@ export function TextRequirementView() {
                 !canRunGeneration
                   ? generationBlockedByPermissionReason
                   : isRulesStale
-                    ? "更新需求规则"
-                    : "生成需求规则"
+                    ? t("requirements.source.updateRules")
+                    : t("requirements.source.generateRules")
               }
               className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -483,7 +496,7 @@ export function TextRequirementView() {
               ) : (
                 <ArrowUp className="size-4" />
               )}
-              {isRulesStale ? "更新需求规则" : "开始分析提取"}
+              {isRulesStale ? t("requirements.source.updateRules") : t("requirements.source.startAnalysis")}
             </button>
           </div>
       </ScaledToolbar>
@@ -523,7 +536,7 @@ export function TextRequirementView() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto bg-background">
-      {showStaleBanner && isRulesStale && (
+      {view !== "models" && showStaleBanner && isRulesStale && (
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 text-warning" />
           <span>{rulesStaleMessage}</span>
@@ -535,17 +548,17 @@ export function TextRequirementView() {
             disabled={generating || !canRunGeneration}
             title={!canRunGeneration ? generationBlockedByPermissionReason : undefined}
           >
-            <RefreshCw className="size-3.5" /> 重新生成规则
+            <RefreshCw className="size-3.5" /> {t("requirements.source.regenerateRules")}
           </Button>
         </div>
       )}
 
-      {showStaleBanner && staleDiagrams.length > 0 && (
+      {view !== "system" && showStaleBanner && staleDiagrams.length > 0 && (
         <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 text-warning" />
           <span>
-            {staleDiagrams.length} 个模型需要更新（{staleDiagramReason}）：
-            {staleDiagrams.map((diagram) => DIAGRAM_META[diagram].label).join("、")}
+            {t("requirements.stale.modelCount", { count: staleDiagrams.length, reason: staleDiagramReason })}
+            {staleDiagrams.map((diagram) => getDiagramLabel(diagram, t)).join(t("traceability.refSeparator"))}
           </span>
           <Button
             size="sm"
@@ -563,7 +576,7 @@ export function TextRequirementView() {
                 : generationBlockedTitle
             }
           >
-            <RefreshCw className="size-3.5" /> 仅更新过时模型
+            <RefreshCw className="size-3.5" /> {t("requirements.stale.updateModels")}
           </Button>
         </div>
       )}
@@ -572,10 +585,14 @@ export function TextRequirementView() {
         <div className="mx-auto flex w-[calc(100%-1.5rem)] min-w-0 max-w-none flex-col gap-5 sm:w-[calc(100%-2rem)] lg:w-[calc(100%-3rem)]">
           <header className="flex flex-col gap-1.5">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
-              需求分析提取
+              {view === "system" ? t("requirements.page.systemTitle") : view === "models" ? t("requirements.page.modelsTitle") : t("requirements.page.allTitle")}
             </h1>
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-              输入您的项目需求描述，系统将帮助您提取关键用例、参与者并生成初始的系统模型。
+              {view === "system"
+                ? t("requirements.page.systemDescription")
+                : view === "models"
+                  ? t("requirements.page.modelsDescription")
+                  : t("requirements.page.allDescription")}
             </p>
             {!canEditRequirements && (
               <div className="mt-2 inline-flex max-w-3xl items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -589,7 +606,7 @@ export function TextRequirementView() {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{billingGenerationBlock.message}</div>
                   <div className="text-xs text-muted-foreground">
-                    可用次数 {billingGenerationBlock.billingSummary.creditBalance}，系统托管 Provider 每次生成消耗 1 次
+                    {t("requirements.credits", { count: billingGenerationBlock.billingSummary.creditBalance })}
                   </div>
                 </div>
                 <Button
@@ -597,7 +614,7 @@ export function TextRequirementView() {
                   size="icon"
                   variant="ghost"
                   className="size-8"
-                  aria-label="关闭权益提示"
+                  aria-label={t("requirements.closeCredits")}
                   onClick={clearBillingGenerationBlock}
                 >
                   <X className="size-4" />
@@ -605,14 +622,20 @@ export function TextRequirementView() {
               </div>
             )}
           </header>
-          <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden">
+          {view !== "models" && <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden">
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
               {renderRequirementInput(hasGeneratedRules ? "generated" : "empty")}
               {hasGeneratedRules && renderRequirementRules()}
             </div>
-          </div>
+          </div>}
 
-          <section className="flex flex-col gap-4">
+          {view === "models" && rules.length === 0 && (
+            <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
+              {t("requirements.noRules")}
+            </div>
+          )}
+
+          {view !== "system" && <section className="flex flex-col gap-4">
             <ScaledToolbar
               minWidth={500}
               minReadableScale={0.68}
@@ -621,7 +644,7 @@ export function TextRequirementView() {
               <div className="flex shrink-0 items-center gap-2">
                 <Network className="size-5 text-primary" />
                 <h2 className="text-xl font-semibold tracking-normal text-foreground">
-                  目标模型
+                  {t("requirements.targetModels")}
                 </h2>
                 <Badge
                   variant="secondary"
@@ -637,13 +660,13 @@ export function TextRequirementView() {
                     size="sm"
                     variant="outline"
                     className="h-9 rounded-lg bg-card"
-                    aria-label={`查看需求模型追踪证明，共 ${requirementModelRepairRecords.length} 项`}
+                    aria-label={t("requirements.traceProofAria", { count: requirementModelRepairRecords.length })}
                     onClick={() => setTraceabilityDialogOpen(true)}
                   >
                     <Eye className="size-3.5" />
-                    追踪证明
+                    {t("requirements.traceProof")}
                     <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-                      {requirementModelRepairRecords.length}项
+                      {t("requirements.itemCount", { count: requirementModelRepairRecords.length })}
                     </span>
                   </Button>
                 )}
@@ -683,7 +706,7 @@ export function TextRequirementView() {
             {requirementReviewBlockedReason && (
               <div className="flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 <AlertTriangle className="size-3.5" />
-                {requirementReviewBlockedReason}
+                {visibleRequirementReviewBlockedReason}
               </div>
             )}
 
@@ -693,6 +716,8 @@ export function TextRequirementView() {
             >
               {DIAGRAM_ORDER.map((diagram) => {
                 const meta = DIAGRAM_META[diagram];
+                const localizedLabel = getDiagramLabel(diagram, t);
+                const localizedDescription = getDiagramDescription(diagram, t);
                 const {
                   autoFillLabels,
                   blockReason,
@@ -718,9 +743,9 @@ export function TextRequirementView() {
                 return (
                   <ModelBentoCard
                     key={diagram}
-                    label={meta.label}
+                    label={localizedLabel}
                     english={meta.english}
-                    description={meta.description}
+                    description={localizedDescription}
                     icon={DiagramIcon}
                     selected={checked}
                     disabled={!canSelectDiagram}
@@ -729,8 +754,8 @@ export function TextRequirementView() {
                     title={
                       !canEditRequirements ? editBlockedReason : undefined
                     }
-                    ariaLabel={`${checked ? "取消选择" : "选择"}${meta.label}`}
-                    checkboxLabel={meta.label}
+                    ariaLabel={t(checked ? "requirements.cancelSelect" : "requirements.select", { label: localizedLabel })}
+                    checkboxLabel={localizedLabel}
                     onSelectedChange={(value) => toggleDiagram(diagram, value)}
                     status={
                       <div className="space-y-1.5">
@@ -739,14 +764,14 @@ export function TextRequirementView() {
                             <div className="flex items-start gap-1.5">
                               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                               <span>
-                                自动补齐待确认：
+                                {t("requirements.autoFillPending")}
                                 {pendingAutoReviews
                                   .map((review) => review.label)
                                   .join("、")}
                               </span>
                             </div>
                             <div className="mt-1 text-[11px] leading-relaxed">
-                              缺少明确上游映射，系统仅临时补齐；可采纳、忽略或稍后处理。
+                              {t("requirements.autoFillDescription")}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Button
@@ -754,7 +779,7 @@ export function TextRequirementView() {
                                 size="sm"
                                 variant="outline"
                                 className="h-7 rounded-md px-2 text-[11px]"
-                                aria-label={`采纳${meta.label}自动补齐`}
+                                aria-label={t("requirements.acceptAutoFillAria", { label: meta.label })}
                                 onClick={(event) =>
                                   decideAutoReviews(
                                     event,
@@ -763,14 +788,14 @@ export function TextRequirementView() {
                                   )
                                 }
                               >
-                                采纳补齐
+                                {t("requirements.acceptAutoFill")}
                               </Button>
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 rounded-md px-2 text-[11px]"
-                                aria-label={`忽略${meta.label}自动补齐`}
+                                aria-label={t("requirements.dismissAutoFillAria", { label: meta.label })}
                                 onClick={(event) =>
                                   decideAutoReviews(
                                     event,
@@ -779,7 +804,7 @@ export function TextRequirementView() {
                                   )
                                 }
                               >
-                                忽略提示
+                                {t("requirements.dismissAutoFill")}
                               </Button>
                             </div>
                           </div>
@@ -790,22 +815,30 @@ export function TextRequirementView() {
                             <span>
                               {blockReason ??
                                 (isAnalysisDiagram
-                                  ? "需先选择或生成用例模型"
-                                  : "缺少对应需求规则")}
+                                  ? t("requirements.useCaseRequired")
+                                  : t("requirements.rulesRequired"))}
                             </span>
                           </div>
                         )}
                         {autoFillLabels.length > 0 && !blockReason && (
                           <div className="flex items-center gap-1.5 text-warning">
                             <AlertTriangle className="size-3.5 shrink-0" />
-                            <span>将自动补齐：{autoFillLabels.join("、")}</span>
+                            <span>{t("requirements.willAutoFill", {
+                              labels: autoFillLabels.map((label) =>
+                                label === DIAGRAM_META.usecase.label
+                                  ? getDiagramLabel("usecase", t)
+                                  : label === "需求规则"
+                                    ? t("requirements.autoFillSources.rules")
+                                    : t("requirements.autoFillSources.mapping"),
+                              ).join(t("traceability.refSeparator")),
+                            })}</span>
                           </div>
                         )}
                         {isAnalysisDiagram &&
                           canSelectDiagram &&
                           linkedRules.length === 0 && (
                             <div className="text-muted-foreground">
-                              基于用例模型事件流生成，不要求需求规则直接映射。
+                              {t("requirements.analysisDependency")}
                             </div>
                           )}
                         {canSelectDiagram &&
@@ -814,7 +847,7 @@ export function TextRequirementView() {
                             isAnalysisDiagram && linkedRules.length === 0
                           ) && (
                             <div className="text-muted-foreground">
-                              已关联来源：{sourceCount}
+                              {t("requirements.sourceCount", { count: sourceCount })}
                             </div>
                           )}
                       </div>
@@ -860,13 +893,13 @@ export function TextRequirementView() {
               })}
             </MobileCompactGrid>
             <p className="pb-4 text-center text-xs text-muted-foreground">
-              勾选不会立即生效；点击「生成模型」后左侧菜单才会更新。之后生成需求模型、设计模型、代码原型和说明书时，都会优先使用这里选择的需求项。
+              {t("requirements.selectionHint")}
             </p>
-          </section>
+          </section>}
         </div>
       </div>
 
-      <RequirementReviewDialog
+      {view !== "models" && <RequirementReviewDialog
         generating={generating}
         onConfirmQualityHint={confirmRequirementQualityHint}
         onDecideReviewCandidate={decideRequirementReviewCandidate}
@@ -875,7 +908,7 @@ export function TextRequirementView() {
         }}
         onRepairRequirementRule={repairRequirementRule}
         visibleHintDetail={visibleHintDetail}
-      />
+      />}
 
       <RequirementTraceabilityDialogs
         modelRepairResult={modelRepairResult}
@@ -885,15 +918,15 @@ export function TextRequirementView() {
         traceabilityDialogOpen={traceabilityDialogOpen}
       />
 
-      <Dialog
+      {view !== "models" && <Dialog
         open={ruleReplacementDialogOpen}
         onOpenChange={setRuleReplacementDialogOpen}
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>确认替换需求规则</DialogTitle>
+            <DialogTitle>{t("requirements.replace.title")}</DialogTitle>
             <DialogDescription>
-              重新抽取会全量替换当前 {rules.length} 条需求规则；旧需求模型仍可查看，但不再匹配新规则的追踪映射会被清理，并需要重新生成下游模型。
+              {t("requirements.replace.description", { count: rules.length })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-2">
@@ -902,20 +935,20 @@ export function TextRequirementView() {
               variant="outline"
               onClick={() => setRuleReplacementDialogOpen(false)}
             >
-              取消
+              {t("requirements.replace.cancel")}
             </Button>
             <Button
               type="button"
               onClick={confirmRuleReplacement}
               disabled={generating || !canRunGeneration}
             >
-              确认替换
+              {t("requirements.replace.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
-      <NewRequirementRuleDialog
+      {view !== "models" && <NewRequirementRuleDialog
         canEditRequirements={canEditRequirements}
         generating={generating}
         newRuleCanSubmit={newRuleCanSubmit}
@@ -941,8 +974,16 @@ export function TextRequirementView() {
           setNewRuleError(null);
         }}
         open={newRuleDialogOpen}
-      />
+      />}
 
     </div>
   );
+}
+
+export function SystemRequirementsPage() {
+  return <TextRequirementView view="system" />;
+}
+
+export function RequirementsModelPage() {
+  return <TextRequirementView view="models" />;
 }

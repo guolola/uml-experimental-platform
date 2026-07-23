@@ -99,6 +99,11 @@ export function buildMockRulesFromText(text: string): RequirementRule[] {
 }
 
 const MOCK_PLANT_UML_TEMPLATES: Record<DiagramType, string> = {
+  context: `@startuml
+actor "用户" as user
+rectangle "目标系统" as system
+user <--> system : 高层交互
+@enduml`,
   function: `@startmindmap
 * 预约平台
 ** 账户与登录

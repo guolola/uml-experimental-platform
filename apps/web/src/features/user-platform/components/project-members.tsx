@@ -1,5 +1,6 @@
 // Owns project member invitation, role, and removal interactions.
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Mail, UserRound } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
@@ -30,6 +31,8 @@ export function ProjectMembers({
   membershipRole?: string | null;
   layout?: "page" | "drawer";
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage?.startsWith("en") ? "en-US" : "zh-CN";
   const [currentMembers, setCurrentMembers] = useState(members);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
@@ -45,12 +48,12 @@ export function ProjectMembers({
 
   const inviteMember = async () => {
     if (!canManageMembers) {
-      setError("当前权限为只读，无法邀请成员。");
+      setError(t("projectShell.membersUi.errors.inviteReadonly"));
       return;
     }
     const email = (inviteEmailRef.current?.value ?? inviteEmail).trim();
     if (!email) {
-      setError("请填写邀请邮箱。");
+      setError(t("projectShell.membersUi.errors.emailRequired"));
       return;
     }
     setMessage("");
@@ -89,16 +92,16 @@ export function ProjectMembers({
       if (inviteEmailRef.current) {
         inviteEmailRef.current.value = "";
       }
-      setMessage(`已邀请 ${nextMember.email}。`);
-    } catch (inviteError) {
+      setMessage(t("projectShell.membersUi.messages.invited", { email: nextMember.email }));
+    } catch {
       setCurrentMembers((current) => current.filter((member) => member.id !== optimisticMember.id));
-      setError(inviteError instanceof Error ? inviteError.message : "邀请成员失败。");
+      setError(t("projectShell.membersUi.errors.invite"));
     }
   };
 
   const updateRole = async (memberId: string, role: string) => {
     if (!canManageMembers) {
-      setError("当前权限为只读，无法修改角色。");
+      setError(t("projectShell.membersUi.errors.roleReadonly"));
       return;
     }
     setMessage("");
@@ -110,15 +113,18 @@ export function ProjectMembers({
           member.id === memberId ? { ...member, ...response.member } : member,
         ),
       );
-      setMessage(`${response.member.email} 的角色已更新为 ${response.member.role}。`);
-    } catch (roleError) {
-      setError(roleError instanceof Error ? roleError.message : "角色更新失败。");
+      setMessage(t("projectShell.membersUi.messages.roleUpdated", {
+        email: response.member.email,
+        role: memberRoleLabel(response.member.role, t),
+      }));
+    } catch {
+      setError(t("projectShell.membersUi.errors.role"));
     }
   };
 
   const removeMember = async (member: PlatformProjectMember) => {
     if (!canManageMembers) {
-      setError("当前权限为只读，无法移除成员。");
+      setError(t("projectShell.membersUi.errors.removeReadonly"));
       return;
     }
     setMessage("");
@@ -126,15 +132,15 @@ export function ProjectMembers({
     try {
       await platformApi.removeProjectMember(project.id, member.id);
       setCurrentMembers((current) => current.filter((item) => item.id !== member.id));
-      setMessage(`已移除 ${member.email}。`);
-    } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : "移除成员失败。");
+      setMessage(t("projectShell.membersUi.messages.removed", { email: member.email }));
+    } catch {
+      setError(t("projectShell.membersUi.errors.remove"));
     }
   };
 
   const resendInvitation = async (member: PlatformProjectMember) => {
     if (!canManageMembers) {
-      setError("当前权限为只读，无法重发邀请。");
+      setError(t("projectShell.membersUi.errors.resendReadonly"));
       return;
     }
     setMessage("");
@@ -149,15 +155,15 @@ export function ProjectMembers({
       setCurrentMembers((current) =>
         current.map((item) => (item.id === member.id ? { ...item, ...nextMember } : item)),
       );
-      setMessage(`已重发 ${member.email} 的邀请。`);
-    } catch (resendError) {
-      setError(resendError instanceof Error ? resendError.message : "重发邀请失败。");
+      setMessage(t("projectShell.membersUi.messages.resent", { email: member.email }));
+    } catch {
+      setError(t("projectShell.membersUi.errors.resend"));
     }
   };
 
   const revokeInvitation = async (member: PlatformProjectMember) => {
     if (!canManageMembers) {
-      setError("当前权限为只读，无法撤销邀请。");
+      setError(t("projectShell.membersUi.errors.revokeReadonly"));
       return;
     }
     setMessage("");
@@ -169,9 +175,9 @@ export function ProjectMembers({
           item.id === member.id ? { ...item, status: "revoked" } : item,
         ),
       );
-      setMessage(`已撤销 ${member.email} 的邀请。`);
-    } catch (revokeError) {
-      setError(revokeError instanceof Error ? revokeError.message : "撤销邀请失败。");
+      setMessage(t("projectShell.membersUi.messages.revoked", { email: member.email }));
+    } catch {
+      setError(t("projectShell.membersUi.errors.revoke"));
     }
   };
 
@@ -190,11 +196,11 @@ export function ProjectMembers({
   const editorCount = currentMembers.filter((member) => member.status === "active" && member.role === "editor").length;
   const viewerCount = currentMembers.filter((member) => member.status === "active" && member.role === "viewer").length;
   const roleOptions = [
-    { value: "viewer", label: "查看者" },
-    { value: "editor", label: "编辑者" },
+    { value: "viewer", label: t("projectShell.membersUi.roles.viewer") },
+    { value: "editor", label: t("projectShell.membersUi.roles.editor") },
   ];
   const memberRoleOptions = [
-    { value: "owner", label: "所有者" },
+    { value: "owner", label: t("projectShell.membersUi.roles.owner") },
     ...roleOptions,
   ];
   const containerClass =
@@ -208,19 +214,18 @@ export function ProjectMembers({
     <section className={`rounded-md border border-border bg-card p-5 ${shellClass}`}>
       <div className={containerClass}>
         <p className="text-sm leading-6 text-muted-foreground">
-          共 {activeCount} 名成员，包含 {ownerCount} 名所有者、{editorCount} 名编辑者、{viewerCount} 名查看者。
-          另有 {invitedCount} 个待处理邀请。
+          {t("projectShell.membersUi.summary", { activeCount, ownerCount, editorCount, viewerCount, invitedCount })}
         </p>
         {!canManageMembers && (
           <div className="rounded-md border border-primary/10 bg-primary/10 p-3 text-sm leading-6 text-muted-foreground">
-            当前权限为只读，只能查看成员与邀请状态，无法邀请或修改成员角色。
+            {t("projectShell.membersUi.readonly")}
           </div>
         )}
         <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-border/60 bg-muted/40 p-4 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold">邀请新成员</h2>
+          <h2 className="mb-3 text-sm font-semibold">{t("projectShell.membersUi.inviteTitle")}</h2>
           <div className={layout === "drawer" ? "grid gap-3" : "grid gap-3 md:grid-cols-[minmax(0,1fr)_150px]"}>
             <div className="relative min-w-0">
-              <Label htmlFor="member-invite-email" className="sr-only">邀请邮箱</Label>
+              <Label htmlFor="member-invite-email" className="sr-only">{t("projectShell.membersUi.emailLabel")}</Label>
               <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 id="member-invite-email"
@@ -228,14 +233,14 @@ export function ProjectMembers({
                 ref={inviteEmailRef}
                 defaultValue={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="输入邮箱地址"
+                placeholder={t("projectShell.membersUi.emailPlaceholder")}
                 disabled={!canManageMembers}
                 className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
               />
             </div>
             <SelectControl
               id="member-invite-role"
-              aria-label="邀请角色"
+              aria-label={t("projectShell.membersUi.inviteRole")}
               value={inviteRole}
               onValueChange={setInviteRole}
               disabled={!canManageMembers}
@@ -247,14 +252,14 @@ export function ProjectMembers({
             />
           </div>
           <Button type="button" className="mt-3 w-full" onClick={() => void inviteMember()} disabled={!canManageMembers}>
-            发送邀请
+            {t("projectShell.membersUi.sendInvite")}
           </Button>
         </div>
         <div className="grid min-w-0 grid-cols-3 rounded-md bg-primary/10 p-1 text-xs">
           {[
-            ["all", "全部"],
-            ["active", "已加入"],
-            ["invited", "邀请中"],
+            ["all", t("projectShell.membersUi.filters.all")],
+            ["active", t("projectShell.membersUi.status.active")],
+            ["invited", t("projectShell.membersUi.status.invited")],
           ].map(([value, label]) => (
             <Button
               key={value}
@@ -287,7 +292,7 @@ export function ProjectMembers({
                     invitationLike ? "border border-dashed border-border bg-background text-muted-foreground" : "bg-primary/10 text-primary"
                   }`}>
                     {member.avatarUrl && !invitationLike ? (
-                      <img src={member.avatarUrl} alt={`${displayName} 的头像`} className="size-full object-cover" />
+                      <img src={member.avatarUrl} alt={t("projectShell.membersUi.avatar", { name: displayName })} className="size-full object-cover" />
                     ) : invitationLike ? (
                       <Mail className="size-4" />
                     ) : (
@@ -299,28 +304,28 @@ export function ProjectMembers({
                       <span className="min-w-0 truncate text-sm font-medium" title={displayName}>{displayName}</span>
                       {invitationLike ? (
                         <Badge variant={member.status === "expired" ? "destructive" : "secondary"} className="shrink-0 text-[10px]">
-                          {member.status === "expired" ? "已过期" : "待处理"}
+                          {member.status === "expired" ? t("projectShell.membersUi.status.expired") : t("projectShell.membersUi.pending")}
                         </Badge>
                       ) : (
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          加入于 {formatMemberDate(member.joinedAt)}
+                          {t("projectShell.membersUi.joinedAt", { date: formatMemberDate(member.joinedAt, locale, t) })}
                         </span>
                       )}
                     </div>
                     <p className="min-w-0 truncate text-xs text-muted-foreground" title={member.email}>{member.email}</p>
                     {invitationLike && (
-                      <p className="mt-1 truncate text-xs text-muted-foreground" title={`${member.invitedAt ? `${formatMemberDate(member.invitedAt)}已邀请` : "已邀请"} (${memberRoleLabel(member.role)})`}>
-                        {member.invitedAt ? `${formatMemberDate(member.invitedAt)}已邀请` : "已邀请"} ({memberRoleLabel(member.role)})
+                      <p className="mt-1 truncate text-xs text-muted-foreground" title={t("projectShell.membersUi.invitedAt", { date: member.invitedAt ? formatMemberDate(member.invitedAt, locale, t) : t("projectShell.membersUi.noTime"), role: memberRoleLabel(member.role, t) })}>
+                        {t("projectShell.membersUi.invitedAt", { date: member.invitedAt ? formatMemberDate(member.invitedAt, locale, t) : t("projectShell.membersUi.noTime"), role: memberRoleLabel(member.role, t) })}
                       </p>
                     )}
                   </div>
                 </div>
                 <div className={cn("mt-3 min-w-0 gap-2", layout === "drawer" ? "grid grid-cols-1" : "flex items-center justify-between")}>
                   {invitationLike ? (
-                    <span className="text-xs text-muted-foreground">{memberStatusLabel(member.status)}</span>
+                    <span className="text-xs text-muted-foreground">{memberStatusLabel(member.status, t)}</span>
                   ) : (
                     <SelectControl
-                      aria-label={`${member.email} 的角色`}
+                      aria-label={t("projectShell.membersUi.memberRole", { email: member.email })}
                       value={member.role}
                       onValueChange={(value) => void updateRole(member.id, value)}
                       disabled={!canManageMembers}
@@ -342,9 +347,9 @@ export function ProjectMembers({
                           className="h-8 px-3 text-xs"
                           onClick={() => void resendInvitation(member)}
                           disabled={!canManageMembers}
-                          aria-label={`重发邀请 ${member.email}`}
+                          aria-label={t("projectShell.membersUi.resendFor", { email: member.email })}
                         >
-                          重发
+                          {t("projectShell.membersUi.resend")}
                         </Button>
                         <Button
                           type="button"
@@ -353,9 +358,9 @@ export function ProjectMembers({
                           className="h-8 px-3 text-xs text-destructive hover:text-destructive"
                           onClick={() => void revokeInvitation(member)}
                           disabled={!canManageMembers}
-                          aria-label={`撤销邀请 ${member.email}`}
+                          aria-label={t("projectShell.membersUi.revokeFor", { email: member.email })}
                         >
-                          撤销
+                          {t("projectShell.membersUi.revoke")}
                         </Button>
                       </>
                     ) : (
@@ -366,7 +371,7 @@ export function ProjectMembers({
                         className="size-8"
                         onClick={() => void removeMember(member)}
                         disabled={member.role === "owner" || !canManageMembers}
-                        aria-label={`移除 ${member.email}`}
+                        aria-label={t("projectShell.membersUi.removeFor", { email: member.email })}
                       >
                         <UserRound className="size-4" />
                       </Button>
@@ -377,11 +382,11 @@ export function ProjectMembers({
             );
           })}
           {currentMembers.length === 0 && (
-            <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">暂无成员数据。</div>
+            <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">{t("projectShell.membersUi.empty")}</div>
           )}
           {currentMembers.length > 0 && filteredMembers.length === 0 && (
             <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-              没有匹配的成员。
+              {t("projectShell.membersUi.noMatches")}
             </div>
           )}
         </div>

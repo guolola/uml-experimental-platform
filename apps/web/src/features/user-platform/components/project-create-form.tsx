@@ -1,5 +1,6 @@
 // Renders project creation state and maps selected bindings into createProject input.
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import { ChevronDown, Loader2, Settings2 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
@@ -21,12 +22,6 @@ type SegmentOption = {
   value: string;
   label: string;
 };
-
-const VISIBILITY_OPTIONS: SegmentOption[] = [
-  { value: "private", label: "仅我可见" },
-  { value: "team", label: "团队成员可见" },
-  { value: "course", label: "课程班级可见" },
-];
 
 function SegmentedButtonGroup({
   labelId,
@@ -62,7 +57,8 @@ function SegmentedButtonGroup({
 }
 
 export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
-  const [name, setName] = useState("课程 UML 实验项目");
+  const { t } = useTranslation();
+  const [name, setName] = useState(() => t("projects.createForm.defaultName"));
   const [description, setDescription] = useState("");
   const [courseTeam, setCourseTeam] = useState(UNASSIGNED_ACADEMIC_OPTION.value);
   const [academicOptions, setAcademicOptions] = useState<AcademicBindingOption[]>([
@@ -87,9 +83,9 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         setAcademicOptions(options);
         setCourseTeam(UNASSIGNED_ACADEMIC_OPTION.value);
       })
-      .catch((error) => {
+      .catch(() => {
         if (!active) return;
-        setAcademicStatus(error instanceof Error ? error.message : "课程/班级/team 加载失败。");
+        setAcademicStatus(t("projects.createForm.academicLoadFailed"));
       })
       .finally(() => {
         if (active) setAcademicLoading(false);
@@ -97,7 +93,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   const createProject = async () => {
     setCreating(true);
@@ -114,14 +110,10 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         teamId: academicBinding.teamId,
         backgroundKey,
       });
-      setStatus("项目已保存课程/班级/team 归属。");
+      setStatus(t("projects.createForm.saved"));
       window.setTimeout(() => onNavigate(`/projects/${response.project.id}`), 900);
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? `创建失败：${error.message}`
-          : "创建失败，请稍后重试。",
-      );
+    } catch {
+      setStatus(t("projects.createForm.failed"));
     } finally {
       setCreating(false);
     }
@@ -130,11 +122,11 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <form className="grid gap-5">
       <div className="grid gap-1.5">
-        <Label htmlFor="project-name">项目名称</Label>
+        <Label htmlFor="project-name">{t("projects.createForm.name")}</Label>
         <Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} />
       </div>
       <div className="grid gap-1.5">
-        <Label>项目背景</Label>
+        <Label>{t("projects.createForm.background")}</Label>
         <ProjectBackgroundPicker
           name={name}
           value={backgroundKey}
@@ -143,22 +135,26 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
         />
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor="project-description">项目描述</Label>
+        <Label htmlFor="project-description">{t("projects.createForm.description")}</Label>
         <textarea
           id="project-description"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="描述业务背景和实验目标"
+          placeholder={t("projects.createForm.descriptionPlaceholder")}
           rows={4}
           className="min-h-24 w-full resize-y rounded-md border border-input bg-input-background px-3 py-2 text-base text-foreground placeholder:text-muted-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
         />
       </div>
       <div className="grid gap-1.5">
-        <Label id="project-visibility-label">可见性</Label>
+        <Label id="project-visibility-label">{t("projects.createForm.visibility")}</Label>
         <SegmentedButtonGroup
           labelId="project-visibility-label"
           value={visibility}
-          options={VISIBILITY_OPTIONS}
+          options={[
+            { value: "private", label: t("projects.createForm.visibilityOptions.private") },
+            { value: "team", label: t("projects.createForm.visibilityOptions.team") },
+            { value: "course", label: t("projects.createForm.visibilityOptions.course") },
+          ]}
           onChange={setVisibility}
         />
       </div>
@@ -173,7 +169,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
           onClick={() => setAdvancedOpen((current) => !current)}
         >
           <Settings2 className="size-3.5" />
-          高级设置
+          {t("projects.createForm.advanced")}
           <ChevronDown
             className={`size-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
           />
@@ -183,17 +179,17 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
             id="project-create-advanced-settings"
             className="grid gap-1.5 rounded-md border border-border/60 bg-muted/20 p-3"
           >
-            <Label htmlFor="course-team">课程/班级/team</Label>
+            <Label htmlFor="course-team">{t("projects.createForm.academicBinding")}</Label>
             <SelectControl
               id="course-team"
-              aria-label="课程/班级/team"
+              aria-label={t("projects.createForm.academicBinding")}
               value={courseTeam}
               onValueChange={setCourseTeam}
               disabled={academicLoading}
               className="h-9"
               options={academicOptions.map((option) => ({
                 value: option.value,
-                label: option.label,
+                label: option.value === UNASSIGNED_ACADEMIC_OPTION.value ? t("projects.createForm.unassigned") : option.label,
               }))}
             />
             {academicStatus && (
@@ -205,7 +201,7 @@ export function ProjectCreateForm({ onNavigate }: { onNavigate: Navigate }) {
       <div>
         <Button type="button" onClick={createProject} disabled={creating}>
           {creating && <Loader2 className="size-4 animate-spin" />}
-          创建并进入项目
+          {t("projects.createForm.submit")}
         </Button>
         {status && (
           <div className="mt-3 rounded-md border border-border bg-muted p-3 text-sm">

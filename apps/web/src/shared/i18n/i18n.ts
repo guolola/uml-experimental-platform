@@ -9,7 +9,7 @@ export const i18n = i18next.createInstance();
 void i18n.use(initReactI18next).init({
   resources,
   lng: DEFAULT_LOCALE,
-  fallbackLng: DEFAULT_LOCALE,
+  fallbackLng: false,
   interpolation: {
     escapeValue: false,
   },

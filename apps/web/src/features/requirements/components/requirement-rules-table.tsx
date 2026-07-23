@@ -1,5 +1,7 @@
 // Renders the requirement rule table, pagination, and inline review-status controls.
 import type { Dispatch, SetStateAction } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type {
   AtomicRequirement,
   RequirementQualityIssue,
@@ -36,6 +38,35 @@ export const ALL_RULE_CATEGORIES = "";
 
 const RULE_PAGE_SIZE_OPTIONS = [8, 12, 20, 50] as const;
 const RULE_ROW_CLASS = "h-[46px] md:h-[60px]";
+
+function categoryLabel(category: RequirementRule["category"], t: TFunction) {
+  const key = {
+    "业务规则": "business",
+    "功能需求": "functional",
+    "外部接口": "externalInterface",
+    "界面需求": "interface",
+    "数据需求": "data",
+    "非功能需求": "nonFunctional",
+    "部署需求": "deployment",
+    "异常处理": "exception",
+  }[category];
+  return t(`requirements.categories.${key}`);
+}
+
+function statusLabel(status: string, t: TFunction) {
+  const key = {
+    "已编辑": "edited",
+    "已生成": "generated",
+    "已确认": "confirmed",
+    "有待确认提示": "pending",
+    "存在冲突提示": "conflict",
+    "修复失败待重试": "repairFailed",
+    "修复结果待确认": "repairPending",
+    "已采纳修复": "repairAccepted",
+    "已拒绝修复": "repairRejected",
+  }[status];
+  return key ? t(`requirements.statuses.${key}`) : status;
+}
 
 export type RequirementRuleCategoryFilter =
   | RequirementRule["category"]
@@ -98,6 +129,7 @@ export function RequirementRulesTable({
   totalRulePages,
   updateRequirementRule,
 }: RequirementRulesTableProps) {
+  const { t } = useTranslation();
   return (
     <section className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <div className="min-w-0 max-w-full overflow-hidden border-b border-border bg-muted/40 px-3 py-3 md:px-6 md:py-6">
@@ -109,7 +141,7 @@ export function RequirementRulesTable({
             <div className="flex items-center gap-1.5 md:gap-2">
               <ListChecks className="size-4 text-primary md:size-5" />
               <h2 className="text-base font-semibold tracking-normal text-foreground md:text-xl">
-                需求规则
+                {t("requirements.table.title")}
               </h2>
             </div>
             <Badge
@@ -125,7 +157,7 @@ export function RequirementRulesTable({
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索规则..."
+                placeholder={t("requirements.table.search")}
                 className="h-8 rounded-lg bg-background pl-7 text-[12px] md:h-9 md:pl-9 md:text-sm"
               />
             </div>
@@ -135,12 +167,12 @@ export function RequirementRulesTable({
                 setRuleCategoryFilter(value as RequirementRuleCategoryFilter)
               }
               className="h-8 w-[78px] shrink-0 rounded-lg bg-background px-2 text-[12px] md:h-9 md:w-36 md:text-sm"
-              aria-label="需求类型筛选"
+              aria-label={t("requirements.table.categoryFilter")}
               options={[
-                { value: ALL_RULE_CATEGORIES, label: "全部类型" },
+                { value: ALL_RULE_CATEGORIES, label: t("requirements.table.allCategories") },
                 ...RULE_CATEGORY_ORDER.map((category) => ({
                   value: category,
-                  label: category,
+                  label: categoryLabel(category, t),
                 })),
               ]}
             />
@@ -154,7 +186,7 @@ export function RequirementRulesTable({
               title={!canEditRequirements ? editBlockedReason : undefined}
             >
               <Plus className="size-3.5" />
-              <span className="hidden min-[520px]:inline">新增需求项</span>
+              <span className="hidden min-[520px]:inline">{t("requirements.table.add")}</span>
             </Button>
           </div>
         </div>
@@ -167,19 +199,19 @@ export function RequirementRulesTable({
           <thead className="text-[11px] tracking-normal text-muted-foreground md:text-xs md:tracking-[0.02em]">
             <tr className="border-b border-border">
               <th className="w-[32px] px-1.5 py-2 text-center font-medium md:w-[84px] md:px-6 md:py-4">
-                编号
+                {t("requirements.table.id")}
               </th>
               <th className="w-[112px] px-1.5 py-2 text-center font-medium md:w-48 md:px-4 md:py-4">
-                类型
+                {t("requirements.table.type")}
               </th>
               <th className="w-[84px] px-1.5 py-2 text-left font-medium md:w-52 md:px-4 md:py-4">
-                状态
+                {t("requirements.table.status")}
               </th>
               <th className="px-1.5 py-2 text-left font-medium md:px-6 md:py-4">
-                需求文本内容（可编辑）
+                {t("requirements.table.content")}
               </th>
               <th className="w-[28px] px-1 py-2 text-center font-medium md:w-28 md:px-6 md:py-4">
-                操作
+                {t("requirements.table.actions")}
               </th>
             </tr>
           </thead>
@@ -193,7 +225,7 @@ export function RequirementRulesTable({
                   colSpan={5}
                   className="px-3 py-2 text-center align-middle text-[12px] text-muted-foreground md:px-6 md:py-3 md:text-sm"
                 >
-                  没有匹配的规则。
+                  {t("requirements.table.noMatches")}
                 </td>
               </tr>
             ) : (
@@ -204,7 +236,7 @@ export function RequirementRulesTable({
                   : [];
                 const rowState = requirement
                   ? requirementRowState(requirement, qualityIssues)
-                  : "已编辑";
+                  : t("requirements.table.edited");
                 const candidate = requirementReviewCandidates[rule.id];
                 const displayRowState = reviewCandidateStateLabel(
                   candidate,
@@ -228,14 +260,14 @@ export function RequirementRulesTable({
                           : requirementStateTone(displayRowState),
                       )}
                     >
-                      <span className="truncate">{displayRowState}</span>
+                      <span className="truncate">{statusLabel(displayRowState, t)}</span>
                     </Badge>
                     {reviewDecisionLabel && (
                       <Badge
                         variant="success"
                         className="shrink-0 rounded-md px-1 py-0.5 text-[10px] md:px-1.5 md:text-[11px]"
                       >
-                        {reviewDecisionLabel}
+                        {statusLabel(reviewDecisionLabel, t)}
                       </Badge>
                     )}
                     {hintCount > 0 && (
@@ -243,7 +275,7 @@ export function RequirementRulesTable({
                         variant="warning"
                         className="shrink-0 rounded-md px-1 py-0.5 text-[10px] md:px-1.5 md:text-[11px]"
                       >
-                        {hintCount}项
+                        {t("requirements.itemCount", { count: hintCount })}
                       </Badge>
                     )}
                   </>
@@ -275,11 +307,11 @@ export function RequirementRulesTable({
                         }
                         className="mx-auto h-7 w-auto min-w-[6.5rem] max-w-full rounded-md bg-background px-2 text-[11px] *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:justify-center md:h-8 md:text-xs"
                         contentClassName="min-w-[8rem]"
-                        aria-label={`需求类型 ${rule.id}`}
+                        aria-label={t("requirements.table.categoryAria", { id: rule.id })}
                         disabled={generating || !canEditRequirements}
                         options={RULE_CATEGORY_ORDER.map((category) => ({
                           value: category,
-                          label: category,
+                          label: categoryLabel(category, t),
                         }))}
                       />
                     </td>
@@ -289,7 +321,7 @@ export function RequirementRulesTable({
                           <button
                             type="button"
                             className="inline-flex min-w-0 items-center gap-1 overflow-hidden rounded-md text-left transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40 md:gap-1.5"
-                            aria-label={`需求提示详情 ${rule.id}`}
+                            aria-label={t("requirements.table.hintAria", { id: rule.id })}
                             onClick={() => onOpenHintDetail(rule.id)}
                           >
                             {statusContent}
@@ -328,7 +360,7 @@ export function RequirementRulesTable({
                         title={
                           !canEditRequirements ? editBlockedReason : undefined
                         }
-                        aria-label={`删除需求项 ${rule.id}`}
+                        aria-label={t("requirements.table.deleteAria", { id: rule.id })}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
@@ -376,17 +408,17 @@ export function RequirementRulesTable({
             }}
             className="h-8 w-28 rounded-md bg-background text-xs"
             contentClassName="min-w-[7rem]"
-            aria-label="每页需求规则数量"
+            aria-label={t("requirements.table.pageSizeAria")}
             options={RULE_PAGE_SIZE_OPTIONS.map((pageSize) => ({
               value: String(pageSize),
-              label: `每页 ${pageSize} 条`,
+              label: t("requirements.table.pageSize", { count: pageSize }),
             }))}
           />
         </div>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            aria-label="上一页"
+            aria-label={t("requirements.table.previous")}
             onClick={() => setCurrentRulePage((page) => Math.max(1, page - 1))}
             disabled={currentRulePage === 1 || safeRulePage === 1}
             className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -412,7 +444,7 @@ export function RequirementRulesTable({
           )}
           <button
             type="button"
-            aria-label="下一页"
+            aria-label={t("requirements.table.next")}
             onClick={() =>
               setCurrentRulePage((page) => Math.min(totalRulePages, page + 1))
             }

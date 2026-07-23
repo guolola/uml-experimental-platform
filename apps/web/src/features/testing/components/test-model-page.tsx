@@ -1,5 +1,7 @@
 // Builds black-box test cases and coverage links from requirement and design models.
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { ClipboardCheck, Filter, Play, ShieldCheck } from "lucide-react";
 import type {
   BlackBoxTestCase,
@@ -19,22 +21,9 @@ import { SelectControl } from "../../../shared/ui/select";
 import { cn } from "../../../shared/ui/utils";
 import { useWorkspaceSession } from "../../workspace-session/state";
 
-const SCENARIO_OPTIONS: Array<{ value: TestScenarioType | "all"; label: string }> = [
-  { value: "all", label: "全部场景" },
-  { value: "normal", label: "正常流程" },
-  { value: "alternative", label: "备选流程" },
-  { value: "exception", label: "异常流程" },
-  { value: "boundary", label: "边界值" },
-  { value: "decision-table", label: "判定表" },
+const SCENARIO_TYPES: Array<TestScenarioType | "all"> = [
+  "all", "normal", "alternative", "exception", "boundary", "decision-table",
 ];
-
-const scenarioLabel: Record<TestScenarioType, string> = {
-  normal: "正常流程",
-  alternative: "备选流程",
-  exception: "异常流程",
-  boundary: "边界值",
-  "decision-table": "判定表",
-};
 
 type SequenceDesignModel = DesignDiagramModelSpec & {
   diagramKind: "sequence";
@@ -144,6 +133,7 @@ function generateBlackBoxTests(
   rules: RequirementRule[],
   useCaseModel: UseCaseDiagramSpec,
   designModels: DesignDiagramModelSpec[],
+  t: TFunction,
 ): TestGenerationResult {
   const testCases: BlackBoxTestCase[] = [];
   const coverageRelations: TestCoverageRelation[] = [];
@@ -161,7 +151,7 @@ function generateBlackBoxTests(
         ) ?? matchedRules[flowIndex % Math.max(1, matchedRules.length)];
       const testCase: BlackBoxTestCase = {
         id: `tc-${useCase.id}-${flow.id}`.replace(/[^A-Za-z0-9_-]/g, "-"),
-        title: `${useCase.name} - ${scenarioLabel[scenarioFromFlow(flow)]} - ${flow.name}`,
+        title: `${useCase.name} - ${t(`testingPage.scenarios.${scenarioFromFlow(flow).replace("-", "_")}`)} - ${flow.name}`,
         sourceRequirementId: sourceRule?.id,
         sourceRequirementText: sourceRule?.text,
         sourceUseCaseId: useCase.id,
@@ -234,15 +224,16 @@ function generateBlackBoxTests(
 }
 
 export function TestModelPage() {
+  const { t } = useTranslation();
   const { rules, models, designModels } = useWorkspaceSession();
   const [result, setResult] = useState<TestGenerationResult | null>(null);
   const [scenarioFilter, setScenarioFilter] = useState<TestScenarioType | "all">("all");
   const useCaseModel = models.usecase;
   const blockedReason =
     !useCaseModel || !("useCases" in useCaseModel) || useCaseModel.useCases.length === 0
-      ? "需求阶段用例模型缺失，无法生成测试用例"
+      ? t("testingPage.blocked.usecase")
       : rules.length === 0
-        ? "确认需求项缺失，无法建立测试覆盖关系"
+        ? t("testingPage.blocked.rules")
         : null;
 
   const filteredCases = useMemo(() => {
@@ -273,7 +264,7 @@ export function TestModelPage() {
                 <div className="flex items-center gap-2">
                   <ClipboardCheck className="size-6 text-primary" />
                   <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
-                    测试
+                    {t("testingPage.title")}
                   </h2>
                 </div>
                 {blockedReason && (
@@ -287,12 +278,12 @@ export function TestModelPage() {
                 onClick={() => {
                   if (!useCaseModel || !("useCases" in useCaseModel)) return;
                   setResult(
-                    generateBlackBoxTests(rules, useCaseModel, Object.values(designModels)),
+                    generateBlackBoxTests(rules, useCaseModel, Object.values(designModels), t),
                   );
                 }}
               >
                 <Play className="size-4" />
-                生成测试用例
+                {t("testingPage.generate")}
               </Button>
             </ScaledToolbar>
           </header>
@@ -302,10 +293,10 @@ export function TestModelPage() {
             className="grid w-full grid-cols-4 gap-2 md:gap-3"
           >
             {[
-              ["测试用例", result?.testCases.length ?? 0],
-              ["覆盖需求", coveredRequirements.size],
-              ["覆盖用例", coveredUseCases.size],
-              ["覆盖关系", result?.coverageRelations.length ?? 0],
+              [t("testingPage.summary.cases"), result?.testCases.length ?? 0],
+              [t("testingPage.summary.requirements"), coveredRequirements.size],
+              [t("testingPage.summary.usecases"), coveredUseCases.size],
+              [t("testingPage.summary.relations"), result?.coverageRelations.length ?? 0],
             ].map(([label, value]) => (
               <div key={label} className="min-w-0 rounded-lg border border-border bg-card p-2.5 md:p-4">
                 <div className="truncate text-[12px] leading-4 text-muted-foreground md:text-xs">
@@ -323,7 +314,7 @@ export function TestModelPage() {
               <ScaledToolbar minWidth={540} contentClassName="w-full justify-between gap-4">
                 <div className="flex shrink-0 items-center gap-2">
                   <ShieldCheck className="size-4 text-primary" />
-                  <h3 className="text-sm font-semibold text-foreground">黑盒测试用例</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{t("testingPage.blackBox")}</h3>
                   <Badge variant="secondary" className="rounded-full font-mono text-[11px]">
                     {filteredCases.length}
                   </Badge>
@@ -331,12 +322,12 @@ export function TestModelPage() {
                 <label className="inline-flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                   <Filter className="size-3.5" />
                   <SelectControl
-                    aria-label="按测试场景筛选"
+                    aria-label={t("testingPage.filterAria")}
                     value={scenarioFilter}
                     onValueChange={(value) => setScenarioFilter(value as TestScenarioType | "all")}
                     className="h-8 min-w-32 text-sm"
                     size="sm"
-                    options={SCENARIO_OPTIONS}
+                    options={SCENARIO_TYPES.map((value) => ({ value, label: t(`testingPage.scenarios.${value.replace("-", "_")}`) }))}
                   />
                 </label>
               </ScaledToolbar>
@@ -348,19 +339,19 @@ export function TestModelPage() {
                   <thead className="bg-muted/20 text-xs text-muted-foreground">
                     <tr>
                       <th className="w-[28%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                        用例
+                        {t("testingPage.columns.case")}
                       </th>
                       <th className="w-[14%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                        场景
+                        {t("testingPage.columns.scenario")}
                       </th>
                       <th className="w-[30%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                        步骤与期望
+                        {t("testingPage.columns.steps")}
                       </th>
                       <th className="w-[18%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                        覆盖
+                        {t("testingPage.columns.coverage")}
                       </th>
                       <th className="w-[10%] border-b border-border px-4 py-4 text-left font-medium">
-                        优先级
+                        {t("testingPage.columns.priority")}
                       </th>
                     </tr>
                   </thead>
@@ -376,7 +367,7 @@ export function TestModelPage() {
                             </div>
                           </td>
                           <td className="border-r border-border px-4 py-3 align-top">
-                            <Badge variant="secondary">{scenarioLabel[testCase.scenarioType]}</Badge>
+                            <Badge variant="secondary">{t(`testingPage.scenarios.${testCase.scenarioType.replace("-", "_")}`)}</Badge>
                           </td>
                           <td className="border-r border-border px-4 py-3 align-top">
                             <div className="space-y-2">
@@ -426,7 +417,7 @@ export function TestModelPage() {
               </div>
             ) : (
               <div className="flex min-h-72 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                暂无测试用例。
+                {t("testingPage.empty")}
               </div>
             )}
           </section>

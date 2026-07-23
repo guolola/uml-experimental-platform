@@ -187,6 +187,24 @@ function useProjectOverview(projectId: string) {
     };
   }, [contextOverview, hasActiveRuns, projectId, state.loading]);
 
+  useEffect(() => {
+    if (contextOverview) return;
+    let active = true;
+    const refreshCompletedRuns = () => {
+      void platformApi.listProjectRuns(projectId).then((response) => {
+        if (!active) return;
+        setState((current) => ({ ...current, runs: response.runs }));
+      }).catch(() => {
+        // Completion refresh is best-effort; the manual history refresh remains available.
+      });
+    };
+    window.addEventListener("uml-generation-completed", refreshCompletedRuns);
+    return () => {
+      active = false;
+      window.removeEventListener("uml-generation-completed", refreshCompletedRuns);
+    };
+  }, [contextOverview, projectId]);
+
   return contextOverview ?? state;
 }
 

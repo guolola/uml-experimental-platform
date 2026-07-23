@@ -3,6 +3,7 @@ import type {
   CodeRunSnapshot,
   DesignRunSnapshot,
   DocumentRunSnapshot,
+  FeasibilityRunSnapshot,
   RunEvent,
   RunError,
   RunSnapshot,
@@ -23,7 +24,8 @@ type RestorableRunSnapshot =
   | RunSnapshot
   | DesignRunSnapshot
   | CodeRunSnapshot
-  | DocumentRunSnapshot;
+  | DocumentRunSnapshot
+  | FeasibilityRunSnapshot;
 
 type SnapshotReader<TSnapshot extends RestorableRunSnapshot> = (
   runId: string,
@@ -291,6 +293,16 @@ async function streamProjectRunEvents(
   }
 }
 
+export async function readFeasibilityRunSnapshot(
+  runId: string,
+  projectId: string | null = null,
+) {
+  return requestJson<FeasibilityRunSnapshot>(`/api/feasibility-runs/${runId}`, {
+    errorMessage: "读取可行性分析快照失败",
+    headers: projectHeaders(projectId),
+  });
+}
+
 async function waitForRequirementRunSnapshot(
   runId: string,
   onEvent: (event: RunEvent) => void,
@@ -377,6 +389,29 @@ async function waitForDocumentRunSnapshot(
     progressMessage: "SSE 已断开，正在通过快照轮询等待说明书生成任务",
     progressForSnapshot: (snapshot) =>
       snapshot.currentStage === "render_document_file" ? 90 : 55,
+  });
+}
+
+async function waitForFeasibilityRunSnapshot(
+  runId: string,
+  onEvent: (event: RunEvent) => void,
+  projectId: string | null = null,
+) {
+  await waitForTerminalSnapshot({
+    runId,
+    projectId,
+    onEvent,
+    readSnapshot: readFeasibilityRunSnapshot,
+    fallbackFailureMessage: "可行性分析生成失败",
+    fallbackCancelledStage: "generate_context",
+    fallbackProgressStage: "generate_context",
+    progressMessage: "SSE 已断开，正在通过快照轮询等待可行性分析",
+    progressForSnapshot: (snapshot) =>
+      snapshot.currentStage === "generate_implementation"
+        ? 85
+        : snapshot.currentStage === "render_context"
+          ? 60
+          : 35,
   });
 }
 
@@ -520,5 +555,35 @@ export async function subscribeToDocumentRunEvents({
       onError: () => waitForDocumentRunSnapshot(runId, onEvent, projectId),
     },
   );
+  await subscription.closed;
+}
+
+export async function subscribeToFeasibilityRunEvents({
+  runId,
+  projectId,
+  onEvent,
+}: RunSubscriptionInput) {
+  if (projectId) {
+    const scopedProjectId = requireProjectScope(projectId);
+    try {
+      await streamProjectRunEvents(
+        `/api/feasibility-runs/${runId}/events`,
+        scopedProjectId,
+        onEvent,
+      );
+      return;
+    } catch (error) {
+      if (error instanceof ApiClientError && (error.status === 401 || error.status === 403)) {
+        throw error;
+      }
+      if (error instanceof StreamedRunFailedError) throw error;
+      await waitForFeasibilityRunSnapshot(runId, onEvent, scopedProjectId);
+      return;
+    }
+  }
+  const subscription = subscribeToRunEvents(`/api/feasibility-runs/${runId}/events`, {
+    onEvent,
+    onError: () => waitForFeasibilityRunSnapshot(runId, onEvent, projectId),
+  });
   await subscription.closed;
 }

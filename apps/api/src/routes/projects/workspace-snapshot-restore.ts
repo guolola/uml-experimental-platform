@@ -18,6 +18,7 @@ import type {
   DiagramKind,
   DiagramModelSpec,
   DocumentRunSnapshot,
+  FeasibilityRunSnapshot,
   PlantUmlArtifact,
   RequirementBaseline,
   RequirementQualityIssue,
@@ -31,7 +32,7 @@ export type RestorableRunSnapshot =
   | DesignRunSnapshot
   | CodeRunSnapshot;
 
-type AnyRunSnapshot = RestorableRunSnapshot | DocumentRunSnapshot;
+type AnyRunSnapshot = RestorableRunSnapshot | DocumentRunSnapshot | FeasibilityRunSnapshot;
 type WorkspaceState = Record<string, unknown>;
 type BaselineRequirement = RequirementBaseline["requirements"][number];
 
@@ -48,7 +49,7 @@ const REVIEWABLE_REQUIREMENT_FIELDS = [
 export function isRestorableRunSnapshot(
   snapshot: AnyRunSnapshot,
 ): snapshot is RestorableRunSnapshot {
-  return !("documentKind" in snapshot);
+  return !("documentKind" in snapshot) && !("selectedArtifacts" in snapshot);
 }
 
 function reviewCandidateStillNeeded(

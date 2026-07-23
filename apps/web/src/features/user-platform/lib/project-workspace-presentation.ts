@@ -5,6 +5,7 @@ import type {
   PlatformProjectMember,
   PlatformRunSummary,
 } from "../services/platform-api";
+import type { TFunction } from "i18next";
 
 export function invitationToMember(
   projectId: string,
@@ -23,18 +24,18 @@ export function invitationToMember(
   };
 }
 
-export function memberStatusLabel(status: string) {
-  if (status === "active") return "已加入";
-  if (status === "invited") return "邀请中";
-  if (status === "expired") return "已过期";
-  if (status === "revoked") return "已撤销";
+export function memberStatusLabel(status: string, t?: TFunction) {
+  if (status === "active") return t ? t("projectShell.membersUi.status.active") : "已加入";
+  if (status === "invited") return t ? t("projectShell.membersUi.status.invited") : "邀请中";
+  if (status === "expired") return t ? t("projectShell.membersUi.status.expired") : "已过期";
+  if (status === "revoked") return t ? t("projectShell.membersUi.status.revoked") : "已撤销";
   return status;
 }
 
-export function memberRoleLabel(role: string) {
-  if (role === "owner") return "所有者";
-  if (role === "editor") return "编辑者";
-  if (role === "viewer") return "查看者";
+export function memberRoleLabel(role: string, t?: TFunction) {
+  if (role === "owner") return t ? t("projectShell.membersUi.roles.owner") : "所有者";
+  if (role === "editor") return t ? t("projectShell.membersUi.roles.editor") : "编辑者";
+  if (role === "viewer") return t ? t("projectShell.membersUi.roles.viewer") : "查看者";
   return role;
 }
 
@@ -45,15 +46,15 @@ export function memberInitials(member: PlatformProjectMember) {
   return label.slice(0, 2).toUpperCase();
 }
 
-export function formatMemberDate(value: string | null | undefined) {
-  if (!value) return "暂无时间";
+export function formatMemberDate(value: string | null | undefined, locale = "zh-CN", t?: TFunction) {
+  if (!value) return t ? t("projectShell.membersUi.noTime") : "暂无时间";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }).format(date);
 }
 
-export function formatDateTime(value: string) {
-  return new Date(value).toLocaleString("zh-CN");
+export function formatDateTime(value: string, locale = "zh-CN") {
+  return new Date(value).toLocaleString(locale);
 }
 
 export function getProjectRunKind(run: PlatformRunSummary) {
@@ -61,7 +62,8 @@ export function getProjectRunKind(run: PlatformRunSummary) {
     run.runKind === "requirements" ||
     run.runKind === "design" ||
     run.runKind === "code" ||
-    run.runKind === "document"
+    run.runKind === "document" ||
+    run.runKind === "feasibility"
   ) {
     return run.runKind;
   }
@@ -83,48 +85,64 @@ export function getProjectRunKind(run: PlatformRunSummary) {
   return "all";
 }
 
-export function getProjectRunStageLabel(run: PlatformRunSummary) {
+export function getProjectRunStageLabel(run: PlatformRunSummary, t?: TFunction) {
+  const label = (key: string, fallback: string) => t ? t(`generation.stages.${key}`) : fallback;
   const stage = run.stage;
   const normalized = (stage ?? "").toLowerCase();
   const runKind = getProjectRunKind(run);
-  if (!normalized) return "等待开始";
-  if (normalized.includes("extract_rules")) return "提取需求规则";
-  if (normalized.includes("generate_models")) return "生成需求模型";
-  if (normalized.includes("generate_tests")) return "生成测试用例";
-  if (normalized.includes("generate_design")) return "生成设计模型";
+  if (!normalized) return label("waiting", "等待开始");
+  if (normalized.includes("generate_context")) return label("context", "生成上下文图");
+  if (normalized.includes("render_context")) return label("renderContext", "渲染上下文图");
+  if (normalized.includes("generate_implementation")) return label("implementation", "生成实现方案");
+  if (
+    runKind === "feasibility" &&
+    (normalized === "completed" ||
+      normalized === "failed" ||
+      normalized === "cancelled" ||
+      normalized === "interrupted")
+  ) {
+    return label("feasibility", "可行性分析");
+  }
+  if (normalized.includes("extract_rules")) return label("rules", "提取需求规则");
+  if (normalized.includes("generate_models")) return label("requirementModels", "生成需求模型");
+  if (normalized.includes("generate_tests")) return label("tests", "生成测试用例");
+  if (normalized.includes("generate_design")) return label("designModels", "生成设计模型");
   if (normalized.includes("generate_plantuml")) {
-    if (runKind === "design") return "生成设计 PlantUML";
-    if (runKind === "requirements") return "生成需求 PlantUML";
-    return "生成 PlantUML";
+    if (runKind === "design") return label("designPlantUml", "生成设计 PlantUML");
+    if (runKind === "requirements") return label("requirementPlantUml", "生成需求 PlantUML");
+    return label("plantUml", "生成 PlantUML");
   }
   if (normalized.includes("render_svg") || normalized.includes("render_diagram")) {
-    if (runKind === "design") return "渲染设计图表";
-    if (runKind === "requirements") return "渲染需求图表";
-    return "渲染图表";
+    if (runKind === "design") return label("designSvg", "渲染设计图表");
+    if (runKind === "requirements") return label("requirementSvg", "渲染需求图表");
+    return label("svg", "渲染图表");
   }
   if (
     normalized.includes("write_code") ||
     normalized.includes("repair_code") ||
     normalized.includes("generate_code")
   ) {
-    return "生成代码原型";
+    return label("code", "生成代码原型");
   }
-  if (normalized.includes("verify_code")) return "验证代码预览";
+  if (normalized.includes("verify_code")) return label("verifyCode", "验证代码预览");
   if (normalized.includes("generate_document")) {
-    if (run.documentKind === "requirementsSpec") return "生成需求规格说明书";
-    if (run.documentKind === "softwareDesignSpec") return "生成软件设计说明书";
-    return "生成说明书正文";
+    if (run.documentKind === "requirementsSpec") return label("requirementsDocument", "生成需求规格说明书");
+    if (run.documentKind === "feasibilityStudy") return label("feasibilityDocument", "生成可行性研究报告");
+    if (run.documentKind === "softwareDesignSpec") return label("designDocument", "生成软件设计说明书");
+    return label("documentText", "生成说明书正文");
   }
   if (normalized.includes("render_document")) {
-    if (run.documentKind === "requirementsSpec") return "生成需求规格说明书文件";
-    if (run.documentKind === "softwareDesignSpec") return "生成软件设计说明书文件";
-    return "生成说明书文件";
+    if (run.documentKind === "requirementsSpec") return label("requirementsFile", "生成需求规格说明书文件");
+    if (run.documentKind === "feasibilityStudy") return label("feasibilityFile", "生成可行性研究报告文件");
+    if (run.documentKind === "softwareDesignSpec") return label("designFile", "生成软件设计说明书文件");
+    return label("documentFile", "生成说明书文件");
   }
-  if (normalized.includes("queued")) return "等待开始";
-  return stage ?? "等待开始";
+  if (normalized.includes("queued")) return label("waiting", "等待开始");
+  return stage ?? label("waiting", "等待开始");
 }
 
-export function getProjectRunStatusLabel(status?: string | null) {
+export function getProjectRunStatusLabel(status?: string | null, t?: TFunction) {
+  if (t) return t(`generation.status.${status && ["queued", "running", "completed", "failed", "cancelled", "interrupted"].includes(status) ? status : "unknown"}`);
   switch (status) {
     case "queued":
       return "排队中";
@@ -222,38 +240,36 @@ export function getProjectRunOperatorSearchText(
     .toLowerCase();
 }
 
-export function getProjectDocumentKindLabel(kind?: string | null) {
-  if (kind === "requirementsSpec") return "需求规格说明书";
-  if (kind === "softwareDesignSpec") return "软件设计说明书";
-  return "项目文档";
+export function getProjectDocumentKindLabel(kind?: string | null, t?: TFunction) {
+  if (kind === "requirementsSpec") return t ? t("projectShell.documentsUi.kinds.requirements") : "需求规格说明书";
+  if (kind === "softwareDesignSpec") return t ? t("projectShell.documentsUi.kinds.design") : "软件设计说明书";
+  return t ? t("projectShell.documentsUi.kinds.project") : "项目文档";
 }
 
-export function getProjectDocumentDisplayName(document: PlatformDocument) {
+export function getProjectDocumentDisplayName(document: PlatformDocument, t?: TFunction) {
   const explicitName =
     document.fileName?.trim() ||
     document.name?.trim() ||
     document.title?.trim();
   if (explicitName) return explicitName;
   if (document.documentKind) {
-    return `${getProjectDocumentKindLabel(document.documentKind)} v${document.version ?? 1}`;
+    return `${getProjectDocumentKindLabel(document.documentKind, t)} v${document.version ?? 1}`;
   }
-  return `文档 ${shortIdentifier(document.id)}`;
+  return t ? t("projectShell.documentsUi.documentFallback", { id: shortIdentifier(document.id) }) : `文档 ${shortIdentifier(document.id)}`;
 }
 
 export function getProjectRunModelLabel(run: PlatformRunSummary) {
   return run.model?.trim() || "默认模型";
 }
 
-export function onlyOfficeStatusLabel(status?: string | null) {
-  if (status === "editing") return "编辑中";
-  if (status === "ready") return "可编辑";
-  if (status === "unavailable") return "不可用";
-  return "不可用";
+export function onlyOfficeStatusLabel(status?: string | null, t?: TFunction) {
+  if (status === "editing") return t ? t("projectShell.documentsUi.officeStatus.editing") : "编辑中";
+  if (status === "ready") return t ? t("projectShell.documentsUi.officeStatus.ready") : "可编辑";
+  return t ? t("projectShell.documentsUi.officeStatus.unavailable") : "不可用";
 }
 
-export function downloadStatusLabel(status?: string | null) {
-  if (status === "available") return "可用";
-  if (status === "preparing") return "准备中";
-  if (status === "unavailable") return "不可用";
-  return "不可用";
+export function downloadStatusLabel(status?: string | null, t?: TFunction) {
+  if (status === "available") return t ? t("projectShell.documentsUi.downloadStatus.available") : "可用";
+  if (status === "preparing") return t ? t("projectShell.documentsUi.downloadStatus.preparing") : "准备中";
+  return t ? t("projectShell.documentsUi.downloadStatus.unavailable") : "不可用";
 }

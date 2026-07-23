@@ -64,6 +64,9 @@ export function formatStageForDiagnostics(stage: RunStage | null) {
     render_document_file: "写入说明书文件",
     generate_plantuml: "生成图源码",
     render_svg: "渲染图像",
+    generate_context: "生成上下文图",
+    render_context: "渲染上下文图",
+    generate_implementation: "生成实现方案",
   };
   return labels[stage];
 }

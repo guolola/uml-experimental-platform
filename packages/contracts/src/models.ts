@@ -771,7 +771,40 @@ export const tableDiagramSpecSchema = z.object({
 });
 export type TableDiagramSpec = z.infer<typeof tableDiagramSpecSchema>;
 
+export const contextElementSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1).optional(),
+  sourceRequirementIds: z.array(z.string().min(1)).default([]),
+});
+export type ContextElement = z.infer<typeof contextElementSchema>;
+
+export const contextRelationshipSchema = z.object({
+  id: z.string().min(1),
+  sourceId: z.string().min(1),
+  targetId: z.string().min(1),
+  direction: z.enum(["directed", "bidirectional"]),
+  label: z.string().min(1),
+  description: z.string().min(1).optional(),
+  sourceRequirementIds: z.array(z.string().min(1)).min(1),
+});
+export type ContextRelationship = z.infer<typeof contextRelationshipSchema>;
+
+export const contextDiagramSpecSchema = z.object({
+  diagramKind: z.literal("context"),
+  modelId: z.string().min(1).default("context"),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  notes: noteListSchema,
+  system: contextElementSchema.extend({ sourceRequirementIds: z.array(z.string()).max(0).default([]) }),
+  people: z.array(contextElementSchema.extend({ sourceRequirementIds: z.array(z.string().min(1)).min(1) })),
+  externalSystems: z.array(contextElementSchema.extend({ sourceRequirementIds: z.array(z.string().min(1)).min(1) })),
+  relationships: z.array(contextRelationshipSchema),
+});
+export type ContextDiagramSpec = z.infer<typeof contextDiagramSpecSchema>;
+
 export const diagramModelSpecSchema = z.discriminatedUnion("diagramKind", [
+  contextDiagramSpecSchema,
   functionStructureDiagramSpecSchema,
   useCaseDiagramSpecSchema,
   classDiagramSpecSchema,

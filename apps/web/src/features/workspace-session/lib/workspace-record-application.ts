@@ -29,6 +29,16 @@ type WorkspaceRecordAppliers = {
   setDesignPlantUml: Setter<WorkspaceRecord["designPlantUml"]>;
   setDesignSvgArtifacts: Setter<WorkspaceRecord["designSvgArtifacts"]>;
   setDesignDiagramErrors: Setter<WorkspaceRecord["designDiagramErrors"]>;
+  setFeasibilityContextArtifact: Setter<Pick<
+    WorkspaceRecord,
+    | "feasibilityContextModel"
+    | "feasibilityContextTraceability"
+    | "feasibilityContextPlantUml"
+    | "feasibilityContextSvg"
+    | "feasibilityContextFingerprint"
+  > | null>;
+  setHasFeasibilityContextArtifact: Setter<boolean>;
+  setHasFeasibilityImplementationArtifact: Setter<boolean>;
   setManualModelEditStatus: Setter<WorkspaceRecord["manualModelEditStatus"]>;
   setCodeSpec: Setter<WorkspaceRecord["codeSpec"]>;
   setCodeBusinessLogic: Setter<WorkspaceRecord["codeBusinessLogic"]>;
@@ -80,6 +90,27 @@ export function applyWorkspaceRecordToSessionState(
   appliers.setDesignPlantUml(workspace.designPlantUml);
   appliers.setDesignSvgArtifacts(workspace.designSvgArtifacts);
   appliers.setDesignDiagramErrors(workspace.designDiagramErrors);
+  appliers.setFeasibilityContextArtifact(
+    workspace.feasibilityContextModel
+      ? {
+          feasibilityContextModel: workspace.feasibilityContextModel,
+          feasibilityContextTraceability: workspace.feasibilityContextTraceability,
+          feasibilityContextPlantUml: workspace.feasibilityContextPlantUml,
+          feasibilityContextSvg: workspace.feasibilityContextSvg,
+          feasibilityContextFingerprint: workspace.feasibilityContextFingerprint,
+        }
+      : null,
+  );
+  appliers.setHasFeasibilityContextArtifact(
+    Boolean(
+      workspace.feasibilityContextModel &&
+      workspace.feasibilityContextPlantUml &&
+      workspace.feasibilityContextSvg,
+    ),
+  );
+  appliers.setHasFeasibilityImplementationArtifact(
+    Boolean(workspace.feasibilityImplementationPlan),
+  );
   appliers.setManualModelEditStatus(workspace.manualModelEditStatus ?? {});
   appliers.setCodeSpec(workspace.codeSpec);
   appliers.setCodeBusinessLogic(workspace.codeBusinessLogic);

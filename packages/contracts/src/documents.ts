@@ -1,7 +1,11 @@
 // Defines document library, OnlyOffice editor config, document style, and generated content section schemas.
 import { z } from "zod";
 
-export const documentKindSchema = z.enum(["requirementsSpec", "softwareDesignSpec"]);
+export const documentKindSchema = z.enum([
+  "requirementsSpec",
+  "softwareDesignSpec",
+  "feasibilityStudy",
+]);
 export type DocumentKind = z.infer<typeof documentKindSchema>;
 
 export const documentStatusSchema = z.enum(["active", "deleted"]);

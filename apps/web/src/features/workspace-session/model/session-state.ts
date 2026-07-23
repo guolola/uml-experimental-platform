@@ -24,6 +24,7 @@ import type {
   DocumentStyleSettings,
   DesignDiagramModelSpec,
   DiagramModelSpec,
+  RunEvent,
   RunStage,
 } from "@uml-platform/contracts";
 import type { DesignDiagramType, DiagramType } from "../../../entities/diagram/model";
@@ -39,7 +40,7 @@ export interface DiagnosticEvent {
 }
 
 export interface RunDiagnostics {
-  runKind: "requirements" | "design" | "code" | "document" | null;
+  runKind: "requirements" | "design" | "code" | "document" | "feasibility" | null;
   runId: string | null;
   providerModel: string | null;
   startedAt: string | null;
@@ -63,7 +64,12 @@ export interface RunDiagnostics {
   codeTrace: CodeTraceEntry[];
 }
 
-export type GenerationTaskKind = "requirements" | "design" | "code" | "document";
+export type GenerationTaskKind =
+  | "requirements"
+  | "design"
+  | "code"
+  | "document"
+  | "feasibility";
 
 export interface GenerationSubtask {
   id: string;
@@ -77,6 +83,8 @@ export interface GenerationSubtask {
     | "failed"
     | "pending_review";
   message: string | null;
+  messageCode?: string | null;
+  messageParams?: Record<string, string | number | boolean | null>;
   errorMessage: string | null;
   queuePosition?: number;
   queueAhead?: number;
@@ -92,9 +100,12 @@ export interface GenerationTask {
   kind: GenerationTaskKind;
   documentKind?: DocumentKind;
   title: string;
+  titleKey?: GenerationTaskKind;
   status: RunStatus;
   progress: number;
   message: string | null;
+  messageCode?: string | null;
+  messageParams?: Record<string, string | number | boolean | null>;
   errorMessage: string | null;
   previewReady: boolean;
   phaseSummary: string | null;
@@ -159,6 +170,19 @@ export interface WorkspaceSessionState {
   designPlantUml: WorkspaceRecord["designPlantUml"];
   designSvgArtifacts: WorkspaceRecord["designSvgArtifacts"];
   designDiagramErrors: WorkspaceRecord["designDiagramErrors"];
+  feasibilityContextArtifact: Pick<
+    WorkspaceRecord,
+    | "feasibilityContextModel"
+    | "feasibilityContextTraceability"
+    | "feasibilityContextPlantUml"
+    | "feasibilityContextSvg"
+    | "feasibilityContextFingerprint"
+  > | null;
+  feasibilityContextSaveStatus: "idle" | "saving" | "saved" | "error";
+  setFeasibilityContextSaveStatus: (status: "idle" | "saving" | "saved" | "error") => void;
+  hasFeasibilityContextArtifact: boolean;
+  hasFeasibilityImplementationArtifact: boolean;
+  syncFeasibilityArtifacts: (workspace: WorkspaceRecord) => void;
   codeSpec: CodeGenerationSpec | null;
   codeBusinessLogic: CodeBusinessLogic | null;
   codeFiles: Record<string, string>;
@@ -195,6 +219,23 @@ export interface WorkspaceSessionState {
   reconcileGenerationTasksWithProjectRuns: (
     runs: GenerationTaskRunSummary[],
   ) => void;
+  beginFeasibilityGenerationTask: (input: {
+    providerModel: string;
+    startedAtMs: number;
+  }) => string;
+  attachFeasibilityGenerationRun: (
+    clientTaskId: string,
+    runId: string,
+    providerModel: string,
+  ) => void;
+  updateFeasibilityGenerationTask: (
+    clientTaskId: string,
+    event: RunEvent,
+  ) => void;
+  failFeasibilityGenerationTask: (
+    clientTaskId: string,
+    message: string,
+  ) => void;
   generateRules: () => Promise<void>;
   repairRequirementRule: (ruleId: string) => Promise<void>;
   decideRequirementReviewCandidate: (
@@ -226,6 +267,9 @@ export interface WorkspaceSessionState {
     documentStyle?: DocumentStyleSettings,
   ) => Promise<DocumentRunSnapshot | null>;
   generateSoftwareDesignSpec: (
+    documentStyle?: DocumentStyleSettings,
+  ) => Promise<DocumentRunSnapshot | null>;
+  generateFeasibilityStudy: (
     documentStyle?: DocumentStyleSettings,
   ) => Promise<DocumentRunSnapshot | null>;
   rulesForDiagram: (diagram: DiagramType) => RequirementRule[];

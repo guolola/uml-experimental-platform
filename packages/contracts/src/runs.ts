@@ -65,6 +65,11 @@ import {
   documentSectionSchema,
   documentStyleSettingsSchema,
 } from "./documents.js";
+import {
+  feasibilityImplementationPlanSchema,
+  feasibilityInputsSchema,
+  feasibilityRunSnapshotSchema,
+} from "./feasibility.js";
 
 export const startRunRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
@@ -246,6 +251,8 @@ export const startDocumentRunRequestSchema = z.object({
   designModelTraceability: z.array(designModelTraceabilityEntrySchema).default([]),
   designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
   designSvgArtifacts: z.array(designSvgArtifactSchema).default([]),
+  feasibilityImplementationPlan: feasibilityImplementationPlanSchema.nullable().default(null),
+  feasibilityInputs: feasibilityInputsSchema.default({}),
   providerSettings: providerSettingsSchema.optional(),
   useAiText: z.boolean().default(true),
   documentStyle: documentStyleSettingsSchema.optional(),
@@ -292,6 +299,9 @@ export const runStageSchema = z.enum([
   "render_document_file",
   "generate_plantuml",
   "render_svg",
+  "generate_context",
+  "render_context",
+  "generate_implementation",
 ]);
 export type RunStage = z.infer<typeof runStageSchema>;
 
@@ -337,6 +347,10 @@ export const runErrorSchema = z.object({
   message: z.string().min(1),
   category: runErrorCategorySchema,
   retryable: z.boolean(),
+  params: z.record(
+    z.string().min(1),
+    z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  ).optional(),
   details: z.record(z.string().min(1), z.unknown()).optional(),
 });
 export type RunError = z.infer<typeof runErrorSchema>;
@@ -545,6 +559,8 @@ export const documentRunSnapshotSchema = z.object({
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
   evidencePackage: evidencePackageSchema.nullable().default(null),
+  feasibilityImplementationPlan: feasibilityImplementationPlanSchema.nullable().default(null),
+  feasibilityInputs: feasibilityInputsSchema.default({}),
   documentId: z.string().min(1).nullable().default(null),
   sections: z.array(documentSectionSchema).default([]),
   fileName: z.string().min(1).nullable(),
@@ -640,6 +656,8 @@ export const artifactReadyRunEventSchema = z.object({
     "visualDiffReport",
     "businessAssertionResults",
     "document",
+    "feasibilityContext",
+    "feasibilityImplementation",
   ]),
   diagramKind: umlDiagramKindSchema.optional(),
   modelId: z.string().min(1).optional(),
@@ -696,6 +714,7 @@ export const completedRunEventSchema: z.ZodObject<{
       typeof designRunSnapshotSchema,
       typeof codeRunSnapshotSchema,
       typeof documentRunSnapshotSchema,
+      typeof feasibilityRunSnapshotSchema,
     ]
   >;
 }> = z.object({
@@ -705,6 +724,7 @@ export const completedRunEventSchema: z.ZodObject<{
     designRunSnapshotSchema,
     codeRunSnapshotSchema,
     documentRunSnapshotSchema,
+    feasibilityRunSnapshotSchema,
   ]),
 });
 

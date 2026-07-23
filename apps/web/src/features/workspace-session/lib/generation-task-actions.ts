@@ -93,6 +93,14 @@ function settleTaskFromTerminalRun(
     status: taskStatus,
     progress: 100,
     message,
+    messageCode:
+      status === "completed"
+        ? "RUN_COMPLETED"
+        : status === "cancelled"
+          ? "RUN_CANCELLED"
+          : status === "interrupted"
+            ? "RUN_INTERRUPTED"
+            : "RUN_FAILED",
     errorMessage,
     phaseSummary: message,
     finishedAt,

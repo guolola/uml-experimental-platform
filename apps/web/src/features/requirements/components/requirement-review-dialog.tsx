@@ -1,5 +1,6 @@
 // Renders the requirement quality hint and repair confirmation dialog.
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   AtomicRequirement,
   AtomicRequirementField,
@@ -20,7 +21,6 @@ import {
 import { ScaleToFitFrame } from "../../../shared/ui/scale-to-fit";
 import { cn } from "../../../shared/ui/utils";
 import {
-  REQUIREMENT_FIELD_LABELS,
   REVIEWABLE_REQUIREMENT_FIELDS,
   requirementFieldStatusLabel,
   requirementFieldValue,
@@ -62,6 +62,7 @@ export function RequirementReviewDialog({
   onRepairRequirementRule,
   visibleHintDetail,
 }: RequirementReviewDialogProps) {
+  const { t } = useTranslation();
   const [repairingRuleId, setRepairingRuleId] = useState<string | null>(null);
   const pendingReviewCandidate =
     visibleHintDetail?.candidate?.status === "pending"
@@ -106,14 +107,14 @@ export function RequirementReviewDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {pendingReviewCandidate ? "需求规则修复确认" : "需求质量提示"}
+            {pendingReviewCandidate ? t("requirements.review.repairTitle") : t("requirements.review.qualityTitle")}
           </DialogTitle>
           <DialogDescription>
             {pendingReviewCandidate
-              ? "对比修复前后的结构化需求，采纳或拒绝后都会标记为已确认。"
+              ? t("requirements.review.repairDescription")
               : hasActionableQualityHint
-                ? "查看当前需求的待确认原因；“智能修复”仅生成当前规则的修复候选，可确认当前提示，或生成修复结果后再采纳/拒绝。"
-                : "查看当前需求的字段来源与确认记录。"}
+                ? t("requirements.review.qualityDescription")
+                : t("requirements.review.recordDescription")}
           </DialogDescription>
         </DialogHeader>
         {visibleHintDetail && (
@@ -131,7 +132,7 @@ export function RequirementReviewDialog({
                     requirementStateTone(visibleHintDetail.rowState),
                   )}
                 >
-                  {visibleHintDetail.rowState}
+                  {visibleHintDetail.rowState ? t(`requirements.statuses.${({ "已编辑": "edited", "已生成": "generated", "已确认": "confirmed", "有待确认提示": "pending", "存在冲突提示": "conflict", "修复失败待重试": "repairFailed", "修复结果待确认": "repairPending", "已采纳修复": "repairAccepted", "已拒绝修复": "repairRejected" } as Record<string, string>)[visibleHintDetail.rowState] ?? "pending"}`) : ""}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
                   {visibleHintDetail.requirement.id}
@@ -145,19 +146,26 @@ export function RequirementReviewDialog({
             {visibleHintDetail.candidate && (
               <div className="mt-4">
                 <h3 className="text-sm font-semibold text-foreground">
-                  修复前后对比
+                  {t("requirements.review.comparison")}
                 </h3>
                 {visibleHintDetail.candidate.status === "failed" ? (
-                  <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
-                    {visibleHintDetail.candidate.errorMessage ??
-                      "当前规则修复失败，请重新修复。"}
+                  <div className="mt-2 grid gap-2">
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
+                      {t("requirements.review.repairFailed")}
+                    </div>
+                    {visibleHintDetail.candidate.errorMessage ? (
+                      <details className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                        <summary className="cursor-pointer font-medium text-foreground">{t("requirements.review.technicalDetails")}</summary>
+                        <pre className="mt-2 whitespace-pre-wrap break-words font-mono">{visibleHintDetail.candidate.errorMessage}</pre>
+                      </details>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="mt-2 overflow-hidden rounded-lg border border-border">
                     <div className="grid grid-cols-[120px_1fr_1fr] border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground">
-                      <div className="px-3 py-2">字段</div>
-                      <div className="px-3 py-2">修复前</div>
-                      <div className="px-3 py-2">修复后</div>
+                      <div className="px-3 py-2">{t("requirements.review.field")}</div>
+                      <div className="px-3 py-2">{t("requirements.review.before")}</div>
+                      <div className="px-3 py-2">{t("requirements.review.after")}</div>
                     </div>
                     {REVIEWABLE_REQUIREMENT_FIELDS.map((field) => {
                       const beforeValue = requirementFieldValue(
@@ -175,10 +183,10 @@ export function RequirementReviewDialog({
                           className="grid grid-cols-[120px_1fr_1fr] border-b border-border last:border-b-0 text-xs leading-5"
                         >
                           <div className="px-3 py-2 font-medium text-foreground">
-                            {REQUIREMENT_FIELD_LABELS[field]}
+                            {t(`requirements.review.fields.${field}`)}
                           </div>
                           <div className="px-3 py-2 text-muted-foreground">
-                            {beforeValue || "暂无字段值"}
+                            {beforeValue || t("requirements.review.noValue")}
                           </div>
                           <div
                             className={cn(
@@ -186,7 +194,7 @@ export function RequirementReviewDialog({
                               changed && "bg-success/10 text-success",
                             )}
                           >
-                            {afterValue || "暂无字段值"}
+                            {afterValue || t("requirements.review.noValue")}
                           </div>
                         </div>
                       );
@@ -215,7 +223,7 @@ export function RequirementReviewDialog({
 
             <div className="mt-4">
               <h3 className="text-sm font-semibold text-foreground">
-                字段来源与待确认项
+                {t("requirements.review.provenance")}
               </h3>
               <div className="mt-2 grid gap-2">
                 {visibleHintDetail.fieldEntries.length > 0 ? (
@@ -226,23 +234,23 @@ export function RequirementReviewDialog({
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-foreground">
-                          {REQUIREMENT_FIELD_LABELS[field]}
+                          {t(`requirements.review.fields.${field}`)}
                         </span>
                         <Badge
                           variant="outline"
                           className="rounded-md px-1.5 py-0 text-[10px]"
                         >
-                          {requirementSourceLabel(provenance.source)}
+                          {requirementSourceLabel(provenance.source, t)}
                         </Badge>
                         <span className="text-muted-foreground">
-                          {requirementFieldStatusLabel(provenance.status)}
+                          {requirementFieldStatusLabel(provenance.status, t)}
                         </span>
                       </div>
                       <div className="mt-1 text-foreground">
                         {requirementFieldValue(
                           visibleHintDetail.requirement,
                           field,
-                        ) || "暂无字段值"}
+                        ) || t("requirements.review.noValue")}
                       </div>
                       {provenance.rationale && (
                         <div className="mt-1 text-muted-foreground">
@@ -253,14 +261,14 @@ export function RequirementReviewDialog({
                   ))
                 ) : (
                   <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    暂无字段来源提示。
+                    {t("requirements.review.noProvenance")}
                   </div>
                 )}
               </div>
             </div>
 
             <div className="mt-4">
-              <h3 className="text-sm font-semibold text-foreground">质量提示</h3>
+              <h3 className="text-sm font-semibold text-foreground">{t("requirements.review.qualityIssues")}</h3>
               <div className="mt-2 grid gap-2">
                 {visibleHintDetail.qualityIssues.length > 0 ? (
                   visibleHintDetail.qualityIssues.map((issue) => (
@@ -273,7 +281,7 @@ export function RequirementReviewDialog({
                   ))
                 ) : (
                   <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    暂无额外质量提示。
+                    {t("requirements.review.noQualityIssues")}
                   </div>
                 )}
               </div>
@@ -289,7 +297,7 @@ export function RequirementReviewDialog({
               onClick={() => void runRepair(visibleHintDetail.rule.id)}
               disabled={repairDisabled}
             >
-              {repairingCurrentRule ? "正在修复当前规则" : "重新修复"}
+              {repairingCurrentRule ? t("requirements.review.repairing") : t("requirements.review.repairAgain")}
             </Button>
           ) : null}
           {visibleHintDetail &&
@@ -301,7 +309,7 @@ export function RequirementReviewDialog({
               onClick={() => void runRepair(visibleHintDetail.rule.id)}
               disabled={repairDisabled}
             >
-              {repairingCurrentRule ? "正在修复当前规则" : "智能修复"}
+              {repairingCurrentRule ? t("requirements.review.repairing") : t("requirements.review.smartRepair")}
             </Button>
           ) : null}
           {visibleHintDetail && hasConfirmableQualityHint ? (
@@ -312,7 +320,7 @@ export function RequirementReviewDialog({
               }
               disabled={generating}
             >
-              确认提示
+              {t("requirements.review.confirmHint")}
             </Button>
           ) : null}
           {pendingReviewCandidate && visibleHintDetail ? (
@@ -328,7 +336,7 @@ export function RequirementReviewDialog({
                 }
                 disabled={generating}
               >
-                拒绝
+                {t("requirements.review.reject")}
               </Button>
               <Button
                 type="button"
@@ -340,12 +348,12 @@ export function RequirementReviewDialog({
                 }
                 disabled={generating}
               >
-                采纳
+                {t("requirements.review.accept")}
               </Button>
             </>
           ) : (
             <Button type="button" onClick={close}>
-              关闭
+              {t("common.close")}
             </Button>
           )}
         </DialogFooter>

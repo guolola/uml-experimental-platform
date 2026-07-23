@@ -148,6 +148,7 @@ export function projectFromApi(
   project: PlatformProject,
   currentUser: PlatformUser | null = null,
   locale = "zh-CN",
+  noDescription = "暂无项目描述。",
 ): StaticProject {
   const memberCount = Math.max(project.memberCount ?? 1, 1);
   const ownerName = ownerNameFromProject(project, currentUser);
@@ -160,7 +161,7 @@ export function projectFromApi(
   return {
     id: project.id,
     name: project.name,
-    description: project.description ?? "暂无项目描述。",
+    description: project.description ?? noDescription,
     owner: ownerName,
     ownerUserId: project.ownerUserId,
     isOwnedByCurrentUser: currentUser?.id === project.ownerUserId,

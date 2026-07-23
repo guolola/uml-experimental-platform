@@ -35,6 +35,7 @@ function displayRunStatus(record: RunRecord) {
 }
 
 function inferRunKind(snapshot: RunRecord["snapshot"]) {
+  if ("selectedArtifacts" in snapshot) return "feasibility";
   if ("documentKind" in snapshot) return "document";
   if ("files" in snapshot) return "code";
   if ("designModelTraceability" in snapshot) return "design";
@@ -139,6 +140,7 @@ export function summarizeRunRecord(record: RunRecord) {
   const isActive = !record.terminal && (status === "running" || status === "queued");
   const snapshotAvailable = Boolean(snapshot);
   const isDocumentRun = "documentKind" in snapshot;
+  const isFeasibilityRun = "selectedArtifacts" in snapshot;
   const documentDownloadAvailable = "documentKind" in snapshot
     ? (
     status === "completed" &&
@@ -193,7 +195,7 @@ export function summarizeRunRecord(record: RunRecord) {
     eventCount: record.events.length,
     terminal: record.terminal,
     snapshotAvailable,
-    canRestore: snapshotAvailable && !isActive && !isDocumentRun,
+    canRestore: snapshotAvailable && !isActive && !isDocumentRun && !isFeasibilityRun,
     documentDownloadAvailable,
   };
 }

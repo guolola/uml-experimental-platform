@@ -4,6 +4,7 @@ import type {
   DocumentParagraphStyle,
   DocumentStyleSettings,
 } from "@uml-platform/contracts";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../shared/ui/button";
 import {
   Dialog,
@@ -35,14 +36,7 @@ type DocumentStyleDialogProps = {
   onChange: (value: DocumentStyleSettings) => void;
 };
 
-const STYLE_SECTIONS: Array<{ key: StyleKey; label: string }> = [
-  { key: "heading1", label: "一级标题" },
-  { key: "heading2", label: "二级标题" },
-  { key: "heading3", label: "三级标题" },
-  { key: "body", label: "正文" },
-  { key: "table", label: "表格" },
-  { key: "caption", label: "图题" },
-];
+const STYLE_SECTIONS: StyleKey[] = ["heading1", "heading2", "heading3", "body", "table", "caption"];
 
 function clampNumber(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -59,6 +53,7 @@ export function DocumentStyleDialog({
   value,
   onChange,
 }: DocumentStyleDialogProps) {
+  const { t } = useTranslation();
   const updateStyle = (patch: Partial<DocumentStyleSettings>) => {
     onChange({ ...value, ...patch });
   };
@@ -90,9 +85,9 @@ export function DocumentStyleDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>说明书样式</DialogTitle>
+          <DialogTitle>{t("documentsPage.styleDialog.title")}</DialogTitle>
           <DialogDescription>
-            默认使用课程设计规范，可在生成前调整目录、编号、标题、正文和表格样式。
+            {t("documentsPage.styleDialog.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,7 +95,7 @@ export function DocumentStyleDialog({
         <div className="grid gap-4">
           <div className="grid grid-cols-2 gap-3 rounded-md border border-border p-3">
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="doc-style-toc">自动添加目录</Label>
+              <Label htmlFor="doc-style-toc">{t("documentsPage.styleDialog.toc")}</Label>
               <Switch
                 id="doc-style-toc"
                 checked={value.includeTableOfContents}
@@ -110,7 +105,7 @@ export function DocumentStyleDialog({
               />
             </div>
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="doc-style-numbering">标题自动编号</Label>
+              <Label htmlFor="doc-style-numbering">{t("documentsPage.styleDialog.numbering")}</Label>
               <Switch
                 id="doc-style-numbering"
                 checked={value.autoNumberHeadings}
@@ -119,16 +114,16 @@ export function DocumentStyleDialog({
             </div>
           </div>
 
-          {STYLE_SECTIONS.map(({ key, label }) => {
+          {STYLE_SECTIONS.map((key) => {
             const section = value[key] ?? {};
             const spacing = section.lineSpacing ?? { type: "single" as const, value: 1 };
             return (
               <section key={key} className="grid gap-3 rounded-md border border-border p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold">{label}</h3>
+                  <h3 className="text-sm font-semibold">{t(`documentsPage.styleDialog.sections.${key}`)}</h3>
                   <div className="flex items-center gap-2">
                     <Label htmlFor={`doc-style-bold-${key}`} className="text-xs">
-                      加粗
+                      {t("documentsPage.styleDialog.bold")}
                     </Label>
                     <Switch
                       id={`doc-style-bold-${key}`}
@@ -142,7 +137,7 @@ export function DocumentStyleDialog({
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`doc-style-eastasia-${key}`}>中文字体</Label>
+                    <Label htmlFor={`doc-style-eastasia-${key}`}>{t("documentsPage.styleDialog.eastAsiaFont")}</Label>
                     <Input
                       id={`doc-style-eastasia-${key}`}
                       value={section.eastAsiaFont ?? ""}
@@ -154,7 +149,7 @@ export function DocumentStyleDialog({
                     />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`doc-style-ascii-${key}`}>数字/英文字体</Label>
+                    <Label htmlFor={`doc-style-ascii-${key}`}>{t("documentsPage.styleDialog.asciiFont")}</Label>
                     <Input
                       id={`doc-style-ascii-${key}`}
                       value={section.asciiFont ?? ""}
@@ -166,7 +161,7 @@ export function DocumentStyleDialog({
                     />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`doc-style-size-${key}`}>字号 pt</Label>
+                    <Label htmlFor={`doc-style-size-${key}`}>{t("documentsPage.styleDialog.fontSize")}</Label>
                     <Input
                       id={`doc-style-size-${key}`}
                       type="number"
@@ -185,7 +180,7 @@ export function DocumentStyleDialog({
 
                 <div className="grid grid-cols-4 gap-3">
                   <div className="grid gap-1.5">
-                    <Label>行距类型</Label>
+                    <Label>{t("documentsPage.styleDialog.lineSpacingType")}</Label>
                     <Select
                       value={spacing.type}
                       onValueChange={(next) =>
@@ -198,13 +193,13 @@ export function DocumentStyleDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="single">单倍</SelectItem>
-                        <SelectItem value="multiple">多倍</SelectItem>
+                        <SelectItem value="single">{t("documentsPage.styleDialog.single")}</SelectItem>
+                        <SelectItem value="multiple">{t("documentsPage.styleDialog.multiple")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`doc-style-line-${key}`}>行距值</Label>
+                    <Label htmlFor={`doc-style-line-${key}`}>{t("documentsPage.styleDialog.lineSpacing")}</Label>
                     <Input
                       id={`doc-style-line-${key}`}
                       type="number"
@@ -220,7 +215,7 @@ export function DocumentStyleDialog({
                     />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`doc-style-before-${key}`}>段前 pt</Label>
+                    <Label htmlFor={`doc-style-before-${key}`}>{t("documentsPage.styleDialog.before")}</Label>
                     <Input
                       id={`doc-style-before-${key}`}
                       type="number"
@@ -236,7 +231,7 @@ export function DocumentStyleDialog({
                     />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`doc-style-after-${key}`}>段后 pt</Label>
+                    <Label htmlFor={`doc-style-after-${key}`}>{t("documentsPage.styleDialog.after")}</Label>
                     <Input
                       id={`doc-style-after-${key}`}
                       type="number"
@@ -255,7 +250,7 @@ export function DocumentStyleDialog({
 
                 {key === "body" && (
                   <div className="grid w-48 gap-1.5">
-                    <Label htmlFor="doc-style-body-indent">首行缩进字符</Label>
+                    <Label htmlFor="doc-style-body-indent">{t("documentsPage.styleDialog.indent")}</Label>
                     <Input
                       id="doc-style-body-indent"
                       type="number"
@@ -287,10 +282,10 @@ export function DocumentStyleDialog({
             variant="outline"
             onClick={() => onChange(cloneDefaultDocumentStyle())}
           >
-            恢复课程设计规范
+            {t("documentsPage.styleDialog.restore")}
           </Button>
           <Button type="button" onClick={() => onOpenChange(false)}>
-            完成
+            {t("documentsPage.styleDialog.done")}
           </Button>
         </DialogFooter>
       </DialogContent>

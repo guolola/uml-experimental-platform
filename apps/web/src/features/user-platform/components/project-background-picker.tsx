@@ -1,5 +1,6 @@
 // Renders the reusable automatic/manual project background selector.
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import { Check, Images } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
@@ -29,6 +30,11 @@ export function ProjectBackgroundPicker({
   onChange,
   disabled = false,
 }: ProjectBackgroundPickerProps) {
+  const { t, i18n } = useTranslation();
+  const backgroundLabel = (key: ProjectBackgroundKey, fallback: string) =>
+    i18n.resolvedLanguage === "en"
+      ? key.split("_").map((word) => word.length <= 4 ? word.toUpperCase() : `${word[0]?.toUpperCase()}${word.slice(1)}`).join(" ")
+      : fallback;
   const [galleryOpen, setGalleryOpen] = useState(false);
   const selectedBackground = resolveProjectBackground({ name, backgroundKey: value });
 
@@ -50,7 +56,7 @@ export function ProjectBackgroundPicker({
           <div className="absolute inset-0 bg-gradient-to-r from-background/92 via-background/58 to-background/16" />
           <div className="absolute inset-x-4 bottom-4">
             <span className="text-sm font-semibold text-foreground">
-              {selectedBackground.label}
+              {backgroundLabel(selectedBackground.key, selectedBackground.label)}
             </span>
           </div>
           <Button
@@ -62,22 +68,22 @@ export function ProjectBackgroundPicker({
             onClick={() => setGalleryOpen(true)}
           >
             <Images className="size-3.5" />
-            选择背景图
+            {t("projectBackground.select")}
           </Button>
         </div>
       </div>
       <Dialog open={galleryOpen} onOpenChange={setGalleryOpen}>
         <DialogContent className="max-h-[86vh] overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>选择项目背景图</DialogTitle>
+            <DialogTitle>{t("projectBackground.title")}</DialogTitle>
             <DialogDescription>
-              选择后会保存为项目背景；也可以恢复自动匹配。
+              {t("projectBackground.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 overflow-hidden">
             <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/30 p-3">
               <span className="min-w-0 truncate text-xs text-muted-foreground">
-                当前：{selectedBackground.label}
+                {t("projectBackground.current", { label: backgroundLabel(selectedBackground.key, selectedBackground.label) })}
               </span>
               <Button
                 type="button"
@@ -86,13 +92,13 @@ export function ProjectBackgroundPicker({
                 aria-pressed={value === null}
                 onClick={() => selectBackground(null)}
               >
-                自动匹配
+                {t("projectBackground.auto")}
               </Button>
             </div>
             <div
               data-testid="project-background-gallery"
               role="listbox"
-              aria-label="项目背景图"
+              aria-label={t("projectBackground.gallery")}
               className="grid max-h-[56vh] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3"
             >
               {PROJECT_BACKGROUND_OPTIONS.map((background) => {
@@ -118,7 +124,7 @@ export function ProjectBackgroundPicker({
                     <span className="absolute inset-0 bg-gradient-to-t from-background/92 via-background/35 to-transparent" />
                     <span className="relative flex h-full min-h-24 items-end justify-between gap-2 p-2">
                       <span className="line-clamp-2 min-w-0 text-[11px] font-medium leading-4 text-foreground">
-                        {background.label}
+                        {backgroundLabel(background.key, background.label)}
                       </span>
                       {selected && (
                         <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">

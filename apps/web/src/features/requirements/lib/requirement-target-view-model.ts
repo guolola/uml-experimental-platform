@@ -1,4 +1,5 @@
 // Derives target-model card state and traceability proof rows for requirement generation.
+import type { TFunction } from "i18next";
 import { DIAGRAM_META, type DiagramType } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
@@ -28,8 +29,9 @@ export function requirementDiagramsButtonLabel(input: {
   generatedDiagrams: DiagramType[];
   selectedDiagrams: DiagramType[];
   staleDiagrams: DiagramType[];
+  t?: TFunction;
 }) {
-  const { generatedDiagrams, selectedDiagrams, staleDiagrams } = input;
+  const { generatedDiagrams, selectedDiagrams, staleDiagrams, t } = input;
   const toAdd = selectedDiagrams.filter(
     (diagram) => !generatedDiagrams.includes(diagram),
   ).length;
@@ -39,12 +41,14 @@ export function requirementDiagramsButtonLabel(input: {
   const stale = staleDiagrams.filter((diagram) =>
     selectedDiagrams.includes(diagram),
   ).length;
-  if (generatedDiagrams.length === 0) return "生成模型";
+  if (generatedDiagrams.length === 0) return t ? t("requirements.generation.generate") : "生成模型";
   const parts: string[] = [];
-  if (toAdd) parts.push(`新增${toAdd}`);
-  if (toKeep) parts.push(`保留${toKeep}`);
-  if (stale) parts.push(`更新${stale}`);
-  return parts.length ? `应用变更（${parts.join("·")}）` : "重新生成";
+  if (toAdd) parts.push(t ? t("requirements.generation.add", { count: toAdd }) : `新增${toAdd}`);
+  if (toKeep) parts.push(t ? t("requirements.generation.keep", { count: toKeep }) : `保留${toKeep}`);
+  if (stale) parts.push(t ? t("requirements.generation.update", { count: stale }) : `更新${stale}`);
+  return parts.length
+    ? (t ? t("requirements.generation.apply", { changes: parts.join("·") }) : `应用变更（${parts.join("·")}）`)
+    : (t ? t("requirements.generation.regenerate") : "重新生成");
 }
 
 export function requirementTargetBlockReason(input: {

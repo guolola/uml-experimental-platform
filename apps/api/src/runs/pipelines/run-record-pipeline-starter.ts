@@ -28,6 +28,7 @@ import {
   isPlatformProviderRunError,
   normalizeRunError,
 } from "./shared/errors.js";
+import { runFeasibilityStagePipeline } from "./feasibility-pipeline.js";
 
 type RequirementPipeline = (
   record: RunRecord,
@@ -125,6 +126,7 @@ function deriveLlmSubtaskContext(input: StreamChatCompletionInput) {
 
 function taskTypeForRecord(record: RunRecord): ProviderTaskType {
   const snapshot = record.snapshot;
+  if ("selectedArtifacts" in snapshot) return "feasibility_analysis";
   if ("documentKind" in snapshot) return "document_generation";
   if ("files" in snapshot) return "code_generation";
   if ("designModelTraceability" in snapshot) return "design_modeling";
@@ -151,6 +153,8 @@ function documentInputFromSnapshot(record: RunRecord): StartDocumentRunRequest {
     designModelTraceability: [],
     designPlantUml: [],
     designSvgArtifacts: [],
+    feasibilityImplementationPlan: snapshot.feasibilityImplementationPlan,
+    feasibilityInputs: snapshot.feasibilityInputs,
     useAiText: true,
   };
 }
@@ -342,6 +346,64 @@ export function startRunRecordPipeline({
   });
 }
 
+export function startFeasibilityRecordPipeline({
+  record,
+  providerSettings,
+  providerConfigId,
+  llmTransport,
+  llmScheduler,
+  renderClient,
+  billingEntitlements,
+}: {
+  record: RunRecord;
+  providerSettings: ProviderSettings;
+  providerConfigId: string | null;
+  llmTransport: LlmTransport;
+  llmScheduler?: LlmScheduler;
+  renderClient: RenderClient;
+  billingEntitlements?: Pick<
+    BillingService,
+    "confirmRunUsage" | "releaseRunUsage" | "compensateRunUsage"
+  >;
+}) {
+  const scheduledTransport = createRunLlmTransport({
+    record,
+    providerSettings,
+    providerConfigId,
+    taskType: "feasibility_analysis",
+    llmTransport,
+    llmScheduler,
+  });
+  const entitlementTransport = createEntitlementConfirmingTransport({
+    record,
+    transport: scheduledTransport,
+    billingEntitlements,
+  });
+  void (async () => {
+    let terminalError: RunError | null = null;
+    try {
+      await runFeasibilityStagePipeline(
+        record,
+        providerSettings,
+        entitlementTransport,
+        renderClient,
+      );
+    } catch (error) {
+      terminalError = handleRunPipelineError(record, error, () => undefined);
+    } finally {
+      if (terminalError && isPlatformProviderRunError(terminalError)) {
+        await billingEntitlements?.compensateRunUsage({
+          runId: record.snapshot.runId,
+          errorCode: terminalError.code,
+          reason: terminalError.message,
+        });
+      } else {
+        await billingEntitlements?.releaseRunUsage(record.snapshot.runId);
+      }
+    }
+  })();
+}
+
 export async function runRunRecordPipeline({
   record,
   providerSettings,
@@ -399,7 +461,14 @@ export async function runRunRecordPipeline({
   });
 
   const runPromise =
-    taskType === "document_generation"
+    taskType === "feasibility_analysis"
+      ? runFeasibilityStagePipeline(
+          record,
+          providerSettings,
+          entitlementTransport,
+          renderClient,
+        )
+      : taskType === "document_generation"
       ? runDocumentStagePipeline(
           record,
           documentInput ?? documentInputFromSnapshot(record),

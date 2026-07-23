@@ -11,6 +11,7 @@ import type {
   ClassEntity,
   ClassOperation,
   ClassRelationship,
+  ContextDiagramSpec,
   ComponentRelationship,
   ComponentRelationshipDiagramSpec,
   DeploymentDiagramSpec,
@@ -106,6 +107,34 @@ function renderUseCase(model: UseCaseDiagramSpec) {
 
 function mindMapLabel(value: unknown, maxLength = 34) {
   return (shortDiagramLabel(value, maxLength) || "未命名功能").replace(/\*/g, "-");
+}
+
+function renderContext(model: ContextDiagramSpec) {
+  const lines = [
+    "@startuml",
+    "!theme plain",
+    "left to right direction",
+    "skinparam rectangle {",
+    "  BackgroundColor<<System>> #E0F7FA",
+    "  BorderColor<<System>> #0E7490",
+    "}",
+    `title ${model.title.replace(/\r?\n/g, " ")}`,
+  ];
+  lines.push(`rectangle ${quoteLabel(model.system.name)} as ${safeAlias(model.system.id)} <<System>>`);
+  for (const person of model.people) {
+    lines.push(`actor ${quoteLabel(person.name)} as ${safeAlias(person.id)}`);
+  }
+  for (const external of model.externalSystems) {
+    lines.push(`rectangle ${quoteLabel(external.name)} as ${safeAlias(external.id)} <<External>>`);
+  }
+  for (const relationship of model.relationships) {
+    const arrow = relationship.direction === "bidirectional" ? "<-->" : "-->";
+    lines.push(
+      `${safeAlias(relationship.sourceId)} ${arrow} ${safeAlias(relationship.targetId)} : ${shortDiagramLabel(relationship.label, 32)}`,
+    );
+  }
+  appendNotes(lines, model.notes);
+  return `${lines.join("\n")}\n@enduml`;
 }
 
 function renderFunctionStructure(model: FunctionStructureDiagramSpec) {
@@ -1321,6 +1350,12 @@ export function generatePlantUmlArtifacts(
   return models.map((model) => {
     const modelId = "modelId" in model ? model.modelId : undefined;
     switch (model.diagramKind) {
+      case "context":
+        return {
+          modelId,
+          diagramKind: model.diagramKind,
+          source: renderContext(model),
+        };
       case "function":
         return {
           modelId,

@@ -203,7 +203,7 @@ test("epay callback route returns success and grants credits", async () => {
     url: "/api/billing/summary",
     headers: { cookie: userCookie },
   });
-  assert.equal(summary.json().creditBalance, 16);
+  assert.equal(summary.json().creditBalance, 41);
 
   await app.close();
 });

@@ -2,6 +2,7 @@
 import { z } from "zod";
 
 export const diagramKindSchema = z.enum([
+  "context",
   "function",
   "usecase",
   "class",

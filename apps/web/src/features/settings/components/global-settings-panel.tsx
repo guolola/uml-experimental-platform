@@ -1,5 +1,7 @@
 // Renders global model and workspace preferences in either a dialog or an embedded settings tab.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { KeyRound, Loader2, Pencil, Plus, PlugZap, RotateCw, Save, Trash2 } from "lucide-react";
 import type {
   BillingSummary,
@@ -82,6 +84,7 @@ function buildTemporaryProviderSignature(
 
 function discoveredModelsToCapabilities(
   models: ProviderDiscoveredModel[],
+  compatibleMode: string,
 ): ProviderModelCapabilityMap {
   return Object.fromEntries(
     models.flatMap((model) => {
@@ -97,7 +100,7 @@ function discoveredModelsToCapabilities(
             supportsJsonSchema: model.supportsJsonSchema ?? false,
             supportsJsonObject: model.supportsJsonObject ?? false,
             strictJson: model.strictJson ?? "unknown",
-            modeLabel: model.modeLabel ?? "兼容模式",
+            modeLabel: model.modeLabel ?? compatibleMode,
             warning: model.warning,
             probeStatus: model.probeStatus ?? "unknown",
             probeReason: model.probeReason,
@@ -118,22 +121,22 @@ function providerConfigToDiscoveredModels(
   }));
 }
 
-function providerDiscoveryProgressText(event: ProviderModelDiscoveryProgressEvent) {
-  if (event.type === "started") return "正在连接供应商模型目录";
-  if (event.type === "models_listed") return `已列出 ${event.rawCount} 个原始模型`;
+function providerDiscoveryProgressText(event: ProviderModelDiscoveryProgressEvent, t: TFunction) {
+  if (event.type === "started") return t("providerSettings.connectingCatalog");
+  if (event.type === "models_listed") return t("providerSettings.listedModels", { count: event.rawCount });
   if (event.type === "name_filtered") {
-    return `筛选出 ${event.candidateCount} 个聊天模型候选`;
+    return t("providerSettings.filteredModels", { count: event.candidateCount });
   }
   if (event.type === "probe_started") {
-    return `正在探测 ${event.modelId}（${event.index}/${event.total}）`;
+    return t("providerSettings.probingModel", { model: event.modelId, index: event.index, total: event.total });
   }
   if (event.type === "probe_completed") {
-    return `已完成 ${event.modelId}（${event.index}/${event.total}）`;
+    return t("providerSettings.probedModel", { model: event.modelId, index: event.index, total: event.total });
   }
   if (event.type === "completed") {
-    return `已获取 ${event.result.models.length} 个可用模型`;
+    return t("providerSettings.discoveredModels", { count: event.result.models.length });
   }
-  return event.message;
+  return t("providerSettings.discoveryFailed");
 }
 
 function providerDiscoveryProgressValue(
@@ -155,6 +158,7 @@ export function GlobalSettingsPanel({
   onNavigate,
   onSaved,
 }: GlobalSettingsPanelProps) {
+  const { t } = useTranslation();
   const { theme, toggle } = useTheme();
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
   const [providerConfigs, setProviderConfigs] = useState<PlatformProviderConfig[]>([]);
@@ -187,7 +191,7 @@ export function GlobalSettingsPanel({
       );
       setProviderConfigs(activeConfigs);
       setProviderStatus(
-        activeConfigs.length === 0 ? "暂无可用托管 Provider 配置。" : "",
+        activeConfigs.length === 0 ? t("providerSettings.noManagedProviders") : "",
       );
       setSettings((current) => {
         const selected =
@@ -221,7 +225,7 @@ export function GlobalSettingsPanel({
         };
       });
     },
-    [],
+    [t],
   );
 
   const refreshProviderConfigs = useCallback(
@@ -250,7 +254,7 @@ export function GlobalSettingsPanel({
       .catch((error) => {
         if (!mounted) return;
         if (error instanceof PlatformApiError && error.status === 403) {
-          setProviderStatus("当前账号没有托管 Provider 配置访问权限。");
+          setProviderStatus(t("providerSettings.accessDenied"));
           return;
         }
         setAuthRequired(
@@ -258,10 +262,10 @@ export function GlobalSettingsPanel({
         );
         setProviderStatus(
           error instanceof PlatformApiError && error.status === 401
-            ? "未登录时不能使用模型配置。"
+            ? t("providerSettings.loginRequired")
             : error instanceof Error
               ? error.message
-              : "无法校验登录状态，请先登录或确认 API 服务可用。",
+              : t("providerSettings.authCheckFailed"),
         );
       })
       .finally(() => {
@@ -282,7 +286,7 @@ export function GlobalSettingsPanel({
     return () => {
       mounted = false;
     };
-  }, [active, refreshProviderConfigs]);
+  }, [active, refreshProviderConfigs, t]);
 
   const update = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) =>
     setSettings((current) => ({ ...current, [key]: value }));
@@ -303,22 +307,23 @@ export function GlobalSettingsPanel({
   const selectedProviderBillingHint = useMemo(() => {
     if (!selectedProvider) return "";
     if (selectedProviderIsOwnedUserConfig) {
-      return "个人供应商不消耗平台权益次数";
+      return t("providerSettings.personalNoCredits");
     }
     if (selectedProvider.scopeType !== "system" && selectedProvider.scopeType !== "project") {
       return "";
     }
-    if (billingSummaryUnavailable) return "剩余次数暂不可用";
+    if (billingSummaryUnavailable) return t("providerSettings.creditsUnavailable");
     if (!billingSummary) return "";
     if (billingSummary.creditBalance <= 0) {
-      return "剩余：0 次，可前往权益与账单购买";
+      return t("providerSettings.noCredits");
     }
-    return `剩余：${billingSummary.creditBalance} 次`;
+    return t("providerSettings.credits", { count: billingSummary.creditBalance });
   }, [
     billingSummary,
     billingSummaryUnavailable,
     selectedProvider,
     selectedProviderIsOwnedUserConfig,
+    t,
   ]);
   const editingProvider = useMemo(
     () => providerConfigs.find((config) => config.id === editingProviderId),
@@ -328,10 +333,10 @@ export function GlobalSettingsPanel({
     ? resolveProviderModel(selectedProvider, settings.defaultModel)
     : "";
   const providerEmptyLabel = providerLoading
-    ? "正在加载托管 Provider"
+    ? t("providerSettings.loadingProvider")
     : providerConfigs.length === 0
-      ? "暂无可用托管 Provider 配置"
-      : "请选择托管 Provider 配置";
+      ? t("providerSettings.noProvider")
+      : t("providerSettings.selectProvider");
   const discoveredModelIds = useMemo(
     () =>
       Array.from(
@@ -427,14 +432,14 @@ export function GlobalSettingsPanel({
 
   const discoverModels = async () => {
     if (!canDiscoverModels) {
-      toast.error("请先填写 Base URL 和 API Key");
+      toast.error(t("providerSettings.baseKeyRequired"));
       return;
     }
     setDiscoveringModels(true);
     setTestedProviderSignature("");
     setDiscoveredModels([]);
     setModelCatalogSource("");
-    setDiscoveryProgressText("正在连接供应商模型目录");
+    setDiscoveryProgressText(t("providerSettings.connectingCatalog"));
     setDiscoveryProgressValue(4);
     try {
       let models: ProviderDiscoveredModel[] = [];
@@ -445,7 +450,7 @@ export function GlobalSettingsPanel({
           apiKey: providerForm.apiKey.trim(),
         },
         (event) => {
-          setDiscoveryProgressText(providerDiscoveryProgressText(event));
+          setDiscoveryProgressText(providerDiscoveryProgressText(event, t));
           setDiscoveryProgressValue(providerDiscoveryProgressValue(event));
           if (event.type === "completed") {
             models = event.result.models.filter((model) => model.id.trim());
@@ -471,16 +476,16 @@ export function GlobalSettingsPanel({
         };
       });
       if (models.length === 0) {
-        toast.error("未发现可用模型");
+        toast.error(t("providerSettings.noModels"));
         return;
       }
-      toast.success(`已获取 ${models.length} 个模型`);
+      toast.success(t("providerSettings.discoveredModels", { count: models.length }));
     } catch (error) {
       setDiscoveredModels([]);
       setModelCatalogSource("");
       setDiscoveryProgressValue(100);
-      setDiscoveryProgressText(error instanceof Error ? error.message : "获取模型列表失败");
-      toast.error(error instanceof Error ? error.message : "获取模型列表失败");
+      setDiscoveryProgressText(error instanceof Error ? error.message : t("providerSettings.discoveryFailed"));
+      toast.error(t("providerSettings.discoveryFailed"));
     } finally {
       setDiscoveringModels(false);
     }
@@ -488,7 +493,7 @@ export function GlobalSettingsPanel({
 
   const testTemporaryProvider = async () => {
     if (!canTestTemporaryProvider) {
-      toast.error("请先获取模型列表并选择默认模型");
+      toast.error(t("providerSettings.selectDefaultFirst"));
       return;
     }
     setTestingTemporaryProvider(true);
@@ -500,13 +505,13 @@ export function GlobalSettingsPanel({
         model: providerForm.defaultModel.trim(),
       });
       if (result.ok === false) {
-        toast.error(result.message ?? "连接测试失败");
+        toast.error(t("providerSettings.testFailed"));
         return;
       }
       setTestedProviderSignature(currentProviderSignature);
-      toast.success(result.message ?? "托管配置连接成功");
+      toast.success(t("providerSettings.testSuccess"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "连接测试失败");
+      toast.error(t("providerSettings.testFailed"));
     } finally {
       setTestingTemporaryProvider(false);
     }
@@ -515,7 +520,7 @@ export function GlobalSettingsPanel({
   const saveProviderConfig = async () => {
     // Keep save actionable so each missing prerequisite can explain the next required step.
     if (!providerForm.name.trim()) {
-      toast.error("请填写供应商名称");
+      toast.error(t("providerSettings.nameRequired"));
       return;
     }
     const baseUrlChanged = Boolean(
@@ -525,15 +530,15 @@ export function GlobalSettingsPanel({
     );
     const apiKeyRequired = providerDialogMode === "create" || baseUrlChanged;
     if (!providerForm.baseUrl.trim() || (apiKeyRequired && !providerForm.apiKey.trim())) {
-      toast.error("请先填写 Base URL 和 API Key");
+      toast.error(t("providerSettings.baseKeyRequired"));
       return;
     }
     if (!providerForm.defaultModel.trim() || discoveredModelIds.length === 0) {
-      toast.error("请先获取模型列表并选择默认模型");
+      toast.error(t("providerSettings.selectDefaultFirst"));
       return;
     }
     if (providerDialogNeedsPassedTest && !temporaryProviderTestPassed) {
-      toast.error("请先测试托管配置并确保测试通过");
+      toast.error(t("providerSettings.testRequired"));
       return;
     }
     setSavingProvider(true);
@@ -543,7 +548,10 @@ export function GlobalSettingsPanel({
         baseUrl: providerForm.baseUrl.trim(),
         defaultModel: providerForm.defaultModel.trim(),
         allowedModels: discoveredModelIds,
-        modelCapabilities: discoveredModelsToCapabilities(discoveredModels),
+        modelCapabilities: discoveredModelsToCapabilities(
+          discoveredModels,
+          t("providerSettings.compatibleMode"),
+        ),
       };
       const saved =
         providerDialogMode === "edit" && editingProvider
@@ -558,13 +566,13 @@ export function GlobalSettingsPanel({
       await refreshProviderConfigs(saved.id);
       toast.success(
         providerDialogMode === "edit"
-          ? "供应商已更新"
-          : "供应商已添加并选中，点击保存后作为默认配置",
+          ? t("providerSettings.providerUpdated")
+          : t("providerSettings.providerAdded"),
       );
       setProviderDialogOpen(false);
       resetProviderCreationForm();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存供应商失败");
+      toast.error(t("providerSettings.saveProviderFailed"));
     } finally {
       setSavingProvider(false);
     }
@@ -572,14 +580,14 @@ export function GlobalSettingsPanel({
 
   const deleteSelectedProvider = async () => {
     if (!selectedProvider || !selectedProviderIsOwnedUserConfig || deletingProvider) return;
-    if (!window.confirm(`确定要删除供应商“${selectedProvider.name}”吗？`)) return;
+    if (!window.confirm(t("providerSettings.deleteConfirm", { name: selectedProvider.name }))) return;
     setDeletingProvider(true);
     try {
       await platformApi.revokeProviderConfig(selectedProvider.id);
       await refreshProviderConfigs();
-      toast.success("供应商已删除");
+      toast.success(t("providerSettings.providerDeleted"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除供应商失败");
+      toast.error(t("providerSettings.deleteFailed"));
     } finally {
       setDeletingProvider(false);
     }
@@ -588,15 +596,15 @@ export function GlobalSettingsPanel({
   const save = () => {
     try {
       if (!settings.providerConfigId) {
-        toast.error("登录态必须选择托管 Provider 配置");
+        toast.error(t("providerSettings.managedRequired"));
         return;
       }
       if (!selectedProvider || selectedProviderModels.length === 0) {
-        toast.error("当前托管 Provider 没有可用模型");
+        toast.error(t("providerSettings.noModelsForProvider"));
         return;
       }
       if (!selectedProviderModels.includes(resolvedDefaultModel)) {
-        toast.error("默认模型必须来自当前托管 Provider 的模型目录");
+        toast.error(t("providerSettings.modelMustBelong"));
         return;
       }
       saveUserSettings({
@@ -606,30 +614,30 @@ export function GlobalSettingsPanel({
         providerLabel: getProviderLabel(selectedProvider),
         defaultModel: resolvedDefaultModel,
       });
-      toast.success("设置已保存");
+      toast.success(t("providerSettings.saved"));
       onSaved?.();
     } catch {
-      toast.error("设置保存失败");
+      toast.error(t("providerSettings.saveFailed"));
     }
   };
 
   const reset = () => {
     setSettings(DEFAULT_USER_SETTINGS);
-    toast.message("已恢复默认值，记得点击保存");
+    toast.message(t("providerSettings.restored"));
   };
 
   if (authRequired) {
     return (
       <div className="space-y-4">
         <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-          请先登录。未登录时不能使用模型配置、工作台偏好或其他平台功能。
+          {t("providerSettings.loginNotice")}
         </div>
         {onNavigate && (
           <Button
             type="button"
             onClick={() => onNavigate("/login")}
           >
-            前往登录
+            {t("providerSettings.goLogin")}
           </Button>
         )}
       </div>
@@ -642,8 +650,8 @@ export function GlobalSettingsPanel({
         <section className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold">模型托管配置</h3>
-              <p className="text-xs text-muted-foreground">选择服务端托管 Provider 和默认模型。</p>
+              <h3 className="text-sm font-semibold">{t("providerSettings.title")}</h3>
+              <p className="text-xs text-muted-foreground">{t("providerSettings.description")}</p>
             </div>
             <Button
               type="button"
@@ -652,11 +660,11 @@ export function GlobalSettingsPanel({
               onClick={openCreateProviderDialog}
             >
               <Plus className="size-4" />
-              添加供应商
+              {t("providerSettings.addProvider")}
             </Button>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="managed-provider-config">托管 Provider 配置</Label>
+            <Label htmlFor="managed-provider-config">{t("providerSettings.managedConfig")}</Label>
             <Select
               value={settings.providerConfigId || "__none__"}
               onValueChange={(value) => {
@@ -685,7 +693,7 @@ export function GlobalSettingsPanel({
             >
               <SelectTrigger
                 id="managed-provider-config"
-                aria-label="托管 Provider 配置"
+                aria-label={t("providerSettings.managedConfig")}
                 className="h-9"
               >
                 <SelectValue placeholder={providerEmptyLabel} />
@@ -696,7 +704,12 @@ export function GlobalSettingsPanel({
                 </SelectItem>
                 {providerConfigs.map((config) => (
                   <SelectItem key={config.id} value={config.id}>
-                    {config.name}（{providerScopeLabel(config)}）
+                    {t("providerSettings.configLabel", { name: config.name, scope: providerScopeLabel(config, {
+                      user: t("providerSettings.scopes.user"),
+                      system: t("providerSettings.scopes.system"),
+                      project: t("providerSettings.scopes.project"),
+                      managed: t("providerSettings.scopes.managed"),
+                    }) })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -719,7 +732,7 @@ export function GlobalSettingsPanel({
                   disabled={deletingProvider}
                 >
                   <Pencil className="size-4" />
-                  编辑
+                  {t("providerSettings.edit")}
                 </Button>
                 <Button
                   type="button"
@@ -733,13 +746,13 @@ export function GlobalSettingsPanel({
                   ) : (
                     <Trash2 className="size-4" />
                   )}
-                  删除
+                  {t("providerSettings.delete")}
                 </Button>
               </div>
             )}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="managed-default-model">默认模型</Label>
+            <Label htmlFor="managed-default-model">{t("providerSettings.defaultModel")}</Label>
             {selectedProvider ? (
               <Select
                 value={resolvedDefaultModel}
@@ -748,10 +761,10 @@ export function GlobalSettingsPanel({
               >
                 <SelectTrigger
                   id="managed-default-model"
-                  aria-label="默认模型"
+                  aria-label={t("providerSettings.defaultModel")}
                   className="h-9"
                 >
-                  <SelectValue placeholder="选择允许的模型" />
+                  <SelectValue placeholder={t("providerSettings.selectAllowedModel")} />
                 </SelectTrigger>
                 <SelectContent>
                   {selectedProviderModels.map((model) => (
@@ -765,24 +778,24 @@ export function GlobalSettingsPanel({
               <Select value="__none__" disabled>
                 <SelectTrigger
                   id="managed-default-model"
-                  aria-label="默认模型"
+                  aria-label={t("providerSettings.defaultModel")}
                   className="h-9"
                 >
-                  <SelectValue placeholder="请先选择托管 Provider" />
+                  <SelectValue placeholder={t("providerSettings.selectProviderFirst")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">请先选择托管 Provider</SelectItem>
+                  <SelectItem value="__none__">{t("providerSettings.selectProviderFirst")}</SelectItem>
                 </SelectContent>
               </Select>
             )}
             {selectedProvider && selectedProviderModels.length === 0 && (
               <span className="text-[11px] text-warning">
-                当前托管 Provider 没有可用模型，请联系管理员刷新模型目录。
+                {t("providerSettings.providerNoModelsHint")}
               </span>
             )}
             {!selectedProvider && (
               <span className="text-[11px] text-muted-foreground">
-                选择托管 Provider 后才能选择默认模型。
+                {t("providerSettings.providerFirstHint")}
               </span>
             )}
           </div>
@@ -790,22 +803,22 @@ export function GlobalSettingsPanel({
 
         <section className="space-y-4 rounded-lg border border-border bg-muted/40 p-4">
           <div>
-            <h3 className="text-sm font-semibold">工作台偏好</h3>
-            <p className="text-xs text-muted-foreground">调整主题、字号和自动生成行为。</p>
+            <h3 className="text-sm font-semibold">{t("providerSettings.preferences")}</h3>
+            <p className="text-xs text-muted-foreground">{t("providerSettings.preferencesDescription")}</p>
           </div>
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-col">
-              <Label>深色主题</Label>
+              <Label>{t("providerSettings.darkTheme")}</Label>
               <span className="text-xs text-muted-foreground">
-                当前：{theme === "dark" ? "深色" : "浅色"}
+                {t("providerSettings.currentTheme", { theme: theme === "dark" ? t("providerSettings.dark") : t("providerSettings.light") })}
               </span>
             </div>
             <Switch checked={theme === "dark"} onCheckedChange={toggle} />
           </div>
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-col">
-              <Label>字号</Label>
-              <span className="text-xs text-muted-foreground">影响整体阅读密度</span>
+              <Label>{t("providerSettings.fontSize")}</Label>
+              <span className="text-xs text-muted-foreground">{t("providerSettings.densityHint")}</span>
             </div>
             <Select
               value={settings.fontSize}
@@ -815,23 +828,23 @@ export function GlobalSettingsPanel({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="sm">紧凑</SelectItem>
-                <SelectItem value="md">默认</SelectItem>
-                <SelectItem value="lg">舒适</SelectItem>
+                <SelectItem value="sm">{t("providerSettings.compact")}</SelectItem>
+                <SelectItem value="md">{t("providerSettings.default")}</SelectItem>
+                <SelectItem value="lg">{t("providerSettings.comfortable")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-col">
-              <Label>修改后自动重新生成规则</Label>
-              <span className="text-xs text-muted-foreground">关闭后仅显示「需求已修改」提示</span>
+              <Label>{t("providerSettings.autoRules")}</Label>
+              <span className="text-xs text-muted-foreground">{t("providerSettings.autoRulesHint")}</span>
             </div>
             <Switch checked={settings.autoGenerate} onCheckedChange={(value) => update("autoGenerate", value)} />
           </div>
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-col">
-              <Label>显示过期模型横幅</Label>
-              <span className="text-xs text-muted-foreground">顶部黄色提示条</span>
+              <Label>{t("providerSettings.staleBanner")}</Label>
+              <span className="text-xs text-muted-foreground">{t("providerSettings.staleBannerHint")}</span>
             </div>
             <Switch checked={settings.showStaleBanner} onCheckedChange={(value) => update("showStaleBanner", value)} />
           </div>
@@ -841,34 +854,34 @@ export function GlobalSettingsPanel({
       <ScaledToolbar className="mt-5" contentClassName="justify-end" minWidth={360}>
         <Button variant="ghost" onClick={reset}>
           <RotateCw className="size-4" />
-          恢复默认
+          {t("providerSettings.restore")}
         </Button>
         <Button onClick={save}>
           <KeyRound className="size-4" />
-          保存
+          {t("providerSettings.save")}
         </Button>
       </ScaledToolbar>
 
       <Dialog open={providerDialogOpen} onOpenChange={handleProviderDialogOpenChange}>
         <DialogContent className="max-w-[720px]">
           <DialogHeader>
-            <DialogTitle>{providerDialogMode === "edit" ? "编辑供应商" : "添加供应商"}</DialogTitle>
+            <DialogTitle>{providerDialogMode === "edit" ? t("providerSettings.editProvider") : t("providerSettings.createProvider")}</DialogTitle>
             <DialogDescription>
               {providerDialogMode === "edit"
-                ? "更新当前账号添加的模型供应商配置，密钥不会回显。"
-                : "创建仅当前账号可用的模型供应商配置，密钥只会提交到后端保存。"}
+                ? t("providerSettings.editDescription")
+                : t("providerSettings.createDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-1.5">
-              <Label htmlFor="provider-create-name">名称</Label>
+              <Label htmlFor="provider-create-name">{t("providerSettings.name")}</Label>
               <Input
                 id="provider-create-name"
                 value={providerForm.name}
                 onChange={(event) =>
                   updateProviderCreationField("name", event.target.value)
                 }
-                placeholder="例如：我的 SiliconFlow"
+                placeholder={t("providerSettings.namePlaceholder")}
               />
             </div>
             <div className="grid gap-1.5">
@@ -896,13 +909,13 @@ export function GlobalSettingsPanel({
                 spellCheck={false}
                 placeholder={
                   providerDialogMode === "edit"
-                    ? "留空表示不更换密钥"
+                    ? t("providerSettings.keepSecret")
                     : undefined
                 }
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="provider-create-default-model">默认模型</Label>
+              <Label htmlFor="provider-create-default-model">{t("providerSettings.defaultModel")}</Label>
               <Select
                 value={providerForm.defaultModel || "__none__"}
                 onValueChange={(value) =>
@@ -915,14 +928,14 @@ export function GlobalSettingsPanel({
               >
                 <SelectTrigger
                   id="provider-create-default-model"
-                  aria-label="供应商默认模型"
+                  aria-label={t("providerSettings.providerDefaultModel")}
                   className="h-9"
                 >
-                  <SelectValue placeholder="请先获取模型列表" />
+                  <SelectValue placeholder={t("providerSettings.fetchModelsFirst")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__" disabled>
-                    请先获取模型列表
+                    {t("providerSettings.fetchModelsFirst")}
                   </SelectItem>
                   {discoveredModelIds.map((model) => (
                     <SelectItem key={model} value={model}>
@@ -936,7 +949,7 @@ export function GlobalSettingsPanel({
                   <div
                     className="h-1.5 overflow-hidden rounded-full bg-muted"
                     role="progressbar"
-                    aria-label="获取模型列表进度"
+                    aria-label={t("providerSettings.discoveryProgress")}
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={discoveryProgressValue}
@@ -953,16 +966,16 @@ export function GlobalSettingsPanel({
               )}
               {discoveredModelIds.length > 0 ? (
                 <span className="text-[11px] text-muted-foreground">
-                  已获取 {discoveredModelIds.length} 个模型
+                  {t("providerSettings.modelCount", { count: discoveredModelIds.length })}
                   {temporaryProviderTestPassed
-                    ? " · 测试已通过"
+                    ? ` · ${t("providerSettings.testPassed")}`
                     : providerDialogNeedsPassedTest
-                      ? " · 等待测试"
-                      : " · 可保存"}
+                      ? ` · ${t("providerSettings.waitingTest")}`
+                      : ` · ${t("providerSettings.readyToSave")}`}
                 </span>
               ) : (
                 <span className="text-[11px] text-muted-foreground">
-                  获取模型列表后才能测试和保存供应商。
+                  {t("providerSettings.fetchBeforeActions")}
                 </span>
               )}
             </div>
@@ -974,7 +987,7 @@ export function GlobalSettingsPanel({
               onClick={() => handleProviderDialogOpenChange(false)}
               disabled={savingProvider}
             >
-              取消
+              {t("providerSettings.cancel")}
             </Button>
             <Button
               type="button"
@@ -987,7 +1000,7 @@ export function GlobalSettingsPanel({
               ) : (
                 <RotateCw className="size-4" />
               )}
-              获取模型列表
+              {t("providerSettings.fetchModels")}
             </Button>
             <Button
               type="button"
@@ -1000,7 +1013,7 @@ export function GlobalSettingsPanel({
               ) : (
                 <PlugZap className="size-4" />
               )}
-              测试托管配置
+              {t("providerSettings.testConfig")}
             </Button>
             <Button
               type="button"
@@ -1012,7 +1025,7 @@ export function GlobalSettingsPanel({
               ) : (
                 <Save className="size-4" />
               )}
-              保存供应商
+              {t("providerSettings.saveProvider")}
             </Button>
           </DialogFooter>
         </DialogContent>

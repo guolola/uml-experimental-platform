@@ -14,13 +14,31 @@ export interface WorkspaceModuleDefinition {
 
 export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   {
+    id: "system-requirements",
+    label: "系统需求",
+    route: "/workspace",
+    tabId: "system-requirements",
+    artifactTypes: ["requirementText", "requirementRule"],
+    prerequisiteStepIds: [],
+    emptyState: "输入需求文本后可生成并确认需求规则",
+  },
+  {
+    id: "feasibility",
+    label: "可行性分析",
+    route: "/workspace",
+    tabId: "feasibility",
+    artifactTypes: ["context", "implementationPlan"],
+    prerequisiteStepIds: ["system-requirements"],
+    emptyState: "确认需求规则后可生成上下文图和实现方案",
+  },
+  {
     id: "requirements",
-    label: "需求",
+    label: "需求模型",
     route: "/workspace",
     tabId: "requirements",
-    artifactTypes: ["requirementText", "requirementRule", "requirementModel"],
-    prerequisiteStepIds: [],
-    emptyState: "输入需求文本后可生成需求规则和 UML模型",
+    artifactTypes: ["requirementModel"],
+    prerequisiteStepIds: ["system-requirements"],
+    emptyState: "确认需求规则后可生成 UML 需求模型",
   },
   {
     id: "diagrams",
@@ -33,7 +51,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
   },
   {
     id: "design",
-    label: "设计",
+    label: "设计模型",
     route: "/workspace",
     tabId: "design",
     artifactTypes: ["designModel", "designPlantUml", "designSvg"],
@@ -63,9 +81,9 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
     label: "说明书",
     route: "/workspace",
     tabId: "documents",
-    artifactTypes: ["requirementsSpec", "softwareDesignSpec"],
-    prerequisiteStepIds: ["requirements"],
-    emptyState: "生成模型后可导出规格说明书",
+    artifactTypes: ["requirementsSpec", "softwareDesignSpec", "feasibilityStudy"],
+    prerequisiteStepIds: ["requirements", "feasibility"],
+    emptyState: "生成有效模型或可行性产物后可导出说明书",
   },
 ];
 

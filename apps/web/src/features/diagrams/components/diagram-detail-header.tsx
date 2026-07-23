@@ -1,4 +1,5 @@
 // Renders editable diagram title/summary metadata and compact model counts.
+import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -18,6 +19,7 @@ type DiagramDetailHeaderProps = {
   itemCount: number;
   relationshipCount: number;
   groupCount: number;
+  actions?: ReactNode;
   onChangeTitle: (value: string) => void;
   onChangeSummary: (value: string) => void;
 };
@@ -33,6 +35,7 @@ export function DiagramDetailHeader({
   itemCount,
   relationshipCount,
   groupCount,
+  actions,
   onChangeTitle,
   onChangeSummary,
 }: DiagramDetailHeaderProps) {
@@ -86,7 +89,8 @@ export function DiagramDetailHeader({
             </div>
           ) : null}
         </div>
-        <div className="min-w-0 sm:w-auto">
+        <div className="flex min-w-0 flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+          {actions ? <div className="flex flex-wrap justify-end gap-2">{actions}</div> : null}
           {compactViewport ? (
             <MobileStatusRail>
               <MobileStatusPill>

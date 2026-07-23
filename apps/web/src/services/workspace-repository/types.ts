@@ -21,6 +21,11 @@ import type {
   RunEvent,
   RunSnapshot,
   SvgArtifact,
+  FeasibilityRunSnapshot,
+  FeasibilityInputs,
+  FeasibilityImplementationPlan,
+  ContextDiagramSpec,
+  ContextTraceRow,
 } from "@uml-platform/contracts";
 import type { DiagramType } from "../../entities/diagram/model";
 import type {
@@ -38,6 +43,7 @@ import type {
   StartCodeRunInput,
   StartDesignRunInput,
   StartDocumentRunInput,
+  StartFeasibilityRunInput,
   StartRunInput,
 } from "./start-inputs";
 
@@ -55,6 +61,22 @@ export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceRecord>;
   getProjectCapabilities?(): Promise<string[]>;
   updateRequirementText(text: string): Promise<void>;
+  updateFeasibility?(patch: Partial<{
+    inputs: FeasibilityInputs;
+    contextModel: ContextDiagramSpec | null;
+    contextTraceability: ContextTraceRow[];
+    contextPlantUml: string;
+    contextSvg: string;
+    contextFingerprint: string | null;
+    implementationPlan: FeasibilityImplementationPlan | null;
+    implementationFingerprint: string | null;
+  }>): Promise<void>;
+  startFeasibilityRun?(input: StartFeasibilityRunInput): Promise<{ runId: string }>;
+  getFeasibilityRunSnapshot?(runId: string): Promise<FeasibilityRunSnapshot>;
+  subscribeToFeasibilityRun?(
+    runId: string,
+    onEvent: (event: RunEvent) => void,
+  ): Promise<void>;
   updateRequirementRules?(
     rules: RequirementRule[],
     metadata?: RequirementRulesUpdateMetadata,

@@ -18,6 +18,7 @@ import { registerProviderConfigRoutes } from "../routes/provider-configs/registe
 import { registerRenderRoutes } from "../routes/render/register-render-routes.js";
 import { registerSystemNoticeRoutes } from "../routes/system-notices/register-system-notice-routes.js";
 import { registerRunRoutes } from "../routes/runs/register-run-routes.js";
+import { registerFeasibilityRoutes } from "../routes/feasibility/register-feasibility-routes.js";
 import type { RunAccessContext } from "../routes/runs/run-access.js";
 import type { DocumentLibrary } from "../documents/library/document-library.js";
 import type { MailAdapter } from "../mail/mail-adapter.js";
@@ -355,6 +356,30 @@ export function registerApiRoutes({
         }
         return projectMembershipGuard({ userId, projectId, permission });
       },
+    },
+  });
+  registerFeasibilityRoutes({
+    app,
+    runs,
+    renderClient,
+    llmTransport,
+    llmScheduler,
+    runQueue,
+    providerConfigs,
+    providerUsageTracker,
+    generationUsage,
+    billingEntitlements: disableBillingEntitlementGuard ? undefined : billingService,
+    defaultSseAllowOrigin: DEFAULT_SSE_ALLOW_ORIGIN,
+    syncProjectWorkspace: createProjectWorkspaceSync(authStore, { runs }),
+    resolveUserId: activeUserIdFromRequest,
+    canUpdateProject: (projectId, userId) =>
+      projectMembershipGuard({ projectId, userId, permission: "update_project" }),
+    loadWorkspace: async (projectId) => {
+      const workspace = await authStore.getProjectWorkspace(projectId);
+      return {
+        version: workspace.version,
+        state: workspace.state,
+      };
     },
   });
   registerRenderRoutes({

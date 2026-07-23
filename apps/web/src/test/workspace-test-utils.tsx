@@ -6,6 +6,7 @@ import type {
   RequirementBaseline,
   RunSnapshot,
 } from "@uml-platform/contracts";
+import { feasibilityInputsSchema } from "@uml-platform/contracts";
 import type { RequirementRule } from "../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../entities/workspace/model";
 import { WorkspaceShellProvider } from "../features/workspace-shell/state";
@@ -57,6 +58,14 @@ export function createWorkspaceRecord(
     requirementInputFingerprint: null,
     diagramInputFingerprints: {},
     designInputFingerprints: {},
+    feasibilityInputs: feasibilityInputsSchema.parse({}),
+    feasibilityContextModel: null,
+    feasibilityContextTraceability: [],
+    feasibilityContextPlantUml: "",
+    feasibilityContextSvg: "",
+    feasibilityContextFingerprint: null,
+    feasibilityImplementationPlan: null,
+    feasibilityImplementationFingerprint: null,
     rulesVersion: 0,
     rulesBasedOnTextVersion: null,
     diagramVersions: {},

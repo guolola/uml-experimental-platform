@@ -19,6 +19,13 @@ const REQUIRED_RUNTIME_EXPORTS = [
   "startDesignRunRequestSchema",
   "startCodeRunRequestSchema",
   "startDocumentRunRequestSchema",
+  "startFeasibilityRunRequestSchema",
+  "feasibilityInputsSchema",
+  "feasibilityImplementationPlanSchema",
+  "feasibilityCandidateImplementationSchema",
+  "completeFeasibilityImplementationPlanSchema",
+  "feasibilityRunSnapshotSchema",
+  "contextDiagramSpecSchema",
   "providerConfigListResponseSchema",
   "projectDtoSchema",
   "accountProfileResponseSchema",
@@ -33,6 +40,7 @@ const REQUIRED_RUNTIME_EXPORTS = [
   "designTraceabilityTouchesDiagramKinds",
   "codeFileOperationsResultSchema",
   "systemNoticeListResponseSchema",
+  "apiErrorResponseSchema",
 ] as const;
 
 test("contracts keep required runtime public exports available", () => {

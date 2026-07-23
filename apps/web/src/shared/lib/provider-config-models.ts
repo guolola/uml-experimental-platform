@@ -113,11 +113,14 @@ export function getProviderLabel(config: ProviderModelPolicy | null | undefined)
   return config?.name?.trim() || "托管 Provider";
 }
 
-export function providerScopeLabel(config: ProviderScopePolicy) {
-  if (config.scopeType === "user") return "个人配置";
-  if (config.scopeType === "system") return "系统配置";
-  if (config.scopeType === "project") return "项目配置";
-  return "托管配置";
+export function providerScopeLabel(
+  config: ProviderScopePolicy,
+  labels = { user: "个人配置", system: "系统配置", project: "项目配置", managed: "托管配置" },
+) {
+  if (config.scopeType === "user") return labels.user;
+  if (config.scopeType === "system") return labels.system;
+  if (config.scopeType === "project") return labels.project;
+  return labels.managed;
 }
 
 function providerScopePriority(config: ProviderScopePolicy) {

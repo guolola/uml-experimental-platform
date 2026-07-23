@@ -1,6 +1,7 @@
 // Hosts the public authentication routes and their API-backed submission flows.
 import { FormEvent, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   ArrowRight,
@@ -22,12 +23,12 @@ import { LanguagePreferenceMenu } from "../../../shared/i18n/components/language
 import {
   getQueryParam,
   getSafeRedirectPath,
-  localizeAuthMessage,
 } from "../lib/auth-page-routing";
 import { formatDateTime } from "../lib/project-workspace-presentation";
 import {
   notifyAuthSessionChanged,
   platformApi,
+  PlatformApiError,
   type PlatformMfaChallenge,
 } from "../services/platform-api";
 
@@ -67,11 +68,12 @@ function writeRememberedLoginCredentials(
 }
 
 function AuthSecurityPanel() {
+  const { t } = useTranslation();
   const workflowSteps = [
-    { label: "需求", status: "done" },
-    { label: "设计", status: "done" },
-    { label: "代码", status: "active" },
-    { label: "说明书", status: "idle" },
+    { label: t("auth.page.requirements"), status: "done" },
+    { label: t("auth.page.design"), status: "done" },
+    { label: t("auth.page.code"), status: "active" },
+    { label: t("auth.page.document"), status: "idle" },
   ];
 
   return (
@@ -91,14 +93,14 @@ function AuthSecurityPanel() {
               <GitBranch className="size-5" />
             </span>
             <div>
-              <div className="font-display text-xl font-semibold leading-7 text-card-foreground">项目开发生命周期</div>
-              <div className="text-sm leading-5 text-muted-foreground">v2.4.1 迭代中</div>
+              <div className="font-display text-xl font-semibold leading-7 text-card-foreground">{t("auth.page.lifecycle")}</div>
+              <div className="text-sm leading-5 text-muted-foreground">{t("auth.page.iterating")}</div>
             </div>
           </div>
 
           <div className="space-y-6">
             <div>
-              <div className="mb-3 text-sm font-medium leading-5 text-card-foreground">流程跟踪 (Process)</div>
+              <div className="mb-3 text-sm font-medium leading-5 text-card-foreground">{t("auth.page.process")}</div>
               <div className="flex items-start px-2">
                 {workflowSteps.map((step, index) => (
                   <div key={step.label} className="contents">
@@ -132,7 +134,7 @@ function AuthSecurityPanel() {
             </div>
 
             <div>
-              <div className="mb-2 text-sm font-medium leading-5 text-card-foreground">UML模型预览</div>
+              <div className="mb-2 text-sm font-medium leading-5 text-card-foreground">{t("auth.page.umlPreview")}</div>
               <div className="grid gap-2 rounded-lg border border-border/60 bg-muted/70 p-3">
                 <div className="flex gap-2">
                   <div className="h-12 flex-1 rounded border border-primary/40 bg-card/70 p-1">
@@ -162,7 +164,7 @@ function AuthSecurityPanel() {
             <span className="rounded bg-muted px-2 py-1 font-mono text-xs font-medium leading-4 text-muted-foreground">Project-Main</span>
             <span className="flex items-center gap-1 text-sm leading-5 text-muted-foreground">
               <span className="size-2 rounded-full bg-success motion-auth-pulse" />
-              编译成功
+              {t("auth.page.compiled")}
             </span>
           </div>
         </div>
@@ -170,7 +172,7 @@ function AuthSecurityPanel() {
         <div className="motion-auth-card group absolute bottom-12 right-8 w-48 rotate-[4deg] rounded-lg border border-border/70 bg-card/80 p-4 shadow-lg backdrop-blur-xl transition-all duration-300 ease-in-out hover:-translate-y-1 hover:rotate-[3deg] hover:shadow-xl">
           <div className="mb-2 flex items-center gap-2">
             <Activity className="size-4 text-info" />
-            <span className="font-display text-sm font-semibold leading-5 text-card-foreground">API 延迟</span>
+            <span className="font-display text-sm font-semibold leading-5 text-card-foreground">{t("auth.page.apiLatency")}</span>
           </div>
           <div
             data-testid="auth-api-latency-value"
@@ -201,6 +203,8 @@ export function AuthPage({
   path: AuthRoutePath;
   onNavigate: Navigate;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en-US" : "zh-CN";
   const [email, setEmail] = useState(() =>
     path === "/login" ? readRememberedLoginCredentials().email : "",
   );
@@ -271,7 +275,7 @@ export function AuthPage({
           });
           writeRememberedLoginCredentials({ email, password }, rememberLogin);
           notifyAuthSessionChanged();
-          setMessage("MFA 验证通过，正在进入项目首页。");
+          setMessage(t("auth.page.mfaSuccess"));
           onNavigate(redirectPath);
           return;
         }
@@ -287,18 +291,18 @@ export function AuthPage({
         if (nextMfaChallenge) {
           setMfaChallenge(nextMfaChallenge);
           setMfaCode("");
-          setMessage("请输入认证器中的 6 位验证码完成登录。");
+          setMessage(t("auth.page.mfaPrompt"));
           return;
         }
         writeRememberedLoginCredentials({ email, password }, rememberLogin);
         notifyAuthSessionChanged();
-        setMessage("登录成功，正在进入项目首页。");
+        setMessage(t("auth.page.loginSuccess"));
         onNavigate(redirectPath);
         return;
       }
       if (path === "/register") {
         if (!termsAccepted) {
-          setMessage("请先阅读并同意服务条款。");
+          setMessage(t("auth.page.termsRequired"));
           return;
         }
         const trimmedInvitationToken = invitationToken.trim();
@@ -321,16 +325,16 @@ export function AuthPage({
       }
       if (path === "/forgot-password") {
         await platformApi.forgotPassword({ email });
-        setMessage(`如果邮箱存在，重置邮件会发送到 ${email || "你的邮箱"}。`);
+        setMessage(t("auth.page.resetSent", { email: email || t("auth.page.yourEmail") }));
         return;
       }
       if (path === "/reset-password") {
         if (!urlToken) {
-          setMessage("重置链接缺少 token，请重新申请。");
+          setMessage(t("auth.page.resetTokenMissing"));
           return;
         }
         await platformApi.resetPassword({ token: urlToken, newPassword: password });
-        setMessage("密码已重置，请重新登录。");
+        setMessage(t("auth.page.resetSuccess"));
         return;
       }
       if (path === "/verify-email") {
@@ -338,54 +342,58 @@ export function AuthPage({
         if (token) {
           await platformApi.verifyEmail({ token });
           const loginEmail = email || queryEmail;
-          setMessage("邮箱验证已完成，正在前往登录。");
+          setMessage(t("auth.page.verifySuccessRedirect"));
           onNavigate(
             loginEmail ? `/login?email=${encodeURIComponent(loginEmail)}` : "/login",
           );
           return;
         }
         await platformApi.resendVerification({ email: email || queryEmail });
-        setMessage("验证邮件已重新发送，请复制邮件中的短期 token 到本页完成验证。");
+        setMessage(t("auth.page.verifyResentToken"));
         return;
       }
       if (urlToken) {
         await platformApi.verifyEmail({ token: urlToken });
-        setMessage("邮箱验证已完成。");
+        setMessage(t("auth.page.verifySuccess"));
         return;
       }
       await platformApi.resendVerification({ email: email || queryEmail });
-      setMessage("验证邮件已重新发送。");
+      setMessage(t("auth.page.verifyResent"));
     } catch (error) {
       if (
         path === "/login" &&
-        error instanceof Error &&
-        error.message.includes("Email verification is required")
+        error instanceof PlatformApiError &&
+        error.code === "AUTH_EMAIL_VERIFICATION_REQUIRED"
       ) {
         onNavigate(`/verify-email?email=${encodeURIComponent(email)}`);
         return;
       }
-      setMessage(error instanceof Error ? localizeAuthMessage(error.message) : "认证请求失败。");
+      setMessage(error instanceof Error ? error.message : t("auth.page.requestFailed"));
     } finally {
       setSubmitting(false);
     }
   };
 
   const titles: Record<AuthRoutePath, string> = {
-    "/login": "登录",
-    "/register": "创建账号",
-    "/verify-email": "验证邮箱",
-    "/forgot-password": "找回密码",
-    "/reset-password": "重置密码",
+    "/login": t("auth.page.loginTitle"),
+    "/register": t("auth.page.registerTitle"),
+    "/verify-email": t("auth.page.verifyTitle"),
+    "/forgot-password": t("auth.page.forgotTitle"),
+    "/reset-password": t("auth.page.resetTitle"),
   };
   const descriptions: Record<AuthRoutePath, string> = {
-    "/login": "输入账号信息，进入软件工程实践平台。",
-    "/register": "创建账号后，请先完成邮箱验证再进入项目空间。",
-    "/verify-email": "请确认您的电子邮箱以继续使用软件工程实践平台。",
-    "/forgot-password": "请输入您注册时使用的电子邮箱地址，我们将向您发送一封包含密码重置链接的邮件。",
-    "/reset-password": "请输入您的新密码。为保证安全，建议使用包含字母、数字和符号的强密码。",
+    "/login": t("auth.page.loginDescription"),
+    "/register": t("auth.page.registerDescription"),
+    "/verify-email": t("auth.page.verifyDescription"),
+    "/forgot-password": t("auth.page.forgotDescription"),
+    "/reset-password": t("auth.page.resetDescription"),
   };
   const passwordStrength =
-    password.length >= 12 ? "强" : password.length >= 8 ? "中" : "弱";
+    password.length >= 12
+      ? t("auth.page.strengthStrong")
+      : password.length >= 8
+        ? t("auth.page.strengthMedium")
+        : t("auth.page.strengthWeak");
   const authPrimaryActionClass =
     "motion-action h-12 w-full rounded-lg px-6 font-display text-xl font-semibold leading-7 shadow-sm hover:shadow-md";
   const authTextActionClass =
@@ -395,17 +403,17 @@ export function AuthPage({
   const submitLabel =
     path === "/login"
       ? mfaChallenge
-        ? "验证 MFA"
-        : "登录"
+        ? t("auth.page.submitMfa")
+        : t("auth.page.submitLogin")
       : path === "/register"
-        ? "注册并发送验证邮件"
+        ? t("auth.page.submitRegister")
         : path === "/verify-email"
           ? urlToken || verificationToken.trim()
-            ? "完成邮箱验证"
-            : "重新发送验证邮件"
+            ? t("auth.page.submitVerify")
+            : t("auth.page.resendVerify")
           : path === "/forgot-password"
-            ? "发送重置邮件"
-            : "重置密码";
+            ? t("auth.page.sendReset")
+            : t("auth.page.submitReset");
 
   return (
     <main
@@ -431,11 +439,11 @@ export function AuthPage({
               className="motion-auth-brand mb-8 pr-12 text-left"
               style={{ "--motion-delay": "40ms" } as CSSProperties}
               onClick={() => onNavigate("/")}
-              aria-label="返回官网"
+              aria-label={t("auth.page.backHome")}
             >
-              <div className="font-display text-[32px] font-semibold leading-10 text-primary">软件工程实践平台</div>
+              <div className="font-display text-[32px] font-semibold leading-10 text-primary">{t("auth.page.platformName")}</div>
               <div className="mt-2 text-base leading-6 text-muted-foreground">
-                {path === "/login" ? "欢迎回来，请登录以继续。" : "面向课程实验与项目协作的智能研发空间"}
+                {path === "/login" ? t("auth.page.welcome") : t("auth.page.productTagline")}
               </div>
             </button>
             <div
@@ -443,7 +451,7 @@ export function AuthPage({
               style={{ "--motion-delay": "100ms" } as CSSProperties}
             >
               <h1 className="font-display text-2xl font-semibold leading-8 text-foreground">
-                {path === "/verify-email" ? "验证您的邮箱" : titles[path]}
+                {path === "/verify-email" ? t("auth.page.verifyHeading") : titles[path]}
               </h1>
               <p className="mt-2 text-sm leading-5 text-muted-foreground">
                 {descriptions[path]}
@@ -454,23 +462,23 @@ export function AuthPage({
                 <div className="grid gap-2">
                   <Label htmlFor="auth-email" className="text-sm font-medium leading-5 text-foreground">
                     {path === "/login"
-                      ? "邮箱或用户名"
+                      ? t("auth.page.emailOrUsername")
                       : path === "/forgot-password"
-                        ? "电子邮箱"
-                        : "邮箱地址"}
+                        ? t("auth.page.email")
+                        : t("auth.page.emailAddress")}
                   </Label>
                   <div className="relative">
                     <Mail className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="auth-email"
-                      aria-label={path === "/login" ? "邮箱或用户名" : "邮箱"}
+                      aria-label={path === "/login" ? t("auth.page.emailOrUsername") : t("auth.page.email")}
                       type={path === "/login" ? "text" : "email"}
                       value={email || (path === "/verify-email" ? queryEmail : "")}
                       onChange={(event) => {
                         setEmail(event.target.value);
                         setMfaChallenge(null);
                       }}
-                      placeholder={path === "/login" ? "邮箱或用户名" : "name@example.edu"}
+                      placeholder={path === "/login" ? t("auth.page.emailOrUsername") : "name@example.edu"}
                       required={path !== "/verify-email" || !urlToken}
                       className={`${authInputClass} pl-10`}
                     />
@@ -481,7 +489,7 @@ export function AuthPage({
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between gap-3">
                     <Label htmlFor="auth-password" className="text-sm font-medium leading-5 text-foreground">
-                      {path === "/reset-password" ? "新密码" : "密码"}
+                      {path === "/reset-password" ? t("auth.page.newPassword") : t("auth.page.password")}
                     </Label>
                     {path === "/login" && (
                       <button
@@ -489,7 +497,7 @@ export function AuthPage({
                         className={`${authTextActionClass} text-sm leading-5`}
                         onClick={() => onNavigate("/forgot-password")}
                       >
-                        忘记密码？
+                        {t("auth.page.forgotPassword")}
                       </button>
                     )}
                   </div>
@@ -497,21 +505,21 @@ export function AuthPage({
                     <Lock className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="auth-password"
-                      aria-label={path === "/reset-password" ? "新密码" : "密码"}
+                      aria-label={path === "/reset-password" ? t("auth.page.newPassword") : t("auth.page.password")}
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(event) => {
                         setPassword(event.target.value);
                         setMfaChallenge(null);
                       }}
-                      placeholder={path === "/register" ? "至少 8 个字符" : "••••••••"}
+                      placeholder={path === "/register" ? t("auth.page.passwordPlaceholder") : "••••••••"}
                       required
                       className={`${authInputClass} pl-10 pr-12`}
                     />
                     <button
                       type="button"
-                      aria-label={showPassword ? "隐藏密码" : "显示密码"}
-                      title={showPassword ? "隐藏密码" : "显示密码"}
+                      aria-label={showPassword ? t("auth.page.hidePassword") : t("auth.page.showPassword")}
+                      title={showPassword ? t("auth.page.hidePassword") : t("auth.page.showPassword")}
                       className="motion-action absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                       onClick={() => setShowPassword((current) => !current)}
                     >
@@ -528,7 +536,7 @@ export function AuthPage({
                         </div>
                       )}
                       <span className="text-xs text-muted-foreground">
-                        密码强度：{passwordStrength}
+                        {t("auth.page.strength", { value: passwordStrength })}
                       </span>
                     </div>
                   )}
@@ -544,27 +552,27 @@ export function AuthPage({
                     onChange={(event) => setRememberLogin(event.target.checked)}
                   />
                   <Label htmlFor="auth-remember" className="ml-2 text-sm leading-5 text-muted-foreground">
-                    记住我
+                    {t("auth.page.remember")}
                   </Label>
                 </div>
               )}
               {path === "/login" && mfaChallenge && (
                 <div className="motion-status grid gap-2 rounded-lg border border-border bg-muted p-3">
-                  <Label htmlFor="auth-mfa-code" className="text-sm font-medium text-foreground">MFA 验证码</Label>
+                  <Label htmlFor="auth-mfa-code" className="text-sm font-medium text-foreground">{t("auth.page.mfaCode")}</Label>
                   <Input
                     id="auth-mfa-code"
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     value={mfaCode}
                     onChange={(event) => setMfaCode(event.target.value)}
-                    placeholder="6 位验证码"
+                    placeholder={t("auth.page.mfaPlaceholder")}
                     required
                     className={authInputClass}
                   />
                   <span className="text-xs text-muted-foreground">
-                    请输入认证器中的 6 位验证码完成登录。
+                    {t("auth.page.mfaPrompt")}
                     {mfaChallenge.expiresAt
-                      ? ` 本次挑战过期时间：${formatDateTime(mfaChallenge.expiresAt)}。`
+                      ? ` ${t("auth.page.mfaExpiry", { time: formatDateTime(mfaChallenge.expiresAt, locale) })}`
                       : ""}
                   </span>
                 </div>
@@ -573,47 +581,47 @@ export function AuthPage({
                 <>
                   <div className="grid gap-2">
                     <Label htmlFor="auth-username" className="text-sm font-medium leading-5 text-foreground">
-                      用户名
+                      {t("auth.page.username")}
                     </Label>
                     <Input
                       id="auth-username"
-                      aria-label="用户名"
+                      aria-label={t("auth.page.username")}
                       value={username}
                       onChange={(event) => setUsername(event.target.value.toLowerCase())}
                       pattern="[a-z0-9_]{3,32}"
-                      title="用户名需为 3-32 位小写字母、数字或下划线"
+                      title={t("auth.page.usernameTitle")}
                       placeholder="teacher_001"
                       required
                       className={authInputClass}
                     />
                     <span className="text-xs leading-5 text-muted-foreground">
-                      3-32 位小写字母、数字或下划线，可用于登录。
+                      {t("auth.page.usernameHint")}
                     </span>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="auth-display-name" className="text-sm font-medium leading-5 text-foreground">
-                      昵称
+                      {t("auth.page.displayName")}
                     </Label>
                     <Input
                       id="auth-display-name"
-                      aria-label="昵称"
+                      aria-label={t("auth.page.displayName")}
                       value={displayName}
                       onChange={(event) => setDisplayName(event.target.value)}
-                      placeholder="王老师"
+                      placeholder={t("auth.page.displayNamePlaceholder")}
                       required
                       className={authInputClass}
                     />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="invite-code" className="text-sm font-medium leading-5 text-foreground">
-                      邀请码 <span className="font-normal text-muted-foreground">（选填）</span>
+                      {t("auth.page.invitation")} <span className="font-normal text-muted-foreground">{t("auth.page.optional")}</span>
                     </Label>
                     <Input
                       id="invite-code"
-                      aria-label="邀请码"
+                      aria-label={t("auth.page.invitation")}
                       value={invitationToken}
                       onChange={(event) => setInvitationToken(event.target.value)}
-                      placeholder="如有邀请码，请在此输入"
+                      placeholder={t("auth.page.invitationPlaceholder")}
                       className={authInputClass}
                     />
                   </div>
@@ -626,7 +634,7 @@ export function AuthPage({
                       className="size-4 rounded border-border accent-primary"
                     />
                     <Label htmlFor="terms" className="text-sm text-muted-foreground">
-                      我已阅读并同意服务条款
+                      {t("auth.page.terms")}
                     </Label>
                   </div>
                 </>
@@ -635,27 +643,27 @@ export function AuthPage({
                 <>
                   <div className="motion-status rounded-lg border border-border bg-muted p-4 text-sm leading-6 text-muted-foreground">
                     {getQueryParam("sent")
-                      ? `验证邮件已发送到 ${queryEmail || "你的邮箱"}。请点击邮件中的验证链接，或复制短期 token 到下方完成验证。`
-                      : "请点击邮件中的验证链接，或复制短期 token 到下方完成验证。"}
+                      ? t("auth.page.verifySent", { email: queryEmail || t("auth.page.yourEmail") })
+                      : t("auth.page.verifyInstruction")}
                   </div>
                   {!urlToken && (
                     <div className="grid gap-2">
                       <Label htmlFor="auth-verification-token" className="text-sm font-medium leading-5 text-foreground">
-                        邮件验证码 / 短期 token
+                        {t("auth.page.emailToken")}
                       </Label>
                       <div className="relative">
                         <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                         <Input
                           id="auth-verification-token"
-                          aria-label="邮件验证码 / 短期 token"
+                          aria-label={t("auth.page.emailToken")}
                           value={verificationToken}
                           onChange={(event) => setVerificationToken(event.target.value)}
-                          placeholder="粘贴邮件中的短期 token"
+                          placeholder={t("auth.page.tokenPlaceholder")}
                           className={`${authInputClass} pl-10`}
                         />
                       </div>
                       <span className="text-xs leading-5 text-muted-foreground">
-                        没有收到邮件时，可保持此处为空并点击重新发送验证邮件。
+                        {t("auth.page.tokenHint")}
                       </span>
                     </div>
                   )}
@@ -667,23 +675,23 @@ export function AuthPage({
               </Button>
               {path === "/login" && (
                 <p className="text-center text-sm leading-5 text-muted-foreground">
-                  还没有账号？{" "}
+                  {t("auth.page.noAccount")} {" "}
                   <button type="button" className={authTextActionClass} onClick={() => onNavigate("/register")}>
-                    创建账号
+                    {t("auth.page.createAccount")}
                   </button>
                 </p>
               )}
               {path === "/register" && (
                 <p className="text-center text-sm leading-5 text-muted-foreground">
-                  已有账号？{" "}
+                  {t("auth.page.haveAccount")} {" "}
                   <button type="button" className={authTextActionClass} onClick={() => onNavigate("/login")}>
-                    去登录
+                    {t("auth.page.loginLink")}
                   </button>
                 </p>
               )}
               {path !== "/login" && path !== "/register" && (
                 <Button type="button" variant="ghost" className="motion-action w-fit px-0 text-primary hover:bg-transparent hover:text-primary/80" onClick={() => onNavigate("/login")}>
-                  返回登录
+                  {t("auth.page.backLogin")}
                 </Button>
               )}
               {message && (

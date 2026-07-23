@@ -321,7 +321,7 @@ describe("CodeGenerationPage", () => {
       "natural",
     );
     expect(screen.getByText("前端原型代码")).toBeInTheDocument();
-    expect(screen.getByText(/files/u)).toBeInTheDocument();
+    expect(screen.getByText("文件")).toBeInTheDocument();
     expect(screen.getByText(/设计模型\s*0/u)).toBeInTheDocument();
     expect(document.querySelector('[data-panel-group-direction="horizontal"]')).not.toBeInTheDocument();
     const fileTabs = screen.getByTestId("code-file-tabs");

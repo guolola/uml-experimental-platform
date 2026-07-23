@@ -34,6 +34,8 @@ import {
   CheckCircle2,
   XCircle,
   ClipboardCheck,
+  Wrench,
+  TableProperties,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../../shared/ui/utils";
@@ -162,15 +164,16 @@ function GenerationStatusIndicator({
   status: NonNullable<Node["status"]>;
   tooltip?: string;
 }) {
+  const { t } = useTranslation();
   const label =
     tooltip ??
     (status === "queued"
-      ? "排队中"
+      ? t("workspace.sidebar.queued")
       : status === "running"
-      ? "生成中"
+      ? t("workspace.sidebar.generating")
       : status === "failed"
-        ? "生成失败"
-        : "已生成");
+        ? t("workspace.sidebar.generationFailed")
+        : t("workspace.sidebar.generated"));
   return (
     <span
       aria-label={label}
@@ -193,9 +196,10 @@ function GenerationStatusIndicator({
 function rootGenerationStatusTooltip(
   label: string,
   status: Node["status"],
+  t: TFunction,
 ) {
-  if (status === "queued") return `${label}生成排队中`;
-  if (status === "running") return `${label}生成中`;
+  if (status === "queued") return t("workspace.sidebar.rootQueued", { label });
+  if (status === "running") return t("workspace.sidebar.rootRunning", { label });
   return undefined;
 }
 
@@ -214,6 +218,7 @@ function TreeItem({
   setOpenKeys: Dispatch<SetStateAction<Set<string>>>;
   onNavigateItemSelect?: () => void;
 }) {
+  const { t } = useTranslation();
   const hasChildren = !!node.children?.length;
   const open = openKeys.has(node.key);
   const selected = selectedKey === node.key;
@@ -260,7 +265,7 @@ function TreeItem({
         {hasChildren ? (
           <button
             type="button"
-            aria-label={`${open ? "折叠" : "展开"} ${node.label}`}
+            aria-label={t(open ? "workspace.sidebar.collapse" : "workspace.sidebar.expand", { label: node.label })}
             onClick={toggleOpen}
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
@@ -376,13 +381,13 @@ function buildDiagramNode(
         <Network className="size-4 text-muted-foreground" />
         {stale && (
           <span
-            title="基于过时的需求规则"
+            title={t("workspace.sidebar.requirementStale")}
             className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
           />
         )}
         {failed && (
           <span
-            title="此图生成失败"
+            title={t("workspace.sidebar.requirementFailed")}
             className="absolute -left-0.5 -top-0.5 size-1.5 rounded-full bg-destructive"
           />
         )}
@@ -544,13 +549,13 @@ function buildDesignDiagramNode(
         <Network className="size-4 text-muted-foreground" />
         {stale && (
           <span
-            title={staleReason ?? "此设计模型需更新"}
+            title={stale ? t("workspace.sidebar.designStale") : staleReason}
             className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
           />
         )}
         {failed && (
           <span
-            title="此设计图生成失败"
+            title={t("workspace.sidebar.designFailed")}
             className="absolute -left-0.5 -top-0.5 size-1.5 rounded-full bg-destructive"
           />
         )}
@@ -605,11 +610,20 @@ export function SidebarMenu({
     designSvgArtifacts,
     designDiagramErrors,
     generationTasks,
+    feasibilityContextArtifact,
+    hasFeasibilityContextArtifact,
+    hasFeasibilityImplementationArtifact,
   } =
     useWorkspaceSession();
   const {
     selection,
+    openSystemRequirements,
     openRequirementsText,
+    openFeasibilityHome,
+    openFeasibilityContext,
+    openFeasibilityContextTrace,
+    openFeasibilityContextElement,
+    openFeasibilityImplementation,
     openRequirementTraceMatrix,
     openDiagram,
     openDesignHome,
@@ -657,13 +671,29 @@ export function SidebarMenu({
 
   useEffect(() => {
     const handleCompleted = (event: Event) => {
-      const detail = (event as CustomEvent<{ kind?: string }>).detail;
-      if (detail?.kind !== "requirements" && detail?.kind !== "design") {
+      const detail = (event as CustomEvent<{ kind?: string; selectedArtifacts?: string[] }>).detail;
+      if (
+        detail?.kind !== "requirements" &&
+        detail?.kind !== "design" &&
+        detail?.kind !== "feasibility"
+      ) {
         return;
       }
       setOpenKeys((current) => {
         const next = new Set(current);
-        next.add(detail.kind === "requirements" ? "requirements" : "design");
+        next.add(
+          detail.kind === "requirements"
+            ? "requirements"
+            : detail.kind === "design"
+              ? "design"
+              : "feasibility",
+        );
+        if (
+          detail.kind === "feasibility" &&
+          detail.selectedArtifacts?.includes("context")
+        ) {
+          next.add("feasibility:context");
+        }
         return next;
       });
     };
@@ -674,13 +704,65 @@ export function SidebarMenu({
     };
   }, []);
 
+  const contextModel = feasibilityContextArtifact?.feasibilityContextModel ?? null;
+  const contextDetail = buildDiagramDetailModel(contextModel);
+  const contextModelId = contextModel?.modelId ?? "context";
+  const feasibilityChildren: Node[] = [
+    ...(hasFeasibilityContextArtifact
+      ? [
+          {
+            key: "feasibility:context",
+            label: t("workspace.sidebar.contextDiagram"),
+            icon: <Network className="size-4 text-muted-foreground" />,
+            onSelect: openFeasibilityContext,
+            children: [
+              { key: "feasibility:context:trace", label: t("workspace.sidebar.traceability"), icon: <TableProperties className="size-3.5 text-muted-foreground" />, onSelect: openFeasibilityContextTrace },
+              ...buildDiagramElementGroupNodes(
+                contextDetail,
+                contextModelId,
+                "feasibility-context-group",
+                "feasibility-context-element",
+                (element) => openFeasibilityContextElement(element.kind, element.id, element.label),
+                { showGroupBadges: true },
+                t,
+              ),
+            ],
+            badge: contextDetail.items.length || undefined,
+          },
+        ]
+      : []),
+    ...(hasFeasibilityImplementationArtifact
+      ? [
+          {
+            key: "feasibility:implementation",
+            label: t("workspace.sidebar.implementation"),
+            icon: <Wrench className="size-4 text-muted-foreground" />,
+            onSelect: openFeasibilityImplementation,
+          },
+        ]
+      : []),
+  ];
+
   const tree: Node[] = [
+    {
+      key: "system-requirements",
+      label: t("workspace.tabs.labels.systemRequirements"),
+      icon: <FileText className="size-4 text-muted-foreground" />,
+      onSelect: openSystemRequirements,
+    },
+    {
+      key: "feasibility",
+      label: t("workspace.tabs.labels.feasibility"),
+      icon: <Wrench className="size-4 text-muted-foreground" />,
+      onSelect: openFeasibilityHome,
+      children: feasibilityChildren,
+    },
     {
       key: "requirements",
       label: t("workspace.tabs.labels.requirements"),
       icon: <FileText className="size-4 text-muted-foreground" />,
       status: requirementRootStatus,
-      statusTooltip: rootGenerationStatusTooltip("需求链路", requirementRootStatus),
+      statusTooltip: rootGenerationStatusTooltip(t("workspace.sidebar.requirementPipeline"), requirementRootStatus, t),
       onSelect: openRequirementsText,
       children: [
         ...requirementNodeDiagrams.map((diagram) => {
@@ -776,7 +858,7 @@ export function SidebarMenu({
       label: t("workspace.tabs.labels.design"),
       icon: <Palette className="size-4 text-muted-foreground" />,
       status: designRootStatus,
-      statusTooltip: rootGenerationStatusTooltip("设计链路", designRootStatus),
+      statusTooltip: rootGenerationStatusTooltip(t("workspace.sidebar.designPipeline"), designRootStatus, t),
       onSelect: openDesignHome,
       children: [
         ...orderedDesignDiagrams.map((diagram) => {
@@ -796,7 +878,7 @@ export function SidebarMenu({
                 .map((node) => designStaleReasons[node.id])
                 .find(Boolean) ??
               (staleDesignDiagrams.includes("sequence")
-                ? "上游需求模型或追踪指纹已变化，此设计模型需更新。"
+                ? t("workspace.sidebar.designUpstreamStale")
                 : undefined);
             const groupStatus = sequenceSubtaskNodes.reduce<Node["status"]>(
               (current, model) =>
@@ -808,13 +890,13 @@ export function SidebarMenu({
             );
             return {
               key: "design-diagram-group:sequence",
-              label: `${getDesignDiagramLabel("sequence", t)}（${sequenceSubtaskNodes.length}）`,
+              label: t("workspace.sidebar.groupCount", { label: getDesignDiagramLabel("sequence", t), count: sequenceSubtaskNodes.length }),
               icon: (
                 <span className="relative inline-flex">
                   <MessageSquare className="size-4 text-muted-foreground" />
                   {sequenceGroupStale && (
                     <span
-                      title={sequenceGroupStaleReason ?? "此设计模型需更新"}
+                      title={sequenceGroupStaleReason ?? t("workspace.sidebar.designStale")}
                       className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-warning"
                     />
                   )}
@@ -887,7 +969,7 @@ export function SidebarMenu({
           );
           const staleReason =
             (modelId ? designStaleReasons[modelId] : undefined) ??
-            (stale ? "上游需求模型或追踪指纹已变化，此设计模型需更新。" : undefined);
+            (stale ? t("workspace.sidebar.designUpstreamStale") : undefined);
           return buildDesignDiagramNode(
             diagram,
             model,
@@ -916,7 +998,7 @@ export function SidebarMenu({
       label: t("workspace.tabs.labels.code"),
       icon: <Code2 className="size-4 text-muted-foreground" />,
       status: codeRootStatus,
-      statusTooltip: rootGenerationStatusTooltip("代码原型", codeRootStatus),
+      statusTooltip: rootGenerationStatusTooltip(t("workspace.sidebar.codePrototype"), codeRootStatus, t),
       onSelect: () => openWorkspacePlaceholder("code", t("workspace.tabs.labels.code")),
     },
     {
@@ -930,21 +1012,21 @@ export function SidebarMenu({
       label: t("workspace.tabs.labels.documents"),
       icon: <FileText className="size-4 text-muted-foreground" />,
       status: documentRootStatus,
-      statusTooltip: rootGenerationStatusTooltip("说明书", documentRootStatus),
+      statusTooltip: rootGenerationStatusTooltip(t("workspace.sidebar.documentPipeline"), documentRootStatus, t),
       onSelect: openDocumentsHome,
     },
   ];
 
   return (
     <nav
-      aria-label="项目导航"
+      aria-label={t("workspace.sidebar.navigation")}
       className="flex h-full w-full flex-col overflow-hidden py-6 text-sidebar-foreground"
     >
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-button]:hidden [&::-webkit-scrollbar-button]:size-0 [&::-webkit-scrollbar-track]:bg-transparent">
         <div className="mb-3 flex items-center gap-2 px-4 py-2">
           <Layers className="size-4 text-muted-foreground" />
           <span className="text-xs font-semibold uppercase tracking-[0.88px] text-muted-foreground">
-            项目导航
+            {t("workspace.sidebar.navigation")}
           </span>
         </div>
         <div className="flex flex-col gap-1">

@@ -236,6 +236,7 @@ function parseAnalysis(source: string): DiagramElement[] {
 }
 
 const PARSERS: Record<DiagramType, (s: string) => DiagramElement[]> = {
+  context: parseAnalysis,
   function: parseFunction,
   activity: parseActivity,
   usecase: parseUseCase,

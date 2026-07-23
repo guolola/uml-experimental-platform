@@ -6,6 +6,12 @@ import { generateTotpCodeForTesting } from "../../auth/totp.js";
 import { createApiServer } from "../../index.js";
 import { hashPassword } from "../../security/password-hashing.js";
 
+function assertApiErrorCode(response: { json(): unknown }, code: string) {
+  const body = response.json() as { error?: { code?: string; retryable?: boolean } };
+  assert.equal(body.error?.code, code);
+  assert.equal(typeof body.error?.retryable, "boolean");
+}
+
 function getSessionCookie(response: { headers: Record<string, unknown> }) {
   const raw = response.headers["set-cookie"];
   const value = Array.isArray(raw) ? raw[0] : String(raw ?? "");
@@ -99,7 +105,7 @@ test("auth registration issues an email verification token and verify-email mark
     },
   });
   assert.equal(duplicateUsername.statusCode, 409);
-  assert.match(duplicateUsername.json().message, /Email or username/);
+  assertApiErrorCode(duplicateUsername, "AUTH_ACCOUNT_EXISTS");
 
   await app.close();
 });
@@ -200,7 +206,7 @@ test("auth login requires email verification", async () => {
     },
   });
   assert.equal(blocked.statusCode, 403);
-  assert.match(blocked.json().message, /Email verification/);
+  assertApiErrorCode(blocked, "AUTH_EMAIL_VERIFICATION_REQUIRED");
   assert.equal(registered.json().user.status, "pending_email_verification");
 
   const verified = await app.inject({

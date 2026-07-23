@@ -17,6 +17,10 @@ import type {
   RunStage,
   RunStatus as ContractRunStatus,
   SvgArtifact,
+  ContextDiagramSpec,
+  ContextTraceRow,
+  FeasibilityImplementationPlan,
+  FeasibilityInputs,
 } from "@uml-platform/contracts";
 import type { DiagramType } from "../diagram/model";
 import type { DesignDiagramType } from "../diagram/model";
@@ -98,6 +102,14 @@ export interface WorkspaceRecord {
   requirementInputFingerprint: string | null;
   diagramInputFingerprints: Partial<Record<DiagramType, string>>;
   designInputFingerprints: Record<string, string>;
+  feasibilityInputs: FeasibilityInputs;
+  feasibilityContextModel: ContextDiagramSpec | null;
+  feasibilityContextTraceability: ContextTraceRow[];
+  feasibilityContextPlantUml: string;
+  feasibilityContextSvg: string;
+  feasibilityContextFingerprint: string | null;
+  feasibilityImplementationPlan: FeasibilityImplementationPlan | null;
+  feasibilityImplementationFingerprint: string | null;
   rulesVersion: number;
   rulesBasedOnTextVersion: number | null;
   diagramVersions: Partial<Record<DiagramType, number>>;

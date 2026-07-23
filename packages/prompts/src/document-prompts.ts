@@ -21,7 +21,12 @@ export function buildGenerateDocumentContentPrompt(
   context: unknown,
 ) {
   const isRequirements = documentKind === "requirementsSpec";
-  const title = isRequirements ? "需求规格说明书" : "软件设计说明书";
+  const isFeasibility = documentKind === "feasibilityStudy";
+  const title = isRequirements
+    ? "需求规格说明书"
+    : documentKind === "softwareDesignSpec"
+      ? "软件设计说明书"
+      : "可行性研究报告";
   const hierarchy = isRequirements
     ? [
         "标题 1：项目引言、需求概述、功能需求（用例模型）、数据需求（领域概念模型）、运行需求、界面需求、需求分析、其它需求、尚未解决的问题、附录。",
@@ -29,7 +34,16 @@ export function buildGenerateDocumentContentPrompt(
         "标题 3：功能结构详述、跟踪关系、总体业务流程详述、对应用例的顺序图描述和跟踪关系。",
         "图位置：function 放功能结构，activity 放总体业务流程，usecase 放用例图，class 放领域概念模型，deployment 放部署需求模型，prototype 放界面关系图，analysis:<useCaseId> 放对应“用例的分析”。",
       ]
-    : [
+    : isFeasibility
+      ? [
+          "标题 1：引言、可行性研究的前提、所建议的系统、可选择的其他系统方案、投资及效益分析、社会因素方面的可行性、结论。",
+          "标题 2 和标题 3：严格复用 canonicalSections 中的固定小节；不得生成‘对现有系统的分析’，不得恢复旧版九章目录或新增目录标题。",
+          "处理流程和数据流程只生成文字说明，不创建或标记流程图；上下文图和追踪表只放在背景小节。",
+          "里程碑只放在对开发的影响，风险登记只放在局限性，成本收益只放在投资及效益分析对应小节。",
+          "推荐实现方案、风险、里程碑、五类结论和总体决策只能使用 recommendedCandidateId 指向候选方案的 implementation；其他候选只进入备选方案比较。",
+          "用户事实保持原文；AI 估算区间必须保留估算依据和来源状态，金额、比率、回收期和敏感性数值使用 canonicalSections 中的系统计算结果。",
+        ]
+      : [
         "标题 1：引言、系统总体架构 (System Architecture)、用例实现设计 (Use Case Realization)、领域模型设计 (Static Class & Domain Model)、交互响应与前端组件设计 (UI/UX Componentization)、数据库设计 (Persistence & Data Strategy)、组件设计、部署设计与交付 (Deployment & CI/CD)、尚未设计的问题。",
         "标题 2：系统概述、基线、定义与标识、参考资料、系统总体逻辑流程设计、系统架构设计、对应用例的实现方案、设计类图、设计类描述、设计类之间的关系、需求到类跟踪矩阵、界面关系图、界面的详述、表与表的关系图、表的详述、表与表的关系详述、设计阶段的组件关系图、组件描述、设计阶段的部署图、部署描述。",
         "标题 3：流程描述、总体架构描述、方案描述、各类跟踪关系。",
@@ -69,7 +83,11 @@ export function buildRepairDocumentContentPrompt(
   errorMessage: string,
 ) {
   const title =
-    documentKind === "requirementsSpec" ? "需求规格说明书" : "软件设计说明书";
+    documentKind === "requirementsSpec"
+      ? "需求规格说明书"
+      : documentKind === "softwareDesignSpec"
+        ? "软件设计说明书"
+        : "可行性研究报告";
 
   return [
     `请修复《${title}》正文生成结果的 JSON 结构。`,

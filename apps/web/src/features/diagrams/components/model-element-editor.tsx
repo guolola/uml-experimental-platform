@@ -1,5 +1,6 @@
 // Renders element-specific edit fields for the model editor dialog.
 import { Plus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../shared/ui/button";
 import {
   activityNodeForType,
@@ -18,6 +19,7 @@ import {
   LabelSelect,
   LabelTextInput,
   LabelTextarea,
+  SourceRuleChecklist,
   editorFieldLabel,
   enumOptions,
   ordinalLabel,
@@ -46,6 +48,7 @@ export function ModelElementEditor({
   tableOptions,
   columnsForTable,
   updateItem,
+  sourceRuleOptions = [],
 }: {
   editorDraft: Record<string, unknown>;
   collection: EditableCollection;
@@ -57,6 +60,7 @@ export function ModelElementEditor({
   tableOptions: SelectOption[];
   columnsForTable: (tableId: string) => SelectOption[];
   updateItem: UpdateElementItem;
+  sourceRuleOptions?: Array<{ id: string; label: string }>;
 }) {
   const setItemField = (key: string, value: unknown) => {
     updateItem(collection, itemId, (currentItem) => ({
@@ -76,7 +80,7 @@ export function ModelElementEditor({
   return (
     <div className="space-y-4 [&_.grid]:!grid-cols-1">
       <LabelTextInput
-        label={editorFieldLabel(collection.label, "名称")}
+        label={editorFieldLabel(collection.label, "name")}
         value={itemLabel(item, collection)}
         onChange={(value) =>
           updateItem(collection, itemId, (currentItem) => {
@@ -98,6 +102,7 @@ export function ModelElementEditor({
         tableOptions={tableOptions}
         columnsForTable={columnsForTable}
         updateItem={updateItem}
+        sourceRuleOptions={sourceRuleOptions}
         setItemField={setItemField}
         setItemOptionalString={setItemOptionalString}
       />
@@ -119,6 +124,7 @@ function ElementExtraFields({
   updateItem,
   setItemField,
   setItemOptionalString,
+  sourceRuleOptions,
 }: {
   editorDraft: Record<string, unknown>;
   collection: EditableCollection;
@@ -133,18 +139,39 @@ function ElementExtraFields({
   updateItem: UpdateElementItem;
   setItemField: (key: string, value: unknown) => void;
   setItemOptionalString: (key: string, value: string) => void;
+  sourceRuleOptions: Array<{ id: string; label: string }>;
 }) {
+  const { t } = useTranslation();
+  if (editorDraft.diagramKind === "context") {
+    const isCenterSystem = collection.key === "system";
+    return (
+      <div className="grid gap-3">
+        <LabelTextarea
+          label={editorFieldLabel(itemPrefix, "description")}
+          value={stringValue(item.description)}
+          onChange={(value) => setItemOptionalString("description", value)}
+        />
+        {!isCenterSystem ? (
+          <SourceRuleChecklist
+            selectedIds={stringListValue(item.sourceRequirementIds)}
+            options={sourceRuleOptions}
+            onChange={(ids) => setItemField("sourceRequirementIds", ids)}
+          />
+        ) : null}
+      </div>
+    );
+  }
   if (editorDraft.diagramKind === "usecase" && collection.key === "actors") {
     return (
       <div className="grid gap-2 md:grid-cols-2">
         <LabelSelect
-          label={editorFieldLabel(itemPrefix, "类型")}
+          label={editorFieldLabel(itemPrefix, "type")}
           value={stringValue(item.actorType) || "human"}
           options={enumOptions(["human", "system", "external"])}
           onChange={(value) => setItemField("actorType", value)}
         />
         <LabelTextarea
-          label={editorFieldLabel(itemPrefix, "职责")}
+          label={editorFieldLabel(itemPrefix, "responsibilities")}
           value={stringListValue(item.responsibilities).join("\n")}
           onChange={(value) =>
             setItemField("responsibilities", textToStringList(value))
@@ -162,12 +189,12 @@ function ElementExtraFields({
     return (
       <div className="grid gap-2 md:grid-cols-2">
         <LabelTextInput
-          label={editorFieldLabel(itemPrefix, "目标")}
+          label={editorFieldLabel(itemPrefix, "goal")}
           value={stringValue(item.goal)}
           onChange={(value) => setItemField("goal", value)}
         />
         <LabelSelect
-          label={editorFieldLabel(itemPrefix, "主参与者")}
+          label={editorFieldLabel(itemPrefix, "primaryActor")}
           value={stringValue(item.primaryActorId)}
           options={actorOptions}
           allowEmpty
@@ -179,25 +206,25 @@ function ElementExtraFields({
           onChange={(value) => setItemOptionalString("description", value)}
         />
         <LabelTextarea
-          label={editorFieldLabel(itemPrefix, "前置条件")}
+          label={editorFieldLabel(itemPrefix, "preconditions")}
           value={stringListValue(item.preconditions).join("\n")}
           onChange={(value) =>
             setItemField("preconditions", textToStringList(value))
           }
         />
         <LabelTextarea
-          label={editorFieldLabel(itemPrefix, "后置条件")}
+          label={editorFieldLabel(itemPrefix, "postconditions")}
           value={stringListValue(item.postconditions).join("\n")}
           onChange={(value) =>
             setItemField("postconditions", textToStringList(value))
           }
         />
         <div className="space-y-1 text-xs text-muted-foreground">
-          <div>{editorFieldLabel(itemPrefix, "辅助参与者")}</div>
+          <div>{editorFieldLabel(itemPrefix, "supportingActors")}</div>
           {actorOptions.map((actor) => (
             <LabelCheckbox
               key={`${itemPrefix}:support:${actor.value}`}
-              label={`辅助参与者：${actor.label || "未命名角色"}`}
+              label={t("diagramEditor.supportingActor", { name: actor.label || t("diagramEditor.unnamedActor") })}
               checked={stringListValue(item.supportingActorIds).includes(
                 actor.value,
               )}
@@ -255,7 +282,7 @@ function ElementExtraFields({
             onChange={(value) => setItemOptionalString("classKind", value)}
           />
           <LabelTextInput
-            label={editorFieldLabel(itemPrefix, "构造型")}
+            label={editorFieldLabel(itemPrefix, "stereotype")}
             value={stringValue(item.stereotype)}
             onChange={(value) => setItemOptionalString("stereotype", value)}
           />
@@ -303,7 +330,7 @@ function ElementExtraFields({
   if (editorDraft.diagramKind === "class" && collection.key === "enums") {
     return (
       <LabelTextarea
-        label={editorFieldLabel(itemPrefix, "字面量")}
+        label={editorFieldLabel(itemPrefix, "literals")}
         value={stringListValue(item.literals).join("\n")}
         onChange={(value) => setItemField("literals", textToStringList(value))}
       />
@@ -332,7 +359,7 @@ function ElementExtraFields({
         />
         {item.type === "decision" ? (
           <LabelTextInput
-            label={editorFieldLabel(itemPrefix, "问题")}
+            label={editorFieldLabel(itemPrefix, "question")}
             value={stringValue(item.question)}
             onChange={(value) => setItemOptionalString("question", value)}
           />
@@ -340,7 +367,7 @@ function ElementExtraFields({
         {item.type === "activity" ? (
           <>
             <LabelSelect
-              label={editorFieldLabel(itemPrefix, "泳道")}
+              label={editorFieldLabel(itemPrefix, "lane")}
               value={stringValue(item.actorOrLane)}
               options={laneOptions}
               allowEmpty
@@ -349,14 +376,14 @@ function ElementExtraFields({
               }
             />
             <LabelTextarea
-              label={editorFieldLabel(itemPrefix, "输入")}
+              label={editorFieldLabel(itemPrefix, "input")}
               value={stringListValue(item.input).join("\n")}
               onChange={(value) =>
                 setItemField("input", textToStringList(value))
               }
             />
             <LabelTextarea
-              label={editorFieldLabel(itemPrefix, "输出")}
+              label={editorFieldLabel(itemPrefix, "output")}
               value={stringListValue(item.output).join("\n")}
               onChange={(value) =>
                 setItemField("output", textToStringList(value))
@@ -402,7 +429,7 @@ function ElementExtraFields({
               onChange={(value) => setItemField("nodeType", value)}
             />
             <LabelTextInput
-              label={editorFieldLabel(itemPrefix, "环境")}
+              label={editorFieldLabel(itemPrefix, "environment")}
               value={stringValue(item.environment)}
               onChange={(value) => setItemOptionalString("environment", value)}
             />
@@ -410,21 +437,21 @@ function ElementExtraFields({
         ) : null}
         {collection.key === "databases" ? (
           <LabelTextInput
-            label={editorFieldLabel(itemPrefix, "引擎")}
+            label={editorFieldLabel(itemPrefix, "engine")}
             value={stringValue(item.engine)}
             onChange={(value) => setItemOptionalString("engine", value)}
           />
         ) : null}
         {collection.key === "components" ? (
           <LabelTextInput
-            label={editorFieldLabel(itemPrefix, "组件类型")}
+            label={editorFieldLabel(itemPrefix, "componentType")}
             value={stringValue(item.componentType)}
             onChange={(value) => setItemOptionalString("componentType", value)}
           />
         ) : null}
         {collection.key === "artifacts" ? (
           <LabelTextInput
-            label={editorFieldLabel(itemPrefix, "制品类型")}
+            label={editorFieldLabel(itemPrefix, "artifactType")}
             value={stringValue(item.artifactType)}
             onChange={(value) => setItemOptionalString("artifactType", value)}
           />
@@ -479,7 +506,7 @@ function ElementExtraFields({
           onChange={(value) => setItemField("type", value)}
         />
         <LabelTextInput
-          label={editorFieldLabel(itemPrefix, "条件")}
+          label={editorFieldLabel(itemPrefix, "condition")}
           value={stringValue(item.condition)}
           onChange={(value) => setItemOptionalString("condition", value)}
         />
@@ -489,11 +516,11 @@ function ElementExtraFields({
           onChange={(value) => setItemOptionalString("description", value)}
         />
         <div className="space-y-1 text-xs text-muted-foreground">
-          <div>{editorFieldLabel(itemPrefix, "包含消息")}</div>
+          <div>{editorFieldLabel(itemPrefix, "messages")}</div>
           {messageOptions.map((message) => (
             <LabelCheckbox
               key={`${itemPrefix}:message:${message.value}`}
-              label={`包含消息：${message.label || "未命名消息"}`}
+              label={t("diagramEditor.includedMessage", { name: message.label || t("diagramEditor.unnamedMessage") })}
               checked={messageIds.includes(message.value)}
               onChange={(checked) =>
                 setItemField(
@@ -543,10 +570,11 @@ function ClassAttributeEditor({
   attributes: Array<Record<string, unknown>>;
   updateItem: UpdateElementItem;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-background p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-medium text-foreground">属性</div>
+        <div className="text-xs font-medium text-foreground">{t("diagramEditor.units.attribute")}</div>
         <Button
           type="button"
           size="sm"
@@ -569,7 +597,7 @@ function ClassAttributeEditor({
             }))
           }
         >
-          <Plus className="size-3" /> 添加属性
+          <Plus className="size-3" /> {t("diagramEditor.addAttribute")}
         </Button>
       </div>
       {attributes.map((attribute, index) => (
@@ -578,7 +606,7 @@ function ClassAttributeEditor({
           className="grid gap-2 md:grid-cols-4"
         >
           <LabelTextInput
-            label={`${ordinalLabel(index, "属性")}名称`}
+            label={editorFieldLabel(ordinalLabel(index, "attribute"), "name")}
             value={stringValue(attribute.name)}
             onChange={(value) =>
               updateItem(collection, itemId, (currentItem) => ({
@@ -592,7 +620,7 @@ function ClassAttributeEditor({
             }
           />
           <LabelTextInput
-            label={`${ordinalLabel(index, "属性")}类型`}
+            label={editorFieldLabel(ordinalLabel(index, "attribute"), "type")}
             value={stringValue(attribute.type)}
             onChange={(value) =>
               updateItem(collection, itemId, (currentItem) => ({
@@ -606,7 +634,7 @@ function ClassAttributeEditor({
             }
           />
           <LabelSelect
-            label={`${ordinalLabel(index, "属性")}可见性`}
+            label={editorFieldLabel(ordinalLabel(index, "attribute"), "visibility")}
             value={stringValue(attribute.visibility) || "private"}
             options={enumOptions(["public", "protected", "private", "package"])}
             onChange={(value) =>
@@ -621,7 +649,7 @@ function ClassAttributeEditor({
             }
           />
           <LabelTextInput
-            label={`${ordinalLabel(index, "属性")}多重性`}
+            label={editorFieldLabel(ordinalLabel(index, "attribute"), "multiplicity")}
             value={stringValue(attribute.multiplicity)}
             onChange={(value) =>
               updateItem(collection, itemId, (currentItem) => ({
@@ -662,6 +690,7 @@ function TableColumnEditor({
   updateItem: UpdateElementItem;
   setItemOptionalString: (key: string, value: string) => void;
 }) {
+  const { t } = useTranslation();
   const updateColumn = (
     columnId: string,
     updater: (column: Record<string, unknown>) => Record<string, unknown>,
@@ -685,13 +714,13 @@ function TableColumnEditor({
       />
       <div className="space-y-2 rounded-md border border-border/70 bg-background p-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-medium text-foreground">字段</div>
+          <div className="text-xs font-medium text-foreground">{t("diagramEditor.units.column")}</div>
           <Button
             type="button"
             size="sm"
             variant="outline"
             className="h-7 px-2 text-xs"
-            aria-label="添加字段"
+            aria-label={t("diagramEditor.addColumn")}
             onClick={() =>
               updateItem(collection, itemId, (currentItem) => ({
                 ...currentItem,
@@ -711,12 +740,12 @@ function TableColumnEditor({
               }))
             }
           >
-            <Plus className="size-3" /> 添加字段
+            <Plus className="size-3" /> {t("diagramEditor.addColumn")}
           </Button>
         </div>
         {columns.map((column, index) => {
           const columnId = stringValue(column.id);
-          const columnPrefix = ordinalLabel(index, "字段");
+          const columnPrefix = ordinalLabel(index, "column");
           const reference =
             column.references && typeof column.references === "object"
               ? (column.references as Record<string, unknown>)
@@ -728,7 +757,7 @@ function TableColumnEditor({
             >
               <div className="grid gap-2 md:grid-cols-3">
                 <LabelTextInput
-                  label={`${columnPrefix}名称`}
+                  label={editorFieldLabel(columnPrefix, "name")}
                   value={stringValue(column.name)}
                   onChange={(value) =>
                     updateColumn(columnId, (current) => ({
@@ -738,7 +767,7 @@ function TableColumnEditor({
                   }
                 />
                 <LabelTextInput
-                  label={`${columnPrefix}类型`}
+                  label={editorFieldLabel(columnPrefix, "type")}
                   value={stringValue(column.dataType)}
                   onChange={(value) =>
                     updateColumn(columnId, (current) => ({
@@ -748,7 +777,7 @@ function TableColumnEditor({
                   }
                 />
                 <LabelTextInput
-                  label={`${columnPrefix}说明`}
+                  label={editorFieldLabel(columnPrefix, "description")}
                   value={stringValue(column.description)}
                   onChange={(value) =>
                     updateColumn(columnId, (current) => {
@@ -761,7 +790,7 @@ function TableColumnEditor({
               </div>
               <div className="grid gap-2 md:grid-cols-3">
                 <LabelCheckbox
-                  label={`${columnPrefix}主键`}
+                  label={editorFieldLabel(columnPrefix, "primaryKey")}
                   checked={booleanValue(column.isPrimaryKey)}
                   onChange={(checked) =>
                     updateColumn(columnId, (current) => ({
@@ -771,7 +800,7 @@ function TableColumnEditor({
                   }
                 />
                 <LabelCheckbox
-                  label={`${columnPrefix}外键`}
+                  label={editorFieldLabel(columnPrefix, "foreignKey")}
                   checked={booleanValue(column.isForeignKey)}
                   onChange={(checked) =>
                     updateColumn(columnId, (current) => ({
@@ -781,7 +810,7 @@ function TableColumnEditor({
                   }
                 />
                 <LabelCheckbox
-                  label={`${columnPrefix}可空`}
+                  label={editorFieldLabel(columnPrefix, "nullable")}
                   checked={booleanValue(column.nullable, true)}
                   onChange={(checked) =>
                     updateColumn(columnId, (current) => ({
@@ -793,7 +822,7 @@ function TableColumnEditor({
               </div>
               <div className="grid gap-2 md:grid-cols-2">
                 <LabelSelect
-                  label={`${columnPrefix}引用表`}
+                  label={editorFieldLabel(columnPrefix, "referenceTable")}
                   value={stringValue(reference.tableId)}
                   options={tableOptions}
                   allowEmpty
@@ -813,7 +842,7 @@ function TableColumnEditor({
                   }
                 />
                 <LabelSelect
-                  label={`${columnPrefix}引用字段`}
+                  label={editorFieldLabel(columnPrefix, "referenceColumn")}
                   value={stringValue(reference.columnId)}
                   options={columnsForTable(stringValue(reference.tableId))}
                   allowEmpty

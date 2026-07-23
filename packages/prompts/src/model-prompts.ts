@@ -30,6 +30,7 @@ function selectedDiagramHardRules(selectedDiagrams: DiagramKind[]) {
   if (unique.length === 1) {
     const [kind] = unique;
     const labels: Record<DiagramKind, string> = {
+      context: "上下文图",
       function: "功能结构图",
       usecase: "用例模型",
       class: "领域概念模型",

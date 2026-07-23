@@ -40,6 +40,8 @@ export function ModelEditDialogs({
   onConfirmDelete,
   renderElementFields,
   renderRelationFields,
+  elementValidationMessage,
+  relationValidationMessage,
 }: {
   elementEditor: ElementEditorDialogState;
   relationEditor: RelationEditorDialogState;
@@ -55,6 +57,8 @@ export function ModelEditDialogs({
   onConfirmDelete: () => void;
   renderElementFields: () => ReactNode;
   renderRelationFields: () => ReactNode;
+  elementValidationMessage?: string | null;
+  relationValidationMessage?: string | null;
 }) {
   return (
     <>
@@ -77,6 +81,11 @@ export function ModelEditDialogs({
               未找到可编辑元素。
             </div>
           )}
+          {elementValidationMessage ? (
+            <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {elementValidationMessage}
+            </p>
+          ) : null}
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               type="button"
@@ -89,7 +98,7 @@ export function ModelEditDialogs({
             <Button
               type="button"
               onClick={onCommitElement}
-              disabled={!hasEditingElement || saving}
+              disabled={!hasEditingElement || saving || Boolean(elementValidationMessage)}
             >
               {saving ? <Loader2 className="size-4 animate-spin" /> : null}
               {elementEditor?.mode === "create" ? "确认添加" : "确认编辑"}
@@ -115,6 +124,11 @@ export function ModelEditDialogs({
               未找到可编辑关系。
             </div>
           )}
+          {relationValidationMessage ? (
+            <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {relationValidationMessage}
+            </p>
+          ) : null}
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               type="button"
@@ -127,7 +141,7 @@ export function ModelEditDialogs({
             <Button
               type="button"
               onClick={onCommitRelation}
-              disabled={!hasEditingRelation || saving}
+              disabled={!hasEditingRelation || saving || Boolean(relationValidationMessage)}
             >
               {saving ? <Loader2 className="size-4 animate-spin" /> : null}
               {relationEditor?.mode === "create" ? "确认添加" : "确认编辑"}

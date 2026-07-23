@@ -1,9 +1,9 @@
 // Formats stored session user-agent strings for account session displays.
 import Bowser from "bowser";
 
-export function formatSessionDevice(userAgent: string | null | undefined) {
+export function formatSessionDevice(userAgent: string | null | undefined, unknown = "未知设备") {
   const rawUserAgent = userAgent?.trim();
-  if (!rawUserAgent) return "未知设备";
+  if (!rawUserAgent) return unknown;
 
   const parser = Bowser.getParser(rawUserAgent);
   const browserName = parser.getBrowserName().replace(/^Microsoft Edge$/u, "Edge");
@@ -12,12 +12,12 @@ export function formatSessionDevice(userAgent: string | null | undefined) {
   if (osName && browserName) return `${osName} • ${browserName}`;
   if (browserName) return browserName;
   if (osName) return osName;
-  return "未知设备";
+  return unknown;
 }
 
 export function formatSessionRegion(input: {
   locationLabel?: string | null;
   region?: string | null;
-}) {
-  return input.locationLabel?.trim() || input.region?.trim() || "未知地区";
+}, unknown = "未知地区") {
+  return input.locationLabel?.trim() || input.region?.trim() || unknown;
 }

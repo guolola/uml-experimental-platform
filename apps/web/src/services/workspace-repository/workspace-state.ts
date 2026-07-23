@@ -9,6 +9,7 @@ import {
   type RequirementBaseline,
   type RequirementQualityIssue,
   type RunSnapshot,
+  feasibilityInputsSchema,
 } from "@uml-platform/contracts";
 import {
   getDesignArtifactId,
@@ -316,6 +317,37 @@ export function createEmptyWorkspace(): WorkspaceRecord {
     requirementInputFingerprint: null,
     diagramInputFingerprints: {},
     designInputFingerprints: {},
+    feasibilityInputs: {
+      projectName: "",
+      school: "",
+      college: "",
+      groupNumber: "",
+      members: "",
+      gradeClass: "",
+      submissionDate: "",
+      proposedBy: "",
+      developedBy: "",
+      expectedUsers: "",
+      targetEnvironment: "",
+      deadline: "",
+      expectedLifetimeYears: null,
+      budgetLimit: null,
+      teamSize: null,
+      teamSkills: "",
+      availableResources: "",
+      legalConstraints: "",
+      references: "",
+      costItems: [],
+      benefitItems: [],
+      analysisYears: null,
+    },
+    feasibilityContextModel: null,
+    feasibilityContextTraceability: [],
+    feasibilityContextPlantUml: "",
+    feasibilityContextSvg: "",
+    feasibilityContextFingerprint: null,
+    feasibilityImplementationPlan: null,
+    feasibilityImplementationFingerprint: null,
     rulesVersion: 0,
     rulesBasedOnTextVersion: null,
     diagramVersions: {},
@@ -675,10 +707,17 @@ function pruneUseCaseScopedWorkspace(workspace: WorkspaceRecord): WorkspaceRecor
 }
 
 export function mergeWorkspaceState(state?: Partial<WorkspaceRecord>): WorkspaceRecord {
-  return repairMissingDesignInputFingerprints(pruneUseCaseScopedWorkspace({
+  const merged = {
     ...createEmptyWorkspace(),
     ...(state ?? {}),
-  }));
+  };
+  merged.feasibilityInputs = feasibilityInputsSchema.parse(
+    state?.feasibilityInputs ?? {},
+  );
+  merged.feasibilityContextTraceability = [
+    ...(state?.feasibilityContextTraceability ?? []),
+  ];
+  return repairMissingDesignInputFingerprints(pruneUseCaseScopedWorkspace(merged));
 }
 
 export function applySnapshotToWorkspace(

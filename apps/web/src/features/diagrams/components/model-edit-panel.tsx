@@ -1,5 +1,8 @@
 // Renders the editable diagram model panel, including element, relation, and delete workflows.
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "../../../shared/ui/button";
+import { SelectControl } from "../../../shared/ui/select";
 import {
   buildDiagramDetailModel,
   type DiagramDetailItem,
@@ -15,7 +18,7 @@ import {
   relationName,
   relationshipItems,
   removeDanglingRelations,
-  setOptionalStringValue,
+  stringListValue,
   stringValue,
   updateDraftCollection,
   updateDraftItem,
@@ -34,6 +37,50 @@ import {
 } from "./model-edit-lists";
 import { ModelElementEditor } from "./model-element-editor";
 import { ModelRelationEditor } from "./model-relation-editor";
+import { diagramRelationTypeLabel } from "../lib/diagram-presentation";
+
+const EDITOR_PAGE_SIZE_OPTIONS = [8, 12, 24] as const;
+
+function ModelListPagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageSize: (typeof EDITOR_PAGE_SIZE_OPTIONS)[number];
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: (typeof EDITOR_PAGE_SIZE_OPTIONS)[number]) => void;
+}) {
+  const { t } = useTranslation();
+  if (total === 0) return null;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, total);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+      <span className="font-mono">{start}-{end} / {total}</span>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2">
+          {t("diagramLists.pagination.perPage")}
+          <SelectControl
+            aria-label={t("diagramLists.pagination.pageSize")}
+            value={String(pageSize)}
+            onValueChange={(value) => onPageSizeChange(Number(value) as (typeof EDITOR_PAGE_SIZE_OPTIONS)[number])}
+            options={EDITOR_PAGE_SIZE_OPTIONS.map((option) => ({ value: String(option), label: String(option) }))}
+            className="h-8 min-w-20"
+            size="sm"
+          />
+        </label>
+        <Button type="button" size="sm" variant="outline" aria-label={t("diagramLists.pagination.previous")} disabled={page <= 1} onClick={() => onPageChange(page - 1)}>{t("diagramLists.pagination.previous")}</Button>
+        <span className="min-w-16 text-center font-mono">{page} / {totalPages}</span>
+        <Button type="button" size="sm" variant="outline" aria-label={t("diagramLists.pagination.next")} disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>{t("diagramLists.pagination.next")}</Button>
+      </div>
+    </div>
+  );
+}
 
 export function ModelEditPanel({
   draft,
@@ -42,6 +89,9 @@ export function ModelEditPanel({
   onSelectElement,
   selectedElement,
   saving,
+  visibleSection = "all",
+  focusSection,
+  sourceRuleOptions = [],
 }: {
   draft: Record<string, unknown> | null;
   setDraft: Dispatch<SetStateAction<Record<string, unknown> | null>>;
@@ -49,13 +99,23 @@ export function ModelEditPanel({
   onSelectElement: (element: DiagramDetailItem) => void;
   selectedElement?: { kind: string; id: string } | null;
   saving: boolean;
+  visibleSection?: "all" | "elements" | "relationships";
+  focusSection?: "elements" | "relationships" | null;
+  sourceRuleOptions?: Array<{ id: string; label: string }>;
 }) {
+  const { t } = useTranslation();
+  const elementsSectionRef = useRef<HTMLDivElement | null>(null);
+  const relationshipsSectionRef = useRef<HTMLDivElement | null>(null);
   const [elementSearch, setElementSearch] = useState("");
   const [elementKindFilter, setElementKindFilter] = useState<"all" | SemanticElementKind>(
     "all",
   );
   const [relationSearch, setRelationSearch] = useState("");
   const [relationKindFilter, setRelationKindFilter] = useState("all");
+  const [elementPage, setElementPage] = useState(1);
+  const [elementPageSize, setElementPageSize] = useState<(typeof EDITOR_PAGE_SIZE_OPTIONS)[number]>(8);
+  const [relationPage, setRelationPage] = useState(1);
+  const [relationPageSize, setRelationPageSize] = useState<(typeof EDITOR_PAGE_SIZE_OPTIONS)[number]>(8);
   const [elementEditor, setElementEditor] = useState<{
     collection: EditableCollection;
     itemId: string;
@@ -73,6 +133,17 @@ export function ModelEditPanel({
     | null
   >(null);
   const detailModel = useMemo(() => buildDiagramDetailModel(draft), [draft]);
+
+  useEffect(() => {
+    if (!focusSection || visibleSection !== "all") return;
+    const target = focusSection === "elements"
+      ? elementsSectionRef.current
+      : relationshipsSectionRef.current;
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    target.scrollIntoView?.({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    target.focus({ preventScroll: true });
+  }, [focusSection, visibleSection]);
 
   if (!draft) return null;
 
@@ -124,6 +195,12 @@ export function ModelEditPanel({
     }))
     .filter((group) => group.items.length > 0);
   const filteredElements = filteredGroups.flatMap((group) => group.items);
+  const elementTotalPages = Math.max(1, Math.ceil(filteredElements.length / elementPageSize));
+  const effectiveElementPage = Math.min(elementPage, elementTotalPages);
+  const paginatedElements = filteredElements.slice(
+    (effectiveElementPage - 1) * elementPageSize,
+    effectiveElementPage * elementPageSize,
+  );
   const detailItemsById = new Map(detailModel.items.map((item) => [item.id, item]));
   const detailRelationshipsById = new Map(detailModel.relationships.map((relation) => [relation.id, relation]));
   const endpointOptions = editorCollections.flatMap((collection) =>
@@ -139,7 +216,8 @@ export function ModelEditPanel({
     const displayLabel = detailRelation
       ? getRelationDisplayLabel(detailRelation, detailItemsById)
       : relationName(relation) || id;
-    const typeLabel = detailRelation?.typeLabel ?? (stringValue(relation.type) || "未分类");
+    const typeKey = detailRelation?.typeLabel ?? (stringValue(relation.type) || "uncategorized");
+    const typeLabel = diagramRelationTypeLabel(typeKey, t);
     const sourceKey = relationEndpointKey(draft, "source");
     const targetKey = relationEndpointKey(draft, "target");
     const sourceLabel = detailRelation
@@ -154,6 +232,7 @@ export function ModelEditPanel({
     return {
       id,
       displayLabel,
+      typeKey,
       typeLabel,
       sourceLabel,
       targetLabel,
@@ -168,18 +247,25 @@ export function ModelEditPanel({
     };
   });
   const relationTypeCounts = relationshipSummaries.reduce<Map<string, number>>((counts, relation) => {
-    counts.set(relation.typeLabel, (counts.get(relation.typeLabel) ?? 0) + 1);
+    counts.set(relation.typeKey, (counts.get(relation.typeKey) ?? 0) + 1);
     return counts;
   }, new Map());
-  const relationFilterOptions = Array.from(relationTypeCounts.entries()).map(([label, count]) => ({
-    label,
+  const relationFilterOptions = Array.from(relationTypeCounts.entries()).map(([value, count]) => ({
+    value,
+    label: diagramRelationTypeLabel(value, t),
     count,
   }));
   const filteredRelationships = relationshipSummaries.filter((relation) => {
-    const matchesKind = relationKindFilter === "all" || relation.typeLabel === relationKindFilter;
+    const matchesKind = relationKindFilter === "all" || relation.typeKey === relationKindFilter;
     const query = relationSearch.trim().toLowerCase();
     return matchesKind && (!query || relation.searchText.includes(query));
   });
+  const relationTotalPages = Math.max(1, Math.ceil(filteredRelationships.length / relationPageSize));
+  const effectiveRelationPage = Math.min(relationPage, relationTotalPages);
+  const paginatedRelationships = filteredRelationships.slice(
+    (effectiveRelationPage - 1) * relationPageSize,
+    effectiveRelationPage * relationPageSize,
+  );
 
   const updateItem = (
     collection: EditableCollection,
@@ -187,28 +273,6 @@ export function ModelEditPanel({
     updater: (item: Record<string, unknown>) => Record<string, unknown>,
   ) => {
     setEditorDraft((current) => updateDraftItem(current, collection, itemId, updater));
-  };
-
-  const setItemField = (
-    collection: EditableCollection,
-    itemId: string,
-    key: string,
-    value: unknown,
-  ) => {
-    updateItem(collection, itemId, (item) => ({ ...item, [key]: value }));
-  };
-
-  const setItemOptionalString = (
-    collection: EditableCollection,
-    itemId: string,
-    key: string,
-    value: string,
-  ) => {
-    updateItem(collection, itemId, (item) => {
-      const nextItem = { ...item };
-      setOptionalStringValue(nextItem, key, value);
-      return nextItem;
-    });
   };
 
   const updateRelation = (
@@ -310,6 +374,7 @@ export function ModelEditPanel({
   };
 
   const createElement = (collection: EditableCollection) => {
+    if (collection.allowCreate === false) return;
     const nextItem = collection.create();
     const itemId = stringValue(nextItem.id);
     const nextDraft = updateDraftCollection(draft, collection, (currentItems) => [
@@ -340,6 +405,7 @@ export function ModelEditPanel({
     elementId: string,
     editable: { collection: EditableCollection; item: Record<string, unknown> },
   ) => {
+    if (editable.collection.allowDelete === false) return;
     setDeleteTarget({
       kind: "element",
       collection: editable.collection,
@@ -384,19 +450,50 @@ export function ModelEditPanel({
   const relationshipOrderIds = detailModel.relationships.map(
     (relation) => relation.id,
   );
+  const validSourceRuleIds = new Set(sourceRuleOptions.map((option) => option.id));
+  const validateSourceIds = (value: unknown) => {
+    const ids = stringListValue(value);
+    if (ids.length === 0) return "请至少选择一条当前有效的来源需求规则。";
+    const invalidIds = ids.filter((id) => !validSourceRuleIds.has(id));
+    return invalidIds.length > 0
+      ? `来源需求规则已失效：${invalidIds.join("、")}`
+      : null;
+  };
+  const elementValidationMessage =
+    editorDraft.diagramKind === "context" && elementEditor && editingElement
+      ? elementEditor.collection.key === "system"
+        ? stringValue(editingElement.id) !== "system"
+          ? "中心系统标识必须保持为 system。"
+          : !itemLabel(editingElement, elementEditor.collection).trim()
+            ? "请填写中心系统名称。"
+            : null
+        : !itemLabel(editingElement, elementEditor.collection).trim()
+          ? `请填写${elementEditor.collection.label}名称。`
+          : validateSourceIds(editingElement.sourceRequirementIds)
+      : null;
+  const validEndpointIds = new Set(endpointOptions.map((option) => option.id));
+  const relationValidationMessage =
+    editorDraft.diagramKind === "context" && relationEditor && editingRelation
+      ? !validEndpointIds.has(stringValue(editingRelation.sourceId)) ||
+        !validEndpointIds.has(stringValue(editingRelation.targetId))
+        ? "请选择有效的关系起点和终点。"
+        : !stringValue(editingRelation.label)
+          ? "请填写关系名称。"
+          : validateSourceIds(editingRelation.sourceRequirementIds)
+      : null;
 
   return (
     <>
       <div className="space-y-8">
-        <ModelElementListSection
+        {visibleSection !== "relationships" ? <div ref={elementsSectionRef} tabIndex={-1} aria-label={t("diagramLists.elements.section")} className="scroll-mt-4 space-y-3 outline-none"><ModelElementListSection
           elementSearch={elementSearch}
-          onElementSearchChange={setElementSearch}
+          onElementSearchChange={(value) => { setElementSearch(value); setElementPage(1); }}
           elementKindFilter={elementKindFilter}
-          onElementKindFilterChange={setElementKindFilter}
+          onElementKindFilterChange={(value) => { setElementKindFilter(value); setElementPage(1); }}
           detailGroups={detailModel.groups}
           detailItemCount={detailModel.items.length}
           collections={collections}
-          filteredElements={filteredElements}
+          filteredElements={paginatedElements}
           editableItemsById={editableItemsById}
           selectedElement={selectedElement}
           saving={saving}
@@ -404,15 +501,15 @@ export function ModelEditPanel({
           onEditElement={editElement}
           onDeleteElement={deleteElement}
           onSelectElement={onSelectElement}
-        />
+        /><ModelListPagination page={effectiveElementPage} pageSize={elementPageSize} total={filteredElements.length} onPageChange={setElementPage} onPageSizeChange={(value) => { setElementPageSize(value); setElementPage(1); }} /></div> : null}
 
-        <ModelRelationshipListSection
+        {visibleSection !== "elements" ? <div ref={relationshipsSectionRef} tabIndex={-1} aria-label={t("diagramLists.relations.section")} className="scroll-mt-4 space-y-3 outline-none"><ModelRelationshipListSection
           relationSearch={relationSearch}
-          onRelationSearchChange={setRelationSearch}
+          onRelationSearchChange={(value) => { setRelationSearch(value); setRelationPage(1); }}
           relationKindFilter={relationKindFilter}
-          onRelationKindFilterChange={setRelationKindFilter}
+          onRelationKindFilterChange={(value) => { setRelationKindFilter(value); setRelationPage(1); }}
           relationshipsCount={relationships.length}
-          filteredRelationships={filteredRelationships}
+          filteredRelationships={paginatedRelationships}
           relationFilterOptions={relationFilterOptions}
           endpointOptionsCount={endpointOptions.length}
           relationshipOrderIds={relationshipOrderIds}
@@ -420,7 +517,7 @@ export function ModelEditPanel({
           onCreateRelation={createRelation}
           onEditRelation={editRelation}
           onDeleteRelation={deleteRelation}
-        />
+        /><ModelListPagination page={effectiveRelationPage} pageSize={relationPageSize} total={filteredRelationships.length} onPageChange={setRelationPage} onPageSizeChange={(value) => { setRelationPageSize(value); setRelationPage(1); }} /></div> : null}
       </div>
 
       <ModelEditDialogs
@@ -449,6 +546,7 @@ export function ModelEditPanel({
               tableOptions={tableOptions}
               columnsForTable={columnsForTable}
               updateItem={updateItem}
+              sourceRuleOptions={sourceRuleOptions}
             />
           ) : null
         }
@@ -462,10 +560,13 @@ export function ModelEditPanel({
                 endpointOptions={endpointOptions}
                 columnsForTable={columnsForTable}
                 updateRelation={updateRelation}
+                sourceRuleOptions={sourceRuleOptions}
               />
             </div>
           ) : null
         }
+        elementValidationMessage={elementValidationMessage}
+        relationValidationMessage={relationValidationMessage}
       />
     </>
   );

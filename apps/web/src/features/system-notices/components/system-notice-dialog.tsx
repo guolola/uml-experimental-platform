@@ -1,6 +1,8 @@
 // Renders the Figma-inspired system notice timeline and top-bar trigger.
 import { useEffect, useMemo, useState } from "react";
 import type { SystemNoticeDto, SystemNoticeType } from "@uml-platform/contracts";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import confetti from "canvas-confetti";
 import { Bell, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
@@ -33,13 +35,6 @@ const NOTICE_TYPE_BADGE_VARIANT: Record<SystemNoticeType, NoticeBadgeVariant> = 
   feature_update: "info",
   important: "destructive",
   maintenance: "warning",
-};
-
-const NOTICE_TYPE_LABEL: Record<SystemNoticeType, string> = {
-  model_update: "模型",
-  feature_update: "功能",
-  important: "重要",
-  maintenance: "维护",
 };
 
 function fireSystemNoticeConfetti() {
@@ -82,33 +77,36 @@ function fireSystemNoticeConfetti() {
   });
 }
 
-function formatDateTimeParts(value: string | null | undefined) {
-  if (!value) return { date: "未发布", time: "" };
+function formatDateTimeParts(value: string | null | undefined, locale: string, t: TFunction) {
+  if (!value) return { date: t("notices.unpublished"), time: "" };
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { date: value, time: "" };
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const time = date.toLocaleTimeString("zh-CN", {
+  const formattedDate = new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(date);
+  const time = date.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
   });
-  return { date: `${year}/${month}/${day}`, time };
+  return { date: formattedDate, time };
 }
 
-function formatRelativeTime(value: string | null | undefined) {
-  if (!value) return "未发布";
+function formatRelativeTime(value: string | null | undefined, locale: string, t: TFunction) {
+  if (!value) return t("notices.unpublished");
   const time = Date.parse(value);
-  if (!Number.isFinite(time)) return "已发布";
+  if (!Number.isFinite(time)) return t("notices.published");
   const diffMs = Math.max(0, Date.now() - time);
   const dayMs = 24 * 60 * 60 * 1000;
   const days = Math.floor(diffMs / dayMs);
-  if (days <= 0) return "今天";
-  if (days < 7) return `${days} 天前`;
-  if (days < 30) return `${Math.floor(days / 7)} 周前`;
-  return `${Math.floor(days / 30)} 个月前`;
+  if (days <= 0) return t("notices.today");
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "always" });
+  if (days < 7) return formatter.format(-days, "day");
+  if (days < 30) return formatter.format(-Math.floor(days / 7), "week");
+  return formatter.format(-Math.floor(days / 30), "month");
 }
 
 function SystemNoticeTimelineItem({
@@ -118,8 +116,10 @@ function SystemNoticeTimelineItem({
   notice: SystemNoticeDto;
   isLast: boolean;
 }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en" : "zh-CN";
   const published = notice.publishedAt ?? notice.createdAt;
-  const dateParts = formatDateTimeParts(published);
+  const dateParts = formatDateTimeParts(published, locale, t);
   const listItems = notice.contentBlocks.filter((block) => block.kind === "list_item");
   const paragraphs = notice.contentBlocks.filter((block) => block.kind === "paragraph");
 
@@ -127,7 +127,7 @@ function SystemNoticeTimelineItem({
     <article className="grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-6 px-4 py-4">
       <div className="relative flex min-h-14 flex-col items-end pr-[25px] text-right">
         <div className="font-mono text-xs font-medium leading-4 text-muted-foreground">
-          {formatRelativeTime(published)}
+          {formatRelativeTime(published, locale, t)}
         </div>
         <div className="mt-1 text-sm leading-5 text-muted-foreground">
           <div>{dateParts.date}</div>
@@ -153,11 +153,11 @@ function SystemNoticeTimelineItem({
             variant={NOTICE_TYPE_BADGE_VARIANT[notice.type]}
             className="shrink-0 text-[10px]"
           >
-            {NOTICE_TYPE_LABEL[notice.type]}
+            {t(`notices.types.${notice.type}`)}
           </Badge>
           {notice.unread && (
             <Badge variant="secondary" className="shrink-0 text-[10px]">
-              未读
+              {t("notices.unread")}
             </Badge>
           )}
         </h3>
@@ -186,10 +186,11 @@ function SystemNoticeTimelineItem({
 }
 
 function SystemNoticeTimeline({ notices }: { notices: SystemNoticeDto[] }) {
+  const { t } = useTranslation();
   if (notices.length === 0) {
     return (
       <div className="flex min-h-64 items-center justify-center px-6 text-sm text-muted-foreground">
-        暂无系统通知。
+        {t("notices.empty")}
       </div>
     );
   }
@@ -221,6 +222,7 @@ export function SystemNoticeDialog({
   error: string;
   onMarkRead: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -230,21 +232,21 @@ export function SystemNoticeDialog({
         <DialogHeader className="border-b border-border bg-background/80 px-6 py-4 text-left backdrop-blur-md">
           <div className="flex items-center gap-3">
             <Badge variant="info" className="rounded-full px-3 py-1 text-[11px] tracking-[0.08em]">
-              公告
+              {t("notices.badge")}
             </Badge>
             <DialogTitle className="text-xl leading-7 text-foreground">
-              系统通知
+              {t("notices.title")}
             </DialogTitle>
           </div>
           <DialogDescription className="sr-only">
-            系统通知时间轴列表
+            {t("notices.timelineDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 overflow-y-auto px-2 pr-6">
           {loading ? (
             <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              正在加载系统通知...
+              {t("notices.loading")}
             </div>
           ) : error ? (
             <div className="flex min-h-64 items-center justify-center px-6 text-sm text-destructive">
@@ -265,7 +267,7 @@ export function SystemNoticeDialog({
             disabled={loading}
           >
             <CheckCircle2 className="size-4" />
-            已阅览
+            {t("notices.markRead")}
           </Button>
         </div>
       </DialogContent>
@@ -278,6 +280,7 @@ export function SystemNoticeButton({
 }: {
   className?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [notices, setNotices] = useState<SystemNoticeDto[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -294,7 +297,7 @@ export function SystemNoticeButton({
       setNotices(response.notices);
       setUnreadCount(response.unreadCount);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "系统通知加载失败。");
+      setError(loadError instanceof Error ? loadError.message : t("notices.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -317,7 +320,7 @@ export function SystemNoticeButton({
       fireSystemNoticeConfetti();
       setOpen(false);
     } catch (readError) {
-      setError(readError instanceof Error ? readError.message : "系统通知已阅览状态保存失败。");
+      setError(readError instanceof Error ? readError.message : t("notices.markReadFailed"));
     }
   };
 
@@ -330,8 +333,10 @@ export function SystemNoticeButton({
           size="icon"
           className={cn(className, "relative")}
           onClick={openDialog}
-          title="系统通知"
-          aria-label={unreadCount > 0 ? `系统通知，${unreadCount} 条未读` : "系统通知"}
+          title={t("notices.title")}
+          aria-label={unreadCount > 0
+            ? t("notices.buttonUnreadAria", { count: unreadCount })
+            : t("notices.buttonAria")}
         >
           <Bell className="size-5" />
           {unreadCount > 0 && (

@@ -3,7 +3,6 @@ import type { PointerEventHandler, RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { DesignDiagramType, DiagramType } from "../../../entities/diagram/model";
 import {
-  SEMANTIC_KIND_META,
   type DiagramDetailGroup,
   type DiagramDetailItem,
   type DiagramRelationshipDetail,
@@ -25,6 +24,7 @@ import { cn } from "../../../shared/ui/utils";
 import { downloadTextFile } from "../../../shared/lib/download";
 import { InlineSvg } from "./inline-svg";
 import { getRelationDisplayLabel } from "../lib/diagram-detail-view-model";
+import { diagramDetailFieldLabel, semanticElementLabel } from "../lib/diagram-presentation";
 
 type DiagramPreviewError = {
   error?: {
@@ -34,8 +34,9 @@ type DiagramPreviewError = {
 
 type DiagramPreviewPanelProps = {
   description: string;
-  stage: "requirements" | "design";
+  stage: "requirements" | "design" | "feasibility";
   type: DiagramType | DesignDiagramType;
+  exportFileStem?: string;
   plantUmlSource: string;
   normalizedSvgMarkup: string;
   svgMarkup: string;
@@ -71,6 +72,7 @@ export function DiagramPreviewPanel({
   description,
   stage,
   type,
+  exportFileStem,
   plantUmlSource,
   normalizedSvgMarkup,
   svgMarkup,
@@ -102,6 +104,7 @@ export function DiagramPreviewPanel({
   relationshipsCount,
 }: DiagramPreviewPanelProps) {
   const { t } = useTranslation();
+  const fileStem = exportFileStem ?? `${stage}-${type}`;
   return (
     <section
       data-testid="diagram-preview-section"
@@ -168,8 +171,8 @@ export function DiagramPreviewPanel({
                 size="sm"
                 className="h-8"
                 onClick={() => {
-                  downloadTextFile(`${stage}-${type}.svg`, normalizedSvgMarkup, "image/svg+xml");
-                  toast.success(t("diagrams.detail.exported", { file: `${type}.svg` }));
+                  downloadTextFile(`${fileStem}.svg`, normalizedSvgMarkup, "image/svg+xml");
+                  toast.success(t("diagrams.detail.exported", { file: `${fileStem}.svg` }));
                 }}
               >
                 <Download className="size-3.5" /> SVG
@@ -182,8 +185,8 @@ export function DiagramPreviewPanel({
               size="sm"
               className="h-8"
               onClick={() => {
-                downloadTextFile(`${stage}-${type}.puml`, plantUmlSource, "text/plain");
-                toast.success(t("diagrams.detail.exported", { file: `${type}.puml` }));
+                downloadTextFile(`${fileStem}.puml`, plantUmlSource, "text/plain");
+                toast.success(t("diagrams.detail.exported", { file: `${fileStem}.puml` }));
               }}
             >
               <Download className="size-3.5" /> PlantUML
@@ -273,7 +276,7 @@ export function DiagramPreviewPanel({
                       focus
                     </span>
                     <Badge variant="secondary" className="font-mono">
-                      {SEMANTIC_KIND_META[highlighted.kind].label}
+                      {semanticElementLabel(highlighted.kind, t)}
                     </Badge>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                       {highlighted.label}
@@ -288,7 +291,7 @@ export function DiagramPreviewPanel({
                       <div className="mt-2 flex flex-col gap-1.5">
                         {highlighted.fields.slice(0, 6).map((field) => (
                           <div key={`${highlighted.id}:focus:${field.label}`}>
-                            <span>{field.label}：</span>
+                            <span>{diagramDetailFieldLabel(field.label, t)}{t("traceability.refSeparator")}</span>
                             <span className="text-foreground">{field.value}</span>
                           </div>
                         ))}
@@ -305,7 +308,7 @@ export function DiagramPreviewPanel({
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="text-xs font-semibold text-foreground">
-                                {section.title}
+                                {diagramDetailFieldLabel(section.title, t)}
                               </div>
                               {section.summary ? (
                                 <Badge variant="secondary" className="text-[10px]">
@@ -321,7 +324,7 @@ export function DiagramPreviewPanel({
                                     className="min-w-0"
                                   >
                                     <span className="text-muted-foreground">
-                                      {field.label}：
+                                      {diagramDetailFieldLabel(field.label, t)}{t("traceability.refSeparator")}
                                     </span>
                                     <span className="break-words text-foreground">
                                       {field.value}
@@ -352,7 +355,7 @@ export function DiagramPreviewPanel({
                                           className="min-w-0"
                                         >
                                           <span className="text-muted-foreground">
-                                            {field.label}：
+                                            {diagramDetailFieldLabel(field.label, t)}{t("traceability.refSeparator")}
                                           </span>
                                           <span className="break-words text-foreground">
                                             {field.value}
@@ -409,7 +412,7 @@ export function DiagramPreviewPanel({
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm text-foreground">
-                          {SEMANTIC_KIND_META[group.kind].label}
+                          {semanticElementLabel(group.kind, t)}
                         </div>
                         <div className="truncate text-xs text-muted-foreground">
                           {group.items.slice(0, 3).map((item) => item.label).join("、") || t("diagrams.detail.noItems")}

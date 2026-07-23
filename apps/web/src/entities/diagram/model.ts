@@ -14,9 +14,14 @@ export const DIAGRAM_META: Record<
   DiagramType,
   { label: string; english: string; description: string }
 > = {
+  context: {
+    label: "上下文图",
+    english: "System Context Diagram",
+    description: "系统边界、人员、外部系统与高层交互",
+  },
   function: {
     label: "功能结构图",
-    english: "Work Breakdown Structure",
+    english: "Functional Structure Diagram",
     description: "功能分解、子功能与依赖关系",
   },
   usecase: {

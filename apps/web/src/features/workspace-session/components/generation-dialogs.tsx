@@ -1,5 +1,6 @@
 // Renders generation result and confirmation dialogs used by the workspace session provider.
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import {
@@ -11,6 +12,7 @@ import {
   DialogTitle,
 } from "../../../shared/ui/dialog";
 import { cn } from "../../../shared/ui/utils";
+import { i18n } from "../../../shared/i18n/i18n";
 import type { GenerationConfirmationSummary } from "../lib/generation-planning";
 
 export type GenerationResultDialogState = {
@@ -32,23 +34,22 @@ export type GenerationConfirmationDialogState =
 
 function sanitizeResultDialogCopy(text: string) {
   const cleaned = text
-    .replace(/\bREQ-\d+\b/giu, "这条需求")
-    .replace(/\bR\d+\b/giu, "这条规则")
-    .replace(/\brun[-_a-z0-9]+\b/giu, "本次运行")
+    .replace(/\bREQ-\d+\b/giu, i18n.t("generation.dialog.thisRequirement"))
+    .replace(/\bR\d+\b/giu, i18n.t("generation.dialog.thisRule"))
+    .replace(/\brun[-_a-z0-9]+\b/giu, i18n.t("generation.dialog.thisRun"))
     .replace(/\b(runId|requirementId|ruleId|EvidencePackage)\b/giu, "")
     .replace(/\.docx\b/giu, "")
-    .replace(/\bAI\b/giu, "智能修复")
-    .replace(/\b[A-Za-z][A-Za-z0-9_.:/-]*\b/gu, "")
+    .replace(/\bAI\b/giu, i18n.t("generation.dialog.smartRepair"))
     .replace(/\s+/g, " ")
     .replace(/\s+([，。；：！？])/g, "$1")
     .replace(/[:：]\s*$/g, "")
     .trim();
-  return cleaned || "技术细节已隐藏，请在当前阶段的问题列表查看详情。";
+  return cleaned || i18n.t("generation.dialog.technicalHidden");
 }
 
 function resultDialogMessage(result: GenerationResultDialogState) {
   if (result.tone === "destructive" && /[A-Za-z]/u.test(result.message)) {
-    return "生成过程中出现问题，请在当前阶段的问题列表查看详情。";
+    return i18n.t("generation.dialog.problem");
   }
   return sanitizeResultDialogCopy(result.message);
 }
@@ -63,13 +64,13 @@ export function completedRunResultMessage({
   const parts: string[] = [];
   if (diagramFailureCount > 0) {
     parts.push(
-      `生成已完成，但有 ${diagramFailureCount} 个模型生成失败，可在当前页面查看错误并重试。`,
+      i18n.t("generation.dialog.completedWithFailures", { count: diagramFailureCount }),
     );
   } else {
-    parts.push("生成完成。");
+    parts.push(i18n.t("generation.dialog.completed"));
   }
   if (qualityHintCount > 0) {
-    parts.push(`另有 ${qualityHintCount} 项质量提示，可在当前页面查看。`);
+    parts.push(i18n.t("generation.dialog.qualityHints", { count: qualityHintCount }));
   }
   return parts.join(" ");
 }
@@ -80,7 +81,7 @@ export function generationResultDialogGroup(
   const tone = result.tone === "destructive" ? "failure" : "completion";
   const runKey = result.runId ? `run:${result.runId}` : "";
   const stageKey = sanitizeResultDialogCopy(
-    result.stageLabel ?? result.title ?? "生成结果",
+    result.stageLabel ?? result.title ?? i18n.t("generation.dialog.result"),
   );
   return `${tone}:${runKey || stageKey}`;
 }
@@ -92,6 +93,7 @@ export function GenerationResultDialog({
   result: GenerationResultDialogState | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const lastResultRef = useRef<GenerationResultDialogState | null>(null);
   if (result) {
     lastResultRef.current = result;
@@ -104,7 +106,7 @@ export function GenerationResultDialog({
   const displayMessage = resultDialogMessage(visibleResult);
   const isFailure = visibleResult.tone === "destructive";
   const Icon = isFailure ? XCircle : CheckCircle2;
-  const iconLabel = isFailure ? "操作失败" : "操作成功";
+  const iconLabel = isFailure ? t("generation.dialog.failure") : t("generation.dialog.success");
 
   return (
     <Dialog open={Boolean(result)} onOpenChange={(open) => !open && onClose()}>
@@ -136,6 +138,12 @@ export function GenerationResultDialog({
           <DialogDescription className="mx-auto mt-2 max-w-[280px] text-center text-[14px] leading-[20px] text-muted-foreground">
             {displayMessage}
           </DialogDescription>
+          {(visibleResult.details?.length ?? 0) > 0 ? (
+            <details className="mt-4 w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-left text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-medium text-foreground">{t("requirements.review.technicalDetails")}</summary>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono">{visibleResult.details?.join("\n")}</pre>
+            </details>
+          ) : null}
         </DialogHeader>
         <DialogFooter className="mt-6 flex-row justify-center gap-3 sm:justify-center">
           <Button
@@ -143,7 +151,7 @@ export function GenerationResultDialog({
             className="h-10 rounded-[8px] px-6 text-[14px] font-normal shadow-sm"
             onClick={onClose}
           >
-            确认
+            {t("common.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -152,12 +160,13 @@ export function GenerationResultDialog({
 }
 
 function SummaryGroup({ label, items }: { label: string; items: string[] }) {
+  const { t } = useTranslation();
   if (items.length === 0) return null;
   return (
     <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left">
       <div className="text-[13px] font-medium text-foreground">{label}</div>
       <div className="mt-1 text-[13px] leading-5 text-muted-foreground">
-        {items.join("、")}
+        {items.join(t("generation.dialog.listSeparator"))}
       </div>
     </div>
   );
@@ -172,6 +181,7 @@ export function GenerationConfirmationDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation();
   if (!confirmation) return null;
 
   return (
@@ -187,30 +197,30 @@ export function GenerationConfirmationDialog({
         </DialogHeader>
         <div className="mt-5 grid gap-3">
           <SummaryGroup
-            label="需求规则补齐"
+            label={t("generation.dialog.groups.rules")}
             items={confirmation.ruleDependencyLabels ?? []}
           />
           <SummaryGroup
-            label="需求模型补齐/更新"
+            label={t("generation.dialog.groups.requirements")}
             items={confirmation.requirementDependencyLabels ?? []}
           />
-          <SummaryGroup label="新生成" items={confirmation.newLabels} />
+          <SummaryGroup label={t("generation.dialog.groups.new")} items={confirmation.newLabels} />
           <SummaryGroup
-            label="重新生成"
+            label={t("generation.dialog.groups.regenerated")}
             items={confirmation.regeneratedLabels}
           />
           <SummaryGroup
-            label="设计依赖补齐"
+            label={t("generation.dialog.groups.designDependencies")}
             items={confirmation.dependencyLabels}
           />
-          <SummaryGroup label="保留不变" items={confirmation.keptLabels} />
+          <SummaryGroup label={t("generation.dialog.groups.kept")} items={confirmation.keptLabels} />
           {(confirmation.ruleDependencyLabels?.length ?? 0) === 0 &&
             (confirmation.requirementDependencyLabels?.length ?? 0) === 0 &&
             confirmation.newLabels.length === 0 &&
             confirmation.regeneratedLabels.length === 0 &&
             confirmation.dependencyLabels.length === 0 && (
               <div className="rounded-[8px] border border-border bg-muted/40 p-3 text-left text-[13px] leading-5 text-muted-foreground">
-                本次没有需要生成的模型。
+                {t("generation.dialog.noModels")}
               </div>
             )}
         </div>
@@ -221,14 +231,14 @@ export function GenerationConfirmationDialog({
             className="h-10 rounded-[8px] px-6 text-[14px] font-normal text-muted-foreground hover:bg-muted/60"
             onClick={onCancel}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
             className="h-10 rounded-[8px] px-6 text-[14px] font-normal shadow-sm"
             onClick={onConfirm}
           >
-            确认生成
+            {t("generation.dialog.confirmGeneration")}
           </Button>
         </DialogFooter>
       </DialogContent>

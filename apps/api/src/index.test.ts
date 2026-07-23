@@ -17,6 +17,12 @@ import { createProviderConfigStore } from "./provider-configs/provider-config-st
 import { createRunRecordStore } from "./runs/records/run-record-store.js";
 import { buildRequirementBaseline } from "./runs/baselines/requirement-baseline.js";
 
+function assertApiErrorCode(response: { json(): unknown }, code: string) {
+  const body = response.json() as { error?: { code?: string; retryable?: boolean } };
+  assert.equal(body.error?.code, code);
+  assert.equal(typeof body.error?.retryable, "boolean");
+}
+
 // Most index tests exercise pipeline behavior through a synthetic authenticated
 // project context without browser sessions.
 
@@ -4369,7 +4375,7 @@ test("api rejects legacy anonymous document workspace runs", async () => {
       },
     });
     assert.equal(startResponse.statusCode, 401);
-    assert.match(startResponse.json().message, /Authentication required/);
+    assertApiErrorCode(startResponse, "AUTHENTICATION_REQUIRED");
   } finally {
     if (originalDocumentServerUrl === undefined) {
       delete process.env.ONLYOFFICE_DOCUMENT_SERVER_URL;
@@ -4584,7 +4590,7 @@ test("api document run rejects exports before the required models exist", async 
     },
   });
   assert.equal(requirementsResponse.statusCode, 400);
-  assert.match(requirementsResponse.json().message, /需求页生成需求模型/);
+  assertApiErrorCode(requirementsResponse, "VALIDATION_FAILED");
 
   const designResponse = await app.inject({
     method: "POST",
@@ -4599,7 +4605,7 @@ test("api document run rejects exports before the required models exist", async 
     },
   });
   assert.equal(designResponse.statusCode, 400);
-  assert.match(designResponse.json().message, /设计页生成设计模型/);
+  assertApiErrorCode(designResponse, "VALIDATION_FAILED");
 
   await app.close();
 });
@@ -5496,7 +5502,7 @@ test("api reports empty JSON request bodies as 400 instead of 500", async () => 
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.json().message, /body cannot be empty/i);
+  assertApiErrorCode(response, "VALIDATION_FAILED");
 
   await app.close();
 });
@@ -5760,7 +5766,7 @@ test("api rejects anonymous manual PlantUML render requests", async () => {
   });
 
   assert.equal(response.statusCode, 401);
-  assert.match(response.body, /请先登录并进入项目|login/i);
+  assertApiErrorCode(response, "AUTHENTICATION_REQUIRED");
 
   await app.close();
 });
@@ -5805,7 +5811,7 @@ test("api reports manual PlantUML render failures clearly", async () => {
   });
 
   assert.equal(response.statusCode, 400);
-  assert.match(response.body, /Syntax Error/);
+  assertApiErrorCode(response, "VALIDATION_FAILED");
 
   await app.close();
 });
@@ -5898,7 +5904,7 @@ test("api rejects plaintext provider connection tests by default", async () => {
 
     assert.equal(response.statusCode, 403);
     assert.equal(fetchCalls, 0);
-    assert.match(response.body, /managed Provider/i);
+    assertApiErrorCode(response, "ACCESS_DENIED");
 
     await app.close();
   } finally {
@@ -5971,7 +5977,7 @@ test("api rejects plaintext provider connection tests in production", async () =
 
     assert.equal(response.statusCode, 403);
     assert.equal(fetchCalls, 0);
-    assert.match(response.body, /managed Provider/i);
+    assertApiErrorCode(response, "ACCESS_DENIED");
 
     await app.close();
   } finally {
@@ -6517,7 +6523,7 @@ test("api uploads and serves account avatar files", async () => {
       },
     });
     assert.equal(insecureProfileUpdate.statusCode, 400);
-    assert.match(insecureProfileUpdate.json().message, /HTTPS/u);
+    assertApiErrorCode(insecureProfileUpdate, "VALIDATION_FAILED");
 
     const invalidType = await app.inject({
       method: "POST",
@@ -6550,7 +6556,7 @@ test("api uploads and serves account avatar files", async () => {
       }),
     });
     assert.equal(corruptPng.statusCode, 400);
-    assert.match(corruptPng.json().message, /image type/i);
+    assertApiErrorCode(corruptPng, "VALIDATION_FAILED");
 
     const tooLarge = await app.inject({
       method: "POST",

@@ -1,5 +1,7 @@
 // Owns project run history filtering, actions, snapshot restore, and document download flows.
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Download, RotateCw, Trash2 } from "lucide-react";
 import { Badge } from "../../../shared/ui/badge";
 import { Button } from "../../../shared/ui/button";
@@ -25,18 +27,20 @@ import {
   type PlatformProjectMember,
   type PlatformRunSummary,
 } from "../services/platform-api";
+import { useAppI18n } from "../../../shared/i18n/i18n-provider";
+import { localizeApiFailure } from "../../../shared/i18n/api-errors";
 
-function runActionLabel(action?: string | null) {
-  if (action === "retry") return "重试";
-  if (action === "rerun") return "重新运行";
-  return "派生运行";
+function runActionLabel(action: string | null | undefined, t: TFunction) {
+  if (action === "retry") return t("projectShell.historyUi.retry");
+  if (action === "rerun") return t("projectShell.historyUi.rerun");
+  return t("projectShell.historyUi.derived");
 }
 
-function runRelationText(run: PlatformRunSummary) {
+function runRelationText(run: PlatformRunSummary, t: TFunction) {
   const parts = [
-    run.sourceRunId ? `${runActionLabel(run.sourceAction)}自 ${run.sourceRunId}` : null,
+    run.sourceRunId ? t("projectShell.historyUi.relationSource", { action: runActionLabel(run.sourceAction, t), runId: run.sourceRunId }) : null,
     run.latestActionRunId
-      ? `已${runActionLabel(run.latestAction)}为 ${run.latestActionRunId}`
+      ? t("projectShell.historyUi.relationDerived", { action: runActionLabel(run.latestAction, t), runId: run.latestActionRunId })
       : null,
   ].filter(Boolean);
   return parts.join(" · ");
@@ -53,6 +57,8 @@ export function ProjectHistory({
   members: PlatformProjectMember[];
   layout?: "page" | "drawer";
 }) {
+  const { t } = useTranslation();
+  const { locale } = useAppI18n();
   const [runs, setRuns] = useState(initialRuns);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -90,10 +96,10 @@ export function ProjectHistory({
           run.runId === runId ? { ...run, ...nextRun } : run,
         ),
       );
-      setMessage("任务已取消。");
+      setMessage(t("projectShell.historyUi.cancelled"));
     } catch (cancelError) {
       setError(
-        cancelError instanceof Error ? cancelError.message : "取消运行失败。",
+        cancelError instanceof Error ? cancelError.message : t("projectShell.historyUi.cancelFailed"),
       );
     }
   };
@@ -149,14 +155,14 @@ export function ProjectHistory({
           ),
         );
       }
-      setMessage("已重新排队，稍后启动。");
+      setMessage(t("projectShell.historyUi.requeued"));
     } catch (actionError) {
       setError(
         actionError instanceof Error
           ? actionError.message
           : action === "retry"
-            ? "重试运行失败。"
-            : "重新运行失败。",
+            ? t("projectShell.historyUi.retryFailed")
+            : t("projectShell.historyUi.rerunFailed"),
       );
     }
   };
@@ -166,12 +172,12 @@ export function ProjectHistory({
     setError("");
     try {
       await restoreRunHistory(runId);
-      setMessage("已恢复工作台快照。");
+      setMessage(t("projectShell.historyUi.restored"));
     } catch (restoreError) {
       setError(
         restoreError instanceof Error
           ? restoreError.message
-          : "恢复工作台快照失败。",
+          : t("projectShell.historyUi.restoreFailed"),
       );
     }
   };
@@ -180,7 +186,7 @@ export function ProjectHistory({
     const historyItem = historyItems.find((item) => item.id === runId);
     const run = runs.find((item) => item.runId === runId);
     if (!repository.downloadDocumentRun) {
-      setError("当前仓储不支持重新下载说明书。");
+      setError(t("projectShell.historyUi.downloadUnsupported"));
       return;
     }
     try {
@@ -193,12 +199,12 @@ export function ProjectHistory({
           : undefined),
       );
       downloadBlobFile(downloaded.fileName, downloaded.blob);
-      setMessage(`已重新下载 ${downloaded.fileName}。`);
+      setMessage(t("projectShell.historyUi.downloaded", { file: downloaded.fileName }));
     } catch (downloadError) {
       setError(
         downloadError instanceof Error
           ? downloadError.message
-          : "重新下载说明书失败。",
+          : t("projectShell.historyUi.downloadFailed"),
       );
     }
   };
@@ -210,10 +216,10 @@ export function ProjectHistory({
       await platformApi.deleteProjectRun(projectId, runId);
       await deleteRunHistory(runId).catch(() => []);
       setRuns((current) => current.filter((run) => run.runId !== runId));
-      setMessage("已删除运行记录。");
+      setMessage(t("projectShell.historyUi.deleted"));
     } catch (deleteError) {
       setError(
-        deleteError instanceof Error ? deleteError.message : "删除运行历史失败。",
+        deleteError instanceof Error ? deleteError.message : t("projectShell.historyUi.deleteFailed"),
       );
     }
   };
@@ -227,10 +233,10 @@ export function ProjectHistory({
         refreshHistory().catch(() => undefined),
       ]);
       setRuns(runResponse.runs ?? []);
-      setMessage("运行历史已刷新。");
+      setMessage(t("projectShell.historyUi.refreshed"));
     } catch (refreshError) {
       setError(
-        refreshError instanceof Error ? refreshError.message : "刷新运行历史失败。",
+        refreshError instanceof Error ? refreshError.message : t("projectShell.historyUi.refreshFailed"),
       );
     }
   };
@@ -289,7 +295,12 @@ export function ProjectHistory({
       run.status === "cancelled" ||
       run.status === "interrupted";
     const documentRun = getProjectRunKind(run) === "document" || Boolean(hasDocumentSnapshot);
-    const canUseSnapshot = !documentRun && (hasSnapshot || run.canRestore) && !running;
+    const feasibilityRun = getProjectRunKind(run) === "feasibility";
+    const canUseSnapshot =
+      !documentRun &&
+      !feasibilityRun &&
+      (hasSnapshot || run.canRestore) &&
+      !running;
     const canDownloadDocument =
       run.status === "completed" &&
       run.documentDownloadAvailable !== false &&
@@ -307,7 +318,7 @@ export function ProjectHistory({
             {...buttonSizeProps}
             onClick={() => void cancelRun(run.runId)}
           >
-            取消任务
+            {t("projectShell.historyUi.cancel")}
           </Button>
         )}
         {!running && run.errorMessage && (
@@ -317,7 +328,7 @@ export function ProjectHistory({
             {...buttonSizeProps}
             onClick={() => setSelectedErrorRunId(run.runId)}
           >
-            查看错误
+            {t("projectShell.historyUi.viewError")}
           </Button>
         )}
         {!running && retryable && (
@@ -327,7 +338,7 @@ export function ProjectHistory({
             {...buttonSizeProps}
             onClick={() => void runAction(run.runId, "retry")}
           >
-            重试
+            {t("projectShell.historyUi.retry")}
           </Button>
         )}
         {canRerun && (
@@ -337,7 +348,7 @@ export function ProjectHistory({
             {...buttonSizeProps}
             onClick={() => void runAction(run.runId, "rerun")}
           >
-            重新运行
+            {t("projectShell.historyUi.rerun")}
           </Button>
         )}
         {canUseSnapshot && (
@@ -348,7 +359,7 @@ export function ProjectHistory({
             onClick={() => void restoreSnapshot(run.runId)}
           >
             {withIcons && <RotateCw className="size-3.5" />}
-            恢复快照
+            {t("projectShell.historyUi.restore")}
           </Button>
         )}
         {canDownloadDocument && (
@@ -359,7 +370,7 @@ export function ProjectHistory({
             onClick={() => void downloadDocumentRun(run.runId)}
           >
             {withIcons && <Download className="size-3.5" />}
-            重新下载
+            {t("projectShell.historyUi.download")}
           </Button>
         )}
         {canDelete && (
@@ -371,7 +382,7 @@ export function ProjectHistory({
             onClick={() => void deleteRun(run.runId)}
           >
             {withIcons && <Trash2 className="size-3.5" />}
-            删除记录
+            {t("projectShell.historyUi.delete")}
           </Button>
         )}
       </div>
@@ -393,21 +404,22 @@ export function ProjectHistory({
       ),
     )[0];
     const stageChips: Array<[string, string]> = [
-      ["all", "全部"],
-      ["requirements", "需求分析"],
-      ["design", "模型生成"],
-      ["code", "代码构建"],
-      ["document", "说明书"],
+      ["all", t("projectShell.historyUi.all")],
+      ["requirements", t("projectShell.historyUi.requirements")],
+      ["feasibility", t("projectShell.historyUi.feasibility")],
+      ["design", t("projectShell.historyUi.models")],
+      ["code", t("projectShell.historyUi.code")],
+      ["document", t("projectShell.historyUi.documents")],
     ];
 
     return (
       <div className="grid min-h-full grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-4">
         <div className="grid grid-cols-4 gap-2">
           {[
-            ["总计", runs.length],
-            ["运行中", runningCount],
-            ["失败", failedCount],
-            ["最近", latestRun ? formatDateTime(getProjectRunDisplayTime(latestRun) ?? "") : "暂无"],
+            [t("projectShell.historyUi.total"), runs.length],
+            [t("projectShell.historyUi.running"), runningCount],
+            [t("projectShell.historyUi.failed"), failedCount],
+            [t("projectShell.historyUi.latest"), latestRun ? formatDateTime(getProjectRunDisplayTime(latestRun) ?? "", locale) : t("projectShell.historyUi.none")],
           ].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-border/60 bg-muted/60 px-2.5 py-2 shadow-sm">
               <div className="truncate font-mono text-[11px] leading-4 text-muted-foreground">{label}</div>
@@ -433,25 +445,25 @@ export function ProjectHistory({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <SelectControl
-              aria-label="筛选状态"
+              aria-label={t("projectShell.historyUi.statusFilter")}
               value={statusFilter}
               onValueChange={setStatusFilter}
               className="h-9 text-xs"
               options={[
-                { value: "all", label: "全部状态" },
+                { value: "all", label: t("projectShell.historyUi.allStatuses") },
                 ...statuses.map((status) => ({
                   value: status,
-                  label: getProjectRunStatusLabel(status),
+                  label: getProjectRunStatusLabel(status, t),
                 })),
               ]}
             />
             <SelectControl
-              aria-label="筛选模型"
+              aria-label={t("projectShell.historyUi.modelFilter")}
               value={modelFilter}
               onValueChange={setModelFilter}
               className="h-9 text-xs"
               options={[
-                { value: "all", label: "全部模型" },
+                { value: "all", label: t("projectShell.historyUi.allModels") },
                 ...models.map((model) => ({
                   value: model,
                   label: model,
@@ -470,8 +482,8 @@ export function ProjectHistory({
                 Boolean(run.documentDownloadAvailable) ||
                 Boolean(historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot));
               const running = run.status === "running" || run.status === "queued";
-              const stageLabel = getProjectRunStageLabel(run);
-              const statusLabel = getProjectRunStatusLabel(run.status);
+              const stageLabel = getProjectRunStageLabel(run, t);
+              const statusLabel = getProjectRunStatusLabel(run.status, t);
               const displayTime = getProjectRunDisplayTime(run);
               const operatorLabel = getProjectRunOperatorLabel(run, members);
               const statusClasses = getProjectRunStatusClasses(run.status);
@@ -495,16 +507,16 @@ export function ProjectHistory({
                         </div>
                       </div>
                       <span className="shrink-0 font-mono text-[11px] leading-4 text-muted-foreground">
-                        {displayTime ? formatDateTime(displayTime) : "暂无时间"}
+                        {displayTime ? formatDateTime(displayTime, locale) : t("generation.stages.waiting")}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      <span>模型 {getProjectRunModelLabel(run)}</span>
-                      <span>操作者 {operatorLabel}</span>
+                      <span>{t("projectShell.historyUi.model", { model: getProjectRunModelLabel(run) })}</span>
+                      <span>{t("projectShell.historyUi.operator", { operator: operatorLabel })}</span>
                     </div>
-                    {runRelationText(run) && (
-                      <div className="truncate text-xs text-muted-foreground" title={runRelationText(run)}>
-                        {runRelationText(run)}
+                    {runRelationText(run, t) && (
+                      <div className="truncate text-xs text-muted-foreground" title={runRelationText(run, t)}>
+                        {runRelationText(run, t)}
                       </div>
                     )}
                     {running && (
@@ -514,13 +526,17 @@ export function ProjectHistory({
                     )}
                     {index === 0 && (
                       <div className="rounded-md border border-border/70 bg-muted/50 p-3 text-xs text-muted-foreground">
-                        <div>阶段：{stageLabel}</div>
-                        <div>更新时间：{displayTime ? formatDateTime(displayTime) : "暂无时间"}</div>
+                        <div>{t("projectShell.historyUi.stage", { stage: stageLabel })}</div>
+                        <div>{t("projectShell.historyUi.updated", { time: displayTime ? formatDateTime(displayTime, locale) : t("projectShell.historyUi.noTime") })}</div>
                       </div>
                     )}
                     {run.errorMessage && selectedErrorRunId === run.runId && (
-                      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                        {run.errorMessage}
+                      <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                        <div>{localizeApiFailure(run.error ? { error: run.error } : null, 500)}</div>
+                        <details className="text-muted-foreground">
+                          <summary className="cursor-pointer font-medium text-foreground">{t("projectShell.historyUi.technicalDetails")}</summary>
+                          <pre className="mt-2 whitespace-pre-wrap break-words font-mono">{run.errorMessage}</pre>
+                        </details>
                       </div>
                     )}
                     {renderRunActions({
@@ -534,10 +550,10 @@ export function ProjectHistory({
               );
             })}
             {runs.length === 0 && (
-              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">暂无运行历史。</div>
+              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">{t("projectShell.historyUi.empty")}</div>
             )}
             {runs.length > 0 && filteredRuns.length === 0 && (
-              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">没有匹配的运行历史。</div>
+              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">{t("projectShell.historyUi.noMatches")}</div>
             )}
           </div>
         </div>
@@ -545,7 +561,7 @@ export function ProjectHistory({
         <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-2 border-t border-border/60 bg-card/90 px-6 py-4 backdrop-blur-md">
           <Button type="button" variant="outline" size="sm" onClick={() => void refreshRuns()}>
             <RotateCw className="size-4" />
-            刷新历史
+            {t("projectShell.historyUi.refresh")}
           </Button>
         </div>
         {(message || error) && (
@@ -561,12 +577,12 @@ export function ProjectHistory({
     <section className={`rounded-md border border-border bg-card p-5 ${sectionClass}`}>
       <div className={filterClass}>
         <SelectControl
-          aria-label="筛选阶段"
+          aria-label={t("projectShell.historyUi.stageFilter")}
           value={stageFilter}
           onValueChange={setStageFilter}
           className="h-9"
           options={[
-            { value: "all", label: "全部阶段" },
+            { value: "all", label: t("projectShell.historyUi.allStages") },
             ...stages.map((stage) => ({
               value: stage,
               label: stage,
@@ -574,25 +590,25 @@ export function ProjectHistory({
           ]}
         />
         <SelectControl
-          aria-label="筛选状态"
+          aria-label={t("projectShell.historyUi.statusFilter")}
           value={statusFilter}
           onValueChange={setStatusFilter}
           className="h-9"
           options={[
-            { value: "all", label: "全部状态" },
+            { value: "all", label: t("projectShell.historyUi.allStatuses") },
             ...statuses.map((status) => ({
               value: status,
-              label: getProjectRunStatusLabel(status),
+              label: getProjectRunStatusLabel(status, t),
             })),
           ]}
         />
         <SelectControl
-          aria-label="筛选模型"
+          aria-label={t("projectShell.historyUi.modelFilter")}
           value={modelFilter}
           onValueChange={setModelFilter}
           className="h-9"
           options={[
-            { value: "all", label: "全部模型" },
+            { value: "all", label: t("projectShell.historyUi.allModels") },
             ...models.map((model) => ({
               value: model,
               label: model,
@@ -600,14 +616,14 @@ export function ProjectHistory({
           ]}
         />
         <Input
-          placeholder="操作者"
-          aria-label="筛选操作者"
+          placeholder={t("projectShell.historyUi.operatorPlaceholder")}
+          aria-label={t("projectShell.historyUi.operatorFilter")}
           value={operatorFilter}
           onChange={(event) => setOperatorFilter(event.target.value)}
         />
         <Input
-          placeholder="时间"
-          aria-label="筛选时间"
+          placeholder={t("projectShell.historyUi.timePlaceholder")}
+          aria-label={t("projectShell.historyUi.timeFilter")}
           value={timeFilter}
           onChange={(event) => setTimeFilter(event.target.value)}
         />
@@ -619,17 +635,17 @@ export function ProjectHistory({
           const hasDocumentSnapshot =
             Boolean(run.documentDownloadAvailable) ||
             Boolean(historyItem?.snapshot && isDocumentRunSnapshot(historyItem.snapshot));
-          const stageLabel = getProjectRunStageLabel(run);
-          const statusLabel = getProjectRunStatusLabel(run.status);
+          const stageLabel = getProjectRunStageLabel(run, t);
+          const statusLabel = getProjectRunStatusLabel(run.status, t);
           const statusClasses = getProjectRunStatusClasses(run.status);
           return (
             <div key={run.runId} className="grid gap-2 border-b border-border p-4 last:border-b-0 md:grid-cols-[minmax(0,1.2fr)_1fr_1fr_1fr_auto]">
               <div className="contents">
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{stageLabel}</span>
-                  {runRelationText(run) && (
-                    <span className="block truncate text-xs text-muted-foreground" title={runRelationText(run)}>
-                      {runRelationText(run)}
+                  {runRelationText(run, t) && (
+                    <span className="block truncate text-xs text-muted-foreground" title={runRelationText(run, t)}>
+                      {runRelationText(run, t)}
                     </span>
                   )}
                 </span>
@@ -649,15 +665,23 @@ export function ProjectHistory({
           );
         })}
         {runs.length === 0 && (
-          <div className="p-4 text-sm text-muted-foreground">暂无运行历史。</div>
+          <div className="p-4 text-sm text-muted-foreground">{t("projectShell.historyUi.empty")}</div>
         )}
         {runs.length > 0 && filteredRuns.length === 0 && (
-          <div className="p-4 text-sm text-muted-foreground">没有匹配的运行历史。</div>
+          <div className="p-4 text-sm text-muted-foreground">{t("projectShell.historyUi.noMatches")}</div>
         )}
       </div>
       {selectedErrorRun && (
-        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          {selectedErrorRun.errorMessage ?? "该运行没有错误详情。"}
+        <div className="mt-4 grid gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <div>{selectedErrorRun.error || selectedErrorRun.errorMessage
+            ? localizeApiFailure(selectedErrorRun.error ? { error: selectedErrorRun.error } : null, 500)
+            : t("errors.http.unknown")}</div>
+          {selectedErrorRun.errorMessage ? (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-medium text-foreground">{t("projectShell.historyUi.technicalDetails")}</summary>
+              <pre className="mt-2 whitespace-pre-wrap break-words font-mono">{selectedErrorRun.errorMessage}</pre>
+            </details>
+          ) : null}
         </div>
       )}
       {(message || error) && (

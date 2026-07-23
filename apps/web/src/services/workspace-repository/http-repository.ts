@@ -7,6 +7,7 @@ import type {
   RequirementBaseline,
   RunEvent,
   SvgArtifact,
+  FeasibilityRunSnapshot,
 } from "@uml-platform/contracts";
 import {
   getRequirementModelId,
@@ -25,6 +26,7 @@ import type {
   StartCodeRunInput,
   StartDesignRunInput,
   StartDocumentRunInput,
+  StartFeasibilityRunInput,
   StartRunInput,
 } from "./start-inputs";
 import {
@@ -48,6 +50,7 @@ import {
   subscribeToCodeRunEvents,
   subscribeToDesignRunEvents,
   subscribeToDocumentRunEvents,
+  subscribeToFeasibilityRunEvents,
   subscribeToRequirementRunEvents,
 } from "./run-subscriptions";
 import {
@@ -432,6 +435,43 @@ export function createHttpWorkspaceRepository(
       if (typeof metadata?.rulesVersion === "number") {
         localRulesVersion = metadata.rulesVersion;
       }
+    },
+
+    async updateFeasibility(patch) {
+      await updateProjectWorkspace((current) => {
+        if (patch.inputs !== undefined) current.feasibilityInputs = patch.inputs;
+        if (patch.contextModel !== undefined) current.feasibilityContextModel = patch.contextModel;
+        if (patch.contextTraceability !== undefined) current.feasibilityContextTraceability = patch.contextTraceability;
+        if (patch.contextPlantUml !== undefined) current.feasibilityContextPlantUml = patch.contextPlantUml;
+        if (patch.contextSvg !== undefined) current.feasibilityContextSvg = patch.contextSvg;
+        if (patch.contextFingerprint !== undefined) current.feasibilityContextFingerprint = patch.contextFingerprint;
+        if (patch.implementationPlan !== undefined) current.feasibilityImplementationPlan = patch.implementationPlan;
+        if (patch.implementationFingerprint !== undefined) current.feasibilityImplementationFingerprint = patch.implementationFingerprint;
+      });
+    },
+
+    async startFeasibilityRun(input: StartFeasibilityRunInput) {
+      await waitForProjectWorkspaceSaves();
+      const scopedProjectId = requireProjectScope(projectId);
+      return requestJson<{ runId: string }>("/api/feasibility-runs", withProjectHeaders(scopedProjectId, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: scopedProjectId, ...input }),
+        errorMessage: "启动可行性分析失败",
+      }));
+    },
+
+    async getFeasibilityRunSnapshot(runId) {
+      return requestJson<FeasibilityRunSnapshot>(`/api/feasibility-runs/${encodeURIComponent(runId)}`, withProjectHeaders(requireProjectScope(projectId), {
+        errorMessage: "读取可行性分析快照失败",
+      }));
+    },
+
+    async subscribeToFeasibilityRun(
+      runId: string,
+      onEvent: (event: RunEvent) => void,
+    ) {
+      await subscribeToFeasibilityRunEvents({ runId, projectId, onEvent });
     },
 
     async updateRequirementBaseline(baseline: RequirementBaseline) {

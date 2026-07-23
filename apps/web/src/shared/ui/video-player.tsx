@@ -1,6 +1,8 @@
 // Provides a lightweight, accessible wrapper around native MP4 playback.
 import type { VideoHTMLAttributes } from "react";
 import { Film, Info } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { i18n as appI18n } from "../i18n";
 import { cn } from "./utils";
 
 type VideoPlayerProps = Omit<VideoHTMLAttributes<HTMLVideoElement>, "src"> & {
@@ -21,6 +23,10 @@ export function VideoPlayer({
   mediaClassName,
   ...props
 }: VideoPlayerProps) {
+  const translation = useTranslation();
+  const t = translation.i18n.exists("media.video.notConfigured")
+    ? translation.t
+    : appI18n.t.bind(appI18n);
   const videoSrc = src?.trim();
 
   return (
@@ -39,7 +45,7 @@ export function VideoPlayer({
             {...props}
           >
             <source src={videoSrc} type="video/mp4" />
-            你的浏览器不支持在线播放视频。
+            {t("media.video.unsupported")}
           </video>
         ) : (
           <div
@@ -49,9 +55,9 @@ export function VideoPlayer({
             <span className="inline-flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Film className="size-5" />
             </span>
-            <span className="font-medium text-foreground">视频地址未配置</span>
+            <span className="font-medium text-foreground">{t("media.video.notConfigured")}</span>
             <span className="max-w-md leading-6">
-              请检查对应的 VITE 视频 URL 配置，或确认 OSS 文件已提供长期可访问地址。
+              {t("media.video.configurationHint")}
             </span>
           </div>
         )}
@@ -61,7 +67,7 @@ export function VideoPlayer({
           <Info className="mt-0.5 size-3.5 shrink-0 text-primary" />
           <span>
             {caption}
-            {caption && description ? "：" : ""}
+            {caption && description ? t("media.captionSeparator") : ""}
             {description}
           </span>
         </figcaption>

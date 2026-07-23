@@ -1696,7 +1696,7 @@ describe("App shell routes", () => {
     });
     await user.click(button);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("案例项目创建失败");
+    expect(await screen.findByRole("alert")).toHaveTextContent("服务暂时不可用，请稍后重试。");
     expect(screen.getAllByRole("button", { name: "查看案例" })[0]).toBeEnabled();
     expect(window.location.pathname).toBe("/cases");
   });
@@ -3079,7 +3079,7 @@ describe("App shell routes", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "关闭 requirements.docx" })).not.toBeInTheDocument();
     });
-    expect(await screen.findByRole("button", { name: "关闭 需求" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "关闭 系统需求" })).toBeInTheDocument();
     expect(
       requestedPaths.some((path) =>
         path.includes("/api/projects/next-project/documents/doc-1/editor-config"),
@@ -3918,7 +3918,7 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
     await waitForPlatformLoadingToExit();
-    expect(await screen.findByRole("heading", { name: "需求分析提取" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "系统需求" })).toBeInTheDocument();
     await waitFor(() => {
       expect(loadUserSettings().providerModelOptions).toEqual([
         "qwen3.7-plus",
@@ -3938,7 +3938,7 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
     await waitForPlatformLoadingToExit();
-    expect(await screen.findByRole("heading", { name: "需求分析提取" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "系统需求" })).toBeInTheDocument();
     expect(loadUserSettings().providerConfigId).toBe("");
     expect(screen.getAllByRole("button", { name: "未选择模型" }).length).toBeGreaterThan(0);
   });
@@ -3963,7 +3963,7 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
 
     await waitForPlatformLoadingToExit();
-    expect(await screen.findByRole("heading", { name: "需求分析提取" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "系统需求" })).toBeInTheDocument();
     await waitFor(() => {
       expect(loadUserSettings()).toMatchObject({
         providerConfigId: "",
@@ -4018,7 +4018,7 @@ describe("App shell routes", () => {
     };
 
     let { accountDialog } = await openProfileDialog();
-    expect(await within(accountDialog).findByAltText("头像预览")).toHaveAttribute("src", "https://cdn.example.edu/avatar.png");
+    expect(await within(accountDialog).findByAltText("头像图片")).toHaveAttribute("src", "https://cdn.example.edu/avatar.png");
     expect(screen.queryByLabelText("头像 URL")).not.toBeInTheDocument();
     if (!screen.queryByRole("button", { name: "保存资料" })) {
       ({ accountDialog } = await openProfileDialog());

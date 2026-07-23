@@ -1,5 +1,6 @@
 // Renders design-stage model generation controls, selection state, and requirement-to-design trace summaries.
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DiagramModelSpec } from "@uml-platform/contracts";
 import {
   Activity,
@@ -34,6 +35,9 @@ import {
   DESIGN_DIAGRAM_ORDER,
   DIAGRAM_META,
   DIAGRAM_ORDER,
+  getDesignDiagramDescription,
+  getDesignDiagramLabel,
+  getDiagramLabel,
   getDesignModelId,
   type DesignDiagramType,
   type DiagramType,
@@ -72,18 +76,23 @@ const DESIGN_SOURCE_MAP: Record<DesignDiagramType, DesignSourceKey> = {
   table: "design-class",
 };
 
-const DESIGN_SOURCE_COPY: Record<DesignDiagramType, string> = {
-  architecture: "需求阶段功能结构图 + 需求规则",
-  sequence: "需求阶段用例模型事件流 + 需求分析模型",
-  activity: "需求阶段原型界面关系 + 设计阶段用例实现设计",
-  class: "需求阶段领域概念模型 + 设计阶段用例实现设计",
-  component: "设计阶段设计类图",
-  deployment: "需求阶段部署需求模型 + 设计阶段组件（构件）关系",
-  table: "设计阶段设计类图",
-};
-
 const SEQUENCE_COVERAGE_BLOCK_REASON =
   "已有用例实现设计覆盖不足，请先手动更新用例实现设计";
+
+function localizeDesignBlockReason(reason: string, t: ReturnType<typeof useTranslation>["t"]) {
+  if (reason === "需求阶段用例模型没有可生成用例实现设计的用例") {
+    return t("designPage.blocked.noUseCases");
+  }
+  const staleSource = /^已有需求阶段(.+)基于旧规则，请先回到需求页更新$/u.exec(reason);
+  if (staleSource?.[1]) {
+    const diagram = DIAGRAM_ORDER.find((item) => DIAGRAM_META[item].label === staleSource[1]);
+    return t("designPage.blocked.staleSource", {
+      label: diagram ? getDiagramLabel(diagram, t) : staleSource[1],
+    });
+  }
+  if (reason === SEQUENCE_COVERAGE_BLOCK_REASON) return t("designPage.blocked.sequenceCoverage");
+  return t("designPage.blocked.requirements");
+}
 
 const DESIGN_DIAGRAM_ICON = {
   architecture: BookOpen,
@@ -96,6 +105,7 @@ const DESIGN_DIAGRAM_ICON = {
 } satisfies Record<DesignDiagramType, typeof GitBranch>;
 
 const REQUIREMENT_SOURCE_ICON = {
+  context: Network,
   function: BookOpen,
   usecase: Network,
   activity: Activity,
@@ -233,6 +243,7 @@ function stageRepairCopy(text: string) {
 }
 
 export function DesignModelPage() {
+  const { t } = useTranslation();
   const {
     models,
     selectedDesignDiagrams,
@@ -277,6 +288,7 @@ export function DesignModelPage() {
           ? models.usecase.useCases
           : [];
       return {
+        context: Boolean(models.context),
         function: Boolean(models.function),
         usecase: Boolean(models.usecase),
         activity: Boolean(models.activity),
@@ -293,22 +305,22 @@ export function DesignModelPage() {
     () =>
       (["function", "usecase", "class", "activity", "prototype", "deployment", "analysis"] as DiagramType[])
         .filter((diagram) => sourceStatus[diagram] && staleDiagrams.includes(diagram))
-        .map((diagram) => DIAGRAM_META[diagram].label),
-    [sourceStatus, staleDiagrams],
+        .map((diagram) => getDiagramLabel(diagram, t)),
+    [sourceStatus, staleDiagrams, t],
   );
   const missingRequirementSourceLabels = useMemo(
     () =>
       (["function", "usecase", "class", "activity", "prototype", "deployment", "analysis"] as DiagramType[])
         .filter((diagram) => !sourceStatus[diagram])
-        .map((diagram) => DIAGRAM_META[diagram].label),
-    [sourceStatus],
+        .map((diagram) => getDiagramLabel(diagram, t)),
+    [sourceStatus, t],
   );
   const requirementDependencyGuideText =
     staleRequirementSourceLabels.length > 0
-      ? `设计生成依赖最新的需求模型。请先回到「需求阶段」更新${staleRequirementSourceLabels.join("、")}。`
+      ? t("designPage.guide.staleDependencies", { labels: staleRequirementSourceLabels.join(t("traceability.refSeparator")) })
       : missingRequirementSourceLabels.length > 0
-        ? `设计生成依赖完整的需求模型。请先前往「需求阶段」完成${missingRequirementSourceLabels.join("、")}。`
-        : "设计生成会使用已完成的需求模型和设计阶段上游模型。";
+        ? t("designPage.guide.missingDependencies", { labels: missingRequirementSourceLabels.join(t("traceability.refSeparator")) })
+        : t("designPage.guide.readyDependencies");
 
   const selectableDesignDiagramSet = useMemo(
     () =>
@@ -419,6 +431,9 @@ export function DesignModelPage() {
     isSequenceCoverageBlock && Boolean(viewableSequenceModel);
   const showRequirementUpdateAction =
     Boolean(visibleGenerationBlockReason) && !isSequenceCoverageBlock;
+  const localizedGenerationBlockReason = visibleGenerationBlockReason
+    ? localizeDesignBlockReason(visibleGenerationBlockReason, t)
+    : null;
 
   useEffect(() => {
     if (!sameDesignDiagramSelection(selectedDesignDiagrams, validSelectedDesignDiagrams)) {
@@ -498,14 +513,14 @@ export function DesignModelPage() {
               <div className="min-w-0">
                 <div className="flex flex-nowrap items-center gap-2">
                   <h2 className="text-2xl font-semibold tracking-normal text-foreground lg:text-3xl">
-                    设计模型
+                    {t("designPage.title")}
                   </h2>
                   <Badge variant="secondary" className="rounded-full font-mono">
                     {effectiveSelected.length}/{DESIGN_DIAGRAM_ORDER.length}
                   </Badge>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  基于需求自动生成或手动构建系统架构模型
+                  {t("designPage.description")}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -527,7 +542,7 @@ export function DesignModelPage() {
                   ) : (
                     <Wand2 className="size-4" />
                   )}
-                  生成设计模型
+                  {t("designPage.generate")}
                 </Button>
               </div>
             </ScaledToolbar>
@@ -538,7 +553,7 @@ export function DesignModelPage() {
               role="alert"
               className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             >
-              <span>{visibleGenerationBlockReason}</span>
+              <span>{localizedGenerationBlockReason}</span>
               {showSequenceCoverageAction && (
                 <Button
                   type="button"
@@ -547,7 +562,7 @@ export function DesignModelPage() {
                   className="h-8 rounded-lg border-destructive/30 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
                   onClick={openFirstSequenceDesign}
                 >
-                  查看用例实现设计
+                  {t("designPage.viewSequence")}
                 </Button>
               )}
               {showRequirementUpdateAction && (
@@ -558,7 +573,7 @@ export function DesignModelPage() {
                   className="h-8 rounded-lg border-destructive/30 bg-card text-destructive hover:bg-destructive/10 hover:text-destructive"
                   onClick={openRequirementsText}
                 >
-                  回到需求页更新
+                  {t("designPage.backToRequirements")}
                 </Button>
               )}
             </div>
@@ -573,13 +588,10 @@ export function DesignModelPage() {
                 >
                   {DESIGN_DIAGRAM_ORDER.map((diagram) => {
                     const meta = DESIGN_DIAGRAM_META[diagram];
+                    const localizedLabel = getDesignDiagramLabel(diagram, t);
+                    const localizedDescription = getDesignDiagramDescription(diagram, t);
                     const checked = effectiveSelected.includes(diagram);
-                    const source = DESIGN_SOURCE_MAP[diagram];
-                    const sourceLabel =
-                      DESIGN_SOURCE_COPY[diagram] ??
-                      (diagram === "sequence"
-                        ? `需求阶段${DIAGRAM_META.usecase.label}`
-                        : `需求阶段${DIAGRAM_META[source as DiagramType].label}`);
+                    const sourceLabel = t(`designPage.sources.${diagram}`);
                     const blockReason = getDesignDiagramBlockReason(
                       diagram,
                       sourceStatus,
@@ -588,6 +600,16 @@ export function DesignModelPage() {
                       diagram,
                       sourceStatus,
                     );
+                    const localizedAutoFillLabels = autoFillLabels.map((label) => {
+                      const requirementDiagram = DIAGRAM_ORDER.find(
+                        (item) => DIAGRAM_META[item].label === label,
+                      );
+                      if (requirementDiagram) return getDiagramLabel(requirementDiagram, t);
+                      const designDiagram = DESIGN_DIAGRAM_ORDER.find(
+                        (item) => DESIGN_DIAGRAM_META[item].label === label,
+                      );
+                      return designDiagram ? getDesignDiagramLabel(designDiagram, t) : label;
+                    });
                     const hasPendingAutoReview = Object.values(
                       autoGeneratedUpstreamReviews,
                     ).some(
@@ -606,16 +628,16 @@ export function DesignModelPage() {
                     const firstGeneratedModel = viewableModels[0] ?? generatedModels[0];
                     const generatedLabel =
                       diagram === "sequence" && viewableModels.length > 0
-                        ? `${viewableModels.length} 个用例实现设计`
-                        : "已生成设计模型";
+                        ? t("designPage.sequenceCount", { count: viewableModels.length })
+                        : t("designPage.generated");
                     const error = designDiagramErrors[diagram];
                     const DiagramIcon = DESIGN_DIAGRAM_ICON[diagram];
                     return (
                       <ModelBentoCard
                         key={diagram}
-                        label={meta.label}
+                        label={localizedLabel}
                         english={meta.english}
-                        description={meta.description}
+                        description={localizedDescription}
                         icon={DiagramIcon}
                         selected={checked}
                         disabled={Boolean(blockReason)}
@@ -625,8 +647,8 @@ export function DesignModelPage() {
                             : 0
                         }
                         pendingReview={hasPendingAutoReview}
-                        ariaLabel={`${checked ? "取消选择" : "选择"}${meta.label}`}
-                        checkboxLabel={meta.label}
+                        ariaLabel={t(checked ? "designPage.deselect" : "designPage.select", { label: localizedLabel })}
+                        checkboxLabel={localizedLabel}
                         onSelectedChange={(value) => toggleDiagram(diagram, value)}
                         statusClassName={generated ? "bg-primary/5" : undefined}
                         status={
@@ -657,7 +679,7 @@ export function DesignModelPage() {
                                   )}
                                 >
                                   <Eye className="size-3" />
-                                  查看
+                                  {t("designPage.view")}
                                 </button>
                               </>
                             ) : (
@@ -671,15 +693,17 @@ export function DesignModelPage() {
                                   )}
                                 >
                                   <AlertTriangle className="size-3.5 shrink-0" />
-                                  <span>{blockReason ?? "等待生成设计模型"}</span>
+                                  <span>{blockReason ? localizeDesignBlockReason(blockReason, t) : t("designPage.waiting")}</span>
                                 </div>
                                 {autoFillLabels.length > 0 && !blockReason && (
                                   <div className="text-warning">
-                                    将自动补齐：{autoFillLabels.join("、")}
+                                    {t("designPage.autoFill", {
+                                      labels: localizedAutoFillLabels.join(t("traceability.refSeparator")),
+                                    })}
                                   </div>
                                 )}
                                 <div className="text-muted-foreground">
-                                  来源：{sourceLabel}
+                                  {t("designPage.source", { source: sourceLabel })}
                                 </div>
                               </>
                             )}
@@ -699,7 +723,7 @@ export function DesignModelPage() {
               <section className="border-t border-border pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-foreground">
-                    需求阶段来源
+                    {t("designPage.requirementSources")}
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
                     {designRepairRecords.length > 0 && (
@@ -708,18 +732,18 @@ export function DesignModelPage() {
                         size="sm"
                         variant="outline"
                         className="h-8 rounded-lg bg-card"
-                        aria-label={`查看设计模型追踪证明，共 ${designRepairRecords.length} 项`}
+                        aria-label={t("designPage.traceAria", { count: designRepairRecords.length })}
                         onClick={() => setTraceabilityDialogOpen(true)}
                       >
                         <Eye className="size-3.5" />
-                        追踪证明
+                        {t("designPage.trace")}
                         <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-                          {designRepairRecords.length}项
+                          {t("designPage.items", { count: designRepairRecords.length })}
                         </span>
                       </Button>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      当前模型：{getProviderModelDisplayName(defaultModel).triggerLabel}
+                      {t("designPage.currentModel", { model: getProviderModelDisplayName(defaultModel).triggerLabel })}
                     </span>
                   </div>
                 </div>
@@ -729,14 +753,14 @@ export function DesignModelPage() {
                       const SourceIcon = REQUIREMENT_SOURCE_ICON[diagram];
                       const stale = sourceStatus[diagram] && staleDiagrams.includes(diagram);
                       const sourceStateLabel = stale
-                        ? "需更新"
+                        ? t("designPage.sourceStatus.stale")
                         : sourceStatus[diagram]
-                          ? "可用"
-                          : "未生成";
+                          ? t("designPage.sourceStatus.available")
+                          : t("designPage.sourceStatus.missing");
                       return (
                         <MobileStatusPill
                           key={diagram}
-                          aria-label={`${DIAGRAM_META[diagram].label} ${sourceStateLabel}`}
+                          aria-label={`${getDiagramLabel(diagram, t)} ${sourceStateLabel}`}
                           className={cn(
                             stale
                               ? "border-warning/35 bg-warning/10 text-warning"
@@ -753,7 +777,7 @@ export function DesignModelPage() {
                             <SourceIcon className="size-3.5 text-muted-foreground" />
                           )}
                           <span className="max-w-24 truncate">
-                            {DIAGRAM_META[diagram].label}
+                            {getDiagramLabel(diagram, t)}
                           </span>
                           <span className="font-mono text-[10px] text-muted-foreground">
                             {sourceStateLabel}
@@ -764,7 +788,7 @@ export function DesignModelPage() {
                   )}
                 </MobileStatusRail>
                 <div className="mt-3 text-xs text-muted-foreground">
-                  设计生成会使用需求基线、上方需求阶段模型和已生成的上游设计模型。
+                  {t("designPage.requirementSourceHint")}
                 </div>
               </section>
 
@@ -775,21 +799,21 @@ export function DesignModelPage() {
                 <div className="flex items-center gap-2">
                   <BookOpen className="size-4 text-primary" />
                   <h3 className="text-sm font-semibold text-foreground">
-                    设计模型指南
+                    {t("designPage.guide.title")}
                   </h3>
                 </div>
                 <div className="mt-3 grid gap-2">
                   <div className="rounded-lg border-l-2 border-primary bg-muted/40 px-3 py-2">
                     <h4 className="text-xs font-medium text-foreground">
-                      1. 明确业务边界
+                      {t("designPage.guide.boundaryTitle")}
                     </h4>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                      在生成模型前，请确保领域概念模型已清晰定义实体关系与聚合根，避免模块间过度耦合。
+                      {t("designPage.guide.boundaryDescription")}
                     </p>
                   </div>
                   <div className="rounded-lg border-l-2 border-primary bg-muted/40 px-3 py-2">
                     <h4 className="text-xs font-medium text-foreground">
-                      2. 补全前置依赖
+                      {t("designPage.guide.dependenciesTitle")}
                     </h4>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
                       {requirementDependencyGuideText}
@@ -797,10 +821,10 @@ export function DesignModelPage() {
                   </div>
                   <div className="rounded-lg border-l-2 border-primary bg-muted/40 px-3 py-2">
                     <h4 className="text-xs font-medium text-foreground">
-                      3. 选择合适的架构风格
+                      {t("designPage.guide.architectureTitle")}
                     </h4>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                      根据业务复杂度选择单体、微服务或事件驱动架构，这将直接影响部署设计与类图的生成策略。
+                      {t("designPage.guide.architectureDescription")}
                     </p>
                   </div>
                 </div>
@@ -810,14 +834,14 @@ export function DesignModelPage() {
                 <div className="flex items-center gap-2">
                   <Route className="size-4 text-primary" />
                   <h3 className="text-sm font-semibold text-foreground">
-                    参考设计模式
+                    {t("designPage.patterns.title")}
                   </h3>
                 </div>
                 <MobileRail className="mt-3 md:grid-cols-1">
                   {[
-                    "分层架构 (N-Tier)",
-                    "微服务架构 (Microservices)",
-                    "事件驱动架构 (EDA)",
+                    t("designPage.patterns.tiered"),
+                    t("designPage.patterns.microservices"),
+                    t("designPage.patterns.eda"),
                   ].map((pattern) => (
                     <MobileRailCard key={pattern} className="min-w-[180px]">
                       <div className="flex min-h-11 items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground transition-colors hover:bg-muted/50 md:min-h-0 md:border-0 md:bg-transparent md:px-2 md:py-1.5">
@@ -835,9 +859,9 @@ export function DesignModelPage() {
       <Dialog open={traceabilityDialogOpen} onOpenChange={setTraceabilityDialogOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>设计模型追踪证明</DialogTitle>
+            <DialogTitle>{t("designPage.traceDialogs.title")}</DialogTitle>
             <DialogDescription>
-              查看设计元素到上游需求模型的来源证明；这些内容用于审计和排查，不会改动需求规则或设计模型。
+              {t("designPage.traceDialogs.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-auto pr-1">
@@ -845,17 +869,17 @@ export function DesignModelPage() {
             <div className="flex flex-nowrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 p-3">
               <div>
                 <div className="text-sm font-medium text-foreground">
-                  来源追踪
+                  {t("designPage.traceDialogs.evidence")}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  共 {designRepairRecords.length} 项
+                  {t("designPage.traceDialogs.count", { count: designRepairRecords.length })}
                 </div>
               </div>
               <Badge
                 variant="outline"
                 className="border-success/35 bg-success/10 text-success"
               >
-                追踪已补齐
+                {t("designPage.traceDialogs.complete")}
               </Badge>
             </div>
             <div className="mt-3 grid gap-2">
@@ -865,10 +889,10 @@ export function DesignModelPage() {
                   className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs leading-5"
                 >
                   <div className="text-muted-foreground">
-                    原因：{stageRepairCopy(record.reason)}
+                    {t("designPage.traceDialogs.reason", { value: stageRepairCopy(record.reason) })}
                   </div>
                   <div className="mt-1 text-foreground">
-                    补齐：{stageRepairCopy(record.repair)}
+                    {t("designPage.traceDialogs.repair", { value: stageRepairCopy(record.repair) })}
                   </div>
                   <div
                     className={cn(
@@ -878,7 +902,7 @@ export function DesignModelPage() {
                         : "text-warning",
                     )}
                   >
-                    状态：{record.status}
+                    {t("designPage.traceDialogs.status", { value: record.status })}
                   </div>
                   <Button
                     type="button"
@@ -889,7 +913,7 @@ export function DesignModelPage() {
                       setRepairResult({ targetLabel: record.targetLabel })
                     }
                   >
-                    重新补齐证明
+                    {t("designPage.traceDialogs.repairAgain")}
                   </Button>
                 </div>
               ))}
@@ -898,7 +922,7 @@ export function DesignModelPage() {
           </div>
           <DialogFooter>
             <Button type="button" onClick={() => setTraceabilityDialogOpen(false)}>
-              关闭
+              {t("common.close")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -911,23 +935,23 @@ export function DesignModelPage() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>单项证明补齐完成</DialogTitle>
+            <DialogTitle>{t("designPage.traceDialogs.resultTitle")}</DialogTitle>
             <DialogDescription>
-              已只重新检查当前设计模型追踪证明，没有重新生成全部设计模型。
+              {t("designPage.traceDialogs.resultDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
             <div>
-              <span className="font-medium">阶段：</span>设计模型
+              <span className="font-medium">{t("designPage.traceDialogs.stage")}</span>{t("designPage.title")}
             </div>
             <div>
-              <span className="font-medium">对象：</span>
+              <span className="font-medium">{t("designPage.traceDialogs.target")}</span>
               {repairResult?.targetLabel}
             </div>
           </div>
           <DialogFooter>
             <Button type="button" onClick={() => setRepairResult(null)}>
-              我知道了
+              {t("designPage.traceDialogs.acknowledge")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -74,6 +74,11 @@ export interface StartDocumentRunInput {
   documentStyle?: DocumentStyleSettings;
 }
 
+export interface StartFeasibilityRunInput {
+  selectedArtifacts: Array<"context" | "implementation">;
+  providerSettings: ProviderSettingsInput;
+}
+
 export function createStartRunInput(
   requirementText: string,
   selectedDiagrams: DiagramType[],
@@ -96,7 +101,7 @@ export function createStartRunInput(
   };
 }
 
-function createProviderSettingsInput(): ProviderSettingsInput {
+export function createProviderSettingsInput(): ProviderSettingsInput {
   const settings = loadUserSettings();
   const providerConfigId = settings.providerConfigId.trim();
   const model = settings.defaultModel.trim();
@@ -117,6 +122,17 @@ function createProviderSettingsInput(): ProviderSettingsInput {
   return {
     providerConfigId,
     model,
+  };
+}
+
+export function createStartFeasibilityRunInput(
+  selectedArtifacts: Array<"context" | "implementation">,
+): StartFeasibilityRunInput {
+  return {
+    selectedArtifacts: (["context", "implementation"] as const).filter((artifact) =>
+      selectedArtifacts.includes(artifact),
+    ),
+    providerSettings: createProviderSettingsInput(),
   };
 }
 

@@ -1008,11 +1008,11 @@ export function registerRunRoutes({
     });
     if (input.documentKind === "requirementsSpec" && input.requirementModels.length === 0) {
       reply.code(400);
-      return { message: "请先在需求页生成需求模型，再导出需求规格说明书" };
+      return { message: "请先在需求模型页生成需求模型，再导出需求规格说明书" };
     }
     if (input.documentKind === "softwareDesignSpec" && input.designModels.length === 0) {
       reply.code(400);
-      return { message: "请先在设计页生成设计模型，再导出软件设计说明书" };
+      return { message: "请先在设计模型页生成设计模型，再导出软件设计说明书" };
     }
     const runId = randomUUID();
     const runBillingEntitlements = await billingEntitlementsForProvider({

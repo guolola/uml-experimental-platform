@@ -529,7 +529,7 @@ describe("TopBar", () => {
 
     await user.click(usecaseNode);
     expect(
-      within(dialog).getAllByText("用例模型重新生成中，旧产物仍可查看；完成后会刷新下游可用状态。").length,
+      within(dialog).getAllByText("此节点正在生成，可在生成任务中查看实时进度。").length,
     ).toBeGreaterThan(0);
     const viewPreviousButton = within(dialog).getByRole("button", { name: "查看旧版" });
     expect(viewPreviousButton).toBeEnabled();
@@ -597,7 +597,7 @@ describe("TopBar", () => {
 
     await user.click(usecaseNode);
     expect(
-      within(dialog).getAllByText("用例模型结构化模型已生成，但 SVG 尚未生成；需先完成图像渲染后才能作为可查看图像。").length,
+      within(dialog).getAllByText("上游输入或追踪证据已变化，此节点需要更新。").length,
     ).toBeGreaterThan(0);
     expect(within(dialog).getByRole("button", { name: "查看产物" })).toBeDisabled();
   });
@@ -840,7 +840,7 @@ describe("TopBar", () => {
     const avatarFile = new File(["avatar"], "avatar.png", { type: "image/png" });
     await user.upload(screen.getByLabelText("头像图片"), avatarFile);
 
-    expect(screen.getByAltText("头像预览")).toHaveAttribute("src", "blob:document-export");
+    expect(screen.getByAltText("头像图片")).toHaveAttribute("src", "blob:document-export");
     expect(screen.queryByText(/请选择 PNG、JPG 或 WebP 图片/u)).not.toBeInTheDocument();
   });
 
@@ -925,7 +925,7 @@ describe("TopBar", () => {
         body: expect.any(FormData),
       }),
     ));
-    expect(screen.getByAltText("头像预览")).toHaveAttribute("src", "/api/account/avatars/user-avatar.png");
+    expect(screen.getByAltText("头像图片")).toHaveAttribute("src", "/api/account/avatars/user-avatar.png");
     expect(toastSuccess).toHaveBeenCalledWith("资料已更新");
 
     await user.upload(screen.getByLabelText("头像图片"), new File(["bad"], "bad.txt", { type: "text/plain" }));
@@ -1156,7 +1156,7 @@ describe("TopBar", () => {
 
     expect(screen.getByText("macOS • Chrome")).toBeInTheDocument();
     expect(screen.getByText("当前设备")).toBeInTheDocument();
-    expect(screen.getByText(/地区: 中国 北京/u)).toBeInTheDocument();
+    expect(screen.getByText(/地区：中国 北京/u)).toBeInTheDocument();
     expect(screen.queryByText(/203\.0\.113\.10/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/中国 广州/u)).not.toBeInTheDocument();
     const historyTable = screen.getByRole("table", { name: "登录历史" });
@@ -1378,7 +1378,7 @@ describe("TopBar", () => {
 
     expect(screen.getByText("生成中 50%")).toBeInTheDocument();
     expect(screen.getByText("需求模型生成")).toBeInTheDocument();
-    expect(screen.getAllByText("生成需求模型进行中")).toHaveLength(2);
+    expect(screen.getAllByText("生成需求模型").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/模型 gpt-5\.5/).length).toBeGreaterThan(0);
     expect(screen.getByText("server-run-active")).toBeInTheDocument();
   });
@@ -1446,9 +1446,9 @@ describe("TopBar", () => {
     expect(screen.getByText("服务端运行中")).toBeInTheDocument();
     expect(screen.getByText("任务列表")).toBeInTheDocument();
     expect(screen.getByText("server-run-active-with-local-terminal")).toBeInTheDocument();
-    expect(screen.getAllByText("生成需求模型进行中").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("生成需求模型").length).toBeGreaterThan(0);
     expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("生成完成").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     await user.click(await screen.findByRole("button", { name: "确认" }));
     expect(screen.getByRole("button", { name: "清理已完成" })).toBeInTheDocument();
   });
@@ -1613,7 +1613,7 @@ describe("TopBar", () => {
 
     expect(screen.getAllByText("排队中 0%").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText("重试自 server-run-failed · 任务正在排队").length,
+      screen.getAllByText("重试自 server-run-failed · 排队中").length,
     ).toBeGreaterThan(0);
     expect(screen.getByText("运行关系")).toBeInTheDocument();
     expect(screen.getByText("重试自 server-run-failed")).toBeInTheDocument();
@@ -1703,7 +1703,7 @@ describe("TopBar", () => {
 
     completeRun();
     await waitFor(() => {
-      expect(screen.getAllByText("生成完成").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     });
     const completedStageSection = screen.getByText("链路阶段").parentElement?.parentElement;
     expect(completedStageSection).toBeTruthy();
@@ -1770,13 +1770,15 @@ describe("TopBar", () => {
 
     const executionBox = await screen.findByTestId("generation-task-execution-box");
     expect(
-      within(executionBox).getByText("模型正在生成，当前供应商暂未返回可见流式内容"),
+      within(executionBox).getByText("正在执行"),
     ).toBeInTheDocument();
-    expect(within(executionBox).queryByText("等待模型输出...")).not.toBeInTheDocument();
+    expect(
+      within(executionBox).queryByText("模型正在生成，当前供应商暂未返回可见流式内容"),
+    ).not.toBeInTheDocument();
 
     completeRun();
     await waitFor(() => {
-      expect(screen.getAllByText("生成完成").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     });
   });
 
@@ -1919,8 +1921,11 @@ describe("TopBar", () => {
     ).closest("button");
     expect(retryButton).toBeEnabled();
     expect(
-      within(updatedStageSection as HTMLElement).getByText("界面关系 traceability 缺失"),
-    ).toBeInTheDocument();
+      within(updatedStageSection as HTMLElement).queryByText("界面关系 traceability 缺失"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(updatedStageSection as HTMLElement).getAllByText("失败").length,
+    ).toBeGreaterThan(0);
   });
 
   it("labels instance-level model retry as same-kind rerun and uses diagram-kind scope", async () => {
@@ -2117,11 +2122,9 @@ describe("TopBar", () => {
       .closest("[data-testid='generation-task-status-card']");
     expect(statusCard).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
 
-    const errorCard = screen
-      .getAllByText(longToken)
-      .find((node) => node.closest("[data-testid='generation-task-error-card']"))
-      ?.closest("[data-testid='generation-task-error-card']");
+    const errorCard = screen.getByTestId("generation-task-error-card");
     expect(errorCard).toHaveClass("min-w-0", "max-w-full", "overflow-hidden");
+    expect(within(errorCard).queryByText(longToken)).not.toBeInTheDocument();
 
     const executionBox = screen
       .getByText((content) => content.includes(longStream.slice(0, 30)))

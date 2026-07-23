@@ -12,6 +12,7 @@ import {
   createEmptyCodeSnapshot,
   createEmptyDesignSnapshot,
   createEmptyDocumentSnapshot,
+  createEmptyFeasibilitySnapshot,
   createEmptySnapshot,
 } from "./snapshots.js";
 import { buildEmptyRequirementBaseline } from "../baselines/requirement-baseline.js";
@@ -27,6 +28,23 @@ function createQueuedSnapshotFromSource(
   source: RunRecord["snapshot"],
   newRunId: string,
 ): RunRecord["snapshot"] {
+  if ("selectedArtifacts" in source) {
+    return createEmptyFeasibilitySnapshot(newRunId, {
+      projectId: source.projectId,
+      selectedArtifacts: source.selectedArtifacts,
+      providerSettings: source.providerSettings,
+      rules: source.rules,
+      requirementBaseline: source.requirementBaseline,
+      inputs: source.inputs,
+      contextModel: source.contextModel,
+      contextTraceability: source.contextTraceability,
+      contextPlantUml: source.contextPlantUml,
+      contextSvg: source.contextSvg,
+      implementationPlan: source.implementationPlan,
+      contextFingerprint: source.contextFingerprint,
+      implementationFingerprint: source.implementationFingerprint,
+    });
+  }
   if ("documentKind" in source) {
     return createEmptyDocumentSnapshot(newRunId, {
       documentKind: source.documentKind,

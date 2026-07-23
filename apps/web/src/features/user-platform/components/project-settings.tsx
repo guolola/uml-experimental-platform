@@ -1,5 +1,6 @@
 // Owns project settings, provider policy, retention, and high-risk project actions.
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import { Archive, Loader2 } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
@@ -35,6 +36,7 @@ export function ProjectSettings({
   layout?: "page" | "drawer";
   onProjectDeleted?: (projectId: string) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? "");
   const [visibility, setVisibility] = useState(project.visibility);
@@ -97,35 +99,35 @@ export function ProjectSettings({
         retentionPolicy,
       );
       setCurrentProject({ ...response.project, retentionPolicy: retentionResponse.project.retentionPolicy });
-      setMessage("项目设置已保存。");
+      setMessage(t("projectSettings.messages.saved"));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "项目设置保存失败。");
+      setError(t("projectSettings.errors.save"));
     }
   };
 
   const archiveProject = async () => {
     setMessage("");
     setError("");
-    if (!window.confirm("确定要归档此项目吗？此操作会写入审计日志。")) return;
+    if (!window.confirm(t("projectSettings.confirm.archive"))) return;
     try {
       const response = await platformApi.archiveProject(project.id);
       setCurrentProject(response.project);
-      setMessage(response.message ?? "项目已归档。");
+      setMessage(t("projectSettings.messages.archived"));
     } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : "项目归档失败。");
+      setError(t("projectSettings.errors.archive"));
     }
   };
 
   const restoreProject = async () => {
     setMessage("");
     setError("");
-    if (!window.confirm("确定要恢复此项目吗？此操作会写入审计日志。")) return;
+    if (!window.confirm(t("projectSettings.confirm.restore"))) return;
     try {
       const response = await platformApi.restoreProject(project.id);
       setCurrentProject(response.project);
-      setMessage(response.message ?? "项目已恢复。");
+      setMessage(t("projectSettings.messages.restored"));
     } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : "项目恢复失败。");
+      setError(t("projectSettings.errors.restore"));
     }
   };
 
@@ -134,17 +136,17 @@ export function ProjectSettings({
     setError("");
     const trimmedOwnerId = newOwnerUserId.trim();
     if (!trimmedOwnerId) {
-      setError("请输入新所有者用户 ID。");
+      setError(t("projectSettings.errors.ownerRequired"));
       return;
     }
-    if (!window.confirm("确定要转移项目所有者吗？此操作会写入审计日志。")) return;
+    if (!window.confirm(t("projectSettings.confirm.transfer"))) return;
     try {
       const response = await platformApi.transferProjectOwner(project.id, trimmedOwnerId);
       setCurrentProject(response.project);
       setNewOwnerUserId("");
-      setMessage(response.message ?? "项目所有者已转移。");
+      setMessage(t("projectSettings.messages.transferred"));
     } catch (transferError) {
-      setError(transferError instanceof Error ? transferError.message : "项目所有者转移失败。");
+      setError(t("projectSettings.errors.transfer"));
     }
   };
 
@@ -156,11 +158,11 @@ export function ProjectSettings({
     try {
       await platformApi.deleteProject(project.id);
       setCurrentProject((current) => ({ ...current, status: "deleted" }));
-      setMessage("项目已删除。");
+      setMessage(t("projectSettings.messages.deleted"));
       setDeleteDialogOpen(false);
       onProjectDeleted?.(project.id);
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "项目删除失败。");
+      setError(t("projectSettings.errors.delete"));
     } finally {
       setDeletingProject(false);
     }
@@ -168,16 +170,16 @@ export function ProjectSettings({
 
   const retentionPolicyLabel =
     retentionPolicy === "semester_180_days"
-      ? "保留到学期结束后 180 天"
+      ? t("projectSettings.retention.semester")
       : retentionPolicy === "one_year_365_days"
-        ? "保留一年"
-        : "手动归档";
+        ? t("projectSettings.retention.year")
+        : t("projectSettings.retention.manual");
   const settingGridClass =
     layout === "drawer" ? "grid min-w-0 max-w-full gap-4 overflow-hidden" : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]";
   const sectionClass = layout === "drawer" ? "min-w-0 max-w-full overflow-hidden p-4" : "";
   const canManageProjectSettings =
     !membershipRole || membershipRole === "owner";
-  const settingsBlockedReason = "当前项目角色不能管理项目设置。";
+  const settingsBlockedReason = t("projectSettings.permissionDenied");
 
   return (
     <>
@@ -186,9 +188,9 @@ export function ProjectSettings({
         <div className="grid gap-4">
           {layout === "drawer" && (
             <div>
-              <h3 className="text-sm font-semibold">基本信息</h3>
+              <h3 className="text-sm font-semibold">{t("projectSettings.basic")}</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                名称、描述和可见性直接保存到项目 API。
+                {t("projectSettings.basicDescription")}
               </p>
             </div>
           )}
@@ -198,7 +200,7 @@ export function ProjectSettings({
             </div>
           )}
           <div className="grid gap-1.5">
-            <Label htmlFor="settings-project-name">项目信息</Label>
+            <Label htmlFor="settings-project-name">{t("projectSettings.name")}</Label>
             <Input
               id="settings-project-name"
               value={name}
@@ -208,18 +210,18 @@ export function ProjectSettings({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="settings-project-description">项目描述</Label>
+            <Label htmlFor="settings-project-description">{t("projectSettings.description")}</Label>
             <Input
               id="settings-project-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="暂无项目描述"
+              placeholder={t("projectSettings.noDescription")}
               disabled={!canManageProjectSettings}
               title={!canManageProjectSettings ? settingsBlockedReason : undefined}
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>项目背景</Label>
+            <Label>{t("projectSettings.background")}</Label>
             <ProjectBackgroundPicker
               name={name}
               value={backgroundKey}
@@ -228,7 +230,7 @@ export function ProjectSettings({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="settings-project-visibility">项目可见性</Label>
+            <Label htmlFor="settings-project-visibility">{t("projectSettings.visibility")}</Label>
             <SelectControl
               id="settings-project-visibility"
               value={visibility}
@@ -236,14 +238,14 @@ export function ProjectSettings({
               className="h-9"
               disabled={!canManageProjectSettings}
               options={[
-                { value: "private", label: "private" },
-                { value: "team", label: "team" },
-                { value: "public", label: "public" },
+                { value: "private", label: t("projectSettings.visibilityValues.private") },
+                { value: "team", label: t("projectSettings.visibilityValues.team") },
+                { value: "public", label: t("projectSettings.visibilityValues.public") },
               ]}
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="settings-course-team">课程/班级/team</Label>
+            <Label htmlFor="settings-course-team">{t("projectSettings.academicBinding")}</Label>
             <SelectControl
               id="settings-course-team"
               value={courseTeam}
@@ -252,12 +254,12 @@ export function ProjectSettings({
               disabled={!canManageProjectSettings}
               options={ACADEMIC_BINDING_OPTIONS.map((option) => ({
                 value: option.value,
-                label: option.label,
+                label: option.value === "unassigned" ? t("projectSettings.unassigned") : option.label,
               }))}
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>数据保留策略</Label>
+            <Label>{t("projectSettings.retention.title")}</Label>
             <Select
               value={retentionPolicy}
               onValueChange={setRetentionPolicy}
@@ -273,9 +275,9 @@ export function ProjectSettings({
                 </span>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="semester_180_days">保留到学期结束后 180 天</SelectItem>
-                <SelectItem value="one_year_365_days">保留一年</SelectItem>
-                <SelectItem value="manual">手动归档</SelectItem>
+                <SelectItem value="semester_180_days">{t("projectSettings.retention.semester")}</SelectItem>
+                <SelectItem value="one_year_365_days">{t("projectSettings.retention.year")}</SelectItem>
+                <SelectItem value="manual">{t("projectSettings.retention.manual")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -285,14 +287,14 @@ export function ProjectSettings({
             disabled={!canManageProjectSettings}
             title={!canManageProjectSettings ? settingsBlockedReason : undefined}
           >
-            保存项目设置
+            {t("projectSettings.save")}
           </Button>
         </div>
       </section>
       <section className={`rounded-md border border-border bg-card p-5 ${sectionClass}`}>
-        <h2 className="text-base">高危操作</h2>
+        <h2 className="text-base">{t("projectSettings.danger.title")}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          当前项目状态：{currentProject.status}。删除和归档会要求二次确认并记录审计。
+          {t("projectSettings.danger.description", { status: t(`projectSettings.status.${currentProject.status}`, { defaultValue: currentProject.status }) })}
         </p>
         <div className="mt-4 grid gap-2">
           <Button
@@ -303,7 +305,7 @@ export function ProjectSettings({
             title={!canManageProjectSettings ? settingsBlockedReason : undefined}
           >
             <Archive className="size-4" />
-            归档项目
+            {t("projectSettings.actions.archive")}
           </Button>
           <Button
             type="button"
@@ -312,15 +314,15 @@ export function ProjectSettings({
             disabled={!canManageProjectSettings}
             title={!canManageProjectSettings ? settingsBlockedReason : undefined}
           >
-            恢复项目
+            {t("projectSettings.actions.restore")}
           </Button>
           <div className="grid gap-1.5">
-            <Label htmlFor="settings-transfer-owner">转移所有者</Label>
+            <Label htmlFor="settings-transfer-owner">{t("projectSettings.actions.transfer")}</Label>
             <Input
               id="settings-transfer-owner"
               value={newOwnerUserId}
               onChange={(event) => setNewOwnerUserId(event.target.value)}
-              placeholder="输入新所有者用户 ID"
+              placeholder={t("projectSettings.ownerPlaceholder")}
               disabled={!canManageProjectSettings}
               title={!canManageProjectSettings ? settingsBlockedReason : undefined}
             />
@@ -331,7 +333,7 @@ export function ProjectSettings({
               disabled={!canManageProjectSettings}
               title={!canManageProjectSettings ? settingsBlockedReason : undefined}
             >
-              转移所有者
+              {t("projectSettings.actions.transfer")}
             </Button>
           </div>
           <Button
@@ -342,7 +344,7 @@ export function ProjectSettings({
             title={!canManageProjectSettings ? settingsBlockedReason : undefined}
           >
             {deletingProject ? <Loader2 className="size-4 animate-spin" /> : null}
-            删除项目
+            {t("projectSettings.actions.delete")}
           </Button>
         </div>
         {(message || error) && (
@@ -355,9 +357,9 @@ export function ProjectSettings({
     <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>确认删除项目</DialogTitle>
+          <DialogTitle>{t("projectSettings.deleteDialog.title")}</DialogTitle>
           <DialogDescription>
-            将删除“{currentProject.name}”，此操作会写入审计日志。删除成功后会返回项目列表。
+            {t("projectSettings.deleteDialog.description", { name: currentProject.name })}
           </DialogDescription>
         </DialogHeader>
         {error && (
@@ -372,7 +374,7 @@ export function ProjectSettings({
             onClick={() => setDeleteDialogOpen(false)}
             disabled={deletingProject}
           >
-            取消
+            {t("projectSettings.deleteDialog.cancel")}
           </Button>
           <Button
             type="button"
@@ -381,7 +383,7 @@ export function ProjectSettings({
             disabled={deletingProject}
           >
             {deletingProject ? <Loader2 className="size-4 animate-spin" /> : null}
-            确认删除
+            {t("projectSettings.deleteDialog.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>

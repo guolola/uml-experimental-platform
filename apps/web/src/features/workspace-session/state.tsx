@@ -323,6 +323,46 @@ export function WorkspaceSessionProvider({
   const [manualModelEditStatus, setManualModelEditStatus] = useState<
     WorkspaceRecord["manualModelEditStatus"]
   >({});
+  const [feasibilityContextArtifact, setFeasibilityContextArtifact] = useState<
+    Pick<
+      WorkspaceRecord,
+      | "feasibilityContextModel"
+      | "feasibilityContextTraceability"
+      | "feasibilityContextPlantUml"
+      | "feasibilityContextSvg"
+      | "feasibilityContextFingerprint"
+    > | null
+  >(null);
+  const [feasibilityContextSaveStatus, setFeasibilityContextSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [hasFeasibilityContextArtifact, setHasFeasibilityContextArtifact] =
+    useState(false);
+  const [hasFeasibilityImplementationArtifact, setHasFeasibilityImplementationArtifact] =
+    useState(false);
+  const syncFeasibilityArtifacts = useCallback((workspace: WorkspaceRecord) => {
+    setFeasibilityContextArtifact(
+      workspace.feasibilityContextModel
+        ? {
+            feasibilityContextModel: workspace.feasibilityContextModel,
+            feasibilityContextTraceability: workspace.feasibilityContextTraceability,
+            feasibilityContextPlantUml: workspace.feasibilityContextPlantUml,
+            feasibilityContextSvg: workspace.feasibilityContextSvg,
+            feasibilityContextFingerprint: workspace.feasibilityContextFingerprint,
+          }
+        : null,
+    );
+    setHasFeasibilityContextArtifact(
+      Boolean(
+        workspace.feasibilityContextModel &&
+        workspace.feasibilityContextPlantUml &&
+        workspace.feasibilityContextSvg,
+      ),
+    );
+    setHasFeasibilityImplementationArtifact(
+      Boolean(workspace.feasibilityImplementationPlan),
+    );
+  }, []);
   const {
     codeSpec,
     setCodeSpec,
@@ -480,6 +520,55 @@ export function WorkspaceSessionProvider({
     updateGenerationTask,
     visibleGenerationTask,
   } = useGenerationTaskActions();
+  const beginFeasibilityGenerationTask = useCallback(
+    (input: { providerModel: string; startedAtMs: number }) =>
+      enqueueGenerationTask({
+        kind: "feasibility",
+        title: "可行性分析生成",
+        providerModel: input.providerModel,
+        message: "任务已进入队列",
+        startedAtMs: input.startedAtMs,
+      }),
+    [enqueueGenerationTask],
+  );
+  const attachFeasibilityGenerationRun = useCallback(
+    (clientTaskId: string, runId: string, providerModel: string) => {
+      updateGenerationTask(clientTaskId, (task) =>
+        assignTaskRunId(task, runId, providerModel),
+      );
+    },
+    [updateGenerationTask],
+  );
+  const updateFeasibilityGenerationTask = useCallback(
+    (clientTaskId: string, event: RunEvent) => {
+      updateGenerationTask(clientTaskId, (task) =>
+        updateTaskFromEvent(task, event, {
+          queued: "任务已进入队列",
+          completed: "可行性分析生成完成",
+        }),
+      );
+    },
+    [updateGenerationTask],
+  );
+  const failFeasibilityGenerationTask = useCallback(
+    (clientTaskId: string, message: string) => {
+      updateGenerationTask(clientTaskId, (task) => {
+        if (task.status === "failed" || task.status === "completed") return task;
+        const finishedAt = new Date().toISOString();
+        return {
+          ...task,
+          status: "failed",
+          progress: 100,
+          message,
+          errorMessage: message,
+          phaseSummary: message,
+          finishedAt,
+          diagnostics: addLocalFailureToDiagnostics(task.diagnostics, message),
+        };
+      });
+    },
+    [updateGenerationTask],
+  );
   const generationTasksRef = useRef(generationTasks);
   generationTasksRef.current = generationTasks;
   const getHasActiveGenerationTask = useCallback(
@@ -510,6 +599,9 @@ export function WorkspaceSessionProvider({
       setDesignPlantUml,
       setDesignSvgArtifacts,
       setDesignDiagramErrors,
+      setFeasibilityContextArtifact,
+      setHasFeasibilityContextArtifact,
+      setHasFeasibilityImplementationArtifact,
       setManualModelEditStatus,
       setCodeSpec,
       setCodeBusinessLogic,
@@ -2279,13 +2371,13 @@ export function WorkspaceSessionProvider({
           documentKind === "requirementsSpec" &&
           requirementModels.length === 0
         ) {
-          throw new Error("请先在需求页生成需求模型，再导出需求规格说明书");
+          throw new Error("请先在需求模型页生成需求模型，再导出需求规格说明书");
         }
         if (
           documentKind === "softwareDesignSpec" &&
           availableDesignModels.length === 0
         ) {
-          throw new Error("请先在设计页生成设计模型，再导出软件设计说明书");
+          throw new Error("请先在设计模型页生成设计模型，再导出软件设计说明书");
         }
         const designBlockReason =
           documentKind === "softwareDesignSpec"
@@ -2446,7 +2538,9 @@ export function WorkspaceSessionProvider({
         const documentTitle =
           documentKind === "requirementsSpec"
             ? "需求规格说明书"
-            : "软件设计说明书";
+            : documentKind === "softwareDesignSpec"
+              ? "软件设计说明书"
+              : "可行性研究报告";
         clientTaskId = enqueueGenerationTask({
           kind: "document",
           documentKind,
@@ -2731,6 +2825,13 @@ export function WorkspaceSessionProvider({
       openGenerationResultDialog(block);
     },
     [openGenerationResultDialog],
+  );
+
+  const generateFeasibilityStudy = useCallback(
+    async (documentStyle?: DocumentStyleSettings) => {
+      return runDocumentGeneration("feasibilityStudy", documentStyle);
+    },
+    [runDocumentGeneration],
   );
 
   const handleAutoCompletedRuleMappingPersistenceFailure = useCallback(
@@ -3147,6 +3248,12 @@ export function WorkspaceSessionProvider({
       designPlantUml,
       designSvgArtifacts,
       designDiagramErrors,
+      feasibilityContextArtifact,
+      feasibilityContextSaveStatus,
+      setFeasibilityContextSaveStatus,
+      hasFeasibilityContextArtifact,
+      hasFeasibilityImplementationArtifact,
+      syncFeasibilityArtifacts,
       codeSpec,
       codeBusinessLogic,
       codeFiles,
@@ -3181,6 +3288,10 @@ export function WorkspaceSessionProvider({
       selectGenerationTask,
       clearCompletedGenerationTasks,
       reconcileGenerationTasksWithProjectRuns,
+      beginFeasibilityGenerationTask,
+      attachFeasibilityGenerationRun,
+      updateFeasibilityGenerationTask,
+      failFeasibilityGenerationTask,
       generateRules,
       saveRequirementModelEdit,
       saveDesignModelEdit,
@@ -3191,6 +3302,7 @@ export function WorkspaceSessionProvider({
       generateCodePrototype,
       generateRequirementsSpec,
       generateSoftwareDesignSpec,
+      generateFeasibilityStudy,
       rulesForDiagram,
       textVersion,
       rulesVersion,
@@ -3249,6 +3361,11 @@ export function WorkspaceSessionProvider({
       designPlantUml,
       designSvgArtifacts,
       designDiagramErrors,
+      feasibilityContextArtifact,
+      feasibilityContextSaveStatus,
+      hasFeasibilityContextArtifact,
+      hasFeasibilityImplementationArtifact,
+      syncFeasibilityArtifacts,
       codeSpec,
       codeBusinessLogic,
       codeFiles,
@@ -3281,6 +3398,10 @@ export function WorkspaceSessionProvider({
       selectGenerationTask,
       clearCompletedGenerationTasks,
       reconcileGenerationTasksWithProjectRuns,
+      beginFeasibilityGenerationTask,
+      attachFeasibilityGenerationRun,
+      updateFeasibilityGenerationTask,
+      failFeasibilityGenerationTask,
       generateRules,
       saveRequirementModelEdit,
       saveDesignModelEdit,
@@ -3291,6 +3412,7 @@ export function WorkspaceSessionProvider({
       generateCodePrototype,
       generateRequirementsSpec,
       generateSoftwareDesignSpec,
+      generateFeasibilityStudy,
       rulesForDiagram,
       textVersion,
       rulesVersion,

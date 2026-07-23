@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { i18n as appI18n } from "../../../shared/i18n/i18n";
 import { sanitizeSvgMarkup } from "../lib/svg-sanitizer";
 
 function parseSvgLength(value: string | null) {
@@ -51,6 +53,10 @@ export function InlineSvg({
   scale?: number;
   className?: string;
 }) {
+  const translation = useTranslation();
+  const t = translation.i18n.exists("diagrams.detail.noSvg")
+    ? translation.t
+    : appI18n.t.bind(appI18n);
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>("");
   const sanitizedSvg = useMemo(() => sanitizeSvgMarkup(svg), [svg]);
@@ -64,7 +70,7 @@ export function InlineSvg({
     if (!root || !sanitizedSvg) return;
     const svgEl = root.querySelector("svg");
     if (!svgEl) {
-      setError("SVG 内容无效");
+      setError(t("diagrams.detail.invalidSvg"));
       return;
     }
 
@@ -121,19 +127,19 @@ export function InlineSvg({
         /* ignore */
       }
     }
-  }, [sanitizedSvg, highlightAliases, highlightLabel, highlightKey, scale]);
+  }, [sanitizedSvg, highlightAliases, highlightLabel, highlightKey, scale, t]);
 
   if (!sanitizedSvg) {
     return (
       <div className="flex items-center gap-2 p-8 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> 尚未生成 SVG
+        <Loader2 className="size-4 animate-spin" /> {t("diagrams.detail.noSvg")}
       </div>
     );
   }
   if (error) {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-        渲染失败：{error}
+        {t("diagrams.detail.renderFailed", { error })}
       </div>
     );
   }

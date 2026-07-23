@@ -1,8 +1,54 @@
 // Verifies traceability row builders surface pending review metadata for the matrix UI.
 import { describe, expect, it } from "vitest";
-import { buildDesignRows, buildRequirementRows } from "./traceability-rows";
+import { buildContextRows, buildDesignRows, buildRequirementRows } from "./traceability-rows";
 
 describe("traceability row builders", () => {
+  it("builds context coverage from people, external systems, and relationships only", () => {
+    const rows = buildContextRows(
+      [
+        { id: "R1", category: "功能需求", text: "客户发起预约。", relatedDiagrams: ["context"] },
+        { id: "R2", category: "外部接口", text: "系统检查库存。", relatedDiagrams: ["context"] },
+      ],
+      {
+        diagramKind: "context",
+        modelId: "context",
+        title: "上下文图",
+        summary: "系统边界",
+        notes: [],
+        system: { id: "system", name: "维修系统", sourceRequirementIds: [] },
+        people: [{ id: "customer", name: "客户", sourceRequirementIds: ["R1"] }],
+        externalSystems: [{ id: "inventory", name: "库存系统", sourceRequirementIds: ["R2"] }],
+        relationships: [{ id: "rel-1", sourceId: "customer", targetId: "system", direction: "directed", label: "预约", sourceRequirementIds: ["R1"] }],
+      },
+      [],
+    );
+
+    expect(rows).toHaveLength(3);
+    expect(rows.some((row) => row.label === "维修系统")).toBe(false);
+    expect(rows.every((row) => row.status === "mapped")).toBe(true);
+    expect(rows.map((row) => row.groupLabel)).toEqual(["人员", "外部系统", "关系"]);
+  });
+
+  it("marks context rows with invalid rule references as unmapped", () => {
+    const rows = buildContextRows(
+      [{ id: "R1", category: "功能需求", text: "客户发起预约。", relatedDiagrams: ["context"] }],
+      {
+        diagramKind: "context",
+        modelId: "context",
+        title: "上下文图",
+        summary: "系统边界",
+        notes: [],
+        system: { id: "system", name: "维修系统", sourceRequirementIds: [] },
+        people: [{ id: "customer", name: "客户", sourceRequirementIds: ["R404"] }],
+        externalSystems: [],
+        relationships: [],
+      },
+      [],
+    );
+
+    expect(rows[0]).toMatchObject({ status: "unmapped", mappingNote: "无效来源规则：R404" });
+  });
+
   it("surfaces pending auto-filled requirement mappings with confidence details", () => {
     const rows = buildRequirementRows(
       [

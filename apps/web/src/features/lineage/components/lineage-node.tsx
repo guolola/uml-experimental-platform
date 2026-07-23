@@ -12,6 +12,7 @@ import {
   Workflow,
 } from "lucide-react";
 import type { ComponentType, KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../shared/ui/button";
 import { cn } from "../../../shared/ui/utils";
 import type {
@@ -25,44 +26,37 @@ const STATUS_STYLES: Record<
   {
     card: string;
     badge: string;
-    label: string;
     icon: ComponentType<{ className?: string }>;
   }
 > = {
   "not-generated": {
     card: "border-border bg-card text-card-foreground",
     badge: "bg-muted text-muted-foreground",
-    label: "未生成",
     icon: Clock3,
   },
   current: {
     card: "border-success/30 bg-card text-card-foreground ring-1 ring-success/10",
     badge: "bg-emerald-50 text-emerald-700",
-    label: "最新",
     icon: CheckCircle2,
   },
   stale: {
     card: "border-warning/40 bg-card text-card-foreground ring-1 ring-warning/15",
     badge: "bg-amber-50 text-amber-700",
-    label: "需更新",
     icon: AlertCircle,
   },
   error: {
     card: "border-destructive/40 bg-card text-card-foreground ring-1 ring-destructive/15",
     badge: "bg-red-50 text-red-700",
-    label: "错误",
     icon: AlertCircle,
   },
   running: {
     card: "border-primary/40 bg-card text-card-foreground ring-1 ring-primary/15",
     badge: "bg-indigo-50 text-indigo-700",
-    label: "生成中",
     icon: Loader2,
   },
   interrupted: {
     card: "border-warning/40 bg-card text-card-foreground ring-1 ring-warning/15",
     badge: "bg-amber-50 text-amber-700",
-    label: "服务中断",
     icon: AlertCircle,
   },
 };
@@ -70,38 +64,32 @@ const STATUS_STYLES: Record<
 export const LINEAGE_KIND_STYLES: Record<
   LineageNodeKind,
   {
-    label: string;
     icon: ComponentType<{ className?: string }>;
     iconBox: string;
     iconColor: string;
   }
 > = {
   rule: {
-    label: "需求规则",
     icon: ListChecks,
     iconBox: "border-border bg-muted/60",
     iconColor: "text-sky-600 dark:text-sky-300",
   },
   "requirement-model": {
-    label: "需求模型",
     icon: Network,
     iconBox: "border-border bg-muted/60",
     iconColor: "text-blue-600 dark:text-blue-300",
   },
   "design-model": {
-    label: "设计模型",
     icon: Workflow,
     iconBox: "border-border bg-muted/60",
     iconColor: "text-indigo-600 dark:text-indigo-300",
   },
   document: {
-    label: "说明书",
     icon: ScrollText,
     iconBox: "border-border bg-muted/60",
     iconColor: "text-amber-600 dark:text-amber-300",
   },
   code: {
-    label: "代码原型",
     icon: FileCode2,
     iconBox: "border-border bg-muted/60",
     iconColor: "text-teal-600 dark:text-teal-300",
@@ -155,7 +143,10 @@ export function LineageNodeCard({
   onSelect,
   onPrimaryAction,
 }: LineageNodeCardProps) {
+  const { t } = useTranslation();
   const styles = STATUS_STYLES[node.status];
+  const statusKey = node.status === "not-generated" ? "not_generated" : node.status;
+  const kindKey = node.kind.replace("-", "_");
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -195,10 +186,10 @@ export function LineageNodeCard({
                 )}
               >
                 <NodeIcon status={node.status} />
-                {styles.label}
+                {t(`lineage.statuses.${statusKey}`)}
               </span>
               <span className="truncate text-xs text-muted-foreground">
-                {LINEAGE_KIND_STYLES[node.kind].label}
+                {t(`lineage.kinds.${kindKey}`)}
               </span>
             </div>
           </div>
@@ -209,7 +200,7 @@ export function LineageNodeCard({
             variant="ghost"
             size="icon"
             className="size-7 rounded-md text-muted-foreground"
-            aria-label={`${node.label} 更多操作`}
+            aria-label={t("lineage.more", { label: node.label })}
             onClick={(event) => {
               event.stopPropagation();
               onSelect(node);

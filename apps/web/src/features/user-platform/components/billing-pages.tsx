@@ -59,6 +59,14 @@ function skuMetric(sku: BillingSkuDto, t: TFunction) {
   return t("billing.units.credits", { count: sku.creditAmount ?? 0 });
 }
 
+const localizedSkuCodes = new Set(["credits_10", "credits_50", "credits_100", "credits_500"]);
+
+function skuCopy(sku: BillingSkuDto, field: "name" | "description", t: TFunction) {
+  return localizedSkuCodes.has(sku.code)
+    ? t(`billing.sku.catalog.${sku.code}.${field}`)
+    : sku[field];
+}
+
 function skuFeatures(sku: BillingSkuDto, t: TFunction) {
   return [
     t("billing.sku.features.creditArrival", { metric: skuMetric(sku, t) }),
@@ -231,9 +239,11 @@ function PaymentConfirmDialog({
                       {t("billing.payment.purchaseContent")}
                     </div>
                     <div className="mt-1 font-display text-[16px] font-semibold leading-6 text-foreground">
-                      {sku.name}
+                      {skuCopy(sku, "name", t)}
                     </div>
-                    <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{sku.description}</p>
+                    <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                      {skuCopy(sku, "description", t)}
+                    </p>
                   </div>
                   <Badge variant="success">
                     {skuMetric(sku, t)}
@@ -414,9 +424,11 @@ function BillingSkuCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-display text-[20px] font-semibold leading-7 tracking-normal text-foreground">
-            {sku.name}
+            {skuCopy(sku, "name", t)}
           </h3>
-          <p className="mt-2 min-h-10 text-[13px] leading-5 text-muted-foreground">{sku.description}</p>
+          <p className="mt-2 min-h-10 text-[13px] leading-5 text-muted-foreground">
+            {skuCopy(sku, "description", t)}
+          </p>
         </div>
         <Badge
           className="px-2.5 py-1 text-[12px]"
@@ -781,7 +793,9 @@ export function AccountBillingPage({ onNavigate }: { onNavigate: Navigate }) {
                         <td className="px-5 py-3 font-mono text-[12px] text-muted-foreground">
                           {order.merchantOrderNo}
                         </td>
-                        <td className="px-5 py-3 font-medium text-foreground">{order.sku.name}</td>
+                        <td className="px-5 py-3 font-medium text-foreground">
+                          {skuCopy(order.sku, "name", t)}
+                        </td>
                         <td className="px-5 py-3">{formatCny(order.amountCents, locale)}</td>
                         <td className="px-5 py-3">
                           <Badge variant={orderStatusBadgeVariant(order.status)}>
@@ -928,7 +942,9 @@ export function AlipayReturnPage({ onNavigate }: { onNavigate: Navigate }) {
           </div>
           {order && (
             <div className="rounded-xl border border-border bg-muted/30 p-4 text-[13px] leading-5">
-              <div className="font-display text-[15px] font-semibold text-foreground">{order.sku.name}</div>
+              <div className="font-display text-[15px] font-semibold text-foreground">
+                {skuCopy(order.sku, "name", t)}
+              </div>
               <div className="mt-1 text-muted-foreground">
                 {order.merchantOrderNo} · {formatCny(order.amountCents, locale)}
               </div>

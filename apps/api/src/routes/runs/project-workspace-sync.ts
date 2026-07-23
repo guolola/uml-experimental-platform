@@ -3,6 +3,7 @@ import type {
   CodeRunSnapshot,
   DesignRunSnapshot,
   DocumentRunSnapshot,
+  FeasibilityRunSnapshot,
   RunEvent,
   RunSnapshot,
 } from "@uml-platform/contracts";
@@ -14,7 +15,7 @@ import {
 } from "../projects/workspace-snapshot-restore.js";
 
 type RestorableSnapshot = RunSnapshot | DesignRunSnapshot | CodeRunSnapshot;
-type AnySnapshot = RestorableSnapshot | DocumentRunSnapshot;
+type AnySnapshot = RestorableSnapshot | DocumentRunSnapshot | FeasibilityRunSnapshot;
 
 type ProjectWorkspaceSync = (record: RunRecord) => Promise<void>;
 type RestorableRunKind = "requirements" | "design" | "code";
@@ -30,6 +31,35 @@ function isTerminalEvent(event: RunEvent | undefined) {
 
 function snapshotIsRestorable(snapshot: AnySnapshot): snapshot is RestorableSnapshot {
   return isRestorableRunSnapshot(snapshot);
+}
+
+function snapshotIsFeasibility(snapshot: AnySnapshot): snapshot is FeasibilityRunSnapshot {
+  return "selectedArtifacts" in snapshot;
+}
+
+function mergeFeasibilitySnapshot(
+  state: Record<string, unknown>,
+  snapshot: FeasibilityRunSnapshot,
+) {
+  const next = { ...state, feasibilityInputs: snapshot.inputs };
+  // Partial context is durable even if implementation generation fails; an old
+  // implementation remains untouched until a new plan has passed validation.
+  if (snapshot.contextModel && snapshot.contextPlantUml && snapshot.contextSvg) {
+    Object.assign(next, {
+      feasibilityContextModel: snapshot.contextModel,
+      feasibilityContextTraceability: snapshot.contextTraceability,
+      feasibilityContextPlantUml: snapshot.contextPlantUml.source,
+      feasibilityContextSvg: snapshot.contextSvg.svg,
+      feasibilityContextFingerprint: snapshot.contextFingerprint,
+    });
+  }
+  if (snapshot.implementationPlan && snapshot.implementationFingerprint) {
+    Object.assign(next, {
+      feasibilityImplementationPlan: snapshot.implementationPlan,
+      feasibilityImplementationFingerprint: snapshot.implementationFingerprint,
+    });
+  }
+  return next;
 }
 
 function inferRestorableRunKind(snapshot: RestorableSnapshot): RestorableRunKind {
@@ -55,6 +85,14 @@ function shouldSkipOlderSameKindSnapshot(input: {
 }) {
   if (!input.runs || !input.currentSourceRunId) return false;
   if (input.currentSourceRunId === input.incomingRecord.snapshot.runId) return false;
+  if (snapshotIsFeasibility(input.incomingRecord.snapshot)) {
+    const currentSource = input.runs.get(input.currentSourceRunId);
+    return Boolean(
+      currentSource &&
+      snapshotIsFeasibility(currentSource.snapshot) &&
+      timestampIsAfter(currentSource.metadata?.createdAt, input.incomingRecord.metadata?.createdAt),
+    );
+  }
   if (!snapshotIsRestorable(input.incomingRecord.snapshot)) return false;
   const currentSource = input.runs.get(input.currentSourceRunId);
   if (!currentSource || !snapshotIsRestorable(currentSource.snapshot)) return false;
@@ -77,7 +115,11 @@ export function createProjectWorkspaceSync(
   return async (record) => {
     const projectId = record.metadata?.projectId;
     const userId = record.metadata?.userId;
-    if (!projectId || !userId || !snapshotIsRestorable(record.snapshot)) return;
+    if (
+      !projectId ||
+      !userId ||
+      (!snapshotIsRestorable(record.snapshot) && !snapshotIsFeasibility(record.snapshot))
+    ) return;
 
     let current = await authStore.getProjectWorkspace(projectId);
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -98,16 +140,17 @@ export function createProjectWorkspaceSync(
         });
         return;
       }
-      const runKind = inferRestorableRunKind(record.snapshot);
-      const state = restoreRunSnapshotToWorkspaceState({
-        currentState: current.state,
-        snapshot: record.snapshot,
-        mode: "merge",
-        replaceRequirementInput:
-          runKind === "requirements" &&
-          "rules" in record.snapshot &&
-          (record.snapshot.rules?.length ?? 0) > 0,
-      });
+      const state = snapshotIsFeasibility(record.snapshot)
+        ? mergeFeasibilitySnapshot(current.state, record.snapshot)
+        : restoreRunSnapshotToWorkspaceState({
+            currentState: current.state,
+            snapshot: record.snapshot,
+            mode: "merge",
+            replaceRequirementInput:
+              inferRestorableRunKind(record.snapshot) === "requirements" &&
+              "rules" in record.snapshot &&
+              (record.snapshot.rules?.length ?? 0) > 0,
+          });
       const result = await authStore.saveProjectWorkspace({
         projectId,
         baseVersion: current.version,

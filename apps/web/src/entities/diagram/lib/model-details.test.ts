@@ -3,6 +3,32 @@ import { describe, expect, it } from "vitest";
 import { buildDiagramDetailModel } from "./model-details";
 
 describe("buildDiagramDetailModel", () => {
+  it("normalizes context boundaries, people, external systems, and interactions", () => {
+    const details = buildDiagramDetailModel({
+      diagramKind: "context",
+      modelId: "context",
+      title: "系统上下文图",
+      summary: "系统边界",
+      notes: [],
+      system: { id: "system", name: "维修系统", sourceRequirementIds: [] },
+      people: [{ id: "customer", name: "客户", sourceRequirementIds: ["R1"] }],
+      externalSystems: [{ id: "inventory", name: "库存系统", sourceRequirementIds: ["R2"] }],
+      relationships: [{ id: "rel-1", sourceId: "customer", targetId: "system", direction: "bidirectional", label: "预约", sourceRequirementIds: ["R1"] }],
+    });
+
+    expect(details.groups.map((group) => [group.label, group.items.length])).toEqual([
+      ["中心系统", 1],
+      ["人员", 1],
+      ["外部系统", 1],
+    ]);
+    expect(details.items.find((item) => item.id === "system")?.fields).toContainEqual({ label: "来源规则", value: "不重复映射" });
+    expect(details.relationships[0]).toMatchObject({
+      sourceId: "customer",
+      targetId: "system",
+      typeLabel: "双向交互",
+    });
+  });
+
   it("exposes class attributes as detailed focus sections", () => {
     const details = buildDiagramDetailModel({
       diagramKind: "class",

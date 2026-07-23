@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import confetti from "canvas-confetti";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SystemNoticeButton } from "./system-notice-dialog";
+import { i18n } from "../../../shared/i18n/i18n";
 
 vi.mock("canvas-confetti", () => ({
   default: vi.fn(),
@@ -43,6 +44,7 @@ const publishedNoticeResponse = {
 };
 
 afterEach(() => {
+  void i18n.changeLanguage("zh-CN");
   vi.unstubAllGlobals();
   vi.mocked(confetti).mockClear();
 });
@@ -190,8 +192,27 @@ describe("SystemNoticeButton", () => {
 
     await user.click(screen.getByRole("button", { name: "已阅览" }));
 
-    expect(await screen.findByText(/read failed/u)).toBeInTheDocument();
+    expect(await screen.findByText("服务暂时不可用，请稍后重试。")).toBeInTheDocument();
+    expect(screen.queryByText(/read failed/u)).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "系统通知" })).toBeInTheDocument();
     expect(confetti).not.toHaveBeenCalled();
+  });
+
+  it("localizes notice chrome while preserving notice content", async () => {
+    await i18n.changeLanguage("en");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify(publishedNoticeResponse),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )));
+
+    const user = userEvent.setup();
+    render(<SystemNoticeButton />);
+    await user.click(await screen.findByRole("button", { name: "System notices, 2 unread" }));
+
+    expect(await screen.findByRole("dialog", { name: "System notices" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark as read" })).toBeInTheDocument();
+    expect(screen.getByText("Important")).toBeInTheDocument();
+    expect(screen.getByText("重要通知：公司主体变更及对公账号更新")).toBeInTheDocument();
+    expect(screen.getByText("大家好，请注意以下关键信息。")).toBeInTheDocument();
   });
 });

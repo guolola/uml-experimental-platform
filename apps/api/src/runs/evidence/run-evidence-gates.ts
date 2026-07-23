@@ -19,6 +19,9 @@ export function evidenceArtifactStage(record: RunRecord): RunStage {
 }
 
 export function buildAndStoreEvidencePackage(record: RunRecord) {
+  if (!("evidencePackage" in record.snapshot)) {
+    throw new Error("This run type does not produce an evidence package");
+  }
   const evidencePackage = buildEvidencePackage({
     snapshot: record.snapshot,
     reviewDecisions: record.snapshot.evidencePackage?.reviewDecisions ?? [],
@@ -31,6 +34,9 @@ export function storeEvidenceReviewDecision(
   record: RunRecord,
   decision: EvidenceReviewDecision,
 ) {
+  if (!("evidencePackage" in record.snapshot)) {
+    throw new Error("This run type does not support evidence review");
+  }
   const existingDecisions =
     record.snapshot.evidencePackage?.reviewDecisions.filter(
       (existing) => existing.reviewItemId !== decision.reviewItemId,

@@ -1,6 +1,7 @@
 // Verifies DOCX rendering passes diagram model-scoped PlantUML sources to image rendering.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { inflateRawSync } from "node:zlib";
 import {
   renderDocumentBuffer,
   resolvePngImageTransformation,
@@ -20,6 +21,34 @@ function pngHeader(width: number, height: number) {
   buffer.writeUInt32BE(width, 16);
   buffer.writeUInt32BE(height, 20);
   return buffer;
+}
+
+function extractDocxEntries(buffer: Buffer) {
+  const entries = new Map<string, Buffer>();
+  let eocdOffset = -1;
+  for (let index = buffer.length - 22; index >= 0; index -= 1) {
+    if (buffer.readUInt32LE(index) === 0x06054b50) { eocdOffset = index; break; }
+  }
+  assert.notEqual(eocdOffset, -1);
+  const entryCount = buffer.readUInt16LE(eocdOffset + 10);
+  let centralOffset = buffer.readUInt32LE(eocdOffset + 16);
+  for (let index = 0; index < entryCount; index += 1) {
+    assert.equal(buffer.readUInt32LE(centralOffset), 0x02014b50);
+    const method = buffer.readUInt16LE(centralOffset + 10);
+    const compressedSize = buffer.readUInt32LE(centralOffset + 20);
+    const fileNameLength = buffer.readUInt16LE(centralOffset + 28);
+    const extraLength = buffer.readUInt16LE(centralOffset + 30);
+    const commentLength = buffer.readUInt16LE(centralOffset + 32);
+    const localOffset = buffer.readUInt32LE(centralOffset + 42);
+    const name = buffer.subarray(centralOffset + 46, centralOffset + 46 + fileNameLength).toString("utf8");
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+    entries.set(name, method === 8 ? inflateRawSync(compressed) : Buffer.from(compressed));
+    centralOffset += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return entries;
 }
 
 async function withDocumentPlantUmlEnv<T>(
@@ -176,4 +205,41 @@ test("resolvePngImageTransformation preserves diagram aspect ratios", () => {
     width: 120,
     height: 80,
   });
+});
+
+test("feasibility DOCX uses A4, template margins, cover table, TOC, headings, and body page numbers", async () => {
+  const buffer = await renderDocumentBuffer(
+    "feasibilityStudy",
+    [
+      { level: 1, title: "引言", body: ["研究目的。"] },
+      { level: 2, title: "目的", body: ["验证可行性。"] },
+      { level: 3, title: "范围", body: ["系统边界。"] },
+    ],
+    new Map(),
+    new Set(),
+    async () => { throw new Error("not used"); },
+    [],
+    { includeTableOfContents: true, autoNumberHeadings: true },
+    {
+      projectName: "维修预约系统", school: "示例大学", college: "软件学院", groupNumber: "第1组", members: "张三 001", gradeClass: "2024级1班", submissionDate: "2026-07-19",
+      proposedBy: "", developedBy: "", expectedUsers: "", targetEnvironment: "", deadline: "", expectedLifetimeYears: null, budgetLimit: null, teamSize: null, teamSkills: "", availableResources: "", legalConstraints: "", references: "", costItems: [], benefitItems: [], analysisYears: null,
+    },
+  );
+  const entries = extractDocxEntries(buffer);
+  const documentXml = entries.get("word/document.xml")?.toString("utf8") ?? "";
+  const stylesXml = entries.get("word/styles.xml")?.toString("utf8") ?? "";
+  const footerXml = [...entries.entries()].find(([name]) => /^word\/footer\d+\.xml$/u.test(name))?.[1].toString("utf8") ?? "";
+  assert.match(documentXml, /w:pgSz w:w="11906" w:h="16838"/u);
+  assert.match(documentXml, /w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/u);
+  assert.match(documentXml, /软件设计工程/u);
+  assert.match(documentXml, /可行性分析报告/u);
+  assert.match(documentXml, /项目名称/u);
+  assert.match(documentXml, /维修预约系统/u);
+  assert.match(documentXml, /TOC/u);
+  assert.match(stylesXml, /Heading1/u);
+  assert.match(stylesXml, /Heading2/u);
+  assert.match(stylesXml, /Heading3/u);
+  assert.match(footerXml, /PAGE/u);
+  assert.match(footerXml, /第 /u);
+  assert.match(footerXml, / 页/u);
 });

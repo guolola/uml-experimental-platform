@@ -173,6 +173,7 @@ export function isActiveRun(record: RunRecord) {
 
 export function taskTypeForRun(record: RunRecord): ProviderTaskType {
   const snapshot = record.snapshot;
+  if ("selectedArtifacts" in snapshot) return "feasibility_analysis";
   if ("documentKind" in snapshot) return "document_generation";
   if ("files" in snapshot) return "code_generation";
   if ("designModelTraceability" in snapshot) return "design_modeling";

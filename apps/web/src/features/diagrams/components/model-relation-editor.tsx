@@ -1,4 +1,5 @@
 // Renders relation-specific edit fields for the model editor dialog.
+import { useTranslation } from "react-i18next";
 import {
   relationEndpointKey,
   relationName,
@@ -13,6 +14,7 @@ import {
   LabelSelect,
   LabelTextInput,
   LabelTextarea,
+  SourceRuleChecklist,
   enumOptions,
 } from "./model-edit-fields";
 
@@ -28,6 +30,7 @@ export function ModelRelationEditor({
   endpointOptions,
   columnsForTable,
   updateRelation,
+  sourceRuleOptions = [],
 }: {
   editorDraft: Record<string, unknown>;
   relation: Record<string, unknown>;
@@ -38,14 +41,16 @@ export function ModelRelationEditor({
     relationId: string,
     updater: (relation: Record<string, unknown>) => Record<string, unknown>,
   ) => void;
+  sourceRuleOptions?: Array<{ id: string; label: string }>;
 }) {
+  const { t } = useTranslation();
   const sourceKey = relationEndpointKey(editorDraft, "source");
   const targetKey = relationEndpointKey(editorDraft, "target");
   return (
     <div className="space-y-3">
       {editorDraft.diagramKind !== "activity" ? (
         <LabelTextInput
-          label="关系名称"
+          label={t("diagramEditor.relation.name")}
           value={relationName(relation)}
           onChange={(value) =>
             updateRelation(relationId, (currentRelation) => {
@@ -58,7 +63,7 @@ export function ModelRelationEditor({
       ) : null}
       <div className="grid gap-2 sm:grid-cols-3">
         <LabelSelect
-          label="起点"
+          label={t("diagramEditor.relation.source")}
           value={String(relation[sourceKey] ?? "")}
           options={endpointOptions.map((option) => ({
             value: option.id,
@@ -71,22 +76,39 @@ export function ModelRelationEditor({
             }))
           }
         />
+        {editorDraft.diagramKind === "context" ? (
+          <LabelSelect
+            label={t("diagramEditor.relation.direction")}
+            value={stringValue(relation.direction) || "directed"}
+            options={[
+              { value: "directed", label: t("diagramEditor.relation.directed") },
+              { value: "bidirectional", label: t("diagramEditor.relation.bidirectional") },
+            ]}
+            onChange={(value) =>
+              updateRelation(relationId, (currentRelation) => ({
+                ...currentRelation,
+                direction: value,
+              }))
+            }
+          />
+        ) : (
+          <LabelSelect
+            label={t("diagramEditor.relation.type")}
+            value={String(relation.type ?? "")}
+            options={relationTypeOptions(editorDraft.diagramKind).map((option) => ({
+              value: option,
+              label: option,
+            }))}
+            onChange={(value) =>
+              updateRelation(relationId, (currentRelation) => ({
+                ...currentRelation,
+                type: value,
+              }))
+            }
+          />
+        )}
         <LabelSelect
-          label="关系类型"
-          value={String(relation.type ?? "")}
-          options={relationTypeOptions(editorDraft.diagramKind).map((option) => ({
-            value: option,
-            label: option,
-          }))}
-          onChange={(value) =>
-            updateRelation(relationId, (currentRelation) => ({
-              ...currentRelation,
-              type: value,
-            }))
-          }
-        />
-        <LabelSelect
-          label="终点"
+          label={t("diagramEditor.relation.target")}
           value={String(relation[targetKey] ?? "")}
           options={endpointOptions.map((option) => ({
             value: option.id,
@@ -100,10 +122,35 @@ export function ModelRelationEditor({
           }
         />
       </div>
+      {editorDraft.diagramKind === "context" ? (
+        <div className="grid gap-3">
+          <LabelTextarea
+            label={t("diagramEditor.fields.description")}
+            value={stringValue(relation.description)}
+            onChange={(value) =>
+              updateRelation(relationId, (currentRelation) => {
+                const nextRelation = { ...currentRelation };
+                setOptionalStringValue(nextRelation, "description", value);
+                return nextRelation;
+              })
+            }
+          />
+          <SourceRuleChecklist
+            selectedIds={stringListValue(relation.sourceRequirementIds)}
+            options={sourceRuleOptions}
+            onChange={(ids) =>
+              updateRelation(relationId, (currentRelation) => ({
+                ...currentRelation,
+                sourceRequirementIds: ids,
+              }))
+            }
+          />
+        </div>
+      ) : null}
       {editorDraft.diagramKind === "usecase" ? (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelTextInput
-            label="条件"
+            label={t("diagramEditor.fields.condition")}
             value={stringValue(relation.condition)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -114,7 +161,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextarea
-            label="说明"
+            label={t("diagramEditor.fields.description")}
             value={stringValue(relation.description)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -129,10 +176,10 @@ export function ModelRelationEditor({
       {editorDraft.diagramKind === "class" ? (
         <div className="grid gap-2 md:grid-cols-2">
           {[
-            ["sourceRole", "源角色"],
-            ["targetRole", "目标角色"],
-            ["sourceMultiplicity", "源多重性"],
-            ["targetMultiplicity", "目标多重性"],
+            ["sourceRole", t("diagramEditor.relation.sourceRole")],
+            ["targetRole", t("diagramEditor.relation.targetRole")],
+            ["sourceMultiplicity", t("diagramEditor.relation.sourceMultiplicity")],
+            ["targetMultiplicity", t("diagramEditor.relation.targetMultiplicity")],
           ].map(([key, label]) => (
             <LabelTextInput
               key={`${relationId}:${key}`}
@@ -148,7 +195,7 @@ export function ModelRelationEditor({
             />
           ))}
           <LabelSelect
-            label="导航性"
+            label={t("diagramEditor.relation.navigability")}
             value={stringValue(relation.navigability)}
             options={enumOptions([
               "none",
@@ -166,7 +213,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextarea
-            label="说明"
+            label={t("diagramEditor.fields.description")}
             value={stringValue(relation.description)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -181,9 +228,9 @@ export function ModelRelationEditor({
       {editorDraft.diagramKind === "activity" ? (
         <div className="grid gap-2 md:grid-cols-2">
           {[
-            ["condition", "条件"],
-            ["guard", "守卫"],
-            ["trigger", "触发"],
+            ["condition", t("diagramEditor.fields.condition")],
+            ["guard", t("diagramEditor.relation.guard")],
+            ["trigger", t("diagramEditor.relation.trigger")],
           ].map(([key, label]) => (
             <LabelTextInput
               key={`${relationId}:${key}`}
@@ -199,7 +246,7 @@ export function ModelRelationEditor({
             />
           ))}
           <LabelTextarea
-            label="说明"
+            label={t("diagramEditor.fields.description")}
             value={stringValue(relation.description)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -214,7 +261,7 @@ export function ModelRelationEditor({
       {editorDraft.diagramKind === "deployment" ? (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelTextInput
-            label="协议"
+            label={t("diagramEditor.relation.protocol")}
             value={stringValue(relation.protocol)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -225,7 +272,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextInput
-            label="端口"
+            label={t("diagramEditor.relation.port")}
             value={stringValue(relation.port)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -236,7 +283,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelSelect
-            label="方向"
+            label={t("diagramEditor.relation.direction")}
             value={stringValue(relation.direction)}
             options={enumOptions(["one-way", "two-way", "inbound", "outbound"])}
             allowEmpty
@@ -249,7 +296,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextarea
-            label="说明"
+            label={t("diagramEditor.fields.description")}
             value={stringValue(relation.description)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -264,7 +311,7 @@ export function ModelRelationEditor({
       {editorDraft.diagramKind === "sequence" ? (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelTextarea
-            label="参数"
+            label={t("diagramEditor.relation.parameters")}
             value={stringListValue(relation.parameters).join("\n")}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => ({
@@ -274,7 +321,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextInput
-            label="返回值"
+            label={t("diagramEditor.relation.returnValue")}
             value={stringValue(relation.returnValue)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -285,7 +332,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextInput
-            label="条件"
+            label={t("diagramEditor.fields.condition")}
             value={stringValue(relation.condition)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -296,7 +343,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextarea
-            label="说明"
+            label={t("diagramEditor.fields.description")}
             value={stringValue(relation.description)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {
@@ -311,7 +358,7 @@ export function ModelRelationEditor({
       {editorDraft.diagramKind === "table" ? (
         <div className="grid gap-2 md:grid-cols-2">
           <LabelSelect
-            label="源字段"
+            label={t("diagramEditor.relation.sourceColumn")}
             value={stringValue(relation.sourceColumnId)}
             options={columnsForTable(stringValue(relation.sourceTableId))}
             allowEmpty
@@ -324,7 +371,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelSelect
-            label="目标字段"
+            label={t("diagramEditor.relation.targetColumn")}
             value={stringValue(relation.targetColumnId)}
             options={columnsForTable(stringValue(relation.targetTableId))}
             allowEmpty
@@ -337,7 +384,7 @@ export function ModelRelationEditor({
             }
           />
           <LabelTextarea
-            label="说明"
+            label={t("diagramEditor.fields.description")}
             value={stringValue(relation.description)}
             onChange={(value) =>
               updateRelation(relationId, (currentRelation) => {

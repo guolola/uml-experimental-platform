@@ -229,6 +229,20 @@ export function createMockWorkspaceRepository(
       };
     },
 
+    async updateFeasibility(patch) {
+      workspace = {
+        ...workspace,
+        feasibilityInputs: patch.inputs ?? workspace.feasibilityInputs,
+        feasibilityContextModel: patch.contextModel === undefined ? workspace.feasibilityContextModel : patch.contextModel,
+        feasibilityContextTraceability: patch.contextTraceability ?? workspace.feasibilityContextTraceability,
+        feasibilityContextPlantUml: patch.contextPlantUml ?? workspace.feasibilityContextPlantUml,
+        feasibilityContextSvg: patch.contextSvg ?? workspace.feasibilityContextSvg,
+        feasibilityContextFingerprint: patch.contextFingerprint === undefined ? workspace.feasibilityContextFingerprint : patch.contextFingerprint,
+        feasibilityImplementationPlan: patch.implementationPlan === undefined ? workspace.feasibilityImplementationPlan : patch.implementationPlan,
+        feasibilityImplementationFingerprint: patch.implementationFingerprint === undefined ? workspace.feasibilityImplementationFingerprint : patch.implementationFingerprint,
+      };
+    },
+
     async updateRequirementBaseline(baseline: RequirementBaseline) {
       const nextBaseline = structuredClone(baseline) as RequirementBaseline;
       workspace = {
@@ -483,7 +497,9 @@ export function createMockWorkspaceRepository(
         title:
           input.documentKind === "requirementsSpec"
             ? "需求规格说明书"
-            : "软件设计说明书",
+            : input.documentKind === "softwareDesignSpec"
+              ? "软件设计说明书"
+              : "可行性研究报告",
         fileName,
         mimeType: snapshot.mimeType ?? "application/octet-stream",
         byteLength: snapshot.byteLength,

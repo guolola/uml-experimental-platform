@@ -75,9 +75,9 @@ describe("WorkspaceTabsBar", () => {
 
     const tabStrip = screen.getByTestId("workspace-mobile-tab-strip");
     expect(tabStrip).toHaveClass("overflow-x-auto");
-    expect(within(tabStrip).getByRole("button", { name: "需求" })).toBeInTheDocument();
+    expect(within(tabStrip).getByRole("button", { name: "系统需求" })).toBeInTheDocument();
     expect(within(tabStrip).getByRole("button", { name: "用例模型" })).toBeInTheDocument();
-    expect(within(tabStrip).getByRole("button", { name: "设计" })).toBeInTheDocument();
+    expect(within(tabStrip).getByRole("button", { name: "设计模型" })).toBeInTheDocument();
     expect(tabStrip.querySelectorAll(".w-28").length).toBeGreaterThanOrEqual(3);
 
     await userEvent.click(screen.getByRole("button", { name: "标签页操作" }));
@@ -96,17 +96,17 @@ describe("WorkspaceTabsBar", () => {
     await userEvent.click(screen.getByRole("button", { name: "open design" }));
     await userEvent.click(screen.getByRole("button", { name: "open code" }));
 
-    expect(screen.getByRole("button", { name: "需求" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "系统需求" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "用例模型" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "设计" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "设计模型" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "代码" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "标签页操作" }));
     await userEvent.click(screen.getByText("关闭其他标签"));
 
-    expect(screen.queryByRole("button", { name: "需求" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "系统需求" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "用例模型" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "设计" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设计模型" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "代码" })).toBeInTheDocument();
   });
 });

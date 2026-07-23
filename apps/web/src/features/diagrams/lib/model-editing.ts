@@ -7,9 +7,45 @@ export type EditableCollection = {
   label: string;
   nameKey: string;
   create: () => Record<string, unknown>;
+  singleton?: boolean;
+  allowCreate?: boolean;
+  allowDelete?: boolean;
 };
 
 export const EDITABLE_COLLECTIONS: Record<string, EditableCollection[]> = {
+  context: [
+    {
+      key: "system",
+      label: "中心系统",
+      nameKey: "name",
+      singleton: true,
+      allowCreate: false,
+      allowDelete: false,
+      create: () => ({ id: "system", name: "目标系统", sourceRequirementIds: [] }),
+    },
+    {
+      key: "people",
+      label: "人员",
+      nameKey: "name",
+      create: () => ({
+        id: createDraftId("person"),
+        name: "新人员",
+        description: "",
+        sourceRequirementIds: [],
+      }),
+    },
+    {
+      key: "externalSystems",
+      label: "外部系统",
+      nameKey: "name",
+      create: () => ({
+        id: createDraftId("external"),
+        name: "新外部系统",
+        description: "",
+        sourceRequirementIds: [],
+      }),
+    },
+  ],
   usecase: [
     {
       key: "actors",
@@ -292,6 +328,12 @@ export function editableCollectionsFor(model: unknown) {
 }
 
 export function collectionItems(draft: Record<string, unknown>, collection: EditableCollection) {
+  if (collection.singleton) {
+    const item = draft[collection.key];
+    return item && typeof item === "object"
+      ? [item as Record<string, unknown>]
+      : [];
+  }
   return Array.isArray(draft[collection.key])
     ? (draft[collection.key] as Array<Record<string, unknown>>)
     : [];
@@ -346,6 +388,10 @@ export function updateDraftCollection(
   collection: EditableCollection,
   updater: (items: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
 ) {
+  if (collection.singleton) {
+    const nextItems = updater(collectionItems(draft, collection));
+    return nextItems[0] ? { ...draft, [collection.key]: nextItems[0] } : draft;
+  }
   return { ...draft, [collection.key]: updater(collectionItems(draft, collection)) };
 }
 
@@ -434,6 +480,17 @@ export function createRelationshipDraft(draft: Record<string, unknown>) {
       label: "新关系",
     };
   }
+  if (draft.diagramKind === "context") {
+    return {
+      id: createDraftId("relationship"),
+      sourceId: source,
+      targetId: target,
+      direction: "directed",
+      label: "新交互",
+      description: "",
+      sourceRequirementIds: [],
+    };
+  }
   if (draft.diagramKind === "activity") {
     return {
       id: createDraftId("rel"),
@@ -454,6 +511,8 @@ export function createRelationshipDraft(draft: Record<string, unknown>) {
 
 export function relationTypeOptions(diagramKind: unknown) {
   switch (diagramKind) {
+    case "context":
+      return ["directed", "bidirectional"];
     case "usecase":
       return ["association", "include", "extend", "generalization"];
     case "class":

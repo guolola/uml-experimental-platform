@@ -51,14 +51,14 @@ describe("MobileWorkspaceNavigation", () => {
         .getAllByRole("button")
         .map((button) => button.textContent)
         .filter(Boolean),
-    ).toEqual(["需求", "设计", "代码", "测试", "说明书"]);
-    expect(screen.getByRole("button", { name: "需求" })).toHaveAttribute(
+    ).toEqual(["系统需求", "可行性", "需求模型", "设计模型", "代码", "测试", "说明书"]);
+    expect(screen.getByRole("button", { name: "系统需求" })).toHaveAttribute(
       "aria-current",
       "page",
     );
 
-    await user.click(screen.getByRole("button", { name: "设计" }));
-    expect(screen.getByTestId("active-selection")).toHaveTextContent("设计");
+    await user.click(screen.getByRole("button", { name: "设计模型" }));
+    expect(screen.getByTestId("active-selection")).toHaveTextContent("设计模型");
 
     await user.click(screen.getByRole("button", { name: "代码" }));
     expect(screen.getByTestId("active-selection")).toHaveTextContent("代码");
@@ -131,7 +131,7 @@ describe("MobileWorkspaceNavigation", () => {
     const drawerNavigation = within(dialog).getByRole("navigation", {
       name: "项目导航",
     });
-    await user.click(await within(drawerNavigation).findByRole("button", { name: "展开 设计" }));
+    await user.click(await within(drawerNavigation).findByRole("button", { name: "展开 设计模型" }));
 
     expect(screen.getByRole("dialog", { name: "项目导航" })).toBeInTheDocument();
   });

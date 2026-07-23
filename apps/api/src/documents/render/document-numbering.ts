@@ -2,13 +2,16 @@
 import { type DocumentSection } from "@uml-platform/contracts";
 
 const LEADING_NUMBER_PATTERN =
-  /^\s*(?:第\s*)?\d+(?:\.\d+){0,2}(?:\s*[章节]\s*)?[\s.、：:-]*/;
+  /^\s*(?:A\.)?(?:第\s*)?\d+(?:\.\d+){0,3}(?:\s*[章节]\s*)?[\s.、：:-]*/i;
 
 export function stripDocumentHeadingNumber(title: string) {
   return title.replace(LEADING_NUMBER_PATTERN, "").trim() || title.trim();
 }
 
-export function numberDocumentSections(sections: DocumentSection[]) {
+export function numberDocumentSections(
+  sections: DocumentSection[],
+  options: { prefix?: string } = {},
+) {
   let heading1 = 0;
   let heading2 = 0;
   let heading3 = 0;
@@ -28,7 +31,7 @@ export function numberDocumentSections(sections: DocumentSection[]) {
       heading1 += 1;
       heading2 = 0;
       heading3 = 0;
-      return { ...section, title: `${heading1} ${cleanTitle}` };
+      return { ...section, title: `${options.prefix ?? ""}${heading1} ${cleanTitle}` };
     }
 
     if (section.level === 2) {
@@ -37,7 +40,7 @@ export function numberDocumentSections(sections: DocumentSection[]) {
       }
       heading2 += 1;
       heading3 = 0;
-      return { ...section, title: `${heading1}.${heading2} ${cleanTitle}` };
+      return { ...section, title: `${options.prefix ?? ""}${heading1}.${heading2} ${cleanTitle}` };
     }
 
     if (heading1 === 0) {
@@ -47,6 +50,6 @@ export function numberDocumentSections(sections: DocumentSection[]) {
       heading2 = 1;
     }
     heading3 += 1;
-    return { ...section, title: `${heading1}.${heading2}.${heading3} ${cleanTitle}` };
+    return { ...section, title: `${options.prefix ?? ""}${heading1}.${heading2}.${heading3} ${cleanTitle}` };
   });
 }

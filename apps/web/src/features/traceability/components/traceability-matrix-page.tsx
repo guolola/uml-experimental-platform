@@ -20,6 +20,7 @@ import {
   PAGE_SIZE_OPTIONS,
   type TraceabilityRowCopy,
   buildDesignRows,
+  buildContextRows,
   buildGroupOptions,
   buildRequirementRows,
   designGroupLabel,
@@ -29,7 +30,13 @@ import {
   type MatrixScope,
   type RowStatus,
 } from "../lib/traceability-rows";
-import type { DesignDiagramKind, DiagramKind } from "@uml-platform/contracts";
+import type {
+  ContextDiagramSpec,
+  ContextTraceRow,
+  DesignDiagramKind,
+  DiagramKind,
+  RequirementRule,
+} from "@uml-platform/contracts";
 import {
   getDesignDiagramLabel,
   getDiagramLabel,
@@ -38,7 +45,13 @@ import {
 } from "../../../entities/diagram/model";
 import type { SemanticElementKind } from "../../../entities/diagram/lib/model-details";
 
-type MatrixMode = "requirements" | "design";
+type MatrixMode = "requirements" | "design" | "context";
+type ContextMatrixData = {
+  model: ContextDiagramSpec | null;
+  traceability: ContextTraceRow[];
+  rules: RequirementRule[];
+  stale: boolean;
+};
 type TraceabilityRef = {
   diagramKind?: DiagramKind | DesignDiagramKind;
   label?: string;
@@ -104,6 +117,24 @@ function createTraceabilityCopy(t: TFunction): TraceabilityRowCopy {
       t("traceability.rows.sourceUseCaseRealization", { modelLabel, elementLabel }),
     requirementElement: (groupLabel, elementLabel) =>
       t("traceability.rows.requirementElement", { groupLabel, elementLabel }),
+    context: {
+      noDescription: t("traceability.context.noDescription"),
+      people: t("traceability.context.people"),
+      externalSystems: t("traceability.context.externalSystems"),
+      relationships: t("traceability.context.relationships"),
+      directedInteraction: t("traceability.context.directedInteraction"),
+      bidirectionalInteraction: t("traceability.context.bidirectionalInteraction"),
+      invalidSources: (sources) => t("traceability.context.invalidSources", { sources }),
+      incompleteTrace: t("traceability.context.incompleteTrace"),
+      deterministicMapping: t("traceability.context.deterministicMapping"),
+      missingSource: t("traceability.context.missingSource"),
+      sourceRules: (rules) => t("traceability.context.sourceRules", { rules }),
+      unmapped: t("traceability.context.unmapped"),
+      endpoints: (source, target) => t("traceability.context.endpoints", { source, target }),
+      direction: (direction) => t("traceability.context.direction", { direction }),
+      directed: t("traceability.context.directed"),
+      bidirectional: t("traceability.context.bidirectional"),
+    },
   };
 }
 
@@ -145,9 +176,11 @@ function StatusBadge({ status, t }: { status: RowStatus; t: TFunction }) {
 export function TraceabilityMatrixPage({
   mode,
   scope,
+  contextData,
 }: {
   mode: MatrixMode;
   scope?: MatrixScope;
+  contextData?: ContextMatrixData;
 }) {
   const { t } = useTranslation();
   const {
@@ -166,12 +199,20 @@ export function TraceabilityMatrixPage({
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   const isDesign = mode === "design";
+  const isContext = mode === "context";
   const isAnalysisRequirementScope = !isDesign && scope?.diagramKind === "analysis";
   const refSeparator = t("traceability.refSeparator");
   const traceabilityCopy = useMemo(() => createTraceabilityCopy(t), [t]);
   const rows = useMemo(
     () =>
-      isDesign
+      isContext
+        ? buildContextRows(
+            contextData?.rules ?? [],
+            contextData?.model ?? null,
+            contextData?.traceability ?? [],
+            traceabilityCopy,
+          )
+        : isDesign
         ? buildDesignRows(
             rules,
             models,
@@ -185,6 +226,8 @@ export function TraceabilityMatrixPage({
     [
       designModelTraceability,
       designModels,
+      contextData,
+      isContext,
       isDesign,
       models,
       requirementModelTraceability,
@@ -208,22 +251,30 @@ export function TraceabilityMatrixPage({
   const mappedCount = filteredRows.filter((row) => row.status === "mapped").length;
   const coverage =
     filteredRows.length > 0 ? Math.round((mappedCount / filteredRows.length) * 100) : 0;
-  const hasTraceability = isDesign
+  const hasTraceability = isContext
+    ? rows.length > 0
+    : isDesign
     ? designModelTraceability.length > 0
     : isAnalysisRequirementScope
       ? rows.length > 0
       : requirementModelTraceability.length > 0;
-  const isTraceabilityStale = isDesign
+  const isTraceabilityStale = isContext
+    ? Boolean(contextData?.stale)
+    : isDesign
     ? designTraceabilityStale
     : isAnalysisRequirementScope
       ? false
       : requirementTraceabilityStale;
   const hasIncompleteCoverage =
     hasTraceability && filteredRows.length > 0 && mappedCount < filteredRows.length;
-  const missingTraceabilityTitle = isDesign
+  const missingTraceabilityTitle = isContext
+    ? t("traceability.context.missingTitle")
+    : isDesign
     ? t("traceability.missing.designTitle")
     : t("traceability.missing.requirementTitle");
-  const missingTraceabilityMessage = isDesign
+  const missingTraceabilityMessage = isContext
+    ? t("traceability.context.missingMessage")
+    : isDesign
     ? t("traceability.missing.designMessage")
     : t("traceability.missing.requirementMessage");
 
@@ -244,17 +295,22 @@ export function TraceabilityMatrixPage({
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
 
-  const scopeLabel =
-    scope?.label ??
+  const scopeLabel = isContext
+    ? t("traceability.context.label")
+    : scope?.label ??
     (isDesign
       ? designGroupLabel(scope?.diagramKind ?? "sequence", traceabilityCopy)
       : requirementGroupLabel(scope?.diagramKind ?? "usecase", traceabilityCopy));
-  const title = scope
+  const title = isContext
+    ? t("traceability.context.title")
+    : scope
     ? t("traceability.title.scoped", { label: scopeLabel })
     : isDesign
       ? t("traceability.title.design")
       : t("traceability.title.requirements");
-  const description = scope
+  const description = isContext
+    ? t("traceability.context.description")
+    : scope
     ? isDesign
       ? t("traceability.description.scopedDesign", { label: scopeLabel })
       : isAnalysisRequirementScope
@@ -263,7 +319,11 @@ export function TraceabilityMatrixPage({
     : isDesign
       ? t("traceability.description.design")
       : t("traceability.description.requirements");
-  const groupFilterLabel = isDesign ? t("traceability.filters.designModelType") : t("traceability.filters.requirementModelType");
+  const groupFilterLabel = isContext
+    ? t("traceability.context.filterLabel")
+    : isDesign
+      ? t("traceability.filters.designModelType")
+      : t("traceability.filters.requirementModelType");
   const sourceColumnLabel = isAnalysisRequirementScope ? t("traceability.columns.sourceUseCaseFlow") : t("traceability.columns.sourceRequirementRule");
   const pageRangeStart = filteredRows.length === 0 ? 0 : pageStart + 1;
   const pageRangeEnd = Math.min(pageStart + pageSize, filteredRows.length);
@@ -310,7 +370,9 @@ export function TraceabilityMatrixPage({
                 {isTraceabilityStale ? t("traceability.stale.title") : t("traceability.incomplete.title")}
               </div>
               <p className="mt-1 leading-6">
-                {isDesign
+                {isContext
+                  ? t("traceability.context.staleMessage")
+                  : isDesign
                   ? t("traceability.stale.designMessage")
                   : t("traceability.stale.requirementMessage")}
               </p>
@@ -328,7 +390,11 @@ export function TraceabilityMatrixPage({
                       <Network className="size-4 text-primary" />
                     )}
                     <h3 className="text-sm font-semibold text-foreground">
-                      {isDesign ? t("traceability.mapping.design") : t("traceability.mapping.requirements")}
+                      {isContext
+                        ? t("traceability.context.mappingTitle")
+                        : isDesign
+                          ? t("traceability.mapping.design")
+                          : t("traceability.mapping.requirements")}
                     </h3>
                     <Badge variant="secondary" className="rounded-full font-mono text-[11px]">
                       {filteredRows.length}/{rows.length}
@@ -363,7 +429,11 @@ export function TraceabilityMatrixPage({
                       {t("traceability.empty.title")}
                     </h3>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {isDesign ? t("traceability.empty.designMessage") : t("traceability.empty.requirementMessage")}
+                      {isContext
+                        ? t("traceability.context.emptyMessage")
+                        : isDesign
+                          ? t("traceability.empty.designMessage")
+                          : t("traceability.empty.requirementMessage")}
                     </p>
                   </div>
                 </div>
@@ -373,7 +443,11 @@ export function TraceabilityMatrixPage({
                     <thead className="bg-muted/20 text-xs text-muted-foreground">
                       <tr>
                         <th className="w-[34%] border-b border-r border-border px-4 py-4 text-left font-medium">
-                          {isDesign ? t("traceability.columns.designElement") : t("traceability.columns.requirementElement")}
+                          {isContext
+                            ? t("traceability.context.elementColumn")
+                            : isDesign
+                              ? t("traceability.columns.designElement")
+                              : t("traceability.columns.requirementElement")}
                         </th>
                         <th className="w-[14%] border-b border-r border-border px-4 py-4 text-left font-medium">
                           {t("traceability.columns.type")}

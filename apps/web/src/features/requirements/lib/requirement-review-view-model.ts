@@ -6,6 +6,7 @@ import type {
 } from "@uml-platform/contracts";
 import type { DiagramType } from "../../../entities/diagram/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
+import type { TFunction } from "i18next";
 
 export const REQUIREMENT_FIELD_LABELS: Record<AtomicRequirementField, string> = {
   actor: "角色/执行者",
@@ -85,10 +86,10 @@ export function requirementFieldValue(
   return requirement[field] ?? "";
 }
 
-export function requirementFieldStatusLabel(status: string) {
-  if (status === "accepted") return "已确认";
-  if (status === "rejected") return "已拒绝";
-  return "待确认";
+export function requirementFieldStatusLabel(status: string, t?: TFunction) {
+  if (status === "accepted") return t ? t("requirements.review.fieldStatus.accepted") : "已确认";
+  if (status === "rejected") return t ? t("requirements.review.fieldStatus.rejected") : "已拒绝";
+  return t ? t("requirements.review.fieldStatus.pending") : "待确认";
 }
 
 export function reviewCandidateStateLabel(
@@ -111,11 +112,11 @@ export function reviewCandidateDecisionLabel(
   return null;
 }
 
-export function requirementSourceLabel(source: string) {
-  if (source === "ai-suggested") return "AI补齐";
-  if (source === "manual") return "手动编辑";
-  if (source === "source-text") return "原文提取";
-  return "规则推断";
+export function requirementSourceLabel(source: string, t?: TFunction) {
+  if (source === "ai-suggested") return t ? t("requirements.review.sources.ai") : "AI补齐";
+  if (source === "manual") return t ? t("requirements.review.sources.manual") : "手动编辑";
+  if (source === "source-text") return t ? t("requirements.review.sources.source") : "原文提取";
+  return t ? t("requirements.review.sources.inferred") : "规则推断";
 }
 
 export function pendingAutoReviewsForRequirementDiagram(

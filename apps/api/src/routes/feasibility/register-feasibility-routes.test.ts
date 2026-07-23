@@ -1,0 +1,173 @@
+// Verifies formal feasibility run persistence, provider generation, dependency gates, and partial sync.
+import assert from "node:assert/strict";
+import test from "node:test";
+import Fastify from "fastify";
+import { createRunRecordStore } from "../../runs/records/run-record-store.js";
+import { registerFeasibilityRoutes } from "./register-feasibility-routes.js";
+
+function acceptedBaseline() {
+  return {
+    runId: "requirements-run",
+    sourceDocumentId: "inline",
+    createdAt: "2026-07-19T00:00:00.000Z",
+    requirements: [{ id: "REQ-009", sourceRuleId: "R9", sourceFragment: "计算总成本", sourceLocation: { section: "input", startOffset: 0, endOffset: 5 }, type: "functional", actor: "技工", subject: "系统", action: "计算", object: "总成本", condition: null, outcome: "得到总成本", confidence: 1, status: "accepted", criticality: "high", acceptanceCriteria: ["得到总成本"], priority: "must", fieldProvenance: {} }],
+    assumptions: [], conflicts: [],
+    qualityReport: { runId: "requirements-run", status: "accepted", summary: "已确认", issues: [], blockingIssueIds: [], reviewRequiredRequirementIds: [] },
+  };
+}
+
+const contextOutput = JSON.stringify({
+  diagramKind: "context",
+  modelId: "context",
+  title: "维修预约系统上下文",
+  summary: "系统边界",
+  notes: [],
+  system: { id: "system", name: "维修预约系统", sourceRequirementIds: [] },
+  people: [{ id: "technician", name: "技工", sourceRequirementIds: ["R9"] }],
+  externalSystems: [],
+  relationships: [{ id: "rel-1", sourceId: "technician", targetId: "system", direction: "directed", label: "计算总成本", sourceRequirementIds: ["R9"] }],
+});
+
+function generatedCandidate(id: string, name: string) {
+  const range = { minimum: 10_000, maximum: 20_000, currency: "CNY", basis: "同规模项目人力与服务成本", confidence: "medium" };
+  return {
+    id, name, summary: "按模块分阶段交付", advantages: ["职责清晰"], disadvantages: ["需要持续维护"],
+    estimatedCost: "人民币 1–2 万元（AI 估算）", estimatedSchedule: "8–12 周", sourceRequirementIds: ["R9"], provenance: "ai-estimate",
+    implementation: {
+      provenance: "ai-estimate",
+      architecture: { summary: "模块化架构", modules: [{ name: "成本模块", responsibility: "计算总成本", sourceRequirementIds: ["R9"], provenance: "ai-estimate" }] },
+      dataStrategy: { summary: "保存业务数据", sourceRequirementIds: ["R9"], provenance: "ai-estimate" }, integrations: [], integrationRationale: "当前规则未要求外部系统集成。",
+      deploymentAndOperations: { summary: "容器化部署", sourceRequirementIds: [], assumption: "目标环境尚未确认，按单节点容器估算", provenance: "ai-estimate" },
+      securityAndCompliance: { summary: "最小权限与审计", sourceRequirementIds: ["R9"], provenance: "ai-estimate" },
+      milestones: [{ name: "核心交付", timeframe: "8–12 周", deliverables: ["可运行系统"], roles: ["开发者"], dependencies: [], dependencyRationale: "不依赖项目外部团队。", acceptanceCriteria: ["规则通过"], sourceRequirementIds: ["R9"], provenance: "ai-estimate" }],
+      analysisPeriodAssumption: { years: 3, basis: "按教学项目常见生命周期", provenance: "ai-estimate" },
+      costEstimates: [
+        { id: `${id}-capital`, name: "开发设备", category: "capital", frequency: "one-time", range, sourceRequirementIds: [], assumption: "按现有团队补充设备估算", provenance: "ai-estimate" },
+        { id: `${id}-once`, name: "上线准备", category: "other-one-time", frequency: "one-time", range, sourceRequirementIds: [], assumption: "按部署准备工时估算", provenance: "ai-estimate" },
+        { id: `${id}-recurring`, name: "运维服务", category: "recurring", frequency: "annual", range, sourceRequirementIds: [], assumption: "按年度服务估算", provenance: "ai-estimate" },
+      ],
+      benefitEstimates: [
+        { id: `${id}-benefit-once`, name: "初始化节省", category: "one-time", frequency: "one-time", range, outcome: "减少初始化人工", sourceRequirementIds: [], assumption: "按人工时折算", provenance: "ai-estimate" },
+        { id: `${id}-benefit-recurring`, name: "效率收益", category: "recurring", frequency: "annual", range, outcome: "持续减少计算时间", sourceRequirementIds: ["R9"], provenance: "ai-estimate" },
+        { id: `${id}-benefit-intangible`, name: "可追踪性", category: "intangible", frequency: "annual", range: null, outcome: "提高结果可追踪性", sourceRequirementIds: ["R9"], provenance: "ai-estimate" },
+      ],
+      absenceDeclarations: [], oneTimeCosts: ["开发与上线"], recurringCosts: ["年度运维"], quantitativeBenefits: ["节省处理时间"], qualitativeBenefits: ["提高可追踪性"],
+      risks: ["进度偏差", "估算偏差", "运维能力"].map((risk) => ({ risk, probability: "medium", impact: "medium", mitigation: "设置阶段检查点", owner: "项目经理", sourceRequirementIds: [], assumption: "基于方案实施特征", provenance: "ai-estimate" })),
+      verdicts: ["technical", "operational", "schedule", "economic", "legal"].map((category) => ({ category, verdict: "conditional", rationale: "满足前置条件后可行", provenance: "ai-estimate" })),
+      decision: "conditional-go", preconditions: ["确认真实预算与法律约束"],
+    },
+  };
+}
+
+const implementationOutput = JSON.stringify({
+  overview: "分阶段实现",
+  candidates: [generatedCandidate("candidate-1", "模块化方案"), generatedCandidate("candidate-2", "托管服务方案")],
+  recommendedCandidateId: "candidate-1",
+  recommendationRationale: "综合成本、周期和风险后复杂度可控",
+});
+
+function providerConfigs() {
+  return {
+    async get() {
+      return { scopeType: "system", scopeId: null, allowlisted: true, status: "active", breakerState: "closed", allowedModels: ["test-model"], baseUrl: "https://provider.example/v1", modelCapabilities: {} };
+    },
+    async getSecret() { return "test-key"; },
+  };
+}
+
+async function waitForTerminal(app: ReturnType<typeof Fastify>, runId: string) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await app.inject({ method: "GET", url: `/api/feasibility-runs/${runId}`, headers: { authorization: "Bearer test" } });
+    const snapshot = response.json();
+    if (snapshot.status === "completed" || snapshot.status === "failed") return snapshot;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("run did not finish");
+}
+
+function registerTestRoutes(input: {
+  app: ReturnType<typeof Fastify>;
+  outputs?: string[];
+  state?: Record<string, unknown>;
+  onSync?: (record: Parameters<NonNullable<Parameters<typeof registerFeasibilityRoutes>[0]["syncProjectWorkspace"]>>[0]) => Promise<void>;
+}) {
+  const runs = createRunRecordStore();
+  const outputs = [...(input.outputs ?? [contextOutput, implementationOutput])];
+  const state = input.state ?? {
+    name: "维修预约系统",
+    rules: [{ id: "R9", category: "功能需求", text: "完成维护后计算总成本。", relatedDiagrams: ["context"] }],
+    requirementBaseline: acceptedBaseline(),
+    feasibilityInputs: { projectName: "维修预约系统" },
+  };
+  registerFeasibilityRoutes({
+    app: input.app,
+    runs,
+    renderClient: async (artifact) => ({ svg: `<svg>${artifact.diagramKind}</svg>`, renderMeta: { engine: "plantuml", generatedAt: "2026-07-19T00:00:00.000Z", sourceLength: artifact.source.length, durationMs: 1 } }),
+    llmTransport: { async *streamChatCompletion() { yield outputs.shift() ?? "{}"; } },
+    providerConfigs: providerConfigs() as never,
+    defaultSseAllowOrigin: "http://localhost:5173",
+    resolveUserId: async (request) => request.headers.authorization === "Bearer test" ? "user-1" : null,
+    canUpdateProject: async () => true,
+    loadWorkspace: async () => ({ version: 1, state }),
+    syncProjectWorkspace: input.onSync,
+  });
+  return { runs, state };
+}
+
+test("persists the run before syncing context and implementation from the selected model", async () => {
+  const app = Fastify();
+  let runs = createRunRecordStore();
+  let synced = false;
+  const registered = registerTestRoutes({
+    app,
+    onSync: async (record) => {
+      assert.equal(runs.has(record.snapshot.runId), true);
+      synced = true;
+    },
+  });
+  runs = registered.runs;
+  const start = await app.inject({ method: "POST", url: "/api/feasibility-runs", headers: { authorization: "Bearer test" }, payload: { projectId: "project-1", selectedArtifacts: ["context", "implementation"], providerSettings: { providerConfigId: "provider-1", model: "test-model" } } });
+  assert.equal(start.statusCode, 202, start.body);
+  const snapshot = await waitForTerminal(app, start.json().runId);
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.contextModel.relationships.length, 1);
+  assert.equal(snapshot.implementationPlan.candidates.length, 2);
+  assert.equal(snapshot.implementationPlan.candidates[0].implementation.architecture.modules[0].id, "candidate-1-module-1");
+  assert.equal(snapshot.implementationPlan.candidates[0].implementation.milestones[0].id, "candidate-1-milestone-1");
+  assert.equal(snapshot.implementationPlan.candidates[0].implementation.risks[0].id, "candidate-1-risk-1");
+  assert.equal(snapshot.providerSettings.model, "test-model");
+  assert.equal(synced, true);
+  const events = await app.inject({ method: "GET", url: `/api/feasibility-runs/${snapshot.runId}/events`, headers: { authorization: "Bearer test" } });
+  assert.match(events.body, /"type":"completed"/u);
+  await app.close();
+});
+
+test("requires provider settings and rejects implementation without a current context", async () => {
+  const app = Fastify();
+  registerTestRoutes({ app });
+  const missingProvider = await app.inject({ method: "POST", url: "/api/feasibility-runs", headers: { authorization: "Bearer test" }, payload: { projectId: "project-1", selectedArtifacts: ["context"] } });
+  assert.equal(missingProvider.statusCode, 400);
+  const dependency = await app.inject({ method: "POST", url: "/api/feasibility-runs", headers: { authorization: "Bearer test" }, payload: { projectId: "project-1", selectedArtifacts: ["implementation"], providerSettings: { providerConfigId: "provider-1", model: "test-model" } } });
+  assert.equal(dependency.statusCode, 409);
+  assert.match(dependency.json().message, /上下文图/u);
+  await app.close();
+});
+
+test("repairs invalid context once and keeps new context when implementation still fails", async () => {
+  const app = Fastify();
+  let syncedSnapshot: Record<string, unknown> | null = null;
+  registerTestRoutes({
+    app,
+    outputs: ["{bad", contextOutput, "{}", "{}"],
+    onSync: async (record) => { syncedSnapshot = structuredClone(record.snapshot) as unknown as Record<string, unknown>; },
+  });
+  const start = await app.inject({ method: "POST", url: "/api/feasibility-runs", headers: { authorization: "Bearer test" }, payload: { projectId: "project-1", selectedArtifacts: ["context", "implementation"], providerSettings: { providerConfigId: "provider-1", model: "test-model" } } });
+  const snapshot = await waitForTerminal(app, start.json().runId);
+  assert.equal(snapshot.status, "failed");
+  assert.ok(snapshot.contextModel);
+  assert.equal(snapshot.implementationPlan, null);
+  assert.ok(syncedSnapshot?.contextModel);
+  assert.equal(syncedSnapshot?.implementationPlan, null);
+  assert.equal(typeof snapshot.error.message, "string");
+  await app.close();
+});

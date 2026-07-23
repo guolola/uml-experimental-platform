@@ -15,12 +15,25 @@ import {
 } from "../../entities/diagram/model";
 
 const DEFAULT_SELECTION: WorkspaceSelection = {
-  kind: "requirements-text",
-  label: "需求",
+  kind: "system-requirements",
+  label: "系统需求",
 };
 
 export type WorkspaceSelection =
+  | { kind: "system-requirements"; label: string }
   | { kind: "requirements-text"; label: string }
+  | { kind: "feasibility-home"; label: string }
+  | { kind: "feasibility-context"; label: string }
+  | { kind: "feasibility-context-trace"; label: string }
+  | { kind: "feasibility-context-elements"; label: string }
+  | { kind: "feasibility-context-relations"; label: string }
+  | {
+      kind: "feasibility-context-element";
+      elementKind: string;
+      elementId: string;
+      label: string;
+    }
+  | { kind: "feasibility-implementation"; label: string }
   | { kind: "requirement-trace-matrix"; diagram: DiagramType; modelId?: string; label: string }
   | { kind: "diagram"; diagram: DiagramType; modelId?: string; label: string }
   | { kind: "design-home"; label: string }
@@ -76,7 +89,19 @@ interface WorkspaceShellState {
   closeWorkspaceTab: (tabId: string) => void;
   closeOtherWorkspaceTabs: (tabId: string) => void;
   closeWorkspaceTabsByStage: (tabId: string) => void;
+  openSystemRequirements: () => void;
   openRequirementsText: () => void;
+  openFeasibilityHome: () => void;
+  openFeasibilityContext: () => void;
+  openFeasibilityContextTrace: () => void;
+  openFeasibilityContextElements: () => void;
+  openFeasibilityContextRelations: () => void;
+  openFeasibilityContextElement: (
+    elementKind: string,
+    elementId: string,
+    label: string,
+  ) => void;
+  openFeasibilityImplementation: () => void;
   openRequirementTraceMatrix: (
     diagram: DiagramType,
     modelId?: string,
@@ -123,8 +148,24 @@ const WorkspaceShellContext = createContext<WorkspaceShellState | null>(null);
 
 function tabIdForSelection(selection: WorkspaceSelection) {
   switch (selection.kind) {
+    case "system-requirements":
+      return "system-requirements";
     case "requirements-text":
       return "requirements";
+    case "feasibility-home":
+      return "feasibility";
+    case "feasibility-context":
+      return "feasibility:context";
+    case "feasibility-context-trace":
+      return "feasibility:context:trace";
+    case "feasibility-context-elements":
+      return "feasibility:context:elements";
+    case "feasibility-context-relations":
+      return "feasibility:context:relations";
+    case "feasibility-context-element":
+      return "feasibility:context";
+    case "feasibility-implementation":
+      return "feasibility:implementation";
     case "requirement-trace-matrix":
       return `requirements:trace-matrix:${selection.modelId ?? selection.diagram}`;
     case "diagram":
@@ -150,15 +191,25 @@ function tabIdForSelection(selection: WorkspaceSelection) {
 
 function tabLabelForSelection(selection: WorkspaceSelection) {
   switch (selection.kind) {
+    case "system-requirements":
+      return "系统需求";
     case "requirements-text":
-      return "需求";
+      return "需求模型";
+    case "feasibility-home":
+    case "feasibility-context":
+    case "feasibility-context-trace":
+    case "feasibility-context-elements":
+    case "feasibility-context-relations":
+    case "feasibility-context-element":
+    case "feasibility-implementation":
+      return selection.label;
     case "requirement-trace-matrix":
       return selection.label;
     case "diagram":
     case "diagram-element":
       return selection.label || DIAGRAM_META[selection.diagram].label;
     case "design-home":
-      return "设计";
+      return "设计模型";
     case "design-trace-matrix":
       return selection.label;
     case "test-home":
@@ -183,10 +234,20 @@ function createWorkspaceTab(selection: WorkspaceSelection): WorkspaceTab {
   };
 }
 
-export type WorkspaceStage = "requirements" | "design" | "test" | "code" | "documents";
+export type WorkspaceStage = "system-requirements" | "feasibility" | "requirements" | "design" | "test" | "code" | "documents";
 
 export function stageForSelection(selection: WorkspaceSelection): WorkspaceStage {
   switch (selection.kind) {
+    case "system-requirements":
+      return "system-requirements";
+    case "feasibility-home":
+    case "feasibility-context":
+    case "feasibility-context-trace":
+    case "feasibility-context-elements":
+    case "feasibility-context-relations":
+    case "feasibility-context-element":
+    case "feasibility-implementation":
+      return "feasibility";
     case "requirements-text":
     case "requirement-trace-matrix":
     case "diagram":
@@ -282,9 +343,23 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     [activeTabId, defaultTab],
   );
 
-  const openRequirementsText = useCallback(() => {
-    openWorkspaceTab({ kind: "requirements-text", label: "需求" });
+  const openSystemRequirements = useCallback(() => {
+    openWorkspaceTab({ kind: "system-requirements", label: "系统需求" });
   }, [openWorkspaceTab]);
+
+  const openRequirementsText = useCallback(() => {
+    openWorkspaceTab({ kind: "requirements-text", label: "需求模型" });
+  }, [openWorkspaceTab]);
+
+  const openFeasibilityHome = useCallback(() => openWorkspaceTab({ kind: "feasibility-home", label: "可行性分析" }), [openWorkspaceTab]);
+  const openFeasibilityContext = useCallback(() => openWorkspaceTab({ kind: "feasibility-context", label: "上下文图" }), [openWorkspaceTab]);
+  const openFeasibilityContextTrace = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-trace", label: "上下文跟踪矩阵" }), [openWorkspaceTab]);
+  const openFeasibilityContextElements = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-elements", label: "上下文元素" }), [openWorkspaceTab]);
+  const openFeasibilityContextRelations = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-relations", label: "上下文关系" }), [openWorkspaceTab]);
+  const openFeasibilityContextElement = useCallback((elementKind: string, elementId: string, label: string) => {
+    openWorkspaceTab({ kind: "feasibility-context-element", elementKind, elementId, label });
+  }, [openWorkspaceTab]);
+  const openFeasibilityImplementation = useCallback(() => openWorkspaceTab({ kind: "feasibility-implementation", label: "实现方案" }), [openWorkspaceTab]);
 
   const openRequirementTraceMatrix = useCallback((
     diagram: DiagramType,
@@ -317,7 +392,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   }, [openWorkspaceTab]);
 
   const openDesignHome = useCallback(() => {
-    openWorkspaceTab({ kind: "design-home", label: "设计" });
+    openWorkspaceTab({ kind: "design-home", label: "设计模型" });
   }, [openWorkspaceTab]);
 
   const openDesignTraceMatrix = useCallback((
@@ -423,7 +498,15 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       closeWorkspaceTab,
       closeOtherWorkspaceTabs,
       closeWorkspaceTabsByStage,
+      openSystemRequirements,
       openRequirementsText,
+      openFeasibilityHome,
+      openFeasibilityContext,
+      openFeasibilityContextTrace,
+      openFeasibilityContextElements,
+      openFeasibilityContextRelations,
+      openFeasibilityContextElement,
+      openFeasibilityImplementation,
       openRequirementTraceMatrix,
       openHistoryDrawer,
       closeHistoryDrawer,
@@ -442,6 +525,14 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       activeTabId,
       openTabs,
       openRequirementsText,
+      openSystemRequirements,
+      openFeasibilityHome,
+      openFeasibilityContext,
+      openFeasibilityContextTrace,
+      openFeasibilityContextElements,
+      openFeasibilityContextRelations,
+      openFeasibilityContextElement,
+      openFeasibilityImplementation,
       openRequirementTraceMatrix,
       openHistoryDrawer,
       closeHistoryDrawer,
@@ -482,8 +573,24 @@ export function useWorkspaceShell() {
 
 export function getSelectionKey(selection: WorkspaceSelection) {
   switch (selection.kind) {
+    case "system-requirements":
+      return "system-requirements";
     case "requirements-text":
       return "requirements";
+    case "feasibility-home":
+      return "feasibility";
+    case "feasibility-context":
+      return "feasibility:context";
+    case "feasibility-context-trace":
+      return "feasibility:context:trace";
+    case "feasibility-context-elements":
+      return "feasibility:context:elements";
+    case "feasibility-context-relations":
+      return "feasibility:context:relations";
+    case "feasibility-context-element":
+      return `feasibility-context-element:context:${selection.elementKind}:${selection.elementId}`;
+    case "feasibility-implementation":
+      return "feasibility:implementation";
     case "requirement-trace-matrix":
       return `requirements:trace-matrix:${selection.modelId ?? selection.diagram}`;
     case "diagram":

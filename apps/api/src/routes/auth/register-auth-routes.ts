@@ -35,6 +35,13 @@ function devTokenPayload(token: string, expiresAt: string) {
   return process.env.NODE_ENV === "production" ? { expiresAt } : { devToken: token, expiresAt };
 }
 
+function authError(
+  code: string,
+  category: "authentication" | "authorization" | "conflict" | "validation" = "authentication",
+) {
+  return { error: { code, category, retryable: false } };
+}
+
 export function registerAuthRoutes({
   app,
   authStore,
@@ -60,7 +67,7 @@ export function registerAuthRoutes({
     });
     if (!user) {
       reply.code(409);
-      return { message: "Email or username is already registered" };
+      return authError("AUTH_ACCOUNT_EXISTS", "conflict");
     }
 
     const session = await authStore.createSession({
@@ -120,7 +127,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Invalid email or password",
       });
-      return { message: "Invalid email or password" };
+      return authError("AUTH_INVALID_CREDENTIALS");
     }
     if (!user.emailVerified) {
       reply.code(403);
@@ -132,7 +139,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Email is not verified",
       });
-      return { message: "Email verification is required before login" };
+      return authError("AUTH_EMAIL_VERIFICATION_REQUIRED", "authorization");
     }
     if (user.status !== "active") {
       reply.code(403);
@@ -144,7 +151,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "User is not active",
       });
-      return { message: "User is not active" };
+      return authError("AUTH_ACCOUNT_INACTIVE", "authorization");
     }
 
     if (user.mfaEnabled) {
@@ -200,7 +207,7 @@ export function registerAuthRoutes({
     const user = await authStore.consumeMfaChallenge(input.challengeId);
     if (!user || !user.mfaEnabled || !user.mfaSecret) {
       reply.code(401);
-      return { message: "MFA challenge is invalid or expired" };
+      return authError("AUTH_MFA_CHALLENGE_INVALID");
     }
     if (!verifyTotpCode({ secret: user.mfaSecret, code: input.code })) {
       reply.code(401);
@@ -212,7 +219,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "MFA code did not match",
       });
-      return { message: "MFA code is invalid" };
+      return authError("AUTH_MFA_CODE_INVALID");
     }
 
     const session = await authStore.createSession({
@@ -257,7 +264,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Invalid admin email or password",
       });
-      return { message: "Invalid email or password" };
+      return authError("AUTH_INVALID_CREDENTIALS");
     }
     if (!user.emailVerified) {
       reply.code(403);
@@ -269,7 +276,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Email is not verified",
       });
-      return { message: "Email verification is required before login" };
+      return authError("AUTH_EMAIL_VERIFICATION_REQUIRED", "authorization");
     }
     if (user.status !== "active") {
       reply.code(403);
@@ -281,7 +288,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "User is not active",
       });
-      return { message: "User is not active" };
+      return authError("AUTH_ACCOUNT_INACTIVE", "authorization");
     }
     if (!hasAnyAdminRole(user.systemRoles)) {
       reply.code(403);
@@ -293,7 +300,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Admin role required",
       });
-      return { message: "Admin role required" };
+      return authError("AUTH_ADMIN_ROLE_REQUIRED", "authorization");
     }
     if (!user.mfaEnabled || !user.mfaSecret) {
       reply.code(403);
@@ -305,7 +312,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Admin MFA is required",
       });
-      return { message: "Admin MFA is required before accessing the admin console" };
+      return authError("AUTH_ADMIN_MFA_REQUIRED", "authorization");
     }
 
     const challenge = await authStore.createMfaChallenge(user.id);
@@ -333,11 +340,11 @@ export function registerAuthRoutes({
     const user = await authStore.consumeMfaChallenge(input.challengeId);
     if (!user || !user.mfaEnabled || !user.mfaSecret) {
       reply.code(401);
-      return { message: "MFA challenge is invalid or expired" };
+      return authError("AUTH_MFA_CHALLENGE_INVALID");
     }
     if (!hasAnyAdminRole(user.systemRoles)) {
       reply.code(403);
-      return { message: "Admin role required" };
+      return authError("AUTH_ADMIN_ROLE_REQUIRED", "authorization");
     }
     if (!verifyTotpCode({ secret: user.mfaSecret, code: input.code })) {
       reply.code(401);
@@ -349,7 +356,7 @@ export function registerAuthRoutes({
         userAgent: request.headers["user-agent"] ?? null,
         message: "Admin MFA code did not match",
       });
-      return { message: "MFA code is invalid" };
+      return authError("AUTH_MFA_CODE_INVALID");
     }
 
     const session = await authStore.createSession({
@@ -405,7 +412,7 @@ export function registerAuthRoutes({
     const user = await authStore.verifyEmailToken(input.token);
     if (!user) {
       reply.code(400);
-      return { message: "Email verification token is invalid or expired" };
+      return authError("AUTH_EMAIL_TOKEN_INVALID", "validation");
     }
     await authStore.recordAuditLog({
       actorUserId: user.id,
@@ -470,7 +477,7 @@ export function registerAuthRoutes({
     );
     if (!result) {
       reply.code(400);
-      return { message: "Password reset token is invalid or expired" };
+      return authError("AUTH_PASSWORD_RESET_TOKEN_INVALID", "validation");
     }
     clearSessionCookie(reply);
     await authStore.recordAuditLog({

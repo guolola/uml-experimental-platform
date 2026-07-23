@@ -1,16 +1,18 @@
 // Composes the standalone project creation page around the shared create form.
 import { ProjectCreateForm } from "./project-create-form";
+import { useTranslation } from "react-i18next";
 import { PageFrame, SectionCard } from "./project-page-layout";
 
 type Navigate = (path: string) => void;
 
 export function ProjectNewPage({ onNavigate }: { onNavigate: Navigate }) {
+  const { t } = useTranslation();
   return (
     <PageFrame onNavigate={onNavigate}>
       <div>
-        <h1>创建项目</h1>
+        <h1>{t("projects.createProject")}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          项目名称、描述、可见性和课程/班级/team 会提交到项目 API。
+          {t("projects.createProjectDescription")}
         </p>
       </div>
       <SectionCard>

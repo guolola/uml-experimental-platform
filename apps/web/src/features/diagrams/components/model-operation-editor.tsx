@@ -1,5 +1,6 @@
 // Renders class/interface operation and parameter edit fields for the model element editor.
 import { Plus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../shared/ui/button";
 import {
   booleanValue,
@@ -35,6 +36,7 @@ export function OperationEditors({
   ownerLabel: string;
   updateItem: UpdateElementItem;
 }) {
+  const { t } = useTranslation();
   const operations = Array.isArray(item.operations)
     ? (item.operations as Array<Record<string, unknown>>)
     : [];
@@ -55,7 +57,7 @@ export function OperationEditors({
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-background p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-medium text-foreground">方法</div>
+        <div className="text-xs font-medium text-foreground">{t("diagramOperations.title")}</div>
         <Button
           type="button"
           size="sm"
@@ -73,11 +75,11 @@ export function OperationEditors({
             }))
           }
         >
-          <Plus className="size-3" /> 添加方法
+          <Plus className="size-3" /> {t("diagramOperations.addOperation")}
         </Button>
       </div>
       {operations.map((operation, operationIndex) => {
-        const operationLabel = ordinalLabel(operationIndex, "方法");
+        const operationLabel = ordinalLabel(operationIndex, "operation");
         const parameters = Array.isArray(operation.parameters)
           ? (operation.parameters as Array<Record<string, unknown>>)
           : [];
@@ -88,7 +90,7 @@ export function OperationEditors({
           >
             <div className="grid gap-2 md:grid-cols-3">
               <LabelTextInput
-                label={`${operationLabel}名称`}
+                label={t("diagramOperations.fields.name", { owner: operationLabel })}
                 value={stringValue(operation.name)}
                 onChange={(value) =>
                   updateOperation(operationIndex, (current) => ({
@@ -98,7 +100,7 @@ export function OperationEditors({
                 }
               />
               <LabelTextInput
-                label={`${operationLabel}返回类型`}
+                label={t("diagramOperations.fields.returnType", { owner: operationLabel })}
                 value={stringValue(operation.returnType)}
                 onChange={(value) =>
                   updateOperation(operationIndex, (current) => {
@@ -109,7 +111,7 @@ export function OperationEditors({
                 }
               />
               <LabelSelect
-                label={`${operationLabel}可见性`}
+                label={t("diagramOperations.fields.visibility", { owner: operationLabel })}
                 value={stringValue(operation.visibility) || "public"}
                 options={enumOptions([
                   "public",
@@ -126,7 +128,7 @@ export function OperationEditors({
               />
             </div>
             <LabelTextarea
-              label={`${operationLabel}说明`}
+              label={t("diagramOperations.fields.description", { owner: operationLabel })}
               value={stringValue(operation.description)}
               onChange={(value) =>
                 updateOperation(operationIndex, (current) => {
@@ -163,10 +165,11 @@ function OperationParameterEditors({
     updater: (operation: Record<string, unknown>) => Record<string, unknown>,
   ) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-background p-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs text-muted-foreground">参数</div>
+        <div className="text-xs text-muted-foreground">{t("diagramOperations.parameters")}</div>
         <Button
           type="button"
           size="sm"
@@ -182,21 +185,21 @@ function OperationParameterEditors({
             }))
           }
         >
-          <Plus className="size-3" /> 添加参数
+          <Plus className="size-3" /> {t("diagramOperations.addParameter")}
         </Button>
       </div>
       {parameters.map((parameter, parameterIndex) => {
-        const parameterLabel = `${operationLabel}的${ordinalLabel(
-          parameterIndex,
-          "参数",
-        )}`;
+        const parameterLabel = t("diagramOperations.parameterOwner", {
+          operation: operationLabel,
+          parameter: ordinalLabel(parameterIndex, "parameter"),
+        });
         return (
           <div
             key={`${operationLabel}:parameter:${parameterIndex}`}
             className="grid gap-2 md:grid-cols-4"
           >
             <LabelTextInput
-              label={`${parameterLabel}名称`}
+              label={t("diagramOperations.fields.name", { owner: parameterLabel })}
               value={stringValue(parameter.name)}
               onChange={(value) =>
                 updateOperation(operationIndex, (current) => ({
@@ -210,7 +213,7 @@ function OperationParameterEditors({
               }
             />
             <LabelTextInput
-              label={`${parameterLabel}类型`}
+              label={t("diagramOperations.fields.type", { owner: parameterLabel })}
               value={stringValue(parameter.type)}
               onChange={(value) =>
                 updateOperation(operationIndex, (current) => ({
@@ -224,7 +227,7 @@ function OperationParameterEditors({
               }
             />
             <LabelSelect
-              label={`${parameterLabel}方向`}
+              label={t("diagramOperations.fields.direction", { owner: parameterLabel })}
               value={stringValue(parameter.direction)}
               options={enumOptions(["in", "out", "inout"])}
               allowEmpty
@@ -241,7 +244,7 @@ function OperationParameterEditors({
               }
             />
             <LabelCheckbox
-              label={`${parameterLabel}必填`}
+              label={t("diagramOperations.fields.required", { owner: parameterLabel })}
               checked={booleanValue(parameter.required, true)}
               onChange={(checked) =>
                 updateOperation(operationIndex, (current) => ({

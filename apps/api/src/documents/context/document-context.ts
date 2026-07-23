@@ -14,13 +14,17 @@ import {
 export function documentTitle(documentKind: DocumentKind) {
   return documentKind === "requirementsSpec"
     ? "需求规格说明书"
-    : "软件设计说明书";
+    : documentKind === "softwareDesignSpec"
+      ? "软件设计说明书"
+      : "可行性研究报告";
 }
 
 export function expectedDocumentDiagramKinds(documentKind: DocumentKind) {
   return documentKind === "requirementsSpec"
     ? ["function", "activity", "usecase", "class", "deployment", "prototype", "analysis"]
-    : ["architecture", "sequence", "class", "activity", "table", "component", "deployment"];
+    : documentKind === "softwareDesignSpec"
+      ? ["architecture", "sequence", "class", "activity", "table", "component", "deployment"]
+      : ["context"];
 }
 
 const FORBIDDEN_DOCUMENT_PATTERNS = [
@@ -638,6 +642,8 @@ export function buildDocumentContext(input: StartDocumentRunRequest) {
       modelId: artifact.modelId,
       hasSvg: Boolean(artifact.svg),
     })),
+    feasibilityInputs: input.feasibilityInputs,
+    feasibilityImplementationPlan: input.feasibilityImplementationPlan,
     canonicalSections: fallbackDocumentSections(input).map((section) => ({
       level: section.level,
       title: section.title,
@@ -740,6 +746,136 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
         { level: 2, title: "需求原始资料", body: [briefText(input.requirementText, 1200)] },
       ],
     }).sections;
+  }
+
+  if (input.documentKind === "feasibilityStudy") {
+    const plan = input.feasibilityImplementationPlan;
+    if (!plan) {
+      throw new Error("可行性研究报告缺少实现方案。");
+    }
+    const recommendedCandidate = plan.candidates.find(
+      (candidate) => candidate.id === plan.recommendedCandidateId,
+    );
+    const implementation = recommendedCandidate?.implementation;
+    if (!recommendedCandidate || !implementation) {
+      throw new Error("推荐方案缺少完整的技术、实施、风险或可行性结论，请重新生成实现方案。");
+    }
+    const facts = input.feasibilityInputs;
+    const value = (text: string | number | null | undefined) =>
+      text === null || text === undefined || String(text).trim() === ""
+        ? "未提供/待确认"
+        : String(text);
+    const context = requirementModel(input, "context");
+    if (!context) throw new Error("可行性研究报告缺少上下文模型。");
+    const traceRows = [
+      ...context.people.flatMap((element) => element.sourceRequirementIds.map((id) => [id, "人员", element.name])),
+      ...context.externalSystems.flatMap((element) => element.sourceRequirementIds.map((id) => [id, "外部系统", element.name])),
+      ...context.relationships.flatMap((relation) => relation.sourceRequirementIds.map((id) => [id, "关系", relation.label])),
+    ];
+    const analysisYears = facts.analysisYears ?? implementation.analysisPeriodAssumption?.years ?? 1;
+    const hasStructuredCosts = implementation.costEstimates.length > 0;
+    const hasStructuredBenefits = implementation.benefitEstimates.some((item) => item.range);
+    const periodBasis = facts.analysisYears
+      ? `采用用户确认的 ${facts.analysisYears} 年分析期。`
+      : implementation.analysisPeriodAssumption
+        ? `采用 AI 估算的 ${implementation.analysisPeriodAssumption.years} 年分析期：${implementation.analysisPeriodAssumption.basis}`
+        : "旧方案未保存分析周期；请重新生成完整估算后计算区间指标。";
+    const frequencyFactor = (frequency: "one-time" | "monthly" | "annual") =>
+      frequency === "monthly" ? analysisYears * 12 : frequency === "annual" ? analysisYears : 1;
+    const sumRanges = (items: Array<{ range: { minimum: number; maximum: number }; frequency: "one-time" | "monthly" | "annual" }>) =>
+      items.reduce((total, item) => ({
+        minimum: total.minimum + item.range.minimum * frequencyFactor(item.frequency),
+        maximum: total.maximum + item.range.maximum * frequencyFactor(item.frequency),
+      }), { minimum: 0, maximum: 0 });
+    const quantifiedBenefits = implementation.benefitEstimates.filter(
+      (item): item is typeof item & { range: NonNullable<typeof item.range> } => Boolean(item.range),
+    );
+    const totalCostRange = sumRanges(implementation.costEstimates);
+    const totalBenefitRange = sumRanges(quantifiedBenefits);
+    const formatRange = (range: { minimum: number; maximum: number }, available = true) => available
+      ? `CNY ${range.minimum.toFixed(2)}–${range.maximum.toFixed(2)}`
+      : "数据不足，未计算（旧方案需重新生成）";
+    const ratioRange = totalCostRange.minimum > 0 && totalCostRange.maximum > 0
+      ? {
+          minimum: totalBenefitRange.minimum / totalCostRange.maximum,
+          maximum: totalBenefitRange.maximum / totalCostRange.minimum,
+        }
+      : null;
+    const annualBenefits = quantifiedBenefits
+      .filter((item) => item.frequency !== "one-time")
+      .reduce((total, item) => ({
+        minimum: total.minimum + item.range.minimum * (item.frequency === "monthly" ? 12 : 1),
+        maximum: total.maximum + item.range.maximum * (item.frequency === "monthly" ? 12 : 1),
+      }), { minimum: 0, maximum: 0 });
+    const oneTimeCosts = sumRanges(implementation.costEstimates.filter((item) => item.frequency === "one-time"));
+    const paybackRange = annualBenefits.minimum > 0 && annualBenefits.maximum > 0
+      ? {
+          minimum: oneTimeCosts.minimum / annualBenefits.maximum,
+          maximum: oneTimeCosts.maximum / annualBenefits.minimum,
+        }
+      : null;
+    const costRows = (category: "capital" | "other-one-time" | "recurring") => {
+      const rows = implementation.costEstimates
+        .filter((item) => item.category === category)
+        .map((item) => [item.name, formatRange(item.range), item.frequency, item.range.basis, item.range.confidence, item.provenance]);
+      const scope = category === "capital" ? "capital-costs" : category === "other-one-time" ? "other-one-time-costs" : "recurring-costs";
+      const absence = implementation.absenceDeclarations.find((item) => item.scope === scope);
+      return rows.length ? rows : [["不适用", "—", "—", absence?.reason ?? "旧方案未提供该类别估算。", "—", absence?.provenance ?? "legacy"]];
+    };
+    const benefitRows = (category: "one-time" | "recurring" | "intangible") => {
+      const rows = implementation.benefitEstimates
+        .filter((item) => item.category === category)
+        .map((item) => [item.name, item.range ? formatRange(item.range) : "不可量化", item.frequency, item.range?.basis ?? item.outcome, item.range?.confidence ?? "—", item.provenance]);
+      const scope = category === "one-time" ? "one-time-benefits" : category === "recurring" ? "recurring-benefits" : "intangible-benefits";
+      const absence = implementation.absenceDeclarations.find((item) => item.scope === scope);
+      return rows.length ? rows : [["不适用", "—", "—", absence?.reason ?? "旧方案未提供该类别估算。", "—", absence?.provenance ?? "legacy"]];
+    };
+    const alternatives = plan.candidates.filter((candidate) => candidate.id !== plan.recommendedCandidateId);
+    return documentContentResultSchema.parse({ sections: [
+      { level: 1, title: "引言", body: ["本文档依据已接受的需求规则、系统上下文图、实现方案和用户补充事实，对项目实施条件进行结构化可行性研究。"] },
+      { level: 2, title: "编写目的", body: ["明确系统建设前提、比较实现方案、识别成本收益和风险，并形成可执行且可追溯的实施结论。"] },
+      { level: 2, title: "背景", body: [`项目名称：${value(facts.projectName)}`, `任务提出者：${value(facts.proposedBy)}`, `开发者：${value(facts.developedBy)}`, `预期用户或运行单位：${value(facts.expectedUsers)}`, context.summary, "下表由上下文元素和关系的来源规则编号确定性生成。"], table: { headers: ["需求规则", "目标类型", "上下文目标"], rows: traceRows.length ? traceRows : [["未提供/待确认", "未提供/待确认", "未提供/待确认"]] }, diagramKind: "context", diagramModelId: "context" },
+      { level: 2, title: "定义", body: [`系统边界由“${context.system.name}”及其人员、外部系统和交互关系共同界定；候选方案以 ${plan.candidates.map((candidate) => candidate.name).join("、")} 标识。`] },
+      { level: 2, title: "参考资料", body: [`用户提供资料：${value(facts.references)}`, `需求基线和来源规则共 ${input.rules.length} 条，作为方案分析与追踪依据。`] },
+      { level: 1, title: "可行性研究的前提", body: [] },
+      { level: 2, title: "要求", body: input.rules.map((rule) => `${rule.id}：${rule.text}`) },
+      { level: 2, title: "目标", body: [plan.overview, `推荐候选方案：${recommendedCandidate.name}。`] },
+      { level: 2, title: "条件、假定和限制", body: [`目标环境：${value(facts.targetEnvironment)}`, `期限：${value(facts.deadline)}`, `预期寿命：${value(facts.expectedLifetimeYears)} 年`, `预算上限：${value(facts.budgetLimit)}`, `团队规模与技能：${value(facts.teamSize)} 人；${value(facts.teamSkills)}`, `可用资源：${value(facts.availableResources)}`, `法律政策约束：${value(facts.legalConstraints)}`, periodBasis] },
+      { level: 2, title: "进行可行性研究的方法", body: ["采用需求规则追踪、系统边界分析、两个候选方案对比、成本收益区间计算、风险矩阵和五类可行性结论进行研究。AI 负责形成可编辑草案，用户事实保持原文，数值指标由系统确定性计算。"] },
+      { level: 2, title: "评价尺度", body: ["评价尺度包括需求覆盖程度、技术实现难度、运行适应性、实施周期、成本收益区间、风险等级和法律政策约束。AI 估算均保留依据、置信度与来源状态。"] },
+      { level: 1, title: "所建议的系统", body: [] },
+      { level: 2, title: "对所建议系统的说明", body: [plan.overview, `推荐方案：${recommendedCandidate.name}`, recommendedCandidate.summary, plan.recommendationRationale], table: { headers: ["模块", "职责", "来源规则或假设"], rows: implementation.architecture.modules.map((item) => [item.name, item.responsibility, item.sourceRequirementIds.join("、") || item.assumption]) } },
+      { level: 2, title: "处理流程和数据流程", body: [implementation.architecture.summary, implementation.dataStrategy.summary, ...implementation.integrations.map((item) => `${item.name}：${item.responsibility}`), implementation.integrations.length ? "上述集成共同承接系统边界内的数据交换。" : implementation.integrationRationale] },
+      { level: 2, title: "改进之处", body: recommendedCandidate.advantages.map((item) => `预期改进：${item}`) },
+      { level: 2, title: "影响", body: [] },
+      { level: 3, title: "对设备的影响", body: [`目标环境：${value(facts.targetEnvironment)}`, implementation.deploymentAndOperations.summary] },
+      { level: 3, title: "对软件的影响", body: [implementation.architecture.summary, implementation.dataStrategy.summary, implementation.securityAndCompliance.summary] },
+      { level: 3, title: "对用户单位机构的影响", body: [`预期用户或运行单位：${value(facts.expectedUsers)}`, `角色资源：${Array.from(new Set(implementation.milestones.flatMap((item) => item.roles))).join("、")}`] },
+      { level: 3, title: "对系统运行过程的影响", body: [implementation.deploymentAndOperations.summary, ...implementation.preconditions] },
+      { level: 3, title: "对开发的影响", body: ["实施计划如下。"], table: { headers: ["里程碑", "时间", "交付物", "角色", "依赖或说明", "验收条件"], rows: implementation.milestones.map((item) => [item.name, item.timeframe, item.deliverables.join("；"), item.roles.join("；"), item.dependencies.join("；") || item.dependencyRationale, item.acceptanceCriteria.join("；")]) } },
+      { level: 3, title: "对地点和设施的影响", body: [`目标环境：${value(facts.targetEnvironment)}`, implementation.deploymentAndOperations.summary] },
+      { level: 3, title: "对经费开支的影响", body: [`推荐方案预估成本：${recommendedCandidate.estimatedCost}`, `成本区间按 ${analysisYears} 年分析期汇总为 ${formatRange(totalCostRange, hasStructuredCosts)}；全部金额均保留 AI 估算或用户修改状态。`] },
+      { level: 2, title: "局限性", body: [recommendedCandidate.disadvantages.map((item) => `方案局限：${item}`).join("；") || "方案局限已在风险登记表中说明。"], table: { headers: ["风险", "概率", "影响", "缓解措施", "责任人", "来源规则或假设", "来源状态"], rows: implementation.risks.map((risk) => [risk.risk, risk.probability, risk.impact, risk.mitigation, risk.owner, risk.sourceRequirementIds.join("、") || risk.assumption, risk.provenance]) } },
+      { level: 2, title: "技术条件方面的可行性", body: [implementation.verdicts.find((item) => item.category === "technical")?.rationale ?? implementation.architecture.summary, `团队技能：${value(facts.teamSkills)}`, `可用资源：${value(facts.availableResources)}`, `实施周期：${recommendedCandidate.estimatedSchedule}`] },
+      { level: 1, title: "可选择的其他系统方案", body: alternatives.length ? ["以下为未被推荐的完整候选方案及未选中理由。"] : [plan.reducedCandidateReason || "当前约束下没有其他可比较的系统方案。"] },
+      ...alternatives.map((candidate, index) => ({ level: 2 as const, title: `可选择的系统方案${index + 1}`, body: [candidate.name, candidate.summary, `优势：${candidate.advantages.join("；")}`, `不足：${candidate.disadvantages.join("；")}`, `预估成本：${candidate.estimatedCost}`, `实施周期：${candidate.estimatedSchedule}`, `未选中理由：${plan.recommendationRationale}`] })),
+      { level: 1, title: "投资及效益分析", body: [`成本区间合计：${formatRange(totalCostRange, hasStructuredCosts)}`, `可量化收益区间合计：${formatRange(totalBenefitRange, hasStructuredBenefits)}`, periodBasis] },
+      { level: 2, title: "支出", body: [`以下金额为推荐方案在 ${analysisYears} 年分析期内的区间估算。`] },
+      { level: 3, title: "基本建设投资", body: [], table: { headers: ["名称", "金额区间", "频率", "估算依据", "置信度", "来源状态"], rows: costRows("capital") } },
+      { level: 3, title: "其他一次性支出", body: [], table: { headers: ["名称", "金额区间", "频率", "估算依据", "置信度", "来源状态"], rows: costRows("other-one-time") } },
+      { level: 3, title: "非一次性支出", body: [], table: { headers: ["名称", "金额区间", "频率", "估算依据", "置信度", "来源状态"], rows: costRows("recurring") } },
+      { level: 2, title: "收益", body: [`以下收益为推荐方案在 ${analysisYears} 年分析期内的区间估算和定性结果。`] },
+      { level: 3, title: "一次性收益", body: [], table: { headers: ["名称", "金额区间", "频率", "估算依据或结果", "置信度", "来源状态"], rows: benefitRows("one-time") } },
+      { level: 3, title: "非一次性收益", body: [], table: { headers: ["名称", "金额区间", "频率", "估算依据或结果", "置信度", "来源状态"], rows: benefitRows("recurring") } },
+      { level: 3, title: "不可计量的收益", body: [], table: { headers: ["名称", "金额区间", "频率", "估算依据或结果", "置信度", "来源状态"], rows: benefitRows("intangible") } },
+      { level: 2, title: "收益/投资比", body: ratioRange ? [`收益投资比区间：${ratioRange.minimum.toFixed(2)}–${ratioRange.maximum.toFixed(2)}。`, periodBasis] : ["成本区间为零或收益资料不足，系统无法形成有效收益投资比。", periodBasis] },
+      { level: 2, title: "投资回收期", body: paybackRange ? [`简单投资回收期区间：${paybackRange.minimum.toFixed(2)}–${paybackRange.maximum.toFixed(2)} 年。`, "结果由一次性成本区间与年化可量化收益区间确定性计算。"] : ["一次性成本或年化收益不足，系统无法形成有效回收期。"] },
+      { level: 2, title: "敏感性分析", body: [`在成本取上界、收益取下界时，收益投资比约为 ${ratioRange?.minimum.toFixed(2) ?? "不可计算"}；在成本取下界、收益取上界时约为 ${ratioRange?.maximum.toFixed(2) ?? "不可计算"}。`, `主要敏感因素来自估算置信度较低的条目：${[...implementation.costEstimates, ...implementation.benefitEstimates.filter((item) => item.range)].filter((item) => item.range?.confidence === "low").map((item) => item.name).join("、") || "当前没有低置信度量化条目"}。`] },
+      { level: 1, title: "社会因素方面的可行性", body: [] },
+      { level: 2, title: "法律方面的可行性", body: [`用户提供的法律政策约束：${value(facts.legalConstraints)}`, implementation.securityAndCompliance.summary, implementation.verdicts.find((item) => item.category === "legal")?.rationale ?? "法律结论须由用户根据实际约束确认。"] },
+      { level: 2, title: "使用方面的可行性", body: [`预期用户或运行单位：${value(facts.expectedUsers)}`, implementation.verdicts.find((item) => item.category === "operational")?.rationale ?? "使用条件依据需求和实施方案评估。", implementation.deploymentAndOperations.summary] },
+      { level: 1, title: "结论", body: [`总体决策：${implementation.decision}`, `实施前置条件：${implementation.preconditions.join("；") || "未提供/待确认"}`] },
+    ] }).sections;
   }
 
   const useCases = requirementUseCases(input);
@@ -876,7 +1012,9 @@ export function diagramPlantUmlForDocument(input: StartDocumentRunRequest) {
   const artifacts =
     input.documentKind === "requirementsSpec"
       ? input.requirementPlantUml
-      : input.designPlantUml;
+      : input.documentKind === "softwareDesignSpec"
+        ? input.designPlantUml
+        : input.requirementPlantUml;
   for (const artifact of artifacts) {
     map.set(artifact.modelId ?? artifact.diagramKind, artifact.source);
   }
@@ -896,7 +1034,9 @@ export function diagramSvgKindsForDocument(input: StartDocumentRunRequest) {
   const artifacts =
     input.documentKind === "requirementsSpec"
       ? input.requirementSvgArtifacts
-      : input.designSvgArtifacts;
+      : input.documentKind === "softwareDesignSpec"
+        ? input.designSvgArtifacts
+        : input.requirementSvgArtifacts;
   for (const artifact of artifacts) {
     set.add(artifact.modelId ?? artifact.diagramKind);
   }
@@ -922,6 +1062,7 @@ export function documentDiagramLabel(diagramKind: string, sectionTitle?: string)
     deployment: "部署需求模型",
     prototype: "原型界面关系",
     analysis: "需求分析模型",
+    context: "系统上下文图",
     architecture: "总体架构图",
     sequence: "用例实现设计",
     component: "组件（构件）关系",

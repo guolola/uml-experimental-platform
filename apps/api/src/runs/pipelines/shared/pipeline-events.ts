@@ -59,5 +59,11 @@ export function stageProgressValue(stage: RunStage) {
       return 80;
     case "render_svg":
       return 95;
+    case "generate_context":
+      return 35;
+    case "render_context":
+      return 60;
+    case "generate_implementation":
+      return 85;
   }
 }

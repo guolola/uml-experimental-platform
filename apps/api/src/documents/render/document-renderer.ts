@@ -2,10 +2,12 @@
 import {
   AlignmentType,
   Document,
+  Footer,
   HeadingLevel,
   ImageRun,
   LineRuleType,
   Packer,
+  PageNumber,
   Paragraph,
   Table,
   TableCell,
@@ -19,6 +21,7 @@ import {
   type DocumentKind,
   type DocumentSection,
   type UmlDiagramKind,
+  type FeasibilityInputs,
 } from "@uml-platform/contracts";
 import { documentDiagramLabel, documentTitle } from "../context/document-context.js";
 import { type PngRenderClient } from "../../adapters/render/png-render-client.js";
@@ -281,8 +284,50 @@ function createCoverParagraph(
   });
 }
 
-function createDocumentCover(documentKind: DocumentKind, style: ResolvedDocumentStyle) {
+function coverValue(value: string | number | null | undefined) {
+  return value === null || value === undefined || String(value).trim() === ""
+    ? "未提供/待确认"
+    : String(value);
+}
+
+function createFeasibilityCoverTable(inputs: FeasibilityInputs, style: ResolvedDocumentStyle) {
+  const rows = [
+    ["项目名称", coverValue(inputs.projectName)],
+    ["小组编号", coverValue(inputs.groupNumber)],
+    ["成员及学号", coverValue(inputs.members)],
+    ["年级班级", coverValue(inputs.gradeClass)],
+    ["所在学院", coverValue(inputs.college)],
+    ["提交日期", coverValue(inputs.submissionDate)],
+  ];
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: rows.map(([label, value]) => new TableRow({
+      children: [
+        new TableCell({ width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [createTextRun(label, style.table, true)], spacing: spacingForStyle(style.table) })] }),
+        new TableCell({ width: { size: 72, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [createTextRun(value, style.table)], spacing: spacingForStyle(style.table) })] }),
+      ],
+    })),
+  });
+}
+
+function createDocumentCover(
+  documentKind: DocumentKind,
+  style: ResolvedDocumentStyle,
+  feasibilityInputs?: FeasibilityInputs,
+) {
   const generatedDate = new Date().toISOString().slice(0, 10);
+  if (documentKind === "feasibilityStudy") {
+    const inputs = feasibilityInputs ?? {
+      projectName: "", school: "", college: "", groupNumber: "", members: "", gradeClass: "", submissionDate: "", proposedBy: "", developedBy: "", expectedUsers: "", targetEnvironment: "", deadline: "", expectedLifetimeYears: null, budgetLimit: null, teamSize: null, teamSkills: "", availableResources: "", legalConstraints: "", references: "", costItems: [], benefitItems: [], analysisYears: null,
+    };
+    return [
+      createCoverParagraph("软件设计工程", style, { title: true }),
+      createCoverParagraph("可行性分析报告", style, { subtitle: true }),
+      createCoverParagraph(`学校：${coverValue(inputs.school)}`, style),
+      createFeasibilityCoverTable(inputs, style),
+      createCoverParagraph(`${coverValue(inputs.school)} ${coverValue(inputs.college)}`, style),
+    ];
+  }
   return [
     createCoverParagraph("课程设计文档", style, { title: true }),
     createCoverParagraph(documentTitle(documentKind), style, { subtitle: true }),
@@ -343,16 +388,24 @@ export async function renderDocumentBuffer(
   pngRenderClient: PngRenderClient,
   missingArtifacts: string[],
   documentStyleSettings?: Parameters<typeof resolveDocumentStyle>[0],
+  feasibilityInputs?: FeasibilityInputs,
 ) {
   // This is the document assembly boundary: callers provide normalized sections
   // and image sources; this module returns a DOCX buffer plus missing-image notes.
   const style = resolveDocumentStyle(documentStyleSettings);
+  const pageMargins = documentKind === "feasibilityStudy"
+    ? { ...style.page, marginLeft: 1800, marginRight: 1800 }
+    : style.page;
   const renderedSections = style.autoNumberHeadings
-    ? numberDocumentSections(sections)
+    ? numberDocumentSections(
+        sections,
+        documentKind === "feasibilityStudy" ? { prefix: "A." } : undefined,
+      )
     : sections;
   const frontMatterChildren: Array<Paragraph | Table | TableOfContents> = createDocumentCover(
     documentKind,
     style,
+    feasibilityInputs,
   );
 
   if (style.includeTableOfContents) {
@@ -422,11 +475,12 @@ export async function renderDocumentBuffer(
       {
         properties: {
           page: {
+            size: { width: 11906, height: 16838 },
             margin: {
-              top: style.page.marginTop,
-              right: style.page.marginRight,
-              bottom: style.page.marginBottom,
-              left: style.page.marginLeft,
+              top: pageMargins.marginTop,
+              right: pageMargins.marginRight,
+              bottom: pageMargins.marginBottom,
+              left: pageMargins.marginLeft,
             },
           },
         },
@@ -435,16 +489,31 @@ export async function renderDocumentBuffer(
       {
         properties: {
           page: {
+            size: { width: 11906, height: 16838 },
             margin: {
-              top: style.page.marginTop,
-              right: style.page.marginRight,
-              bottom: style.page.marginBottom,
-              left: style.page.marginLeft,
+              top: pageMargins.marginTop,
+              right: pageMargins.marginRight,
+              bottom: pageMargins.marginBottom,
+              left: pageMargins.marginLeft,
             },
             pageNumbers: {
               start: 1,
             },
           },
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  createTextRun("第 ", style.caption),
+                  new TextRun({ children: [PageNumber.CURRENT], font: fontForStyle(style.caption), size: ptToHalfPoints(style.caption.sizePt) }),
+                  createTextRun(" 页", style.caption),
+                ],
+              }),
+            ],
+          }),
         },
         children: bodyChildren,
       },

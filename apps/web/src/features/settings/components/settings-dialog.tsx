@@ -1,5 +1,6 @@
 // Hosts the legacy standalone global settings dialog around the reusable settings panel.
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 import { Button } from "../../../shared/ui/button";
 import {
@@ -17,6 +18,7 @@ type SettingsDialogProps = {
 };
 
 export function SettingsDialog({ onNavigate }: SettingsDialogProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   return (
@@ -26,8 +28,8 @@ export function SettingsDialog({ onNavigate }: SettingsDialogProps) {
           variant="ghost"
           size="icon"
           className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground shadow-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5"
-          title="全局设置"
-          aria-label="全局设置"
+          title={t("account.globalSettings")}
+          aria-label={t("account.globalSettings")}
         >
           <Settings className="size-5" />
         </Button>
@@ -37,7 +39,7 @@ export function SettingsDialog({ onNavigate }: SettingsDialogProps) {
         className="max-h-[88vh] overflow-auto sm:max-w-2xl"
       >
         <DialogHeader>
-          <DialogTitle>设置</DialogTitle>
+          <DialogTitle>{t("account.settings")}</DialogTitle>
         </DialogHeader>
 
         <ScaleToFitFrame minWidth={640} contentClassName="w-[640px]">

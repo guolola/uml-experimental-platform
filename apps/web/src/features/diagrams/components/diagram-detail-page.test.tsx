@@ -8,7 +8,7 @@ import {
   createWorkspaceRecord,
   withWorkspaceProviders,
 } from "../../../test/workspace-test-utils";
-import { DesignDiagramView, DiagramView } from "./diagram-detail-page";
+import { ContextDiagramView, DesignDiagramView, DiagramView } from "./diagram-detail-page";
 
 const { toastMessage, toastError } = vi.hoisted(() => ({
   toastMessage: vi.fn(),
@@ -1868,14 +1868,14 @@ describe("DiagramView", () => {
     expect(dialog.querySelector("div[class*='grid-cols-1']")).not.toBeNull();
     await userEvent.clear(within(dialog).getByLabelText("第 1 个属性名称"));
     await userEvent.type(within(dialog).getByLabelText("第 1 个属性名称"), "totalAmount");
-    await userEvent.clear(within(dialog).getByLabelText("第 1 个方法的第 1 个参数名称"));
-    await userEvent.type(within(dialog).getByLabelText("第 1 个方法的第 1 个参数名称"), "userId");
+    await userEvent.clear(within(dialog).getByLabelText("第 1 个操作的第 1 个参数名称"));
+    await userEvent.type(within(dialog).getByLabelText("第 1 个操作的第 1 个参数名称"), "userId");
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
     await userEvent.click(screen.getByRole("button", { name: "编辑接口：Payable" }));
     dialog = await screen.findByRole("dialog", { name: /编辑接口/u });
-    await userEvent.clear(within(dialog).getByLabelText("第 1 个方法名称"));
-    await userEvent.type(within(dialog).getByLabelText("第 1 个方法名称"), "capture");
+    await userEvent.clear(within(dialog).getByLabelText("第 1 个操作名称"));
+    await userEvent.type(within(dialog).getByLabelText("第 1 个操作名称"), "capture");
     await userEvent.click(within(dialog).getByRole("button", { name: "确认编辑" }));
 
     await userEvent.click(screen.getByRole("button", { name: "编辑枚举：OrderStatus" }));
@@ -2380,5 +2380,85 @@ describe("DiagramView", () => {
     expect(screen.getAllByText("Event").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Reminder").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("只看焦点相关关系")).not.toBeInTheDocument();
+  });
+
+  it("exports feasibility context artifacts with stable context filenames", async () => {
+    const repository = createRepository();
+    render(
+      withWorkspaceProviders(
+        <ContextDiagramView
+          data={{
+            model: {
+              diagramKind: "context",
+              modelId: "context",
+              title: "订单系统上下文",
+              summary: "系统边界",
+              notes: [],
+              system: { id: "system", name: "订单系统", sourceRequirementIds: [] },
+              people: [{ id: "customer", name: "客户", sourceRequirementIds: ["r1"] }],
+              externalSystems: [],
+              relationships: [{ id: "submit", sourceId: "customer", targetId: "system", direction: "directed", label: "提交订单", sourceRequirementIds: ["r1"] }],
+            },
+            plantUmlSource: "@startuml\n@enduml",
+            svgMarkup: "<svg><text>订单系统</text></svg>",
+            stale: false,
+            rules: [{ id: "r1", text: "客户可以提交订单" }],
+            saveStatus: "idle",
+            onSave: vi.fn(async () => undefined),
+          }}
+        />,
+        repository,
+      ),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "SVG" }));
+    await userEvent.click(screen.getByRole("button", { name: "PlantUML" }));
+    expect(downloadTextFileMock).toHaveBeenNthCalledWith(
+      1,
+      "context.svg",
+      expect.stringContaining("<svg"),
+      "image/svg+xml",
+    );
+    expect(downloadTextFileMock).toHaveBeenNthCalledWith(
+      2,
+      "context.puml",
+      "@startuml\n@enduml",
+      "text/plain",
+    );
+  });
+
+  it("opens a context element from navigation in the shared focus view", async () => {
+    const repository = createRepository();
+    render(
+      withWorkspaceProviders(
+        <ContextDiagramView
+          highlightedElement={{ kind: "actor", id: "customer" }}
+          data={{
+            model: {
+              diagramKind: "context",
+              modelId: "context",
+              title: "订单系统上下文",
+              summary: "系统边界",
+              notes: [],
+              system: { id: "system", name: "订单系统", sourceRequirementIds: [] },
+              people: [{ id: "customer", name: "客户", description: "提交订单的客户", sourceRequirementIds: ["r1"] }],
+              externalSystems: [],
+              relationships: [{ id: "submit", sourceId: "customer", targetId: "system", direction: "directed", label: "提交订单", sourceRequirementIds: ["r1"] }],
+            },
+            plantUmlSource: "@startuml\n@enduml",
+            svgMarkup: "<svg><text>客户</text><text>订单系统</text></svg>",
+            stale: false,
+            rules: [{ id: "r1", text: "客户可以提交订单" }],
+            saveStatus: "idle",
+            onSave: vi.fn(async () => undefined),
+          }}
+        />,
+        repository,
+      ),
+    );
+
+    const panel = await screen.findByRole("complementary", { name: "焦点元素详情" });
+    expect(within(panel).getByText("客户")).toBeInTheDocument();
+    expect(within(panel).getByText("提交订单的客户")).toBeInTheDocument();
   });
 });

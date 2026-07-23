@@ -8,8 +8,10 @@ import type {
   ProviderModelDiscoveryResponse,
   ProviderModelDiscoveryProgressEvent,
 } from "@uml-platform/contracts";
+import type { RunError } from "@uml-platform/contracts";
 import type { ProjectBackgroundKey } from "@uml-platform/contracts";
 import type { RunHistorySnapshot } from "../../../entities/run-history";
+import { localizeApiFailure } from "../../../shared/i18n/api-errors";
 
 export const AUTH_SESSION_CHANGED_EVENT = "uml-auth-session-changed";
 
@@ -112,6 +114,7 @@ export interface PlatformRunSummary {
   completedAt?: string | null;
   updatedAt?: string | null;
   errorMessage?: string | null;
+  error?: RunError | null;
   codeDiagnosticCount?: number | null;
   codeDiagnosticSummary?: string[] | null;
   codeQualityIssueCount?: number | null;
@@ -296,6 +299,9 @@ export class PlatformApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly code: string | null = null,
+    public readonly retryable = false,
+    public readonly params: Record<string, string | number | boolean | null> = {},
   ) {
     super(message);
     this.name = "PlatformApiError";
@@ -318,16 +324,33 @@ async function requestJson<T>(
   });
 
   if (!response.ok) {
-    let message = `请求失败：HTTP ${response.status}`;
+    let payload: unknown = null;
     try {
-      const body = (await response.json()) as { message?: unknown };
-      if (typeof body.message === "string" && body.message.trim()) {
-        message = body.message;
-      }
+      payload = await response.json();
     } catch {
-      // Keep the HTTP status message when the API does not return JSON.
+      // Non-JSON failures use the localized HTTP fallback.
     }
-    throw new PlatformApiError(message, response.status);
+    const nested = payload && typeof payload === "object" && "error" in payload
+      ? (payload as { error?: unknown }).error
+      : null;
+    const structured = nested && typeof nested === "object"
+      ? nested as Record<string, unknown>
+      : null;
+    const params = structured?.params && typeof structured.params === "object"
+      ? Object.fromEntries(Object.entries(structured.params as Record<string, unknown>).filter(
+          ([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value),
+        )) as Record<string, string | number | boolean | null>
+      : {};
+    const code = typeof structured?.code === "string"
+      ? structured.code
+      : legacyApiErrorCode(payload, response.status);
+    throw new PlatformApiError(
+      localizeApiFailure(code && !structured ? { error: { code } } : payload, response.status),
+      response.status,
+      code,
+      structured?.retryable === true,
+      params,
+    );
   }
 
   if (response.status === 204) {
@@ -347,18 +370,13 @@ async function requestBlob(path: string, init: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    let message = `请求失败：HTTP ${response.status}`;
+    let payload: unknown = null;
     try {
-      const body = (await response.json()) as { message?: unknown; error?: { message?: unknown } };
-      if (typeof body.message === "string" && body.message.trim()) {
-        message = body.message;
-      } else if (typeof body.error?.message === "string" && body.error.message.trim()) {
-        message = body.error.message;
-      }
+      payload = await response.json();
     } catch {
-      // Keep the HTTP status message when the API does not return JSON.
+      // Non-JSON failures use the localized HTTP fallback.
     }
-    throw new PlatformApiError(message, response.status);
+    throw new PlatformApiError(localizeApiFailure(payload, response.status), response.status);
   }
 
   const disposition = response.headers.get("Content-Disposition") ?? "";
@@ -380,16 +398,13 @@ async function requestFormJson<T>(path: string, body: FormData): Promise<T> {
   });
 
   if (!response.ok) {
-    let message = `请求失败：HTTP ${response.status}`;
+    let payload: unknown = null;
     try {
-      const responseBody = (await response.json()) as { message?: unknown };
-      if (typeof responseBody.message === "string" && responseBody.message.trim()) {
-        message = responseBody.message;
-      }
+      payload = await response.json();
     } catch {
-      // Keep the HTTP status message when the API does not return JSON.
+      // Non-JSON failures use the localized HTTP fallback.
     }
-    throw new PlatformApiError(message, response.status);
+    throw new PlatformApiError(localizeApiFailure(payload, response.status), response.status);
   }
 
   const text = await response.text();
@@ -424,16 +439,13 @@ async function requestProviderModelDiscoveryStream(
   });
 
   if (!response.ok) {
-    let message = `请求失败：HTTP ${response.status}`;
+    let payload: unknown = null;
     try {
-      const body = (await response.json()) as { message?: unknown };
-      if (typeof body.message === "string" && body.message.trim()) {
-        message = body.message;
-      }
+      payload = await response.json();
     } catch {
-      // Keep the HTTP status message when the API does not return JSON.
+      // Non-JSON failures use the localized HTTP fallback.
     }
-    throw new PlatformApiError(message, response.status);
+    throw new PlatformApiError(localizeApiFailure(payload, response.status), response.status);
   }
 
   const reader = response.body?.getReader();
@@ -458,6 +470,21 @@ async function requestProviderModelDiscoveryStream(
   } finally {
     await reader.cancel().catch(() => {});
   }
+}
+
+// Converts known legacy natural-language responses into stable codes during API migration.
+function legacyApiErrorCode(payload: unknown, status: number) {
+  if (!payload || typeof payload !== "object") return null;
+  const message = typeof (payload as { message?: unknown }).message === "string"
+    ? (payload as { message: string }).message
+    : "";
+  if ((status === 401 || status === 403) && /email verification (?:is )?required|verify (?:your )?email/iu.test(message)) {
+    return "AUTH_EMAIL_VERIFICATION_REQUIRED";
+  }
+  if (status === 401 && /invalid (?:email|username|credentials)|incorrect (?:email|username|password)/iu.test(message)) {
+    return "AUTH_INVALID_CREDENTIALS";
+  }
+  return null;
 }
 
 export const platformApi = {

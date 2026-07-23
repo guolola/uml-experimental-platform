@@ -1,5 +1,6 @@
 // Renders the dialog used to create a manual requirement rule.
-import { DIAGRAM_META, DIAGRAM_ORDER, type DiagramType } from "../../../entities/diagram/model";
+import { DIAGRAM_ORDER, getDiagramLabel, type DiagramType } from "../../../entities/diagram/model";
+import { useTranslation } from "react-i18next";
 import {
   RULE_CATEGORY_ORDER,
   type RequirementRule,
@@ -47,19 +48,21 @@ export function NewRequirementRuleDialog({
   onToggleDiagram,
   open,
 }: NewRequirementRuleDialogProps) {
+  const { t } = useTranslation();
+  const categoryKey = (category: RequirementRule["category"]) => ({ "业务规则": "business", "功能需求": "functional", "外部接口": "externalInterface", "界面需求": "interface", "数据需求": "data", "非功能需求": "nonFunctional", "部署需求": "deployment", "异常处理": "exception" } as const)[category];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>新增需求项</DialogTitle>
+          <DialogTitle>{t("requirements.newRule.title")}</DialogTitle>
           <DialogDescription>
-            新增时选择类型和对应模型；创建后列表中只允许修改文本内容。
+            {t("requirements.newRule.description")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">需求类型</span>
+            <span className="font-medium">{t("requirements.newRule.type")}</span>
             <SelectControl
               value={newRuleCategory}
               onValueChange={(value) =>
@@ -69,13 +72,13 @@ export function NewRequirementRuleDialog({
               disabled={generating || !canEditRequirements}
               options={RULE_CATEGORY_ORDER.map((category) => ({
                 value: category,
-                label: category,
+                label: t(`requirements.categories.${categoryKey(category)}`),
               }))}
             />
           </label>
 
           <div className="grid gap-2 text-sm">
-            <span className="font-medium">对应模型</span>
+            <span className="font-medium">{t("requirements.newRule.models")}</span>
             <div className="grid grid-cols-2 gap-2">
               {DIAGRAM_ORDER.map((diagram) => (
                 <label
@@ -89,18 +92,18 @@ export function NewRequirementRuleDialog({
                     }
                     disabled={generating || !canEditRequirements}
                   />
-                  {DIAGRAM_META[diagram].label}
+                  {getDiagramLabel(diagram, t)}
                 </label>
               ))}
             </div>
           </div>
 
           <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">需求文本</span>
+            <span className="font-medium">{t("requirements.newRule.text")}</span>
             <textarea
               value={newRuleText}
               onChange={(event) => onTextChange(event.target.value)}
-              placeholder="填写这条需求项的具体内容"
+              placeholder={t("requirements.newRule.placeholder")}
               className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
               disabled={generating || !canEditRequirements}
             />
@@ -115,14 +118,14 @@ export function NewRequirementRuleDialog({
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
             onClick={onSubmit}
             disabled={generating || !newRuleCanSubmit || !canEditRequirements}
           >
-            创建需求项
+            {t("requirements.newRule.create")}
           </Button>
         </DialogFooter>
       </DialogContent>

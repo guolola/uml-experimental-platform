@@ -8,6 +8,7 @@ import {
 } from "../components/generation-dialogs";
 import type { GenerationConfirmationSummary } from "./generation-planning";
 import { cancelledRunMessage } from "./run-events";
+import { i18n } from "../../../shared/i18n/i18n";
 
 type CancelledRunDialogSnapshot = {
   error?: { message?: string } | null;
@@ -19,7 +20,7 @@ export function cancelledRunResultDialog(
   stageLabel: string,
 ): GenerationResultDialogState {
   return {
-    title: "任务已取消",
+    title: i18n.t("generation.dialog.titles.cancelled"),
     tone: "warning",
     message: cancelledRunMessage(snapshot),
     runId: snapshot.runId ?? null,
@@ -34,7 +35,7 @@ export function failedRunResultDialog(input: {
   stageLabel: string;
 }): GenerationResultDialogState {
   return {
-    title: "生成失败",
+    title: i18n.t("generation.dialog.titles.failed"),
     tone: "destructive",
     message: input.message,
     details: input.details,
@@ -54,10 +55,10 @@ export function requirementRunCompletionDialog(input: {
   return {
     title:
       input.diagramFailureCount > 0
-        ? "需求模型部分生成"
+        ? i18n.t("generation.dialog.titles.requirementsPartial")
         : input.isRulesOnly
-          ? "需求规则已生成"
-          : "需求模型已生成",
+          ? i18n.t("generation.dialog.titles.rulesCompleted")
+          : i18n.t("generation.dialog.titles.requirementsCompleted"),
     tone:
       input.qualityHintCount > 0 ||
       input.repairPendingCount > 0 ||
@@ -67,16 +68,16 @@ export function requirementRunCompletionDialog(input: {
         : "success",
     message:
       input.repairFailedCount > 0
-        ? `生成完成，但有 ${input.repairFailedCount} 条需求规则修复失败，请重试后确认。`
+        ? i18n.t("generation.dialog.repairFailedCount", { count: input.repairFailedCount })
         : input.repairPendingCount > 0
-          ? `生成完成，已生成 ${input.repairPendingCount} 条修复候选，请确认后继续生成模型。`
+          ? i18n.t("generation.dialog.repairPendingCount", { count: input.repairPendingCount })
           : completedRunResultMessage({
               qualityHintCount: input.qualityHintCount,
               diagramFailureCount: input.diagramFailureCount,
             }),
     runId: input.runId,
-    stageLabel: input.isRulesOnly ? "需求规则" : "需求模型",
-    targetLabel: input.isRulesOnly ? "当前需求文本" : "已选需求模型",
+    stageLabel: input.isRulesOnly ? i18n.t("generation.dialog.labels.rules") : i18n.t("generation.dialog.labels.requirementModels"),
+    targetLabel: input.isRulesOnly ? i18n.t("generation.dialog.labels.currentText") : i18n.t("generation.dialog.labels.selectedRequirementModels"),
   };
 }
 
@@ -86,7 +87,7 @@ export function designRunCompletionDialog(input: {
   runId: string;
 }): GenerationResultDialogState {
   return {
-    title: input.diagramFailureCount > 0 ? "设计模型部分生成" : "设计模型已生成",
+    title: input.diagramFailureCount > 0 ? i18n.t("generation.dialog.titles.designPartial") : i18n.t("generation.dialog.titles.designCompleted"),
     tone:
       input.qualityHintCount > 0 || input.diagramFailureCount > 0
         ? "warning"
@@ -96,8 +97,8 @@ export function designRunCompletionDialog(input: {
       diagramFailureCount: input.diagramFailureCount,
     }),
     runId: input.runId,
-    stageLabel: "设计模型",
-    targetLabel: "已选设计图",
+    stageLabel: i18n.t("generation.dialog.labels.designModels"),
+    targetLabel: i18n.t("generation.dialog.labels.selectedDesignModels"),
   };
 }
 
@@ -107,17 +108,17 @@ export function codeRunCompletionDialog(snapshot: {
   runId?: string | null;
 }): GenerationResultDialogState {
   return {
-    title: "代码原型已生成",
+    title: i18n.t("generation.dialog.titles.codeCompleted"),
     tone: "success",
     message:
       snapshot.generationMode === "continue" && snapshot.changedFileCount === 0
-        ? "本次未产生文件变更。"
+        ? i18n.t("generation.dialog.codeNoChanges")
         : snapshot.generationMode === "regenerate"
-          ? "代码重新生成完成。"
-          : "代码生成完成。",
+          ? i18n.t("generation.dialog.codeRegenerated")
+          : i18n.t("generation.dialog.codeCompleted"),
     runId: snapshot.runId ?? null,
-    stageLabel: "代码原型",
-    targetLabel: "当前代码原型",
+    stageLabel: i18n.t("generation.dialog.labels.codePrototype"),
+    targetLabel: i18n.t("generation.dialog.labels.currentCodePrototype"),
   };
 }
 
@@ -128,13 +129,13 @@ export function documentRunCompletionDialog(input: {
 }): GenerationResultDialogState {
   const hasMissingArtifacts = (input.missingArtifactCount ?? 0) > 0;
   return {
-    title: hasMissingArtifacts ? "说明书已生成但缺图" : "说明书已生成",
+    title: hasMissingArtifacts ? i18n.t("generation.dialog.titles.documentMissing") : i18n.t("generation.dialog.titles.documentCompleted"),
     tone: "success",
     message: hasMissingArtifacts
-      ? `${input.documentTitle}已生成，但有 ${input.missingArtifactCount} 项图源缺失，请复核后交付。`
-      : `${input.documentTitle}已生成。`,
+      ? i18n.t("generation.dialog.documentMissing", { title: input.documentTitle, count: input.missingArtifactCount })
+      : i18n.t("generation.dialog.documentCompleted", { title: input.documentTitle }),
     runId: input.runId,
-    stageLabel: "说明书",
+    stageLabel: i18n.t("generation.dialog.labels.document"),
     targetLabel: input.documentTitle,
   };
 }

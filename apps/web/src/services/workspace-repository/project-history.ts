@@ -112,7 +112,7 @@ export function canRestoreProjectRunWorkspace(
   run: ProjectRunResponse,
   snapshot?: RunHistorySnapshot | null,
 ) {
-  if (isProjectDocumentRun(run, snapshot)) return false;
+  if (isProjectDocumentRun(run, snapshot) || run?.runKind === "feasibility") return false;
   return run?.canRestore ?? Boolean(snapshot);
 }
 
@@ -188,7 +188,8 @@ export function projectRunSummaryToHistoryItem(
     errorMessage: run.errorMessage ?? null,
     documentKind:
       run?.documentKind === "requirementsSpec" ||
-      run?.documentKind === "softwareDesignSpec"
+      run?.documentKind === "softwareDesignSpec" ||
+      run?.documentKind === "feasibilityStudy"
         ? run.documentKind
         : historySnapshot && isDocumentRunSnapshot(historySnapshot)
           ? historySnapshot.documentKind
@@ -229,6 +230,10 @@ function projectRunStageTitle(run: ProjectRunDetailResponse["run"]) {
   if (!run) return "运行历史";
   if (run.documentKind === "requirementsSpec") return "生成需求规格说明书";
   if (run.documentKind === "softwareDesignSpec") return "生成软件设计说明书";
+  if (run.documentKind === "feasibilityStudy") return "生成可行性研究报告";
+  if (run.runKind === "feasibility" && run.stage === "generate_context") return "生成上下文图";
+  if (run.runKind === "feasibility" && run.stage === "render_context") return "渲染上下文图";
+  if (run.runKind === "feasibility" && run.stage === "generate_implementation") return "生成实现方案";
   const stage = run.stage ?? "";
   if (stage === "render_svg") {
     return run.runKind === "design" ? "渲染设计图表" : "渲染需求图表";
@@ -243,6 +248,7 @@ function projectRunStageTitle(run: ProjectRunDetailResponse["run"]) {
   if (run.runKind === "design") return "设计模型生成";
   if (run.runKind === "code") return "代码原型生成";
   if (run.runKind === "document") return "说明书生成";
+  if (run.runKind === "feasibility") return "可行性分析生成";
   return "需求模型生成";
 }
 
@@ -251,6 +257,7 @@ function projectRunKindLabel(run: ProjectRunDetailResponse["run"]) {
   if (run.runKind === "design") return "设计阶段";
   if (run.runKind === "code") return "代码原型";
   if (run.runKind === "document") return "说明书";
+  if (run.runKind === "feasibility") return "可行性分析";
   return "需求阶段";
 }
 

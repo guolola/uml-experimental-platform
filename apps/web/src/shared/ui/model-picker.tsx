@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Cpu } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { i18n as appI18n } from "../i18n";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +82,8 @@ export function ModelPicker({
   fullWidth?: boolean;
   disabled?: boolean;
 }) {
+  const { t: translate, i18n: activeI18n } = useTranslation();
+  const t = activeI18n.exists("modelPicker.switch") ? translate : appI18n.t.bind(appI18n);
   const [providerSettings, setProviderSettings] = useState(() => {
     const settings = loadUserSettings();
     return {
@@ -122,11 +126,11 @@ export function ModelPicker({
   const display = {
     triggerLabel: providerModels.includes(value.trim())
       ? getProviderModelLabel(value)
-      : "未选择模型",
+      : t("modelPicker.notSelected"),
   };
   const emptyStateLabel = providerSettings.providerConfigId
-    ? "当前 Provider 没有可用模型"
-    : "请先选择托管 Provider";
+    ? t("modelPicker.noModels")
+    : t("modelPicker.selectProvider");
 
   return (
     <DropdownMenu>
@@ -139,7 +143,7 @@ export function ModelPicker({
             disabled && "cursor-not-allowed opacity-50 hover:bg-background",
             triggerClassName,
           )}
-          title="切换模型"
+          title={t("modelPicker.switch")}
           disabled={disabled}
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -181,10 +185,10 @@ export function ModelPicker({
                         )}
                       >
                         {model.structuredOutputMode === "strict_json"
-                          ? "严格 JSON"
+                          ? t("modelPicker.modes.strictJson")
                           : model.structuredOutputMode === "json_object"
-                            ? "JSON 模式"
-                            : "兼容"}
+                            ? t("modelPicker.modes.jsonObject")
+                            : t("modelPicker.modes.compatible")}
                       </span>
                     </span>
                     {model.id === value && (

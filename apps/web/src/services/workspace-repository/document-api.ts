@@ -26,7 +26,9 @@ export function documentFileName(documentKind: DocumentKind, date = new Date()) 
   const timestamp = documentTimestamp(date);
   return documentKind === "requirementsSpec"
     ? `需求规格说明书-${timestamp}.docx`
-    : `软件设计说明书-${timestamp}.docx`;
+    : documentKind === "softwareDesignSpec"
+      ? `软件设计说明书-${timestamp}.docx`
+      : `可行性研究报告-${timestamp}.docx`;
 }
 
 export async function readRunEvidencePackage(

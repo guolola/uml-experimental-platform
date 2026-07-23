@@ -329,13 +329,13 @@ export function CodeGenerationPage() {
               {t("code.title")}
             </span>
             <Badge variant="secondary" className="px-1.5 font-mono text-[11px]">
-              {sortedFiles.length} files
+              {t("code.fileCount", { count: sortedFiles.length })}
             </Badge>
             <Badge
               variant={modelCapability.supportsJsonSchema ? "secondary" : "outline"}
               className="hidden px-1.5 text-[11px] min-[520px]:inline-flex"
             >
-              {modelCapability.modeLabel}
+              {t(`code.modelModes.${modelCapability.structuredOutputMode}`)}
             </Badge>
             <Badge variant="secondary" className="hidden px-1.5 text-[11px] min-[520px]:inline-flex">
               {t("code.designModelCount", { count: designModelCount })}
@@ -406,9 +406,9 @@ export function CodeGenerationPage() {
           <span>{t("code.missingPrerequisites")}</span>
         </div>
       )}
-      {modelCapability.warning && (
+      {modelCapability.structuredOutputMode === "compatible" && defaultModel.trim() && (
         <div className="border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          {modelCapability.warning}
+          {t("code.compatibleWarning")}
         </div>
       )}
       {codeStatus && (

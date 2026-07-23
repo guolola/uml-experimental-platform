@@ -1,5 +1,6 @@
 // Provides run history list, restore, delete, clear, and save actions for the session provider.
 import { useCallback, type Dispatch, type SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
 import type {
@@ -21,6 +22,7 @@ export function useRunHistoryActions({
   repository,
   setHistoryItems,
 }: RunHistoryActionsInput) {
+  const { t } = useTranslation();
   const refreshHistory = useCallback(async () => {
     setHistoryItems(await repository.listRunHistory());
   }, [repository, setHistoryItems]);
@@ -29,7 +31,7 @@ export function useRunHistoryActions({
     async (id: string) => {
       const item = await repository.restoreRunHistory(id);
       if (!item) {
-        throw new Error("历史快照不存在");
+        throw new Error(t("historyDrawer.snapshotMissing"));
       }
       if (!item.snapshot) {
         applyWorkspaceRecord(await repository.loadWorkspace());
@@ -38,7 +40,7 @@ export function useRunHistoryActions({
       }
       applyRestoredSnapshot(item.snapshot);
     },
-    [applyRestoredSnapshot, applyWorkspaceRecord, repository, setHistoryItems],
+    [applyRestoredSnapshot, applyWorkspaceRecord, repository, setHistoryItems, t],
   );
 
   const deleteRunHistory = useCallback(
@@ -63,7 +65,7 @@ export function useRunHistoryActions({
         setHistoryItems(await repository.listRunHistory());
       } catch (error) {
         console.warn("Failed to save run history snapshot", error);
-        toast.message("历史快照过大，已跳过保存，不影响当前结果");
+        toast.message(t("historyDrawer.snapshotSkipped"));
         try {
           setHistoryItems(await repository.listRunHistory());
         } catch {
@@ -71,7 +73,7 @@ export function useRunHistoryActions({
         }
       }
     },
-    [repository, setHistoryItems],
+    [repository, setHistoryItems, t],
   );
 
   return {

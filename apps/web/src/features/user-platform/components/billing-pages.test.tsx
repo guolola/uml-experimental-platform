@@ -214,8 +214,8 @@ describe("AccountBillingPage", () => {
     expect(screen.getByText("Order no.")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resume payment" })).toBeInTheDocument();
-    expect(screen.getAllByText("100 次包").length).toBeGreaterThan(0);
-    expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
+    expect(screen.getAllByText("100-credit pack").length).toBeGreaterThan(0);
+    expect(screen.getByText("Buy 100 and get 20 bonus, for 120 credits total")).toBeInTheDocument();
   });
 
   it("shows payment success feedback on account billing and clears the return marker", async () => {
@@ -324,7 +324,7 @@ describe("PricingBillingPage", () => {
     expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
   });
 
-  it("renders public payment system UI in English while preserving SKU text", async () => {
+  it("renders public payment system UI and default SKU copy in English", async () => {
     window.localStorage.setItem(LOCALE_PREFERENCE_STORAGE_KEY, "en");
     stubBillingFetch();
     renderWithI18n(<PricingBillingPage signedIn onNavigate={() => {}} />);
@@ -332,7 +332,7 @@ describe("PricingBillingPage", () => {
     expect(await screen.findByRole("heading", { name: "Enable AI generation credits" })).toBeInTheDocument();
     expect(screen.getByText("Credit packs")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Buy now" })).toBeInTheDocument();
-    expect(screen.getAllByText("100 次包").length).toBeGreaterThan(0);
-    expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
+    expect(screen.getAllByText("100-credit pack").length).toBeGreaterThan(0);
+    expect(screen.getByText("Buy 100 and get 20 bonus, for 120 credits total")).toBeInTheDocument();
   });
 });

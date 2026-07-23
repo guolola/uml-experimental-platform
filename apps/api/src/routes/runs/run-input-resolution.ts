@@ -47,7 +47,8 @@ type ProjectGenerationPreflightKind =
   | "design"
   | "code"
   | "requirementsSpec"
-  | "softwareDesignSpec";
+  | "softwareDesignSpec"
+  | "feasibilityStudy";
 
 function runInputResolutionError(statusCode: number, message: string): InputResolution<never> {
   return { ok: false, statusCode, body: { message } };
@@ -63,6 +64,20 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function arrayValue(value: unknown) {
   return Array.isArray(value) ? value : [];
+}
+
+function acceptedFeasibilityRules(state: Record<string, unknown>) {
+  const rules = arrayValue(state.rules);
+  const baseline = recordValue(state.requirementBaseline);
+  const requirements = arrayValue(baseline.requirements);
+  if (requirements.length === 0) return rules;
+  const acceptedIds = new Set(
+    requirements
+      .filter((item) => recordValue(item).status === "accepted")
+      .map((item) => stringValue(recordValue(item).sourceRuleId))
+      .filter(Boolean),
+  );
+  return rules.filter((rule) => acceptedIds.has(stringValue(recordValue(rule).id)));
 }
 
 function stringValue(value: unknown) {
@@ -503,7 +518,7 @@ function rejectProjectGenerationPreflight(input: {
 
   const requirementSourceMissing =
     stringValue(input.state.requirementText).trim().length === 0;
-  if (requirementSourceMissing) {
+  if (requirementSourceMissing && input.kind !== "feasibilityStudy") {
     return runInputResolutionError(
       409,
       "需求源为空，请先填写需求文本后再启动生成。",
@@ -511,6 +526,46 @@ function rejectProjectGenerationPreflight(input: {
   }
 
   if (input.kind === "requirements") return null;
+
+  if (input.kind === "feasibilityStudy") {
+    const contextModel = recordValue(input.state.feasibilityContextModel);
+    const contextPlantUml = stringValue(input.state.feasibilityContextPlantUml);
+    const contextSvg = stringValue(input.state.feasibilityContextSvg);
+    const implementationPlan = recordValue(input.state.feasibilityImplementationPlan);
+    if (
+      Object.keys(contextModel).length === 0 ||
+      !contextPlantUml ||
+      !contextSvg ||
+      Object.keys(implementationPlan).length === 0
+    ) {
+      return runInputResolutionError(
+        409,
+        "可行性研究报告需要已完成的上下文图和实现方案。",
+      );
+    }
+    const contextFingerprint = snapshotInputFingerprint({
+      rules: acceptedFeasibilityRules(input.state),
+      requirementBaseline: input.state.requirementBaseline ?? null,
+    });
+    if (
+      normalizeSnapshotFingerprint(stringValue(input.state.feasibilityContextFingerprint)) !==
+      contextFingerprint
+    ) {
+      return runInputResolutionError(409, "上下文图已过期，请先重新生成。");
+    }
+    const implementationFingerprint = snapshotInputFingerprint({
+      rules: acceptedFeasibilityRules(input.state),
+      contextModel,
+      inputs: recordValue(input.state.feasibilityInputs),
+    });
+    if (
+      normalizeSnapshotFingerprint(stringValue(input.state.feasibilityImplementationFingerprint)) !==
+      implementationFingerprint
+    ) {
+      return runInputResolutionError(409, "实现方案已过期，请先重新生成。");
+    }
+    return null;
+  }
 
   const requirementModelEntries = requirementModelEntriesFromState(input.state);
   if (requirementModelEntries.length === 0) {
@@ -959,19 +1014,48 @@ export async function resolveDocumentRunInput(
     input: startDocumentRunRequestSchema.parse({
       projectId: workspace.input.projectId,
       documentKind: command.documentKind,
-      requirementText: stringValue(workspace.input.state.requirementText),
+      requirementText:
+        stringValue(workspace.input.state.requirementText) ||
+        (command.documentKind === "feasibilityStudy" ? "未提供/待确认" : ""),
       requirementBaseline: workspace.input.state.requirementBaseline ?? null,
-      rules: arrayValue(workspace.input.state.rules),
-      requirementModels: presentRecordValues(workspace.input.state.models),
+      rules: command.documentKind === "feasibilityStudy"
+        ? acceptedFeasibilityRules(workspace.input.state)
+        : arrayValue(workspace.input.state.rules),
+      requirementModels: [
+        ...presentRecordValues(workspace.input.state.models),
+        ...(command.documentKind === "feasibilityStudy"
+          ? [workspace.input.state.feasibilityContextModel]
+          : []),
+      ],
       requirementModelTraceability: arrayValue(
         workspace.input.state.requirementModelTraceability,
       ),
-      requirementPlantUml: requirementPlantUmlArtifactsFromWorkspace(
-        workspace.input.state,
-      ),
-      requirementSvgArtifacts: presentRecordValues(
-        workspace.input.state.svgArtifacts,
-      ),
+      requirementPlantUml: [
+        ...requirementPlantUmlArtifactsFromWorkspace(workspace.input.state),
+        ...(command.documentKind === "feasibilityStudy"
+          ? [{
+              diagramKind: "context",
+              modelId: "context",
+              source: stringValue(workspace.input.state.feasibilityContextPlantUml),
+            }]
+          : []),
+      ],
+      requirementSvgArtifacts: [
+        ...presentRecordValues(workspace.input.state.svgArtifacts),
+        ...(command.documentKind === "feasibilityStudy"
+          ? [{
+              diagramKind: "context",
+              modelId: "context",
+              svg: stringValue(workspace.input.state.feasibilityContextSvg),
+              renderMeta: {
+                engine: "plantuml",
+                generatedAt: new Date().toISOString(),
+                sourceLength: stringValue(workspace.input.state.feasibilityContextPlantUml).length,
+                durationMs: 0,
+              },
+            }]
+          : []),
+      ],
       designModels: presentRecordValues(workspace.input.state.designModels),
       designModelTraceability: arrayValue(
         workspace.input.state.designModelTraceability,
@@ -980,6 +1064,9 @@ export async function resolveDocumentRunInput(
       designSvgArtifacts: presentRecordValues(
         workspace.input.state.designSvgArtifacts,
       ),
+      feasibilityImplementationPlan:
+        workspace.input.state.feasibilityImplementationPlan ?? null,
+      feasibilityInputs: workspace.input.state.feasibilityInputs ?? {},
       providerSettings: command.providerSettings,
       useAiText: command.useAiText,
       documentStyle: command.documentStyle,
