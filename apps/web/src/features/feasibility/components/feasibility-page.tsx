@@ -67,9 +67,13 @@ function StatusBadge({ exists, stale, generating, failed }: { exists: boolean; s
 export function FeasibilityPage({
   view,
   highlightedElement,
+  highlightedRelationshipId,
+  initialCandidateId,
 }: {
   view: FeasibilityView;
   highlightedElement?: { kind: string; id: string } | null;
+  highlightedRelationshipId?: string | null;
+  initialCandidateId?: string;
 }) {
   const { t } = useTranslation();
   const repository = useWorkspaceRepository();
@@ -308,6 +312,7 @@ export function FeasibilityPage({
       <ContextDiagramView
         section={section}
         highlightedElement={highlightedElement}
+        highlightedRelationshipId={highlightedRelationshipId}
         data={{
           model: workspace.feasibilityContextModel,
           plantUmlSource: workspace.feasibilityContextPlantUml,
@@ -340,6 +345,7 @@ export function FeasibilityPage({
         <ImplementationPlanDashboard
           workspace={workspace}
           states={states}
+          initialCandidateId={initialCandidateId}
           contextExists={contextExists}
           generating={generating}
           message={generationMessage}

@@ -33,7 +33,12 @@ export type WorkspaceSelection =
       elementId: string;
       label: string;
     }
-  | { kind: "feasibility-implementation"; label: string }
+  | {
+      kind: "feasibility-context-relationship";
+      relationshipId: string;
+      label: string;
+    }
+  | { kind: "feasibility-implementation"; candidateId?: string; label: string }
   | { kind: "requirement-trace-matrix"; diagram: DiagramType; modelId?: string; label: string }
   | { kind: "diagram"; diagram: DiagramType; modelId?: string; label: string }
   | { kind: "design-home"; label: string }
@@ -61,11 +66,25 @@ export type WorkspaceSelection =
       label: string;
     }
   | {
+      kind: "design-diagram-relationship";
+      diagram: DesignDiagramType;
+      modelId?: string;
+      relationshipId: string;
+      label: string;
+    }
+  | {
       kind: "diagram-element";
       diagram: DiagramType;
       modelId?: string;
       elementKind: string;
       elementId: string;
+      label: string;
+    }
+  | {
+      kind: "diagram-relationship";
+      diagram: DiagramType;
+      modelId?: string;
+      relationshipId: string;
       label: string;
     }
   | { kind: "workspace-placeholder"; workspaceId: WorkspacePlaceholderId; label: string };
@@ -101,7 +120,11 @@ interface WorkspaceShellState {
     elementId: string,
     label: string,
   ) => void;
-  openFeasibilityImplementation: () => void;
+  openFeasibilityContextRelationship: (
+    relationshipId: string,
+    label: string,
+  ) => void;
+  openFeasibilityImplementation: (candidateId?: string, label?: string) => void;
   openRequirementTraceMatrix: (
     diagram: DiagramType,
     modelId?: string,
@@ -131,10 +154,22 @@ interface WorkspaceShellState {
     label: string,
     modelId?: string,
   ) => void;
+  openDesignDiagramRelationship: (
+    diagram: DesignDiagramType,
+    relationshipId: string,
+    label: string,
+    modelId?: string,
+  ) => void;
   openDiagramElement: (
     diagram: DiagramType,
     elementKind: string,
     elementId: string,
+    label: string,
+    modelId?: string,
+  ) => void;
+  openDiagramRelationship: (
+    diagram: DiagramType,
+    relationshipId: string,
     label: string,
     modelId?: string,
   ) => void;
@@ -164,12 +199,15 @@ function tabIdForSelection(selection: WorkspaceSelection) {
       return "feasibility:context:relations";
     case "feasibility-context-element":
       return "feasibility:context";
+    case "feasibility-context-relationship":
+      return "feasibility:context";
     case "feasibility-implementation":
       return "feasibility:implementation";
     case "requirement-trace-matrix":
       return `requirements:trace-matrix:${selection.modelId ?? selection.diagram}`;
     case "diagram":
     case "diagram-element":
+    case "diagram-relationship":
       return `diagram:${selection.modelId ?? selection.diagram}`;
     case "design-home":
       return "design";
@@ -179,6 +217,7 @@ function tabIdForSelection(selection: WorkspaceSelection) {
       return "test";
     case "design-diagram":
     case "design-diagram-element":
+    case "design-diagram-relationship":
       return `design-diagram:${selection.modelId ?? selection.diagram}`;
     case "documents-home":
       return "documents";
@@ -201,12 +240,14 @@ function tabLabelForSelection(selection: WorkspaceSelection) {
     case "feasibility-context-elements":
     case "feasibility-context-relations":
     case "feasibility-context-element":
+    case "feasibility-context-relationship":
     case "feasibility-implementation":
       return selection.label;
     case "requirement-trace-matrix":
       return selection.label;
     case "diagram":
     case "diagram-element":
+    case "diagram-relationship":
       return selection.label || DIAGRAM_META[selection.diagram].label;
     case "design-home":
       return "设计模型";
@@ -216,6 +257,7 @@ function tabLabelForSelection(selection: WorkspaceSelection) {
       return "测试";
     case "design-diagram":
     case "design-diagram-element":
+    case "design-diagram-relationship":
       return selection.label || DESIGN_DIAGRAM_META[selection.diagram].label;
     case "documents-home":
       return "说明书";
@@ -246,17 +288,20 @@ export function stageForSelection(selection: WorkspaceSelection): WorkspaceStage
     case "feasibility-context-elements":
     case "feasibility-context-relations":
     case "feasibility-context-element":
+    case "feasibility-context-relationship":
     case "feasibility-implementation":
       return "feasibility";
     case "requirements-text":
     case "requirement-trace-matrix":
     case "diagram":
     case "diagram-element":
+    case "diagram-relationship":
       return "requirements";
     case "design-home":
     case "design-trace-matrix":
     case "design-diagram":
     case "design-diagram-element":
+    case "design-diagram-relationship":
       return "design";
     case "test-home":
       return "test";
@@ -359,7 +404,12 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   const openFeasibilityContextElement = useCallback((elementKind: string, elementId: string, label: string) => {
     openWorkspaceTab({ kind: "feasibility-context-element", elementKind, elementId, label });
   }, [openWorkspaceTab]);
-  const openFeasibilityImplementation = useCallback(() => openWorkspaceTab({ kind: "feasibility-implementation", label: "实现方案" }), [openWorkspaceTab]);
+  const openFeasibilityContextRelationship = useCallback((relationshipId: string, label: string) => {
+    openWorkspaceTab({ kind: "feasibility-context-relationship", relationshipId, label });
+  }, [openWorkspaceTab]);
+  const openFeasibilityImplementation = useCallback((candidateId?: string, label = "实现方案") => {
+    openWorkspaceTab({ kind: "feasibility-implementation", candidateId, label });
+  }, [openWorkspaceTab]);
 
   const openRequirementTraceMatrix = useCallback((
     diagram: DiagramType,
@@ -456,6 +506,24 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     [openWorkspaceTab],
   );
 
+  const openDesignDiagramRelationship = useCallback(
+    (
+      diagram: DesignDiagramType,
+      relationshipId: string,
+      label: string,
+      modelId?: string,
+    ) => {
+      openWorkspaceTab({
+        kind: "design-diagram-relationship",
+        diagram,
+        modelId,
+        relationshipId,
+        label,
+      });
+    },
+    [openWorkspaceTab],
+  );
+
   const openDiagramElement = useCallback(
     (
       diagram: DiagramType,
@@ -470,6 +538,24 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
         modelId,
         elementKind,
         elementId,
+        label,
+      });
+    },
+    [openWorkspaceTab],
+  );
+
+  const openDiagramRelationship = useCallback(
+    (
+      diagram: DiagramType,
+      relationshipId: string,
+      label: string,
+      modelId?: string,
+    ) => {
+      openWorkspaceTab({
+        kind: "diagram-relationship",
+        diagram,
+        modelId,
+        relationshipId,
         label,
       });
     },
@@ -506,6 +592,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openFeasibilityContextElements,
       openFeasibilityContextRelations,
       openFeasibilityContextElement,
+      openFeasibilityContextRelationship,
       openFeasibilityImplementation,
       openRequirementTraceMatrix,
       openHistoryDrawer,
@@ -518,7 +605,9 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openDocumentsHome,
       openDocumentEditor,
       openDesignDiagramElement,
+      openDesignDiagramRelationship,
       openDiagramElement,
+      openDiagramRelationship,
       openWorkspacePlaceholder,
     }),
     [
@@ -532,6 +621,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openFeasibilityContextElements,
       openFeasibilityContextRelations,
       openFeasibilityContextElement,
+      openFeasibilityContextRelationship,
       openFeasibilityImplementation,
       openRequirementTraceMatrix,
       openHistoryDrawer,
@@ -549,7 +639,9 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       openDocumentsHome,
       openDocumentEditor,
       openDesignDiagramElement,
+      openDesignDiagramRelationship,
       openDiagramElement,
+      openDiagramRelationship,
       openWorkspacePlaceholder,
       historyDrawerOpen,
       selection,
@@ -589,8 +681,12 @@ export function getSelectionKey(selection: WorkspaceSelection) {
       return "feasibility:context:relations";
     case "feasibility-context-element":
       return `feasibility-context-element:context:${selection.elementKind}:${selection.elementId}`;
+    case "feasibility-context-relationship":
+      return `feasibility-context-relationship:context:${selection.relationshipId}`;
     case "feasibility-implementation":
-      return "feasibility:implementation";
+      return selection.candidateId
+        ? `feasibility:implementation:${selection.candidateId}`
+        : "feasibility:implementation";
     case "requirement-trace-matrix":
       return `requirements:trace-matrix:${selection.modelId ?? selection.diagram}`;
     case "diagram":
@@ -609,8 +705,12 @@ export function getSelectionKey(selection: WorkspaceSelection) {
       return `document:${selection.documentId}`;
     case "design-diagram-element":
       return `design-diagram-element:${selection.modelId ?? selection.diagram}:${selection.elementKind}:${selection.elementId}`;
+    case "design-diagram-relationship":
+      return `design-diagram-relationship:${selection.modelId ?? selection.diagram}:${selection.relationshipId}`;
     case "diagram-element":
       return `diagram-element:${selection.modelId ?? selection.diagram}:${selection.elementKind}:${selection.elementId}`;
+    case "diagram-relationship":
+      return `diagram-relationship:${selection.modelId ?? selection.diagram}:${selection.relationshipId}`;
     case "workspace-placeholder":
       return `workspace:${selection.workspaceId}`;
   }

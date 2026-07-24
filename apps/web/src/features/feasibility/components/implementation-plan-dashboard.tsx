@@ -41,6 +41,7 @@ import { ImplementationPlanEditorDialog, type ImplementationSectionId } from "./
 type Props = {
   workspace: WorkspaceRecord;
   states: ReturnType<typeof feasibilityArtifactState>;
+  initialCandidateId?: string;
   contextExists: boolean;
   generating: boolean;
   message: string | null;
@@ -159,7 +160,7 @@ function FactValue({ value, locale }: { value: unknown; locale: string }) {
   return <>{String(value)}</>;
 }
 
-export function ImplementationPlanDashboard({ workspace, states, contextExists, generating, message, errorMessage, onRegenerate, onSave }: Props) {
+export function ImplementationPlanDashboard({ workspace, states, initialCandidateId, contextExists, generating, message, errorMessage, onRegenerate, onSave }: Props) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage?.startsWith("en") ? "en" : "zh-CN";
   const rules = acceptedFeasibilityRules(workspace);
@@ -180,19 +181,27 @@ export function ImplementationPlanDashboard({ workspace, states, contextExists, 
   const [localError, setLocalError] = useState<string | null>(null);
   const [selectedRiskId, setSelectedRiskId] = useState<string | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
-    persistedPlan?.recommendedCandidateId ?? persistedPlan?.candidates[0]?.id ?? null,
+    initialCandidateId && persistedPlan?.candidates.some((candidate) => candidate.id === initialCandidateId)
+      ? initialCandidateId
+      : persistedPlan?.recommendedCandidateId ?? persistedPlan?.candidates[0]?.id ?? null,
   );
   const sectionRefs = useRef(new Map<ImplementationSectionId, HTMLElement>());
+  const requestedCandidateId =
+    initialCandidateId && persistedPlan?.candidates.some((candidate) => candidate.id === initialCandidateId)
+      ? initialCandidateId
+      : persistedPlan?.recommendedCandidateId ?? persistedPlan?.candidates[0]?.id ?? null;
 
   useEffect(() => {
     setDraftPlan(persistedPlan);
     setDraftInputs(workspace.feasibilityInputs);
     setPlanDirty(false);
     setInputsDirty(false);
-    setSelectedCandidateId((current) => persistedPlan?.candidates.some((candidate) => candidate.id === current)
-      ? current
-      : persistedPlan?.recommendedCandidateId ?? persistedPlan?.candidates[0]?.id ?? null);
   }, [persistedPlan, workspace.feasibilityInputs]);
+
+  useEffect(() => {
+    setSelectedCandidateId(requestedCandidateId);
+    setSelectedRiskId(null);
+  }, [requestedCandidateId]);
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return;

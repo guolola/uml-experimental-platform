@@ -155,6 +155,14 @@ function ProjectWorkspaceShell({
         />
       );
       break;
+    case "feasibility-context-relationship":
+      body = (
+        <FeasibilityPage
+          view="relations"
+          highlightedRelationshipId={selection.relationshipId}
+        />
+      );
+      break;
     case "feasibility-context-trace":
       body = <FeasibilityPage view="trace" />;
       break;
@@ -165,7 +173,12 @@ function ProjectWorkspaceShell({
       body = <FeasibilityPage view="relations" />;
       break;
     case "feasibility-implementation":
-      body = <FeasibilityPage view="implementation" />;
+      body = (
+        <FeasibilityPage
+          view="implementation"
+          initialCandidateId={selection.candidateId}
+        />
+      );
       break;
     case "requirement-trace-matrix":
       body = (
@@ -188,6 +201,16 @@ function ProjectWorkspaceShell({
             kind: selection.elementKind,
             id: selection.elementId,
           }}
+        />
+      );
+      break;
+    case "diagram-relationship":
+      body = (
+        <DiagramView
+          type={selection.diagram}
+          modelId={selection.modelId}
+          initialSection="relations"
+          highlightedRelationshipId={selection.relationshipId}
         />
       );
       break;
@@ -236,6 +259,16 @@ function ProjectWorkspaceShell({
             kind: selection.elementKind,
             id: selection.elementId,
           }}
+        />
+      );
+      break;
+    case "design-diagram-relationship":
+      body = (
+        <DesignDiagramView
+          type={selection.diagram}
+          modelId={selection.modelId}
+          initialSection="relations"
+          highlightedRelationshipId={selection.relationshipId}
         />
       );
       break;

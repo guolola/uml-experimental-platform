@@ -39,6 +39,7 @@ type WorkspaceRecordAppliers = {
   > | null>;
   setHasFeasibilityContextArtifact: Setter<boolean>;
   setHasFeasibilityImplementationArtifact: Setter<boolean>;
+  setFeasibilityImplementationPlan: Setter<WorkspaceRecord["feasibilityImplementationPlan"]>;
   setManualModelEditStatus: Setter<WorkspaceRecord["manualModelEditStatus"]>;
   setCodeSpec: Setter<WorkspaceRecord["codeSpec"]>;
   setCodeBusinessLogic: Setter<WorkspaceRecord["codeBusinessLogic"]>;
@@ -111,6 +112,7 @@ export function applyWorkspaceRecordToSessionState(
   appliers.setHasFeasibilityImplementationArtifact(
     Boolean(workspace.feasibilityImplementationPlan),
   );
+  appliers.setFeasibilityImplementationPlan(workspace.feasibilityImplementationPlan);
   appliers.setManualModelEditStatus(workspace.manualModelEditStatus ?? {});
   appliers.setCodeSpec(workspace.codeSpec);
   appliers.setCodeBusinessLogic(workspace.codeBusinessLogic);

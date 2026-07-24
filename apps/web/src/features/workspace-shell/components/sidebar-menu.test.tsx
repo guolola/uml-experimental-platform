@@ -153,7 +153,10 @@ describe("SidebarMenu", () => {
     const user = userEvent.setup();
     const implementationPlan = feasibilityImplementationPlanSchema.parse({
       overview: "采用模块化实现。",
-      candidates: [{ id: "candidate-1", name: "模块化方案", summary: "按模块实施。", estimatedCost: "待确认", estimatedSchedule: "待确认", sourceRequirementIds: ["R1"] }],
+      candidates: [
+        { id: "candidate-1", name: "模块化方案", summary: "按模块实施。", estimatedCost: "待确认", estimatedSchedule: "待确认", sourceRequirementIds: ["R1"] },
+        { id: "candidate-2", name: "服务化方案", summary: "按服务实施。", estimatedCost: "待确认", estimatedSchedule: "待确认", sourceRequirementIds: ["R1"] },
+      ],
       recommendedCandidateId: "candidate-1",
       recommendationRationale: "满足当前规则。",
       architecture: { summary: "分层架构。", modules: [{ id: "module-1", name: "核心模块", responsibility: "实现核心规则。", sourceRequirementIds: ["R1"] }] },
@@ -198,8 +201,11 @@ describe("SidebarMenu", () => {
 
     await user.click(screen.getByRole("button", { name: "展开 上下文图" }));
     expect(screen.getByRole("button", { name: "跟踪矩阵" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "元素" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "关系" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "元素" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关系" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "系统边界" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "展开 元素" }));
     expect(screen.getByRole("button", { name: "系统边界" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "角色" })).toBeInTheDocument();
 
@@ -210,6 +216,17 @@ describe("SidebarMenu", () => {
     const personNode = screen.getByRole("button", { name: "用户" });
     await user.click(personNode);
     expect(personNode.parentElement).toHaveClass("bg-sidebar-accent");
+
+    await user.click(screen.getByRole("button", { name: "展开 关系" }));
+    const relationshipNode = screen.getByRole("button", { name: "使用" });
+    await user.click(relationshipNode);
+    expect(relationshipNode.parentElement).toHaveClass("bg-sidebar-accent");
+
+    await user.click(screen.getByRole("button", { name: "展开 实现方案" }));
+    expect(screen.getByRole("button", { name: "模块化方案" })).toBeInTheDocument();
+    const candidateNode = screen.getByRole("button", { name: "服务化方案" });
+    await user.click(candidateNode);
+    expect(candidateNode.parentElement).toHaveClass("bg-sidebar-accent");
   });
 
   it("projects active server requirement runs into sidebar status after reload", async () => {
@@ -287,6 +304,7 @@ describe("SidebarMenu", () => {
 
     await user.click(await screen.findByRole("button", { name: "展开 设计模型" }));
     await user.click(screen.getByRole("button", { name: "展开 数据库设计" }));
+    await user.click(screen.getByRole("button", { name: "展开 元素" }));
     await user.click(screen.getByRole("button", { name: "展开 表" }));
     await user.click(screen.getByRole("button", { name: "展开 user" }));
 
@@ -1539,7 +1557,7 @@ describe("SidebarMenu", () => {
     releaseRun();
   });
 
-  it("keeps design provenance and element count badges out of design entries", async () => {
+  it("shows element and relationship counts without design provenance badges", async () => {
     const repository: WorkspaceRepository = {
       loadWorkspace: vi.fn(async () =>
         createWorkspaceRecord({
@@ -1585,7 +1603,8 @@ describe("SidebarMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: "展开 用例实现设计" }));
 
     expect(screen.queryByText("用例模型")).not.toBeInTheDocument();
-    expect(screen.queryByText("1")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "元素" }).parentElement).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "关系" }).parentElement).toHaveTextContent("0");
   });
 
   it("shows primary workspace entries without default secondary pages", async () => {
@@ -1784,6 +1803,11 @@ describe("SidebarMenu", () => {
     expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "展开 用例实现设计" }));
+
+    expect(screen.getByText("元素")).toBeInTheDocument();
+    expect(screen.queryByText("参与对象")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "展开 元素" }));
 
     expect(screen.getByText("参与对象")).toBeInTheDocument();
     expect(screen.queryByText("用户")).not.toBeInTheDocument();

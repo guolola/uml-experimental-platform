@@ -53,6 +53,7 @@ import {
   buildDiagramDetailModel,
   type SemanticElementKind,
 } from "../../../entities/diagram/lib/model-details";
+import { getRelationDisplayLabel } from "../../diagrams/lib/diagram-detail-view-model";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import {
   getSelectionKey,
@@ -341,6 +342,12 @@ function buildDiagramNode(
     label: string,
     modelId?: string,
   ) => void,
+  openDiagramRelationship: (
+    diagram: DiagramType,
+    relationshipId: string,
+    label: string,
+    modelId?: string,
+  ) => void,
   t: TFunction,
 ): Node {
   const modelId = model ? getRequirementModelId(model) : diagram;
@@ -361,16 +368,33 @@ function buildDiagramNode(
           },
         ]
       : []),
-    ...buildDiagramElementGroupNodes(
-      detail,
-      modelId,
-      "diagram-group",
-      "diagram-element",
-      (element) =>
-        openDiagramElement(diagram, element.kind, element.id, element.label, modelId),
-      { showGroupBadges: true },
-      t,
-    ),
+    ...(model
+      ? buildDiagramDetailCategoryNodes(
+          detail,
+          modelId,
+          "diagram-category",
+          "diagram-group",
+          "diagram-element",
+          "diagram-relationship",
+          (element) =>
+            openDiagramElement(
+              diagram,
+              element.kind,
+              element.id,
+              element.label,
+              modelId,
+            ),
+          (relationship, relationshipLabel) =>
+            openDiagramRelationship(
+              diagram,
+              relationship.id,
+              relationshipLabel,
+              modelId,
+            ),
+          { showGroupBadges: true },
+          t,
+        )
+      : []),
   ];
 
   return {
@@ -476,6 +500,62 @@ function buildDiagramElementGroupNodes(
     }));
 }
 
+function buildDiagramDetailCategoryNodes(
+  detail: ReturnType<typeof buildDiagramDetailModel>,
+  modelId: string,
+  categoryKeyPrefix: string,
+  groupKeyPrefix: string,
+  elementKeyPrefix: string,
+  relationshipKeyPrefix: string,
+  onSelectElement: (
+    element: ReturnType<typeof buildDiagramDetailModel>["items"][number],
+  ) => void,
+  onSelectRelationship: (
+    relationship: ReturnType<typeof buildDiagramDetailModel>["relationships"][number],
+    label: string,
+  ) => void,
+  options: { showGroupBadges: boolean },
+  t: TFunction,
+): Node[] {
+  const itemsById = new Map(detail.items.map((item) => [item.id, item]));
+  const elementGroups = buildDiagramElementGroupNodes(
+    detail,
+    modelId,
+    groupKeyPrefix,
+    elementKeyPrefix,
+    onSelectElement,
+    options,
+    t,
+  );
+
+  return [
+    {
+      key: `${categoryKeyPrefix}:${modelId}:elements`,
+      label: t("diagrams.tabs.elements"),
+      icon: <Layers className="size-3.5 text-muted-foreground" />,
+      selectable: false,
+      badge: detail.items.length,
+      children: elementGroups,
+    },
+    {
+      key: `${categoryKeyPrefix}:${modelId}:relations`,
+      label: t("diagrams.tabs.relations"),
+      icon: <GitBranch className="size-3.5 text-muted-foreground" />,
+      selectable: false,
+      badge: detail.relationships.length,
+      children: detail.relationships.map((relationship) => {
+        const relationshipLabel = getRelationDisplayLabel(relationship, itemsById);
+        return {
+          key: `${relationshipKeyPrefix}:${modelId}:${relationship.id}`,
+          label: relationshipLabel,
+          icon: <GitBranch className="size-3.5 text-muted-foreground" />,
+          onSelect: () => onSelectRelationship(relationship, relationshipLabel),
+        };
+      }),
+    },
+  ];
+}
+
 function buildDesignDiagramNode(
   diagram: DesignDiagramType,
   model: ReturnType<typeof useWorkspaceSession>["designModels"][string] | undefined,
@@ -503,6 +583,12 @@ function buildDesignDiagramNode(
     label: string,
     modelId?: string,
   ) => void,
+  openDesignDiagramRelationship: (
+    diagram: DesignDiagramType,
+    relationshipId: string,
+    label: string,
+    modelId?: string,
+  ) => void,
   t: TFunction,
 ): Node {
   const modelId = model ? getDesignModelId(model) : diagram;
@@ -523,22 +609,33 @@ function buildDesignDiagramNode(
           },
         ]
       : []),
-    ...buildDiagramElementGroupNodes(
-      detail,
-      modelId,
-      "design-diagram-group",
-      "design-diagram-element",
-      (element) =>
-        openDesignDiagramElement(
-          diagram,
-          element.kind,
-          element.id,
-          element.label,
+    ...(model
+      ? buildDiagramDetailCategoryNodes(
+          detail,
           modelId,
-        ),
-      { showGroupBadges: false },
-      t,
-    ),
+          "design-diagram-category",
+          "design-diagram-group",
+          "design-diagram-element",
+          "design-diagram-relationship",
+          (element) =>
+            openDesignDiagramElement(
+              diagram,
+              element.kind,
+              element.id,
+              element.label,
+              modelId,
+            ),
+          (relationship, relationshipLabel) =>
+            openDesignDiagramRelationship(
+              diagram,
+              relationship.id,
+              relationshipLabel,
+              modelId,
+            ),
+          { showGroupBadges: false },
+          t,
+        )
+      : []),
   ];
 
   return {
@@ -613,6 +710,7 @@ export function SidebarMenu({
     feasibilityContextArtifact,
     hasFeasibilityContextArtifact,
     hasFeasibilityImplementationArtifact,
+    feasibilityImplementationPlan,
   } =
     useWorkspaceSession();
   const {
@@ -623,6 +721,7 @@ export function SidebarMenu({
     openFeasibilityContext,
     openFeasibilityContextTrace,
     openFeasibilityContextElement,
+    openFeasibilityContextRelationship,
     openFeasibilityImplementation,
     openRequirementTraceMatrix,
     openDiagram,
@@ -631,7 +730,9 @@ export function SidebarMenu({
     openTestHome,
     openDesignDiagram,
     openDesignDiagramElement,
+    openDesignDiagramRelationship,
     openDiagramElement,
+    openDiagramRelationship,
     openDocumentsHome,
     openWorkspacePlaceholder,
   } = useWorkspaceShell();
@@ -717,12 +818,19 @@ export function SidebarMenu({
             onSelect: openFeasibilityContext,
             children: [
               { key: "feasibility:context:trace", label: t("workspace.sidebar.traceability"), icon: <TableProperties className="size-3.5 text-muted-foreground" />, onSelect: openFeasibilityContextTrace },
-              ...buildDiagramElementGroupNodes(
+              ...buildDiagramDetailCategoryNodes(
                 contextDetail,
                 contextModelId,
+                "feasibility-context-category",
                 "feasibility-context-group",
                 "feasibility-context-element",
+                "feasibility-context-relationship",
                 (element) => openFeasibilityContextElement(element.kind, element.id, element.label),
+                (relationship, relationshipLabel) =>
+                  openFeasibilityContextRelationship(
+                    relationship.id,
+                    relationshipLabel,
+                  ),
                 { showGroupBadges: true },
                 t,
               ),
@@ -738,6 +846,13 @@ export function SidebarMenu({
             label: t("workspace.sidebar.implementation"),
             icon: <Wrench className="size-4 text-muted-foreground" />,
             onSelect: openFeasibilityImplementation,
+            children: feasibilityImplementationPlan?.candidates.map((candidate) => ({
+              key: `feasibility:implementation:${candidate.id}`,
+              label: candidate.name,
+              icon: <Wrench className="size-3.5 text-muted-foreground" />,
+              onSelect: () =>
+                openFeasibilityImplementation(candidate.id, candidate.name),
+            })),
           },
         ]
       : []),
@@ -821,6 +936,7 @@ export function SidebarMenu({
                   openDiagram,
                   openRequirementTraceMatrix,
                   openDiagramElement,
+                  openDiagramRelationship,
                   t,
                 );
               }),
@@ -848,6 +964,7 @@ export function SidebarMenu({
             openDiagram,
             openRequirementTraceMatrix,
             openDiagramElement,
+            openDiagramRelationship,
             t,
           );
         }),
@@ -948,6 +1065,7 @@ export function SidebarMenu({
                     openDesignDiagram,
                     openDesignTraceMatrix,
                     openDesignDiagramElement,
+                    openDesignDiagramRelationship,
                     t,
                   );
                 }
@@ -988,6 +1106,7 @@ export function SidebarMenu({
             openDesignDiagram,
             openDesignTraceMatrix,
             openDesignDiagramElement,
+            openDesignDiagramRelationship,
             t,
           );
         }),

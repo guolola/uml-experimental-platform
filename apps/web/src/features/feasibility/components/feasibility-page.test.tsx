@@ -197,12 +197,35 @@ describe("FeasibilityPage", () => {
     expect(screen.getByRole("button", { name: "保存方案" })).toBeDisabled();
   });
 
+  it("opens the requested implementation candidate from workspace navigation", async () => {
+    const repository = createMockWorkspaceRepository({
+      rules: [createRule()],
+      ...createImplementationWorkspace(),
+    });
+
+    render(
+      withWorkspaceProviders(
+        <FeasibilityPage
+          view="implementation"
+          initialCandidateId="option-b"
+        />,
+        repository,
+      ),
+    );
+
+    expect(await screen.findByText("按领域拆分独立服务。")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /服务化方案/u })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
   it("translates static implementation UI without translating generated content", async () => {
     localStorage.setItem(LOCALE_PREFERENCE_STORAGE_KEY, "en");
     try {
       const repository = createMockWorkspaceRepository({ rules: [createRule()], ...createImplementationWorkspace() });
       render(withWorkspaceProviders(<FeasibilityPage view="implementation" />, repository));
-      expect(await screen.findByRole("heading", { name: "Implementation plan" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Technical Proposed Solution" })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Candidate options" })).toBeInTheDocument();
       expect(screen.getByText("分层模块化实现")).toBeInTheDocument();
       expect(screen.getByText("技术栈成熟")).toBeInTheDocument();
@@ -226,6 +249,29 @@ describe("FeasibilityPage", () => {
     expect(screen.getByRole("button", { name: "添加人员" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "添加关系" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "上下文元素" })).not.toBeInTheDocument();
+  });
+
+  it("opens and highlights a requested context relationship", async () => {
+    const repository = createMockWorkspaceRepository(createContextWorkspace());
+
+    render(
+      withWorkspaceProviders(
+        <FeasibilityPage
+          view="relations"
+          highlightedRelationshipId="login"
+        />,
+        repository,
+      ),
+    );
+
+    expect(await screen.findByRole("tab", { name: "关系" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    expect(screen.getByRole("article", { name: "登录" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("uses the same detail page and focuses the requested desktop section", async () => {

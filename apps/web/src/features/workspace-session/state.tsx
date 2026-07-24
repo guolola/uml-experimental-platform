@@ -340,6 +340,8 @@ export function WorkspaceSessionProvider({
     useState(false);
   const [hasFeasibilityImplementationArtifact, setHasFeasibilityImplementationArtifact] =
     useState(false);
+  const [feasibilityImplementationPlan, setFeasibilityImplementationPlan] =
+    useState<WorkspaceRecord["feasibilityImplementationPlan"]>(null);
   const syncFeasibilityArtifacts = useCallback((workspace: WorkspaceRecord) => {
     setFeasibilityContextArtifact(
       workspace.feasibilityContextModel
@@ -362,6 +364,7 @@ export function WorkspaceSessionProvider({
     setHasFeasibilityImplementationArtifact(
       Boolean(workspace.feasibilityImplementationPlan),
     );
+    setFeasibilityImplementationPlan(workspace.feasibilityImplementationPlan);
   }, []);
   const {
     codeSpec,
@@ -602,6 +605,7 @@ export function WorkspaceSessionProvider({
       setFeasibilityContextArtifact,
       setHasFeasibilityContextArtifact,
       setHasFeasibilityImplementationArtifact,
+      setFeasibilityImplementationPlan,
       setManualModelEditStatus,
       setCodeSpec,
       setCodeBusinessLogic,
@@ -3253,6 +3257,7 @@ export function WorkspaceSessionProvider({
       setFeasibilityContextSaveStatus,
       hasFeasibilityContextArtifact,
       hasFeasibilityImplementationArtifact,
+      feasibilityImplementationPlan,
       syncFeasibilityArtifacts,
       codeSpec,
       codeBusinessLogic,
@@ -3365,6 +3370,7 @@ export function WorkspaceSessionProvider({
       feasibilityContextSaveStatus,
       hasFeasibilityContextArtifact,
       hasFeasibilityImplementationArtifact,
+      feasibilityImplementationPlan,
       syncFeasibilityArtifacts,
       codeSpec,
       codeBusinessLogic,

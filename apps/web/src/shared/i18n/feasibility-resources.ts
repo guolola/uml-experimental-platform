@@ -284,7 +284,7 @@ export const feasibilityResourcesEn: typeof feasibilityResourcesZh = {
   providerRequired: "Select an available provider and model first.",
   noArtifactSelected: "No target artifact selected",
   runPermissionDenied: "Your project role cannot start generation.",
-  implementationTitle: "Implementation plan",
+  implementationTitle: "Technical Proposed Solution",
   implementationDescription: "An editable implementation decision based on current rules, context, and supplied facts.",
   overviewDescription: "Generate the system context and implementation plan in order while preserving rule traceability.",
   workspaceSaved: "Saved",
@@ -340,7 +340,7 @@ export const feasibilityResourcesEn: typeof feasibilityResourcesZh = {
   artifact: {
     context: "Context diagram",
     contextDescription: "The central system, people, external systems, and high-level interactions with traceability and details.",
-    implementation: "Implementation plan",
+    implementation: "Technical Proposed Solution",
     implementationArtifactDescription: "Options, rationale, architecture, data, deployment, security, cost-benefit, risks, milestones, and conclusions.",
   },
   status: { generating: "Generating", failed: "Failed", stale: "Stale", completed: "Completed", missing: "Not generated", current: "Current" },

@@ -182,6 +182,7 @@ export interface WorkspaceSessionState {
   setFeasibilityContextSaveStatus: (status: "idle" | "saving" | "saved" | "error") => void;
   hasFeasibilityContextArtifact: boolean;
   hasFeasibilityImplementationArtifact: boolean;
+  feasibilityImplementationPlan: WorkspaceRecord["feasibilityImplementationPlan"];
   syncFeasibilityArtifacts: (workspace: WorkspaceRecord) => void;
   codeSpec: CodeGenerationSpec | null;
   codeBusinessLogic: CodeBusinessLogic | null;

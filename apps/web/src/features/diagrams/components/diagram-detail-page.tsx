@@ -62,10 +62,14 @@ export function DiagramView({
   type,
   modelId,
   highlightedElement,
+  highlightedRelationshipId,
+  initialSection,
 }: {
   type: DiagramType;
   modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
+  highlightedRelationshipId?: string | null;
+  initialSection?: ContextDiagramSection;
 }) {
   return (
     <DiagramDetailView
@@ -73,6 +77,8 @@ export function DiagramView({
       type={type}
       modelId={modelId}
       highlightedElement={highlightedElement}
+      highlightedRelationshipId={highlightedRelationshipId}
+      initialSection={initialSection}
     />
   );
 }
@@ -81,10 +87,14 @@ export function DesignDiagramView({
   type,
   modelId,
   highlightedElement,
+  highlightedRelationshipId,
+  initialSection,
 }: {
   type: DesignDiagramType;
   modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
+  highlightedRelationshipId?: string | null;
+  initialSection?: ContextDiagramSection;
 }) {
   return (
     <DiagramDetailView
@@ -92,6 +102,8 @@ export function DesignDiagramView({
       type={type}
       modelId={modelId}
       highlightedElement={highlightedElement}
+      highlightedRelationshipId={highlightedRelationshipId}
+      initialSection={initialSection}
     />
   );
 }
@@ -115,10 +127,12 @@ export function ContextDiagramView({
   data,
   section = "diagram",
   highlightedElement,
+  highlightedRelationshipId,
 }: {
   data: ContextDiagramData;
   section?: ContextDiagramSection;
   highlightedElement?: { kind: string; id: string } | null;
+  highlightedRelationshipId?: string | null;
 }) {
   return (
     <DiagramDetailView
@@ -127,6 +141,7 @@ export function ContextDiagramView({
       contextData={data}
       initialSection={section}
       highlightedElement={highlightedElement}
+      highlightedRelationshipId={highlightedRelationshipId}
     />
   );
 }
@@ -136,6 +151,7 @@ function DiagramDetailView({
   type,
   modelId,
   highlightedElement,
+  highlightedRelationshipId,
   contextData,
   initialSection = "diagram",
 }: {
@@ -143,6 +159,7 @@ function DiagramDetailView({
   type: DiagramType | DesignDiagramType;
   modelId?: string;
   highlightedElement?: { kind: string; id: string } | null;
+  highlightedRelationshipId?: string | null;
   contextData?: ContextDiagramData;
   initialSection?: ContextDiagramSection;
 }) {
@@ -243,6 +260,7 @@ function DiagramDetailView({
     "all",
   );
   const [relationsOnlyFocus, setRelationsOnlyFocus] = useState(false);
+  const relationshipRefs = useRef(new Map<string, HTMLDivElement>());
   const [localHighlightedElement, setLocalHighlightedElement] = useState<{
     kind: string;
     id: string;
@@ -262,8 +280,14 @@ function DiagramDetailView({
     setIsOverviewPanelOpen(Boolean(highlightedElement));
   }, [highlightedElement, model, statusKey]);
   useEffect(() => {
-    setActiveTab(compactViewport ? initialSection : "diagram");
-  }, [compactViewport, initialSection]);
+    setActiveTab(
+      highlightedRelationshipId
+        ? "relations"
+        : compactViewport
+          ? initialSection
+          : "diagram",
+    );
+  }, [compactViewport, highlightedRelationshipId, initialSection]);
   const setDraftField = useCallback((key: string, value: unknown) => {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
   }, []);
@@ -405,6 +429,21 @@ function DiagramDetailView({
         : relationships,
     [highlighted, relatedRelationships, relationships, relationsOnlyFocus],
   );
+  const highlightedRelationship = highlightedRelationshipId
+    ? relationships.find((relationship) => relationship.id === highlightedRelationshipId)
+    : undefined;
+  useEffect(() => {
+    if (!highlightedRelationship || activeTab !== "relations") return;
+    const target = relationshipRefs.current.get(highlightedRelationship.id);
+    if (!target) return;
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    target.scrollIntoView?.({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+    });
+    target.focus({ preventScroll: true });
+  }, [activeTab, highlightedRelationship]);
   const summaryGroups = groups.filter((group) => {
     if (group.kind === "message" || group.kind === "table-column") return false;
     return group.items.length > 0;
@@ -599,7 +638,7 @@ function DiagramDetailView({
                 >
                   {t("diagrams.tabs.diagram")}
                 </TabsTrigger>
-                {compactViewport ? (
+                {compactViewport || highlightedRelationshipId ? (
                   <>
                     <TabsTrigger
                       value="elements"
@@ -931,9 +970,24 @@ function DiagramDetailView({
                       return (
                       <div
                         key={relation.id}
+                        role="article"
+                        aria-label={displayLabel}
+                        ref={(element) => {
+                          if (element) {
+                            relationshipRefs.current.set(relation.id, element);
+                          } else {
+                            relationshipRefs.current.delete(relation.id);
+                          }
+                        }}
+                        tabIndex={relation.id === highlightedRelationship?.id ? -1 : undefined}
+                        aria-current={
+                          relation.id === highlightedRelationship?.id ? "true" : undefined
+                        }
                         className={cn(
                           "overflow-hidden rounded-xl border border-border border-l-4 bg-card shadow-sm",
                           getRelationAccentClass(index),
+                          relation.id === highlightedRelationship?.id &&
+                            "ring-2 ring-primary ring-offset-2 ring-offset-background",
                         )}
                       >
                         <div className="flex flex-wrap items-center gap-2 p-4 pb-3">
