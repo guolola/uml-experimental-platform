@@ -55,6 +55,12 @@ function onlyOfficeUiThemeForProjectTheme(theme: "light" | "dark"): OnlyOfficeUi
 
 const DOCUMENT_DEFINITIONS = [
   {
+    kind: "feasibilityStudy",
+    title: "可行性研究报告",
+    fileName: "可行性研究报告.docx",
+    source: "Generated from Feasibility Analysis",
+  },
+  {
     kind: "requirementsSpec",
     title: "需求规格说明书",
     fileName: "需求规格说明书.docx",
@@ -65,12 +71,6 @@ const DOCUMENT_DEFINITIONS = [
     title: "软件设计说明书",
     fileName: "软件设计说明书.docx",
     source: "Generated from Design Model",
-  },
-  {
-    kind: "feasibilityStudy",
-    title: "可行性研究报告",
-    fileName: "可行性研究报告.docx",
-    source: "Generated from Feasibility Analysis",
   },
 ] satisfies Array<{
   kind: DocumentKind;
@@ -708,9 +708,9 @@ export function InstructionDocumentsPage({
                   aria-label={t("documentsPage.typeFilter")}
                   options={[
                     { value: "all", label: t("documentsPage.allTypes") },
+                    { value: "feasibilityStudy", label: localizedDocumentTitle("feasibilityStudy", t) },
                     { value: "requirementsSpec", label: localizedDocumentTitle("requirementsSpec", t) },
                     { value: "softwareDesignSpec", label: localizedDocumentTitle("softwareDesignSpec", t) },
-                    { value: "feasibilityStudy", label: localizedDocumentTitle("feasibilityStudy", t) },
                   ]}
                 />
               </label>

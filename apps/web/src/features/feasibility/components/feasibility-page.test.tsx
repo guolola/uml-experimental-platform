@@ -1,5 +1,5 @@
 // Verifies feasibility overview status and persistence of user-supplied research facts.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createMockWorkspaceRepository } from "../../../services/workspace-repository/mock-repository";
@@ -168,6 +168,8 @@ describe("FeasibilityPage", () => {
 
     expect(await screen.findByRole("heading", { name: "实现方案" })).toBeInTheDocument();
     expect(screen.getByText("候选方案比较")).toBeInTheDocument();
+    const candidateDetails = screen.getByRole("region", { name: "方案具体内容：模块化单体" });
+    expect(candidateDetails).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /技术方案/u })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /实施计划/u })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /成本与收益/u })).toBeInTheDocument();
@@ -177,6 +179,7 @@ describe("FeasibilityPage", () => {
     expect(screen.getByTestId("implementation-module-topology")).toBeInTheDocument();
     expect(screen.getByTestId("risk-matrix")).toBeInTheDocument();
     expect(screen.getByText("库存接口延期")).toBeInTheDocument();
+    expect(within(candidateDetails).getByText("以下技术、实施、成本收益、风险和结论均属于当前选中的方案。")).toBeInTheDocument();
   });
 
   it("switches every implementation section without changing the recommended option", async () => {
@@ -188,6 +191,7 @@ describe("FeasibilityPage", () => {
     expect(screen.getByText("库存接口延期")).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: /服务化方案/u }));
 
+    expect(screen.getByRole("region", { name: "方案具体内容：服务化方案" })).toBeInTheDocument();
     expect(screen.getByText("按领域拆分独立服务。")).toBeInTheDocument();
     expect(screen.getByText("服务契约验证")).toBeInTheDocument();
     expect(screen.getByText("分布式运维复杂度")).toBeInTheDocument();
@@ -227,6 +231,7 @@ describe("FeasibilityPage", () => {
       render(withWorkspaceProviders(<FeasibilityPage view="implementation" />, repository));
       expect(await screen.findByRole("heading", { name: "Technical Proposed Solution" })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Candidate options" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Option details: 模块化单体" })).toBeInTheDocument();
       expect(screen.getByText("分层模块化实现")).toBeInTheDocument();
       expect(screen.getByText("技术栈成熟")).toBeInTheDocument();
     } finally {

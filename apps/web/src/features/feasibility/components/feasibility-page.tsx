@@ -419,7 +419,7 @@ export function FeasibilityPage({
           />
           <ModelBentoCard
             label={t("feasibility.artifact.implementation")}
-            english="Implementation Plan"
+            english="Technical Proposed Solution"
             description={t("feasibility.artifact.implementationArtifactDescription")}
             icon={Wrench}
             selected={selectedArtifacts.includes("implementation")}

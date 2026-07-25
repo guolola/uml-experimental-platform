@@ -7,6 +7,7 @@ import type {
   DocumentLibraryItem,
   DocumentRunSnapshot,
 } from "@uml-platform/contracts";
+import { feasibilityInputsSchema, snapshotInputFingerprint } from "@uml-platform/contracts";
 import { useTheme } from "../../../shared/ui/theme-provider";
 import {
   createMockWorkspaceRepository,
@@ -246,6 +247,91 @@ function createControlledDocumentRepository() {
   return { repository, subscribers, complete };
 }
 
+function templateCard(title: string) {
+  const titleElement = screen.getByText(title);
+  const card = titleElement.closest("article");
+  if (!card) throw new Error(`Template card not found: ${title}`);
+  return card;
+}
+
+function createReadyFeasibilityWorkspace() {
+  const rules = [{
+    id: "R1",
+    category: "功能需求" as const,
+    text: "用户可以提交维修预约。",
+    relatedDiagrams: ["usecase" as const],
+  }];
+  const contextModel = {
+    diagramKind: "context" as const,
+    modelId: "context",
+    title: "维修预约系统上下文",
+    summary: "系统边界",
+    notes: [],
+    system: { id: "system", name: "维修预约系统", sourceRequirementIds: [] },
+    people: [{ id: "customer", name: "客户", sourceRequirementIds: ["R1"] }],
+    externalSystems: [],
+    relationships: [{
+      id: "booking",
+      sourceId: "customer",
+      targetId: "system",
+      direction: "directed" as const,
+      label: "提交预约",
+      sourceRequirementIds: ["R1"],
+    }],
+  };
+  const feasibilityInputs = feasibilityInputsSchema.parse({});
+  const feasibilityImplementationPlan = {
+    overview: "采用模块化 Web 实现。",
+    candidates: [{
+      id: "option-a",
+      name: "模块化方案",
+      summary: "按模块交付。",
+      advantages: ["易于实施"],
+      disadvantages: ["需要维护模块边界"],
+      estimatedCost: "待确认",
+      estimatedSchedule: "8 周",
+      sourceRequirementIds: ["R1"],
+      implementation: {
+        architecture: { summary: "分层架构。", modules: [] },
+        dataStrategy: { summary: "关系数据存储。", sourceRequirementIds: ["R1"] },
+        integrations: [],
+        deploymentAndOperations: { summary: "容器化部署。", sourceRequirementIds: ["R1"] },
+        securityAndCompliance: { summary: "最小权限。", sourceRequirementIds: ["R1"] },
+        milestones: [],
+        risks: [],
+        verdicts: [
+          { category: "technical" as const, verdict: "feasible" as const, rationale: "技术成熟。" },
+          { category: "operational" as const, verdict: "feasible" as const, rationale: "流程可执行。" },
+          { category: "schedule" as const, verdict: "feasible" as const, rationale: "周期可控。" },
+          { category: "economic" as const, verdict: "conditional" as const, rationale: "需确认预算。" },
+          { category: "legal" as const, verdict: "feasible" as const, rationale: "无额外限制。" },
+        ],
+        decision: "conditional-go" as const,
+        preconditions: ["确认预算"],
+      },
+    }],
+    recommendedCandidateId: "option-a",
+    recommendationRationale: "适合当前规模。",
+  };
+  return {
+    rules,
+    feasibilityInputs,
+    feasibilityContextModel: contextModel,
+    feasibilityContextPlantUml: "@startuml\n@enduml",
+    feasibilityContextSvg: "<svg><text>维修预约系统</text></svg>",
+    feasibilityContextFingerprint: snapshotInputFingerprint({
+      rules,
+      requirementBaseline: null,
+    }),
+    feasibilityImplementationPlan,
+    feasibilityImplementationFingerprint: snapshotInputFingerprint({
+      rules,
+      contextModel,
+      inputs: feasibilityInputs,
+    }),
+  };
+}
+
 function storeManagedUserSettings() {
   localStorage.setItem(
     "uml-lab-settings",
@@ -372,11 +458,35 @@ describe("InstructionDocumentsPage", () => {
     ).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /说明书样式/i })).toHaveLength(3);
     expect(screen.getByText("可行性研究报告")).toBeInTheDocument();
+    const feasibilityCard = templateCard("可行性研究报告");
+    const requirementsCard = templateCard("需求规格说明书");
+    const designCard = templateCard("软件设计说明书");
+    expect(feasibilityCard.compareDocumentPosition(requirementsCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(requirementsCard.compareDocumentPosition(designCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("需求规格说明书.docx")).not.toBeInTheDocument();
     expect(screen.queryByText("软件设计说明书.docx")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("checkbox", { name: /同时生成软件设计说明书/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("enables the feasibility report from current analysis without requirement or design models", async () => {
+    const repository = createMockWorkspaceRepository(createReadyFeasibilityWorkspace());
+    repository.listDocuments = vi.fn(async () => []);
+
+    render(withWorkspaceProviders(<InstructionDocumentsPage />, repository));
+
+    await screen.findByRole("heading", { name: "已生成说明书" });
+
+    expect(
+      within(templateCard("可行性研究报告")).getByRole("button", { name: /生成并打开/i }),
+    ).toBeEnabled();
+    expect(
+      within(templateCard("需求规格说明书")).getByRole("button", { name: /生成并打开/i }),
+    ).toBeDisabled();
+    expect(
+      within(templateCard("软件设计说明书")).getByRole("button", { name: /生成并打开/i }),
+    ).toBeDisabled();
   });
 
   it("passes customized document style settings when generating from the documents page", async () => {
@@ -390,11 +500,11 @@ describe("InstructionDocumentsPage", () => {
     render(withWorkspaceProviders(<InstructionDocumentsPage />, repository));
 
     await screen.findByRole("heading", { name: "已生成说明书" });
-    await user.click(screen.getAllByRole("button", { name: /说明书样式/i })[0]);
+    await user.click(within(templateCard("需求规格说明书")).getByRole("button", { name: /说明书样式/i }));
     const sizeInputs = await screen.findAllByLabelText("字号 pt");
     fireEvent.change(sizeInputs[0], { target: { value: "18" } });
     await user.click(screen.getByRole("button", { name: "完成" }));
-    await user.click(screen.getAllByRole("button", { name: /生成并打开/i })[0]);
+    await user.click(within(templateCard("需求规格说明书")).getByRole("button", { name: /生成并打开/i }));
 
     await waitFor(() => {
       expect(startDocumentRun).toHaveBeenCalledWith(
@@ -422,7 +532,7 @@ describe("InstructionDocumentsPage", () => {
     render(withWorkspaceProviders(<InstructionDocumentsPage />, repository));
 
     await screen.findByRole("heading", { name: "已生成说明书" });
-    await user.click(screen.getAllByRole("button", { name: /生成并打开/i })[0]);
+    await user.click(within(templateCard("需求规格说明书")).getByRole("button", { name: /生成并打开/i }));
 
     await waitFor(() => {
       expect(startDocumentRun).toHaveBeenCalledTimes(1);
@@ -448,27 +558,25 @@ describe("InstructionDocumentsPage", () => {
     );
 
     await screen.findByRole("heading", { name: "已生成说明书" });
-    let generateButtons = screen.getAllByRole("button", {
-      name: /生成并打开/i,
-    });
+    let requirementsButton = within(templateCard("需求规格说明书")).getByRole("button", { name: /生成并打开/i });
+    let designButton = within(templateCard("软件设计说明书")).getByRole("button", { name: /生成并打开/i });
 
-    await user.click(generateButtons[0]);
+    await user.click(requirementsButton);
     await waitFor(() => {
       expect(subscribers.has("run-requirements")).toBe(true);
     });
-    expect(generateButtons[0]).toBeDisabled();
-    expect(generateButtons[1]).not.toBeDisabled();
+    expect(requirementsButton).toBeDisabled();
+    expect(designButton).not.toBeDisabled();
 
-    generateButtons = screen.getAllByRole("button", {
-      name: /生成并打开/i,
-    });
-    expect(generateButtons[1]).not.toBeDisabled();
-    fireEvent.click(generateButtons[1]);
+    requirementsButton = within(templateCard("需求规格说明书")).getByRole("button", { name: /生成并打开/i });
+    designButton = within(templateCard("软件设计说明书")).getByRole("button", { name: /生成并打开/i });
+    expect(designButton).not.toBeDisabled();
+    fireEvent.click(designButton);
     await waitFor(() => {
       expect(subscribers.has("run-design")).toBe(true);
     });
-    expect(generateButtons[0]).toBeDisabled();
-    expect(generateButtons[1]).toBeDisabled();
+    expect(requirementsButton).toBeDisabled();
+    expect(designButton).toBeDisabled();
 
     complete("run-design");
     await waitFor(() => {
