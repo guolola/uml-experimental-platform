@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { FeasibilityArtifactKind } from "@uml-platform/contracts";
 import {
   DESIGN_DIAGRAM_META,
   DIAGRAM_META,
@@ -22,7 +23,11 @@ const DEFAULT_SELECTION: WorkspaceSelection = {
 export type WorkspaceSelection =
   | { kind: "system-requirements"; label: string }
   | { kind: "requirements-text"; label: string }
-  | { kind: "feasibility-home"; label: string }
+  | {
+      kind: "feasibility-home";
+      label: string;
+      initialSelectedArtifacts?: FeasibilityArtifactKind[];
+    }
   | { kind: "feasibility-context"; label: string }
   | { kind: "feasibility-context-trace"; label: string }
   | { kind: "feasibility-context-elements"; label: string }
@@ -110,7 +115,9 @@ interface WorkspaceShellState {
   closeWorkspaceTabsByStage: (tabId: string) => void;
   openSystemRequirements: () => void;
   openRequirementsText: () => void;
-  openFeasibilityHome: () => void;
+  openFeasibilityHome: (options?: {
+    initialSelectedArtifacts?: FeasibilityArtifactKind[];
+  }) => void;
   openFeasibilityContext: () => void;
   openFeasibilityContextTrace: () => void;
   openFeasibilityContextElements: () => void;
@@ -396,7 +403,15 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
     openWorkspaceTab({ kind: "requirements-text", label: "需求模型" });
   }, [openWorkspaceTab]);
 
-  const openFeasibilityHome = useCallback(() => openWorkspaceTab({ kind: "feasibility-home", label: "可行性分析" }), [openWorkspaceTab]);
+  const openFeasibilityHome = useCallback(
+    (options?: { initialSelectedArtifacts?: FeasibilityArtifactKind[] }) =>
+      openWorkspaceTab({
+        kind: "feasibility-home",
+        label: "可行性分析",
+        initialSelectedArtifacts: options?.initialSelectedArtifacts,
+      }),
+    [openWorkspaceTab],
+  );
   const openFeasibilityContext = useCallback(() => openWorkspaceTab({ kind: "feasibility-context", label: "上下文图" }), [openWorkspaceTab]);
   const openFeasibilityContextTrace = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-trace", label: "上下文跟踪矩阵" }), [openWorkspaceTab]);
   const openFeasibilityContextElements = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-elements", label: "上下文元素" }), [openWorkspaceTab]);

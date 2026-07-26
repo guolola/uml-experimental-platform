@@ -18,6 +18,7 @@ import {
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Download,
   FileText,
   HardDrive,
@@ -140,6 +141,26 @@ function localizedDocumentTitle(kind: DocumentKind, t: TFunction) {
   return t(`documentsPage.kinds.${kind}`);
 }
 
+function feasibilityDisabledReason(
+  state: ReturnType<typeof feasibilityArtifactState> | null,
+  t: TFunction,
+) {
+  if (!state) return t("documentsPage.prerequisites.feasibilityChecking");
+  if (state.contextStatus === "missing") {
+    return t("documentsPage.prerequisites.feasibilityContextMissing");
+  }
+  if (state.contextStatus === "stale") {
+    return t("documentsPage.prerequisites.feasibilityContextStale");
+  }
+  if (state.implementationStatus === "missing") {
+    return t("documentsPage.prerequisites.feasibilityImplementationMissing");
+  }
+  if (state.implementationStatus === "stale") {
+    return t("documentsPage.prerequisites.feasibilityImplementationStale");
+  }
+  return null;
+}
+
 function TemplatePreview({
   definition,
   documentStyle,
@@ -243,6 +264,7 @@ function TemplateDocumentCard({
   documentStyle,
   onOpenStyle,
   onGenerate,
+  blockedAction,
 }: {
   definition: (typeof DOCUMENT_DEFINITIONS)[number];
   disabledReason: string | null;
@@ -250,6 +272,10 @@ function TemplateDocumentCard({
   documentStyle: DocumentStyleSettings;
   onOpenStyle: () => void;
   onGenerate: () => void;
+  blockedAction?: {
+    label: string;
+    onClick: () => void;
+  };
 }) {
   const { t } = useTranslation();
   return (
@@ -260,8 +286,22 @@ function TemplateDocumentCard({
         onOpenStyle={onOpenStyle}
       />
       <div className="flex flex-1 flex-col gap-2 border-t border-border bg-card p-3 sm:gap-3 sm:p-4">
-        <div className="mt-auto line-clamp-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground sm:text-xs">
-          {disabledReason ?? t("documentsPage.generatedHint")}
+        <div className="mt-auto flex min-h-9 items-center justify-between gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground sm:text-xs">
+          <span className="min-w-0">
+            {disabledReason ?? t("documentsPage.generatedHint")}
+          </span>
+          {blockedAction && (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto shrink-0 gap-1 p-0 text-[11px] sm:text-xs"
+              onClick={blockedAction.onClick}
+            >
+              {blockedAction.label}
+              <ArrowRight className="size-3.5" />
+            </Button>
+          )}
         </div>
         <Button
           type="button"
@@ -365,7 +405,11 @@ export function InstructionDocumentsPage({
     generateSoftwareDesignSpec,
     generateFeasibilityStudy,
   } = useWorkspaceSession();
-  const { openDocumentsHome, openDocumentEditor } = useWorkspaceShell();
+  const {
+    openDocumentsHome,
+    openDocumentEditor,
+    openFeasibilityHome,
+  } = useWorkspaceShell();
   const [documents, setDocuments] = useState<DocumentLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -385,7 +429,9 @@ export function InstructionDocumentsPage({
   const autoOpenClaimedRef = useRef(false);
   const hasRequirementModels = Object.values(models).some(Boolean);
   const hasDesignModels = Object.values(designModels).some(Boolean);
-  const [feasibilityReady, setFeasibilityReady] = useState(false);
+  const [feasibilityState, setFeasibilityState] = useState<ReturnType<
+    typeof feasibilityArtifactState
+  > | null>(null);
   const onlyOfficeUiTheme = onlyOfficeUiThemeForProjectTheme(theme);
 
   const loadDocuments = useCallback(async () => {
@@ -412,19 +458,7 @@ export function InstructionDocumentsPage({
   useEffect(() => {
     void loadDocuments();
     void repository.loadWorkspace().then((workspace) => {
-      const freshness = feasibilityArtifactState(workspace);
-      const implementationPlan = workspace.feasibilityImplementationPlan;
-      const recommendedImplementation = implementationPlan?.candidates.find(
-        (candidate) => candidate.id === implementationPlan.recommendedCandidateId,
-      )?.implementation;
-      setFeasibilityReady(Boolean(
-        workspace.feasibilityContextModel &&
-        workspace.feasibilityContextPlantUml &&
-        workspace.feasibilityContextSvg &&
-        recommendedImplementation &&
-        !freshness.contextStale &&
-        !freshness.implementationStale,
-      ));
+      setFeasibilityState(feasibilityArtifactState(workspace));
     });
   }, [loadDocuments, repository]);
 
@@ -569,10 +603,18 @@ export function InstructionDocumentsPage({
   const disabledReasonByKind: Record<DocumentKind, string | null> = {
     requirementsSpec: requirementDisabledReason,
     softwareDesignSpec: designDisabledReason,
-    feasibilityStudy: feasibilityReady
-      ? null
-      : t("documentsPage.prerequisites.feasibility"),
+    feasibilityStudy: feasibilityDisabledReason(feasibilityState, t),
   };
+  const feasibilityBlockedAction =
+    feasibilityState && !feasibilityState.reportReady
+      ? {
+          label: t("documentsPage.prerequisites.openFeasibility"),
+          onClick: () =>
+            openFeasibilityHome({
+              initialSelectedArtifacts: feasibilityState.requiredArtifacts,
+            }),
+        }
+      : undefined;
 
   if (activeDocumentId) {
     return (
@@ -756,6 +798,11 @@ export function InstructionDocumentsPage({
                     documentStyle={documentStyle}
                     onOpenStyle={() => setDocumentStyleDialogOpen(true)}
                     onGenerate={() => void generateDocument(definition.kind)}
+                    blockedAction={
+                      definition.kind === "feasibilityStudy"
+                        ? feasibilityBlockedAction
+                        : undefined
+                    }
                   />
                 );
               })}

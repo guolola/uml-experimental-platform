@@ -113,6 +113,25 @@ describe("FeasibilityPage", () => {
     expect(screen.getByRole("button", { name: "生成可行性分析" })).toBeDisabled();
   });
 
+  it("applies artifact selections supplied by workspace navigation", async () => {
+    const repository = createMockWorkspaceRepository({ rules: [createRule()] });
+
+    render(
+      withWorkspaceProviders(
+        <FeasibilityPage
+          view="overview"
+          initialSelectedArtifacts={["context", "implementation"]}
+        />,
+        repository,
+      ),
+    );
+
+    await screen.findByRole("heading", { name: "可行性分析" });
+    expect(screen.getByRole("checkbox", { name: "选择上下文图" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "选择实现方案" })).toBeChecked();
+    expect(screen.getByText("2/2")).toBeInTheDocument();
+  });
+
   it("selecting implementation links context while no current context exists", async () => {
     const repository = createMockWorkspaceRepository({ rules: [createRule()] });
     const user = userEvent.setup();

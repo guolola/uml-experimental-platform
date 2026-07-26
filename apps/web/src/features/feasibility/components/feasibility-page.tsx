@@ -14,6 +14,7 @@ import {
 import {
   contextDiagramSpecSchema,
   type ContextDiagramSpec,
+  type FeasibilityArtifactKind,
   type FeasibilityImplementationPlan,
   type FeasibilityInputs,
 } from "@uml-platform/contracts";
@@ -53,7 +54,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type ArtifactKind = "context" | "implementation";
+type ArtifactKind = FeasibilityArtifactKind;
 
 function StatusBadge({ exists, stale, generating, failed }: { exists: boolean; stale: boolean; generating: boolean; failed: boolean }) {
   const { t } = useTranslation();
@@ -69,11 +70,13 @@ export function FeasibilityPage({
   highlightedElement,
   highlightedRelationshipId,
   initialCandidateId,
+  initialSelectedArtifacts,
 }: {
   view: FeasibilityView;
   highlightedElement?: { kind: string; id: string } | null;
   highlightedRelationshipId?: string | null;
   initialCandidateId?: string;
+  initialSelectedArtifacts?: FeasibilityArtifactKind[];
 }) {
   const { t } = useTranslation();
   const repository = useWorkspaceRepository();
@@ -96,7 +99,9 @@ export function FeasibilityPage({
   const [failedArtifacts, setFailedArtifacts] = useState<ArtifactKind[]>([]);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedArtifacts, setSelectedArtifacts] = useState<ArtifactKind[]>([]);
+  const [selectedArtifacts, setSelectedArtifacts] = useState<ArtifactKind[]>(
+    () => initialSelectedArtifacts ?? [],
+  );
   const [defaultModel, setDefaultModel] = useState(() => loadUserSettings().defaultModel);
 
   useEffect(() => {
@@ -250,8 +255,8 @@ export function FeasibilityPage({
   }
 
   const states = feasibilityArtifactState(workspace);
-  const contextExists = Boolean(workspace.feasibilityContextModel && workspace.feasibilityContextSvg);
-  const implementationExists = Boolean(workspace.feasibilityImplementationPlan);
+  const contextExists = states.contextExists;
+  const implementationExists = states.implementationExists;
   const acceptedRules = acceptedFeasibilityRules(workspace);
   const latestContextExists = contextExists && !states.contextStale;
   const settings = loadUserSettings();

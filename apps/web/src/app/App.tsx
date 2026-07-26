@@ -139,7 +139,12 @@ function ProjectWorkspaceShell({
       body = <RequirementsModelPage />;
       break;
     case "feasibility-home":
-      body = <FeasibilityPage view="overview" />;
+      body = (
+        <FeasibilityPage
+          view="overview"
+          initialSelectedArtifacts={selection.initialSelectedArtifacts}
+        />
+      );
       break;
     case "feasibility-context":
       body = <FeasibilityPage view="context" />;

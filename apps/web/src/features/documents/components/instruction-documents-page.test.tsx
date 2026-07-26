@@ -136,6 +136,13 @@ function ThemeToggleButton() {
 
 function ActiveSelectionProbe() {
   const { selection } = useWorkspaceShell();
+  if (selection.kind === "feasibility-home") {
+    return (
+      <div data-testid="active-selection">
+        {selection.kind}:{selection.initialSelectedArtifacts?.join(",") ?? ""}
+      </div>
+    );
+  }
   return (
     <div data-testid="active-selection">
       {selection.kind === "document-editor" ? selection.documentId : selection.kind}
@@ -487,6 +494,90 @@ describe("InstructionDocumentsPage", () => {
     expect(
       within(templateCard("软件设计说明书")).getByRole("button", { name: /生成并打开/i }),
     ).toBeDisabled();
+  });
+
+  it("explains stale feasibility artifacts and opens analysis with both selected", async () => {
+    const readyWorkspace = createReadyFeasibilityWorkspace();
+    const repository = createMockWorkspaceRepository({
+      ...readyWorkspace,
+      rules: [
+        ...readyWorkspace.rules,
+        {
+          id: "R2",
+          category: "业务规则",
+          text: "超过借阅上限时系统必须阻止借书。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+    });
+    repository.listDocuments = vi.fn(async () => []);
+    const user = userEvent.setup();
+
+    render(
+      withWorkspaceProviders(
+        <>
+          <ActiveSelectionProbe />
+          <InstructionDocumentsPage />
+        </>,
+        repository,
+      ),
+    );
+
+    await screen.findByRole("heading", { name: "已生成说明书" });
+    const feasibilityCard = templateCard("可行性研究报告");
+    expect(
+      within(feasibilityCard).getByText(
+        "需求规则已更新，上下文图和实现方案需要重新生成",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(feasibilityCard).getByRole("button", { name: /生成并打开/i }),
+    ).toBeDisabled();
+
+    await user.click(
+      within(feasibilityCard).getByRole("button", {
+        name: "前往可行性分析",
+      }),
+    );
+    expect(screen.getByTestId("active-selection")).toHaveTextContent(
+      "feasibility-home:context,implementation",
+    );
+  });
+
+  it("opens analysis with only implementation selected when its plan is stale", async () => {
+    const repository = createMockWorkspaceRepository({
+      ...createReadyFeasibilityWorkspace(),
+      feasibilityImplementationFingerprint: "fp:v2:stale",
+    });
+    repository.listDocuments = vi.fn(async () => []);
+    const user = userEvent.setup();
+
+    render(
+      withWorkspaceProviders(
+        <>
+          <ActiveSelectionProbe />
+          <InstructionDocumentsPage />
+        </>,
+        repository,
+      ),
+    );
+
+    await screen.findByRole("heading", { name: "已生成说明书" });
+    const feasibilityCard = templateCard("可行性研究报告");
+    expect(
+      within(feasibilityCard).getByText(
+        "需求规则、上下文或补充资料已更新，实现方案需要重新生成",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(
+      within(feasibilityCard).getByRole("button", {
+        name: "前往可行性分析",
+      }),
+    );
+    expect(screen.getByTestId("active-selection")).toHaveTextContent(
+      "feasibility-home:implementation",
+    );
   });
 
   it("passes customized document style settings when generating from the documents page", async () => {
