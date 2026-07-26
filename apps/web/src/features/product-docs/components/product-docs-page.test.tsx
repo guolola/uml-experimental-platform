@@ -1,4 +1,6 @@
 // Verifies the modular in-app product documentation center behavior.
+import { existsSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -6,7 +8,11 @@ import { ProductDocsPage } from "./product-docs-page";
 import {
   PRODUCT_DOC_ARTICLES,
   PRODUCT_DOC_CATEGORIES,
+  getProductDocArticles,
+  getProductDocCategories,
 } from "../model/docs-content";
+
+const PUBLIC_DIRECTORY = resolve(process.cwd(), "public");
 
 describe("ProductDocsPage", () => {
   it("shows the project-local quick start article by default", () => {
@@ -38,6 +44,12 @@ describe("ProductDocsPage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /配置 Provider/u }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /可行性分析：上下文图、实现方案与研究报告/u }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /生成权益、购买与订单处理/u }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /生成、渲染与修复排障/u }),
@@ -111,6 +123,16 @@ describe("ProductDocsPage", () => {
     fireEvent.change(searchInput, { target: { value: "说明书版本" } });
     expect(
       within(sidebar).getByRole("button", { name: /说明书生成、样式、版本与下载/u }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "五类结论" } });
+    expect(
+      within(sidebar).getByRole("button", { name: /可行性分析：上下文图、实现方案与研究报告/u }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "继续支付" } });
+    expect(
+      within(sidebar).getByRole("button", { name: /生成权益、购买与订单处理/u }),
     ).toBeInTheDocument();
   });
 
@@ -203,7 +225,38 @@ describe("ProductDocsPage", () => {
       );
       expect(article.screenshot?.alt, article.id).toBeTruthy();
       expect(article.screenshot?.caption, article.id).toBeTruthy();
+      const screenshotPath = article.screenshot?.src.replace(/^\//u, "");
+      expect(screenshotPath, article.id).toBeTruthy();
+      const absolutePath = resolve(PUBLIC_DIRECTORY, screenshotPath!);
+      expect(existsSync(absolutePath), article.id).toBe(true);
+      expect(statSync(absolutePath).size, article.id).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps every inline docs image attached to a non-empty local asset", () => {
+    for (const article of PRODUCT_DOC_ARTICLES) {
+      const imagePaths = [...article.content.matchAll(/\]\((\/help\/images\/[^)]+)\)/gu)]
+        .map((match) => match[1]);
+      for (const imagePath of imagePaths) {
+        const relativePath = imagePath.replace(/^\//u, "");
+        const absolutePath = resolve(PUBLIC_DIRECTORY, relativePath);
+        expect(existsSync(absolutePath), `${article.id}: ${imagePath}`).toBe(true);
+        expect(statSync(absolutePath).size, `${article.id}: ${imagePath}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("localizes the new feasibility and billing navigation metadata", () => {
+    expect(getProductDocCategories("en").map((category) => category.label)).toContain(
+      "Feasibility analysis",
+    );
+    const englishArticles = getProductDocArticles("en");
+    expect(englishArticles.find((article) => article.id === "feasibility-analysis")).toMatchObject({
+      title: "Feasibility analysis: context, implementation plan, and report",
+      categoryLabel: "Feasibility analysis",
+    });
+    expect(englishArticles.find((article) => article.id === "billing-entitlements")?.content)
+      .toContain("Generation credits");
   });
 
   it("attaches the quick start tutorial video to the first article", () => {

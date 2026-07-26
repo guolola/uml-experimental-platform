@@ -221,7 +221,7 @@ test("feasibility DOCX uses A4, template margins, cover table, TOC, headings, an
     [],
     { includeTableOfContents: true, autoNumberHeadings: true },
     {
-      projectName: "维修预约系统", school: "示例大学", college: "软件学院", groupNumber: "第1组", members: "张三 001", gradeClass: "2024级1班", submissionDate: "2026-07-19",
+      projectName: "维修预约", school: "示例大学", college: "软件学院", groupNumber: "第1组", members: "张三 001", gradeClass: "2024级1班", submissionDate: "2026-07-19",
       proposedBy: "", developedBy: "", expectedUsers: "", targetEnvironment: "", deadline: "", expectedLifetimeYears: null, budgetLimit: null, teamSize: null, teamSkills: "", availableResources: "", legalConstraints: "", references: "", costItems: [], benefitItems: [], analysisYears: null,
     },
   );
@@ -231,7 +231,7 @@ test("feasibility DOCX uses A4, template margins, cover table, TOC, headings, an
   const footerXml = [...entries.entries()].find(([name]) => /^word\/footer\d+\.xml$/u.test(name))?.[1].toString("utf8") ?? "";
   assert.match(documentXml, /w:pgSz w:w="11906" w:h="16838"/u);
   assert.match(documentXml, /w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/u);
-  assert.match(documentXml, /软件设计工程/u);
+  assert.doesNotMatch(documentXml, /软件设计工程/u);
   assert.match(documentXml, /可行性分析报告/u);
   assert.match(documentXml, /项目名称/u);
   assert.match(documentXml, /维修预约系统/u);

@@ -16,7 +16,7 @@
   <b>
     AI 辅助 UML 建模、可信追踪与前端原型生成工作台
     <br />
-    从需求基线、UML 模型到 React 原型、证据包和说明书导出
+    从需求基线、可行性分析、UML 模型到 React 原型、证据包和三类说明书
     <br />
     PlantUML 渲染 × 可信链路 × 通用 Skill Runtime
   </b>
@@ -28,7 +28,7 @@
   <img src="https://img.shields.io/badge/UML-PlantUML-f59e0b?style=for-the-badge" alt="PlantUML Badge" />
 </p>
 
-> 一套面向软件工程课程、实验和原型验证的 AI 工作台：把需求、规则、UML、设计模型、前端原型、质量检查、可信证据和说明书统一沉淀为可追踪产物。
+> 一套面向软件工程课程、实验和原型验证的 AI 工作台：把系统需求、可行性研究、UML、设计模型、前端原型、质量检查、可信证据和说明书统一沉淀为可追踪产物。
 
 </div>
 
@@ -48,15 +48,23 @@
 
 ![需求分析工作台](./docs/images/readme-requirements-workbench.png)
 
+## 可行性分析工作台
+
+![可行性分析工作台](./docs/images/readme-feasibility.png)
+
 ## 前端原型代码与预览
 
 ![前端原型代码与预览](./docs/images/readme-code-prototype.png)
+
+## 三类说明书模板
+
+![三类说明书模板](./docs/images/readme-documents.png)
 
 ---
 
 # 🌟 项目简介
 
-软件工程实验平台以“需求到设计再到代码”的实验链路为核心，帮助用户从自然语言需求生成结构化需求基线、需求阶段 UML、设计阶段 UML、可运行 React 原型、可信证据包和 Word 说明书。
+软件工程实验平台以“系统需求到可行性决策、设计、代码和交付”的实验链路为核心，帮助用户从自然语言需求生成结构化需求基线、可行性上下文与实现方案、需求阶段 UML、设计阶段 UML、可运行 React 原型、可信证据包和 Word 说明书。
 
 它不是一次性模型调用器，而是强调阶段化、可追溯和可修复的实验工作台：
 
@@ -64,6 +72,8 @@
   从需求文本抽取需求规则，并生成用例图、类图、活动图、部署图、需求分析模型等结构化模型；缺失上游产物时可经用户确认后串联补齐。
 - ✅ **可信需求基线**
   将抽取出的规则沉淀为 `RequirementBaseline`，保留来源片段、原子需求、参与者、动作、对象、条件、验收准则和质量诊断，作为下游生成的共同依据。
+- ✅ **可行性分析与实施决策**
+  从已接受规则生成上下文图和可编辑实现方案，比较候选方案的架构、成本、周期、风险与约束，形成技术、运行、进度、经济和法律五类结论；需求规则、上下文或补充事实变化时会把旧产物标记为过期。
 - ✅ **设计阶段建模**
   基于需求模型继续生成用例实现设计、设计类图、设计活动图、部署图和表关系图，并区分需求分析顺序图与设计阶段对象调用顺序图。
 - ✅ **PlantUML 本地渲染**
@@ -77,11 +87,11 @@
 - ✅ **代码页 Agent 生成**
   当前链路为 `businessLogic + 通用 Skill Runtime + React 原型`：平台先抽取业务逻辑，再由前端设计执行器读取设计知识和 React 栈建议，生成可预览前端原型。
 - ✅ **支付与生成权益**
-  PC Web 支持 `/pricing` 和 `/account/billing` 购买入口，后端统一管理 SKU、订单、权益账本和生成任务权益预占/确认/释放。
+  PC Web 支持 `/pricing` 和 `/account/billing` 购买入口，生产环境通过 EPay 聚合支付宝收款；后端统一管理 SKU、订单、权益账本和生成任务权益预占/确认/释放，待支付且未过期的订单可以继续支付。
 - ✅ **任务中心与流式诊断**
   生成任务持久化 provider、model、事件和产物状态；跨进程 SSE 会转发 worker 事件，模型无可见增量时显示持续心跳提示，避免页面看起来假排队。
 - ✅ **说明书导出**
-  支持导出《需求规格说明书》和《软件设计说明书》，保留章节层级、图注、缺图提示和通用封面格式。
+  支持导出《需求规格说明书》《软件设计说明书》和《可行性研究报告》，保留章节层级、图注、缺图提示、通用封面格式和 OnlyOffice 在线编辑版本。
 
 ---
 
@@ -89,6 +99,8 @@
 
 - **需求规则与 UML 模型**
   支持需求规则抽取、模型结构化校验、PlantUML 生成、SVG 渲染和错误修复。
+- **可行性分析**
+  生成带来源追踪的上下文图以及候选实现方案，覆盖架构、数据、部署、安全、成本收益、里程碑、风险和五类可行性结论；报告生成前会检查上下文与实现方案是否仍然有效。
 - **设计模型链路**
   用例实现设计作为设计阶段动态行为基础，下游设计图从需求模型和用例实现设计共同推导；确定性追踪补齐不制造待确认噪音，低置信兜底才进入复核。
 - **可信链路门禁**
@@ -102,9 +114,9 @@
 - **质量与预览检查**
   对生成文件、入口、依赖、业务覆盖、渲染结构和预览可用性进行检查，并把诊断回传给修复阶段；模型持续空白输出会先发送“供应商暂未返回可见流式内容”心跳，超过任务超时配置后终止，避免生成任务长时间挂起。
 - **支付与权益**
-  支持微信 Native 扫码支付、支付宝电脑网站支付、邮箱验证后新用户赠送次数、无权益购买提示和订单历史；价格、次数和有效期以后端 SKU 为准，支付金额使用整数分并在回调中验签、校验订单与金额、保证幂等发放。
+  生产环境支持 EPay 聚合支付宝，邮箱验证后新用户赠送 30 次、有效期 30 天，并提供无权益购买提示、订单历史和待支付订单继续支付；价格、次数和有效期以后端 SKU 为准，支付金额使用整数分并在回调中验签、校验订单与金额、保证幂等发放。
 - **文档生成**
-  用 `docx` 生成 Word 文档，UML 图以 PNG 插入，缺失图会在正文中留下明确提示。
+  用 `docx` 生成三类 Word 文档，UML 图以 PNG 插入，缺失或过期产物会在页面和正文中留下明确提示。
 
 ---
 
@@ -114,17 +126,20 @@
 flowchart LR
   A["需求文本"] --> B["需求规则"]
   B --> C["RequirementBaseline"]
-  C --> D["需求 UML 模型"]
-  D --> E["CoverageMatrix / TraceabilityMatrix"]
-  E --> F["设计 UML 模型"]
-  F --> G["业务逻辑分析"]
-  G --> H["业务断言"]
-  H --> I["前端设计执行器"]
-  I --> J["React 原型文件"]
-  J --> K["质量、预览与浏览器证据"]
-  K --> L["EvidencePackage"]
-  D --> M["需求规格说明书"]
-  F --> N["软件设计说明书"]
+  C --> D["可行性上下文图"]
+  D --> E["候选实现方案"]
+  E --> F["成本收益 / 风险 / 五类结论"]
+  F --> G["可行性研究报告"]
+  C --> H["需求 UML 模型"]
+  H --> I["CoverageMatrix / TraceabilityMatrix"]
+  I --> J["设计 UML 模型"]
+  J --> K["业务逻辑分析与业务断言"]
+  K --> L["前端设计执行器"]
+  L --> M["React 原型文件"]
+  M --> N["质量、预览与浏览器证据"]
+  N --> O["EvidencePackage"]
+  H --> P["需求规格说明书"]
+  J --> Q["软件设计说明书"]
 ```
 
 代码生成阶段不会把权限边界、服务边界、过滤条件或函数名当作用户页面文案直接展示；这些说明性内容应进入开发说明文档或注释，页面只呈现真实业务流程、数据、操作和状态反馈。
@@ -276,12 +291,19 @@ umlExperimentalPlatform/
 - `apps/web/src/features/trusted-chain/`：前端可信证据查看、复核和导出。
 - `docs/trusted-chain-audit/`：行业可接受性审计、风险边界、实施路线和最终结论。
 
+可行性分析核心实现位于：
+
+- `apps/api/src/routes/feasibility/`：可行性运行的接口注册、输入校验和任务启动。
+- `apps/api/src/runs/pipelines/feasibility-pipeline.ts`：上下文生成、渲染和实现方案阶段流转。
+- `apps/api/src/normalizers/feasibility/`：上下文图和实现方案输出修复。
+- `apps/web/src/features/feasibility/`：产物选择、上下文详情、方案编辑、新鲜度门禁和五类结论。
+
 支付与权益核心实现位于：
 
 - `apps/api/src/routes/billing/`：支付、权益和后台账单 API 路由注册。
 - `apps/api/src/billing/`：SKU、订单、权益账本、补偿、退款标记和生成权益预占逻辑。
-- `apps/api/src/adapters/payments/`：微信、支付宝和本地 mock/sandbox 支付适配器。
-- `apps/web/src/features/user-platform/`：前台定价页、账户账单页、支付确认弹窗、微信二维码弹窗和支付宝中间态。
+- `apps/api/src/adapters/payments/`：EPay 聚合支付宝和本地 mock 支付适配器。
+- `apps/web/src/features/user-platform/`：前台定价页、账户账单页、支付确认弹窗、支付宝返回页和继续支付流程。
 
 Provider 与公告核心实现位于：
 
@@ -305,8 +327,8 @@ Provider 与公告核心实现位于：
 - **后端**：Fastify、TypeScript、Zod、OpenAI 兼容 Chat Completions
 - **UML 渲染**：PlantUML、本地 SVG/PNG 渲染服务
 - **代码生成**：业务逻辑抽取、通用 Skill Runtime、前端设计执行器、React 原型文件操作协议
-- **支付**：微信 Native、支付宝电脑网站支付、后端 SKU、权益账本、支付回调验签与幂等处理
-- **文档**：docx、PNG 图像嵌入、说明书结构化渲染
+- **支付**：EPay 聚合支付宝、后端 SKU、权益账本、订单恢复、支付回调验签与幂等处理
+- **文档**：docx、PNG 图像嵌入、三类说明书结构化渲染、OnlyOffice 在线编辑
 - **Monorepo**：npm workspaces
 
 ---
@@ -360,7 +382,7 @@ npx tsx --test apps/api/src/runs/trusted-chain-regression.test.ts
   `DATABASE_URL`、`SMTP_*`、`UML_PROVIDER_SECRET_KEY`、CORS、OnlyOffice、
   主 Web/API base、后台前端/API base、session cookie SameSite/Secure、管理员
   bootstrap，以及 legacy fallback 开关。
-- PC Web 支付上线前必须显式配置 `UML_BILLING_SKUS_JSON`、微信支付商户参数和支付宝应用参数；生产环境缺少正式支付配置时，创建订单会返回配置错误，不会降级为本地 mock 支付。
+- PC Web 支付上线前必须显式配置 `UML_BILLING_SKUS_JSON`、`EPAY_GATEWAY_URL`、`EPAY_PID`、`EPAY_KEY`、`EPAY_NOTIFY_URL`、`EPAY_RETURN_URL`，可选配置 `EPAY_SITE_NAME`；生产环境缺少正式 EPay 配置时，创建订单会返回配置错误，不会降级为本地 mock 支付。
 - 用户私有 Provider 属于用户敏感数据。生产排查时只能看 masked key、hash/tail、归属范围、风险和审计事件；禁止在日志、toast、审计 metadata 或 admin 页面输出明文 API Key。
 - 清理线上测试账号必须先执行 `scripts/maintenance/delete-test-accounts.mjs --output cleanup-dry-run.json` 保存候选清单，完成数据库备份并人工确认后，才允许使用 `--execute --backup-confirmed --confirm-targets-file cleanup-dry-run.json`。脚本匹配 `email`、`username` 或 `display_name` 以 `Load Use` / `codex` 开头的账号，并删除其拥有项目、user-scope Provider、密钥、会话、run、文档、用量、账单和审计/风险关联数据。
 - 后台不提供生产固定默认账号密码。首次上线用

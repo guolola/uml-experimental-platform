@@ -7,6 +7,7 @@ export type ProductDocCategoryId =
   | "workspace"
   | "model-provider"
   | "requirements"
+  | "feasibility"
   | "models"
   | "design"
   | "delivery"
@@ -78,8 +79,13 @@ export const PRODUCT_DOC_CATEGORIES: readonly ProductDocCategory[] = [
   },
   {
     id: "requirements",
-    label: "需求阶段",
-    description: "需求输入、规则确认、质量提示、AI 修复和基线。",
+    label: "系统需求",
+    description: "需求输入、规则确认、质量提示、AI 修复和需求基线。",
+  },
+  {
+    id: "feasibility",
+    label: "可行性分析",
+    description: "上下文图、候选实现方案、成本收益、风险、结论和研究报告。",
   },
   {
     id: "models",
@@ -108,12 +114,12 @@ const ARTICLE_MANIFEST = [
     id: "quick-start",
     title: "快速开始",
     category: "overview",
-    summary: "用图书馆预约系统案例走完整流程，从项目入口到说明书证据。",
+    summary: "用图书馆预约系统案例走完整流程，从系统需求、可行性分析到说明书证据。",
     estimatedMinutes: 7,
     recommendedPath: true,
     sourcePath: "../content/quick-start.md",
     tags: ["新手", "完整路径", "图书馆预约系统", "入口"],
-    relatedArtifacts: ["项目", "需求文本", "需求规则", "UML", "设计模型", "代码原型", "说明书"],
+    relatedArtifacts: ["项目", "需求规则", "可行性分析", "UML", "设计模型", "代码原型", "三类说明书"],
     screenshot: {
       src: "/help/images/docs-quick-start.png",
       alt: "项目内使用文档快速开始截图",
@@ -255,10 +261,26 @@ const ARTICLE_MANIFEST = [
     },
   },
   {
+    id: "billing-entitlements",
+    title: "生成权益、购买与订单处理",
+    category: "model-provider",
+    summary: "查看生成次数、购买次数包、检查订单状态并继续未完成的支付宝订单。",
+    estimatedMinutes: 7,
+    recommendedPath: true,
+    sourcePath: "../content/billing-entitlements.md",
+    tags: ["生成权益", "次数包", "账户账单", "订单历史", "继续支付", "支付宝"],
+    relatedArtifacts: ["EntitlementLedger", "PaymentOrder", "BillingSku", "ProviderConfig"],
+    screenshot: {
+      src: "/help/images/docs-billing.png",
+      alt: "生成权益余额、订单历史和继续支付截图",
+      caption: "账户账单集中展示权益余额、订单状态和待支付订单恢复入口。",
+    },
+  },
+  {
     id: "requirements",
     title: "需求输入、规则确认与 AI 修复",
     category: "requirements",
-    summary: "录入需求文本，生成需求规则，处理质量提示并采纳或拒绝 AI 修复。",
+    summary: "在系统需求页录入文本、生成规则、处理质量提示并确认下游输入。",
     estimatedMinutes: 12,
     recommendedPath: true,
     sourcePath: "../content/requirements.md",
@@ -267,7 +289,7 @@ const ARTICLE_MANIFEST = [
     screenshot: {
       src: "/help/images/docs-requirement-ai-repair.png",
       alt: "需求规则确认和 AI 修复截图",
-      caption: "需求规则确认会决定后续 UML、设计、代码和说明书的输入质量。",
+      caption: "需求规则确认会决定后续可行性分析、UML、设计、代码和说明书的输入质量。",
     },
   },
   {
@@ -284,6 +306,22 @@ const ARTICLE_MANIFEST = [
       src: "/help/images/docs-requirement-quality-baseline.png",
       alt: "需求质量和基线状态截图",
       caption: "需求基线记录后续阶段使用的是哪一版规则和文本。",
+    },
+  },
+  {
+    id: "feasibility-analysis",
+    title: "可行性分析：上下文图、实现方案与研究报告",
+    category: "feasibility",
+    summary: "从已接受规则生成上下文图和可编辑实现方案，并保持研究报告产物有效。",
+    estimatedMinutes: 14,
+    recommendedPath: true,
+    sourcePath: "../content/feasibility-analysis.md",
+    tags: ["可行性分析", "上下文图", "实现方案", "成本收益", "风险", "五类结论", "可行性研究报告"],
+    relatedArtifacts: ["FeasibilityContextModel", "ImplementationPlan", "FeasibilityStudy", "TraceabilityMatrix"],
+    screenshot: {
+      src: "/help/images/docs-feasibility.png",
+      alt: "可行性分析上下文图和实现方案产物概览截图",
+      caption: "可行性分析按上下文图和实现方案的依赖顺序生成，并显示当前有效性。",
     },
   },
   {
@@ -386,12 +424,12 @@ const ARTICLE_MANIFEST = [
     id: "documents-delivery",
     title: "说明书生成、样式、版本与下载",
     category: "delivery",
-    summary: "生成需求规格说明书或设计说明书，调整样式，查看版本和下载状态。",
+    summary: "生成需求、设计或可行性说明书，调整样式，在线编辑并管理版本。",
     estimatedMinutes: 9,
     recommendedPath: true,
     sourcePath: "../content/documents-delivery.md",
-    tags: ["说明书", "说明书版本", "DOCX", "样式", "版本", "下载", "OnlyOffice"],
-    relatedArtifacts: ["RequirementsSpec", "SoftwareDesignSpec", "DocumentVersion"],
+    tags: ["说明书", "说明书版本", "可行性研究报告", "DOCX", "样式", "版本", "下载", "OnlyOffice"],
+    relatedArtifacts: ["RequirementsSpec", "SoftwareDesignSpec", "FeasibilityStudy", "DocumentVersion"],
     screenshot: {
       src: "/help/images/docs-documents.png",
       alt: "说明书生成和文档版本截图",
@@ -452,8 +490,12 @@ const EN_CATEGORY_TEXT: Record<ProductDocCategoryId, Pick<ProductDocCategory, "l
     description: "Recommended models, personal providers, platform credits, and model discovery tests.",
   },
   requirements: {
-    label: "Requirements stage",
-    description: "Requirement input, rule confirmation, quality prompts, AI repair, and baselines.",
+    label: "System requirements",
+    description: "Requirement input, rule confirmation, quality prompts, AI repair, and the requirement baseline.",
+  },
+  feasibility: {
+    label: "Feasibility analysis",
+    description: "Context diagrams, candidate implementation plans, cost-benefit analysis, risks, conclusions, and reports.",
   },
   models: {
     label: "UML and model details",
@@ -484,9 +526,9 @@ const EN_ARTICLE_TEXT: Record<
 > = {
   "quick-start": {
     title: "Quick start",
-    summary: "Walk through the full flow with the library booking case, from project entry to specification evidence.",
+    summary: "Walk through the library booking case from system requirements and feasibility analysis to specification evidence.",
     tags: ["Beginner", "Full path", "Library booking", "Entry points"],
-    relatedArtifacts: ["Project", "Requirement text", "Requirement rules", "UML", "Design models", "Code prototype", "Specification"],
+    relatedArtifacts: ["Project", "Requirement rules", "Feasibility analysis", "UML", "Design models", "Code prototype", "Specifications"],
   },
   "feature-map": {
     title: "Page entry points and workflow map",
@@ -536,9 +578,15 @@ const EN_ARTICLE_TEXT: Record<
     tags: ["Provider", "API key", "Model discovery", "Hosted configuration test", "Credits"],
     relatedArtifacts: ["ProviderConfig", "Model list", "Default model", "Platform credits"],
   },
+  "billing-entitlements": {
+    title: "Generation credits, purchases, and orders",
+    summary: "Review generation credits, buy a credit package, inspect order states, and resume an unfinished Alipay order.",
+    tags: ["Generation credits", "Credit package", "Billing", "Order history", "Resume payment", "Alipay"],
+    relatedArtifacts: ["EntitlementLedger", "PaymentOrder", "BillingSku", "ProviderConfig"],
+  },
   requirements: {
-    title: "Requirement input, rule confirmation, and AI repair",
-    summary: "Enter requirement text, generate requirement rules, handle quality prompts, and accept or reject AI repairs.",
+    title: "System requirements, rule confirmation, and AI repair",
+    summary: "Enter requirement text, generate rules, handle quality prompts, and confirm the inputs used by downstream stages.",
     tags: ["Requirements", "Requirement rules", "AI repair", "Rule confirmation", "Quality prompts"],
     relatedArtifacts: ["Requirement text", "Requirement rules", "Quality report", "Repair candidates", "Requirement baseline"],
   },
@@ -547,6 +595,12 @@ const EN_ARTICLE_TEXT: Record<
     summary: "Understand quality prompts, pending repairs, baselines, and downstream blocking reasons.",
     tags: ["Requirement quality", "Requirement baseline", "Pending confirmation", "Blocking reason", "Quality prompts"],
     relatedArtifacts: ["RequirementBaseline", "QualityReport", "ReviewCandidate"],
+  },
+  "feasibility-analysis": {
+    title: "Feasibility analysis: context, implementation plan, and report",
+    summary: "Generate a context model and editable implementation options from accepted rules, then keep the feasibility report current.",
+    tags: ["Feasibility analysis", "Context diagram", "Implementation plan", "Cost-benefit", "Risks", "Five conclusions", "Feasibility report"],
+    relatedArtifacts: ["FeasibilityContextModel", "ImplementationPlan", "FeasibilityStudy", "TraceabilityMatrix"],
   },
   "uml-models": {
     title: "Requirement UML models and diagram viewing",
@@ -586,9 +640,9 @@ const EN_ARTICLE_TEXT: Record<
   },
   "documents-delivery": {
     title: "Specification generation, style, versions, and download",
-    summary: "Generate requirement or design specifications, adjust styling, review versions, and download documents.",
-    tags: ["Specification", "Document versions", "DOCX", "Style", "Download", "OnlyOffice"],
-    relatedArtifacts: ["RequirementsSpec", "SoftwareDesignSpec", "DocumentVersion"],
+    summary: "Generate requirements, design, or feasibility documents, adjust styling, edit online, and manage versions.",
+    tags: ["Specification", "Document versions", "Feasibility report", "DOCX", "Style", "Download", "OnlyOffice"],
+    relatedArtifacts: ["RequirementsSpec", "SoftwareDesignSpec", "FeasibilityStudy", "DocumentVersion"],
   },
   "account-models-faq": {
     title: "Account, model configuration, and permission issues",

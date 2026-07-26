@@ -7,7 +7,7 @@
 
 ## 入口位置
 
-需求页规则区域、质量提示区域和生成按钮附近。
+系统需求页规则区域、质量提示区域和生成按钮附近。
 
 ![需求质量与基线截图](/help/images/docs-requirement-quality-baseline.png)
 

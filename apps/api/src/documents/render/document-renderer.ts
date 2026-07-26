@@ -290,6 +290,12 @@ function coverValue(value: string | number | null | undefined) {
     : String(value);
 }
 
+function feasibilityCoverProjectTitle(projectName: string | null | undefined) {
+  const normalized = projectName?.trim();
+  if (!normalized) return "XXXX系统";
+  return normalized.endsWith("系统") ? normalized : `${normalized}系统`;
+}
+
 function createFeasibilityCoverTable(inputs: FeasibilityInputs, style: ResolvedDocumentStyle) {
   const rows = [
     ["项目名称", coverValue(inputs.projectName)],
@@ -321,7 +327,7 @@ function createDocumentCover(
       projectName: "", school: "", college: "", groupNumber: "", members: "", gradeClass: "", submissionDate: "", proposedBy: "", developedBy: "", expectedUsers: "", targetEnvironment: "", deadline: "", expectedLifetimeYears: null, budgetLimit: null, teamSize: null, teamSkills: "", availableResources: "", legalConstraints: "", references: "", costItems: [], benefitItems: [], analysisYears: null,
     };
     return [
-      createCoverParagraph("软件设计工程", style, { title: true }),
+      createCoverParagraph(feasibilityCoverProjectTitle(inputs.projectName), style, { title: true }),
       createCoverParagraph("可行性分析报告", style, { subtitle: true }),
       createCoverParagraph(`学校：${coverValue(inputs.school)}`, style),
       createFeasibilityCoverTable(inputs, style),
