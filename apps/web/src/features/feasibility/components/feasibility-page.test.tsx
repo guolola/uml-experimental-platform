@@ -167,6 +167,11 @@ describe("FeasibilityPage", () => {
     render(withWorkspaceProviders(<FeasibilityPage view="implementation" />, repository));
 
     expect(await screen.findByRole("heading", { name: "实现方案" })).toBeInTheDocument();
+    expect(screen.getByTestId("implementation-plan-dashboard")).toHaveClass(
+      "w-[calc(100%-2rem)]",
+      "max-w-7xl",
+      "lg:w-[calc(100%-3rem)]",
+    );
     expect(screen.getByText("候选方案比较")).toBeInTheDocument();
     const candidateDetails = screen.getByRole("region", { name: "方案具体内容：模块化单体" });
     expect(candidateDetails).toBeInTheDocument();

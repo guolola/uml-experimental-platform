@@ -281,7 +281,10 @@ export function ImplementationPlanDashboard({ workspace, states, initialCandidat
   const statusText = saveState === "saving" ? t("feasibility.workspaceSaving") : saveState === "error" ? t("feasibility.workspaceSaveFailed") : dirty ? t("feasibility.workspaceUnsaved") : savedAt ? `${t("feasibility.workspaceSaved")} · ${new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(savedAt)}` : t("feasibility.workspaceSaved");
 
   return (
-    <div className="mx-auto flex w-full max-w-[1024px] flex-col gap-6 px-4 py-6 sm:px-8 lg:px-12">
+    <div
+      data-testid="implementation-plan-dashboard"
+      className="mx-auto flex w-[calc(100%-2rem)] max-w-7xl flex-col gap-6 py-6 lg:w-[calc(100%-3rem)]"
+    >
       <header className="grid gap-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl"><div className="flex flex-wrap items-center gap-3"><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t("feasibility.implementationTitle")}</h1>{states.implementationStale ? <Badge variant="warning">{t("feasibility.status.stale")}</Badge> : <Badge variant="secondary">{t("feasibility.status.current")}</Badge>}</div><p className="mt-2 text-sm leading-6 text-muted-foreground sm:text-base">{t("feasibility.implementationDescription")}</p></div>
@@ -296,7 +299,7 @@ export function ImplementationPlanDashboard({ workspace, states, initialCandidat
         {message && <div aria-live="polite" className="text-xs text-muted-foreground">{message}</div>}
       </header>
 
-      <nav aria-label={t("feasibility.implementationTitle")} className="sticky top-0 z-20 -mx-4 overflow-x-auto border-b bg-background/90 px-4 py-3 backdrop-blur-md sm:-mx-8 sm:px-8 lg:-mx-12 lg:px-12">
+      <nav aria-label={t("feasibility.implementationTitle")} className="sticky top-0 z-20 overflow-x-auto border-b bg-background/90 py-3 backdrop-blur-md">
         <div className="flex min-w-max gap-6">{SECTION_IDS.map((id) => <button key={id} type="button" aria-current={activeSection === id ? "location" : undefined} className={cn("cursor-pointer border-b-2 border-transparent pb-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground", activeSection === id && "border-primary text-primary")} onClick={() => { setActiveSection(id); sectionRefs.current.get(id)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); }}>{t(`feasibility.nav.${id}`)}</button>)}</div>
       </nav>
 
