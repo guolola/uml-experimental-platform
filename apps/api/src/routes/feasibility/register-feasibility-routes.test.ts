@@ -89,6 +89,7 @@ function registerTestRoutes(input: {
   app: ReturnType<typeof Fastify>;
   outputs?: string[];
   state?: Record<string, unknown>;
+  renderClient?: Parameters<typeof registerFeasibilityRoutes>[0]["renderClient"];
   onSync?: (record: Parameters<NonNullable<Parameters<typeof registerFeasibilityRoutes>[0]["syncProjectWorkspace"]>>[0]) => Promise<void>;
 }) {
   const runs = createRunRecordStore();
@@ -102,7 +103,7 @@ function registerTestRoutes(input: {
   registerFeasibilityRoutes({
     app: input.app,
     runs,
-    renderClient: async (artifact) => ({ svg: `<svg>${artifact.diagramKind}</svg>`, renderMeta: { engine: "plantuml", generatedAt: "2026-07-19T00:00:00.000Z", sourceLength: artifact.source.length, durationMs: 1 } }),
+    renderClient: input.renderClient ?? (async (artifact) => ({ svg: `<svg>${artifact.diagramKind}</svg>`, renderMeta: { engine: "plantuml", generatedAt: "2026-07-19T00:00:00.000Z", sourceLength: artifact.source.length, durationMs: 1 } })),
     llmTransport: { async *streamChatCompletion() { yield outputs.shift() ?? "{}"; } },
     providerConfigs: providerConfigs() as never,
     defaultSseAllowOrigin: "http://localhost:5173",
@@ -169,5 +170,122 @@ test("repairs invalid context once and keeps new context when implementation sti
   assert.ok(syncedSnapshot?.contextModel);
   assert.equal(syncedSnapshot?.implementationPlan, null);
   assert.equal(typeof snapshot.error.message, "string");
+  await app.close();
+});
+
+test("section repair fixes integrations without overwriting valid economics", async () => {
+  const app = Fastify();
+  const externalContext = JSON.stringify({
+    ...JSON.parse(contextOutput),
+    externalSystems: [{
+      id: "external-payment",
+      name: "支付平台",
+      sourceRequirementIds: ["R9"],
+    }],
+    relationships: [
+      ...JSON.parse(contextOutput).relationships,
+      {
+        id: "rel-payment",
+        sourceId: "system",
+        targetId: "external-payment",
+        direction: "directed",
+        label: "提交支付",
+        sourceRequirementIds: ["R9"],
+      },
+    ],
+  });
+  const invalidPlan = JSON.parse(implementationOutput);
+  for (const candidate of invalidPlan.candidates) {
+    candidate.implementation.integrations = [{
+      name: "支付平台",
+      contextExternalSystemId: "external-payment",
+      sourceRequirementIds: ["R9"],
+      provenance: "ai-estimate",
+    }];
+  }
+  const repairedPlan = structuredClone(invalidPlan);
+  for (const candidate of repairedPlan.candidates) {
+    candidate.implementation.integrations[0].responsibility = "提交支付请求";
+    candidate.implementation.costEstimates[0].range.minimum = 999_999;
+  }
+  registerTestRoutes({
+    app,
+    outputs: [
+      externalContext,
+      JSON.stringify(invalidPlan),
+      JSON.stringify(repairedPlan),
+      JSON.stringify(repairedPlan),
+    ],
+  });
+
+  const start = await app.inject({
+    method: "POST",
+    url: "/api/feasibility-runs",
+    headers: { authorization: "Bearer test" },
+    payload: {
+      projectId: "project-1",
+      selectedArtifacts: ["context", "implementation"],
+      providerSettings: { providerConfigId: "provider-1", model: "test-model" },
+    },
+  });
+  const snapshot = await waitForTerminal(app, start.json().runId);
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(
+    snapshot.implementationPlan.candidates[0].implementation.integrations[0].responsibility,
+    "提交支付请求",
+  );
+  assert.equal(
+    snapshot.implementationPlan.candidates[0].implementation.costEstimates[0].range.minimum,
+    10_000,
+  );
+  assert.ok(snapshot.generationDiagnostics.repairs.some(
+    (repair: { section: string; succeeded: boolean }) =>
+      repair.section === "technical" && repair.succeeded,
+  ));
+  await app.close();
+});
+
+test("repairs feasibility PlantUML while keeping the context model as source of truth", async () => {
+  const app = Fastify();
+  let renderCalls = 0;
+  registerTestRoutes({
+    app,
+    outputs: [
+      contextOutput,
+      JSON.stringify({ source: "@startuml\nrectangle 修复后的上下文\n@enduml" }),
+    ],
+    renderClient: async (artifact) => {
+      renderCalls += 1;
+      if (renderCalls === 1) throw new Error("PlantUML syntax error at line 3");
+      return {
+        svg: "<svg>repaired</svg>",
+        renderMeta: {
+          engine: "plantuml",
+          generatedAt: "2026-07-29T00:00:00.000Z",
+          sourceLength: artifact.source.length,
+          durationMs: 1,
+        },
+      };
+    },
+  });
+
+  const start = await app.inject({
+    method: "POST",
+    url: "/api/feasibility-runs",
+    headers: { authorization: "Bearer test" },
+    payload: {
+      projectId: "project-1",
+      selectedArtifacts: ["context"],
+      providerSettings: { providerConfigId: "provider-1", model: "test-model" },
+    },
+  });
+  const snapshot = await waitForTerminal(app, start.json().runId);
+
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.contextModel.title, "维修预约系统上下文");
+  assert.match(snapshot.contextPlantUml.source, /修复后的上下文/u);
+  assert.equal(snapshot.contextSvg.svg, "<svg>repaired</svg>");
+  assert.equal(renderCalls, 2);
   await app.close();
 });

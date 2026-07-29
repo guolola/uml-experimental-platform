@@ -1,15 +1,23 @@
 // Defines deterministic marketing case project templates for one-click sample project creation.
 import {
+  buildAcceptedRequirementSnapshot,
   codeRunSnapshotSchema,
+  completeFeasibilityImplementationPlanSchema,
+  contextDiagramSpecSchema,
   designRunSnapshotSchema,
+  feasibilityInputsSchema,
+  feasibilityRunSnapshotSchema,
   runSnapshotSchema,
+  snapshotInputFingerprint,
   type CodeRunSnapshot,
+  type ContextTraceRow,
   type DesignDiagramKind,
   type DesignDiagramModelSpec,
   type DesignPlantUmlArtifact,
   type DesignRunSnapshot,
   type DiagramKind,
   type DiagramModelSpec,
+  type FeasibilityRunSnapshot,
   type PlantUmlArtifact,
   type ProjectBackgroundKey,
   type AtomicRequirement,
@@ -17,6 +25,7 @@ import {
   type RequirementRule,
   type RunSnapshot,
 } from "@uml-platform/contracts";
+import { FEASIBILITY_IMPLEMENTATION_EXAMPLE } from "@uml-platform/prompts";
 
 export type CaseProjectTemplate = {
   id: string;
@@ -24,6 +33,7 @@ export type CaseProjectTemplate = {
   description: string;
   backgroundKey: ProjectBackgroundKey;
   requirementSnapshot: RunSnapshot;
+  feasibilitySnapshot: FeasibilityRunSnapshot;
   designSnapshot: DesignRunSnapshot;
   codeSnapshot: CodeRunSnapshot;
 };
@@ -133,6 +143,7 @@ export function getCaseProjectTemplate(caseId: string) {
 
 function buildCaseProjectTemplate(seed: CaseSeed): CaseProjectTemplate {
   const requirementSnapshot = buildRequirementSnapshot(seed);
+  const feasibilitySnapshot = buildFeasibilitySnapshot(seed, requirementSnapshot);
   const designSnapshot = buildDesignSnapshot(seed, requirementSnapshot);
   const codeSnapshot = buildCodeSnapshot(seed, designSnapshot);
   return {
@@ -141,6 +152,7 @@ function buildCaseProjectTemplate(seed: CaseSeed): CaseProjectTemplate {
     description: seed.description,
     backgroundKey: seed.backgroundKey,
     requirementSnapshot,
+    feasibilitySnapshot,
     designSnapshot,
     codeSnapshot,
   };
@@ -168,6 +180,240 @@ function buildRequirementSnapshot(seed: CaseSeed): RunSnapshot {
     diagramErrors: {},
     requirementTrace: [],
     currentStage: "render_svg",
+    status: "completed",
+    error: null,
+  });
+}
+
+function buildFeasibilitySnapshot(
+  seed: CaseSeed,
+  requirementSnapshot: RunSnapshot,
+): FeasibilityRunSnapshot {
+  const requirementSource = buildAcceptedRequirementSnapshot(
+    requirementSnapshot.rules,
+    requirementSnapshot.requirementBaseline,
+  );
+  const ruleIds = requirementSource.snapshot.ruleIds;
+  const primaryRuleId = `${seed.id}-R1`;
+  const reviewerRuleId = `${seed.id}-R3`;
+  const integrationRuleId = `${seed.id}-R4`;
+  const contextModel = contextDiagramSpecSchema.parse({
+    diagramKind: "context",
+    modelId: "context",
+    title: `${seed.title}系统上下文`,
+    summary: `明确${seed.actors[0]}、${seed.actors[1]}、${seed.externalSystem}与${seed.title}的业务边界。`,
+    notes: ["案例上下文只引用已确认需求规则，外部集成与实现方案保持一致。"],
+    system: {
+      id: "system",
+      name: seed.title,
+      description: seed.description,
+      sourceRequirementIds: [],
+    },
+    people: [
+      {
+        id: "person-primary",
+        name: seed.actors[0],
+        description: `${seed.secondaryAction}并${seed.primaryAction}`,
+        sourceRequirementIds: [primaryRuleId],
+      },
+      {
+        id: "person-reviewer",
+        name: seed.actors[1],
+        description: seed.approvalAction,
+        sourceRequirementIds: [reviewerRuleId],
+      },
+    ],
+    externalSystems: [{
+      id: "external-main",
+      name: seed.externalSystem,
+      description: seed.notificationRule,
+      sourceRequirementIds: [integrationRuleId],
+    }],
+    relationships: [
+      {
+        id: "context-rel-primary",
+        sourceId: "person-primary",
+        targetId: "system",
+        direction: "directed",
+        label: seed.primaryAction,
+        description: `${seed.actors[0]}通过系统完成${seed.primaryAction}`,
+        sourceRequirementIds: [primaryRuleId],
+      },
+      {
+        id: "context-rel-reviewer",
+        sourceId: "person-reviewer",
+        targetId: "system",
+        direction: "directed",
+        label: seed.approvalAction,
+        description: `${seed.actors[1]}通过系统完成${seed.approvalAction}`,
+        sourceRequirementIds: [reviewerRuleId],
+      },
+      {
+        id: "context-rel-external",
+        sourceId: "system",
+        targetId: "external-main",
+        direction: "directed",
+        label: seed.notificationRule,
+        description: `系统调用${seed.externalSystem}完成外部协作`,
+        sourceRequirementIds: [integrationRuleId],
+      },
+    ],
+  });
+  const contextTraceability: ContextTraceRow[] = [
+    {
+      requirementId: primaryRuleId,
+      targetId: "person-primary",
+      targetKind: "person",
+      targetLabel: seed.actors[0],
+    },
+    {
+      requirementId: reviewerRuleId,
+      targetId: "person-reviewer",
+      targetKind: "person",
+      targetLabel: seed.actors[1],
+    },
+    {
+      requirementId: integrationRuleId,
+      targetId: "external-main",
+      targetKind: "external-system",
+      targetLabel: seed.externalSystem,
+    },
+    ...contextModel.relationships.map((relationship) => ({
+      requirementId: relationship.sourceRequirementIds[0]!,
+      targetId: relationship.id,
+      targetKind: "relationship" as const,
+      targetLabel: relationship.label,
+    })),
+  ];
+  const inputs = feasibilityInputsSchema.parse({
+    projectName: seed.title,
+    expectedUsers: seed.actors.join("、"),
+    targetEnvironment: "课程实验与小型团队部署环境",
+    expectedLifetimeYears: 3,
+    teamSize: 4,
+    teamSkills: "TypeScript、React、关系型数据库与基础运维",
+    availableResources: "案例模板假设具备基础开发、测试和部署资源",
+    references: "案例模板中的成本、收益和周期均为 AI 示例估算，需结合真实项目确认",
+    analysisYears: 3,
+  });
+  const implementationPlan = completeFeasibilityImplementationPlanSchema.parse({
+    ...FEASIBILITY_IMPLEMENTATION_EXAMPLE,
+    overview: `基于${seed.title}同一份已确认需求和系统上下文，比较两套完整实施方案。`,
+    candidates: FEASIBILITY_IMPLEMENTATION_EXAMPLE.candidates.map(
+      (candidate, index) => {
+        const candidateId = `${seed.id}-candidate-${index + 1}`;
+        const implementation = candidate.implementation;
+        return {
+          ...candidate,
+          id: candidateId,
+          name: index === 0 ? "模块化单体实施方案" : "托管服务实施方案",
+          summary: index === 0
+            ? `以模块化单体承载${seed.statusEntity}主流程和外部通知集成。`
+            : `以托管服务组合承载${seed.statusEntity}主流程和外部通知集成。`,
+          estimatedSchedule: index === 0 ? "预计 8–12 周" : "预计 6–10 周",
+          sourceRequirementIds: ruleIds,
+          assumption: "",
+          implementation: {
+            ...implementation,
+            architecture: {
+              summary: index === 0
+                ? `采用模块化单体划分${seed.statusEntity}、规则和通知能力。`
+                : `采用托管服务与轻量业务层组合${seed.statusEntity}、规则和通知能力。`,
+              modules: implementation.architecture.modules.map((module) => ({
+                ...module,
+                id: `${candidateId}-module-main`,
+                name: `${seed.statusEntity}业务模块`,
+                responsibility: `${seed.secondaryAction}、${seed.primaryAction}、${seed.approvalAction}`,
+                sourceRequirementIds: [
+                  `${seed.id}-R1`,
+                  `${seed.id}-R2`,
+                  `${seed.id}-R3`,
+                ],
+                assumption: "",
+              })),
+            },
+            dataStrategy: {
+              ...implementation.dataStrategy,
+              summary: `围绕${seed.entityNames.join("、")}保存状态和操作记录。`,
+              sourceRequirementIds: [`${seed.id}-R2`],
+              assumption: "",
+            },
+            integrations: [{
+              id: `${candidateId}-integration-main`,
+              name: seed.externalSystem,
+              responsibility: seed.notificationRule,
+              contextExternalSystemId: "external-main",
+              sourceRequirementIds: [integrationRuleId],
+              assumption: "",
+              provenance: "ai-estimate",
+            }],
+            integrationRationale: `已确认需求要求对接${seed.externalSystem}，并引用上下文中的 external-main。`,
+            deploymentAndOperations: {
+              ...implementation.deploymentAndOperations,
+              summary: index === 0
+                ? "单应用容器化部署并配置日志、备份和健康检查。"
+                : "托管运行环境部署并配置日志、备份和健康检查。",
+            },
+            milestones: implementation.milestones.map((milestone) => ({
+              ...milestone,
+              id: `${candidateId}-milestone-main`,
+              name: `${seed.title}核心流程交付`,
+              deliverables: [
+                `${seed.dashboardTitle}可运行版本`,
+                `${seed.externalSystem}集成验证`,
+              ],
+              acceptanceCriteria: ruleIds.map((ruleId) => `${ruleId} 对应规则通过验收`),
+              sourceRequirementIds: ruleIds,
+              assumption: "",
+            })),
+            absenceDeclarations: implementation.absenceDeclarations.filter(
+              (declaration) => declaration.scope !== "integrations",
+            ),
+            risks: implementation.risks.map((risk, riskIndex) => ({
+              ...risk,
+              id: `${candidateId}-risk-${riskIndex + 1}`,
+            })),
+          },
+        };
+      },
+    ),
+    recommendedCandidateId: `${seed.id}-candidate-1`,
+    recommendationRationale:
+      "在案例假设下，模块化单体方案的边界更清晰、教学部署复杂度更低；真实项目仍需复核预算、团队能力和合规约束。",
+  });
+  const contextPlantUml: PlantUmlArtifact = {
+    diagramKind: "context",
+    modelId: "context",
+    source: `@startuml\nleft to right direction\nactor "${seed.actors[0]}" as Primary\nactor "${seed.actors[1]}" as Reviewer\nrectangle "${seed.title}" as System\ncloud "${seed.externalSystem}" as External\nPrimary --> System : ${seed.primaryAction}\nReviewer --> System : ${seed.approvalAction}\nSystem --> External : ${seed.notificationRule}\n@enduml`,
+  };
+  const contextFingerprint = requirementSource.snapshot.fingerprint;
+  const implementationFingerprint = snapshotInputFingerprint({
+    rules: requirementSource.rules,
+    contextModel,
+    inputs,
+  });
+
+  return feasibilityRunSnapshotSchema.parse({
+    runId: `${seed.id}-feasibility`,
+    projectId: `case-template-${seed.id}`,
+    selectedArtifacts: ["context", "implementation"],
+    providerSettings: {
+      providerConfigId: "case-template",
+      model: "case-template",
+    },
+    rules: requirementSource.rules,
+    requirementBaseline: requirementSource.baseline,
+    requirementSource: requirementSource.snapshot,
+    inputs,
+    contextModel,
+    contextTraceability,
+    contextPlantUml,
+    contextSvg: null,
+    implementationPlan,
+    contextFingerprint,
+    implementationFingerprint,
+    generationDiagnostics: null,
+    currentStage: null,
     status: "completed",
     error: null,
   });

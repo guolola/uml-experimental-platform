@@ -28,6 +28,7 @@ import {
 } from "../../diagrams/components/diagram-detail-page";
 import { TraceabilityMatrixPage } from "../../traceability/components/traceability-matrix-page";
 import { acceptedFeasibilityRules, feasibilityArtifactState } from "../lib/feasibility-freshness";
+import { buildCrossStageRequirementCoverage } from "../lib/cross-stage-requirement-coverage";
 import { buildContextTraceability } from "../lib/context-traceability";
 import { useWorkspaceSession } from "../../workspace-session/state";
 import { ImplementationPlanDashboard } from "./implementation-plan-dashboard";
@@ -255,6 +256,7 @@ export function FeasibilityPage({
   }
 
   const states = feasibilityArtifactState(workspace);
+  const crossStageCoverage = buildCrossStageRequirementCoverage(workspace);
   const contextExists = states.contextExists;
   const implementationExists = states.implementationExists;
   const acceptedRules = acceptedFeasibilityRules(workspace);
@@ -407,6 +409,32 @@ export function FeasibilityPage({
         </section>
 
         {error && <div role="alert" className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertTriangle className="size-4" />{error}</div>}
+
+        <section className="rounded-xl border bg-card p-4" aria-label={t("feasibility.sourceConsistency.title")}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">{t("feasibility.sourceConsistency.title")}</h2>
+            <Badge variant={crossStageCoverage.sourceConsistent ? "secondary" : "destructive"}>
+              {t(crossStageCoverage.sourceConsistent
+                ? "feasibility.sourceConsistency.consistent"
+                : "feasibility.sourceConsistency.needsUpdate")}
+            </Badge>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t("feasibility.sourceConsistency.coverage", {
+              covered: crossStageCoverage.rows.filter((row) =>
+                row.context || row.implementation || row.requirementModel || row.designModel).length,
+              total: crossStageCoverage.rows.length,
+            })}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("feasibility.sourceConsistency.assumptions", {
+              count: crossStageCoverage.explicitAssumptions,
+            })}
+          </p>
+          <p className="mt-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            {t("feasibility.sourceConsistency.disclaimer")}
+          </p>
+        </section>
 
         <div className="grid gap-4 md:grid-cols-2">
           <ModelBentoCard

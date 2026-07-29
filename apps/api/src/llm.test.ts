@@ -316,6 +316,12 @@ test("createRealLlmTransport retries unsupported json_schema requests with JSON 
       },
     });
     const chunks: string[] = [];
+    const fallbacks: Array<{
+      from: string;
+      to: string;
+      status: number;
+      reason: string;
+    }> = [];
     for await (const chunk of transport.streamChatCompletion({
       providerSettings: {
         apiBaseUrl: "https://ai.comfly.org",
@@ -336,6 +342,7 @@ test("createRealLlmTransport retries unsupported json_schema requests with JSON 
           },
         },
       },
+      onResponseFormatFallback: (event) => fallbacks.push(event),
     })) {
       chunks.push(chunk);
     }
@@ -345,6 +352,12 @@ test("createRealLlmTransport retries unsupported json_schema requests with JSON 
     assert.equal(resolveCalls, 2);
     assert.equal(JSON.parse(requestBodies[0]).response_format.type, "json_schema");
     assert.equal(JSON.parse(requestBodies[1]).response_format.type, "json_object");
+    assert.deepEqual(fallbacks, [{
+      from: "strict_json",
+      to: "json_object",
+      status: 400,
+      reason: "response_format json_schema is not supported by this provider",
+    }]);
     assert.match(warnings.join("\n"), /\[llm-json-schema-fallback\]/);
     assert.doesNotMatch(warnings.join("\n"), /sk-test/);
   } finally {

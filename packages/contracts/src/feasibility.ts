@@ -3,12 +3,56 @@ import { z } from "zod";
 import { contextDiagramSpecSchema, plantUmlArtifactSchema, svgArtifactSchema } from "./models.js";
 import { requirementBaselineSchema, requirementRulesSchema } from "./requirements.js";
 import { providerSettingsSchema } from "./provider-configs.js";
+import { snapshotInputFingerprint } from "./fingerprints.js";
 
 const optionalText = z.string().trim().default("");
 const optionalNumber = z.number().nonnegative().nullable().default(null);
 
 export const feasibilityArtifactKindSchema = z.enum(["context", "implementation"]);
 export type FeasibilityArtifactKind = z.infer<typeof feasibilityArtifactKindSchema>;
+
+export const acceptedRequirementSnapshotSchema = z.object({
+  ruleIds: z.array(z.string().min(1)),
+  baselineVersion: z.string().min(1).nullable(),
+  fingerprint: z.string().min(1),
+});
+export type AcceptedRequirementSnapshot = z.infer<
+  typeof acceptedRequirementSnapshotSchema
+>;
+
+export function buildAcceptedRequirementSnapshot(
+  rawRules: unknown,
+  rawBaseline: unknown,
+) {
+  const rules = requirementRulesSchema.parse(rawRules);
+  const baselineResult = requirementBaselineSchema.nullable().safeParse(rawBaseline);
+  // Historical workspaces may contain an older baseline quality-status enum.
+  // They remain readable and fall back to the current rule list until reconfirmed.
+  const baseline = baselineResult.success ? baselineResult.data : null;
+  const acceptedIds = baseline
+    ? new Set(
+        baseline.requirements
+          .filter((requirement) => requirement.status === "accepted")
+          .map((requirement) => requirement.sourceRuleId)
+          .filter((id): id is string => Boolean(id)),
+      )
+    : null;
+  const acceptedRules = acceptedIds
+    ? rules.filter((rule) => acceptedIds.has(rule.id))
+    : rules;
+  return {
+    rules: acceptedRules,
+    baseline,
+    snapshot: acceptedRequirementSnapshotSchema.parse({
+      ruleIds: acceptedRules.map((rule) => rule.id),
+      baselineVersion: baseline?.runId ?? null,
+      fingerprint: snapshotInputFingerprint({
+        rules: acceptedRules,
+        requirementBaseline: baseline,
+      }),
+    }),
+  };
+}
 
 export const feasibilityContentProvenanceSchema = z.enum([
   "ai-estimate",
@@ -81,6 +125,16 @@ export const feasibilityModuleSchema = feasibilitySourceRefSchema.extend({
   name: z.string().min(1),
   responsibility: z.string().min(1),
 });
+
+// Integrations are tied to the feasibility context boundary. Historical
+// workspaces did not persist that link, so null remains readable as legacy data.
+export const feasibilityIntegrationSchema = feasibilitySourceRefSchema.extend({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  responsibility: z.string().min(1),
+  contextExternalSystemId: z.string().min(1).nullable().default(null),
+});
+export type FeasibilityIntegration = z.infer<typeof feasibilityIntegrationSchema>;
 
 export const feasibilityMilestoneSchema = feasibilitySourceRefSchema.extend({
   id: z.string().min(1),
@@ -170,7 +224,7 @@ export const feasibilityCandidateImplementationSchema = z.object({
     modules: z.array(feasibilityModuleSchema).min(1),
   }),
   dataStrategy: feasibilitySourceRefSchema.extend({ summary: z.string().min(1) }),
-  integrations: z.array(feasibilityModuleSchema).default([]),
+  integrations: z.array(feasibilityIntegrationSchema).default([]),
   integrationRationale: optionalText,
   deploymentAndOperations: feasibilitySourceRefSchema.extend({ summary: z.string().min(1) }),
   securityAndCompliance: feasibilitySourceRefSchema.extend({ summary: z.string().min(1) }),
@@ -409,6 +463,41 @@ export const feasibilityRunStageSchema = z.enum([
 ]);
 export type FeasibilityRunStage = z.infer<typeof feasibilityRunStageSchema>;
 
+export const feasibilityRepairSectionSchema = z.enum([
+  "context",
+  "technical",
+  "delivery",
+  "economics",
+  "verdict",
+  "plan",
+]);
+export type FeasibilityRepairSection = z.infer<typeof feasibilityRepairSectionSchema>;
+
+export const feasibilityValidationIssueSchema = z.object({
+  path: z.string(),
+  candidateIndex: z.number().int().nonnegative().nullable().default(null),
+  section: feasibilityRepairSectionSchema,
+  reason: z.string().min(1),
+});
+export type FeasibilityValidationIssue = z.infer<typeof feasibilityValidationIssueSchema>;
+
+export const feasibilityGenerationDiagnosticsSchema = z.object({
+  requestedMode: z.enum(["strict_json", "json_object", "compatible"]),
+  effectiveMode: z.enum(["strict_json", "json_object", "compatible"]),
+  downgradeReasons: z.array(z.string().min(1)).default([]),
+  normalizationActions: z.array(z.string().min(1)).default([]),
+  repairs: z.array(z.object({
+    stage: z.enum(["context", "implementation"]),
+    candidateIndex: z.number().int().nonnegative().nullable().default(null),
+    section: feasibilityRepairSectionSchema,
+    round: z.number().int().positive(),
+    succeeded: z.boolean(),
+  })).default([]),
+});
+export type FeasibilityGenerationDiagnostics = z.infer<
+  typeof feasibilityGenerationDiagnosticsSchema
+>;
+
 // Mirrors the shared RunError shape without importing runs.ts back into this
 // leaf contract, which keeps feasibility available to the common run union.
 export const feasibilityRunErrorSchema = z.object({
@@ -445,6 +534,7 @@ export const feasibilityRunSnapshotSchema = z.object({
   providerSettings: providerSettingsSchema,
   rules: requirementRulesSchema,
   requirementBaseline: requirementBaselineSchema.nullable(),
+  requirementSource: acceptedRequirementSnapshotSchema.nullable().default(null),
   inputs: feasibilityInputsSchema,
   contextModel: contextDiagramSpecSchema.nullable(),
   contextTraceability: z.array(contextTraceRowSchema).default([]),
@@ -453,6 +543,7 @@ export const feasibilityRunSnapshotSchema = z.object({
   implementationPlan: feasibilityImplementationPlanSchema.nullable(),
   contextFingerprint: z.string().nullable(),
   implementationFingerprint: z.string().nullable(),
+  generationDiagnostics: feasibilityGenerationDiagnosticsSchema.nullable().default(null),
   currentStage: feasibilityRunStageSchema.nullable(),
   status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   error: feasibilityRunErrorSchema.nullable(),

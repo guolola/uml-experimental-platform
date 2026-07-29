@@ -1,6 +1,11 @@
 // Owns shared LLM text collection and structured output parse diagnostics.
 import { type ProviderSettings, type RunStage } from "@uml-platform/contracts";
-import { type ChatCompletionResponseFormat, type ChatMessage, type LlmTransport } from "../../../llm.js";
+import {
+  type ChatCompletionResponseFormat,
+  type ChatMessage,
+  type LlmTransport,
+  type StreamChatCompletionInput,
+} from "../../../llm.js";
 import { formatParseError } from "../../../normalizers/json/parse-json.js";
 
 const RAW_OUTPUT_LOG_LIMIT = 8000;
@@ -181,6 +186,7 @@ export async function collectTextResult(
   onChunk: LlmChunkSink,
   responseFormat?: ChatCompletionResponseFormat | null,
   abortSignal?: AbortSignal,
+  onResponseFormatFallback?: StreamChatCompletionInput["onResponseFormatFallback"],
 ) {
   let content = "";
   const stopNoVisibleChunkHeartbeat =
@@ -193,6 +199,7 @@ export async function collectTextResult(
       messages,
       responseFormat,
       abortSignal,
+      onResponseFormatFallback,
     })) {
       content += chunk;
       emitCollectedChunk(onChunk, chunk);

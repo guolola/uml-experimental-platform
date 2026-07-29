@@ -5,6 +5,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import {
+  buildAcceptedRequirementSnapshot,
+  snapshotInputFingerprint,
+} from "@uml-platform/contracts";
+import {
   createInMemoryAuthStore,
   type AuthStore,
 } from "../../auth/in-memory-auth-store.js";
@@ -90,6 +94,12 @@ test("case project templates contain PlantUML sources renderable by the real jar
         `${template.id} design ${artifact.modelId ?? artifact.diagramKind} should render`,
       );
     }
+    const feasibilityArtifact = template.feasibilitySnapshot.contextPlantUml;
+    assert.ok(feasibilityArtifact);
+    await assert.doesNotReject(
+      () => renderPlantUmlSource(feasibilityArtifact.source),
+      `${template.id} feasibility context should render`,
+    );
   }
 });
 
@@ -170,6 +180,51 @@ test("case project creation seeds every marketing case workspace", async () => {
     assert.ok((workspace.state.codeFiles as Record<string, string>)["/src/App.tsx"]);
     assert.ok(workspace.state.codeSpec);
     assert.ok(workspace.state.codeBusinessLogic);
+    assert.ok(workspace.state.feasibilityContextModel);
+    assert.match(String(workspace.state.feasibilityContextPlantUml), /@startuml/u);
+    assert.match(String(workspace.state.feasibilityContextSvg), /<svg/u);
+    assert.equal(
+      (workspace.state.feasibilityContextModel as {
+        externalSystems: Array<{ id: string }>;
+      }).externalSystems[0]?.id,
+      "external-main",
+    );
+    const implementationPlan = workspace.state.feasibilityImplementationPlan as {
+      candidates: Array<{
+        implementation: {
+          integrations: Array<{ contextExternalSystemId: string }>;
+          verdicts: unknown[];
+        };
+      }>;
+    };
+    assert.equal(implementationPlan.candidates.length, 2);
+    assert.equal(
+      implementationPlan.candidates[0]?.implementation.integrations[0]
+        ?.contextExternalSystemId,
+      "external-main",
+    );
+    assert.equal(
+      implementationPlan.candidates[0]?.implementation.verdicts.length,
+      5,
+    );
+    assert.ok(workspace.state.feasibilityContextFingerprint);
+    assert.ok(workspace.state.feasibilityImplementationFingerprint);
+    const requirementSource = buildAcceptedRequirementSnapshot(
+      workspace.state.rules,
+      workspace.state.requirementBaseline,
+    );
+    assert.equal(
+      workspace.state.feasibilityContextFingerprint,
+      requirementSource.snapshot.fingerprint,
+    );
+    assert.equal(
+      workspace.state.feasibilityImplementationFingerprint,
+      snapshotInputFingerprint({
+        rules: requirementSource.rules,
+        contextModel: workspace.state.feasibilityContextModel,
+        inputs: workspace.state.feasibilityInputs,
+      }),
+    );
 
     const logs = await authStore.listAuditLogs();
     assert.ok(logs.some((entry) => entry.action === "project.create" && entry.targetId === body.project.id));

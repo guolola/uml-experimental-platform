@@ -41,11 +41,19 @@ export type ChatCompletionResponseFormat =
   | JsonObjectResponseFormat
   | JsonSchemaResponseFormat;
 
+export interface ResponseFormatFallbackEvent {
+  from: "strict_json";
+  to: "json_object";
+  status: number;
+  reason: string;
+}
+
 export interface StreamChatCompletionInput {
   providerSettings: ProviderSettings;
   messages: ChatMessage[];
   responseFormat?: ChatCompletionResponseFormat | null;
   abortSignal?: AbortSignal;
+  onResponseFormatFallback?: (event: ResponseFormatFallbackEvent) => void;
 }
 
 export interface LlmTransport {
@@ -780,6 +788,7 @@ export function createRealLlmTransport(
       messages,
       responseFormat,
       abortSignal,
+      onResponseFormatFallback,
     }: StreamChatCompletionInput) {
       const safeBaseUrl = normalizeManagedProviderBaseUrl(
         providerSettings.apiBaseUrl,
@@ -847,6 +856,13 @@ export function createRealLlmTransport(
               httpError.status,
               httpError.detail,
             );
+            onResponseFormatFallback?.({
+              from: "strict_json",
+              to: "json_object",
+              status: httpError.status,
+              reason: summarizeErrorText(httpError.detail ?? "")
+                ?? "provider rejected json_schema",
+            });
             replaceActiveAbortController();
             try {
               stream = await requestCompletionStream({ type: "json_object" });

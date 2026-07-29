@@ -2,14 +2,12 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  buildAcceptedRequirementSnapshot,
   contextDiagramSpecSchema,
   contextTraceRowSchema,
   feasibilityInputsSchema,
   feasibilityRunSnapshotSchema,
   queuedRunEventSchema,
-  requirementBaselineSchema,
-  requirementRulesSchema,
-  snapshotInputFingerprint,
   startFeasibilityRunRequestSchema,
   type ProviderSettings,
 } from "@uml-platform/contracts";
@@ -56,17 +54,10 @@ type RunBillingEntitlements = Pick<
 >;
 
 function acceptedRules(state: Record<string, unknown>) {
-  const rules = requirementRulesSchema.parse(state.rules ?? []);
-  const baselineResult = requirementBaselineSchema.nullable().safeParse(state.requirementBaseline ?? null);
-  const baseline = baselineResult.success ? baselineResult.data : null;
-  if (!baseline) return { rules, baseline };
-  const acceptedRuleIds = new Set(
-    baseline.requirements
-      .filter((requirement) => requirement.status === "accepted")
-      .map((requirement) => requirement.sourceRuleId)
-      .filter((id): id is string => Boolean(id)),
+  return buildAcceptedRequirementSnapshot(
+    state.rules ?? [],
+    state.requirementBaseline ?? null,
   );
-  return { rules: rules.filter((rule) => acceptedRuleIds.has(rule.id)), baseline };
 }
 
 function existingContextFromWorkspace(
@@ -187,12 +178,12 @@ export function registerFeasibilityRoutes({
     if (providerCheck !== true) return providerCheck;
 
     const workspace = await loadWorkspace(input.projectId);
-    const { rules, baseline } = acceptedRules(workspace.state);
+    const { rules, baseline, snapshot: requirementSource } = acceptedRules(workspace.state);
     if (rules.length === 0) {
       return reply.code(409).send({ message: "请先在系统需求页确认至少一条有效需求规则。" });
     }
     const inputs = feasibilityInputsSchema.parse(workspace.state.feasibilityInputs ?? {});
-    const expectedContextFingerprint = snapshotInputFingerprint({ rules, requirementBaseline: baseline });
+    const expectedContextFingerprint = requirementSource.fingerprint;
     const existingContext = existingContextFromWorkspace(workspace.state, expectedContextFingerprint);
     if (
       input.selectedArtifacts.includes("implementation") &&
@@ -240,6 +231,7 @@ export function registerFeasibilityRoutes({
         providerSettings: input.providerSettings,
         rules,
         requirementBaseline: baseline,
+        requirementSource,
         inputs,
         ...(existingContext ?? {}),
       }),

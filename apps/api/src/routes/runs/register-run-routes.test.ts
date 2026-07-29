@@ -402,6 +402,19 @@ async function createRunRouteTestContext(options?: {
           apiKey: "sk-managed-test",
           defaultModel: "gpt-5.5",
           allowedModels: ["gpt-5.5"],
+          modelCapabilities: {
+            "gpt-5.5": {
+              id: "gpt-5.5",
+              category: "text_chat",
+              supportsJsonSchema: true,
+              supportsJsonObject: true,
+              strictJson: true,
+              structuredOutputMode: "strict_json",
+              modeLabel: "严格 JSON",
+              probeStatus: "strict",
+              probedAt: "2026-07-29T00:00:00.000Z",
+            },
+          },
           createdBy: "test",
         });
   const completeQueuedRun = async (record: RunRecord) => {

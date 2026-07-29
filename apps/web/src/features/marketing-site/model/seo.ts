@@ -89,7 +89,7 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
   "/cases": {
     path: "/cases",
     title: "案例展示｜软件工程建模与生成实践",
-    description: "通过实验室预约、订单履约、设备监控和图书借阅等案例了解需求到模型、代码与文档的完整实践链路。",
+    description: "通过实验室预约、订单履约、设备监控和图书借阅等案例，了解从可行性分析到需求模型、设计模型、代码与文档的完整实践链路。",
     canonicalPath: "/cases",
     imagePath: "/og-cover.png",
     indexable: true,
@@ -97,7 +97,7 @@ export const MARKETING_SEO: Record<MarketingRoutePath, MarketingSeoMetadata> = {
       en: {
         title: "Case Studies | Software Engineering Modeling and Generation",
         description:
-          "Explore lab booking, order fulfillment, device monitoring, and library lending examples from requirements to models, code, and documents.",
+          "Explore lab booking, order fulfillment, device monitoring, and library lending examples from feasibility analysis to models, code, and documents.",
       },
     },
   },

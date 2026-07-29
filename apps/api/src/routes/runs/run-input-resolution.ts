@@ -1,5 +1,6 @@
 // Resolves project-scoped run start commands into full pipeline request inputs.
 import {
+  buildAcceptedRequirementSnapshot,
   designInputFingerprint,
   normalizeSnapshotFingerprint,
   normalizeDesignInputFingerprint,
@@ -825,6 +826,10 @@ export async function resolveRequirementRunInput(
   });
   if (preflight) return preflight;
   const contextModels = presentRecordValues(workspace.input.state.models);
+  const requirementSource = buildAcceptedRequirementSnapshot(
+    arrayValue(workspace.input.state.rules),
+    workspace.input.state.requirementBaseline ?? null,
+  );
   const requirementTargets = resolveRequirementCommandTargets({
     selectedDiagrams: command.selectedDiagrams,
     requestedDiagrams: command.requestedDiagrams,
@@ -839,7 +844,7 @@ export async function resolveRequirementRunInput(
       selectedDiagrams: requirementTargets.selectedDiagrams,
       requestedDiagrams: requirementTargets.requestedDiagrams,
       dependencyDiagrams: requirementTargets.dependencyDiagrams,
-      rules: arrayValue(workspace.input.state.rules),
+      rules: requirementSource.rules,
       contextModels,
       contextRequirementModelTraceability: arrayValue(
         workspace.input.state.requirementModelTraceability,

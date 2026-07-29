@@ -61,6 +61,22 @@ function createTestApiServer(options?: Parameters<typeof createApiServer>[0]) {
         "gpt-5.4",
         "claude-opus-4-6-thinking",
       ],
+      modelCapabilities: Object.fromEntries(
+        ["gpt-5.5", "gpt-5.4", "claude-opus-4-6-thinking"].map((modelId) => [
+          modelId,
+          {
+            id: modelId,
+            category: "text_chat",
+            supportsJsonSchema: true,
+            supportsJsonObject: true,
+            strictJson: true,
+            structuredOutputMode: "strict_json",
+            modeLabel: "严格 JSON",
+            probeStatus: "strict",
+            probedAt: "2026-07-29T00:00:00.000Z",
+          },
+        ]),
+      ),
       createdBy: "api-index-test",
     });
     const resolveProviderId = (id: string) =>

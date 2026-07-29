@@ -42,4 +42,6 @@ export {
   buildGenerateFeasibilityContextPrompt,
   buildGenerateFeasibilityImplementationPrompt,
   buildRepairFeasibilityJsonPrompt,
+  buildRepairFeasibilitySectionPrompt,
 } from "./feasibility-prompts.js";
+export { FEASIBILITY_IMPLEMENTATION_EXAMPLE } from "./feasibility-example.js";

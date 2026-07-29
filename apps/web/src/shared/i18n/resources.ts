@@ -352,7 +352,9 @@ export const resources = {
         cases: {
           title: "探索工程验证案例",
           description:
-            "通过常见课程与原型验证场景，体验软件工程实践平台如何在需求分析、架构设计与代码原型环节沉淀结构化实训产物。",
+            "通过常见课程与原型验证场景，体验平台如何从同一需求源完成可行性上下文、候选实现方案、需求与设计模型、代码原型及说明书。",
+          feasibilityLabel: "预置可行性分析",
+          includedArtifacts: "打开案例后包含",
           creating: "创建中...",
           viewCase: "查看案例",
           createFailed: "案例项目创建失败，请稍后重试。",
@@ -1646,7 +1648,9 @@ export const resources = {
         cases: {
           title: "Explore engineering validation cases",
           description:
-            "Experience how common course and prototype scenarios become structured lab artifacts across requirements analysis, architecture design, and code prototyping.",
+            "See how common course and prototype scenarios use one requirement source for feasibility context, candidate implementation plans, requirement and design models, code prototypes, and specifications.",
+          feasibilityLabel: "Included feasibility analysis",
+          includedArtifacts: "Included in the case project",
           creating: "Creating...",
           viewCase: "View case",
           createFailed: "Case project creation failed. Try again later.",

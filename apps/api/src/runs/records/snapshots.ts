@@ -241,8 +241,9 @@ export function createEmptyFeasibilitySnapshot(
     projectId: string;
     selectedArtifacts: FeasibilityArtifactKind[];
     providerSettings: ProviderSettingsInput;
-    rules: RequirementRule[];
-    requirementBaseline: RequirementBaseline | null;
+      rules: RequirementRule[];
+      requirementBaseline: RequirementBaseline | null;
+      requirementSource?: FeasibilityRunSnapshot["requirementSource"];
     inputs: FeasibilityInputs;
     contextModel?: ContextDiagramSpec | null;
     contextTraceability?: ContextTraceRow[];
@@ -262,7 +263,9 @@ export function createEmptyFeasibilitySnapshot(
     contextSvg: input.contextSvg ?? null,
     implementationPlan: input.implementationPlan ?? null,
     contextFingerprint: input.contextFingerprint ?? null,
-    implementationFingerprint: input.implementationFingerprint ?? null,
+      implementationFingerprint: input.implementationFingerprint ?? null,
+      requirementSource: input.requirementSource ?? null,
+      generationDiagnostics: null,
     currentStage: null,
     status: "queued",
     error: null,

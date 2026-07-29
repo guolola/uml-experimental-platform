@@ -2,6 +2,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   designRunSnapshotSchema,
+  feasibilityRunSnapshotSchema,
   projectResponseSchema,
   runSnapshotSchema,
   type DesignPlantUmlArtifact,
@@ -115,6 +116,20 @@ async function buildTemplateWorkspaceState(
       renderClient,
     ),
   });
+  const feasibilityArtifact = template.feasibilitySnapshot.contextPlantUml;
+  if (!feasibilityArtifact) {
+    throw new Error("Case template feasibility context source is missing");
+  }
+  const feasibilityRendered = await renderClient(feasibilityArtifact);
+  const feasibilitySnapshot = feasibilityRunSnapshotSchema.parse({
+    ...template.feasibilitySnapshot,
+    contextSvg: {
+      diagramKind: "context",
+      modelId: feasibilityArtifact.modelId ?? "context",
+      svg: feasibilityRendered.svg,
+      renderMeta: feasibilityRendered.renderMeta,
+    },
+  });
 
   const requirementState = restoreRunSnapshotToWorkspaceState({
     currentState: {},
@@ -125,10 +140,22 @@ async function buildTemplateWorkspaceState(
     currentState: requirementState,
     snapshot: designSnapshot,
   });
-  return restoreRunSnapshotToWorkspaceState({
+  const codeState = restoreRunSnapshotToWorkspaceState({
     currentState: designState,
     snapshot: template.codeSnapshot,
   });
+  return {
+    ...codeState,
+    feasibilityInputs: feasibilitySnapshot.inputs,
+    feasibilityContextModel: feasibilitySnapshot.contextModel,
+    feasibilityContextTraceability: feasibilitySnapshot.contextTraceability,
+    feasibilityContextPlantUml: feasibilitySnapshot.contextPlantUml?.source ?? "",
+    feasibilityContextSvg: feasibilitySnapshot.contextSvg?.svg ?? "",
+    feasibilityContextFingerprint: feasibilitySnapshot.contextFingerprint,
+    feasibilityImplementationPlan: feasibilitySnapshot.implementationPlan,
+    feasibilityImplementationFingerprint:
+      feasibilitySnapshot.implementationFingerprint,
+  };
 }
 
 async function renderRequirementArtifacts(

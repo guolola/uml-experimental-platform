@@ -2,9 +2,11 @@
 import type {
   ContextDiagramSpec,
   FeasibilityInputs,
+  FeasibilityRepairSection,
   RequirementBaseline,
   RequirementRule,
 } from "@uml-platform/contracts";
+import { FEASIBILITY_IMPLEMENTATION_EXAMPLE } from "./feasibility-example.js";
 
 const JSON_ONLY = "只返回一个 JSON 对象，不要 Markdown、代码围栏或解释文字。";
 
@@ -43,18 +45,18 @@ export function buildGenerateFeasibilityImplementationPrompt(input: {
 每个候选必须至少有 1 条优势和 1 条不足。每个 implementation 必须完整包含 architecture、dataStrategy、integrations、integrationRationale、deploymentAndOperations、securityAndCompliance、milestones、analysisPeriodAssumption、costEstimates、benefitEstimates、absenceDeclarations、risks、verdicts、decision 和 preconditions。
 costEstimates、benefitEstimates 不得为空；risks 必须为 3 到 5 项；每个里程碑必须有交付物、角色和验收条件。
 成本估算使用 CNY 区间，minimum 不得大于 maximum；成本类别只能是 capital、other-one-time、recurring。收益类别只能是 one-time、recurring、intangible；不可计量收益的 range 必须为 null，其余收益必须有金额区间。
-如果确实没有外部集成、里程碑依赖或某一成本收益类别，不得虚构条目：在 integrationRationale、dependencyRationale 或 absenceDeclarations 中返回明确原因。
+integrations 只能引用当前 contextModel.externalSystems 中真实存在的元素，每项必须使用 responsibility 描述集成职责，并在 contextExternalSystemId 中填写该外部系统 id。上下文没有外部系统时 integrations 必须为空，并在 integrationRationale 和 scope=integrations 的 absenceDeclaration 中说明原因。
+如果确实没有里程碑依赖或某一成本收益类别，不得虚构条目：在 dependencyRationale 或 absenceDeclarations 中返回明确原因。
 verdicts 必须且只能包含 technical、operational、schedule、economic、legal 五类各一次。所有候选、implementation、模块、数据策略、集成、部署、安全、里程碑、成本、收益、风险、缺省结论和五类结论的 provenance 均使用 ai-estimate。
 所有 sourceRequirementIds 只能引用输入 rules.id；没有直接来源时使用空数组，并在 assumption 中明确记录方案假设，禁止虚构编号。
 每个 costEstimate 必须包含 id、name、category、frequency、range、note、sourceRequirementIds、assumption、provenance；range 必须包含 minimum、maximum、currency、basis、confidence。
 每个 benefitEstimate 必须包含 id、name、category、frequency、range、outcome、sourceRequirementIds、assumption、provenance。
-absenceDeclarations 的 scope 只能使用 integrations、dependencies、capital-costs、other-one-time-costs、recurring-costs、one-time-benefits、recurring-benefits、intangible-benefits。
+absenceDeclarations 的每一项必须完整包含 scope、reason、provenance；scope 只能使用 integrations、dependencies、capital-costs、other-one-time-costs、recurring-costs、one-time-benefits、recurring-benefits、intangible-benefits。
 只有对应条目确实不存在时才能输出 absenceDeclaration；已有该类成本或收益条目时，禁止再声明该类不存在，scope 也不得重复。
 保留旧兼容字段 oneTimeCosts、recurringCosts、quantitativeBenefits、qualitativeBenefits，并根据结构化估算同步生成非空摘要列表。
 输出必须是完整 JSON，第二个候选不得使用省略号、引用第一个候选或省略任何字段。
-严格沿用以下对象形状；所有数组中的结构项都必须是对象，禁止把模块、里程碑、风险或结论简写成字符串：
-{"overview":"...","candidates":[{"id":"candidate-1","name":"...","summary":"...","advantages":["..."],"disadvantages":["..."],"estimatedCost":"...","estimatedSchedule":"...","sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate","implementation":{"provenance":"ai-estimate","architecture":{"summary":"...","modules":[{"id":"candidate-1-module-1","name":"...","responsibility":"...","sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate"}]},"dataStrategy":{"summary":"...","sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate"},"integrations":[{"id":"candidate-1-integration-1","name":"...","purpose":"...","sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate"}],"integrationRationale":"...","deploymentAndOperations":{"summary":"...","sourceRequirementIds":[],"assumption":"...","provenance":"ai-estimate"},"securityAndCompliance":{"summary":"...","sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate"},"milestones":[{"id":"candidate-1-milestone-1","name":"...","timeframe":"...","deliverables":["..."],"roles":["..."],"dependencies":[],"dependencyRationale":"...","acceptanceCriteria":["..."],"sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate"}],"analysisPeriodAssumption":{"years":3,"basis":"...","provenance":"ai-estimate"},"costEstimates":[{"id":"candidate-1-cost-1","name":"...","category":"capital|other-one-time|recurring","frequency":"one-time|monthly|annual","range":{"minimum":0,"maximum":0,"currency":"CNY","basis":"...","confidence":"low|medium|high"},"note":"...","sourceRequirementIds":[],"assumption":"...","provenance":"ai-estimate"}],"benefitEstimates":[{"id":"candidate-1-benefit-1","name":"...","category":"one-time|recurring|intangible","frequency":"one-time|monthly|annual","range":null,"outcome":"...","sourceRequirementIds":["R1"],"assumption":"...","provenance":"ai-estimate"}],"absenceDeclarations":[],"oneTimeCosts":["..."],"recurringCosts":["..."],"quantitativeBenefits":["..."],"qualitativeBenefits":["..."],"risks":[{"id":"candidate-1-risk-1","risk":"...","probability":"low|medium|high","impact":"low|medium|high","mitigation":"...","owner":"...","sourceRequirementIds":[],"assumption":"...","provenance":"ai-estimate"}],"verdicts":[{"category":"technical","verdict":"feasible|conditional|not-feasible|unknown","rationale":"...","provenance":"ai-estimate"},{"category":"operational","verdict":"conditional","rationale":"...","provenance":"ai-estimate"},{"category":"schedule","verdict":"conditional","rationale":"...","provenance":"ai-estimate"},{"category":"economic","verdict":"conditional","rationale":"...","provenance":"ai-estimate"},{"category":"legal","verdict":"unknown","rationale":"...","provenance":"ai-estimate"}],"decision":"go|conditional-go|no-go","preconditions":["..."]}}],"recommendedCandidateId":"candidate-1","recommendationRationale":"..."}
-将 candidates 中同一完整对象形状实际输出两次，并为第二个候选使用独立 id 和独立完整内容。示例中的 R1 仅表示结构，实际只能使用输入中真实存在的规则编号。
+严格沿用以下完整有效对象形状；所有数组中的结构项都必须是对象，禁止把模块、里程碑、风险或结论简写成字符串。示例金额和方案内容不是输入事实，实际输出必须根据输入重新估算：
+${JSON.stringify(FEASIBILITY_IMPLEMENTATION_EXAMPLE, null, 2)}
 输入：
 ${JSON.stringify(input, null, 2)}`;
 }
@@ -66,8 +68,34 @@ export function buildRepairFeasibilityJsonPrompt(input: {
   originalPrompt: string;
 }) {
   return `${JSON_ONLY}
-上一份${input.stage === "context" ? "上下文" : "实现方案"} JSON 不符合契约。修复结构、引用、枚举值和缺失的必填分析；不得增加输入中不存在的用户事实，但必须补齐契约要求的 AI 估算和明确标注的方案假设。完整保留原始任务给出的对象形状，不得把结构对象压缩成字符串，且必须输出 recommendationRationale 与五个带 category 的 verdict 对象。
+上一份${input.stage === "context" ? "上下文" : "实现方案"} JSON 不符合契约。只修复校验错误涉及的字段或章节，其余内容必须原样保留。修复结构、引用、枚举值和缺失的必填分析；不得增加输入中不存在的用户事实，但必须补齐契约要求的 AI 估算和明确标注的方案假设。不得把结构对象压缩成字符串，且必须输出 recommendationRationale 与五个带 category 的 verdict 对象。
 校验错误：${input.error}
 原始任务：${input.originalPrompt}
 待修复输出：${input.previousOutput}`;
+}
+
+export function buildRepairFeasibilitySectionPrompt(input: {
+  candidateIndex: number;
+  section: Exclude<FeasibilityRepairSection, "context" | "plan">;
+  currentPlan: unknown;
+  issues: string[];
+  originalPrompt: string;
+}) {
+  const sectionFields = {
+    technical: "architecture、dataStrategy、integrations、integrationRationale、deploymentAndOperations、securityAndCompliance",
+    delivery: "milestones、risks",
+    economics: "analysisPeriodAssumption、costEstimates、benefitEstimates、absenceDeclarations、oneTimeCosts、recurringCosts、quantitativeBenefits、qualitativeBenefits",
+    verdict: "verdicts、decision、preconditions",
+  }[input.section];
+  return `${JSON_ONLY}
+仅修复候选方案索引 ${input.candidateIndex} 的 ${input.section} 章节。返回：
+{"candidateIndex":${input.candidateIndex},"patch":{...}}
+patch 必须且只能完整包含这些字段：${sectionFields}。
+不得返回完整方案，不得修改其他候选或其他章节，不得增加输入中不存在的需求事实。
+校验错误：
+${input.issues.join("\n")}
+原始任务：
+${input.originalPrompt}
+当前完整方案（只用于理解上下文）：
+${JSON.stringify(input.currentPlan)}`;
 }

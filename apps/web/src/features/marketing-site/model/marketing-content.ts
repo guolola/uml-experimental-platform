@@ -67,6 +67,7 @@ export type CaseStudy = {
   actors: string[];
   workflow: string[];
   outputs: string[];
+  feasibilitySummary: string;
   sampleRequirement: string;
 };
 
@@ -291,13 +292,15 @@ const caseStudiesZh: CaseStudy[] = [
     id: "lab-booking",
     title: "实验室预约系统",
     description:
-      "围绕预约、审批、资源占用和权限角色设计需求规则、UML 图、React 原型与说明书产物。",
-    tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+      "围绕预约、审批、资源占用和权限角色，展示从可行性分析到 UML、React 原型与说明书的完整链路。",
+    tags: ["可行性分析", "需求规则", "UML 图", "React 原型", "说明书"],
     scenario:
       "面向高校实验室开放管理，帮助学生预约可用时段，教师审核申请，管理员维护实验室设备和开放时间。",
     actors: ["学生", "教师", "实验室管理员"],
     workflow: ["查看实验室空闲时段", "提交预约申请", "教师审核预约", "通知申请人审核结果"],
-    outputs: ["预约用例模型", "资源占用状态流转", "预约审批原型", "需求规格说明书"],
+    outputs: ["系统上下文图", "两套候选实现方案", "预约用例与状态模型", "预约审批原型与说明书"],
+    feasibilitySummary:
+      "验证时段冲突、审批通知和消息服务集成，比较两套方案的周期、成本、收益、风险及五类可行性结论。",
     sampleRequirement:
       "高校实验室预约平台。学生可以查看实验室空闲时段并提交预约申请，教师审核预约，管理员维护实验室设备和开放时间。系统需要避免时段冲突，并在审核通过或驳回时通知申请人。",
   },
@@ -305,13 +308,15 @@ const caseStudiesZh: CaseStudy[] = [
     id: "order-management",
     title: "订单管理系统",
     description:
-      "围绕订单状态、库存校验、支付节点和异常分支，展示需求建模、设计建模与原型验证链路。",
-    tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+      "围绕订单状态、库存校验、支付节点和异常分支，展示可行性、需求、设计与原型验证链路。",
+    tags: ["可行性分析", "需求规则", "UML 图", "React 原型", "说明书"],
     scenario:
       "面向中小商家订单履约，覆盖商品维护、客户下单、库存校验、发货通知和订单状态跟踪。",
     actors: ["商家", "客户", "仓储系统"],
     workflow: ["维护商品与库存", "客户提交订单", "校验库存余量", "通知仓储系统发货"],
-    outputs: ["订单状态机", "库存校验规则", "订单管理原型", "设计说明书"],
+    outputs: ["系统上下文图", "两套候选实现方案", "订单状态机与库存规则", "订单原型与设计说明书"],
+    feasibilitySummary:
+      "验证库存约束和仓储系统集成，比较实施边界、交付周期、成本收益与运营风险。",
     sampleRequirement:
       "面向中小商家的订单管理系统。商家可以维护商品、创建订单、查看库存，客户可以提交订单并查询订单状态。系统需要在下单前校验库存，库存不足时给出明确提示，订单创建后通知仓储系统发货。",
   },
@@ -319,13 +324,15 @@ const caseStudiesZh: CaseStudy[] = [
     id: "device-monitoring",
     title: "设备监控系统",
     description:
-      "聚焦设备状态、告警流转和监控看板页面，演示如何把业务流程沉淀为模型和可预览原型。",
-    tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+      "聚焦设备状态、告警流转和监控看板，演示如何先验证方案可行性，再沉淀模型和可预览原型。",
+    tags: ["可行性分析", "需求规则", "UML 图", "React 原型", "说明书"],
     scenario:
       "面向工业设备运维，采集边缘网关上报的温度、振动和运行状态，并对严重异常及时告警。",
     actors: ["边缘网关", "运维人员", "短信服务"],
     workflow: ["采集设备运行数据", "识别异常告警", "运维人员确认处理", "严重告警发送短信通知"],
-    outputs: ["告警流程图", "设备状态模型", "监控看板原型", "运行证据记录"],
+    outputs: ["系统上下文图", "两套候选实现方案", "告警流程与设备状态模型", "监控原型与证据记录"],
+    feasibilitySummary:
+      "验证数据采集、严重告警和短信服务集成，比较部署方式、持续运维成本与集成风险。",
     sampleRequirement:
       "工业设备监控系统。边缘网关采集设备温度、振动和运行状态，平台实时展示异常告警，运维人员可以确认告警并记录处理结果。系统需要接入第三方短信服务，在严重告警时发送通知。",
   },
@@ -333,13 +340,15 @@ const caseStudiesZh: CaseStudy[] = [
     id: "library-lending",
     title: "图书馆借阅系统",
     description:
-      "以借阅、归还、逾期和读者管理为主线，展示数据关系、状态流转和用户交互页面的实训产物。",
-    tags: ["需求规则", "UML 图", "React 原型", "说明书"],
+      "以借阅、归还、逾期和读者管理为主线，展示可行性分析、数据关系、状态流转和交互页面。",
+    tags: ["可行性分析", "需求规则", "UML 图", "React 原型", "说明书"],
     scenario:
       "面向校园图书馆日常借阅，管理图书库存、读者借阅、归还登记和逾期提醒。",
     actors: ["读者", "馆员", "系统通知服务"],
     workflow: ["读者检索图书", "提交借阅申请", "馆员登记借出和归还", "系统处理逾期提醒"],
-    outputs: ["借阅领域模型", "逾期规则清单", "借还书操作原型", "需求说明书"],
+    outputs: ["系统上下文图", "两套候选实现方案", "借阅领域模型与逾期规则", "借还书原型与需求说明书"],
+    feasibilitySummary:
+      "验证库存一致性、逾期提醒和通知服务集成，比较交付复杂度、成本收益与运营条件。",
     sampleRequirement:
       "校园图书馆借阅系统。读者可以检索图书、提交借阅申请并查看借阅状态，馆员负责登记借出和归还。系统需要维护图书库存，自动识别逾期记录，并向读者发送归还提醒。",
   },
@@ -616,13 +625,15 @@ const caseStudiesEn: CaseStudy[] = [
     id: "lab-booking",
     title: "Lab Booking System",
     description:
-      "Designs requirement rules, UML diagrams, React prototypes, and specifications around booking, approval, resource occupancy, and role permissions.",
-    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+      "Shows the full path from feasibility analysis to UML, React prototypes, and specifications for booking, approval, resource occupancy, and role permissions.",
+    tags: ["Feasibility", "Requirement rules", "UML diagrams", "React prototype", "Specification"],
     scenario:
       "For university lab access management, helping students book available time slots, teachers approve requests, and administrators maintain equipment and opening hours.",
     actors: ["Student", "Teacher", "Lab administrator"],
     workflow: ["View available lab slots", "Submit booking request", "Teacher reviews booking", "Notify applicant of review result"],
-    outputs: ["Booking use case model", "Resource occupancy state flow", "Booking approval prototype", "Software requirements specification"],
+    outputs: ["System context diagram", "Two candidate implementation plans", "Booking use case and state models", "Approval prototype and specification"],
+    feasibilitySummary:
+      "Validates slot conflicts, approval notifications, and messaging integration while comparing schedule, cost, benefit, risk, and five feasibility verdicts.",
     sampleRequirement:
       "University lab booking platform. Students can view available lab slots and submit booking requests. Teachers review bookings, and administrators maintain lab equipment and opening hours. The system must prevent time conflicts and notify applicants when requests are approved or rejected.",
   },
@@ -630,13 +641,15 @@ const caseStudiesEn: CaseStudy[] = [
     id: "order-management",
     title: "Order Management System",
     description:
-      "Shows requirements modeling, design modeling, and prototype validation around order states, inventory checks, payment checkpoints, and exception branches.",
-    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+      "Shows feasibility, requirements, design, and prototype validation around order states, inventory checks, payment checkpoints, and exception branches.",
+    tags: ["Feasibility", "Requirement rules", "UML diagrams", "React prototype", "Specification"],
     scenario:
       "For small and midsize merchant fulfillment, covering product maintenance, customer orders, inventory checks, shipping notifications, and order status tracking.",
     actors: ["Merchant", "Customer", "Warehouse system"],
     workflow: ["Maintain products and inventory", "Customer submits order", "Check stock balance", "Notify warehouse system to ship"],
-    outputs: ["Order state machine", "Inventory validation rules", "Order management prototype", "Design specification"],
+    outputs: ["System context diagram", "Two candidate implementation plans", "Order state machine and inventory rules", "Order prototype and design specification"],
+    feasibilitySummary:
+      "Validates inventory constraints and warehouse integration while comparing implementation boundaries, delivery schedule, economics, and operational risks.",
     sampleRequirement:
       "Order management system for small and midsize merchants. Merchants can maintain products, create orders, and view inventory. Customers can submit orders and check order status. The system must validate inventory before checkout, show clear prompts when stock is insufficient, and notify the warehouse system after an order is created.",
   },
@@ -644,13 +657,15 @@ const caseStudiesEn: CaseStudy[] = [
     id: "device-monitoring",
     title: "Device Monitoring System",
     description:
-      "Focuses on device states, alarm flow, and monitoring dashboard pages to show how business processes become models and previewable prototypes.",
-    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+      "Uses device states, alarm flow, and dashboards to show how feasibility is validated before business processes become models and previewable prototypes.",
+    tags: ["Feasibility", "Requirement rules", "UML diagrams", "React prototype", "Specification"],
     scenario:
       "For industrial equipment operations, collecting temperature, vibration, and operating status from edge gateways while alerting serious anomalies promptly.",
     actors: ["Edge gateway", "Operations staff", "SMS service"],
     workflow: ["Collect device runtime data", "Detect abnormal alarms", "Operations staff confirms handling", "Send SMS for severe alarms"],
-    outputs: ["Alarm flow diagram", "Device state model", "Monitoring dashboard prototype", "Run evidence records"],
+    outputs: ["System context diagram", "Two candidate implementation plans", "Alarm flow and device state models", "Monitoring prototype and evidence"],
+    feasibilitySummary:
+      "Validates data collection, severe alarms, and SMS integration while comparing deployment choices, recurring operations cost, and integration risk.",
     sampleRequirement:
       "Industrial device monitoring system. Edge gateways collect device temperature, vibration, and operating status. The platform displays abnormal alarms in real time, and operations staff can confirm alarms and record handling results. The system must integrate a third-party SMS service to send notifications for severe alarms.",
   },
@@ -658,13 +673,15 @@ const caseStudiesEn: CaseStudy[] = [
     id: "library-lending",
     title: "Library Lending System",
     description:
-      "Uses borrowing, returns, overdue handling, and reader management to demonstrate data relationships, state transitions, and user interaction pages.",
-    tags: ["Requirement rules", "UML diagrams", "React prototype", "Specification"],
+      "Uses borrowing, returns, overdue handling, and reader management to demonstrate feasibility analysis, data relationships, state transitions, and interaction pages.",
+    tags: ["Feasibility", "Requirement rules", "UML diagrams", "React prototype", "Specification"],
     scenario:
       "For daily campus library lending, managing book inventory, reader borrowing, return registration, and overdue reminders.",
     actors: ["Reader", "Librarian", "System notification service"],
     workflow: ["Reader searches books", "Submit lending request", "Librarian registers lending and return", "System handles overdue reminders"],
-    outputs: ["Lending domain model", "Overdue rule list", "Borrow/return operation prototype", "Requirements specification"],
+    outputs: ["System context diagram", "Two candidate implementation plans", "Lending domain model and overdue rules", "Borrow/return prototype and specification"],
+    feasibilitySummary:
+      "Validates inventory consistency, overdue reminders, and notification integration while comparing delivery complexity, economics, and operating conditions.",
     sampleRequirement:
       "Campus library lending system. Readers can search books, submit lending requests, and view lending status. Librarians register lending and returns. The system must maintain book inventory, automatically identify overdue records, and send return reminders to readers.",
   },

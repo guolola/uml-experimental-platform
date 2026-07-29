@@ -68,10 +68,80 @@ export async function listAdminRunDtos(input: AdminRunReadInput) {
 }
 
 export async function buildAdminRunListView(input: AdminRunReadInput) {
+  const visibleRuns = await listVisibleAdminRunRecords(input);
   return {
     generatedAt: new Date().toISOString(),
-    runs: await listAdminRunDtos(input),
+    runs: await Promise.all(
+      visibleRuns.map((record) =>
+        buildAdminRunDto(record, input.authStore, {
+          providerConfigs: input.providerConfigs,
+        }),
+      ),
+    ),
+    structuredOutputMetrics: buildStructuredOutputMetrics(visibleRuns),
   };
+}
+
+function buildStructuredOutputMetrics(records: RunRecord[]) {
+  const groups = new Map<string, {
+    model: string;
+    requestedMode: string;
+    effectiveMode: string;
+    total: number;
+    initialStructureFailures: number;
+    targetedRepairSuccesses: number;
+    strictJsonDowngrades: number;
+    finalStructuredOutputInvalid: number;
+    aliasNormalizations: number;
+    repairByStage: Record<string, number>;
+  }>();
+  for (const record of records) {
+    const snapshot = record.snapshot as unknown as {
+      generationDiagnostics?: {
+        requestedMode?: string;
+        effectiveMode?: string;
+        downgradeReasons?: string[];
+        normalizationActions?: string[];
+        repairs?: Array<{ stage?: string; succeeded?: boolean }>;
+      } | null;
+      error?: { code?: string } | null;
+    };
+    const diagnostics = snapshot.generationDiagnostics;
+    if (!diagnostics?.requestedMode || !diagnostics.effectiveMode) continue;
+    const model = String(record.metadata?.model ?? "unknown");
+    const key = `${model}:${diagnostics.requestedMode}:${diagnostics.effectiveMode}`;
+    const current = groups.get(key) ?? {
+      model,
+      requestedMode: diagnostics.requestedMode,
+      effectiveMode: diagnostics.effectiveMode,
+      total: 0,
+      initialStructureFailures: 0,
+      targetedRepairSuccesses: 0,
+      strictJsonDowngrades: 0,
+      finalStructuredOutputInvalid: 0,
+      aliasNormalizations: 0,
+      repairByStage: {},
+    };
+    const repairs = diagnostics.repairs ?? [];
+    current.total += 1;
+    if (repairs.length > 0) current.initialStructureFailures += 1;
+    if (repairs.some((repair) => repair.succeeded)) {
+      current.targetedRepairSuccesses += 1;
+    }
+    for (const repair of repairs) {
+      const stage = repair.stage ?? "unknown";
+      current.repairByStage[stage] = (current.repairByStage[stage] ?? 0) + 1;
+    }
+    current.strictJsonDowngrades += diagnostics.downgradeReasons?.length ?? 0;
+    if (snapshot.error?.code === "RUN_STRUCTURED_OUTPUT_INVALID") {
+      current.finalStructuredOutputInvalid += 1;
+    }
+    current.aliasNormalizations += (diagnostics.normalizationActions ?? []).filter(
+      (action) => action.startsWith("aliased-"),
+    ).length;
+    groups.set(key, current);
+  }
+  return [...groups.values()];
 }
 
 function runDiagnosticSummary(record: RunRecord) {
@@ -91,6 +161,15 @@ function runDiagnosticSummary(record: RunRecord) {
     artifactCount,
     errorMessage: snapshotErrorMessage(record.snapshot),
     snapshotKeys: Object.keys(record.snapshot),
+    structuredOutput:
+      "generationDiagnostics" in record.snapshot
+        ? record.snapshot.generationDiagnostics ?? null
+        : null,
+    validationIssues:
+      record.snapshot.error?.details &&
+      Array.isArray(record.snapshot.error.details.validationIssues)
+        ? record.snapshot.error.details.validationIssues
+        : [],
   };
 }
 

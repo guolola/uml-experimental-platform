@@ -1,5 +1,6 @@
 // Centralizes accepted-rule selection and freshness checks for feasibility artifacts and reports.
 import {
+  buildAcceptedRequirementSnapshot,
   snapshotInputFingerprint,
   type FeasibilityArtifactKind,
 } from "@uml-platform/contracts";
@@ -8,23 +9,19 @@ import type { WorkspaceRecord } from "../../../entities/workspace/model";
 export type FeasibilityArtifactStatus = "ready" | "missing" | "stale";
 
 export function acceptedFeasibilityRules(workspace: WorkspaceRecord) {
-  const requirements = workspace.requirementBaseline?.requirements ?? [];
-  if (requirements.length === 0) return workspace.rules;
-  const acceptedIds = new Set(
-    requirements
-      .filter((requirement) => requirement.status === "accepted")
-      .map((requirement) => requirement.sourceRuleId)
-      .filter((id): id is string => Boolean(id)),
-  );
-  return workspace.rules.filter((rule) => acceptedIds.has(rule.id));
+  return buildAcceptedRequirementSnapshot(
+    workspace.rules,
+    workspace.requirementBaseline,
+  ).rules;
 }
 
 export function feasibilityArtifactState(workspace: WorkspaceRecord) {
-  const rules = acceptedFeasibilityRules(workspace);
-  const currentContextFingerprint = snapshotInputFingerprint({
-    rules,
-    requirementBaseline: workspace.requirementBaseline,
-  });
+  const requirementSource = buildAcceptedRequirementSnapshot(
+    workspace.rules,
+    workspace.requirementBaseline,
+  );
+  const rules = requirementSource.rules;
+  const currentContextFingerprint = requirementSource.snapshot.fingerprint;
   const contextExists = Boolean(
     workspace.feasibilityContextModel &&
       workspace.feasibilityContextPlantUml &&
@@ -79,5 +76,6 @@ export function feasibilityArtifactState(workspace: WorkspaceRecord) {
     requiredArtifacts,
     currentContextFingerprint,
     currentImplementationFingerprint,
+    requirementSource: requirementSource.snapshot,
   };
 }

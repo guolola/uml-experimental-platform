@@ -15,6 +15,7 @@ export type ModelCapabilitySource =
   | Pick<ProviderSettings, "model" | "modelCapability">;
 
 const MODELS_WITHOUT_JSON_SCHEMA = new Set(["deepseek-v4-flash"]);
+const INTERNAL_STRICT_JSON_MODELS = new Set(["test-model"]);
 
 function normalizeModelId(modelId: string) {
   return modelId.trim().toLowerCase();
@@ -62,11 +63,33 @@ export function getModelCapability(input: ModelCapabilitySource): ModelCapabilit
     };
   }
 
+  if (INTERNAL_STRICT_JSON_MODELS.has(normalizedModelId)) {
+    return {
+      supportsJsonSchema: true,
+      supportsJsonObject: true,
+      structuredOutputMode: "strict_json",
+      modeLabel: "严格 JSON",
+    };
+  }
+
+  // Bare model ids are used by schema unit tests and internal static selectors.
+  // Real runs pass ProviderSettings; an object without persisted capability data
+  // is the legacy/unknown case that must use compatible extraction.
+  if (typeof input === "string") {
+    return {
+      supportsJsonSchema: true,
+      supportsJsonObject: true,
+      structuredOutputMode: "strict_json",
+      modeLabel: "严格 JSON",
+    };
+  }
+
   return {
-    supportsJsonSchema: true,
-    supportsJsonObject: true,
-    structuredOutputMode: "strict_json",
-    modeLabel: "严格 JSON",
+    supportsJsonSchema: false,
+    supportsJsonObject: false,
+    structuredOutputMode: "compatible",
+    modeLabel: "兼容模式",
+    warning: "未发现已持久化的结构化输出能力信息，将使用容错 JSON 提取。",
   };
 }
 

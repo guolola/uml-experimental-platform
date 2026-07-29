@@ -629,6 +629,26 @@ function CasesTab({
                     </Badge>
                   ))}
                 </div>
+                <div className="mt-6 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <ShieldCheck className="size-4" aria-hidden="true" />
+                    {t("marketing.cases.feasibilityLabel")}
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {study.feasibilitySummary}
+                  </p>
+                  <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-foreground">
+                    {t("marketing.cases.includedArtifacts")}
+                  </p>
+                  <ul className="mt-2 grid gap-x-4 gap-y-1 text-sm text-muted-foreground sm:grid-cols-2">
+                    {study.outputs.map((output) => (
+                      <li key={output} className="flex gap-2">
+                        <span aria-hidden="true" className="text-primary">•</span>
+                        <span>{output}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
