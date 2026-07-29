@@ -3832,7 +3832,9 @@ describe("App shell routes", () => {
     });
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
     expect(screen.queryByRole("button", { name: "测试托管配置" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "添加供应商" })).toBeEnabled();
+    expect(
+      await screen.findByRole("button", { name: "添加供应商" }),
+    ).toBeEnabled();
   });
 
   it("auto-selects the first active managed provider on protected routes", async () => {
