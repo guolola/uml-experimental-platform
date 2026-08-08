@@ -2455,7 +2455,9 @@ describe("App shell routes", () => {
     render(withWorkspaceProviders(<Shell />, createRepository()));
     await user.type(await screen.findByLabelText("新密码"), "AnotherStrongPass123");
     await user.click(screen.getByRole("button", { name: "重置密码" }));
-    expect(await screen.findByText("密码已重置，请重新登录。")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/login");
+    });
   });
 
   it("redirects the projects index back to the website home when the session is missing", async () => {
