@@ -76,13 +76,18 @@ export function buildTokenMail({
   projectName?: string;
 }): MailMessage {
   if (purpose === "reset_password") {
+    const resetUrl = buildPublicWebUrl(
+      `/reset-password?token=${encodeURIComponent(token)}`,
+    );
     return {
       to: email,
       purpose,
       token,
       expiresAt,
       subject: "重置软件工程实践平台密码",
-      text: `请使用以下短期 token 重置密码：${token}\n过期时间：${expiresAt}\n如果不是你本人操作，请忽略这封邮件。`,
+      text: resetUrl
+        ? `请点击以下链接重置密码：${resetUrl}\n\n如果链接无法打开，请复制完整链接到浏览器。短期 token：${token}\n过期时间：${expiresAt}\n如果不是你本人操作，请忽略这封邮件。`
+        : `请使用以下短期 token 重置密码：${token}\n过期时间：${expiresAt}\n如果不是你本人操作，请忽略这封邮件。`,
     };
   }
   if (purpose === "project_invitation") {
