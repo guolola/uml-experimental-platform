@@ -44,7 +44,8 @@ const billingOrder = {
   channel: "alipay",
   status: "pending",
   createdAt: "2026-06-05T04:00:00.000Z",
-  expiresAt: "2026-08-05T04:15:00.000Z",
+  // Pending-order actions are available only before expiry; keep the fixture valid over time.
+  expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
   paidAt: null,
 };
 
@@ -179,7 +180,7 @@ describe("AccountBillingPage", () => {
     expect(screen.queryByText("年卡")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "立即开通" })).not.toBeInTheDocument();
     expect(screen.getByText("买 100 次送 20 次，到账 120 次")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "继续支付" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "继续支付" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "立即购买" }));
 
@@ -213,7 +214,7 @@ describe("AccountBillingPage", () => {
     expect(screen.getByText("Order history")).toBeInTheDocument();
     expect(screen.getByText("Order no.")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Resume payment" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Resume payment" })).toBeInTheDocument();
     expect(screen.getAllByText("100-credit pack").length).toBeGreaterThan(0);
     expect(screen.getByText("Buy 100 and get 20 bonus, for 120 credits total")).toBeInTheDocument();
   });
