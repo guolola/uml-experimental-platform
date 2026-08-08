@@ -335,6 +335,7 @@ export function AuthPage({
         }
         await platformApi.resetPassword({ token: urlToken, newPassword: password });
         setMessage(t("auth.page.resetSuccess"));
+        onNavigate("/login");
         return;
       }
       if (path === "/verify-email") {
