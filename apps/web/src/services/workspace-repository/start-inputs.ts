@@ -1,5 +1,6 @@
 // Builds typed run-start payloads from workspace state and persisted user model settings.
 import type {
+  CoverageMatrix,
   DesignDiagramModelSpec,
   DesignModelTraceabilityEntry,
   DesignPlantUmlArtifact,
@@ -7,12 +8,12 @@ import type {
   DiagramModelSpec,
   DocumentKind,
   DocumentStyleSettings,
-  EvidencePackage,
   PlantUmlArtifact,
   ProviderSettings,
   RequirementBaseline,
   RequirementModelTraceabilityEntry,
   SvgArtifact,
+  TraceabilityMatrix,
 } from "@uml-platform/contracts";
 import type { DesignDiagramType, DiagramType } from "../../entities/diagram/model";
 import type { RequirementRule } from "../../entities/requirement-rule/model";
@@ -37,7 +38,6 @@ export interface StartRunInput {
 
 export interface StartDesignRunInput {
   requirementBaseline: RequirementBaseline;
-  evidencePackage?: EvidencePackage | null;
   requirementModels: DiagramModelSpec[];
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
   selectedDiagrams: DesignDiagramType[];
@@ -60,7 +60,8 @@ export interface StartCodeRunInput {
 export interface StartDocumentRunInput {
   documentKind: DocumentKind;
   requirementText: string;
-  evidencePackage?: EvidencePackage | null;
+  coverageMatrix?: CoverageMatrix | null;
+  traceabilityMatrix?: TraceabilityMatrix | null;
   rules: RequirementRule[];
   requirementModels: DiagramModelSpec[];
   requirementModelTraceability: RequirementModelTraceabilityEntry[];
@@ -146,11 +147,9 @@ export function createStartDesignRunInput(
   existingDesignModelTraceability: DesignModelTraceabilityEntry[] = [],
   existingDesignPlantUml: DesignPlantUmlArtifact[] = [],
   existingDesignSvgArtifacts: DesignSvgArtifact[] = [],
-  evidencePackage: EvidencePackage | null = null,
 ): StartDesignRunInput {
   return {
     requirementBaseline,
-    evidencePackage,
     requirementModels,
     requirementModelTraceability,
     selectedDiagrams,
@@ -190,13 +189,15 @@ export function createStartDocumentRunInput(
   designPlantUml: DesignPlantUmlArtifact[],
   designSvgArtifacts: DesignSvgArtifact[],
   documentStyle?: DocumentStyleSettings,
-  evidencePackage: EvidencePackage | null = null,
+  coverageMatrix: CoverageMatrix | null = null,
+  traceabilityMatrix: TraceabilityMatrix | null = null,
 ): StartDocumentRunInput {
   const base = createStartRunInput(requirementText, []);
   return {
     documentKind,
     requirementText,
-    evidencePackage,
+    coverageMatrix,
+    traceabilityMatrix,
     rules,
     requirementModels,
     requirementModelTraceability,

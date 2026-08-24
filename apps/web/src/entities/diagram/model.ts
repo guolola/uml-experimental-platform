@@ -15,8 +15,8 @@ export const DIAGRAM_META: Record<
   { label: string; english: string; description: string }
 > = {
   context: {
-    label: "上下文图",
-    english: "System Context Diagram",
+    label: "系统上下文图（系统环境图）",
+    english: "System Context Diagram (System Environment Diagram)",
     description: "系统边界、人员、外部系统与高层交互",
   },
   function: {

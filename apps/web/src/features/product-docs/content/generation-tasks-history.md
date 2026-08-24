@@ -44,7 +44,7 @@
 | 运行阶段 | 关联页面 |
 | --- | --- |
 | extract_rules | 系统需求页规则列表 |
-| generate_context / render_context | 可行性分析的上下文图 |
+| generate_context / render_context | 可行性分析的系统上下文图（系统环境图） |
 | generate_implementation | 可行性分析的实现方案 |
 | generate_models | UML 或设计模型页 |
 | generate_plantuml / render_svg | 图表页和模型详情页 |

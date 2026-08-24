@@ -159,3 +159,96 @@ test("filters function structure mappings from non-functional and interface rule
   assert.deepEqual(result.rules[0]?.relatedDiagrams, ["deployment"]);
   assert.deepEqual(result.rules[1]?.relatedDiagrams, ["prototype"]);
 });
+
+test("restores confirmed labeled facts omitted by the provider", () => {
+  const result = normalizeRequirementRulesResult(
+    {
+      rules: [
+        {
+          id: "r12",
+          category: "业务规则",
+          text: "正好5000元必须进入直属经理审批。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+    },
+    [
+      "[CONFIRMED-B03] 报销总额达到5000元（包含正好5000元）时必须由直属经理审批。",
+      "[PENDING-B01] 大额报销阈值没有确认。",
+      "[AC-B01] 正好5000元必须进入直属经理审批。",
+    ].join("\n"),
+  );
+
+  assert.equal(result.rules.length, 2);
+  assert.ok(
+    result.rules.some(
+      (rule) =>
+        rule.id === "r3" &&
+        rule.text.includes("达到5000元") &&
+        rule.sourceFragment?.startsWith("[CONFIRMED-B03]"),
+    ),
+  );
+  assert.equal(
+    result.rules.some((rule) => rule.id.includes("pending")),
+    false,
+  );
+});
+
+test("does not duplicate a labeled line already preserved by the provider", () => {
+  const text = "通知失败最多自动重试3次，仍失败时不得回滚业务结果。";
+  const result = normalizeRequirementRulesResult(
+    {
+      rules: [
+        {
+          id: "r15",
+          category: "异常处理",
+          text,
+          relatedDiagrams: ["activity"],
+        },
+      ],
+    },
+    `[R-A15] ${text}`,
+  );
+
+  assert.equal(result.rules.length, 1);
+  assert.equal(
+    result.rules[0]?.sourceFragment,
+    `[R-A15] ${text}`,
+  );
+});
+
+test("rejects shifted provider source fragments instead of trusting the label", () => {
+  const result = normalizeRequirementRulesResult(
+    {
+      rules: [
+        {
+          id: "r4",
+          category: "业务规则",
+          text: "报销总额达到5000元时必须由直属经理审批。",
+          sourceFragment:
+            "[CONFIRMED-B04] 每个报销明细必须包含费用日期、费用类型、金额和发票号码。",
+          relatedDiagrams: ["activity"],
+        },
+        {
+          id: "r5",
+          category: "数据需求",
+          text: "每个报销明细必须包含费用日期、费用类型、金额和发票号码。",
+          relatedDiagrams: ["class"],
+        },
+      ],
+    },
+    [
+      "[CONFIRMED-B03] 报销总额达到5000元时必须由直属经理审批。",
+      "[CONFIRMED-B04] 每个报销明细必须包含费用日期、费用类型、金额和发票号码。",
+    ].join("\n"),
+  );
+
+  assert.equal(
+    result.rules.find((rule) => rule.id === "r4")?.sourceFragment,
+    "[CONFIRMED-B03] 报销总额达到5000元时必须由直属经理审批。",
+  );
+  assert.equal(
+    result.rules.find((rule) => rule.id === "r5")?.sourceFragment,
+    "[CONFIRMED-B04] 每个报销明细必须包含费用日期、费用类型、金额和发票号码。",
+  );
+});

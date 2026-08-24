@@ -6,6 +6,7 @@ import type {
   RequirementBaseline,
   RequirementQualityReport,
 } from "@uml-platform/contracts";
+import { compareRequirementSemantics } from "@uml-platform/contracts";
 import type { DiagramType } from "../../../entities/diagram/model";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
 import type { WorkspaceRecord } from "../../../entities/workspace/model";
@@ -17,7 +18,6 @@ import {
 import type { GenerationResultDialogState } from "../components/generation-dialogs";
 import {
   REVIEWABLE_REQUIREMENT_FIELDS,
-  buildReadableRequirementRuleText,
   isRequirementBlocking,
   markRequirementReviewed,
   mergeReviewedRequirement,
@@ -148,24 +148,6 @@ export function useRequirementReviewActions({
     setRequirementQualityReport,
     setRequirementReviewCandidates,
   ]);
-
-  const syncReadableRuleText = useCallback(
-    (requirement: AtomicRequirement) => {
-      if (!requirement.sourceRuleId) return;
-      const rule = rules.find((item) => item.id === requirement.sourceRuleId);
-      if (!rule) return;
-      const readableText = buildReadableRequirementRuleText(requirement);
-      const sourceFragment = rule.sourceFragment ?? requirement.sourceFragment;
-      if (rule.text === readableText && rule.sourceFragment === sourceFragment) {
-        return;
-      }
-      updateRequirementRuleBase(requirement.sourceRuleId, {
-        text: readableText,
-        sourceFragment,
-      });
-    },
-    [rules, updateRequirementRuleBase],
-  );
 
   const createRequirementRule = useCallback(
     (input: RequirementRuleCreateInput) => {
@@ -316,10 +298,6 @@ export function useRequirementReviewActions({
         showRequirementReviewSaveFailure(error, ruleId);
         return;
       }
-      if (requirement.status === "accepted" && decision !== "reject") {
-        syncReadableRuleText(requirement);
-      }
-
       if (decision === "reject") {
         openGenerationResultDialog({
           title: "字段建议已拒绝",
@@ -363,7 +341,6 @@ export function useRequirementReviewActions({
       requirementBaseline,
       rules,
       showRequirementReviewSaveFailure,
-      syncReadableRuleText,
     ],
   );
 
@@ -396,6 +373,25 @@ export function useRequirementReviewActions({
         (item) => item.sourceRuleId === ruleId,
       );
       if (!requirement) return;
+      const semanticLossIssues = requirementBaseline.qualityReport.issues.filter(
+        (issue) =>
+          issue.requirementId === requirement.id &&
+          issue.code === "semantic-loss",
+      );
+      if (semanticLossIssues.length > 0) {
+        openGenerationResultDialog({
+          title: "需求语义仍不完整",
+          tone: "destructive",
+          message: "当前提示涉及原始业务语义丢失，不能直接确认。",
+          details: uniqueIssueMessages(semanticLossIssues),
+          requirementId: requirement.id,
+          ruleId,
+          stageLabel: "需求规则",
+          targetLabel:
+            rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+        });
+        return;
+      }
       const reviewedRequirement = markRequirementReviewed(requirement);
       const nextBaseline = mergeReviewedRequirement(
         requirementBaseline,
@@ -407,7 +403,6 @@ export function useRequirementReviewActions({
         showRequirementReviewSaveFailure(error, ruleId);
         return;
       }
-      syncReadableRuleText(reviewedRequirement);
       openGenerationResultDialog({
         title: "需求提示已确认",
         tone: "success",
@@ -425,7 +420,6 @@ export function useRequirementReviewActions({
       requirementBaseline,
       rules,
       showRequirementReviewSaveFailure,
-      syncReadableRuleText,
     ],
   );
 
@@ -654,6 +648,30 @@ export function useRequirementReviewActions({
       if (!requirementBaseline) return;
       const candidate = requirementReviewCandidates[ruleId];
       if (!candidate) return;
+      if (decision === "accepted" && candidate.afterRequirement) {
+        const semanticDiff = compareRequirementSemantics(
+          candidate.beforeRequirement,
+          candidate.afterRequirement,
+        );
+        if (semanticDiff.lostFacts.length > 0) {
+          openGenerationResultDialog({
+            title: "无法采纳有害修复",
+            tone: "destructive",
+            message: "智能修复删除了原始业务语义，请拒绝候选或手动修正。",
+            details: [
+              `丢失内容：${semanticDiff.lostFacts
+                .map((fact) => fact.label)
+                .join("、")}`,
+            ],
+            requirementId: candidate.beforeRequirement.id,
+            ruleId,
+            stageLabel: "需求规则",
+            targetLabel:
+              rules.find((rule) => rule.id === ruleId)?.text ?? "当前需求规则",
+          });
+          return;
+        }
+      }
       const selectedRequirement =
         decision === "accepted" && candidate.afterRequirement
           ? candidate.afterRequirement
@@ -677,14 +695,14 @@ export function useRequirementReviewActions({
         showRequirementReviewSaveFailure(error, ruleId);
         return;
       }
-      syncReadableRuleText(reviewedRequirement);
     },
     [
+      openGenerationResultDialog,
       persistRequirementReviewState,
       requirementBaseline,
       requirementReviewCandidates,
+      rules,
       showRequirementReviewSaveFailure,
-      syncReadableRuleText,
     ],
   );
 

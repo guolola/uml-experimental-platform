@@ -32,7 +32,6 @@ import {
   generatePlantUmlArtifacts,
 } from "../../plantuml.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
-import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { stageProgressValue } from "../pipelines/shared/pipeline-events.js";
 import { librarySeatDemoFixture } from "./fixtures/library-seat-demo-fixture.js";
 import {
@@ -140,7 +139,6 @@ function retargetSnapshotIds(
   if (snapshot.traceabilityMatrix) {
     snapshot.traceabilityMatrix = { ...snapshot.traceabilityMatrix, runId };
   }
-  snapshot.evidencePackage = null;
 }
 
 function selectedOrAvailable<T extends string>(requested: T[], available: T[]) {
@@ -261,17 +259,7 @@ function completeRecord(
 ) {
   snapshot.status = "completed";
   snapshot.error = null;
-  const evidencePackage = attachEvidencePackage(snapshot);
   record.snapshot = snapshot;
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: snapshot.currentStage ?? "render_svg",
-      artifactKind: "evidencePackage",
-      evidencePackage,
-    }),
-  );
   emitEvent(
     record,
     completedRunEventSchema.parse({
@@ -491,7 +479,8 @@ export function createOfflineDemoDocumentInput(input: StartDocumentRunRequest) {
     ...input,
     requirementText: requirementSnapshot.requirementText,
     requirementBaseline: requirementSnapshot.requirementBaseline,
-    evidencePackage: designSnapshot.evidencePackage,
+    coverageMatrix: designSnapshot.coverageMatrix,
+    traceabilityMatrix: designSnapshot.traceabilityMatrix,
     rules: requirementSnapshot.rules,
     requirementModels: requirementSnapshot.models,
     requirementModelTraceability:

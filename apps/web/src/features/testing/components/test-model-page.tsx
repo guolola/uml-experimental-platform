@@ -7,6 +7,7 @@ import type {
   BlackBoxTestCase,
   DesignDiagramModelSpec,
   ModelElementRef,
+  RequirementModelTraceabilityEntry,
   RequirementRule,
   TestCoverageRelation,
   TestGenerationResult,
@@ -57,11 +58,38 @@ function scenarioFromFlow(flow: UseCaseEventFlow): TestScenarioType {
   return "exception";
 }
 
-function rulesForUseCase(rules: RequirementRule[], useCase: UseCaseDiagramSpec["useCases"][number]) {
+function isTrustedRequirementTrace(entry: RequirementModelTraceabilityEntry) {
+  return (
+    entry.mappingSource !== "auto-filled-pending-review" &&
+    entry.reviewStatus !== "pending" &&
+    entry.confidence !== "low"
+  );
+}
+
+function rulesForUseCase(
+  rules: RequirementRule[],
+  useCase: UseCaseDiagramSpec["useCases"][number],
+  traceability: RequirementModelTraceabilityEntry[],
+) {
   const haystack = `${useCase.name} ${useCase.goal} ${useCase.description ?? ""}`;
+  const directlyReferencedRuleIds = new Set(
+    (useCase.eventFlows ?? []).flatMap((flow) =>
+      flow.steps.flatMap((step) => step.sourceRequirementId ?? []),
+    ),
+  );
+  const trustedRuleIds = new Set(
+    traceability
+      .filter(
+        (entry) =>
+          isTrustedRequirementTrace(entry) &&
+          entry.target.diagramKind === "usecase" &&
+          entry.target.elementId === useCase.id,
+      )
+      .map((entry) => entry.ruleId),
+  );
   return rules.filter((rule) => {
-    if (rule.relatedDiagrams.includes("usecase")) return true;
-    return haystack.includes(rule.text.slice(0, 8));
+    if (directlyReferencedRuleIds.has(rule.id) || trustedRuleIds.has(rule.id)) return true;
+    return rule.text.includes(useCase.name) || haystack.includes(rule.text);
   });
 }
 
@@ -133,13 +161,14 @@ function generateBlackBoxTests(
   rules: RequirementRule[],
   useCaseModel: UseCaseDiagramSpec,
   designModels: DesignDiagramModelSpec[],
+  traceability: RequirementModelTraceabilityEntry[],
   t: TFunction,
 ): TestGenerationResult {
   const testCases: BlackBoxTestCase[] = [];
   const coverageRelations: TestCoverageRelation[] = [];
 
   for (const useCase of useCaseModel.useCases) {
-    const matchedRules = rulesForUseCase(rules, useCase);
+    const matchedRules = rulesForUseCase(rules, useCase, traceability);
     const flows =
       (useCase.eventFlows?.length ?? 0) > 0 ? useCase.eventFlows : [fallbackFlow(useCase)];
     const designRefs = refsForUseCaseDesign(designModels, useCase.id);
@@ -220,13 +249,53 @@ function generateBlackBoxTests(
     }
   }
 
+  const coveredRuleIds = new Set(
+    coverageRelations.flatMap((relation) => relation.requirementIds),
+  );
+  for (const rule of rules.filter((candidate) => !coveredRuleIds.has(candidate.id))) {
+    const isBoundaryRule = ["数据需求", "业务规则", "异常处理"].includes(rule.category);
+    const testCase: BlackBoxTestCase = {
+      id: `tc-requirement-${rule.id}`.replace(/[^A-Za-z0-9_-]/g, "-"),
+      title: `${formatRuleId(rule.id)} - 需求级验证`,
+      sourceRequirementId: rule.id,
+      sourceRequirementText: rule.text,
+      scenarioType: isBoundaryRule ? "boundary" : "normal",
+      priority: priorityForRule(rule),
+      preconditions: [],
+      testData: uniqueStrings([rule.sourceFragment, rule.text]),
+      steps: [
+        {
+          order: 1,
+          action: `按需求原文执行并核对：${rule.text}`,
+          expectedResult: `可观察结果完整满足 ${formatRuleId(rule.id)}，且不引入原文之外的条件`,
+        },
+      ],
+      expectedResults: [`需求原文“${rule.text}”中的条件、角色、状态和约束均得到验证`],
+    };
+    testCases.push(testCase);
+    coverageRelations.push({
+      testCaseId: testCase.id,
+      requirementIds: [rule.id],
+      useCaseIds: [],
+      designModelRefs: [],
+      coverageStatus: "covered",
+      rationale: "未伪造用例或设计映射；由确认需求原文生成独立、可核验的需求级测试",
+    });
+  }
+
   return { testCases, coverageRelations };
 }
 
 export function TestModelPage() {
   const { t } = useTranslation();
-  const { rules, models, designModels } = useWorkspaceSession();
-  const [result, setResult] = useState<TestGenerationResult | null>(null);
+  const {
+    rules,
+    models,
+    designModels,
+    requirementModelTraceability,
+    testGenerationResult: result,
+    updateTestGenerationResult,
+  } = useWorkspaceSession();
   const [scenarioFilter, setScenarioFilter] = useState<TestScenarioType | "all">("all");
   const useCaseModel = models.usecase;
   const blockedReason =
@@ -277,8 +346,14 @@ export function TestModelPage() {
                 disabled={Boolean(blockedReason)}
                 onClick={() => {
                   if (!useCaseModel || !("useCases" in useCaseModel)) return;
-                  setResult(
-                    generateBlackBoxTests(rules, useCaseModel, Object.values(designModels), t),
+                  void updateTestGenerationResult(
+                    generateBlackBoxTests(
+                      rules,
+                      useCaseModel,
+                      Object.values(designModels),
+                      requirementModelTraceability,
+                      t,
+                    ),
                   );
                 }}
               >

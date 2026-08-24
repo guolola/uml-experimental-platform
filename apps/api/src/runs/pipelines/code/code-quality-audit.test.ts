@@ -5,6 +5,7 @@ import { createEmptyCodeSnapshot } from "../../records/snapshots.js";
 import {
   auditCodePrototypeQuality,
   findMissingLocalUiNamedExports,
+  validatePrototypePreviewGraph,
 } from "./code-quality-audit.js";
 
 function createSnapshotWithDialogSource(dialogSource: string) {
@@ -59,4 +60,26 @@ test("findMissingLocalUiNamedExports accepts declared named UI exports", () => {
   );
 
   assert.deepEqual(findMissingLocalUiNamedExports(snapshot), []);
+});
+
+test("validatePrototypePreviewGraph fails missing local imports before completion", () => {
+  const snapshot = createSnapshotWithDialogSource(
+    "export function Dialog() { return null; } export const DialogContent = () => null;",
+  );
+  snapshot.files["/src/App.tsx"] =
+    "import { Missing } from './components/Missing'; export default function App(){ return <Missing />; }";
+
+  assert.deepEqual(validatePrototypePreviewGraph(snapshot), [
+    "/src/App.tsx 无法解析导入 ./components/Missing",
+  ]);
+});
+
+test("validatePrototypePreviewGraph accepts a resolvable preview module graph", () => {
+  const snapshot = createSnapshotWithDialogSource(
+    "export function Dialog() { return null; } export const DialogContent = () => null;",
+  );
+  snapshot.files["/src/App.tsx"] =
+    "import { WorkspaceShell } from './components/WorkspaceShell'; export default function App(){ return <WorkspaceShell />; }";
+
+  assert.deepEqual(validatePrototypePreviewGraph(snapshot), []);
 });

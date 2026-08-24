@@ -530,7 +530,7 @@ async function generateFeasibilityJson<T>(input: {
 
   throwRunError(createRunError(
     "RUN_STRUCTURED_OUTPUT_INVALID",
-    `所选模型返回的${input.promptStage === "context" ? "上下文图" : "实现方案"}结构不符合要求，定点修复后仍未通过校验。`,
+    `所选模型返回的${input.promptStage === "context" ? "系统上下文图（系统环境图）" : "实现方案"}结构不符合要求，定点修复后仍未通过校验。`,
     {
       details: {
         validationIssues: lastIssues,
@@ -592,9 +592,9 @@ export async function runFeasibilityStagePipeline(
     snapshot.contextModel = contextModel;
     snapshot.contextTraceability = traceabilityFromContext(contextModel);
 
-    updateStage("render_context", "正在生成并渲染系统上下文图");
+    updateStage("render_context", "正在生成并渲染系统上下文图（系统环境图）");
     const artifact = generatePlantUmlArtifacts([contextModel])[0];
-    if (!artifact) throw new Error("上下文图未生成有效的 PlantUML");
+    if (!artifact) throw new Error("系统上下文图（系统环境图）未生成有效的 PlantUML");
     snapshot.contextPlantUml = artifact;
     emitEvent(record, artifactReadyRunEventSchema.parse({
       type: "artifact_ready",
@@ -602,7 +602,7 @@ export async function runFeasibilityStagePipeline(
       artifactKind: "feasibilityContext",
       modelId: artifact.modelId ?? "context",
       subtaskId: "context",
-      subtaskLabel: "上下文图",
+      subtaskLabel: "系统上下文图（系统环境图）",
       subtaskStatus: "rendering",
     }));
     const renderResult = await renderArtifactWithRepair(
@@ -635,7 +635,7 @@ export async function runFeasibilityStagePipeline(
       artifactKind: "feasibilityContext",
       modelId: artifact.modelId ?? "context",
       subtaskId: "context",
-      subtaskLabel: "上下文图",
+      subtaskLabel: "系统上下文图（系统环境图）",
       subtaskStatus: "completed",
     }));
   }
@@ -644,7 +644,7 @@ export async function runFeasibilityStagePipeline(
     if (!snapshot.contextModel || !snapshot.contextPlantUml || !snapshot.contextSvg) {
       throwRunError(createRunError(
         "RUN_DEPENDENCY_MISSING",
-        "请先生成最新有效的上下文图。",
+        "请先生成最新有效的系统上下文图（系统环境图）。",
       ));
     }
     updateStage("generate_implementation", "正在使用所选模型生成实现方案");

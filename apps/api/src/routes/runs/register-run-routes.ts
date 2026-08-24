@@ -5,8 +5,6 @@ import {
   codeRunSnapshotSchema,
   documentRunSnapshotSchema,
   designRunSnapshotSchema,
-  evidenceReviewDecisionSchema,
-  artifactReadyRunEventSchema,
   queuedRunEventSchema,
   runSnapshotSchema,
   repairRequirementRulesRequestSchema,
@@ -55,12 +53,6 @@ import {
   summarizeRunRecord,
 } from "../../runs/records/run-record-summaries.js";
 import { registerRunEventsRoute } from "../../runs/records/run-events.js";
-import {
-  buildAndStoreEvidencePackage,
-  evidenceArtifactStage,
-  rejectBlockedEvidencePackage,
-  storeEvidenceReviewDecision,
-} from "../../runs/evidence/run-evidence-gates.js";
 import { assertRequirementBaselineAllowsDownstream } from "../../runs/baselines/requirement-baseline.js";
 import { stageProgressValue } from "../../runs/pipelines/shared/pipeline-events.js";
 import {
@@ -486,6 +478,61 @@ export function registerRunRoutes({
         getRepairRequirementRulesResponseFormat(providerSettings),
       );
       const result = applyBatchRequirementRepairSuggestions(input, rawOutput);
+      const remainingFailures = [];
+      for (const failure of result.failures) {
+        if (!failure.errorMessage.includes("未返回当前规则")) {
+          remainingFailures.push(failure);
+          continue;
+        }
+        const rule = input.rules.find((item) => item.id === failure.ruleId);
+        if (!rule) {
+          remainingFailures.push(failure);
+          continue;
+        }
+        try {
+          // Retry only omitted batch items so one truncated provider response
+          // does not discard valid candidates or rerun already repaired rules.
+          const singleInput = repairRequirementRuleRequestSchema.parse({
+            projectId: input.projectId,
+            requirementText: input.requirementText,
+            rule,
+            baseline: input.baseline,
+            providerSettings: input.providerSettings,
+          });
+          const singleRawOutput = await collectTextResult(
+            llmTransport,
+            providerSettings,
+            buildRequirementRuleRepairMessages(singleInput),
+            () => undefined,
+            getRepairRequirementRuleResponseFormat(providerSettings),
+          );
+          const singleResult = applyRequirementRepairSuggestion(
+            singleInput,
+            singleRawOutput,
+          );
+          const beforeRequirement = input.baseline.requirements.find(
+            (requirement) => requirement.sourceRuleId === failure.ruleId,
+          );
+          if (
+            !beforeRequirement ||
+            JSON.stringify(beforeRequirement) ===
+              JSON.stringify(singleResult.requirement)
+          ) {
+            throw new Error("模型未返回当前规则的有效修复字段");
+          }
+          result.candidates.push({
+            ruleId: failure.ruleId,
+            ...singleResult,
+          });
+        } catch (error) {
+          remainingFailures.push({
+            ruleId: failure.ruleId,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      result.failures = remainingFailures;
       await recordProviderUsage({
         usageTracker: providerUsageTracker,
         providerConfigId,
@@ -689,11 +736,6 @@ export function registerRunRoutes({
       reply.code(202);
       return startDesignRunResponseSchema.parse({ runId });
     }
-    const blockedEvidence = rejectBlockedEvidencePackage(
-      reply,
-      input.evidencePackage,
-    );
-    if (blockedEvidence) return blockedEvidence;
     const providerSettings = await resolveProviderSettingsForRun({
       providerSettings: input.providerSettings,
       metadata,
@@ -816,11 +858,6 @@ export function registerRunRoutes({
       reply.code(202);
       return startCodeRunResponseSchema.parse({ runId });
     }
-    const blockedEvidence = rejectBlockedEvidencePackage(
-      reply,
-      input.evidencePackage,
-    );
-    if (blockedEvidence) return blockedEvidence;
     const providerSettings = await resolveProviderSettingsForRun({
       providerSettings: input.providerSettings,
       metadata,
@@ -929,6 +966,20 @@ export function registerRunRoutes({
       return resolvedInput.body;
     }
     const input = resolvedInput.input;
+    if (
+      input.documentKind !== "feasibilityStudy" &&
+      resolveProjectName &&
+      metadata.projectId
+    ) {
+      const projectName = (await resolveProjectName(metadata.projectId))?.trim();
+      if (projectName) {
+        // The project record is authoritative for exported document identity.
+        input.feasibilityInputs = {
+          ...input.feasibilityInputs,
+          projectName,
+        };
+      }
+    }
     const blockedBaseline = rejectBlockedRequirementBaseline(
       reply,
       input.requirementBaseline,
@@ -962,11 +1013,6 @@ export function registerRunRoutes({
       reply.code(202);
       return startDocumentRunResponseSchema.parse({ runId });
     }
-    const blockedEvidence = rejectBlockedEvidencePackage(
-      reply,
-      input.evidencePackage,
-    );
-    if (blockedEvidence) return blockedEvidence;
     const providerSettings = await resolveProviderSettingsForRun({
       providerSettings: input.providerSettings,
       metadata,
@@ -1150,77 +1196,6 @@ export function registerRunRoutes({
       projectId,
       deletedRunIds,
     };
-  });
-
-  app.get("/api/projects/:projectId/runs/:runId/evidence", async (request, reply) => {
-    const { projectId, runId } = request.params as {
-      projectId: string;
-      runId: string;
-    };
-    if (!(await canReadProjectRuns(request, reply, projectId, runAccessGuard))) {
-      return runAccessDeniedMessage(reply);
-    }
-
-    const record = await refreshRunRecordIfAvailable(runs, runId);
-    if (!record || record.metadata?.projectId !== projectId) {
-      reply.code(404);
-      return { message: "Run not found" };
-    }
-
-    return {
-      projectId,
-      evidencePackage: buildAndStoreEvidencePackage(record),
-    };
-  });
-
-  app.post("/api/projects/:projectId/runs/:runId/review-decisions", async (request, reply) => {
-    const { projectId, runId } = request.params as {
-      projectId: string;
-      runId: string;
-    };
-    const access = await resolveProjectRunPermission(
-      request,
-      reply,
-      projectId,
-      "start_runs",
-      runAccessGuard,
-    );
-    if (!access) return runAccessDeniedMessage(reply);
-
-    const record = await refreshRunRecordIfAvailable(runs, runId);
-    if (!record || record.metadata?.projectId !== projectId) {
-      reply.code(404);
-      return { message: "Run not found" };
-    }
-
-    const body = request.body as {
-      reviewItemId?: unknown;
-      decision?: unknown;
-      reviewerId?: unknown;
-      reviewerName?: unknown;
-      comment?: unknown;
-    };
-    const decision = evidenceReviewDecisionSchema.parse({
-      id: `DEC-${randomUUID()}`,
-      reviewItemId: body.reviewItemId,
-      decision: body.decision,
-      reviewerId: typeof body.reviewerId === "string" ? body.reviewerId : access.userId,
-      reviewerName: body.reviewerName,
-      comment: body.comment,
-      decidedAt: new Date().toISOString(),
-    });
-    const evidencePackage = storeEvidenceReviewDecision(record, decision);
-    emitEvent(
-      record,
-      artifactReadyRunEventSchema.parse({
-        type: "artifact_ready",
-        stage: evidenceArtifactStage(record),
-        artifactKind: "evidencePackage",
-        evidencePackage,
-      }),
-    );
-
-    return { projectId, evidencePackage };
   });
 
   app.delete("/api/projects/:projectId/runs/:runId", async (request, reply) => {

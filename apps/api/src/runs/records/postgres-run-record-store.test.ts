@@ -211,6 +211,41 @@ test("postgres run store persists records and emitted events", async () => {
   assert.equal(restoredRecord?.metadata?.userId, "user-1");
 });
 
+test("postgres run store restores legacy snapshots with removed extra JSON", async () => {
+  const db = new FakeRunDb();
+  const runs = await createPostgresRunRecordStore(db);
+  const snapshot = createEmptySnapshot("run-legacy-json", "历史需求", [], []);
+  const record: RunRecord = {
+    snapshot,
+    events: [],
+    listeners: new Set(),
+    terminal: true,
+    metadata: {
+      projectId: "project-legacy",
+      createdAt: "2026-07-30T00:00:00.000Z",
+    },
+  };
+  snapshot.status = "completed";
+  runs.set(snapshot.runId, record);
+  await runs.flush();
+
+  const persisted = db.runRows.get(snapshot.runId);
+  assert.ok(persisted);
+  const removedFieldName = ["evidence", "Package"].join("");
+  persisted.snapshot = {
+    ...persisted.snapshot,
+    [removedFieldName]: {
+      runId: snapshot.runId,
+      status: "complete",
+      generatedAt: "2026-07-30T00:00:00.000Z",
+    },
+  } as RunRecord["snapshot"];
+
+  const restored = await createPostgresRunRecordStore(db);
+  assert.equal(restored.get(snapshot.runId)?.snapshot.status, "completed");
+  assert.equal(restored.get(snapshot.runId)?.metadata?.projectId, "project-legacy");
+});
+
 test("postgres run store persists managed provider config ids", async () => {
   const db = new FakeRunDb();
   const runs = await createPostgresRunRecordStore(db);

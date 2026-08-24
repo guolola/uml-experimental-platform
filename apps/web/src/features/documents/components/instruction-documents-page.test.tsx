@@ -527,7 +527,7 @@ describe("InstructionDocumentsPage", () => {
     const feasibilityCard = templateCard("可行性研究报告");
     expect(
       within(feasibilityCard).getByText(
-        "需求规则已更新，上下文图和实现方案需要重新生成",
+        "需求规则已更新，系统上下文图（系统环境图）和实现方案需要重新生成",
       ),
     ).toBeInTheDocument();
     expect(

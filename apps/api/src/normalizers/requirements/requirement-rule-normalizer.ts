@@ -1,5 +1,6 @@
 // Normalizes extracted requirement rules before validating the public contract.
 import {
+  extractProtectedRequirementFacts,
   requirementRulesResultSchema,
   type DiagramKind,
   type RequirementRule,
@@ -200,9 +201,17 @@ function normalizeRule(rawRule: unknown, index: number): RequirementRule | null 
 
   const text = normalizeText(rawRule.text ?? rawRule.requirement ?? rawRule.description);
   if (!text) return null;
-  const sourceFragment = normalizeText(
+  const rawSourceFragment = normalizeText(
     rawRule.sourceFragment ?? rawRule.source ?? rawRule.fragment,
   );
+  const labeledSourceText = rawSourceFragment.match(
+    /^\s*\[(?:R|AC|CONFIRMED)-[A-Z0-9_-]+\]\s*(.+)$/iu,
+  )?.[1];
+  const sourceFragment =
+    rawSourceFragment &&
+    (!labeledSourceText || ruleTextCoversSourceText(text, labeledSourceText))
+      ? rawSourceFragment
+      : "";
 
   const category = categoryFromAlias(rawRule.category) ?? inferCategory(text);
   return {
@@ -226,7 +235,122 @@ function uniqueRequirementRuleId(id: string, usedIds: Set<string>) {
   return candidate;
 }
 
-export function normalizeRequirementRulesResult(raw: unknown): RequirementRulesResult {
+function semanticFactKeys(text: string) {
+  return new Set(
+    extractProtectedRequirementFacts({
+      actor: null,
+      subject: null,
+      action: text,
+      object: null,
+      condition: null,
+      outcome: null,
+    }).map((fact) => fact.key),
+  );
+}
+
+function compactRuleText(text: string) {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]/gu, "");
+}
+
+function distinctiveHanBigrams(text: string) {
+  const stop = new Set(["必须", "系统", "可以", "不得", "不能", "需求", "满足", "验证"]);
+  const grams = new Set<string>();
+  for (const match of text.matchAll(/\p{Script=Han}{2,}/gu)) {
+    for (let index = 0; index < match[0].length - 1; index += 1) {
+      const gram = match[0].slice(index, index + 2);
+      if (!stop.has(gram)) grams.add(gram);
+    }
+  }
+  return grams;
+}
+
+function extractedRuleCoversSource(
+  rule: RequirementRule,
+  sourceText: string,
+) {
+  return ruleTextCoversSourceText(rule.text, sourceText);
+}
+
+function ruleTextCoversSourceText(ruleText: string, sourceText: string) {
+  const expectedFacts = semanticFactKeys(sourceText);
+  const actualFacts = semanticFactKeys(ruleText);
+  const expectedBigrams = distinctiveHanBigrams(sourceText);
+  const actualBigrams = distinctiveHanBigrams(ruleText);
+  const lexicalOverlap = Array.from(expectedBigrams).filter((gram) =>
+    actualBigrams.has(gram),
+  ).length;
+  if (
+    expectedFacts.size > 0 &&
+    Array.from(expectedFacts).every((fact) => actualFacts.has(fact)) &&
+    lexicalOverlap >= 2
+  ) {
+    return true;
+  }
+  const expectedText = compactRuleText(sourceText);
+  const actualText = compactRuleText(ruleText);
+  return Boolean(
+    expectedText &&
+      actualText &&
+      actualText.includes(expectedText),
+  );
+}
+
+function preferredRuleIdFromSourceLabel(sourceLabel: string) {
+  const match = sourceLabel.match(/^(?:R|CONFIRMED)-[A-Z_-]*?0*(\d+)$/iu);
+  return match ? `r${Number(match[1])}` : sourceLabel.toLowerCase();
+}
+
+export function mergeConfirmedLabeledRequirementRules(
+  rules: RequirementRule[],
+  requirementText: string,
+) {
+  const usedIds = new Set(rules.map((rule) => rule.id.toLowerCase()));
+  const merged = [...rules];
+  const labeledLine =
+    /^\s*\[((?:R|AC|CONFIRMED)-[A-Z0-9_-]+)\]\s*(.+?)\s*$/gimu;
+
+  for (const match of requirementText.matchAll(labeledLine)) {
+    const sourceLabel = match[1];
+    const text = match[2]?.trim();
+    if (!text) {
+      continue;
+    }
+    const coveredIndex = merged.findIndex((rule) =>
+      extractedRuleCoversSource(rule, text),
+    );
+    if (coveredIndex >= 0) {
+      const covered = merged[coveredIndex]!;
+      merged[coveredIndex] = {
+        ...covered,
+        sourceFragment: `[${sourceLabel}] ${text}`,
+      };
+      continue;
+    }
+    const category = inferCategory(text);
+    merged.push({
+      id: uniqueRequirementRuleId(
+        preferredRuleIdFromSourceLabel(sourceLabel),
+        usedIds,
+      ),
+      category,
+      text,
+      sourceFragment: `[${sourceLabel}] ${text}`,
+      relatedDiagrams: inferRelatedDiagrams(text, category).filter((diagram) =>
+        diagramAllowedForCategory(diagram, category),
+      ),
+    });
+  }
+
+  return merged;
+}
+
+export function normalizeRequirementRulesResult(
+  raw: unknown,
+  requirementText = "",
+): RequirementRulesResult {
   const sourceRules = Array.isArray(raw)
     ? raw
     : isPlainRecord(raw) && Array.isArray(raw.rules)
@@ -242,5 +366,9 @@ export function normalizeRequirementRulesResult(raw: unknown): RequirementRulesR
       ? [{ ...normalized, id: uniqueRequirementRuleId(normalized.id, usedRuleIds) }]
       : [];
   });
-  return requirementRulesResultSchema.parse({ rules });
+  return requirementRulesResultSchema.parse({
+    rules: requirementText
+      ? mergeConfirmedLabeledRequirementRules(rules, requirementText)
+      : rules,
+  });
 }

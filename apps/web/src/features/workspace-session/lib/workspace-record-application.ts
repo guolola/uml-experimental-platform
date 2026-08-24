@@ -53,6 +53,7 @@ type WorkspaceRecordAppliers = {
   setCodeSkillResourcePlan: Setter<WorkspaceRecord["codeSkillResourcePlan"]>;
   setCodeSkillContext: Setter<WorkspaceRecord["codeSkillContext"]>;
   setCodeDiagnostics: Setter<WorkspaceRecord["codeDiagnostics"]>;
+  setTestGenerationResult: Setter<WorkspaceRecord["testGenerationResult"]>;
   setGeneratedDiagrams: Setter<WorkspaceRecord["generatedDiagramTypes"]>;
   setGeneratedDesignDiagrams: Setter<WorkspaceRecord["generatedDesignDiagramTypes"]>;
   setRulesVersion: Setter<WorkspaceRecord["rulesVersion"]>;
@@ -126,6 +127,7 @@ export function applyWorkspaceRecordToSessionState(
   appliers.setCodeSkillResourcePlan(workspace.codeSkillResourcePlan);
   appliers.setCodeSkillContext(workspace.codeSkillContext);
   appliers.setCodeDiagnostics(workspace.codeDiagnostics);
+  appliers.setTestGenerationResult(workspace.testGenerationResult ?? null);
   appliers.setGeneratedDiagrams(workspace.generatedDiagramTypes);
   appliers.setGeneratedDesignDiagrams(workspace.generatedDesignDiagramTypes);
   appliers.setRulesVersion(workspace.rulesVersion);

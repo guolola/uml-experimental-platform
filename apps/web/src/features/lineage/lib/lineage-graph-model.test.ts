@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
   DiagramError,
-  EvidencePackage,
   RunSnapshot,
 } from "@uml-platform/contracts";
 import type { RequirementRule } from "../../../entities/requirement-rule/model";
@@ -41,37 +40,6 @@ function diagramError(message: string): DiagramError {
       category: "generation",
       retryable: true,
     },
-  };
-}
-
-function evidencePackage(
-  overrides: Partial<EvidencePackage> = {},
-): EvidencePackage {
-  return {
-    runId: "requirements-run-evidence",
-    generatedAt: "2026-06-21T00:00:00.000Z",
-    status: "blocked",
-    requirementBaseline: null,
-    qualityReport: null,
-    coverageMatrix: null,
-    traceabilityMatrix: null,
-    modelArtifacts: [],
-    codeArtifacts: [],
-    businessAssertionResults: null,
-    browserEvidence: [],
-    reviewItems: [
-      {
-        id: "review-coverage",
-        source: "coverage",
-        status: "pending",
-        severity: "warning",
-        reason: "覆盖项需要人工确认。",
-      },
-    ],
-    reviewDecisions: [],
-    failureRecords: [],
-    repairRecords: [],
-    ...overrides,
   };
 }
 
@@ -585,69 +553,6 @@ describe("buildLineageGraph", () => {
     ).toBe("stale");
   });
 
-  it("projects blocked evidence packages as downstream review gates", () => {
-    const blockedEvidence = evidencePackage();
-    const requirementsSnapshot: RunSnapshot = {
-      runId: "requirements-run-evidence",
-      requirementText: "订单系统需求",
-      selectedDiagrams: ["class"],
-      analysisTargetUseCaseIds: [],
-      rules: [baseRule],
-      requirementBaseline: null,
-      coverageMatrix: null,
-      traceabilityMatrix: null,
-      evidencePackage: blockedEvidence,
-      models: [],
-      requirementModelTraceability: [],
-      plantUml: [],
-      svgArtifacts: [],
-      diagramErrors: {},
-      requirementTrace: [],
-      currentStage: "render_svg",
-      status: "completed",
-      error: null,
-    };
-    const graph = buildLineageGraph(
-      input({
-        rules: [baseRule],
-        models: { class: model("class") },
-        generatedDiagrams: ["class"],
-        svgArtifacts: {
-          class: { diagramKind: "class", svg: "<svg>class</svg>" } as never,
-        },
-        designModels: { sequence: designModel("sequence") },
-        generatedDesignDiagrams: ["sequence"],
-        codeFiles: { "src/App.tsx": "export default function App() { return null; }" },
-        codeEntryFile: "src/App.tsx",
-        historyItems: [
-          {
-            id: "requirements-run-evidence",
-            createdAt: "2026-06-21T00:00:00.000Z",
-            title: "需求模型生成",
-            snapshot: requirementsSnapshot,
-            providerModel: "mock",
-            status: "completed",
-            runKind: "requirements",
-          },
-        ],
-      }),
-    );
-
-    const designNode = graph.nodes.find((node) => node.id === "design-model:sequence");
-    const codeNode = graph.nodes.find((node) => node.id === "code:prototype");
-    const documentNode = graph.nodes.find(
-      (node) => node.id === "document:requirementsSpec",
-    );
-
-    expect(designNode?.status).toBe("stale");
-    expect(designNode?.reason).toContain("证据包1 项待复核");
-    expect(codeNode?.status).toBe("stale");
-    expect(codeNode?.reason).toContain("证据包1 项待复核");
-    expect(documentNode?.status).toBe("stale");
-    expect(documentNode?.reason).toContain("证据包1 项待复核");
-    expect(graph.defaultSelectedNodeId).toBe("design-model:sequence");
-  });
-
   it("projects failed rules-only history as a retryable rule extraction error", () => {
     const failedRulesSnapshot: RunSnapshot = {
       runId: "run-rules-failed",
@@ -658,7 +563,6 @@ describe("buildLineageGraph", () => {
       requirementBaseline: null,
       coverageMatrix: null,
       traceabilityMatrix: null,
-      evidencePackage: null,
       models: [],
       requirementModelTraceability: [],
       plantUml: [],

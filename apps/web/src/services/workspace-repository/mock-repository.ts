@@ -279,6 +279,13 @@ export function createMockWorkspaceRepository(
       };
     },
 
+    async updateTestGenerationResult(result) {
+      workspace = {
+        ...workspace,
+        testGenerationResult: result ? structuredClone(result) : null,
+      };
+    },
+
     async updateRequirementReviewState(baseline, candidates) {
       const nextBaseline = structuredClone(baseline) as RequirementBaseline;
       workspace = {
@@ -639,62 +646,6 @@ export function createMockWorkspaceRepository(
         throw new Error("Mock document run not found");
       }
       return snapshot;
-    },
-
-    async getRunEvidence(runId) {
-      const snapshot =
-        snapshots.get(runId) ??
-        designSnapshots.get(runId) ??
-        codeSnapshots.get(runId) ??
-        documentSnapshots.get(runId);
-      if (!snapshot?.evidencePackage) {
-        throw new Error("Mock evidence package not found");
-      }
-      return snapshot.evidencePackage;
-    },
-
-    async submitRunReviewDecision(runId, decision) {
-      const snapshot =
-        snapshots.get(runId) ??
-        designSnapshots.get(runId) ??
-        codeSnapshots.get(runId) ??
-        documentSnapshots.get(runId);
-      if (!snapshot?.evidencePackage) {
-        throw new Error("Mock evidence package not found");
-      }
-      const resolved = {
-        ...snapshot.evidencePackage,
-        status: "complete" as const,
-        reviewItems: snapshot.evidencePackage.reviewItems.map((item) =>
-          item.id === decision.reviewItemId
-            ? {
-                ...item,
-                status: "resolved" as const,
-                decision: {
-                  id: "DEC-MOCK",
-                  reviewItemId: decision.reviewItemId,
-                  decision: decision.decision,
-                  comment: decision.comment,
-                  decidedAt: new Date().toISOString(),
-                },
-              }
-            : item,
-        ),
-        reviewDecisions: [
-          ...snapshot.evidencePackage.reviewDecisions.filter(
-            (item) => item.reviewItemId !== decision.reviewItemId,
-          ),
-          {
-            id: "DEC-MOCK",
-            reviewItemId: decision.reviewItemId,
-            decision: decision.decision,
-            comment: decision.comment,
-            decidedAt: new Date().toISOString(),
-          },
-        ],
-      };
-      snapshot.evidencePackage = resolved;
-      return resolved;
     },
 
     async listDocuments() {

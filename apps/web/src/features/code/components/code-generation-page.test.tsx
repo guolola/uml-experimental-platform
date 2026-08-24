@@ -571,6 +571,7 @@ describe("CodeGenerationPage", () => {
     expect(srcDoc).toContain("class-variance-authority");
     expect(srcDoc).toContain("tailwind-merge");
     expect(srcDoc).toContain("text/tailwindcss");
+    expect(srcDoc).toContain('a[href^="#"]');
     const status = screen.queryByTestId("local-preview-status");
     if (status) {
       expect(status).not.toHaveTextContent("无法解析导入");

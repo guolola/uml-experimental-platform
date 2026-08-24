@@ -319,6 +319,95 @@ test("buildRequirementStageTrustedChain does not accept object-only word matches
   assert.doesNotThrow(() => assertTrustedChainAllowsCompletion(trustedChain));
 });
 
+test("buildRequirementStageTrustedChain does not report 100% when unrelated screens all map to one rule", () => {
+  const rules = [
+    {
+      id: "r1",
+      category: "功能需求" as const,
+      text: "用户通过校园统一身份认证登录。",
+      relatedDiagrams: ["usecase" as const],
+    },
+    {
+      id: "r2",
+      category: "功能需求" as const,
+      text: "学生按校区和时间查询可用座位。",
+      relatedDiagrams: ["usecase" as const],
+    },
+    {
+      id: "r3",
+      category: "功能需求" as const,
+      text: "预约成功后系统发送站内通知。",
+      relatedDiagrams: ["usecase" as const],
+    },
+  ];
+  const model: DiagramModelSpec = {
+    diagramKind: "usecase",
+    title: "座位预约界面关系",
+    summary: "登录、座位查询和通知页面。",
+    notes: [],
+    actors: [],
+    useCases: [
+      {
+        id: "uc-login",
+        name: "统一身份认证登录",
+        goal: "用户完成校园统一身份认证登录",
+        preconditions: [],
+        postconditions: ["进入首页"],
+        supportingActorIds: [],
+      },
+      {
+        id: "uc-search",
+        name: "查询可用座位",
+        goal: "学生按校区和时间查询可用座位",
+        preconditions: [],
+        postconditions: ["显示座位列表"],
+        supportingActorIds: [],
+      },
+      {
+        id: "uc-notify",
+        name: "发送预约通知",
+        goal: "预约成功后系统发送站内通知",
+        preconditions: [],
+        postconditions: ["通知被记录"],
+        supportingActorIds: [],
+      },
+    ],
+    systemBoundaries: [],
+    relationships: [],
+  };
+  const baseline = buildRequirementBaseline({
+    runId: "run-all-to-r2",
+    requirementText: rules.map((rule) => rule.text).join("\n"),
+    rules,
+    createdAt: "2026-07-30T00:00:00.000Z",
+  });
+  const trustedChain = buildRequirementStageTrustedChain({
+    runId: "run-all-to-r2",
+    baseline,
+    models: [model],
+    requirementModelTraceability: model.useCases.map((useCase) => ({
+      ruleId: "r2",
+      target: {
+        diagramKind: "usecase" as const,
+        elementId: useCase.id,
+        elementKind: "usecase",
+        label: useCase.name,
+      },
+    })),
+  });
+
+  assert.deepEqual(
+    trustedChain.coverageMatrix.rows.map((row) => row.status),
+    ["pending-review", "covered", "pending-review"],
+  );
+  assert.equal(
+    trustedChain.traceabilityMatrix.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "semantic-model-gap",
+    ).length,
+    2,
+  );
+});
+
 test("buildRequirementStageTrustedChain accepts action and object slot evidence without exact sentence matching", () => {
   const generateRule = {
     id: "r3",

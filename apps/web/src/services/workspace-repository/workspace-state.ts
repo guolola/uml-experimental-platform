@@ -1,5 +1,6 @@
 // Normalizes workspace records and merges saved run snapshots into repository state.
 import {
+  compareRequirementSemantics,
   type AtomicRequirement,
   designDiagramKindFromRecordKey,
   designRecordBelongsToDiagramKinds,
@@ -134,6 +135,15 @@ function acceptedRequirementFromCandidate(
   if (candidate.status !== "accepted") return null;
   const reviewed = candidate.afterRequirement ?? candidate.beforeRequirement;
   if (!reviewed) return null;
+  if (
+    candidate.afterRequirement &&
+    compareRequirementSemantics(
+      candidate.beforeRequirement,
+      candidate.afterRequirement,
+    ).lostFacts.length > 0
+  ) {
+    return null;
+  }
   const fieldProvenance = { ...reviewed.fieldProvenance };
   for (const field of REVIEWABLE_REQUIREMENT_FIELDS) {
     const provenance = fieldProvenance[field];
@@ -314,6 +324,7 @@ export function createEmptyWorkspace(): WorkspaceRecord {
     codeSkillResourcePlan: null,
     codeSkillContext: null,
     codeDiagnostics: [],
+    testGenerationResult: null,
     requirementInputFingerprint: null,
     diagramInputFingerprints: {},
     designInputFingerprints: {},
@@ -740,6 +751,9 @@ export function applySnapshotToWorkspace(
 
   const isRequirementSnapshot =
     !isCodeRunSnapshot(snapshot) && !isDesignRunSnapshot(snapshot);
+  if (isRequirementSnapshot || isDesignRunSnapshot(snapshot)) {
+    next.testGenerationResult = null;
+  }
   const snapshotRequirementText = runHistorySnapshotRequirementText(snapshot);
   const snapshotRules = runHistorySnapshotRules(snapshot);
   if (

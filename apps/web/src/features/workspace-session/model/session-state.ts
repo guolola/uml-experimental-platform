@@ -196,6 +196,10 @@ export interface WorkspaceSessionState {
   codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
   codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
+  testGenerationResult: WorkspaceRecord["testGenerationResult"];
+  updateTestGenerationResult: (
+    result: WorkspaceRecord["testGenerationResult"],
+  ) => Promise<void>;
   codeEditVersion: number;
   updateCodeFile: (path: string, value: string) => void;
   recordCodePreviewDiagnostic: (message: string) => void;

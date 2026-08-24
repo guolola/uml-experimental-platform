@@ -322,6 +322,7 @@ function createDocumentCover(
   feasibilityInputs?: FeasibilityInputs,
 ) {
   const generatedDate = new Date().toISOString().slice(0, 10);
+  const documentTemplateVersion = "V1.0";
   if (documentKind === "feasibilityStudy") {
     const inputs = feasibilityInputs ?? {
       projectName: "", school: "", college: "", groupNumber: "", members: "", gradeClass: "", submissionDate: "", proposedBy: "", developedBy: "", expectedUsers: "", targetEnvironment: "", deadline: "", expectedLifetimeYears: null, budgetLimit: null, teamSize: null, teamSkills: "", availableResources: "", legalConstraints: "", references: "", costItems: [], benefitItems: [], analysisYears: null,
@@ -337,8 +338,12 @@ function createDocumentCover(
   return [
     createCoverParagraph("课程设计文档", style, { title: true }),
     createCoverParagraph(documentTitle(documentKind), style, { subtitle: true }),
-    createCoverParagraph("项目名称：软件系统", style),
+    createCoverParagraph(
+      `项目名称：${coverValue(feasibilityInputs?.projectName)}`,
+      style,
+    ),
     createCoverParagraph(`文档类型：${documentTitle(documentKind)}`, style),
+    createCoverParagraph(`文档版本：${documentTemplateVersion}`, style),
     createCoverParagraph(`生成日期：${generatedDate}`, style),
   ];
 }

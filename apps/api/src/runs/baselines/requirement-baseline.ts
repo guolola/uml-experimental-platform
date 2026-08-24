@@ -245,6 +245,12 @@ function buildAtomicRequirement(
     sourceRuleId: rule.id,
   };
   applyAiFieldRepairSuggestions(requirement);
+  if (/^\[(?:R|AC|CONFIRMED)-[A-Z0-9_-]+\]/iu.test(sourceFragment)) {
+    // Explicitly labeled user-authored requirements and acceptance criteria are
+    // trusted facts unless conflict detection later proves them inconsistent.
+    requirement.status = "accepted";
+    requirement.confidence = Math.max(requirement.confidence, 0.95);
+  }
   return requirement;
 }
 

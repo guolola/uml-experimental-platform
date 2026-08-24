@@ -1,12 +1,19 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename } from "node:path";
-import type { DiagramKind, RunSnapshot } from "@uml-platform/contracts";
+import {
+  extractProtectedRequirementFacts,
+  unsupportedRequirementFacts,
+  type AtomicRequirement,
+  type DiagramKind,
+  type RunSnapshot,
+} from "@uml-platform/contracts";
 
 export interface EvalFixture {
   id: string;
   requirementText: string;
   selectedDiagrams: DiagramKind[];
+  expectedFacts: string[];
 }
 
 export interface EvalCaseResult {
@@ -18,6 +25,17 @@ export interface EvalCaseResult {
   diagramErrorCount: number;
   durationMs: number;
   errorMessage: string | null;
+  semanticFactsTotal: number;
+  semanticFactsPreserved: number;
+  semanticAccuracyRate: number | null;
+  harmfulRepairCount: number;
+  unfoundedAdditionCount: number;
+  effectiveTraceCovered: number;
+  effectiveTraceTotal: number;
+  effectiveTraceCoverageRate: number | null;
+  terminalStateConsistent: boolean;
+  prototypeBuildPassed: boolean | null;
+  documentUsable: boolean | null;
 }
 
 export interface EvalReport {
@@ -31,6 +49,15 @@ export interface EvalReport {
     svgSuccessCount: number;
     diagramErrorCount: number;
     durationMs: number;
+    semanticFactsTotal: number;
+    semanticFactsPreserved: number;
+    semanticAccuracyRate: number | null;
+    harmfulRepairCount: number;
+    unfoundedAdditionCount: number;
+    effectiveTraceCovered: number;
+    effectiveTraceTotal: number;
+    effectiveTraceCoverageRate: number | null;
+    terminalInconsistencyCount: number;
   };
   results: EvalCaseResult[];
 }
@@ -41,6 +68,28 @@ const DEFAULT_DIAGRAMS: DiagramKind[] = [
   "activity",
   "deployment",
 ];
+
+const RETEST_EXPECTED_FACTS: Record<string, string[]> = {
+  "04-retest-a-boundary-full-chain": [
+    "参会人数50人以上或结束时间晚于21:00时必须进入部门审批。",
+    "单次预约时长不得少于30分钟且不得超过240分钟。",
+    "通知发送失败最多自动重试3次，仍失败时不得回滚业务结果。",
+    "在300个并发用户下，95百分位响应时间不得超过2秒。",
+  ],
+  "05-retest-b-conflict-repair": [
+    "报销总额达到5000元以上时必须审批。",
+    "报销总额超过5000元时必须审批。",
+    "所有费用在30个自然日内提交，差旅费用在60个自然日内提交。",
+    "任何审批人不得审批自己提交的报销单。",
+    "100元以内包含正好100元。",
+  ],
+  "06-retest-c-autocomplete-recovery": [
+    "危险等级为3级的设备必须先由指导教师批准，再由安全员批准。",
+    "指导教师不得审批自己提交的预约。",
+    "通知失败时业务状态不回滚。",
+    "在100个并发用户下，设备检索95百分位响应时间不超过2秒。",
+  ],
+};
 
 function fixtureDir() {
   return fileURLToPath(new URL("../fixtures", import.meta.url));
@@ -54,6 +103,7 @@ export async function loadFixtures(): Promise<EvalFixture[]> {
       id: basename(name, ".txt"),
       requirementText: (await readFile(join(dir, name), "utf8")).trim(),
       selectedDiagrams: DEFAULT_DIAGRAMS,
+      expectedFacts: RETEST_EXPECTED_FACTS[basename(name, ".txt")] ?? [],
     })),
   );
 }
@@ -73,11 +123,17 @@ export function assertProviderConfig(env: NodeJS.ProcessEnv) {
 }
 
 function createMockSnapshot(fixture: EvalFixture): RunSnapshot {
+  const expectedRules = fixture.expectedFacts.map((fact, index) => ({
+    id: `expected-${index + 1}`,
+    category: "业务规则" as const,
+    text: fact,
+    relatedDiagrams: ["usecase" as const],
+  }));
   return {
     runId: `mock-${fixture.id}`,
     requirementText: fixture.requirementText,
     selectedDiagrams: fixture.selectedDiagrams,
-    rules: [
+    rules: expectedRules.length > 0 ? expectedRules : [
       {
         id: "r1",
         category: "功能需求",
@@ -107,7 +163,7 @@ function createMockSnapshot(fixture: EvalFixture): RunSnapshot {
     requirementTrace: [],
     currentStage: "render_svg",
     status: "completed",
-    errorMessage: null,
+    error: null,
   };
 }
 
@@ -147,6 +203,93 @@ async function runViaApi(fixture: EvalFixture, env: NodeJS.ProcessEnv) {
   throw new Error(`评测运行超时：${runId}`);
 }
 
+function semanticCarrier(text: string): Pick<
+  AtomicRequirement,
+  "actor" | "subject" | "action" | "object" | "condition" | "outcome"
+> {
+  return {
+    actor: null,
+    subject: null,
+    action: text,
+    object: null,
+    condition: null,
+    outcome: null,
+  };
+}
+
+function summarizeQuality(fixture: EvalFixture, snapshot: RunSnapshot) {
+  const actualText = snapshot.requirementBaseline
+    ? snapshot.requirementBaseline.requirements
+        .map((requirement) =>
+          [
+            requirement.actor,
+            requirement.subject,
+            requirement.action,
+            requirement.object,
+            requirement.condition,
+            requirement.outcome,
+          ]
+            .filter(Boolean)
+            .join("；"),
+        )
+        .join("；")
+    : snapshot.rules.map((rule) => rule.text).join("；");
+  const expectedFacts = fixture.expectedFacts.flatMap((text) =>
+    extractProtectedRequirementFacts(semanticCarrier(text)),
+  );
+  const uniqueExpectedFacts = Array.from(
+    new Map(expectedFacts.map((fact) => [fact.key, fact])).values(),
+  );
+  const actualFactKeys = new Set(
+    extractProtectedRequirementFacts(semanticCarrier(actualText)).map(
+      (fact) => fact.key,
+    ),
+  );
+  const semanticFactsPreserved = uniqueExpectedFacts.filter((fact) =>
+    actualFactKeys.has(fact.key),
+  ).length;
+  const coverageRows = snapshot.coverageMatrix?.rows ?? [];
+  const effectiveTraceTotal = coverageRows.filter(
+    (row) => row.status !== "not-modelable",
+  ).length;
+  const effectiveTraceCovered = coverageRows.filter(
+    (row) => row.status === "covered",
+  ).length;
+  const harmfulRepairCount =
+    snapshot.requirementBaseline?.qualityReport.issues.filter(
+      (issue) => issue.code === "semantic-loss",
+    ).length ?? 0;
+  const unfoundedAdditionCount = unsupportedRequirementFacts(
+    fixture.requirementText,
+    semanticCarrier(actualText),
+  ).filter((fact) => fact.kind !== "event").length;
+  const terminalStateConsistent =
+    snapshot.status === "completed"
+      ? (snapshot.error ?? null) === null
+      : snapshot.status === "failed"
+        ? (snapshot.error ?? null) !== null
+        : true;
+  return {
+    semanticFactsTotal: uniqueExpectedFacts.length,
+    semanticFactsPreserved,
+    semanticAccuracyRate:
+      uniqueExpectedFacts.length > 0
+        ? semanticFactsPreserved / uniqueExpectedFacts.length
+        : null,
+    harmfulRepairCount,
+    unfoundedAdditionCount,
+    effectiveTraceCovered,
+    effectiveTraceTotal,
+    effectiveTraceCoverageRate:
+      effectiveTraceTotal > 0
+        ? effectiveTraceCovered / effectiveTraceTotal
+        : null,
+    terminalStateConsistent,
+    prototypeBuildPassed: null,
+    documentUsable: null,
+  };
+}
+
 function summarizeSnapshot(
   fixture: EvalFixture,
   snapshot: RunSnapshot,
@@ -160,7 +303,8 @@ function summarizeSnapshot(
     svgSuccessCount: snapshot.svgArtifacts.length,
     diagramErrorCount: Object.keys(snapshot.diagramErrors).length,
     durationMs,
-    errorMessage: snapshot.errorMessage,
+    errorMessage: snapshot.error?.message ?? null,
+    ...summarizeQuality(fixture, snapshot),
   };
 }
 
@@ -189,10 +333,37 @@ export async function runEval(env: NodeJS.ProcessEnv = process.env): Promise<Eva
         diagramErrorCount: 0,
         durationMs: Date.now() - caseStartedAt,
         errorMessage: error instanceof Error ? error.message : String(error),
+        semanticFactsTotal: 0,
+        semanticFactsPreserved: 0,
+        semanticAccuracyRate: null,
+        harmfulRepairCount: 0,
+        unfoundedAdditionCount: 0,
+        effectiveTraceCovered: 0,
+        effectiveTraceTotal: 0,
+        effectiveTraceCoverageRate: null,
+        terminalStateConsistent: false,
+        prototypeBuildPassed: null,
+        documentUsable: null,
       });
     }
   }
 
+  const semanticFactsTotal = results.reduce(
+    (sum, item) => sum + item.semanticFactsTotal,
+    0,
+  );
+  const semanticFactsPreserved = results.reduce(
+    (sum, item) => sum + item.semanticFactsPreserved,
+    0,
+  );
+  const effectiveTraceTotal = results.reduce(
+    (sum, item) => sum + item.effectiveTraceTotal,
+    0,
+  );
+  const effectiveTraceCovered = results.reduce(
+    (sum, item) => sum + item.effectiveTraceCovered,
+    0,
+  );
   return {
     generatedAt: new Date().toISOString(),
     mode,
@@ -204,6 +375,27 @@ export async function runEval(env: NodeJS.ProcessEnv = process.env): Promise<Eva
       svgSuccessCount: results.reduce((sum, item) => sum + item.svgSuccessCount, 0),
       diagramErrorCount: results.reduce((sum, item) => sum + item.diagramErrorCount, 0),
       durationMs: Date.now() - startedAt,
+      semanticFactsTotal,
+      semanticFactsPreserved,
+      semanticAccuracyRate:
+        semanticFactsTotal > 0 ? semanticFactsPreserved / semanticFactsTotal : null,
+      harmfulRepairCount: results.reduce(
+        (sum, item) => sum + item.harmfulRepairCount,
+        0,
+      ),
+      unfoundedAdditionCount: results.reduce(
+        (sum, item) => sum + item.unfoundedAdditionCount,
+        0,
+      ),
+      effectiveTraceCovered,
+      effectiveTraceTotal,
+      effectiveTraceCoverageRate:
+        effectiveTraceTotal > 0
+          ? effectiveTraceCovered / effectiveTraceTotal
+          : null,
+      terminalInconsistencyCount: results.filter(
+        (item) => !item.terminalStateConsistent,
+      ).length,
     },
     results,
   };
@@ -220,18 +412,40 @@ export function renderMarkdownReport(report: EvalReport) {
   lines.push(`- 失败: ${report.totals.failed}`);
   lines.push(`- SVG 成功数: ${report.totals.svgSuccessCount}`);
   lines.push(`- 单图失败数: ${report.totals.diagramErrorCount}`);
+  lines.push(
+    `- 关键语义准确率: ${
+      report.totals.semanticAccuracyRate === null
+        ? "N/A"
+        : `${(report.totals.semanticAccuracyRate * 100).toFixed(1)}%`
+    }`,
+  );
+  lines.push(`- 有害修复数: ${report.totals.harmfulRepairCount}`);
+  lines.push(`- 无依据新增数: ${report.totals.unfoundedAdditionCount}`);
+  lines.push(
+    `- 有效追踪覆盖率: ${
+      report.totals.effectiveTraceCoverageRate === null
+        ? "N/A"
+        : `${(report.totals.effectiveTraceCoverageRate * 100).toFixed(1)}%`
+    }`,
+  );
+  lines.push(`- 终态矛盾数: ${report.totals.terminalInconsistencyCount}`);
   lines.push("");
-  lines.push("| Fixture | Status | Rules | Models | SVG | Diagram Errors | Duration | Error |");
-  lines.push("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |");
+  lines.push("| Fixture | Status | Semantics | Harmful Repairs | Unfounded | Trace | Terminal | Duration | Error |");
+  lines.push("| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | --- |");
   for (const result of report.results) {
     lines.push(
       [
         result.fixtureId,
         result.status,
-        result.rulesCount,
-        result.modelsCount,
-        result.svgSuccessCount,
-        result.diagramErrorCount,
+        result.semanticAccuracyRate === null
+          ? "N/A"
+          : `${(result.semanticAccuracyRate * 100).toFixed(1)}%`,
+        result.harmfulRepairCount,
+        result.unfoundedAdditionCount,
+        result.effectiveTraceCoverageRate === null
+          ? "N/A"
+          : `${(result.effectiveTraceCoverageRate * 100).toFixed(1)}%`,
+        result.terminalStateConsistent ? "一致" : "矛盾",
         `${result.durationMs}ms`,
         result.errorMessage?.replace(/\|/g, "\\|") ?? "",
       ].join(" | "),

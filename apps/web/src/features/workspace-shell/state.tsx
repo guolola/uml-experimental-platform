@@ -412,7 +412,7 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
       }),
     [openWorkspaceTab],
   );
-  const openFeasibilityContext = useCallback(() => openWorkspaceTab({ kind: "feasibility-context", label: "上下文图" }), [openWorkspaceTab]);
+  const openFeasibilityContext = useCallback(() => openWorkspaceTab({ kind: "feasibility-context", label: "系统上下文图（系统环境图）" }), [openWorkspaceTab]);
   const openFeasibilityContextTrace = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-trace", label: "上下文跟踪矩阵" }), [openWorkspaceTab]);
   const openFeasibilityContextElements = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-elements", label: "上下文元素" }), [openWorkspaceTab]);
   const openFeasibilityContextRelations = useCallback(() => openWorkspaceTab({ kind: "feasibility-context-relations", label: "上下文关系" }), [openWorkspaceTab]);

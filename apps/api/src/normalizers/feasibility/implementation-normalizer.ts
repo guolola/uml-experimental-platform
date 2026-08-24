@@ -253,6 +253,41 @@ function normalizeStructuralOutput(
   };
 }
 
+function normalizeRequirementReferenceAliases(
+  value: unknown,
+  validRequirementIds: ReadonlySet<string>,
+  actions: string[],
+): unknown {
+  const validByLower = new Map(
+    Array.from(validRequirementIds, (id) => [id.toLowerCase(), id]),
+  );
+  const normalizeId = (rawId: string) => {
+    const direct = validByLower.get(rawId.trim().toLowerCase());
+    if (direct) return direct;
+    const numericAlias = rawId
+      .trim()
+      .match(/^(?:REQ|R)[-_]?0*(\d+)$/iu);
+    if (!numericAlias) return rawId;
+    const normalized = validByLower.get(`r${Number(numericAlias[1])}`);
+    if (!normalized) return rawId;
+    actions.push("normalized-requirement-id-alias");
+    return normalized;
+  };
+  const visit = (current: unknown): unknown => {
+    if (Array.isArray(current)) return current.map(visit);
+    if (!isRecord(current)) return current;
+    return Object.fromEntries(
+      Object.entries(current).map(([key, item]) => [
+        key,
+        key === "sourceRequirementIds" && Array.isArray(item)
+          ? item.map((id) => (typeof id === "string" ? normalizeId(id) : id))
+          : visit(item),
+      ]),
+    );
+  };
+  return visit(value);
+}
+
 export function normalizeFeasibilityImplementationDetailed(
   value: unknown,
   validRequirementIds: ReadonlySet<string>,
@@ -260,7 +295,11 @@ export function normalizeFeasibilityImplementationDetailed(
 ): FeasibilityNormalizationResult {
   const actions: string[] = [];
   const plan = completeFeasibilityImplementationPlanSchema.parse(
-    normalizeStructuralOutput(value, externalSystems, actions),
+    normalizeRequirementReferenceAliases(
+      normalizeStructuralOutput(value, externalSystems, actions),
+      validRequirementIds,
+      actions,
+    ),
   );
   const candidateIds = new Set<string>();
   const validateSources = (

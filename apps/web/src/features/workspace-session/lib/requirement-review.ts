@@ -96,6 +96,7 @@ export function rebuildRequirementReviewQualityReport(
       ? baseline.requirements.find((item) => item.id === issue.requirementId)
       : null;
     if (!requirement) return true;
+    if (issue.code === "semantic-loss") return true;
     if (requirement.status === "accepted") return false;
     if (issue.code === "missing-actor") {
       return !requirementFieldHasReviewedValue(requirement, "actor");

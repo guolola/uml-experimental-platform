@@ -67,6 +67,8 @@ type ProjectWorkspaceActionsProps = {
   projectRuns?: PlatformRunSummary[];
 };
 
+const EMPTY_PROJECT_RUNS: PlatformRunSummary[] = [];
+
 const RUN_STATUS_LABEL = {
   idle: "idle",
   queued: "queued",
@@ -646,7 +648,7 @@ function buildStageTodoItems({
 }
 
 export function ProjectGenerationTasksDrawerContent({
-  projectRuns = [],
+  projectRuns = EMPTY_PROJECT_RUNS,
 }: {
   projectRuns?: PlatformRunSummary[];
 } = {}) {
@@ -1384,7 +1386,7 @@ export function ProjectGenerationTasksDrawerContent({
 
 export function ProjectWorkspaceActions({
   onOpenDrawer,
-  projectRuns = [],
+  projectRuns = EMPTY_PROJECT_RUNS,
 }: ProjectWorkspaceActionsProps) {
   const { t } = useTranslation();
   const [lineageOpen, setLineageOpen] = useState(false);

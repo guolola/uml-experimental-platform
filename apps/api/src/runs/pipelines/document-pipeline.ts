@@ -28,13 +28,13 @@ import {
   ensureDocumentDiagramSections,
   fallbackDocumentSections,
   findForbiddenDocumentPhrases,
+  findUnsupportedDocumentClaims,
   mergeDocumentSectionsWithTemplate,
   sanitizeDocumentSections,
 } from "../../documents/context/document-context.js";
 import { renderDocumentBuffer } from "../../documents/render/document-renderer.js";
 import { emitEvent, type RunRecord } from "../records/run-record-store.js";
 import { throwIfRunCancelled } from "../records/run-cancellation.js";
-import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { assertRequirementBaselineAllowsDownstream } from "../baselines/requirement-baseline.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
@@ -104,13 +104,25 @@ async function generateDocumentSectionsWithRepair(
         normalizeDocumentContentOutput(parseJson(content)),
       ).sections;
       const forbiddenPhrases = findForbiddenDocumentPhrases(sections);
-      if (forbiddenPhrases.length === 0) {
+      const unsupportedClaims = findUnsupportedDocumentClaims(input, sections);
+      if (forbiddenPhrases.length === 0 && unsupportedClaims.length === 0) {
         return sections;
       }
 
-      lastErrorMessage = `说明书正文包含禁用占位或跳转话术：${forbiddenPhrases.join("、")}`;
+      lastErrorMessage = [
+        forbiddenPhrases.length > 0
+          ? `说明书正文包含禁用占位或跳转话术：${forbiddenPhrases.join("、")}`
+          : "",
+        unsupportedClaims.length > 0
+          ? `说明书正文包含无来源事实：${unsupportedClaims.join("、")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("；");
       if (attempt === MAX_DOCUMENT_CONTENT_REPAIR_ATTEMPTS) {
-        return sections;
+        // A deterministic template is safer than exporting unsupported claims
+        // after the real provider exhausts its focused repair attempts.
+        return fallbackDocumentSections(input);
       }
 
       emitEvent(
@@ -119,7 +131,7 @@ async function generateDocumentSectionsWithRepair(
           type: "stage_progress",
           stage: "generate_document_text",
           progress: stageProgressValue("generate_document_text"),
-          message: `说明书正文包含占位或跳转话术，正在尝试改写（${attempt + 1}/${MAX_DOCUMENT_CONTENT_REPAIR_ATTEMPTS}）`,
+          message: `说明书正文包含占位、跳转或无来源事实，正在尝试改写（${attempt + 1}/${MAX_DOCUMENT_CONTENT_REPAIR_ATTEMPTS}）`,
         }),
       );
 
@@ -246,7 +258,6 @@ export async function runDocumentStagePipeline(
   snapshot.mimeType = document.mimeType;
   snapshot.missingArtifacts = [...new Set(missingArtifacts)];
   snapshot.byteLength = buffer.byteLength;
-  const evidencePackage = attachEvidencePackage(snapshot);
   throwIfRunCancelled(record);
   snapshot.status = "completed";
   snapshot.error = null;
@@ -256,15 +267,6 @@ export async function runDocumentStagePipeline(
       type: "artifact_ready",
       stage: "render_document_file",
       artifactKind: "document",
-    }),
-  );
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "render_document_file",
-      artifactKind: "evidencePackage",
-      evidencePackage,
     }),
   );
   emitEvent(

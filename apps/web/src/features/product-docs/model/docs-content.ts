@@ -85,7 +85,7 @@ export const PRODUCT_DOC_CATEGORIES: readonly ProductDocCategory[] = [
   {
     id: "feasibility",
     label: "可行性分析",
-    description: "上下文图、候选实现方案、成本收益、风险、结论和研究报告。",
+    description: "系统上下文图（系统环境图）、候选实现方案、成本收益、风险、结论和研究报告。",
   },
   {
     id: "models",
@@ -221,7 +221,7 @@ const ARTICLE_MANIFEST = [
     recommendedPath: true,
     sourcePath: "../content/generation-tasks-history.md",
     tags: ["生成任务", "运行历史", "重试", "恢复快照", "证据"],
-    relatedArtifacts: ["RunSnapshot", "RunEvent", "EvidencePackage"],
+    relatedArtifacts: ["RunSnapshot", "RunEvent", "CoverageMatrix"],
     screenshot: {
       src: "/help/images/docs-generation-task.png",
       alt: "生成任务和运行历史抽屉截图",
@@ -310,18 +310,18 @@ const ARTICLE_MANIFEST = [
   },
   {
     id: "feasibility-analysis",
-    title: "可行性分析：上下文图、实现方案与研究报告",
+    title: "可行性分析：系统上下文图（系统环境图）、实现方案与研究报告",
     category: "feasibility",
-    summary: "从已接受规则生成上下文图和可编辑实现方案，并保持研究报告产物有效。",
+    summary: "从已接受规则生成系统上下文图（系统环境图）和可编辑实现方案，并保持研究报告产物有效。",
     estimatedMinutes: 14,
     recommendedPath: true,
     sourcePath: "../content/feasibility-analysis.md",
-    tags: ["可行性分析", "上下文图", "实现方案", "成本收益", "风险", "五类结论", "可行性研究报告"],
+    tags: ["可行性分析", "系统上下文图（系统环境图）", "实现方案", "成本收益", "风险", "五类结论", "可行性研究报告"],
     relatedArtifacts: ["FeasibilityContextModel", "ImplementationPlan", "FeasibilityStudy", "TraceabilityMatrix"],
     screenshot: {
       src: "/help/images/docs-feasibility.png",
-      alt: "可行性分析上下文图和实现方案产物概览截图",
-      caption: "可行性分析按上下文图和实现方案的依赖顺序生成，并显示当前有效性。",
+      alt: "可行性分析系统上下文图（系统环境图）和实现方案产物概览截图",
+      caption: "可行性分析按系统上下文图（系统环境图）和实现方案的依赖顺序生成，并显示当前有效性。",
     },
   },
   {
@@ -495,7 +495,7 @@ const EN_CATEGORY_TEXT: Record<ProductDocCategoryId, Pick<ProductDocCategory, "l
   },
   feasibility: {
     label: "Feasibility analysis",
-    description: "Context diagrams, candidate implementation plans, cost-benefit analysis, risks, conclusions, and reports.",
+    description: "System Context Diagrams (System Environment Diagrams), candidate implementation plans, cost-benefit analysis, risks, conclusions, and reports.",
   },
   models: {
     label: "UML and model details",
@@ -564,7 +564,7 @@ const EN_ARTICLE_TEXT: Record<
     title: "Generation tasks, run history, and evidence review",
     summary: "Inspect queued, running, failed, retried, restored, and evidence-backed runs.",
     tags: ["Generation tasks", "Run history", "Retry", "Restore snapshot", "Evidence"],
-    relatedArtifacts: ["RunSnapshot", "RunEvent", "EvidencePackage"],
+    relatedArtifacts: ["RunSnapshot", "RunEvent", "CoverageMatrix"],
   },
   "recommended-models": {
     title: "Recommended models",
@@ -597,9 +597,9 @@ const EN_ARTICLE_TEXT: Record<
     relatedArtifacts: ["RequirementBaseline", "QualityReport", "ReviewCandidate"],
   },
   "feasibility-analysis": {
-    title: "Feasibility analysis: context, implementation plan, and report",
-    summary: "Generate a context model and editable implementation options from accepted rules, then keep the feasibility report current.",
-    tags: ["Feasibility analysis", "Context diagram", "Implementation plan", "Cost-benefit", "Risks", "Five conclusions", "Feasibility report"],
+    title: "Feasibility analysis: System Context Diagram (System Environment Diagram), implementation plan, and report",
+    summary: "Generate a System Context Diagram (System Environment Diagram) and editable implementation options from accepted rules, then keep the feasibility report current.",
+    tags: ["Feasibility analysis", "System Context Diagram (System Environment Diagram)", "Implementation plan", "Cost-benefit", "Risks", "Five conclusions", "Feasibility report"],
     relatedArtifacts: ["FeasibilityContextModel", "ImplementationPlan", "FeasibilityStudy", "TraceabilityMatrix"],
   },
   "uml-models": {

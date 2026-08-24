@@ -37,7 +37,7 @@ function sanitizeResultDialogCopy(text: string) {
     .replace(/\bREQ-\d+\b/giu, i18n.t("generation.dialog.thisRequirement"))
     .replace(/\bR\d+\b/giu, i18n.t("generation.dialog.thisRule"))
     .replace(/\brun[-_a-z0-9]+\b/giu, i18n.t("generation.dialog.thisRun"))
-    .replace(/\b(runId|requirementId|ruleId|EvidencePackage)\b/giu, "")
+    .replace(/\b(runId|requirementId|ruleId)\b/giu, "")
     .replace(/\.docx\b/giu, "")
     .replace(/\bAI\b/giu, i18n.t("generation.dialog.smartRepair"))
     .replace(/\s+/g, " ")

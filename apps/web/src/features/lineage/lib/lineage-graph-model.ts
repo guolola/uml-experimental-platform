@@ -32,7 +32,6 @@ import type {
   GenerationTask,
   WorkspaceSessionState,
 } from "../../workspace-session/model/session-state";
-import { findBlockingEvidencePackage } from "../../workspace-session/lib/evidence-gate";
 import { DESIGN_REQUIREMENT_SOURCE_MAP } from "../../workspace-session/lib/generation-planning";
 
 export type LineageStage =
@@ -167,13 +166,6 @@ const REQUIRED_DESIGN_DIAGRAMS = ["sequence", "class"] as const satisfies Design
 
 function requirementSourceMissing(input: LineageGraphInput) {
   return input.requirementText.trim().length === 0;
-}
-
-function evidenceGateReason(
-  input: LineageGraphInput,
-  scopes: Parameters<typeof findBlockingEvidencePackage>[1],
-) {
-  return findBlockingEvidencePackage(input.historyItems, scopes)?.reason ?? null;
 }
 
 const RUNNING_STATUSES = new Set(["queued", "running"]);
@@ -764,7 +756,6 @@ function designStatus(
   if (subtaskFailureFor(input, "design", diagram)) return "error";
   if (subtaskActiveFor(input, "design", diagram)) return "running";
   if (interruptedHistoryForKind(input, "design")) return "interrupted";
-  if (evidenceGateReason(input, ["requirements"])) return "stale";
   if (designRenderMissing(input, diagram)) return "stale";
   if (
     requirementSourceMissing(input) &&
@@ -800,10 +791,6 @@ function designReason(
     return `${label}${hasDesignModel(input, diagram) ? "上一版仍可查看，" : ""}${interruptedRunSummary(interrupted)}`;
   }
   if (status === "stale") {
-    const evidenceReason = evidenceGateReason(input, ["requirements"]);
-    if (evidenceReason) {
-      return `${label}的上游${evidenceReason}`;
-    }
     if (requirementSourceMissing(input)) {
       return `需求源头已删除，${label}为旧产物，仍可查看但需重新输入需求并重跑。`;
     }
@@ -823,7 +810,6 @@ function codeStatus(input: LineageGraphInput): LineageNodeStatus {
   if (failedTaskForKind(input, "code")) return "error";
   if (failedRegenerateCodeHistory(input)) return "error";
   if (interruptedHistoryForKind(input, "code")) return "interrupted";
-  if (evidenceGateReason(input, ["requirements", "design"])) return "stale";
   if (requirementSourceMissing(input) && hasCodeArtifact(input)) return "stale";
   if (hasCodeArtifact(input) && hasCodeDiagnostics({ diagnostics: input.codeDiagnostics })) {
     return "stale";
@@ -855,10 +841,6 @@ function codeReason(input: LineageGraphInput, status: LineageNodeStatus) {
     if (requirementSourceMissing(input)) {
       return "需求源头已删除，当前代码为旧产物，仍可查看但需重新输入需求并重跑。";
     }
-    const evidenceReason = evidenceGateReason(input, ["requirements", "design"]);
-    if (evidenceReason) {
-      return `代码生成的上游${evidenceReason}`;
-    }
     const summary = formatCodeDiagnosticSummary({
       diagnostics: input.codeDiagnostics,
     });
@@ -889,9 +871,6 @@ function documentStatus(input: LineageGraphInput, documentKind: DocumentKind): L
     )
   ) {
     return "interrupted";
-  }
-  if (evidenceGateReason(input, ["requirements", "design", "code"])) {
-    return "stale";
   }
   const completedHistory = documentHistoryFor(input, documentKind);
   if (!completedHistory) return "not-generated";
@@ -934,14 +913,6 @@ function documentReason(
   if (status === "stale") {
     if (requirementSourceMissing(input)) {
       return `${label}基于已删除的需求源头生成，仍可查看/下载但需重新输入需求后重跑。`;
-    }
-    const evidenceReason = evidenceGateReason(input, [
-      "requirements",
-      "design",
-      "code",
-    ]);
-    if (evidenceReason) {
-      return `${label}的上游${evidenceReason}`;
     }
     const history = documentHistoryFor(input, documentKind);
     if (documentHistoryIsDeleted(history)) {

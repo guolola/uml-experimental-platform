@@ -23,8 +23,10 @@ import {
   type ContextDiagramSpec,
   type ContextTraceRow,
   type FeasibilityImplementationPlan,
+  type CoverageMatrix,
   type PlantUmlArtifact,
   type SvgArtifact,
+  type TraceabilityMatrix,
 } from "@uml-platform/contracts";
 import {
   buildEmptyRequirementBaseline,
@@ -83,7 +85,6 @@ export function createEmptySnapshot(
     requirementBaseline,
     coverageMatrix: null,
     traceabilityMatrix: null,
-    evidencePackage: null,
     models: context.models ?? [],
     requirementModelTraceability: context.requirementModelTraceability ?? [],
     plantUml: [],
@@ -125,7 +126,6 @@ export function createEmptyDesignSnapshot(
     requirementBaseline: input.requirementBaseline,
     coverageMatrix: null,
     traceabilityMatrix: null,
-    evidencePackage: null,
     requirementModels: input.requirementModels,
     requirementModelTraceability: input.requirementModelTraceability,
     models: input.existingDesignModels ?? [],
@@ -146,9 +146,13 @@ export function createEmptyCodeSnapshot(
     designPlantUml?: Array<{ diagramKind: DesignDiagramKind; source: string }>;
     existingFiles?: Record<string, string>;
     generationMode?: "continue" | "regenerate";
+    requirementBaseline?: RequirementBaseline | null;
+    coverageMatrix?: CoverageMatrix | null;
+    traceabilityMatrix?: TraceabilityMatrix | null;
   },
 ): CodeRunSnapshot {
   const generationMode = input.generationMode ?? "continue";
+  const requirementBaseline = input.requirementBaseline ?? null;
   const existingFiles = Object.fromEntries(
     Object.entries(input.existingFiles ?? {}).filter(
       ([path]) => !normalizeSnapshotFilePath(path).startsWith("/src/docs/"),
@@ -156,9 +160,16 @@ export function createEmptyCodeSnapshot(
   );
   return codeRunSnapshotSchema.parse({
     runId,
-    coverageMatrix: null,
-    traceabilityMatrix: null,
-    evidencePackage: null,
+    ...(requirementBaseline
+      ? {
+          requirementText: requirementBaseline.requirements
+            .map((requirement) => requirement.sourceFragment)
+            .join("\n"),
+          requirementBaseline,
+        }
+      : {}),
+    coverageMatrix: input.coverageMatrix ?? null,
+    traceabilityMatrix: input.traceabilityMatrix ?? null,
     designModels: input.designModels,
     designPlantUml: input.designPlantUml ?? [],
     spec: null,
@@ -203,6 +214,8 @@ export function createEmptyDocumentSnapshot(
     documentKind: DocumentKind;
     requirementText: string;
     requirementBaseline?: RequirementBaseline | null;
+    coverageMatrix?: CoverageMatrix | null;
+    traceabilityMatrix?: TraceabilityMatrix | null;
   },
 ): DocumentRunSnapshot {
   const requirementBaseline =
@@ -219,9 +232,8 @@ export function createEmptyDocumentSnapshot(
     documentKind: input.documentKind,
     requirementText: input.requirementText,
     requirementBaseline,
-    coverageMatrix: null,
-    traceabilityMatrix: null,
-    evidencePackage: null,
+    coverageMatrix: input.coverageMatrix ?? null,
+    traceabilityMatrix: input.traceabilityMatrix ?? null,
     documentId: null,
     sections: [],
     fileName,

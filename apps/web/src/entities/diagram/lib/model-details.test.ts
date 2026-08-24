@@ -7,7 +7,7 @@ describe("buildDiagramDetailModel", () => {
     const details = buildDiagramDetailModel({
       diagramKind: "context",
       modelId: "context",
-      title: "系统上下文图",
+      title: "系统上下文图（系统环境图）",
       summary: "系统边界",
       notes: [],
       system: { id: "system", name: "维修系统", sourceRequirementIds: [] },

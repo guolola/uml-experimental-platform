@@ -192,6 +192,25 @@ test("renderDocumentBuffer injects document fonts into MindMap diagrams", async 
   assert.match(calls[0]?.source ?? "", /skinparam defaultFontName "Noto Sans CJK SC"/u);
 });
 
+test("renderDocumentBuffer uses the actual project name on specification covers", async () => {
+  const buffer = await renderDocumentBuffer(
+    "requirementsSpec",
+    [],
+    new Map(),
+    new Set(),
+    async () => ({ png: Buffer.from("png") }),
+    [],
+    undefined,
+    { projectName: "可信链路复测 A" },
+  );
+
+  const documentXml =
+    extractDocxEntries(buffer).get("word/document.xml")?.toString("utf8") ?? "";
+  assert.match(documentXml, /项目名称：可信链路复测 A/u);
+  assert.match(documentXml, /文档版本：V1\.0/u);
+  assert.doesNotMatch(documentXml, /项目名称：软件系统/u);
+});
+
 test("resolvePngImageTransformation preserves diagram aspect ratios", () => {
   assert.deepEqual(resolvePngImageTransformation(pngHeader(1600, 400)), {
     width: 560,

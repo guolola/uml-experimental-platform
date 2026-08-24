@@ -54,6 +54,7 @@ jobs:
           npm run test:api
           npm run test:render
           npm run test:web
+          npm run test:harness-eval
 
       - name: Build
         run: npm run build

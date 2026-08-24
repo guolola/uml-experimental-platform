@@ -1,5 +1,6 @@
 // Builds traceability matrix rows from workspace state without rendering UI.
 import type {
+  CoverageMatrix,
   DesignDiagramKind,
   DiagramKind,
   ContextDiagramSpec,
@@ -189,7 +190,7 @@ export const DEFAULT_TRACEABILITY_ROW_COPY: TraceabilityRowCopy = {
     directedInteraction: "有向交互",
     bidirectionalInteraction: "双向交互",
     invalidSources: (ids) => `无效来源规则：${ids}`,
-    incompleteTrace: "持久化跟踪数据不完整，请保存或重新生成上下文图。",
+    incompleteTrace: "持久化跟踪数据不完整，请保存或重新生成系统上下文图（系统环境图）。",
     deterministicMapping: "根据上下文模型的来源规则编号确定性映射。",
     missingSource: "缺少来源需求规则。",
     sourceRules: (ids) => `来源规则：${ids}`,
@@ -225,6 +226,12 @@ export const DEFAULT_TRACEABILITY_ROW_COPY: TraceabilityRowCopy = {
 function refKey(ref: Pick<ModelElementRef, "diagramKind" | "elementId" | "modelId">) {
   const scope = ref.modelId?.trim() || ref.diagramKind;
   return `${scope}:${ref.diagramKind}:${ref.elementId}`.toLowerCase();
+}
+
+function trustedRefId(
+  ref: Pick<ModelElementRef, "diagramKind" | "elementId" | "modelId">,
+) {
+  return `${ref.modelId ? `${ref.modelId}:` : ""}${ref.diagramKind}:${ref.elementId}`.toLowerCase();
 }
 
 export function formatRuleId(id: string) {
@@ -502,6 +509,7 @@ export function buildRequirementRows(
   traceability: ReturnType<typeof useWorkspaceSession>["requirementModelTraceability"],
   scope?: MatrixScope,
   copy = DEFAULT_TRACEABILITY_ROW_COPY,
+  coverageMatrix?: CoverageMatrix | null,
 ): ElementRow[] {
   if (scope?.diagramKind === "analysis") {
     return buildAnalysisRequirementRows(models, scope, copy);
@@ -517,9 +525,24 @@ export function buildRequirementRows(
       rationale?: string;
     }>
   >();
+  const trustedModelElements = coverageMatrix
+    ? new Set(
+        coverageMatrix.rows.flatMap((row) =>
+          row.modelElements.map((elementId) => elementId.toLowerCase()),
+        ),
+      )
+    : null;
   for (const entry of traceability) {
     const rule = rulesById.get(entry.ruleId.toLowerCase());
     if (!rule) continue;
+    // Raw mappings remain visible in run evidence, but only semantically
+    // validated targets contribute to the user-facing coverage matrix.
+    if (
+      trustedModelElements &&
+      !trustedModelElements.has(trustedRefId(entry.target))
+    ) {
+      continue;
+    }
     const key = refKey(entry.target);
     traceByTarget.set(key, [
       ...(traceByTarget.get(key) ?? []),
@@ -615,6 +638,7 @@ export function buildDesignRows(
   designTraceability: ReturnType<typeof useWorkspaceSession>["designModelTraceability"],
   scope?: MatrixScope,
   copy = DEFAULT_TRACEABILITY_ROW_COPY,
+  coverageMatrix?: CoverageMatrix | null,
 ): ElementRow[] {
   const requirementRefMap = new Map(
     refsForRequirementModels(requirementModels, undefined, copy).map(({ ref }) => [refKey(ref), ref]),
@@ -623,7 +647,20 @@ export function buildDesignRows(
     string,
     ReturnType<typeof useWorkspaceSession>["designModelTraceability"][number]
   >();
+  const trustedDesignElements = coverageMatrix
+    ? new Set(
+        coverageMatrix.rows.flatMap((row) =>
+          row.designElements.map((elementId) => elementId.toLowerCase()),
+        ),
+      )
+    : null;
   for (const entry of deriveVisibleUpstreamDesignRefs(designTraceability)) {
+    if (
+      trustedDesignElements &&
+      !trustedDesignElements.has(trustedRefId(entry.source))
+    ) {
+      continue;
+    }
     traceBySource.set(entry.source.elementId ? refKey(entry.source) : "", entry);
   }
 

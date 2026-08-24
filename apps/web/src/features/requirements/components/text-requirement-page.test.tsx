@@ -1381,7 +1381,7 @@ describe("TextRequirementView", () => {
       screen.queryByRole("dialog", { name: "单项智能修复完成" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/REQ-013|runId|requirementId|EvidencePackage/u),
+      screen.queryByText(/REQ-013|runId|requirementId/u),
     ).not.toBeInTheDocument();
     expect(within(r14Row).getByText("有待确认提示")).toBeInTheDocument();
     expect(
@@ -1948,21 +1948,8 @@ describe("TextRequirementView", () => {
         r1: expect.objectContaining({ status: "accepted" }),
       }),
     );
-    await waitFor(() => {
-      expect(updateRequirementRules).toHaveBeenLastCalledWith(
-        [
-          expect.objectContaining({
-            id: "r1",
-            sourceFragment: "系统应允许用户提交订单。",
-            text: "用户可以提交（对象：订单），结果：系统创建订单。",
-          }),
-        ],
-        expect.objectContaining({
-          requirementInputFingerprint: expect.stringMatching(/^fp:v2:/),
-          rulesVersion: expect.any(Number),
-        }),
-      );
-    });
+    expect(updateRequirementRules).not.toHaveBeenCalled();
+    expect(rule.text).toBe("系统应允许用户提交订单。");
     await waitFor(() => {
       expect(within(table).getByText("已确认")).toBeInTheDocument();
       expect(within(table).getByText("已采纳修复")).toBeInTheDocument();

@@ -91,8 +91,8 @@ export function getProjectRunStageLabel(run: PlatformRunSummary, t?: TFunction) 
   const normalized = (stage ?? "").toLowerCase();
   const runKind = getProjectRunKind(run);
   if (!normalized) return label("waiting", "等待开始");
-  if (normalized.includes("generate_context")) return label("context", "生成上下文图");
-  if (normalized.includes("render_context")) return label("renderContext", "渲染上下文图");
+  if (normalized.includes("generate_context")) return label("context", "生成系统上下文图（系统环境图）");
+  if (normalized.includes("render_context")) return label("renderContext", "渲染系统上下文图（系统环境图）");
   if (normalized.includes("generate_implementation")) return label("implementation", "生成实现方案");
   if (
     runKind === "feasibility" &&

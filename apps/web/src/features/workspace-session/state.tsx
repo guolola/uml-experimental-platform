@@ -132,10 +132,6 @@ import {
   replaceCodePreviewDiagnostic,
 } from "../../shared/lib/code-preview-diagnostics";
 import {
-  evidencePackageBlockReason,
-  latestEvidencePackageForScopes,
-} from "./lib/evidence-gate";
-import {
   analyzeDesignGenerationPreflight,
   analyzeRequirementGenerationPreflight,
 } from "./lib/generation-preflight";
@@ -201,6 +197,24 @@ function downstreamDesignBlockReason(input: {
   }
 
   return null;
+}
+
+function latestTrustedMatrices(historyItems: RunHistoryItem[]) {
+  const latest = [...historyItems]
+    .sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    )
+    .map((item) => item.snapshot)
+    .find(
+      (snapshot) =>
+        Boolean(snapshot?.coverageMatrix) ||
+        Boolean(snapshot?.traceabilityMatrix),
+    );
+  return {
+    coverageMatrix: latest?.coverageMatrix ?? null,
+    traceabilityMatrix: latest?.traceabilityMatrix ?? null,
+  };
 }
 
 function documentGenerationInputFingerprint(input: {
@@ -420,6 +434,16 @@ export function WorkspaceSessionProvider({
     if (nextDiagnostics.length === currentDiagnostics.length) return;
     persistCodeDiagnostics(nextDiagnostics);
   }, [persistCodeDiagnostics]);
+  const [testGenerationResult, setTestGenerationResult] = useState<
+    WorkspaceRecord["testGenerationResult"]
+  >(null);
+  const updateTestGenerationResult = useCallback(
+    async (result: WorkspaceRecord["testGenerationResult"]) => {
+      setTestGenerationResult(result);
+      await repository.updateTestGenerationResult?.(result);
+    },
+    [repository],
+  );
   const { currentRunDiagnostics, setCurrentRunDiagnostics } =
     useRunDiagnosticsSlice();
   const [runUiState, setRunUiState] = useState(createEmptyRunUiState);
@@ -619,6 +643,7 @@ export function WorkspaceSessionProvider({
       setCodeSkillResourcePlan,
       setCodeSkillContext,
       setCodeDiagnostics,
+      setTestGenerationResult,
       setGeneratedDiagrams,
       setGeneratedDesignDiagrams,
       setRulesVersion,
@@ -1541,15 +1566,6 @@ export function WorkspaceSessionProvider({
 
       try {
         await flushRequirementTextSave();
-        const upstreamEvidencePackage = latestEvidencePackageForScopes(
-          historyItems,
-          ["requirements"],
-        );
-        const evidenceBlockReason =
-          evidencePackageBlockReason(upstreamEvidencePackage);
-        if (evidenceBlockReason) {
-          throw new Error(evidenceBlockReason);
-        }
         const activeRequirementBaseline =
           requirementContext?.requirementBaseline ?? requirementBaseline;
         const activeRequirementModels =
@@ -1668,7 +1684,6 @@ export function WorkspaceSessionProvider({
             };
           }),
           Object.values(designSvgArtifacts),
-          upstreamEvidencePackage,
         );
         providerModel = startInput.providerSettings.model;
         clientTaskId = enqueueGenerationTask({
@@ -2513,6 +2528,7 @@ export function WorkspaceSessionProvider({
             rules,
           },
         );
+        const trustedMatrices = latestTrustedMatrices(historyItems);
         const startInput = createStartDocumentRunInput(
           documentKind,
           requirementText,
@@ -2525,18 +2541,8 @@ export function WorkspaceSessionProvider({
           designPlantUmlList,
           designSvgArtifactList,
           documentStyle,
-          (() => {
-            const upstreamEvidencePackage = latestEvidencePackageForScopes(
-              historyItems,
-              ["requirements", "design", "code"],
-            );
-            const evidenceBlockReason =
-              evidencePackageBlockReason(upstreamEvidencePackage);
-            if (evidenceBlockReason) {
-              throw new Error(evidenceBlockReason);
-            }
-            return upstreamEvidencePackage;
-          })(),
+          trustedMatrices.coverageMatrix,
+          trustedMatrices.traceabilityMatrix,
         );
         providerModel = startInput.providerSettings.model;
         const documentTitle =
@@ -3271,6 +3277,8 @@ export function WorkspaceSessionProvider({
       codeSkillResourcePlan,
       codeSkillContext,
       codeDiagnostics,
+      testGenerationResult,
+      updateTestGenerationResult,
       codeEditVersion,
       updateCodeFile,
       recordCodePreviewDiagnostic,
@@ -3384,6 +3392,8 @@ export function WorkspaceSessionProvider({
       codeSkillResourcePlan,
       codeSkillContext,
       codeDiagnostics,
+      testGenerationResult,
+      updateTestGenerationResult,
       codeEditVersion,
       updateCodeFile,
       recordCodePreviewDiagnostic,

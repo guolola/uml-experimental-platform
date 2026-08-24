@@ -30,7 +30,7 @@ function selectedDiagramHardRules(selectedDiagrams: DiagramKind[]) {
   if (unique.length === 1) {
     const [kind] = unique;
     const labels: Record<DiagramKind, string> = {
-      context: "上下文图",
+      context: "系统上下文图（系统环境图）",
       function: "功能结构图",
       usecase: "用例模型",
       class: "领域概念模型",
@@ -488,6 +488,8 @@ export function buildGenerateModelsPrompt(
     "你必须从需求项中提取参与者、约束、功能点、流程和部署信息，不能依赖不存在的 SRS 字段。",
     "禁止使用原始需求文本作为事实来源；本阶段只能使用已确认需求规则和 RequirementBaseline。",
     "如果需求规则与 RequirementBaseline 冲突，必须以 RequirementBaseline 中 accepted 的原子需求、质量报告和字段来源为准。",
+    "数字、单位和比较符是受保护语义：达到/至少/不低于/以上必须保持为 >=，不超过/以内必须保持为 <=；不得把“达到5000元（包含正好5000元）”改成“超过5000元”或把互补分支写成“<=5000元”。",
+    "判断节点、关系 condition/guard、事件流和 notes 中涉及同一阈值时必须使用一致的比较符；正好等于阈值的路径必须进入已确认规则指定的分支。",
     REQUIREMENT_STAGE_SEMANTICS,
     "只生成以下图类型：",
     selectedDiagrams.join(", "),
@@ -547,6 +549,7 @@ export function buildRepairModelsPrompt(
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何额外文字。",
     "JSON 必须完整合法，字符串必须正确转义，不能出现未闭合字符串、未闭合数组/对象或裸换行。",
     "只修复 JSON 结构问题，不要改变原有业务语义。",
+    "数字、单位和比较符是受保护语义：达到/至少/不低于/以上必须保持为 >=，不超过/以内必须保持为 <=；若校验指出阈值语义冲突，必须同时修正判断节点、condition/guard 和互补分支，确保正好等于阈值时进入已确认规则指定的路径。",
     "已确认需求项和 RequirementBaseline 是唯一权威基线；禁止使用原始需求文本作为事实来源。",
     REQUIREMENT_STAGE_SEMANTICS,
     "notes 必须是字符串数组，不能是对象数组。",

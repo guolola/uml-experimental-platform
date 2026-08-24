@@ -1622,7 +1622,7 @@ describe("App shell routes", () => {
       );
       if (routeCase.path === "/cases") {
         expect(screen.getAllByText("预置可行性分析")).toHaveLength(4);
-        expect(screen.getAllByText("系统上下文图")).toHaveLength(4);
+        expect(screen.getAllByText("系统上下文图（系统环境图）")).toHaveLength(4);
         expect(screen.getAllByText("两套候选实现方案")).toHaveLength(4);
       }
       expect(screen.queryByText("项目导航")).not.toBeInTheDocument();

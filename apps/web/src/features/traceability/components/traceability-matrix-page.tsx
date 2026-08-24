@@ -56,6 +56,15 @@ type TraceabilityRef = {
   diagramKind?: DiagramKind | DesignDiagramKind;
   label?: string;
 };
+
+function historyRunKind(item: ReturnType<typeof useWorkspaceSession>["historyItems"][number]) {
+  if (item.runKind) return item.runKind;
+  if (!item.snapshot) return null;
+  if ("documentKind" in item.snapshot) return "document";
+  if ("files" in item.snapshot) return "code";
+  if ("requirementModels" in item.snapshot) return "design";
+  return "requirements";
+}
 function ChipList({
   items,
   emptyText,
@@ -189,6 +198,7 @@ export function TraceabilityMatrixPage({
     designModels,
     requirementModelTraceability,
     designModelTraceability,
+    historyItems,
     requirementTraceabilityStale,
     designTraceabilityStale,
   } = useWorkspaceSession();
@@ -203,6 +213,27 @@ export function TraceabilityMatrixPage({
   const isAnalysisRequirementScope = !isDesign && scope?.diagramKind === "analysis";
   const refSeparator = t("traceability.refSeparator");
   const traceabilityCopy = useMemo(() => createTraceabilityCopy(t), [t]);
+  const trustedCoverageMatrix = useMemo(
+    () => {
+      const acceptedKinds = new Set(
+        isDesign ? ["design"] : ["design", "requirements"],
+      );
+      return (
+        [...historyItems]
+          .sort(
+            (left, right) =>
+              new Date(right.createdAt).getTime() -
+              new Date(left.createdAt).getTime(),
+          )
+          .find(
+            (item) =>
+              acceptedKinds.has(historyRunKind(item) ?? "") &&
+              Boolean(item.snapshot?.coverageMatrix),
+          )?.snapshot?.coverageMatrix ?? null
+      );
+    },
+    [historyItems, isDesign],
+  );
   const rows = useMemo(
     () =>
       isContext
@@ -221,8 +252,16 @@ export function TraceabilityMatrixPage({
             designModelTraceability,
             scope,
             traceabilityCopy,
+            trustedCoverageMatrix,
           )
-        : buildRequirementRows(rules, models, requirementModelTraceability, scope, traceabilityCopy),
+        : buildRequirementRows(
+            rules,
+            models,
+            requirementModelTraceability,
+            scope,
+            traceabilityCopy,
+            trustedCoverageMatrix,
+          ),
     [
       designModelTraceability,
       designModels,
@@ -234,6 +273,7 @@ export function TraceabilityMatrixPage({
       rules,
       scope,
       traceabilityCopy,
+      trustedCoverageMatrix,
     ],
   );
   const groupOptions = useMemo(() => buildGroupOptions(rows), [rows]);

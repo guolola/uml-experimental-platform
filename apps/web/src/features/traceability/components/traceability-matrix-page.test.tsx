@@ -742,7 +742,7 @@ describe("TraceabilityMatrixPage", () => {
       ),
     );
 
-    expect(await screen.findByRole("heading", { name: "上下文图跟踪矩阵" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "系统上下文图（系统环境图）跟踪矩阵" })).toBeInTheDocument();
     expect(screen.getByText("3 项")).toBeInTheDocument();
     expect(screen.queryByText("订单系统")).not.toBeInTheDocument();
     expect(screen.getByText(/覆盖完整性：/)).toHaveTextContent("100%");

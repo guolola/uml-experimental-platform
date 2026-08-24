@@ -171,6 +171,28 @@ test("buildRequirementBaseline marks missing actors as audit hints without block
   assert.doesNotThrow(() => assertRequirementBaselineAllowsDownstream(baseline));
 });
 
+test("buildRequirementBaseline accepts explicitly labeled user facts without inventing an actor", () => {
+  const source =
+    "[CONFIRMED-B03] 报销总额达到5000元（包含正好5000元）时必须由直属经理审批。";
+  const baseline = buildRequirementBaseline({
+    runId: "run-confirmed-label",
+    requirementText: source,
+    rules: [
+      {
+        id: "r3",
+        category: "业务规则",
+        text: "报销总额达到5000元（包含正好5000元）时必须由直属经理审批。",
+        sourceFragment: source,
+        relatedDiagrams: ["activity"],
+      },
+    ],
+  });
+
+  assert.equal(baseline.requirements[0]?.status, "accepted");
+  assert.equal(baseline.requirements[0]?.confidence, 0.95);
+  assert.equal(baseline.requirements[0]?.actor, null);
+});
+
 test("assertRequirementBaselineAllowsDownstream rejects blocked quality reports", () => {
   const baseline = buildRequirementBaseline({
     runId: "run-blocked-baseline",

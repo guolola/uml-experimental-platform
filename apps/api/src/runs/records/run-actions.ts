@@ -27,6 +27,7 @@ import { createRunError } from "../pipelines/shared/errors.js";
 function createQueuedSnapshotFromSource(
   source: RunRecord["snapshot"],
   newRunId: string,
+  action: Extract<RunAction, "retry" | "rerun">,
 ): RunRecord["snapshot"] {
   if ("selectedArtifacts" in source) {
     return createEmptyFeasibilitySnapshot(newRunId, {
@@ -58,30 +59,73 @@ function createQueuedSnapshotFromSource(
       designModels: source.designModels,
       designPlantUml: source.designPlantUml,
       existingFiles: source.files,
-      generationMode: source.generationMode,
+      // A failed-code retry must repair the diagnostic candidate in place.
+      // Clearing it would silently turn "retry" into a full regeneration.
+      generationMode: action === "retry" ? "continue" : source.generationMode,
+      requirementBaseline: source.requirementBaseline,
     });
   }
 
   if ("designModelTraceability" in source) {
+    const retryDiagrams = action === "retry"
+      ? Array.from(
+          new Set(
+            Object.entries(source.diagramErrors)
+              .filter(([, value]) => value.error.retryable)
+              .map(([key]) => key.split(":")[0])
+              .filter((key) =>
+                source.selectedDiagrams.includes(
+                  key as (typeof source.selectedDiagrams)[number],
+                ),
+              ),
+          ),
+        ) as typeof source.selectedDiagrams
+      : [];
+    const selectedDiagrams =
+      retryDiagrams.length > 0 ? retryDiagrams : source.selectedDiagrams;
     return createEmptyDesignSnapshot(newRunId, {
-      selectedDiagrams: source.selectedDiagrams,
-      requestedDiagrams: source.requestedDiagrams,
+      selectedDiagrams,
+      requestedDiagrams:
+        retryDiagrams.length > 0 ? retryDiagrams : source.requestedDiagrams,
       requirementBaseline:
         source.requirementBaseline ?? buildEmptyRequirementBaseline({ runId: newRunId }),
       requirementModels: source.requirementModels,
       requirementModelTraceability: source.requirementModelTraceability,
+      existingDesignModels: source.models,
+      existingDesignModelTraceability: source.designModelTraceability,
+      existingDesignPlantUml: source.plantUml,
+      existingDesignSvgArtifacts: source.svgArtifacts,
     });
   }
 
+  const retryDiagrams = action === "retry"
+    ? Array.from(
+        new Set(
+          Object.entries(source.diagramErrors)
+            .filter(([, value]) => value.error.retryable)
+            .map(([key]) => key.split(":")[0])
+            .filter((key) =>
+              source.selectedDiagrams.includes(
+                key as (typeof source.selectedDiagrams)[number],
+              ),
+            ),
+        ),
+      ) as typeof source.selectedDiagrams
+    : [];
+  const selectedDiagrams =
+    retryDiagrams.length > 0 ? retryDiagrams : source.selectedDiagrams;
   return createEmptySnapshot(
     newRunId,
     source.requirementText,
-    source.selectedDiagrams,
+    selectedDiagrams,
     source.rules,
     {
       analysisTargetUseCaseIds: source.analysisTargetUseCaseIds,
-      requestedDiagrams: source.requestedDiagrams,
+      requestedDiagrams:
+        retryDiagrams.length > 0 ? retryDiagrams : source.requestedDiagrams,
       dependencyDiagrams: source.dependencyDiagrams,
+      models: source.models,
+      requirementModelTraceability: source.requirementModelTraceability,
     },
   );
 }
@@ -144,7 +188,7 @@ export function createQueuedRunFromSource({
   runId?: string;
 }): RunActionResult {
   const record: RunRecord = {
-    snapshot: createQueuedSnapshotFromSource(source.snapshot, runId),
+    snapshot: createQueuedSnapshotFromSource(source.snapshot, runId, action),
     events: [],
     listeners: new Set(),
     terminal: false,

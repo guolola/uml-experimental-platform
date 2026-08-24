@@ -57,9 +57,7 @@ import {
   downloadDocumentFile,
   downloadDocumentRunFile,
   listDocumentLibraryItems,
-  postRunReviewDecision,
   readOnlyOfficeEditorConfig,
-  readRunEvidencePackage,
 } from "./document-api";
 import {
   applySnapshotToWorkspace,
@@ -529,6 +527,21 @@ export function createHttpWorkspaceRepository(
       ) as WorkspaceRecord["codeDiagnostics"];
     },
 
+    async updateTestGenerationResult(result) {
+      if (projectId) {
+        await updateProjectWorkspace((workspace) => {
+          workspace.testGenerationResult = result
+            ? structuredClone(result)
+            : null;
+        });
+        return;
+      }
+      const workspace = await ensureProjectWorkspace();
+      workspace.testGenerationResult = result
+        ? structuredClone(result)
+        : null;
+    },
+
     async updateRequirementReviewState(baseline, candidates) {
       if (projectId) {
         await updateProjectWorkspace((workspace) => {
@@ -621,18 +634,6 @@ export function createHttpWorkspaceRepository(
 
     async getDocumentRunSnapshot(runId: string) {
       return readDocumentRunSnapshot(runId, requireProjectScope(projectId));
-    },
-
-    async getRunEvidence(runId: string) {
-      return readRunEvidencePackage(runId, requireProjectScope(projectId));
-    },
-
-    async submitRunReviewDecision(runId, decision) {
-      return postRunReviewDecision(
-        runId,
-        decision,
-        requireProjectScope(projectId),
-      );
     },
 
     async listDocuments() {

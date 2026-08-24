@@ -21,6 +21,7 @@ import type {
   ContextTraceRow,
   FeasibilityImplementationPlan,
   FeasibilityInputs,
+  TestGenerationResult,
 } from "@uml-platform/contracts";
 import type { DiagramType } from "../diagram/model";
 import type { DesignDiagramType } from "../diagram/model";
@@ -99,6 +100,7 @@ export interface WorkspaceRecord {
   codeSkillResourcePlan: CodeRunSnapshot["skillResourcePlan"];
   codeSkillContext: CodeRunSnapshot["codeSkillContext"];
   codeDiagnostics: CodeRunSnapshot["diagnostics"];
+  testGenerationResult: TestGenerationResult | null;
   requirementInputFingerprint: string | null;
   diagramInputFingerprints: Partial<Record<DiagramType, string>>;
   designInputFingerprints: Record<string, string>;

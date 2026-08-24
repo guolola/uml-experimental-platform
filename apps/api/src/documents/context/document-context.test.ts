@@ -12,6 +12,7 @@ import {
   expectedDocumentDiagramKinds,
   fallbackDocumentSections,
   findForbiddenDocumentPhrases,
+  findUnsupportedDocumentClaims,
 } from "./document-context.js";
 
 const INTERACTIVE_TRACE_REVIEW_PATTERN =
@@ -67,6 +68,57 @@ test("software design documents omit pending traceability review appendix", () =
       INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
     ),
     false,
+  );
+});
+
+test("software design documents preserve accepted numeric business constraints", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "softwareDesignSpec",
+    requirementText: "报销总额达到5000元时必须由直属经理审批。",
+    requirementBaseline: {
+      runId: "run-requirements",
+      sourceDocumentId: "requirements-input",
+      requirements: [
+        {
+          id: "B03",
+          sourceFragment:
+            "报销总额达到5000元（包含正好5000元）时必须由直属经理审批。",
+          type: "business-rule",
+          actor: "直属经理",
+          subject: "报销单",
+          action: "审批",
+          object: "报销单",
+          condition: "报销总额达到5000元（包含正好5000元）",
+          outcome: "进入直属经理审批",
+          confidence: 1,
+          status: "accepted",
+          criticality: "high",
+          acceptanceCriteria: ["正好5000元必须进入直属经理审批"],
+          fieldProvenance: {},
+          sourceRuleId: "R3",
+        },
+      ],
+      assumptions: [],
+      conflicts: [],
+      qualityReport: {
+        runId: "run-requirements",
+        status: "passed",
+        summary: "已确认",
+        issues: [],
+        blockingIssueIds: [],
+        reviewRequiredRequirementIds: [],
+      },
+      createdAt: "2026-07-30T00:00:00.000Z",
+    },
+  });
+
+  const constraintSection = fallbackDocumentSections(input).find(
+    (section) => section.title === "已确认业务约束",
+  );
+  assert.ok(constraintSection);
+  assert.match(
+    constraintSection.table?.rows.flat().join(" ") ?? "",
+    /达到5000元（包含正好5000元）/u,
   );
 });
 
@@ -192,9 +244,8 @@ test("requirements documents omit trace basis column from rule mapping tables", 
     "模型元素",
   ]);
   assert.equal(traceSection.table?.headers.includes("追踪依据"), false);
-  assert.equal(traceSection.table?.rows[0]?.[1], "R1");
-  assert.deepEqual(traceSection.table?.rows[0], ["1", "R1", "Book"]);
-  assert.deepEqual(traceSection.table?.rows[1], ["2", "R2", "图书检索"]);
+  assert.equal(traceSection.table?.rows[0]?.[1], "R2");
+  assert.deepEqual(traceSection.table?.rows[0], ["1", "R2", "图书检索"]);
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>
       INTERACTIVE_TRACE_REVIEW_PATTERN.test(cell),
@@ -203,7 +254,208 @@ test("requirements documents omit trace basis column from rule mapping tables", 
   );
 });
 
-test("software design class matrix omits trace basis column", () => {
+test("analysis sections do not repeat unrelated global rules as direct mappings", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "requirementsSpec",
+    requirementText: "用户登录系统；检索接口在100并发下响应不超过2秒。",
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "用户登录系统。",
+        relatedDiagrams: ["usecase"],
+      },
+      {
+        id: "r2",
+        category: "非功能需求",
+        text: "检索接口在100并发下响应不超过2秒。",
+        relatedDiagrams: ["analysis"],
+      },
+    ],
+    requirementModels: [
+      {
+        diagramKind: "usecase",
+        title: "用例",
+        summary: "登录",
+        notes: [],
+        actors: [],
+        useCases: [
+          {
+            id: "uc_login",
+            name: "登录",
+            goal: "进入系统",
+            preconditions: [],
+            postconditions: [],
+            supportingActorIds: [],
+            eventFlows: [],
+          },
+        ],
+        systemBoundaries: [],
+        relationships: [],
+      },
+      {
+        diagramKind: "analysis",
+        modelId: "analysis:uc_login",
+        sourceUseCaseId: "uc_login",
+        sourceUseCaseName: "登录",
+        title: "登录分析",
+        summary: "登录交互",
+        notes: [],
+        participants: [],
+        messages: [],
+        fragments: [],
+      },
+    ],
+    useAiText: false,
+  });
+
+  const analysisTrace = fallbackDocumentSections(input).find(
+    (section) =>
+      section.title === "跟踪关系" &&
+      section.table?.rows.some((row) => row.includes("无直接规则映射")),
+  );
+  assert.deepEqual(analysisTrace?.table?.rows, [
+    ["1", "无直接规则映射", "由 uc_login 的已确认用例事件流派生"],
+  ]);
+  assert.equal(
+    analysisTrace?.table?.rows.flat().includes("R2"),
+    false,
+  );
+});
+
+test("document grounding detects invented years and reference titles", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "requirementsSpec",
+    requirementText: "建设设备预约系统，审计日志保留2年。",
+  });
+  const sections: DocumentSection[] = [
+    {
+      level: 2,
+      title: "基线",
+      body: ["本文档于2023年形成，参考《高校设备管理规程》。"],
+    },
+  ];
+
+  assert.deepEqual(findUnsupportedDocumentClaims(input, sections), [
+    "无来源年份 2023",
+    "无来源参考资料《高校设备管理规程》",
+  ]);
+  assert.deepEqual(
+    findUnsupportedDocumentClaims(input, [
+      {
+        level: 2,
+        title: "参考资料",
+        body: ["本文档为《需求规格说明书》。"],
+      },
+    ]),
+    [],
+  );
+});
+
+test("requirements documents exclude mappings rejected by trusted coverage evidence", () => {
+  const input = startDocumentRunRequestSchema.parse({
+    documentKind: "requirementsSpec",
+    requirementText: "用户登录后可以搜索课程。",
+    rules: [
+      {
+        id: "r1",
+        category: "功能需求",
+        text: "用户登录系统。",
+        relatedDiagrams: ["usecase"],
+      },
+      {
+        id: "r2",
+        category: "功能需求",
+        text: "用户搜索课程。",
+        relatedDiagrams: ["usecase"],
+      },
+    ],
+    requirementModels: [
+      {
+        diagramKind: "usecase",
+        title: "用例模型",
+        summary: "用户流程",
+        notes: [],
+        actors: [],
+        useCases: [
+          {
+            id: "login",
+            name: "登录",
+            goal: "进入系统",
+            preconditions: [],
+            postconditions: [],
+            supportingActorIds: [],
+          },
+          {
+            id: "search",
+            name: "搜索课程",
+            goal: "找到课程",
+            preconditions: [],
+            postconditions: [],
+            supportingActorIds: [],
+          },
+        ],
+        systemBoundaries: [],
+        relationships: [],
+      },
+    ],
+    requirementModelTraceability: [
+      {
+        ruleId: "r2",
+        target: {
+          diagramKind: "usecase",
+          elementKind: "usecase",
+          elementId: "login",
+          label: "登录",
+        },
+      },
+      {
+        ruleId: "r2",
+        target: {
+          diagramKind: "usecase",
+          elementKind: "usecase",
+          elementId: "search",
+          label: "搜索课程",
+        },
+      },
+    ],
+    coverageMatrix: {
+      runId: "run-trusted",
+      rows: [
+        {
+          requirementId: "r1",
+          status: "pending-review",
+          rationale: "登录错误映射到搜索规则。",
+          modelElements: [],
+          designElements: [],
+          codeArtifacts: [],
+          tests: [],
+          reviewItems: ["TRACE-001"],
+        },
+        {
+          requirementId: "r2",
+          status: "covered",
+          rationale: "搜索用例解释搜索需求。",
+          modelElements: ["usecase:search"],
+          designElements: [],
+          codeArtifacts: [],
+          tests: [],
+          reviewItems: [],
+        },
+      ],
+    },
+    useAiText: false,
+  });
+
+  const traceSection = fallbackDocumentSections(input).find(
+    (section) => section.table?.rows.flat().includes("搜索课程"),
+  );
+
+  assert.ok(traceSection);
+  assert.deepEqual(traceSection.table?.rows, [["1", "R2", "搜索课程"]]);
+});
+
+test("software design class matrix excludes pending mappings", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
     requirementText: "简单图书馆管理系统需要支持借书。",
@@ -256,8 +508,8 @@ test("software design class matrix omits trace basis column", () => {
   ]);
   assert.deepEqual(traceSection.table?.rows[0], [
     "1",
-    "BorrowingService",
-    "用例图：借书",
+    "领域概念模型",
+    "当前图暂无通过语义校验的设计追踪",
   ]);
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>
@@ -267,7 +519,7 @@ test("software design class matrix omits trace basis column", () => {
   );
 });
 
-test("software design class matrix keeps requirement element mapping when no upstream exists", () => {
+test("software design class matrix does not trust pending mapping without upstream", () => {
   const input = startDocumentRunRequestSchema.parse({
     documentKind: "softwareDesignSpec",
     requirementText: "简单图书馆管理系统需要支持借书。",
@@ -306,8 +558,8 @@ test("software design class matrix keeps requirement element mapping when no ups
   assert.ok(traceSection);
   assert.deepEqual(traceSection.table?.rows[0], [
     "1",
-    "BorrowingService",
-    "用例图：借书",
+    "领域概念模型",
+    "当前图暂无通过语义校验的设计追踪",
   ]);
   assert.equal(
     traceSection.table?.rows.flat().some((cell) =>

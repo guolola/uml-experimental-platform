@@ -339,7 +339,7 @@ function createWorkspaceState() {
 
 async function mockProjectApi(page: Page) {
   const unhandledRequests: string[] = [];
-  await page.route("http://127.0.0.1:4001/api/**", async (route) => {
+  await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
@@ -371,6 +371,11 @@ async function mockProjectApi(page: Page) {
 
     if (pathname === "/api/system-notices") {
       await route.fulfill(json({ generatedAt: now, notices: [], unreadCount: 0 }));
+      return;
+    }
+
+    if (pathname === "/api/provider-configs") {
+      await route.fulfill(json({ generatedAt: now, providerConfigs: [] }));
       return;
     }
 
@@ -492,10 +497,11 @@ test("project sidebar aligns scoped models, database fields, SVG focus, and desi
   await sidebar.getByRole("button", { name: "跟踪矩阵" }).click();
   await expect(page.getByRole("heading", { name: "跟踪矩阵 · 设计类图" })).toBeVisible();
   const serviceRow = page.getByRole("row").filter({ hasText: "SeatReservationService" });
-  await expect(serviceRow).toContainText("uc-3 · 发送预约请求");
+  await expect(serviceRow).toContainText("发送预约请求");
   await expect(serviceRow).toContainText("预约座位");
 
   await sidebar.getByRole("button", { name: "展开 数据库设计" }).click();
+  await sidebar.getByRole("button", { name: "展开 元素" }).last().click();
   await sidebar.getByRole("button", { name: "展开 表" }).click();
   await expect(sidebar.getByRole("button", { name: "user", exact: true })).toBeVisible();
   await expect(sidebar.getByRole("button", { name: "user_id", exact: true })).toHaveCount(0);

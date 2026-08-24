@@ -104,11 +104,11 @@ describe("FeasibilityPage", () => {
     const repository = createMockWorkspaceRepository({ rules: [createRule()] });
     render(withWorkspaceProviders(<FeasibilityPage view="overview" />, repository));
     expect(await screen.findByRole("heading", { name: "可行性分析" })).toBeInTheDocument();
-    expect(screen.getByText("上下文图")).toBeInTheDocument();
+    expect(screen.getByText("系统上下文图（系统环境图）")).toBeInTheDocument();
     expect(screen.getByText("实现方案")).toBeInTheDocument();
     expect(screen.getAllByText("未生成")).toHaveLength(2);
     expect(screen.getByText("0/2")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "选择上下文图" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "选择系统上下文图（系统环境图）" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "选择实现方案" })).not.toBeChecked();
     expect(screen.getByRole("button", { name: "生成可行性分析" })).toBeDisabled();
   });
@@ -127,7 +127,7 @@ describe("FeasibilityPage", () => {
     );
 
     await screen.findByRole("heading", { name: "可行性分析" });
-    expect(screen.getByRole("checkbox", { name: "选择上下文图" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "选择系统上下文图（系统环境图）" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "选择实现方案" })).toBeChecked();
     expect(screen.getByText("2/2")).toBeInTheDocument();
   });
@@ -138,11 +138,11 @@ describe("FeasibilityPage", () => {
     render(withWorkspaceProviders(<FeasibilityPage view="overview" />, repository));
     await screen.findByRole("heading", { name: "可行性分析" });
     await user.click(screen.getByRole("button", { name: "选择实现方案" }));
-    expect(screen.getByRole("checkbox", { name: "选择上下文图" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "选择系统上下文图（系统环境图）" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "选择实现方案" })).toBeChecked();
     expect(screen.getByText("2/2")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "取消选择上下文图" }));
-    expect(screen.getByRole("checkbox", { name: "选择上下文图" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "取消选择系统上下文图（系统环境图）" }));
+    expect(screen.getByRole("checkbox", { name: "选择系统上下文图（系统环境图）" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "选择实现方案" })).not.toBeChecked();
   });
 
@@ -159,7 +159,7 @@ describe("FeasibilityPage", () => {
     render(withWorkspaceProviders(<FeasibilityPage view="overview" />, repository));
     await screen.findByRole("heading", { name: "可行性分析" });
     await user.click(screen.getByRole("button", { name: "选择实现方案" }));
-    expect(screen.getByRole("checkbox", { name: "选择上下文图" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "选择系统上下文图（系统环境图）" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "选择实现方案" })).toBeChecked();
     expect(screen.getByText("1/2")).toBeInTheDocument();
   });

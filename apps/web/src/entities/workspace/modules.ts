@@ -29,7 +29,7 @@ export const WORKSPACE_MODULES: WorkspaceModuleDefinition[] = [
     tabId: "feasibility",
     artifactTypes: ["context", "implementationPlan"],
     prerequisiteStepIds: ["system-requirements"],
-    emptyState: "确认需求规则后可生成上下文图和实现方案",
+    emptyState: "确认需求规则后可生成系统上下文图（系统环境图）和实现方案",
   },
   {
     id: "requirements",

@@ -15,6 +15,7 @@ function createRepository(record = createWorkspaceRecord()): WorkspaceRepository
   return {
     loadWorkspace: vi.fn(async () => record),
     updateRequirementText: vi.fn(async () => {}),
+    updateTestGenerationResult: vi.fn(async () => {}),
     startRun: vi.fn(),
     subscribeToRun: vi.fn(),
     getRunSnapshot: vi.fn(),
@@ -79,5 +80,116 @@ describe("TestModelPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("tc-uc_borrow-uc_borrow-main")).toBeInTheDocument();
     expect(screen.getByText("生成借阅记录")).toBeInTheDocument();
+    expect(repository.updateTestGenerationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        testCases: expect.arrayContaining([
+          expect.objectContaining({ id: "tc-uc_borrow-uc_borrow-main" }),
+        ]),
+      }),
+    );
+  });
+
+  it("restores persisted test assets when the workspace reloads", async () => {
+    const repository = createRepository(
+      createWorkspaceRecord({
+        testGenerationResult: {
+          testCases: [
+            {
+              id: "tc-persisted",
+              title: "持久化越权访问用例",
+              scenarioType: "exception",
+              priority: "P1",
+              preconditions: ["存在其他用户的私有预约"],
+              testData: ["直接 URL"],
+              steps: [
+                {
+                  order: 1,
+                  action: "访问其他用户预约 URL",
+                  expectedResult: "返回权限不足",
+                },
+              ],
+              expectedResults: ["不得显示预约详情"],
+            },
+          ],
+          coverageRelations: [
+            {
+              testCaseId: "tc-persisted",
+              requirementIds: ["r10"],
+              useCaseIds: ["uc-view"],
+              designModelRefs: [],
+              coverageStatus: "covered",
+              rationale: "持久化覆盖证据",
+            },
+          ],
+        },
+      }),
+    );
+
+    render(withWorkspaceProviders(<TestModelPage />, repository));
+
+    expect(
+      await screen.findByText("持久化越权访问用例"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("tc-persisted")).toBeInTheDocument();
+  });
+
+  it("does not treat a generic usecase diagram hint as semantic coverage", async () => {
+    const useCaseModel: UseCaseDiagramSpec = {
+      diagramKind: "usecase",
+      title: "预约用例",
+      summary: "预约主流程",
+      notes: [],
+      actors: [],
+      useCases: [
+        {
+          id: "uc-book",
+          name: "提交预约",
+          goal: "提交预约申请",
+          preconditions: [],
+          postconditions: ["预约进入待审核状态"],
+          supportingActorIds: [],
+          eventFlows: [],
+        },
+      ],
+      systemBoundaries: [],
+      relationships: [],
+    };
+    const repository = createRepository(
+      createWorkspaceRecord({
+        rules: [
+          createRule({
+            id: "r1",
+            text: "用户可以提交预约。",
+            relatedDiagrams: ["usecase"],
+          }),
+          createRule({
+            id: "r2",
+            category: "业务规则",
+            text: "审批人必须拒绝重复报销。",
+            relatedDiagrams: ["usecase"],
+          }),
+        ],
+        models: { usecase: useCaseModel },
+      }),
+    );
+
+    render(withWorkspaceProviders(<TestModelPage />, repository));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "生成测试用例" }));
+
+    await waitFor(() =>
+      expect(repository.updateTestGenerationResult).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coverageRelations: expect.arrayContaining([
+            expect.objectContaining({
+              testCaseId: "tc-requirement-r2",
+              requirementIds: ["r2"],
+              useCaseIds: [],
+              rationale: expect.stringContaining("未伪造用例或设计映射"),
+            }),
+          ]),
+        }),
+      ),
+    );
   });
 });

@@ -144,7 +144,7 @@ test("missing feasibility solution still blocks report generation", async () => 
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.statusCode, 409);
-  assert.match(result.body.message, /上下文图和实现方案/u);
+  assert.match(result.body.message, /系统上下文图（系统环境图）和实现方案/u);
 });
 
 test("stale feasibility analysis still blocks report generation", async () => {

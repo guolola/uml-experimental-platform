@@ -4,6 +4,7 @@ import {
   designInputFingerprint,
   normalizeSnapshotFingerprint,
   normalizeDesignInputFingerprint,
+  requirementBaselineSchema,
   snapshotInputFingerprint,
   designRecordBelongsToDiagramKinds,
   designTraceabilityTouchesDiagramKinds,
@@ -25,6 +26,7 @@ import {
   type StartDocumentRunRequest,
   type StartRunCommand,
   type StartRunRequest,
+  type RequirementBaseline,
 } from "@uml-platform/contracts";
 
 type RunInputMetadata = {
@@ -541,7 +543,7 @@ function rejectProjectGenerationPreflight(input: {
     ) {
       return runInputResolutionError(
         409,
-        "可行性研究报告需要已完成的上下文图和实现方案。",
+        "可行性研究报告需要已完成的系统上下文图（系统环境图）和实现方案。",
       );
     }
     const contextFingerprint = snapshotInputFingerprint({
@@ -552,7 +554,7 @@ function rejectProjectGenerationPreflight(input: {
       normalizeSnapshotFingerprint(stringValue(input.state.feasibilityContextFingerprint)) !==
       contextFingerprint
     ) {
-      return runInputResolutionError(409, "上下文图已过期，请先重新生成。");
+      return runInputResolutionError(409, "系统上下文图（系统环境图）已过期，请先重新生成。");
     }
     const implementationFingerprint = snapshotInputFingerprint({
       rules: acceptedFeasibilityRules(input.state),
@@ -961,7 +963,11 @@ export async function resolveCodeRunInput(
   body: unknown,
   metadata: RunInputMetadata | undefined,
   loadProjectWorkspace?: LoadProjectWorkspaceForRun,
-): Promise<InputResolution<StartCodeRunRequest>> {
+): Promise<
+  InputResolution<
+    StartCodeRunRequest & { requirementBaseline?: RequirementBaseline | null }
+  >
+> {
   const legacy = startCodeRunRequestSchema.safeParse(body);
   if (legacy.success) return { ok: true, input: legacy.data };
 
@@ -977,20 +983,28 @@ export async function resolveCodeRunInput(
     state: workspace.input.state,
   });
   if (preflight) return preflight;
+  const parsedBaseline = requirementBaselineSchema.safeParse(
+    workspace.input.state.requirementBaseline,
+  );
   return {
     ok: true,
-    input: startCodeRunRequestSchema.parse({
-      projectId: workspace.input.projectId,
-      designModels: presentRecordValues(workspace.input.state.designModels),
-      designPlantUml: designPlantUmlArtifactsFromWorkspace(workspace.input.state),
-      existingFiles:
-        command.generationMode === "regenerate"
-          ? {}
-          : codeFilesFromWorkspace(workspace.input.state),
-      generationMode: command.generationMode,
-      providerSettings: command.providerSettings,
-      imageProviderSettings: command.imageProviderSettings,
-    }),
+    input: {
+      ...startCodeRunRequestSchema.parse({
+        projectId: workspace.input.projectId,
+        designModels: presentRecordValues(workspace.input.state.designModels),
+        designPlantUml: designPlantUmlArtifactsFromWorkspace(workspace.input.state),
+        existingFiles:
+          command.generationMode === "regenerate"
+            ? {}
+            : codeFilesFromWorkspace(workspace.input.state),
+        generationMode: command.generationMode,
+        providerSettings: command.providerSettings,
+        imageProviderSettings: command.imageProviderSettings,
+      }),
+      // This is internal resolved context, not a new public request field. Code
+      // completion must always judge the project baseline loaded server-side.
+      requirementBaseline: parsedBaseline.success ? parsedBaseline.data : null,
+    },
   };
 }
 

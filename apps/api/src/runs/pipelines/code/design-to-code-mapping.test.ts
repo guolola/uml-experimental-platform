@@ -168,7 +168,6 @@ test("buildCodeContext keeps design-only facts and expands architecture componen
     runId: "code-run",
     coverageMatrix: null,
     traceabilityMatrix: null,
-    evidencePackage: null,
     designModels,
     designPlantUml: [],
     spec: null,
@@ -218,7 +217,7 @@ test("buildCodeContext keeps design-only facts and expands architecture componen
   assert.equal("requirementText" in context, false);
   assert.equal("rules" in context, false);
   assert.equal("requirementBaseline" in context, false);
-  assert.ok(String(context.authority).includes("Design Model Only"));
+  assert.ok(String(context.authority).includes("accepted requirement baseline"));
 
   const compactModels = context.designModels as Array<Record<string, unknown>>;
   const architecture = compactModels.find((model) => model.diagramKind === "architecture");

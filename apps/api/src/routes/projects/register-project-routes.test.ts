@@ -298,7 +298,6 @@ test("project workspace restore rejects completed design snapshots without chang
       requirementBaseline: null,
       coverageMatrix: null,
       traceabilityMatrix: null,
-      evidencePackage: null,
       requirementModels: [
         {
           diagramKind: "usecase",

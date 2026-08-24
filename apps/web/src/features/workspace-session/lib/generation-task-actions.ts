@@ -148,6 +148,7 @@ function retainGenerationTasksWithinCapacity(tasks: GenerationTask[]) {
 
 export function useGenerationTaskActions() {
   const [generationTasks, setGenerationTasks] = useState<GenerationTask[]>([]);
+  const [activeServerRunIds, setActiveServerRunIds] = useState<string[]>([]);
   const [selectedGenerationTaskId, setSelectedGenerationTaskId] = useState<
     string | null
   >(null);
@@ -217,6 +218,15 @@ export function useGenerationTaskActions() {
 
   const reconcileGenerationTasksWithProjectRuns = useCallback(
     (runs: GenerationTaskRunSummary[]) => {
+      setActiveServerRunIds(
+        runs
+          .filter(
+            (run) =>
+              Boolean(run.runId) &&
+              (run.status === "queued" || run.status === "running"),
+          )
+          .map((run) => run.runId as string),
+      );
       const terminalRunsById = new Map<string, {
       run: GenerationTaskRunSummary;
       status: ServerTerminalRunStatus;
@@ -261,7 +271,7 @@ export function useGenerationTaskActions() {
 
   const generating = generationTasks.some(
     (task) => task.kind !== "document" && isTaskActive(task),
-  );
+  ) || activeServerRunIds.length > 0;
 
   return {
     clearCompletedGenerationTasks,

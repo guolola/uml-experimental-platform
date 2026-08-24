@@ -25,6 +25,7 @@ export function buildGenerateFeasibilityContextPrompt(input: {
 }) {
   return `${JSON_ONLY}
 根据已确认需求生成系统上下文结构。禁止推测未提供的人员、外部系统、协议、数据库或技术栈；不确定信息应省略。
+title 必须使用“<目标系统名称>系统上下文图（系统环境图）”格式。
 所有 people、externalSystems 和 relationships 必须至少引用一个输入 rules.id；system.sourceRequirementIds 必须为空数组。
 元素 id 和关系 id 必须唯一；关系端点只能引用 system、people 或 externalSystems 中存在的 id。
 输出结构：

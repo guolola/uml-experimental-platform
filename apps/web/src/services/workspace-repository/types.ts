@@ -7,8 +7,6 @@ import type {
   DiagramModelSpec,
   DocumentLibraryItem,
   DocumentRunSnapshot,
-  EvidencePackage,
-  EvidenceReviewDecision,
   OnlyOfficeEditorConfigResponse,
   OnlyOfficeUiTheme,
   RenderStructuredModelResponse,
@@ -91,6 +89,9 @@ export interface WorkspaceRepository {
   updateCodeDiagnostics?(
     diagnostics: WorkspaceRecord["codeDiagnostics"],
   ): Promise<void>;
+  updateTestGenerationResult?(
+    result: WorkspaceRecord["testGenerationResult"],
+  ): Promise<void>;
   updateRequirementReviewState?(
     baseline: RequirementBaseline,
     candidates: WorkspaceRecord["requirementReviewCandidates"],
@@ -125,15 +126,6 @@ export interface WorkspaceRepository {
   getDesignRunSnapshot?(runId: string): Promise<DesignRunSnapshot>;
   getCodeRunSnapshot?(runId: string): Promise<CodeRunSnapshot>;
   getDocumentRunSnapshot?(runId: string): Promise<DocumentRunSnapshot>;
-  getRunEvidence?(runId: string): Promise<EvidencePackage>;
-  submitRunReviewDecision?(
-    runId: string,
-    decision: {
-      reviewItemId: string;
-      decision: EvidenceReviewDecision["decision"];
-      comment: string;
-    },
-  ): Promise<EvidencePackage>;
   listDocuments?(): Promise<DocumentLibraryItem[]>;
   getOnlyOfficeEditorConfig?(
     documentId: string,

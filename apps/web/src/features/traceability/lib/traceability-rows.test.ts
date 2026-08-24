@@ -12,7 +12,7 @@ describe("traceability row builders", () => {
       {
         diagramKind: "context",
         modelId: "context",
-        title: "上下文图",
+        title: "系统上下文图（系统环境图）",
         summary: "系统边界",
         notes: [],
         system: { id: "system", name: "维修系统", sourceRequirementIds: [] },
@@ -35,7 +35,7 @@ describe("traceability row builders", () => {
       {
         diagramKind: "context",
         modelId: "context",
-        title: "上下文图",
+        title: "系统上下文图（系统环境图）",
         summary: "系统边界",
         notes: [],
         system: { id: "system", name: "维修系统", sourceRequirementIds: [] },
@@ -105,6 +105,96 @@ describe("traceability row builders", () => {
       "待确认：系统按相关图类型兜底补齐，需人工复核。",
     );
     expect(rows[0]?.detailLines).toContain("置信度：low");
+  });
+
+  it("does not count raw mappings that are absent from the trusted coverage matrix", () => {
+    const rows = buildRequirementRows(
+      [
+        {
+          id: "r1",
+          category: "功能需求",
+          text: "用户登录系统。",
+          relatedDiagrams: ["usecase"],
+        },
+        {
+          id: "r2",
+          category: "功能需求",
+          text: "用户搜索课程。",
+          relatedDiagrams: ["usecase"],
+        },
+      ],
+      {
+        usecase: {
+          diagramKind: "usecase",
+          title: "用例模型",
+          summary: "用户流程",
+          notes: [],
+          actors: [],
+          useCases: [
+            {
+              id: "login",
+              name: "登录",
+              goal: "进入系统",
+              preconditions: [],
+              postconditions: [],
+              supportingActorIds: [],
+            },
+            {
+              id: "search",
+              name: "搜索课程",
+              goal: "找到课程",
+              preconditions: [],
+              postconditions: [],
+              supportingActorIds: [],
+            },
+          ],
+          systemBoundaries: [],
+          relationships: [],
+        },
+      },
+      [
+        {
+          ruleId: "r2",
+          target: {
+            diagramKind: "usecase",
+            elementId: "login",
+            elementKind: "usecase",
+            label: "登录",
+          },
+        },
+        {
+          ruleId: "r2",
+          target: {
+            diagramKind: "usecase",
+            elementId: "search",
+            elementKind: "usecase",
+            label: "搜索课程",
+          },
+        },
+      ],
+      undefined,
+      undefined,
+      {
+        runId: "run-trusted",
+        rows: [
+          {
+            requirementId: "REQ-002",
+            status: "covered",
+            rationale: "搜索课程由搜索用例说明。",
+            modelElements: ["usecase:search"],
+            designElements: [],
+            codeArtifacts: [],
+            tests: [],
+            reviewItems: [],
+          },
+        ],
+      },
+    );
+
+    expect(rows.map((row) => [row.label, row.status])).toEqual([
+      ["登录", "unmapped"],
+      ["搜索课程", "mapped"],
+    ]);
   });
 
   it("shows design upstream and requirement elements without requirement rules", () => {

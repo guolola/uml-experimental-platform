@@ -19,7 +19,6 @@ import {
   codeSkillSchema,
   codeTraceEntrySchema,
   coverageMatrixSchema,
-  evidencePackageSchema,
   traceabilityMatrixSchema,
   codeVisualDirectionSchema,
   codeUiIrResultSchema,
@@ -585,94 +584,6 @@ test("contracts describe requirement-linked code business assertions", () => {
       ],
     }),
   );
-});
-
-test("contracts describe evidence packages and human review decisions", () => {
-  const baseline = requirementBaselineSchema.parse({
-    runId: "run-evidence",
-    sourceDocumentId: "inline-requirement",
-    requirements: [
-      {
-        id: "REQ-001",
-        sourceFragment: "系统响应时间不超过2秒。",
-        type: "non-functional",
-        actor: "系统",
-        subject: "系统",
-        action: "响应",
-        object: "响应时间",
-        condition: null,
-        outcome: "不超过2秒",
-        confidence: 0.82,
-        status: "accepted",
-        criticality: "high",
-        acceptanceCriteria: ["响应时间必须不超过2秒。"],
-      },
-    ],
-    assumptions: [],
-    conflicts: [],
-    qualityReport: {
-      runId: "run-evidence",
-      status: "passed",
-      summary: "已建立 1 条原子需求基线。",
-      issues: [],
-      blockingIssueIds: [],
-      reviewRequiredRequirementIds: [],
-    },
-    createdAt: "2026-05-24T00:00:00.000Z",
-  });
-  const evidence = evidencePackageSchema.parse({
-    runId: "run-evidence",
-    generatedAt: "2026-05-24T00:00:00.000Z",
-    status: "blocked",
-    requirementBaseline: baseline,
-    qualityReport: baseline.qualityReport,
-    coverageMatrix: {
-      runId: "run-evidence",
-      rows: [
-        {
-          requirementId: "REQ-001",
-          status: "not-modelable",
-          rationale: "需要替代证据。",
-          modelElements: [],
-          designElements: [],
-          codeArtifacts: [],
-          tests: [],
-          reviewItems: ["alternative-evidence:REQ-001"],
-        },
-      ],
-    },
-    traceabilityMatrix: { runId: "run-evidence", links: [], diagnostics: [] },
-    modelArtifacts: [],
-    codeArtifacts: [],
-    businessAssertionResults: null,
-    browserEvidence: [],
-    reviewItems: [
-      {
-        id: "REV-001",
-        source: "coverage",
-        status: "pending",
-        severity: "error",
-        requirementId: "REQ-001",
-        reason: "REQ-001 is not modelable and needs approved alternative evidence.",
-      },
-    ],
-    reviewDecisions: [
-      {
-        id: "DEC-001",
-        reviewItemId: "REV-001",
-        decision: "accepted-risk",
-        reviewerId: "reviewer-1",
-        comment: "性能需求转由压测报告验证。",
-        decidedAt: "2026-05-24T00:00:00.000Z",
-      },
-    ],
-    failureRecords: [],
-    repairRecords: [],
-  });
-
-  assert.equal(evidence.status, "blocked");
-  assert.equal(evidence.reviewItems[0]?.status, "pending");
-  assert.equal(evidence.reviewDecisions[0]?.decision, "accepted-risk");
 });
 
 test("contracts validate representative stage payloads", () => {
@@ -2148,6 +2059,32 @@ test("contracts validate design table relationship diagrams", () => {
   });
 
   assert.equal(result.models[0]?.diagramKind, "table");
+});
+
+test("legacy run snapshots ignore removed evidence package JSON", () => {
+  const removedFieldName = ["evidence", "Package"].join("");
+  const parsed = runSnapshotSchema.parse({
+    runId: "legacy-run",
+    requirementText: "历史 PostgreSQL 快照",
+    selectedDiagrams: [],
+    rules: [],
+    models: [],
+    requirementModelTraceability: [],
+    plantUml: [],
+    svgArtifacts: [],
+    diagramErrors: {},
+    requirementTrace: [],
+    currentStage: null,
+    status: "completed",
+    error: null,
+    [removedFieldName]: {
+      runId: "legacy-run",
+      status: "complete",
+      generatedAt: "2026-07-30T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(removedFieldName in parsed, false);
 });
 
 test("contracts validate function, architecture, and component diagrams", () => {

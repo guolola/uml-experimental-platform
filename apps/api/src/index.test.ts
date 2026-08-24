@@ -4029,6 +4029,109 @@ test("api code runs repair invalid code operation discriminators", async () => {
   await app.close();
 });
 
+test("api code run repairs unresolved local preview modules before completion", async () => {
+  let operationCalls = 0;
+  const app = await createTestApiServer({
+    llmTransport: {
+      async *streamChatCompletion({ messages, responseFormat }) {
+        const prompt = lastPromptText(messages);
+        assert.equal(responseFormat?.type, "json_schema");
+        if (prompt.includes("抽取代码生成必须遵守的实现事实")) {
+          yield createCodeBusinessLogicJson();
+          return;
+        }
+        if (prompt.includes("生成明确的视觉方向")) {
+          yield createCodeVisualDirectionJson();
+          return;
+        }
+        if (prompt.includes("资源理解步骤")) {
+          yield createCodeSkillResourceDiscoveryPlanJson();
+          return;
+        }
+        if (prompt.includes("skillResourcePlan 字段")) {
+          yield createCodeSkillResourcePlanJson();
+          return;
+        }
+        if (prompt.includes("请作为产品界面设计师")) {
+          yield createCodeUiBlueprintJson();
+          return;
+        }
+        if (prompt.includes("ui-ux-pro-max 主设计执行器")) {
+          operationCalls += 1;
+          if (prompt.includes("无法解析导入 ../pages/MissingPage")) {
+            yield JSON.stringify({
+              operations: [
+                {
+                  operation: "create_file",
+                  path: "/src/pages/MissingPage.tsx",
+                  content:
+                    "export function MissingPage() { return <section>模块依赖已补齐</section>; }",
+                  reason: "补齐预览模块图中的悬空本地导入",
+                },
+              ],
+            });
+            return;
+          }
+          yield JSON.stringify({
+            operations: createQualityCodeOperations("模块修复").map(
+              (operation) =>
+                operation.path === "/src/components/WorkspaceShell.tsx"
+                  ? {
+                      ...operation,
+                      content: `import { MissingPage } from '../pages/MissingPage';\n${operation.content}`,
+                    }
+                  : operation,
+            ),
+          });
+          return;
+        }
+        if (prompt.includes("检查当前 React 原型代码是否覆盖业务逻辑")) {
+          yield JSON.stringify({
+            uiFidelityReport: {
+              passed: true,
+              matched: ["已覆盖业务流程"],
+              missing: [],
+              repairSuggestions: [],
+              summary: "通过。",
+            },
+          });
+          return;
+        }
+        throw new Error(`Unexpected prompt: ${prompt.slice(0, 80)}`);
+      },
+    },
+  });
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/code-runs",
+    payload: {
+      designModels: [DESIGN_SEQUENCE_MODEL],
+      providerSettings: MANAGED_PROVIDER_SETTINGS,
+    },
+  });
+  assert.equal(startResponse.statusCode, 202);
+  const runId = startResponse.json().runId;
+  const events = await app.inject({
+    method: "GET",
+    url: `/api/code-runs/${runId}/events`,
+  });
+  assert.match(events.body, /正在修复预览模块依赖/u);
+  assert.match(events.body, /"type":"completed"/u);
+
+  const snapshot = (
+    await app.inject({
+      method: "GET",
+      url: `/api/code-runs/${runId}`,
+    })
+  ).json();
+  assert.equal(snapshot.status, "completed");
+  assert.match(snapshot.files["/src/pages/MissingPage.tsx"], /模块依赖已补齐/u);
+  assert.equal(operationCalls, 2);
+
+  await app.close();
+});
+
 test("api code run rejects near-black default backgrounds and repairs theme toggle", async () => {
   let operationCalls = 0;
   const app = await createTestApiServer({
@@ -4283,8 +4386,9 @@ test("api document run embeds PlantUML diagrams as PNG files in DOCX", async () 
   assert.match(documentXml, /1 项目引言<\/w:t><w:tab\/><w:t(?: [^>]*)?>1<\/w:t>/);
   assert.match(documentXml, /3 功能需求（用例模型）<\/w:t><w:tab\/><w:t(?: [^>]*)?>\d+<\/w:t>/);
   assert.match(documentXml, /<w:pgNumType w:start="1"\/>/);
-  assert.match(documentXml, /项目名称：软件系统/);
+  assert.match(documentXml, /项目名称：未提供\/待确认/);
   assert.match(documentXml, /文档类型：需求规格说明书/);
+  assert.match(documentXml, /文档版本：V1\.0/);
   assert.match(documentXml, /生成日期：\d{4}-\d{2}-\d{2}/);
   assert.match(documentXml, /图 用例图/);
   assert.match(stylesXml, /Times New Roman/);
@@ -4339,8 +4443,9 @@ test("api software design document uses generic cover without school names", asy
   assert.doesNotMatch(documentXml, /成都信息工程大学/);
   assert.doesNotMatch(documentXml, /软件工程学院/);
   assert.match(documentXml, /课程设计文档/);
-  assert.match(documentXml, /项目名称：软件系统/);
+  assert.match(documentXml, /项目名称：未提供\/待确认/);
   assert.match(documentXml, /文档类型：软件设计说明书/);
+  assert.match(documentXml, /文档版本：V1\.0/);
   assert.match(documentXml, /2\.1 系统总体逻辑流程设计/);
   assert.match(documentXml, /2\.2 系统架构设计/);
   assert.match(documentXml, /3 用例实现设计 \(Use Case Realization\)/);

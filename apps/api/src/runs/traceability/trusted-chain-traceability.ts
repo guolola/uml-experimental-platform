@@ -380,18 +380,15 @@ function addRequirementModelSemanticDiagnostics(
 ) {
   for (const { requirement, refs } of refsByRequirement.values()) {
     const candidates = refs.filter((ref) => !isStructuralModelRef(ref, models));
-    const explainer = candidates.find((ref) =>
-      modelExplainsRequirement(requirement, ref, models),
-    );
-    if (explainer) continue;
-    const target = candidates[0] ?? refs[0];
-    if (!target) continue;
-    addSemanticModelDiagnostic(
-      state,
-      requirement,
-      "requirements-model",
-      modelRefId(target),
-    );
+    for (const target of candidates) {
+      if (modelExplainsRequirement(requirement, target, models)) continue;
+      addSemanticModelDiagnostic(
+        state,
+        requirement,
+        "requirements-model",
+        modelRefId(target),
+      );
+    }
   }
 }
 
@@ -677,17 +674,6 @@ export function buildRequirementStageTrustedChain({
     };
     currentSemanticRefs.refs.push(entry.target);
     semanticRefsByRequirement.set(requirement.id, currentSemanticRefs);
-    addTracedArtifact(tracedArtifacts, requirement.id, "modelElements", targetId);
-    addBidirectionalLink(
-      state,
-      "requirement",
-      requirement.id,
-      "requirements-model",
-      targetId,
-      "satisfies",
-      Math.min(0.95, requirement.confidence),
-      `Requirement model element maps to ${requirement.id}.`,
-    );
   }
 
   for (const ref of collectModelRefs(models).refs) {
@@ -704,6 +690,29 @@ export function buildRequirementStageTrustedChain({
     });
   }
   addRequirementModelSemanticDiagnostics(state, semanticRefsByRequirement, models);
+  for (const { requirement, refs } of semanticRefsByRequirement.values()) {
+    for (const ref of refs) {
+      if (isStructuralModelRef(ref, models)) continue;
+      if (!modelExplainsRequirement(requirement, ref, models)) continue;
+      const targetId = modelRefId(ref);
+      addTracedArtifact(
+        tracedArtifacts,
+        requirement.id,
+        "modelElements",
+        targetId,
+      );
+      addBidirectionalLink(
+        state,
+        "requirement",
+        requirement.id,
+        "requirements-model",
+        targetId,
+        "satisfies",
+        Math.min(0.95, requirement.confidence),
+        `Semantically verified requirement model element maps to ${requirement.id}.`,
+      );
+    }
+  }
 
   const coverageMatrix = coverageMatrixSchema.parse({
     runId,
@@ -762,17 +771,6 @@ export function buildDesignStageTrustedChain(input: DesignStageInput): TrustedCh
     }
     for (const requirementId of requirementIds) {
       const requirement = byId.get(requirementId);
-      addTracedArtifact(tracedArtifacts, requirementId, "designElements", sourceId);
-      addBidirectionalLink(
-        state,
-        "requirement",
-        requirementId,
-        "design-model",
-        sourceId,
-        "refines",
-        entry.confidence === "low" ? 0.45 : entry.confidence === "medium" ? 0.7 : 0.9,
-        `Design model artifact refines ${requirementId}.`,
-      );
       if (
         requirement &&
         shouldCheckDesignSourceSemantics(entry.source, input.designModels)
@@ -784,6 +782,38 @@ export function buildDesignStageTrustedChain(input: DesignStageInput): TrustedCh
         currentSemanticRefs.refs.push(entry.source);
         semanticDesignRefsByRequirement.set(requirement.id, currentSemanticRefs);
       }
+      const traceConfirmed =
+        entry.confidence !== "low" &&
+        entry.reviewStatus !== "pending" &&
+        entry.mappingSource !== "auto-filled-pending-review";
+      if (
+        !requirement ||
+        !traceConfirmed ||
+        !shouldCheckDesignSourceSemantics(entry.source, input.designModels) ||
+        !designSourceExplainsRequirement(
+          requirement,
+          entry.source,
+          input.designModels,
+        )
+      ) {
+        continue;
+      }
+      addTracedArtifact(
+        tracedArtifacts,
+        requirementId,
+        "designElements",
+        sourceId,
+      );
+      addBidirectionalLink(
+        state,
+        "requirement",
+        requirementId,
+        "design-model",
+        sourceId,
+        "refines",
+        entry.confidence === "medium" ? 0.7 : 0.9,
+        `Semantically verified design model artifact refines ${requirementId}.`,
+      );
     }
     if (entry.reviewStatus === "pending" || entry.mappingSource === "auto-filled-pending-review") {
       addDiagnostic(state, {

@@ -161,7 +161,20 @@ export function summarizeDesignModelForCode(model: DesignDiagramModelSpec) {
 export function buildCodeContext(snapshot: CodeRunSnapshot) {
   return {
     authority:
-      "Design Model Only: generated code must derive implementation facts only from designModels, designPlantUml, and designToCodeMapping.",
+      "Design models define structure; accepted requirement baseline facts constrain executable behavior and must not be weakened.",
+    acceptedRequirements:
+      snapshot.requirementBaseline?.requirements
+        .filter((requirement) => requirement.status === "accepted")
+        .map((requirement) => ({
+          id: requirement.id,
+          sourceRuleId: requirement.sourceRuleId,
+          actor: requirement.actor,
+          action: requirement.action,
+          condition: requirement.condition,
+          outcome: requirement.outcome,
+          sourceFragment: requirement.sourceFragment,
+          acceptanceCriteria: requirement.acceptanceCriteria,
+        })) ?? [],
     designModels: snapshot.designModels.map(summarizeDesignModelForCode),
     designPlantUml: snapshot.designPlantUml.map((artifact) => ({
       diagramKind: artifact.diagramKind,

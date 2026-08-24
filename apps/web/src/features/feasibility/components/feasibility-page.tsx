@@ -439,7 +439,7 @@ export function FeasibilityPage({
         <div className="grid gap-4 md:grid-cols-2">
           <ModelBentoCard
             label={t("feasibility.artifact.context")}
-            english="Context Diagram"
+            english="System Context Diagram (System Environment Diagram)"
             description={t("feasibility.artifact.contextDescription")}
             icon={Network}
             selected={selectedArtifacts.includes("context")}

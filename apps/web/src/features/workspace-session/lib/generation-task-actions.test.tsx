@@ -359,4 +359,30 @@ describe("workspace-session generation task actions", () => {
       }),
     );
   });
+
+  it("restores the generation lock from active server runs after refresh", () => {
+    const { result } = renderHook(() => useGenerationTaskActions());
+
+    act(() => {
+      result.current.reconcileGenerationTasksWithProjectRuns([
+        {
+          runId: "server-code-run",
+          status: "running",
+          updatedAt: "2026-07-30T05:10:00.000Z",
+        },
+      ]);
+    });
+    expect(result.current.generating).toBe(true);
+
+    act(() => {
+      result.current.reconcileGenerationTasksWithProjectRuns([
+        {
+          runId: "server-code-run",
+          status: "failed",
+          completedAt: "2026-07-30T05:11:00.000Z",
+        },
+      ]);
+    });
+    expect(result.current.generating).toBe(false);
+  });
 });

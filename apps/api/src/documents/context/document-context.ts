@@ -66,6 +66,51 @@ export function findForbiddenDocumentPhrases(sections: DocumentSection[]) {
   return Array.from(matches);
 }
 
+export function findUnsupportedDocumentClaims(
+  input: StartDocumentRunRequest,
+  sections: DocumentSection[],
+) {
+  const trustedCorpus = JSON.stringify({
+    requirementText: input.requirementText,
+    rules: input.rules,
+    requirementBaseline: input.requirementBaseline,
+    requirementModels: input.requirementModels,
+    designModels: input.designModels,
+    feasibilityInputs: input.feasibilityInputs,
+    feasibilityImplementationPlan: input.feasibilityImplementationPlan,
+  });
+  const currentYear = String(new Date().getFullYear());
+  const allowedTitles = new Set([
+    "需求规格说明书",
+    "软件设计说明书",
+    "可行性研究报告",
+  ]);
+  const issues = new Set<string>();
+
+  for (const section of sections) {
+    for (const text of sectionTextValues(section)) {
+      for (const year of text.match(/(?:19|20)\d{2}/gu) ?? []) {
+        if (year !== currentYear && !trustedCorpus.includes(year)) {
+          issues.add(`无来源年份 ${year}`);
+        }
+      }
+      for (const match of text.matchAll(/《([^》]{2,80})》/gu)) {
+        const title = match[1]?.trim();
+        if (
+          title &&
+          !allowedTitles.has(title) &&
+          !trustedCorpus.includes(`《${title}》`) &&
+          !trustedCorpus.includes(title)
+        ) {
+          issues.add(`无来源参考资料《${title}》`);
+        }
+      }
+    }
+  }
+
+  return Array.from(issues);
+}
+
 function sanitizeFallbackText(text: string, fallback = FALLBACK_FACT) {
   return textHasForbiddenDocumentPlaceholder(text) ? fallback : text;
 }
@@ -280,15 +325,98 @@ function traceRefLabel(ref: { diagramKind: string; label: string }) {
   return `${documentDiagramLabel(ref.diagramKind)}：${ref.label}`;
 }
 
-function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: DiagramKind) {
+function trustedTraceRefId(ref: {
+  diagramKind: string;
+  elementId: string;
+  modelId?: string;
+}) {
+  return `${ref.modelId ? `${ref.modelId}:` : ""}${ref.diagramKind}:${ref.elementId}`.toLowerCase();
+}
+
+function requirementIdByRuleId(input: StartDocumentRunRequest) {
+  const baseline = input.requirementBaseline;
+  return new Map(
+    (baseline?.requirements ?? []).flatMap((requirement) =>
+      requirement.sourceRuleId
+        ? [[requirement.sourceRuleId.toLowerCase(), requirement.id] as const]
+        : [],
+    ),
+  );
+}
+
+function acceptedRequirementBaselineRows(input: StartDocumentRunRequest) {
+  const baseline = input.requirementBaseline;
+  const rows = (baseline?.requirements ?? [])
+    .filter((requirement) => requirement.status === "accepted")
+    .map((requirement, index) => [
+      String(index + 1),
+      requirement.id,
+      requirement.sourceRuleId ?? "原文",
+      requirement.sourceFragment,
+    ]);
+  return rows.length > 0
+    ? rows
+    : [["1", "未提供/待确认", "未提供/待确认", "当前没有已接受需求基线"]];
+}
+
+function isTrustedRequirementTrace(
+  input: StartDocumentRunRequest,
+  entry: StartDocumentRunRequest["requirementModelTraceability"][number],
+) {
+  if (
+    entry.reviewStatus === "pending" ||
+    entry.confidence === "low" ||
+    entry.mappingSource === "auto-filled-pending-review"
+  ) {
+    return false;
+  }
+  const coverageMatrix = input.coverageMatrix;
+  if (!coverageMatrix) return true;
+  const requirementId =
+    requirementIdByRuleId(input).get(entry.ruleId.toLowerCase()) ?? entry.ruleId;
+  const coverageRow = coverageMatrix.rows.find(
+    (row) => row.requirementId.toLowerCase() === requirementId.toLowerCase(),
+  );
+  return Boolean(
+    coverageRow?.modelElements.some(
+      (elementId) =>
+        elementId.toLowerCase() === trustedTraceRefId(entry.target),
+    ),
+  );
+}
+
+function requirementTraceRows(
+  input: StartDocumentRunRequest,
+  diagramKind: DiagramKind,
+  modelId?: string,
+) {
   const traceRows = input.requirementModelTraceability
-    .filter((entry) => entry.target.diagramKind === diagramKind)
+    .filter(
+      (entry) =>
+        entry.target.diagramKind === diagramKind &&
+        (!modelId || entry.target.modelId === modelId) &&
+        isTrustedRequirementTrace(input, entry),
+    )
     .map((entry, index) => [
       String(index + 1),
       formatTraceRuleId(entry.ruleId),
       entry.target.label,
     ]);
   if (traceRows.length > 0) return traceRows;
+
+  if (input.coverageMatrix) {
+    return [["1", "无可信映射", "当前图暂无通过语义校验的需求追踪"]];
+  }
+
+  if (diagramKind === "analysis") {
+    return [[
+      "1",
+      "无直接规则映射",
+      modelId
+        ? `由 ${modelId.replace(/^analysis:/u, "")} 的已确认用例事件流派生`
+        : "由已确认用例事件流派生",
+    ]];
+  }
 
   const relatedRules = rulesForDiagram(input, diagramKind);
   if (relatedRules.length > 0) {
@@ -302,15 +430,41 @@ function requirementTraceRows(input: StartDocumentRunRequest, diagramKind: Diagr
   return [["1", "需求文本", briefText(input.requirementText, 120)]];
 }
 
-function designTraceRows(input: StartDocumentRunRequest, diagramKind: DesignDiagramKind) {
-  const rows = input.designModelTraceability
-    .filter((entry) => entry.source.diagramKind === diagramKind)
+function designTraceRows(
+  input: StartDocumentRunRequest,
+  diagramKind: DesignDiagramKind,
+  modelId?: string,
+) {
+  const trustedDesignElements = input.coverageMatrix
+    ? new Set(
+        input.coverageMatrix.rows.flatMap((row) =>
+          row.designElements.map((elementId) => elementId.toLowerCase()),
+        ),
+      )
+    : null;
+  const scopedEntries = input.designModelTraceability.filter(
+    (entry) =>
+      entry.source.diagramKind === diagramKind &&
+      (!modelId || entry.source.modelId === modelId),
+  );
+  const rows = scopedEntries
+    .filter(
+      (entry) =>
+        entry.reviewStatus !== "pending" &&
+        entry.confidence !== "low" &&
+        entry.mappingSource !== "auto-filled-pending-review" &&
+        (!trustedDesignElements ||
+          trustedDesignElements.has(trustedTraceRefId(entry.source))),
+    )
     .map((entry, index) => [
       String(index + 1),
       entry.source.label,
       compactJoin(entry.targets.map(traceRefLabel), "需求模型元素"),
     ]);
   if (rows.length > 0) return rows;
+  if (trustedDesignElements || scopedEntries.length > 0) {
+    return [["1", documentDiagramLabel(diagramKind), "当前图暂无通过语义校验的设计追踪"]];
+  }
   return [["1", documentDiagramLabel(diagramKind), "需求模型元素"]];
 }
 
@@ -731,7 +885,14 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
               level: 3 as const,
               title: "跟踪关系",
               body: ["需求分析模型与需求规则的对应关系如下。"],
-              table: { headers: ["编号", "需求规则", "模型元素"], rows: requirementTraceRows(input, "analysis") },
+              table: {
+                headers: ["编号", "需求规则", "模型元素"],
+                rows: requirementTraceRows(
+                  input,
+                  "analysis",
+                  model?.modelId ?? analysisModelIdForUseCaseId(useCase.id),
+                ),
+              },
             },
           ];
         }),
@@ -832,7 +993,7 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
     };
     const alternatives = plan.candidates.filter((candidate) => candidate.id !== plan.recommendedCandidateId);
     return documentContentResultSchema.parse({ sections: [
-      { level: 1, title: "引言", body: ["本文档依据已接受的需求规则、系统上下文图、实现方案和用户补充事实，对项目实施条件进行结构化可行性研究。"] },
+        { level: 1, title: "引言", body: ["本文档依据已接受的需求规则、系统上下文图（系统环境图）、实现方案和用户补充事实，对项目实施条件进行结构化可行性研究。"] },
       { level: 2, title: "编写目的", body: ["明确系统建设前提、比较实现方案、识别成本收益和风险，并形成可执行且可追溯的实施结论。"] },
       { level: 2, title: "背景", body: [`项目名称：${value(facts.projectName)}`, `任务提出者：${value(facts.proposedBy)}`, `开发者：${value(facts.developedBy)}`, `预期用户或运行单位：${value(facts.expectedUsers)}`, context.summary, "下表由上下文元素和关系的来源规则编号确定性生成。"], table: { headers: ["需求规则", "目标类型", "上下文目标"], rows: traceRows.length ? traceRows : [["未提供/待确认", "未提供/待确认", "未提供/待确认"]] }, diagramKind: "context", diagramModelId: "context" },
       { level: 2, title: "定义", body: [`系统边界由“${context.system.name}”及其人员、外部系统和交互关系共同界定；候选方案以 ${plan.candidates.map((candidate) => candidate.name).join("、")} 标识。`] },
@@ -886,6 +1047,15 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
       { level: 1, title: "引言", body: [] },
       { level: 2, title: "系统概述", body: [`系统概述：${briefText(input.requirementText, 320)}`] },
       { level: 2, title: "基线", body: [`设计基线由 ${input.requirementModels.length || 1} 类需求模型、${input.designModels.length || 1} 类设计模型和 ${input.designModelTraceability.length || 1} 组设计追踪关系组成。`] },
+      {
+        level: 2,
+        title: "已确认业务约束",
+        body: ["以下约束直接来自通过复核的需求基线，设计与实现不得弱化其数字、比较符、角色、状态和条件分支。"],
+        table: {
+          headers: ["编号", "需求标识", "来源规则", "已确认约束"],
+          rows: acceptedRequirementBaselineRows(input),
+        },
+      },
       { level: 2, title: "定义与标识", body: ["设计模型按总体架构图、用例实现设计、设计类图、界面关系图、数据库设计、组件（构件）关系和部署设计组织；用例实现设计以 sequence:<useCaseId> 标识。"] },
       { level: 2, title: "参考资料", body: ["参考资料为需求规格内容、需求阶段 UML 模型、设计阶段 UML 模型、PlantUML 图源、SVG 图产物和模型追踪关系。"] },
       { level: 1, title: "系统总体架构 (System Architecture)", body: [] },
@@ -915,7 +1085,14 @@ export function fallbackDocumentSections(input: StartDocumentRunRequest): Docume
             level: 3 as const,
             title: "跟踪关系",
             body: ["用例实现设计与需求模型元素的对应关系如下。"],
-            table: { headers: ["编号", "设计元素", "映射需求元素"], rows: designTraceRows(input, "sequence") },
+            table: {
+              headers: ["编号", "设计元素", "映射需求元素"],
+              rows: designTraceRows(
+                input,
+                "sequence",
+                model?.modelId ?? sequenceModelIdForUseCaseId(useCase.id),
+              ),
+            },
           },
         ];
       }),
@@ -1062,7 +1239,7 @@ export function documentDiagramLabel(diagramKind: string, sectionTitle?: string)
     deployment: "部署需求模型",
     prototype: "原型界面关系",
     analysis: "需求分析模型",
-    context: "系统上下文图",
+    context: "系统上下文图（系统环境图）",
     architecture: "总体架构图",
     sequence: "用例实现设计",
     component: "组件（构件）关系",

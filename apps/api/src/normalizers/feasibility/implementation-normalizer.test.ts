@@ -75,3 +75,22 @@ test("normalizes rationale, deduplicates scopes and removes declarations that co
   assert.ok(result.actions.includes("removed-duplicate-absence-scope"));
   assert.ok(result.actions.includes("removed-conflicting-absence-declaration"));
 });
+
+test("normalizes REQ-001 provider aliases to an existing r1 rule", () => {
+  const value = structuredClone(FEASIBILITY_IMPLEMENTATION_EXAMPLE) as any;
+  value.candidates[0].implementation.architecture.modules[0].sourceRequirementIds =
+    ["REQ-001"];
+
+  const result = normalizeFeasibilityImplementationDetailed(
+    value,
+    new Set(["r1"]),
+    [],
+  );
+
+  assert.deepEqual(
+    result.plan.candidates[0]!.implementation!.architecture.modules[0]!
+      .sourceRequirementIds,
+    ["r1"],
+  );
+  assert.ok(result.actions.includes("normalized-requirement-id-alias"));
+});

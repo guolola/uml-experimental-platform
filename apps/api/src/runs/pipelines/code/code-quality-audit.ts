@@ -69,6 +69,100 @@ export function validatePrototypeFileContents(snapshot: CodeRunSnapshot) {
   }
 }
 
+function normalizePreviewPath(path: string) {
+  const normalized: string[] = [];
+  for (const part of path.split("/").filter(Boolean)) {
+    if (part === ".") continue;
+    if (part === "..") {
+      normalized.pop();
+      continue;
+    }
+    normalized.push(part);
+  }
+  return `/${normalized.join("/")}`;
+}
+
+function resolvePreviewImport(
+  fromPath: string,
+  specifier: string,
+  files: CodeRunSnapshot["files"],
+) {
+  const fromDirectory = fromPath.split("/").slice(0, -1).join("/") || "/";
+  const rawPath = specifier.startsWith("@/")
+    ? `/src/${specifier.slice(2)}`
+    : specifier.startsWith("/")
+      ? specifier
+      : `${fromDirectory}/${specifier}`;
+  const normalizedPath = normalizePreviewPath(rawPath);
+  return [
+    normalizedPath,
+    `${normalizedPath}.tsx`,
+    `${normalizedPath}.ts`,
+    `${normalizedPath}.jsx`,
+    `${normalizedPath}.js`,
+    `${normalizedPath}.css`,
+    `${normalizedPath}/index.tsx`,
+    `${normalizedPath}/index.ts`,
+    `${normalizedPath}/index.jsx`,
+    `${normalizedPath}/index.js`,
+  ].find((candidate) => files[candidate] !== undefined);
+}
+
+// Mirrors the browser preview's local module traversal so missing or cyclic
+// imports fail the server run before a completed terminal event is emitted.
+export function validatePrototypePreviewGraph(snapshot: CodeRunSnapshot) {
+  const entryFile = snapshot.files["/src/main.tsx"]
+    ? "/src/main.tsx"
+    : snapshot.entryFile && snapshot.files[snapshot.entryFile]
+      ? snapshot.entryFile
+      : Object.keys(snapshot.files).find((path) => /\.(tsx|ts|jsx|js)$/u.test(path));
+  if (!entryFile) return ["没有找到可运行的入口文件。"];
+
+  const errors: string[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const importPattern =
+    /(?:import|export)\s+(?!type\b)(?:[^'"]*?\s+from\s*)?["']([^"']+)["']/gu;
+
+  const visit = (path: string) => {
+    if (visited.has(path)) return;
+    if (visiting.has(path)) {
+      errors.push(`检测到循环导入，暂时无法预览: ${path}`);
+      return;
+    }
+    visiting.add(path);
+    const source = snapshot.files[path];
+    if (source === undefined) {
+      errors.push(`预览文件不存在: ${path}`);
+      visiting.delete(path);
+      return;
+    }
+    if (!path.endsWith(".css")) {
+      for (const match of source.matchAll(importPattern)) {
+        const specifier = match[1] ?? "";
+        if (
+          !specifier.startsWith(".") &&
+          !specifier.startsWith("/") &&
+          !specifier.startsWith("@/")
+        ) {
+          continue;
+        }
+        const resolved = resolvePreviewImport(path, specifier, snapshot.files);
+        if (!resolved) {
+          errors.push(`${path} 无法解析导入 ${specifier}`);
+          continue;
+        }
+        visit(resolved);
+      }
+    }
+    visiting.delete(path);
+    visited.add(path);
+  };
+
+  visit(entryFile);
+  return Array.from(new Set(errors));
+}
+
 export function buildCodeGenerationSpecFromBlueprints(
   appBlueprint: CodeAppBlueprint,
   uiBlueprint: CodeUiBlueprint,

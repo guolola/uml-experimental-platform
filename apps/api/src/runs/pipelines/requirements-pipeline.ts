@@ -42,6 +42,7 @@ import {
   parseRequirementTraceabilityCoverageResult,
 } from "../../normalizers/requirements/requirement-model-normalizer.js";
 import { normalizeRequirementRulesResult } from "../../normalizers/requirements/requirement-rule-normalizer.js";
+import { assertRequirementModelSemanticFidelity } from "../../normalizers/requirements/requirement-model-semantic-fidelity.js";
 import {
   autoFillRequirementTraceability,
   collectModelRefs,
@@ -56,7 +57,6 @@ import {
   RunCancelledError,
   throwIfRunCancelled,
 } from "../records/run-cancellation.js";
-import { attachEvidencePackage } from "../evidence/evidence-package.js";
 import { renderArtifactWithRepair } from "./render/render-artifact-with-repair.js";
 import { stageProgressValue } from "./shared/pipeline-events.js";
 import { createMessages } from "./shared/llm-messages.js";
@@ -193,7 +193,7 @@ function requirementModelId(model: DiagramModelSpec) {
 }
 
 const REQUIREMENT_DIAGRAM_LABELS: Record<DiagramKind, string> = {
-  context: "上下文图",
+  context: "系统上下文图（系统环境图）",
   function: "功能结构图",
   usecase: "用例模型",
   class: "领域概念模型",
@@ -857,6 +857,7 @@ export async function generateModelsWithRepair(
         models: filteredModels,
         requirementModelTraceability: filteredTraceability,
       };
+      assertRequirementModelSemanticFidelity(rules, filteredModels);
       appendRequirementTrace(record, {
         stage: "generate_models",
         attempt: attempt + 1,
@@ -902,6 +903,41 @@ export async function generateModelsWithRepair(
               stage: "generate_models",
               progress: stageProgressValue("generate_models"),
               message: `模型类型不匹配，正在修复（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
+            }),
+          );
+          onActivity?.();
+          prompt = buildRepairModelsPrompt(
+            rules,
+            requirementBaseline,
+            selectedDiagrams,
+            previousOutput,
+            lastErrorMessage,
+          );
+          continue;
+        }
+        try {
+          assertRequirementModelSemanticFidelity(rules, selectedModels);
+        } catch (semanticError) {
+          lastErrorMessage = formatParseError(semanticError);
+          appendRequirementTrace(record, {
+            stage: "generate_models",
+            attempt: attempt + 1,
+            kind: "parse_error",
+            rawOutput: content,
+            errorMessage: lastErrorMessage,
+          });
+          if (attempt === MAX_MODEL_REPAIR_ATTEMPTS) {
+            throw new Error(
+              `generate_models structured output failed: ${lastErrorMessage}`,
+            );
+          }
+          emitEvent(
+            record,
+            stageProgressRunEventSchema.parse({
+              type: "stage_progress",
+              stage: "generate_models",
+              progress: stageProgressValue("generate_models"),
+              message: `模型比较符与已确认业务边界冲突，正在修复（${attempt + 1}/${MAX_MODEL_REPAIR_ATTEMPTS}）`,
             }),
           );
           onActivity?.();
@@ -1190,7 +1226,11 @@ export async function runStagePipeline(
               chunkHandlers.onBlankChunk?.(chunk);
             },
           },
-          (text) => normalizeRequirementRulesResult(parseJson(text)),
+          (text) =>
+            normalizeRequirementRulesResult(
+              parseJson(text),
+              snapshot.requirementText,
+            ),
           getExtractRequirementRulesResponseFormat(providerSettings),
           undefined,
           abortSignal,
@@ -1700,16 +1740,6 @@ export async function runStagePipeline(
 
   snapshot.currentStage = "render_svg";
   throwIfRunCancelled(record);
-  const evidencePackage = attachEvidencePackage(snapshot);
-  emitEvent(
-    record,
-    artifactReadyRunEventSchema.parse({
-      type: "artifact_ready",
-      stage: "render_svg",
-      artifactKind: "evidencePackage",
-      evidencePackage,
-    }),
-  );
   snapshot.status = "completed";
   snapshot.error = null;
   emitEvent(

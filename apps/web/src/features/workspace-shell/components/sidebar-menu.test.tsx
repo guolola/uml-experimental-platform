@@ -145,7 +145,7 @@ describe("SidebarMenu", () => {
         .filter(Boolean),
     ).toEqual(["系统需求", "可行性分析", "需求模型", "设计模型", "代码", "测试", "说明书"]);
     expect(screen.queryByRole("button", { name: "展开 可行性分析" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "上下文图" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "系统上下文图（系统环境图）" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "实现方案" })).not.toBeInTheDocument();
   });
 
@@ -178,7 +178,7 @@ describe("SidebarMenu", () => {
         feasibilityContextModel: {
           diagramKind: "context",
           modelId: "context",
-          title: "系统上下文图",
+          title: "系统上下文图（系统环境图）",
           summary: "系统边界",
           notes: [],
           system: { id: "system", name: "目标系统", sourceRequirementIds: [] },
@@ -195,11 +195,11 @@ describe("SidebarMenu", () => {
     render(withWorkspaceProviders(<SidebarMenu />, repository));
 
     await user.click(await screen.findByRole("button", { name: "展开 可行性分析" }));
-    expect(screen.getByRole("button", { name: "上下文图" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "系统上下文图（系统环境图）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "实现方案" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "跟踪矩阵" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "展开 上下文图" }));
+    await user.click(screen.getByRole("button", { name: "展开 系统上下文图（系统环境图）" }));
     expect(screen.getByRole("button", { name: "跟踪矩阵" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "元素" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关系" })).toBeInTheDocument();

@@ -96,9 +96,13 @@ import {
   upsertBusinessContextMarkdown,
   validatePrototypeFileContents,
   verifyRenderedPreviewStructure,
+  validatePrototypePreviewGraph,
 } from "./code/code-quality-audit.js";
+import { verifyCodeCompletionEvidence } from "./code/code-completion-verification.js";
 
 const MAX_UI_FIDELITY_REPAIR_ROUNDS = 2;
+const MAX_PREVIEW_GRAPH_REPAIR_ROUNDS = 2;
+const MAX_BUSINESS_ASSERTION_REPAIR_ROUNDS = 2;
 const MAX_BUSINESS_LOGIC_PARSE_ATTEMPTS = 3;
 
 function strictDesignMappingEnabled() {
@@ -197,6 +201,7 @@ export async function runCodeStagePipeline(
       snapshot.designPlantUml,
       designToCodeMapping,
       designModelCoverageReport,
+      snapshot.requirementBaseline,
     ),
   );
   let businessLogicResult: ReturnType<typeof parseCodeBusinessLogicResult> | null = null;
@@ -769,6 +774,67 @@ export async function runCodeStagePipeline(
   updateStage("verify_code_preview", "正在检查预览入口和必要文件");
   ensureRequiredPrototypeFiles(record, snapshot, scaffold);
   validatePrototypeFileContents(snapshot);
+  let previewGraphErrors = validatePrototypePreviewGraph(snapshot);
+  for (const message of previewGraphErrors) {
+    addCodeDiagnostic(snapshot, "verify_code_preview", message);
+  }
+  for (
+    let repairRound = 1;
+    repairRound <= MAX_PREVIEW_GRAPH_REPAIR_ROUNDS &&
+    previewGraphErrors.length > 0;
+    repairRound += 1
+  ) {
+    updateStage(
+      "repair_code_files",
+      `正在修复预览模块依赖（第 ${repairRound}/${MAX_PREVIEW_GRAPH_REPAIR_ROUNDS} 轮）`,
+    );
+    const changedBeforeRepair = snapshot.changedFileCount;
+    const repairOperations = await generateCodeFileOperationsWithRepair(
+      record,
+      providerSettings,
+      llmTransport,
+      buildCodeContext(snapshot),
+      snapshot.files,
+      {
+        businessLogic,
+        uiBlueprint: null,
+        designToCodeMapping,
+        designModelCoverageReport,
+        loadedCodeSkill,
+        visualDirection,
+        skillResourceDiscoveryPlan,
+        skillResourcePreviews,
+        skillResourcePlan,
+        codeSkillContext: skillContext,
+        qualityIssues: previewGraphErrors,
+        selectedCodeSkills: snapshot.selectedCodeSkills,
+        codeSkillInstructions,
+      },
+      "repair_code_files",
+    );
+    throwIfRunCancelled(record);
+    for (const operation of repairOperations.operations) {
+      throwIfRunCancelled(record);
+      applyCodeOperation(record, snapshot, operation);
+    }
+    upsertBusinessContextMarkdown(record, snapshot);
+
+    updateStage("audit_code_quality", "正在复查模块依赖修复后的原型质量");
+    qualityDiagnostic = auditCodePrototypeQuality(snapshot);
+    recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
+
+    updateStage("verify_code_preview", "正在复查预览入口和本地模块依赖");
+    ensureRequiredPrototypeFiles(record, snapshot, scaffold);
+    validatePrototypeFileContents(snapshot);
+    previewGraphErrors = validatePrototypePreviewGraph(snapshot);
+    for (const message of previewGraphErrors) {
+      addCodeDiagnostic(snapshot, "verify_code_preview", message);
+    }
+    if (snapshot.changedFileCount === changedBeforeRepair) break;
+  }
+  if (previewGraphErrors.length > 0) {
+    throw new Error(`Generated preview failed module validation: ${previewGraphErrors.join("；")}`);
+  }
   if (!snapshot.files[snapshot.entryFile ?? ""]) {
     snapshot.entryFile = "/src/App.tsx";
     addCodeDiagnostic(snapshot, "verify_code_preview", "入口文件已回退到 /src/App.tsx");
@@ -780,6 +846,116 @@ export async function runCodeStagePipeline(
   );
   if (snapshot.generationMode === "continue" && snapshot.changedFileCount === 0) {
     addCodeDiagnostic(snapshot, "verify_code_preview", "本次未产生文件变更");
+  }
+
+  updateStage("verify_code_business_assertions", "正在验证需求关联的代码业务断言");
+  let completionEvidence = verifyCodeCompletionEvidence(snapshot);
+  let businessRepairGraphErrors: string[] = [];
+  for (
+    let repairRound = 1;
+    repairRound <= MAX_BUSINESS_ASSERTION_REPAIR_ROUNDS &&
+    (!completionEvidence.passed || businessRepairGraphErrors.length > 0);
+    repairRound += 1
+  ) {
+    const failedAssertions =
+      completionEvidence.businessAssertionResults?.assertions.filter(
+        (assertion) => assertion.status === "failed",
+      ) ?? [];
+    const qualityIssues = [
+      ...failedAssertions.map(
+        (assertion) =>
+          `${assertion.id} / ${assertion.requirementId}: ${assertion.expectedBehavior} ${assertion.message}`,
+      ),
+      ...businessRepairGraphErrors,
+    ];
+    if (qualityIssues.length === 0) break;
+
+    updateStage(
+      "repair_code_files",
+      `正在修复业务断言（第 ${repairRound}/${MAX_BUSINESS_ASSERTION_REPAIR_ROUNDS} 轮）`,
+    );
+    const changedBeforeRepair = snapshot.changedFileCount;
+    const repairOperations = await generateCodeFileOperationsWithRepair(
+      record,
+      providerSettings,
+      llmTransport,
+      buildCodeContext(snapshot),
+      snapshot.files,
+      {
+        businessLogic,
+        uiBlueprint: null,
+        designToCodeMapping,
+        designModelCoverageReport,
+        loadedCodeSkill,
+        visualDirection,
+        skillResourceDiscoveryPlan,
+        skillResourcePreviews,
+        skillResourcePlan,
+        codeSkillContext: skillContext,
+        qualityIssues,
+        selectedCodeSkills: snapshot.selectedCodeSkills,
+        codeSkillInstructions,
+      },
+      "repair_code_files",
+    );
+    throwIfRunCancelled(record);
+    for (const operation of repairOperations.operations) {
+      throwIfRunCancelled(record);
+      applyCodeOperation(record, snapshot, operation);
+    }
+    upsertBusinessContextMarkdown(record, snapshot);
+
+    updateStage("audit_code_quality", "正在复查业务断言修复后的原型质量");
+    qualityDiagnostic = auditCodePrototypeQuality(snapshot);
+    recordCodeQualityDiagnostics(snapshot, qualityDiagnostic);
+    ensureRequiredPrototypeFiles(record, snapshot, scaffold);
+    validatePrototypeFileContents(snapshot);
+    businessRepairGraphErrors = validatePrototypePreviewGraph(snapshot);
+    for (const message of businessRepairGraphErrors) {
+      addCodeDiagnostic(snapshot, "verify_code_preview", message);
+    }
+
+    updateStage(
+      "verify_code_business_assertions",
+      "正在复查需求关联的代码业务断言",
+    );
+    completionEvidence = verifyCodeCompletionEvidence(snapshot);
+    if (snapshot.changedFileCount === changedBeforeRepair) break;
+  }
+  if (businessRepairGraphErrors.length > 0) {
+    throw new Error(
+      `Business assertion repair broke preview modules: ${businessRepairGraphErrors.join("；")}`,
+    );
+  }
+  if (completionEvidence.businessAssertionResults) {
+    snapshot.businessAssertionResults =
+      completionEvidence.businessAssertionResults;
+    emitEvent(
+      record,
+      artifactReadyRunEventSchema.parse({
+        type: "artifact_ready",
+        stage: "verify_code_business_assertions",
+        artifactKind: "businessAssertionResults",
+        businessAssertionResults: completionEvidence.businessAssertionResults,
+      }),
+    );
+  } else {
+    addCodeDiagnostic(
+      snapshot,
+      "verify_code_business_assertions",
+      "未提供需求基线，已跳过需求关联业务断言；该兼容路径不计入真实全链验收。",
+    );
+  }
+  if (completionEvidence.trustedChain) {
+    snapshot.coverageMatrix = completionEvidence.trustedChain.coverageMatrix;
+    snapshot.traceabilityMatrix =
+      completionEvidence.trustedChain.traceabilityMatrix;
+  }
+  if (!completionEvidence.passed) {
+    snapshot.status = "failed";
+    throw new Error(
+      `Code business assertions failed: ${completionEvidence.businessAssertionResults?.blockingFailureIds.join(", ")}`,
+    );
   }
 
   snapshot.status = "completed";

@@ -17,6 +17,7 @@ import type {
   CodeVisualDirection,
   DesignDiagramModelSpec,
   LoadedCodeSkill,
+  RequirementBaseline,
 } from "@uml-platform/contracts";
 
 const UI_MOCKUP_PROMPT_CHAR_LIMIT = 24000;
@@ -145,9 +146,10 @@ export function buildAnalyzeCodeBusinessLogicPrompt(
   designPlantUml: unknown[] = [],
   designToCodeMapping?: DesignToCodeMapping | null,
   designModelCoverageReport?: DesignModelCoverageReport | null,
+  requirementBaseline?: RequirementBaseline | null,
 ) {
   return [
-    "请作为前端实现模型分析器，只从设计模型、设计 PlantUML 和 designToCodeMapping 中抽取代码生成必须遵守的实现事实。",
+    "请作为前端实现模型分析器，从设计模型、设计 PlantUML、designToCodeMapping 和服务端已确认需求基线中抽取代码生成必须遵守的实现事实。",
     "返回 JSON 对象，格式必须是 {\"businessLogic\":{...}}。",
     "只允许返回一个顶层 JSON 对象，不允许在 JSON 前后输出任何说明、Markdown、代码块或额外文字。",
     CODE_GENERATION_SEMANTICS,
@@ -171,9 +173,10 @@ export function buildAnalyzeCodeBusinessLogicPrompt(
     "",
     "强约束：",
     "- 这一步不是 skill，而是代码生成必做的 function calling。",
-    "- 设计模型是代码实现的唯一事实来源；禁止从设计模型以外的信息推导新页面、新实体、新流程或新操作。",
+    "- 设计模型定义页面、实体、流程和模块结构；已确认需求基线定义数字边界、比较符、角色权限、状态、异常和验收条件。",
+    "- 不得从已确认需求基线推导与设计结构无关的新页面，但必须把能落在现有结构中的业务约束实现为可执行守卫和可观察反馈。",
     "- 必须把 architecture/sequence/activity/class/component/deployment/table 中能影响页面行为的数据关系、状态、模块边界和异常分支落到 businessLogic。",
-    "- 必须逐项消费 designToCodeMapping；如果覆盖报告指出某个设计模型缺少可实现依据，只能写入 edgeCases 或 plantUmlTraceability 诊断，不得回读需求补齐。",
+    "- 必须逐项消费 designToCodeMapping；如果覆盖报告指出某个设计模型缺少可实现依据，记录到 edgeCases 或 plantUmlTraceability，同时用已确认需求基线约束已有页面行为。",
     "- pageFlows 至少 2 个页面，简单需求也要包含总览/核心流程；route 必须以 / 开头。",
     "- 不要输出 UI 风格建议；视觉主题由下一步 plan_code_ui 决定。",
     "",
@@ -188,6 +191,19 @@ export function buildAnalyzeCodeBusinessLogicPrompt(
     "",
     "设计模型覆盖报告：",
     stringifyForPrompt(designModelCoverageReport ?? null, 10000),
+    "",
+    "服务端已确认需求基线（只使用 status=accepted 的事实；pending/rejected 不得实现为已确认规则）：",
+    stringifyForPrompt(
+      requirementBaseline
+        ? {
+            ...requirementBaseline,
+            requirements: requirementBaseline.requirements.filter(
+              (requirement) => requirement.status === "accepted",
+            ),
+          }
+        : null,
+      18000,
+    ),
   ].join("\n");
 }
 

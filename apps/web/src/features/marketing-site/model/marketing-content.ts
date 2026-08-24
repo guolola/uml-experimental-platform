@@ -168,7 +168,7 @@ const trustedChainHighlightsZh: TrustedChainHighlight[] = [
   {
     title: "证据包与验收记录",
     description:
-      "把基线、质量报告、追踪矩阵、修复日志、测试结果和浏览器验收记录沉淀为可审查的 EvidencePackage。",
+      "通过统一的基线、质量报告与追踪矩阵，让关键需求和生成产物保持可核验。",
     icon: PackageCheck,
   },
 ];
@@ -298,7 +298,7 @@ const caseStudiesZh: CaseStudy[] = [
       "面向高校实验室开放管理，帮助学生预约可用时段，教师审核申请，管理员维护实验室设备和开放时间。",
     actors: ["学生", "教师", "实验室管理员"],
     workflow: ["查看实验室空闲时段", "提交预约申请", "教师审核预约", "通知申请人审核结果"],
-    outputs: ["系统上下文图", "两套候选实现方案", "预约用例与状态模型", "预约审批原型与说明书"],
+    outputs: ["系统上下文图（系统环境图）", "两套候选实现方案", "预约用例与状态模型", "预约审批原型与说明书"],
     feasibilitySummary:
       "验证时段冲突、审批通知和消息服务集成，比较两套方案的周期、成本、收益、风险及五类可行性结论。",
     sampleRequirement:
@@ -314,7 +314,7 @@ const caseStudiesZh: CaseStudy[] = [
       "面向中小商家订单履约，覆盖商品维护、客户下单、库存校验、发货通知和订单状态跟踪。",
     actors: ["商家", "客户", "仓储系统"],
     workflow: ["维护商品与库存", "客户提交订单", "校验库存余量", "通知仓储系统发货"],
-    outputs: ["系统上下文图", "两套候选实现方案", "订单状态机与库存规则", "订单原型与设计说明书"],
+    outputs: ["系统上下文图（系统环境图）", "两套候选实现方案", "订单状态机与库存规则", "订单原型与设计说明书"],
     feasibilitySummary:
       "验证库存约束和仓储系统集成，比较实施边界、交付周期、成本收益与运营风险。",
     sampleRequirement:
@@ -330,7 +330,7 @@ const caseStudiesZh: CaseStudy[] = [
       "面向工业设备运维，采集边缘网关上报的温度、振动和运行状态，并对严重异常及时告警。",
     actors: ["边缘网关", "运维人员", "短信服务"],
     workflow: ["采集设备运行数据", "识别异常告警", "运维人员确认处理", "严重告警发送短信通知"],
-    outputs: ["系统上下文图", "两套候选实现方案", "告警流程与设备状态模型", "监控原型与证据记录"],
+    outputs: ["系统上下文图（系统环境图）", "两套候选实现方案", "告警流程与设备状态模型", "监控原型与证据记录"],
     feasibilitySummary:
       "验证数据采集、严重告警和短信服务集成，比较部署方式、持续运维成本与集成风险。",
     sampleRequirement:
@@ -346,7 +346,7 @@ const caseStudiesZh: CaseStudy[] = [
       "面向校园图书馆日常借阅，管理图书库存、读者借阅、归还登记和逾期提醒。",
     actors: ["读者", "馆员", "系统通知服务"],
     workflow: ["读者检索图书", "提交借阅申请", "馆员登记借出和归还", "系统处理逾期提醒"],
-    outputs: ["系统上下文图", "两套候选实现方案", "借阅领域模型与逾期规则", "借还书原型与需求说明书"],
+    outputs: ["系统上下文图（系统环境图）", "两套候选实现方案", "借阅领域模型与逾期规则", "借还书原型与需求说明书"],
     feasibilitySummary:
       "验证库存一致性、逾期提醒和通知服务集成，比较交付复杂度、成本收益与运营条件。",
     sampleRequirement:
@@ -501,7 +501,7 @@ const trustedChainHighlightsEn: TrustedChainHighlight[] = [
   {
     title: "Evidence packages and acceptance records",
     description:
-      "Preserves baselines, quality reports, trace matrices, repair logs, test results, and browser acceptance records as reviewable EvidencePackages.",
+      "Keeps critical requirements and generated artifacts verifiable through shared baselines, quality reports, and trace matrices.",
     icon: PackageCheck,
   },
 ];
@@ -631,7 +631,7 @@ const caseStudiesEn: CaseStudy[] = [
       "For university lab access management, helping students book available time slots, teachers approve requests, and administrators maintain equipment and opening hours.",
     actors: ["Student", "Teacher", "Lab administrator"],
     workflow: ["View available lab slots", "Submit booking request", "Teacher reviews booking", "Notify applicant of review result"],
-    outputs: ["System context diagram", "Two candidate implementation plans", "Booking use case and state models", "Approval prototype and specification"],
+    outputs: ["System Context Diagram (System Environment Diagram)", "Two candidate implementation plans", "Booking use case and state models", "Approval prototype and specification"],
     feasibilitySummary:
       "Validates slot conflicts, approval notifications, and messaging integration while comparing schedule, cost, benefit, risk, and five feasibility verdicts.",
     sampleRequirement:
@@ -647,7 +647,7 @@ const caseStudiesEn: CaseStudy[] = [
       "For small and midsize merchant fulfillment, covering product maintenance, customer orders, inventory checks, shipping notifications, and order status tracking.",
     actors: ["Merchant", "Customer", "Warehouse system"],
     workflow: ["Maintain products and inventory", "Customer submits order", "Check stock balance", "Notify warehouse system to ship"],
-    outputs: ["System context diagram", "Two candidate implementation plans", "Order state machine and inventory rules", "Order prototype and design specification"],
+    outputs: ["System Context Diagram (System Environment Diagram)", "Two candidate implementation plans", "Order state machine and inventory rules", "Order prototype and design specification"],
     feasibilitySummary:
       "Validates inventory constraints and warehouse integration while comparing implementation boundaries, delivery schedule, economics, and operational risks.",
     sampleRequirement:
@@ -663,7 +663,7 @@ const caseStudiesEn: CaseStudy[] = [
       "For industrial equipment operations, collecting temperature, vibration, and operating status from edge gateways while alerting serious anomalies promptly.",
     actors: ["Edge gateway", "Operations staff", "SMS service"],
     workflow: ["Collect device runtime data", "Detect abnormal alarms", "Operations staff confirms handling", "Send SMS for severe alarms"],
-    outputs: ["System context diagram", "Two candidate implementation plans", "Alarm flow and device state models", "Monitoring prototype and evidence"],
+    outputs: ["System Context Diagram (System Environment Diagram)", "Two candidate implementation plans", "Alarm flow and device state models", "Monitoring prototype and evidence"],
     feasibilitySummary:
       "Validates data collection, severe alarms, and SMS integration while comparing deployment choices, recurring operations cost, and integration risk.",
     sampleRequirement:
@@ -679,7 +679,7 @@ const caseStudiesEn: CaseStudy[] = [
       "For daily campus library lending, managing book inventory, reader borrowing, return registration, and overdue reminders.",
     actors: ["Reader", "Librarian", "System notification service"],
     workflow: ["Reader searches books", "Submit lending request", "Librarian registers lending and return", "System handles overdue reminders"],
-    outputs: ["System context diagram", "Two candidate implementation plans", "Lending domain model and overdue rules", "Borrow/return prototype and specification"],
+    outputs: ["System Context Diagram (System Environment Diagram)", "Two candidate implementation plans", "Lending domain model and overdue rules", "Borrow/return prototype and specification"],
     feasibilitySummary:
       "Validates inventory consistency, overdue reminders, and notification integration while comparing delivery complexity, economics, and operating conditions.",
     sampleRequirement:

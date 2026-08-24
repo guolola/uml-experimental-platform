@@ -1,13 +1,11 @@
-// Wraps document, OnlyOffice, and evidence endpoints used by workspace repositories.
+// Wraps document and OnlyOffice endpoints used by workspace repositories.
 import type {
   DocumentKind,
   DocumentLibraryListResponse,
-  EvidencePackage,
-  EvidenceReviewDecision,
   OnlyOfficeEditorConfigResponse,
   OnlyOfficeUiTheme,
 } from "@uml-platform/contracts";
-import { downloadBlob, postJson, requestJson } from "../api-client";
+import { downloadBlob, requestJson } from "../api-client";
 import { requireProjectScope, withProjectHeaders } from "./project-scope";
 
 function documentTimestamp(date = new Date()) {
@@ -29,40 +27,6 @@ export function documentFileName(documentKind: DocumentKind, date = new Date()) 
     : documentKind === "softwareDesignSpec"
       ? `软件设计说明书-${timestamp}.docx`
       : `可行性研究报告-${timestamp}.docx`;
-}
-
-export async function readRunEvidencePackage(
-  runId: string,
-  projectId: string | null = null,
-) {
-  const scopedProjectId = requireProjectScope(projectId);
-  const response = await requestJson<{ evidencePackage: EvidencePackage }>(
-    `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}/evidence`,
-    withProjectHeaders(scopedProjectId, {
-      errorMessage: "读取可信证据包失败",
-    }),
-  );
-  return response.evidencePackage;
-}
-
-export async function postRunReviewDecision(
-  runId: string,
-  decision: {
-    reviewItemId: string;
-    decision: EvidenceReviewDecision["decision"];
-    comment: string;
-  },
-  projectId: string | null = null,
-) {
-  const scopedProjectId = requireProjectScope(projectId);
-  const response = await postJson<{ evidencePackage: EvidencePackage }>(
-    `/api/projects/${encodeURIComponent(scopedProjectId)}/runs/${encodeURIComponent(runId)}/review-decisions`,
-    decision,
-    withProjectHeaders(scopedProjectId, {
-      errorMessage: "提交人工复核决策失败",
-    }),
-  );
-  return response.evidencePackage;
 }
 
 export async function downloadDocumentRunFile(

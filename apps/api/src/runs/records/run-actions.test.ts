@@ -1,11 +1,20 @@
 // Verifies run action snapshot cloning preserves retry/rerun target scope.
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { DesignRunSnapshot, RunSnapshot } from "@uml-platform/contracts";
+import type {
+  CodeRunSnapshot,
+  DesignRunSnapshot,
+  RunSnapshot,
+} from "@uml-platform/contracts";
 import { buildRequirementBaseline } from "../baselines/requirement-baseline.js";
 import { createQueuedRunFromSource } from "./run-actions.js";
 import type { RunRecord, RunRecordStore } from "./run-record-store.js";
-import { createEmptyDesignSnapshot, createEmptySnapshot } from "./snapshots.js";
+import {
+  createEmptyCodeSnapshot,
+  createEmptyDesignSnapshot,
+  createEmptySnapshot,
+} from "./snapshots.js";
+import { createRunError } from "../pipelines/shared/errors.js";
 
 const rule = {
   id: "REQ-001",
@@ -79,4 +88,64 @@ test("createQueuedRunFromSource preserves design requested diagram scope", () =>
     ?.snapshot as DesignRunSnapshot;
   assert.deepEqual(rerunSnapshot.selectedDiagrams, ["sequence"]);
   assert.deepEqual(rerunSnapshot.requestedDiagrams, ["sequence"]);
+});
+
+test("createQueuedRunFromSource preserves the code requirement baseline", () => {
+  const runs: RunRecordStore = new Map();
+  const requirementBaseline = buildRequirementBaseline({
+    runId: "baseline-code-run",
+    requirementText: "用户可以查看图书。",
+    rules: [rule],
+  });
+  const sourceSnapshot = createEmptyCodeSnapshot("source-code-run", {
+    designModels: [],
+    existingFiles: { "/src/App.tsx": "export default function App(){}" },
+    requirementBaseline,
+  });
+  sourceSnapshot.status = "failed";
+
+  createQueuedRunFromSource({
+    runs,
+    source: createSourceRecord(sourceSnapshot),
+    action: "retry",
+    sourceRunId: sourceSnapshot.runId,
+    runId: "retry-code-run",
+  });
+
+  const retrySnapshot = runs.get("retry-code-run")?.snapshot as CodeRunSnapshot;
+  assert.equal(retrySnapshot.requirementBaseline?.runId, "baseline-code-run");
+  assert.equal(retrySnapshot.generationMode, "continue");
+  assert.equal(
+    retrySnapshot.files["/src/App.tsx"],
+    "export default function App(){}",
+  );
+});
+
+test("retry narrows a failed requirement batch to retryable diagram errors", () => {
+  const runs: RunRecordStore = new Map();
+  const sourceSnapshot = createEmptySnapshot(
+    "source-partial-requirements",
+    "用户查看图书并接收通知。",
+    ["usecase", "activity"],
+    [rule],
+    { requestedDiagrams: ["usecase", "activity"] },
+  );
+  sourceSnapshot.status = "failed";
+  sourceSnapshot.diagramErrors.activity = {
+    stage: "generate_models",
+    error: createRunError("RUN_STRUCTURED_OUTPUT_INVALID", "活动图解析失败"),
+  };
+
+  createQueuedRunFromSource({
+    runs,
+    source: createSourceRecord(sourceSnapshot),
+    action: "retry",
+    sourceRunId: sourceSnapshot.runId,
+    runId: "retry-partial-requirements",
+  });
+
+  const retrySnapshot = runs.get("retry-partial-requirements")
+    ?.snapshot as RunSnapshot;
+  assert.deepEqual(retrySnapshot.selectedDiagrams, ["activity"]);
+  assert.deepEqual(retrySnapshot.requestedDiagrams, ["activity"]);
 });

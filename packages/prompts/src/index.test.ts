@@ -113,6 +113,8 @@ test("requirement model prompts include requirement-stage responsibilities", () 
   assert.match(prompt, /requirementModelTraceability 可以返回空数组/);
   assert.match(prompt, /模型结构生成成功后由系统分批补齐/);
   assert.match(prompt, /RequirementBaseline（结构化需求事实和约束）/);
+  assert.match(prompt, /达到\/至少\/不低于\/以上必须保持为 >=/);
+  assert.match(prompt, /正好等于阈值的路径/);
   assert.doesNotMatch(prompt, /原始需求：/);
   assert.doesNotMatch(prompt, /用户登录后进入首页/);
 });
@@ -130,6 +132,7 @@ test("requirement repair prompt preserves requirement-stage responsibilities", (
   assert.match(prompt, /总体业务流程\(activity\): 描述跨角色的业务活动/);
   assert.match(prompt, /relationships\[\] 必须显式包含 sourceId 和 targetId/);
   assert.match(prompt, /deployment\.relationships\[\]\.port 必须是字符串/);
+  assert.match(prompt, /若校验指出阈值语义冲突/);
 });
 
 test("requirement analysis repair prompt allows empty traceability", () => {
@@ -897,9 +900,9 @@ test("code generation prompts use business background theme and modular files", 
   assert.match(businessLogicPrompt, /businessLogic/);
   assert.match(businessLogicPrompt, /PlantUML/);
   assert.match(businessLogicPrompt, /不是 skill/);
-  assert.match(businessLogicPrompt, /设计模型是代码实现的唯一事实来源/);
-  assert.match(businessLogicPrompt, /禁止从设计模型以外的信息推导新页面/);
-  assert.doesNotMatch(businessLogicPrompt, /requirementText|rules|requirementBaseline/);
+  assert.match(businessLogicPrompt, /设计模型定义页面、实体、流程和模块结构/);
+  assert.match(businessLogicPrompt, /不得从已确认需求基线推导与设计结构无关的新页面/);
+  assert.match(businessLogicPrompt, /服务端已确认需求基线/);
   assert.match(businessLogicPrompt, /designToCodeMapping/);
   assert.match(businessLogicPrompt, /必须全部是字符串数组/);
   assert.match(businessLogicPrompt, /不要输出对象数组/);
@@ -1030,6 +1033,7 @@ test("document content prompt forbids unprovided school and personal names", () 
   });
 
   assert.match(prompt, /不得出现具体大学、学院、教师、班级、学号、姓名/);
+  assert.match(prompt, /不得虚构年份、版本基线日期、制度名称或参考资料/);
   assert.match(prompt, /未由用户输入明确提供/);
   assert.match(prompt, /章节编号由平台自动生成/);
   assert.match(prompt, /功能需求（用例模型）/);

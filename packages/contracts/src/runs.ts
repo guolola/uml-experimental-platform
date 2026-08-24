@@ -1,6 +1,5 @@
 // Owns run request, snapshot, event, and action contracts shared by API pipelines and web clients.
 import { z } from "zod";
-import { evidencePackageSchema } from "./evidence.js";
 import {
   designDiagramModelSpecSchema,
   designModelTraceabilityEntrySchema,
@@ -186,7 +185,6 @@ export const startDesignRunRequestSchema = z
   .object({
     projectId: z.string().min(1).optional(),
     requirementBaseline: requirementBaselineSchema,
-    evidencePackage: evidencePackageSchema.nullable().optional(),
     requirementModels: z.array(diagramModelSpecSchema),
     requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema).min(1),
     selectedDiagrams: z.array(designDiagramKindSchema).min(1),
@@ -213,7 +211,6 @@ export type StartDesignRunCommand = z.infer<typeof startDesignRunCommandSchema>;
 export const startCodeRunRequestSchema = z
   .object({
     projectId: z.string().min(1).optional(),
-    evidencePackage: evidencePackageSchema.nullable().optional(),
     designModels: z.array(designDiagramModelSpecSchema).min(1),
     designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
     existingFiles: z.record(z.string().min(1), z.string()).default({}),
@@ -239,7 +236,8 @@ export const startDocumentRunRequestSchema = z.object({
   documentKind: documentKindSchema,
   requirementText: z.string().min(1),
   requirementBaseline: requirementBaselineSchema.nullable().optional(),
-  evidencePackage: evidencePackageSchema.nullable().optional(),
+  coverageMatrix: coverageMatrixSchema.nullable().optional(),
+  traceabilityMatrix: traceabilityMatrixSchema.nullable().optional(),
   rules: requirementRulesSchema.default([]),
   requirementModels: z.array(diagramModelSpecSchema).default([]),
   requirementModelTraceability: z
@@ -454,7 +452,6 @@ export const runSnapshotSchema = z.object({
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
-  evidencePackage: evidencePackageSchema.nullable().default(null),
   models: z.array(diagramModelSpecSchema),
   requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
   plantUml: z.array(plantUmlArtifactSchema),
@@ -476,7 +473,6 @@ export const designRunSnapshotSchema = z.object({
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
-  evidencePackage: evidencePackageSchema.nullable().default(null),
   requirementModels: z.array(diagramModelSpecSchema),
   requirementModelTraceability: z.array(requirementModelTraceabilityEntrySchema),
   models: z.array(designDiagramModelSpecSchema),
@@ -498,7 +494,6 @@ export const codeRunSnapshotSchema = z.object({
   requirementBaseline: requirementBaselineSchema.nullable().optional(),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
-  evidencePackage: evidencePackageSchema.nullable().default(null),
   designModels: z.array(designDiagramModelSpecSchema),
   designPlantUml: z.array(designPlantUmlArtifactSchema).default([]),
   spec: codeGenerationSpecSchema.nullable(),
@@ -558,7 +553,6 @@ export const documentRunSnapshotSchema = z.object({
   requirementBaseline: requirementBaselineSchema.nullable().default(null),
   coverageMatrix: coverageMatrixSchema.nullable().default(null),
   traceabilityMatrix: traceabilityMatrixSchema.nullable().default(null),
-  evidencePackage: evidencePackageSchema.nullable().default(null),
   feasibilityImplementationPlan: feasibilityImplementationPlanSchema.nullable().default(null),
   feasibilityInputs: feasibilityInputsSchema.default({}),
   documentId: z.string().min(1).nullable().default(null),
@@ -629,7 +623,6 @@ export const artifactReadyRunEventSchema = z.object({
     "requirementBaseline",
     "coverageMatrix",
     "traceabilityMatrix",
-    "evidencePackage",
     "rules",
     "model",
     "plantuml",
@@ -696,7 +689,6 @@ export const artifactReadyRunEventSchema = z.object({
   businessAssertionResults: codeBusinessAssertionResultSchema.optional(),
   coverageMatrix: coverageMatrixSchema.optional(),
   traceabilityMatrix: traceabilityMatrixSchema.optional(),
-  evidencePackage: evidencePackageSchema.optional(),
 });
 
 export const codeFileChangedRunEventSchema = z.object({

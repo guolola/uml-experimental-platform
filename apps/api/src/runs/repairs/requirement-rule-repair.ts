@@ -7,6 +7,8 @@ import {
   repairRequirementRuleResponseSchema,
   requirementRuleBatchRepairSuggestionSchema,
   requirementRuleRepairSuggestionSchema,
+  compareRequirementSemantics,
+  unsupportedRequirementFacts,
   type AtomicRequirement,
   type AtomicRequirementField,
   type RepairRequirementRuleRequest,
@@ -113,11 +115,16 @@ function normalizeRequirementRepairSuggestionOutput(raw: unknown) {
         continue;
       }
       if (!isPlainRecord(entry)) continue;
-      fields[field] = {
+      const normalizedEntry: Record<string, unknown> = {
         ...entry,
         value: readableFieldText(entry.value),
         originalValue: readableFieldText(entry.originalValue),
       };
+      // Some OpenAI-compatible providers emit nullable optional fields despite
+      // the response schema; absence and null both mean there is no issue link.
+      if (entry.issueIds === null) delete normalizedEntry.issueIds;
+      if (entry.rationale === null) delete normalizedEntry.rationale;
+      fields[field] = normalizedEntry;
     }
     normalized.fields = fields;
   }
@@ -137,6 +144,7 @@ function applyParsedRequirementRepairSuggestion(
   if (!requirement) {
     throw new Error("当前规则没有对应的需求基线，无法单项修复");
   }
+  const beforeRequirement = structuredClone(requirement) as AtomicRequirement;
 
   const existingProvenance = requirement.fieldProvenance ?? {};
   const nextProvenance: RequirementFieldProvenance = { ...existingProvenance };
@@ -177,11 +185,79 @@ function applyParsedRequirementRepairSuggestion(
     requirement.status = "pending-review";
   }
 
+  const semanticDiff = compareRequirementSemantics(
+    beforeRequirement,
+    requirement,
+  );
+  const unsupportedFacts = unsupportedRequirementFacts(
+    requirement.sourceFragment,
+    requirement,
+  );
+  if (semanticDiff.lostFacts.length > 0 || unsupportedFacts.length > 0) {
+    // Repairs are candidates, not authority to delete or invent confirmed business facts.
+    requirement.status = "pending-review";
+    requirement.confidence = Math.min(requirement.confidence, 0.69);
+  }
+
   const rebuiltBaseline = rebuildRequirementBaselineQualityReport(baseline);
   const repairedRequirement =
     rebuiltBaseline.requirements.find((item) => item.id === requirement.id) ??
     requirement;
-  const blockingReasons = rebuiltBaseline.qualityReport.issues
+  const semanticIssues: RequirementQualityIssue[] = [];
+  if (semanticDiff.lostFacts.length > 0) {
+    semanticIssues.push({
+      id: `SEM-${repairedRequirement.id}-LOSS`,
+      requirementId: repairedRequirement.id,
+      severity: "critical",
+      code: "semantic-loss",
+      message: `智能修复删除了原始语义：${semanticDiff.lostFacts
+        .map((fact) => fact.label)
+        .join("、")}。`,
+      blocksDownstream: true,
+    });
+  }
+  if (unsupportedFacts.length > 0) {
+    semanticIssues.push({
+      id: `SEM-${repairedRequirement.id}-ADDED`,
+      requirementId: repairedRequirement.id,
+      severity: "error",
+      code: "derived-assumption",
+      message: `智能修复新增了原文无法确认的事实：${unsupportedFacts
+        .map((fact) => fact.label)
+        .join("、")}。`,
+      blocksDownstream: false,
+    });
+  }
+  const qualityIssues = [
+    ...rebuiltBaseline.qualityReport.issues,
+    ...semanticIssues,
+  ];
+  const blockingIssueIds = qualityIssues
+    .filter((issue) => issue.blocksDownstream)
+    .map((issue) => issue.id);
+  const reviewRequiredRequirementIds = Array.from(
+    new Set([
+      ...rebuiltBaseline.qualityReport.reviewRequiredRequirementIds,
+      ...(semanticIssues.length > 0 ? [repairedRequirement.id] : []),
+    ]),
+  );
+  const qualityReport = {
+    ...rebuiltBaseline.qualityReport,
+    status:
+      blockingIssueIds.length > 0
+        ? ("blocked" as const)
+        : reviewRequiredRequirementIds.length > 0 || qualityIssues.length > 0
+          ? ("pending-review" as const)
+          : ("passed" as const),
+    summary:
+      semanticIssues.length > 0
+        ? `发现 ${qualityIssues.length} 个需求质量提示，智能修复结果需要人工复核。`
+        : rebuiltBaseline.qualityReport.summary,
+    issues: qualityIssues,
+    blockingIssueIds,
+    reviewRequiredRequirementIds,
+  };
+  const blockingReasons = qualityReport.issues
     .filter(
       (issue): issue is RequirementQualityIssue & { requirementId: string } =>
         issue.requirementId === repairedRequirement.id && issue.blocksDownstream,
@@ -190,7 +266,7 @@ function applyParsedRequirementRepairSuggestion(
 
   return repairRequirementRuleResponseSchema.parse({
     requirement: repairedRequirement,
-    qualityReport: rebuiltBaseline.qualityReport,
+    qualityReport,
     repairRationale:
       suggestion.rationale ??
       "已仅针对当前需求规则补齐结构化字段，并重新运行需求质量检查。",
@@ -233,6 +309,8 @@ export function buildRequirementRuleRepairMessages(
             "所有字段值必须是中文字符串或 null，不能返回数组或对象。",
             "originalValue 必须是字符串或 null；验收标准有多条时合并为一段中文文本。",
             "acceptanceCriteria.value 如需表达多条验收标准，请用中文分号分隔成一个字符串。",
+            "只能补齐或澄清字段，不得删除原规则中的数字、单位、比较符、否定、逻辑关系、角色、状态、异常分支或事件/时间触发条件。",
+            "原文没有明确给出的阈值、预算、周期、角色、状态或外部依赖必须标记 pending-review，不能标记 accepted。",
           ],
           outputShape: {
             fields: Object.fromEntries(
@@ -294,6 +372,8 @@ export function buildRequirementRulesRepairMessages(
             "originalValue 必须是字符串或 null；验收标准有多条时合并为一段中文文本。",
             "acceptanceCriteria.value 如需表达多条验收标准，请用中文分号分隔成一个字符串。",
             "confidence 必须是 0 到 1 的数字。",
+            "只能补齐或澄清字段，不得删除原规则中的数字、单位、比较符、否定、逻辑关系、角色、状态、异常分支或事件/时间触发条件。",
+            "原文没有明确给出的阈值、预算、周期、角色、状态或外部依赖必须标记 pending-review，不能标记 accepted。",
           ],
           outputShape: {
             repairs: [

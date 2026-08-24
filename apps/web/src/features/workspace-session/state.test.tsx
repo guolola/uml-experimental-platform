@@ -135,7 +135,6 @@ function createCodeRunSnapshot(
     requirementBaseline: null,
     coverageMatrix: null,
     traceabilityMatrix: null,
-    evidencePackage: null,
     designModels: [],
     designPlantUml: [],
     spec: null,
@@ -5301,7 +5300,6 @@ describe("WorkspaceSessionProvider", () => {
       requirementBaseline: createRequirementBaseline([createAtomicRequirement()]),
       coverageMatrix: null,
       traceabilityMatrix: null,
-      evidencePackage: null,
       requirementModels: [usecaseModel],
       requirementModelTraceability: [
         {

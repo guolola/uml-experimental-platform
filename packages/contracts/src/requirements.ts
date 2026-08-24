@@ -238,6 +238,7 @@ export const requirementQualityIssueSchema = z.object({
     "non-verifiable",
     "low-confidence",
     "derived-assumption",
+    "semantic-loss",
   ]),
   message: z.string().min(1),
   blocksDownstream: z.boolean(),

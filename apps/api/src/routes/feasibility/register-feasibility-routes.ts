@@ -190,7 +190,7 @@ export function registerFeasibilityRoutes({
       !input.selectedArtifacts.includes("context") &&
       !existingContext
     ) {
-      return reply.code(409).send({ message: "实现方案依赖最新有效的上下文图，请同时选择上下文图。" });
+      return reply.code(409).send({ message: "实现方案依赖最新有效的系统上下文图（系统环境图），请同时选择该图。" });
     }
 
     const runId = randomUUID();

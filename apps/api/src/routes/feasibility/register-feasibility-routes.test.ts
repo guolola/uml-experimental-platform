@@ -150,7 +150,7 @@ test("requires provider settings and rejects implementation without a current co
   assert.equal(missingProvider.statusCode, 400);
   const dependency = await app.inject({ method: "POST", url: "/api/feasibility-runs", headers: { authorization: "Bearer test" }, payload: { projectId: "project-1", selectedArtifacts: ["implementation"], providerSettings: { providerConfigId: "provider-1", model: "test-model" } } });
   assert.equal(dependency.statusCode, 409);
-  assert.match(dependency.json().message, /上下文图/u);
+  assert.match(dependency.json().message, /系统上下文图（系统环境图）/u);
   await app.close();
 });
 

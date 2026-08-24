@@ -47,7 +47,6 @@ function failedPartialDesignSnapshot(): DesignRunSnapshot {
     requirementBaseline: null,
     coverageMatrix: null,
     traceabilityMatrix: null,
-    evidencePackage: null,
     requirementModels: [],
     requirementModelTraceability: [],
     models: [table],
@@ -122,7 +121,6 @@ function completedCodeSnapshot(): CodeRunSnapshot {
     requirementBaseline: null,
     coverageMatrix: null,
     traceabilityMatrix: null,
-    evidencePackage: null,
     designModels: [table],
     designPlantUml: [
       {

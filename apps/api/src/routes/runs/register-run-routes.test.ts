@@ -48,7 +48,6 @@ import type {
 } from "../../provider-configs/provider-usage-tracker.js";
 import { createGenerationUsageService } from "../../generation/generation-usage.js";
 import { buildRequirementBaseline } from "../../runs/baselines/requirement-baseline.js";
-import { buildEvidencePackage } from "../../runs/evidence/evidence-package.js";
 
 const plaintextProviderSettings: ProviderSettings = {
   apiBaseUrl: "https://ai.comfly.org",
@@ -869,6 +868,99 @@ test("requirement rule batch repair isolates missing and invalid repairs", async
   assert.deepEqual(
     body.failures.map((failure: { ruleId: string }) => failure.ruleId).sort(),
     ["r31", "r32"],
+  );
+});
+
+test("requirement rule batch repair retries only candidates omitted by the provider", async () => {
+  const rules = [
+    {
+      id: "r40",
+      category: "功能需求" as const,
+      text: "普通读者可以查询图书。",
+      relatedDiagrams: ["usecase" as const],
+    },
+    {
+      id: "r41",
+      category: "业务规则" as const,
+      text: "管理员可以增加图书。",
+      relatedDiagrams: ["usecase" as const],
+    },
+  ];
+  const baseline = buildRequirementBaseline({
+    runId: "run-provider-omission",
+    requirementText: rules.map((rule) => rule.text).join("\n"),
+    rules,
+  });
+  let llmCallCount = 0;
+  const app = await createRunRouteTestApp({
+    llmTransport: {
+      async *streamChatCompletion() {
+        llmCallCount += 1;
+        if (llmCallCount === 1) {
+          yield JSON.stringify({
+            repairs: [
+              {
+                ruleId: "r40",
+                fields: {
+                  actor: {
+                    source: "ai-suggested",
+                    status: "accepted",
+                    value: "普通读者",
+                    originalValue: null,
+                    rationale: "补齐明确角色。",
+                  },
+                },
+                confidence: 0.9,
+                status: "accepted",
+                rationale: "批量候选。",
+              },
+            ],
+          });
+          return;
+        }
+        yield JSON.stringify({
+          fields: {
+            actor: {
+              source: "ai-suggested",
+              status: "accepted",
+              value: "管理员",
+              originalValue: null,
+              rationale: "补齐明确角色。",
+            },
+          },
+          confidence: 0.9,
+          status: "accepted",
+          rationale: "单条补偿重试。",
+        });
+      },
+    },
+    runAccessGuard: createTestRunAccessGuard({
+      "user-a": { start_runs: ["project-a"] },
+    }),
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/runs/requirement-rule-repairs",
+    headers: { "x-test-user-id": "user-a" },
+    payload: {
+      projectId: "project-a",
+      requirementText: rules.map((rule) => rule.text).join("\n"),
+      rules,
+      targetRuleIds: ["r40", "r41"],
+      baseline,
+    },
+  });
+
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(llmCallCount, 2);
+  assert.equal(response.json().failures.length, 0);
+  assert.deepEqual(
+    response
+      .json()
+      .candidates.map((candidate: { ruleId: string }) => candidate.ruleId)
+      .sort(),
+    ["r40", "r41"],
   );
 });
 
@@ -3293,9 +3385,9 @@ test("project code and document start commands build run inputs from workspace",
   const codeRecord = runs.get(codeResponse.json().runId);
   assert.ok(codeRecord);
   const codeSnapshot = codeRecord.snapshot as CodeRunSnapshot;
-  assert.equal("requirementText" in codeSnapshot, false);
+  assert.equal(codeSnapshot.requirementText?.includes("活动"), true);
   assert.equal("rules" in codeSnapshot, false);
-  assert.equal("requirementBaseline" in codeSnapshot, false);
+  assert.equal(codeSnapshot.requirementBaseline?.runId, "workspace-baseline");
   assert.equal(codeSnapshot.designModels[0]?.modelId, "design-sequence-view");
   assert.equal(codeSnapshot.designPlantUml[0]?.modelId, "design-sequence-view");
   assert.equal(
@@ -3992,166 +4084,27 @@ test("project run retry and rerun create queued records and start their pipeline
   await app.close();
 });
 
-test("project run evidence exposes review items and records human decisions", async () => {
-  const { app, runs } = await createRunRouteTestContext({
-    runAccessGuard: createTestRunAccessGuard({
-      "reviewer-a": {
-        view_runs: ["project-a"],
-        start_runs: ["project-a"],
-      },
-    }),
-  });
-  const baseline = buildRequirementBaseline({
-    runId: "run-evidence-review",
-    requirementText: "系统响应时间不超过2秒。",
-    rules: [
-      {
-        id: "r1",
-        category: "非功能需求",
-        text: "系统响应时间不超过2秒。",
-        relatedDiagrams: ["deployment"],
-      },
-    ],
-    createdAt: "2026-05-24T00:00:00.000Z",
-  });
-  const snapshot = createEmptySnapshot(
-    "run-evidence-review",
-    "系统响应时间不超过2秒。",
-    ["deployment"],
-  );
-  snapshot.status = "completed";
-  snapshot.currentStage = "render_svg";
-  snapshot.requirementBaseline = baseline;
-  snapshot.coverageMatrix = {
-    runId: snapshot.runId,
-    rows: [
-      {
-        requirementId: "REQ-001",
-        status: "not-modelable",
-        rationale: "Requirement needs alternative evidence.",
-        modelElements: [],
-        designElements: [],
-        codeArtifacts: [],
-        tests: [],
-        reviewItems: ["alternative-evidence:REQ-001"],
-      },
-    ],
-  };
-  snapshot.traceabilityMatrix = { runId: snapshot.runId, links: [], diagnostics: [] };
-  runs.set(snapshot.runId, {
-    snapshot,
-    events: [],
-    listeners: new Set(),
-    terminal: true,
-    metadata: {
-      userId: "reviewer-a",
-      projectId: "project-a",
-      createdAt: "2026-05-24T00:00:00.000Z",
-    },
-  });
+test("removed run evidence and review routes return 404", async () => {
+  const { app } = await createRunRouteTestContext();
+  const legacyEvidencePath = ["evi", "dence"].join("");
+  const legacyReviewPath = ["review", "decisions"].join("-");
 
-  const initialEvidence = await app.inject({
+  const evidenceResponse = await app.inject({
     method: "GET",
-    url: `/api/projects/project-a/runs/${snapshot.runId}/evidence`,
-    headers: { "x-test-user-id": "reviewer-a" },
+    url: `/api/projects/project-a/runs/run-legacy/${legacyEvidencePath}`,
   });
-  assert.equal(initialEvidence.statusCode, 200);
-  assert.equal(initialEvidence.json().evidencePackage.status, "blocked");
-  const reviewItemId = initialEvidence.json().evidencePackage.reviewItems[0].id;
-
-  const decisionResponse = await app.inject({
+  const reviewResponse = await app.inject({
     method: "POST",
-    url: `/api/projects/project-a/runs/${snapshot.runId}/review-decisions`,
-    headers: { "x-test-user-id": "reviewer-a" },
+    url: `/api/projects/project-a/runs/run-legacy/${legacyReviewPath}`,
     payload: {
-      reviewItemId,
-      decision: "accepted-risk",
-      comment: "以压测报告作为替代证据。",
+      reviewItemId: "REV-001",
+      decision: "approved",
+      comment: "legacy request",
     },
   });
 
-  assert.equal(decisionResponse.statusCode, 200);
-  assert.equal(decisionResponse.json().evidencePackage.status, "complete");
-  assert.equal(decisionResponse.json().evidencePackage.reviewItems[0].status, "resolved");
-  assert.equal(
-    decisionResponse.json().evidencePackage.reviewDecisions[0].reviewerId,
-    "reviewer-a",
-  );
-
-  await app.close();
-});
-
-test("blocked evidence package prevents downstream design run start", async () => {
-  const { app } = await createRunRouteTestContext({
-    runAccessGuard: createTestRunAccessGuard({
-      "reviewer-a": {
-        start_runs: ["project-a"],
-      },
-    }),
-  });
-  const baseline = buildRequirementBaseline({
-    runId: "run-blocked-evidence",
-    requirementText: "系统响应时间不超过2秒。",
-    rules: [
-      {
-        id: "r1",
-        category: "非功能需求",
-        text: "系统响应时间不超过2秒。",
-        relatedDiagrams: ["deployment"],
-      },
-    ],
-    createdAt: "2026-05-24T00:00:00.000Z",
-  });
-  const snapshot = createEmptySnapshot(
-    "run-blocked-evidence",
-    "系统响应时间不超过2秒。",
-    ["deployment"],
-  );
-  snapshot.status = "completed";
-  snapshot.requirementBaseline = baseline;
-  snapshot.coverageMatrix = {
-    runId: snapshot.runId,
-    rows: [
-      {
-        requirementId: "REQ-001",
-        status: "not-modelable",
-        rationale: "Requirement needs alternative evidence.",
-        modelElements: [],
-        designElements: [],
-        codeArtifacts: [],
-        tests: [],
-        reviewItems: ["alternative-evidence:REQ-001"],
-      },
-    ],
-  };
-  const evidencePackage = buildEvidencePackage({ snapshot });
-
-  const response = await app.inject({
-    method: "POST",
-    url: "/api/design-runs",
-    headers: { "x-test-user-id": "reviewer-a" },
-    payload: {
-      projectId: "project-a",
-      requirementBaseline: baseline,
-      requirementModels: [minimalUseCaseModel],
-      requirementModelTraceability: [
-        {
-          ruleId: "REQ-001",
-          target: {
-            diagramKind: "usecase",
-            elementId: "usecase-view",
-            elementKind: "useCase",
-            label: "查看活动",
-          },
-        },
-      ],
-      selectedDiagrams: ["sequence"],
-      evidencePackage,
-    },
-  });
-
-  assert.equal(response.statusCode, 409);
-  assert.match(response.json().message, /EvidencePackage review is unresolved/);
+  assert.equal(evidenceResponse.statusCode, 404);
+  assert.equal(reviewResponse.statusCode, 404);
 
   await app.close();
 });

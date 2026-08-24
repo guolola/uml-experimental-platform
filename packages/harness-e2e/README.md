@@ -9,7 +9,7 @@ constraints.
 
 Current coverage includes:
 
-- EvidencePackage visibility, review actions, export, and blocking reasons.
+- Trusted coverage, traceability, and generated workflow business assertions.
 - Browser evidence display for screenshots, DOM, console, and network records.
 - A representative generated workflow covering permissions, required fields,
   state transitions, boundary checks, exception feedback, and idempotency.

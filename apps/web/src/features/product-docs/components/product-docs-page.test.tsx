@@ -46,7 +46,7 @@ describe("ProductDocsPage", () => {
       screen.getByRole("button", { name: /配置 Provider/u }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /可行性分析：上下文图、实现方案与研究报告/u }),
+      screen.getByRole("button", { name: /可行性分析：系统上下文图（系统环境图）、实现方案与研究报告/u }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /生成权益、购买与订单处理/u }),
@@ -127,7 +127,7 @@ describe("ProductDocsPage", () => {
 
     fireEvent.change(searchInput, { target: { value: "五类结论" } });
     expect(
-      within(sidebar).getByRole("button", { name: /可行性分析：上下文图、实现方案与研究报告/u }),
+      within(sidebar).getByRole("button", { name: /可行性分析：系统上下文图（系统环境图）、实现方案与研究报告/u }),
     ).toBeInTheDocument();
 
     fireEvent.change(searchInput, { target: { value: "继续支付" } });
@@ -252,7 +252,8 @@ describe("ProductDocsPage", () => {
     );
     const englishArticles = getProductDocArticles("en");
     expect(englishArticles.find((article) => article.id === "feasibility-analysis")).toMatchObject({
-      title: "Feasibility analysis: context, implementation plan, and report",
+      title:
+        "Feasibility analysis: System Context Diagram (System Environment Diagram), implementation plan, and report",
       categoryLabel: "Feasibility analysis",
     });
     expect(englishArticles.find((article) => article.id === "billing-entitlements")?.content)
