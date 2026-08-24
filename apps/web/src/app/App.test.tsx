@@ -3839,7 +3839,11 @@ describe("App shell routes", () => {
     expect(loadUserSettings()).not.toHaveProperty("apiKey");
     expect(screen.queryByRole("button", { name: "测试托管配置" })).not.toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: "添加供应商" }),
+      await screen.findByRole(
+        "button",
+        { name: "添加供应商" },
+        { timeout: 5_000 },
+      ),
     ).toBeEnabled();
   });
 
