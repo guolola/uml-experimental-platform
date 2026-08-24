@@ -133,9 +133,10 @@ async function chooseSelectOption(
 }
 
 function getSelectTrigger(name: string) {
-  const trigger = screen
-    .getAllByRole("combobox", { name })
-    .find((element) => element.tagName.toLowerCase() === "button");
+  // Radix portals can make jsdom's role-name traversal use a non-Document root in CI.
+  const trigger = Array.from(
+    document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+  ).find((element) => element.getAttribute("aria-label") === name);
   if (!trigger) {
     throw new Error(`Select trigger not found: ${name}`);
   }
@@ -143,12 +144,15 @@ function getSelectTrigger(name: string) {
 }
 
 async function findSelectTrigger(name: string) {
-  const controls = await screen.findAllByRole("combobox", { name });
-  const trigger = controls.find((element) => element.tagName.toLowerCase() === "button");
-  if (!trigger) {
-    throw new Error(`Select trigger not found: ${name}`);
-  }
-  return trigger;
+  return waitFor(() => {
+    const trigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((element) => element.getAttribute("aria-label") === name);
+    if (!trigger) {
+      throw new Error(`Select trigger not found: ${name}`);
+    }
+    return trigger;
+  });
 }
 
 function createDeferred<T>() {
