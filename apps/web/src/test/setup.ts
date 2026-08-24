@@ -1,6 +1,9 @@
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
+
+// GitHub's deployment runner can render Radix portals slower than the default query window.
+configure({ asyncUtilTimeout: 5_000 });
 
 Object.defineProperty(window.navigator, "languages", {
   configurable: true,

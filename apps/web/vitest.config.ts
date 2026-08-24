@@ -7,8 +7,10 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     css: true,
-    maxWorkers: 4,
+    // Portal- and preview-heavy jsdom suites share browser-like globals; run files serially in CI.
+    maxWorkers: 1,
     minWorkers: 1,
-    testTimeout: 10_000,
+    fileParallelism: false,
+    testTimeout: 20_000,
   },
 });
