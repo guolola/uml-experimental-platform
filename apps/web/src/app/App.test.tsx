@@ -3827,7 +3827,13 @@ describe("App shell routes", () => {
       await findSelectTrigger("托管 Provider 配置"),
       "课程 OpenAI 托管配置（托管配置）",
     );
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(
+      await screen.findByRole(
+        "button",
+        { name: "保存" },
+        { timeout: 5_000 },
+      ),
+    );
 
     await waitFor(() => {
       expect(loadUserSettings()).toMatchObject({
